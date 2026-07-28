@@ -14,7 +14,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: 변경 범위 감지
+    runs-on: ubuntu-24.04
+    outputs:
+      spring: ${{ steps.paths.outputs.spring }}
+      fastapi: ${{ steps.paths.outputs.fastapi }}
+      contract: ${{ steps.paths.outputs.contract }}
+    steps:
+      - name: 저장소 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 서비스별 변경 경로 계산
+        id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/ci/detect_changes.py --base "$BASE_SHA" --head "$HEAD_SHA"
+
   pr-metadata:
+    name: PR 정책
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
@@ -28,7 +48,21 @@ jobs:
           PR_HEAD: ${{ github.head_ref }}
         run: python3 scripts/github/validate-pr-metadata.py --title "$PR_TITLE" --body "$PR_BODY" --base "$PR_BASE" --head "$PR_HEAD"
 
-  quality-gate:
+  common-check:
+    name: 공통 정책과 저장소 검사
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 저장소 Checkout
+        uses: actions/checkout@v4
+      - name: 실행 권한 설정
+        run: chmod +x scripts/*.sh scripts/git-hooks/*.py services/fastapi-mcp/scripts/*.sh
+      - name: 공통 품질 게이트
+        run: ./scripts/quality-gate.sh --ci --scope common
+
+  spring-check:
+    name: Spring API 검사
+    needs: changes
+    if: needs.changes.outputs.spring == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -44,16 +78,73 @@ jobs:
       - name: Gradle 캐시 설정
         uses: gradle/actions/setup-gradle@v4
       - name: 실행 권한 설정
-        run: chmod +x services/spring-api/gradlew scripts/*.sh scripts/git-hooks/*.py
-      - name: 로컬과 동일한 전체 품질 게이트
-        run: ./scripts/quality-gate.sh --ci
-      - name: 테스트 리포트 보존
+        run: chmod +x services/spring-api/gradlew scripts/*.sh
+      - name: Spring 전체 품질 게이트
+        run: ./scripts/quality-gate.sh --ci --scope spring
+      - name: Spring 테스트 리포트 보존
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports-${{ github.run_id }}
+          name: spring-test-reports-${{ github.run_id }}
           path: |
             services/spring-api/build/reports/tests/
             services/spring-api/build/reports/jacoco/
           if-no-files-found: warn
           retention-days: 14
+
+  fastapi-check:
+    name: FastAPI MCP 검사
+    needs: changes
+    if: needs.changes.outputs.fastapi == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: 저장소 Checkout
+        uses: actions/checkout@v4
+      - name: Python 설정
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: services/fastapi-mcp/.python-version
+      - name: uv 설정
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: '0.11.32'
+          cache-dependency-glob: services/fastapi-mcp/uv.lock
+      - name: 실행 권한 설정
+        run: chmod +x scripts/quality-gate.sh services/fastapi-mcp/scripts/quality-gate.sh
+      - name: FastAPI 최소 품질 게이트
+        run: ./scripts/quality-gate.sh --ci --scope fastapi
+
+  contract-check:
+    name: Spring-FastAPI 계약 검사
+    needs: changes
+    if: needs.changes.outputs.contract == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 저장소 Checkout
+        uses: actions/checkout@v4
+      - name: 서비스 계약 기준선 검사
+        run: python3 -m unittest scripts/tests/test_service_contract_docs.py
+
+  quality-gate:
+    name: 최종 품질 게이트
+    if: always()
+    needs: [changes, pr-metadata, common-check, spring-check, fastapi-check, contract-check]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 필수 Job 결과 집계
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          PR_RESULT: ${{ needs.pr-metadata.result }}
+          COMMON_RESULT: ${{ needs.common-check.result }}
+          SPRING_RESULT: ${{ needs.spring-check.result }}
+          FASTAPI_RESULT: ${{ needs.fastapi-check.result }}
+          CONTRACT_RESULT: ${{ needs.contract-check.result }}
+        run: |
+          for result in "$CHANGES_RESULT" "$PR_RESULT" "$COMMON_RESULT" "$SPRING_RESULT" "$FASTAPI_RESULT" "$CONTRACT_RESULT"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "필수 CI Job 실패: $result" >&2; exit 1 ;;
+            esac
+          done
+          echo "실행 대상인 모든 CI Job이 성공했습니다."
