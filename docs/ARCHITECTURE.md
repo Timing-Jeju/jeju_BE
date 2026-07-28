@@ -74,6 +74,10 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 특정 도메인 전용 코드는 `global`로 옮기지 않습니다.
 - 다른 도메인의 Repository를 직접 호출하지 않고 공개 Service, Facade 또는 명시적 application 경계를 둡니다.
 
+### 소셜 로그인 외부 API 경계
+
+`domain/auth`는 Spring Security와 분리된 소셜 로그인 카탈로그 및 Naver UserInfo 변환만 소유합니다. Google·Kakao의 OAuth authorization/code exchange는 프론트엔드 Supabase SDK와 Supabase Auth가 담당하고 Spring이 provider secret이나 token을 받지 않습니다. Naver custom provider가 호출하는 adapter는 고정된 Naver UserInfo URL만 사용하며 raw token·원본 profile을 저장·로그·응답에 남기지 않습니다. 외부 HTTP gateway, 표준 profile 변환, Bearer 형식 검증, 오류 응답 책임을 나누고 domain은 `global.security`에 의존하지 않습니다.
+
 ## 데이터베이스 마이그레이션 경계
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.

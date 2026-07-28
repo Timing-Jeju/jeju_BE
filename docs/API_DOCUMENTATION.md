@@ -39,6 +39,8 @@ domain/place/
 - 반복되는 응답 예시를 Controller마다 복사하지 않습니다.
 - 실제 API 동작은 Controller 테스트로 검증하고 OpenAPI JSON 생성 테스트를 함께 통과시킵니다.
 
+소셜 로그인 공급자 카탈로그와 Naver Custom OAuth UserInfo adapter는 공개 endpoint입니다. 전역 `bearerAuth`는 Supabase access token용이므로 두 operation에는 빈 `security` 배열을 명시합니다. Naver adapter의 `Authorization` 헤더는 Supabase JWT가 아닌 Supabase Auth가 back-channel로 전달하는 Naver provider access token이며, API 문서 계약 인터페이스에서만 설명합니다.
+
 ## 운영 보안
 
 개발 환경에서는 Swagger UI와 OpenAPI JSON을 활성화합니다. 외부 공개가 필요하지 않은 운영 환경에서는 다음 환경변수로 비활성화합니다.

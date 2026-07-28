@@ -91,3 +91,7 @@ cd ../..
 ./scripts/supabase-smoke-test.sh
 ./scripts/docker-smoke-test.sh
 ```
+
+## 소셜 로그인
+
+Google과 Kakao는 Supabase Auth의 built-in OAuth provider를 사용하고, Naver는 Supabase Auth Dashboard의 `custom:naver` provider와 Spring의 UserInfo adapter를 함께 사용합니다. Spring은 OAuth authorization endpoint, code exchange, refresh token 저장소나 provider client secret을 소유하지 않습니다. 전체 설정 순서와 프론트엔드 계약은 [소셜 로그인 설정](SOCIAL_LOGIN.md)을 따릅니다.

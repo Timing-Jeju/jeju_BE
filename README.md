@@ -94,7 +94,7 @@ supabase db reset
 ```
 
 환경별 연결, 마이그레이션 소유권, 테스트 사용자 준비와 초기화 주의사항은 [데이터베이스 개발 환경](db/README.md)을 따릅니다.
-Spring의 Supabase access token 검증, JWKS/로컬 legacy HS256 분리와 CORS 환경변수는 [인증·인가 설정](docs/AUTHENTICATION.md)을 따릅니다.
+Spring의 Supabase access token 검증, JWKS/로컬 legacy HS256 분리와 CORS 환경변수는 [인증·인가 설정](docs/AUTHENTICATION.md)을 따릅니다. Google·Kakao·Naver 소셜 로그인 책임 분리와 Supabase/Naver 콘솔 설정은 [소셜 로그인 설정](docs/SOCIAL_LOGIN.md)을 따릅니다.
 
 ## 개발 프로세스
 
@@ -105,6 +105,7 @@ PM 세션 → Issue → 최신 `develop` 기반 작업 브랜치 → TDD → 로
 - [아키텍처](docs/ARCHITECTURE.md)
 - [데이터베이스 개발 환경](db/README.md)
 - [API 문서화 규칙](docs/API_DOCUMENTATION.md)
+- [소셜 로그인 설정](docs/SOCIAL_LOGIN.md)
 - [Spring-FastAPI 내부 연동 명세](docs/designs/timing-jeju-spring-fastapi-integration-contract.md)
 - [FastAPI MCP 구현 계약](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)
 - [Git 및 출시 흐름](docs/GIT_WORKFLOW.md)

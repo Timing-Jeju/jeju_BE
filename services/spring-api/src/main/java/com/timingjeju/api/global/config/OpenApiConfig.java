@@ -5,6 +5,8 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import java.util.List;
+import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -28,5 +30,24 @@ public class OpenApiConfig {
                 .title("Timing Jeju API")
                 .description("제주 여행 일정과 관광·교통 데이터를 제공하는 공개 API")
                 .version("v1"));
+  }
+
+  @Bean
+  OpenApiCustomizer socialLoginPublicEndpointCustomizer() {
+    return openApi -> {
+      clearSecurity(openApi, "/api/v1/auth/social/providers");
+      clearSecurity(openApi, "/api/v1/auth/social/naver/userinfo");
+    };
+  }
+
+  private static void clearSecurity(OpenAPI openApi, String path) {
+    if (openApi.getPaths() == null || openApi.getPaths().get(path) == null) {
+      return;
+    }
+    openApi
+        .getPaths()
+        .get(path)
+        .readOperations()
+        .forEach(operation -> operation.setSecurity(List.of()));
   }
 }

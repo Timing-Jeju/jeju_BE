@@ -29,6 +29,9 @@ springdoc:
   paths-to-match: /api/v1/**
 
 app:
+  social-login:
+    enabled-provider-ids: ${APP_SOCIAL_LOGIN_ENABLED_PROVIDER_IDS:google,kakao,custom:naver}
+    redirect-urls: ${APP_SOCIAL_LOGIN_REDIRECT_URLS:http://127.0.0.1:3000/auth/callback}
   security:
     jwt:
       mode: jwks

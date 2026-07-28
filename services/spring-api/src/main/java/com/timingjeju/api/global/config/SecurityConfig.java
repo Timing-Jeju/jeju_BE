@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -65,6 +66,20 @@ public class SecurityConfig {
   }
 
   @Bean
+  @Order(1)
+  SecurityFilterChain socialLoginSecurityFilterChain(
+      HttpSecurity http, CorsConfigurationSource corsConfigurationSource) throws Exception {
+    http.securityMatcher("/api/v1/auth/social/**");
+    http.sessionManagement(
+        session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+    http.csrf(csrf -> csrf.disable());
+    http.cors(cors -> cors.configurationSource(corsConfigurationSource));
+    http.authorizeHttpRequests(requests -> requests.anyRequest().permitAll());
+    return http.build();
+  }
+
+  @Bean
+  @Order(2)
   SecurityFilterChain securityFilterChain(
       HttpSecurity http,
       JwtDecoder jwtDecoder,

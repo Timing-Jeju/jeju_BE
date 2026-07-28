@@ -10,6 +10,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.bind.annotation.RestController;
 
 @Tag("architecture")
 class ArchitectureTest {
@@ -28,7 +29,7 @@ class ArchitectureTest {
   void controller는_repository에_직접_의존하지_않는다() {
     noClasses()
         .that()
-        .resideInAPackage("..controller..")
+        .areAnnotatedWith(RestController.class)
         .should()
         .dependOnClassesThat()
         .resideInAPackage("..repository..")
@@ -40,7 +41,7 @@ class ArchitectureTest {
   void controller는_service를_통해_동작한다() {
     classes()
         .that()
-        .resideInAPackage("..controller..")
+        .areAnnotatedWith(RestController.class)
         .should()
         .dependOnClassesThat()
         .resideInAPackage("..service..")
@@ -89,6 +90,18 @@ class ArchitectureTest {
   }
 
   @Test
+  void 소셜_로그인_domain은_Spring_Security나_global_보안_구현에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..domain.auth..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework.security..", "..global.security..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void 보안_구성과_오류_writer는_Jackson2에_의존하지_않는다() {
     noClasses()
         .that()
@@ -104,7 +117,7 @@ class ArchitectureTest {
   void mvc_계층_클래스는_역할을_드러내는_이름을_사용한다() {
     classes()
         .that()
-        .resideInAPackage("..controller..")
+        .areAnnotatedWith(RestController.class)
         .should()
         .haveSimpleNameEndingWith("Controller")
         .allowEmptyShould(true)
@@ -114,6 +127,14 @@ class ArchitectureTest {
         .resideInAPackage("..service..")
         .should()
         .haveSimpleNameEndingWith("Service")
+        .orShould()
+        .haveSimpleNameEndingWith("Gateway")
+        .orShould()
+        .haveSimpleNameEndingWith("Resolver")
+        .orShould()
+        .haveSimpleNameEndingWith("Provider")
+        .orShould()
+        .haveSimpleNameEndingWith("UserInfo")
         .allowEmptyShould(true)
         .check(classes);
     classes()
