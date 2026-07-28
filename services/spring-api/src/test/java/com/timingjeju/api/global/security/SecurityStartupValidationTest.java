@@ -151,6 +151,9 @@ class SecurityStartupValidationTest {
             "https://*.example.com",
             "relative/path",
             "http://example.com:65536",
+            "http://0x7f000001",
+            "http://0x7f.0.0.1",
+            "http://127.0x0.0.1",
             "HTTP://[0:0:0:0:0:0:0:1]:80",
             "http://0177.0.0.1:80")) {
       corsContextRunner

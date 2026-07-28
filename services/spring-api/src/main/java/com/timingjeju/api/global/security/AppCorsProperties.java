@@ -85,10 +85,24 @@ public record AppCorsProperties(List<String> allowedOrigins) {
       }
       return;
     }
-    if (unwrappedHost.chars().allMatch(character -> isAsciiDigit(character) || character == '.')
-        && !isCanonicalIpv4(unwrappedHost)) {
+    if (isWhatwgNumericIpv4Candidate(unwrappedHost) && !isCanonicalIpv4(unwrappedHost)) {
       throw invalidOrigin();
     }
+  }
+
+  private static boolean isWhatwgNumericIpv4Candidate(String host) {
+    return Arrays.stream(host.split("\\.", -1)).allMatch(AppCorsProperties::isNumericIpv4Component);
+  }
+
+  private static boolean isNumericIpv4Component(String component) {
+    if (component.isEmpty()) {
+      return false;
+    }
+    if (component.startsWith("0x")) {
+      return component.length() > 2
+          && component.substring(2).chars().allMatch(AppCorsProperties::isAsciiHexDigit);
+    }
+    return component.chars().allMatch(AppCorsProperties::isAsciiDigit);
   }
 
   private static boolean isCanonicalIpv4(String host) {
@@ -155,10 +169,7 @@ public record AppCorsProperties(List<String> allowedOrigins) {
   private static int parseIpv6Group(String group) {
     if (group.isEmpty()
         || group.length() > 4
-        || !group
-            .chars()
-            .allMatch(
-                character -> isAsciiDigit(character) || (character >= 'a' && character <= 'f'))) {
+        || !group.chars().allMatch(AppCorsProperties::isAsciiHexDigit)) {
       return -1;
     }
     try {
@@ -170,6 +181,10 @@ public record AppCorsProperties(List<String> allowedOrigins) {
 
   private static boolean isAsciiDigit(int character) {
     return character >= '0' && character <= '9';
+  }
+
+  private static boolean isAsciiHexDigit(int character) {
+    return isAsciiDigit(character) || (character >= 'a' && character <= 'f');
   }
 
   private static String formatCanonicalIpv6(int[] groups) {

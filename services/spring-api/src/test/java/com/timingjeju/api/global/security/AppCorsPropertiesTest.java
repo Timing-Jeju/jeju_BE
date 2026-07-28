@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.List;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @Tag("unit")
 class AppCorsPropertiesTest {
@@ -85,25 +87,29 @@ class AppCorsPropertiesTest {
             "https://example.com:8443");
   }
 
-  @Test
-  void 브라우저와_다르게_직렬화되는_비정규_numeric_host는_시작_설정이_실패한다() {
-    for (String nonCanonicalNumericOrigin :
-        List.of(
-            "HTTP://[0:0:0:0:0:0:0:1]:80",
-            "http://0177.0.0.1:80",
-            "http://127.1",
-            "http://2130706433",
-            "http://127.00.0.1",
-            "http://001.2.3.4",
-            "http://1.2.3.04",
-            "http://256.0.0.1",
-            "http://[2001:0db8::1]",
-            "http://[0:0::1]")) {
-      assertThatThrownBy(() -> new AppCorsProperties(List.of(nonCanonicalNumericOrigin)))
-          .as(nonCanonicalNumericOrigin)
-          .isInstanceOf(IllegalArgumentException.class)
-          .hasMessageContaining("Origin");
-    }
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(
+      strings = {
+        "http://0x7f000001",
+        "http://0X7F000001",
+        "http://0x7f.0.0.1",
+        "http://127.0x0.0.1",
+        "http://0x7f.0x0.0x0.0x1",
+        "HTTP://[0:0:0:0:0:0:0:1]:80",
+        "http://0177.0.0.1:80",
+        "http://127.1",
+        "http://2130706433",
+        "http://127.00.0.1",
+        "http://001.2.3.4",
+        "http://1.2.3.04",
+        "http://256.0.0.1",
+        "http://[2001:0db8::1]",
+        "http://[0:0::1]"
+      })
+  void 브라우저와_다르게_직렬화되는_비정규_numeric_host는_시작_설정이_실패한다(String nonCanonicalNumericOrigin) {
+    assertThatThrownBy(() -> new AppCorsProperties(List.of(nonCanonicalNumericOrigin)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Origin");
   }
 
   @Test
@@ -122,6 +128,11 @@ class AppCorsPropertiesTest {
                 "https://[2001:db8:0:1:2:3:4:5]",
                 "https://123.example.com",
                 "https://1.2.3.example",
+                "https://0x.example.com",
+                "https://api-0x7f.example.com",
+                "https://deadbeef.example",
+                "https://x7f000001.example",
+                "https://0xg.example.com",
                 "http://localhost"));
 
     assertThat(properties.allowedOrigins())
@@ -136,6 +147,11 @@ class AppCorsPropertiesTest {
             "https://[2001:db8:0:1:2:3:4:5]",
             "https://123.example.com",
             "https://1.2.3.example",
+            "https://0x.example.com",
+            "https://api-0x7f.example.com",
+            "https://deadbeef.example",
+            "https://x7f000001.example",
+            "https://0xg.example.com",
             "http://localhost");
   }
 
