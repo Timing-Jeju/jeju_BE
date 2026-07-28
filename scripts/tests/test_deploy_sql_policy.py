@@ -177,6 +177,65 @@ class DeploySqlPolicyTest(unittest.TestCase):
 
         self.assertEqual((), violations)
 
+    def test_drop_list_detects_safe_first_and_protected_later_targets(self):
+        sql = """
+            DROP SCHEMA public_review_safe, auth CASCADE;
+            select 1;
+            DROP TABLE public.review_safe_table, auth.users CASCADE;
+        """
+
+        violations = self._find_in_deploy_sql(sql)
+
+        self.assertEqual(2, len(violations))
+        self.assertEqual((2, 4), tuple(violation.line for violation in violations))
+        self.assertEqual(
+            ("Supabase 소유 auth 스키마 DDL", "Supabase Auth 소유 객체 DDL"),
+            tuple(violation.rule for violation in violations),
+        )
+
+    def test_drop_list_detects_protected_target_in_every_position(self):
+        cases = (
+            "DROP TABLE auth.users, public.safe_last RESTRICT;",
+            "DROP TABLE public.safe_first, auth.users, public.safe_last CASCADE;",
+            "DROP TABLE public.safe_first, auth.users;",
+        )
+
+        for sql in cases:
+            with self.subTest(sql=sql):
+                violations = self._find_in_deploy_sql(sql)
+
+                self.assertEqual(1, len(violations))
+                self.assertEqual(1, violations[0].line)
+
+    def test_drop_list_scans_declared_object_types_and_ignores_argument_commas(self):
+        cases = (
+            "DROP FOREIGN TABLE public.safe_table, auth.users CASCADE;",
+            "DROP MATERIALIZED VIEW public.safe_view, auth.users RESTRICT;",
+            "DROP FUNCTION public.safe_function(integer, text), auth.uid() CASCADE;",
+            "DROP PROCEDURE public.safe_procedure(text, integer), auth.uid() RESTRICT;",
+            "DROP ROUTINE public.safe_routine(uuid, text), auth.uid();",
+        )
+
+        for sql in cases:
+            with self.subTest(sql=sql):
+                violations = self._find_in_deploy_sql(sql)
+
+                self.assertEqual(1, len(violations))
+                self.assertEqual("Supabase Auth 소유 객체 DDL", violations[0].rule)
+
+    def test_drop_list_with_only_safe_targets_is_allowed(self):
+        sql = """
+            DROP SCHEMA public_safe_one, public_safe_two CASCADE;
+            DROP TABLE public.safe_one, public.safe_two RESTRICT;
+            DROP FUNCTION public.safe_one(integer, text), public.safe_two(uuid);
+            DROP PROCEDURE public.safe_one(text, integer), public.safe_two(uuid);
+            DROP ROUTINE public.safe_one(uuid, text), public.safe_two(integer);
+        """
+
+        violations = self._find_in_deploy_sql(sql)
+
+        self.assertEqual((), violations)
+
     def test_dynamic_execute_is_scanned_conservatively_inside_dollar_quoted_body(self):
         sql = """
             create function public.unsafe_dynamic_sql()

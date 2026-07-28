@@ -289,6 +289,39 @@ def _qualified_owned_name(
     )
 
 
+def _drop_target_starts(
+    tokens: tuple[SqlToken, ...], index: int
+) -> tuple[int, ...]:
+    """DROP 목록에서 함수 인자 괄호 밖의 각 target 시작 위치를 반환한다."""
+    starts = [index]
+    target_start = index
+    parenthesis_depth = 0
+    cursor = index
+    while cursor < len(tokens):
+        token = tokens[cursor]
+        if token.value == "(":
+            parenthesis_depth += 1
+        elif token.value == ")" and parenthesis_depth > 0:
+            parenthesis_depth -= 1
+        elif parenthesis_depth == 0:
+            if token.value == ";":
+                break
+            is_drop_behavior = any(
+                _is_keyword(token, behavior) for behavior in ("cascade", "restrict")
+            )
+            if (
+                is_drop_behavior
+                and cursor > target_start
+                and tokens[cursor - 1].value != "."
+            ):
+                break
+            if token.value == "," and cursor + 1 < len(tokens):
+                target_start = cursor + 1
+                starts.append(target_start)
+        cursor += 1
+    return tuple(starts)
+
+
 def _match_ddl(tokens: tuple[SqlToken, ...], index: int) -> str | None:
     verb = tokens[index].value.casefold()
     if tokens[index].quoted_identifier or verb not in {"create", "alter", "drop"}:
@@ -300,7 +333,13 @@ def _match_ddl(tokens: tuple[SqlToken, ...], index: int) -> str | None:
 
     if _matches_keywords(tokens, cursor, ("schema",)):
         cursor = _consume_if_exists(tokens, cursor + 1)
-        if cursor < len(tokens) and _identifier_is(tokens[cursor], "auth"):
+        target_starts = (
+            _drop_target_starts(tokens, cursor) if verb == "drop" else (cursor,)
+        )
+        if any(
+            target < len(tokens) and _identifier_is(tokens[target], "auth")
+            for target in target_starts
+        ):
             return AUTH_SCHEMA_DDL_RULE
         return None
 
@@ -310,7 +349,13 @@ def _match_ddl(tokens: tuple[SqlToken, ...], index: int) -> str | None:
         cursor = _consume_if_exists(tokens, cursor + len(object_type))
         if cursor < len(tokens) and _is_keyword(tokens[cursor], "only"):
             cursor += 1
-        if _qualified_owned_name(tokens, cursor, protected_name):
+        target_starts = (
+            _drop_target_starts(tokens, cursor) if verb == "drop" else (cursor,)
+        )
+        if any(
+            _qualified_owned_name(tokens, target, protected_name)
+            for target in target_starts
+        ):
             return AUTH_OBJECT_DDL_RULE
         return None
     return None
