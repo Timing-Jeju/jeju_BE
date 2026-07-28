@@ -9,7 +9,7 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 - `/v3/api-docs/**`, `/swagger-ui/**`: 해당 springdoc 기능이 활성화된 경우에만 공개
 - 그 밖의 경로: 기본 거부
 
-서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다.
+서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다. 허용 Origin을 설정하지 않았거나 공백·쉼표만 설정하면 애플리케이션 시작에 실패합니다.
 
 ## JWT 검증 계약
 
@@ -20,10 +20,10 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 | `exp` | 만료 전이며 30초 clock skew 이내 |
 | `nbf` | 활성 시점 이후이며 30초 clock skew 이내 |
 | `iss` | `SUPABASE_JWT_ISSUER`와 정확히 일치 |
-| `aud` | `SUPABASE_JWT_AUDIENCE` 포함, 기본값 `authenticated` |
-| `role` | `authenticated`만 허용 |
-| `sub` | UUID 형식 |
-| `session_id` | 존재하면 UUID 형식 |
+| `aud` | 문자열 또는 문자열 배열이며 `SUPABASE_JWT_AUDIENCE` 포함, 기본값 `authenticated` |
+| `role` | 문자열 `authenticated`만 허용 |
+| `sub` | 문자열이며 소문자 canonical UUID 형식 |
+| `session_id` | 존재하면 비어 있지 않은 문자열 canonical UUID 형식 |
 
 `anon`, `service_role`, 잘못된 audience/issuer와 UUID가 아닌 `sub`는 401로 거부합니다. `user_metadata`, 이메일과 nickname은 인증·소유권 판단에 사용하지 않습니다. 검증된 신원은 `CurrentUser` 값 객체로 변환하며 도메인 코드에 Spring Security `Jwt`를 전달하지 않습니다.
 
@@ -41,7 +41,9 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 | `SPRINGDOC_API_DOCS_ENABLED` | OpenAPI JSON 활성화 | 기본 `true` | 공개하지 않으면 `false` |
 | `SPRINGDOC_SWAGGER_UI_ENABLED` | Swagger UI 활성화 | 기본 `true` | 공개하지 않으면 `false` |
 
-운영은 profile을 지정하지 않고 JWKS 전략을 사용합니다. `SUPABASE_JWKS_URL`이 없거나 `SUPABASE_JWT_SECRET`이 주입되면 애플리케이션 시작에 실패합니다. 운영 secret은 배포 플랫폼의 Secret 기능에서만 관리하며 `service_role` 또는 secret key를 사용자 요청 인증에 사용하지 않습니다.
+운영은 profile을 지정하지 않거나 정확한 `prod`/`production` profile에서 JWKS 전략을 사용합니다. 기본·운영 환경의 issuer와 JWKS URL은 모두 HTTPS여야 하며 HTTP이면 애플리케이션 시작에 실패합니다. `SUPABASE_JWKS_URL`이 없거나 `SUPABASE_JWT_SECRET`이 주입되어도 시작에 실패합니다. 운영 secret은 배포 플랫폼의 Secret 기능에서만 관리하며 `service_role` 또는 secret key를 사용자 요청 인증에 사용하지 않습니다.
+
+decoder mode(`jwks`/`hs256`)와 실행 환경(`LOCAL`/`PRODUCTION`)은 별도로 판별합니다. 로컬 환경은 정확한 `local` 또는 `local-hs256` profile만 인정하며 `local-preview`처럼 이름에 local이 포함된 임의 profile은 운영 정책을 적용합니다. 로컬과 운영 profile을 동시에 활성화하면 시작을 거부합니다.
 
 ## 로컬 Supabase CLI
 
@@ -56,7 +58,7 @@ SUPABASE_JWT_SECRET=
 APP_CORS_ALLOWED_ORIGINS=http://localhost:3000
 ```
 
-Spring을 Docker에서 실행하고 Supabase CLI를 호스트에서 실행하면 JWKS 조회 주소만 `http://host.docker.internal:54321/auth/v1/.well-known/jwks.json`으로 설정합니다. issuer는 token의 실제 값인 `http://127.0.0.1:54321/auth/v1`을 유지합니다.
+Spring을 Docker에서 실행하고 Supabase CLI를 호스트에서 실행하면 JWKS 조회 주소만 `http://host.docker.internal:54321/auth/v1/.well-known/jwks.json`으로 설정합니다. issuer는 token의 실제 값인 `http://127.0.0.1:54321/auth/v1`을 유지합니다. 로컬 HTTP는 `localhost`, `127.0.0.1`, IPv6 loopback, `host.docker.internal`만 허용하며 사설망 대역 전체를 허용하지 않습니다.
 
 이전 CLI나 별도 self-hosted 설정이 HS256 access token을 발급하는 경우에만 다음 호환 경로를 사용합니다.
 
@@ -69,11 +71,13 @@ shared secret을 명령 출력, 문서, fixture 또는 Git에 남기지 않습�
 
 ## JWKS와 key rotation
 
-Supabase 공식 JWKS 경로는 `/auth/v1/.well-known/jwks.json`입니다. Spring의 Nimbus decoder가 공개키 조회와 캐시를 담당하며 애플리케이션 시작 시에는 JWKS 네트워크 호출을 요구하지 않습니다. 한 번 조회한 key는 캐시에 남아 있으므로 JWKS endpoint의 일시 장애 중에도 같은 `kid`의 기존 token을 검증할 수 있습니다. 아직 조회하지 않은 `kid`나 cache 밖의 key는 JWKS 장애 중 거부됩니다.
+Supabase 공식 JWKS 경로는 `/auth/v1/.well-known/jwks.json`입니다. Spring의 Nimbus decoder가 공개키 조회와 캐시를 담당하며 애플리케이션 시작 시에는 JWKS 네트워크 호출을 요구하지 않습니다. 기존 `kid`를 최초 검증한 뒤 JWKS가 old→old+new로 바뀌면 unknown `kid`에서 한 번 재조회해 새 key를 검증합니다. 한 번 조회한 key는 캐시에 남아 있으므로 JWKS endpoint의 일시 장애 중에도 같은 `kid`의 기존 token을 검증할 수 있습니다. 아직 조회하지 않은 `kid`나 cache 밖의 key는 장애 중 `401 AUTH_TOKEN_INVALID`로 거부합니다. 테스트 서버는 `Cache-Control: max-age=300`을 사용해 실제 Nimbus cache/unknown-`kid` 재조회 동작을 검증합니다.
 
 Supabase Edge의 JWKS cache는 10분이며 signing key 교체 시 standby key 생성 또는 이전 key 폐기 후 최소 20분의 전파 시간을 권장합니다. 애플리케이션에서 이보다 긴 별도 캐시를 추가하지 않습니다.
 
 2026년 7월 self-hosted Auth 변경으로 `API_EXTERNAL_URL` 기본값에 `/auth/v1`이 포함되었습니다. `GOTRUE_JWT_ISSUER`도 이 값을 사용하므로 self-hosted 설정을 올릴 때 issuer에 `/auth/v1`이 중복되거나 누락되지 않았는지 실제 access token에서 다시 확인합니다.
+
+구현 기준은 Supabase 공식 [JWT 검증 문서](https://supabase.com/docs/guides/auth/jwts), [JWT Signing Keys](https://supabase.com/docs/guides/auth/signing-keys), [self-hosted asymmetric Auth keys](https://supabase.com/docs/guides/self-hosting/self-hosted-auth-keys)와 Auth changelog입니다. 공식 문서에 따라 운영은 legacy shared secret보다 비대칭 signing key와 HTTPS JWKS를 우선합니다.
 
 ## 검증
 

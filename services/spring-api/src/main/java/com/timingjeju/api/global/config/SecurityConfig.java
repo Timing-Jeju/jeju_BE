@@ -11,6 +11,8 @@ import com.timingjeju.api.global.security.JwtDecoderStrategy;
 import com.timingjeju.api.global.security.LocalHs256JwtDecoderStrategy;
 import com.timingjeju.api.global.security.SecurityContextCurrentUserAccessor;
 import com.timingjeju.api.global.security.SecurityErrorResponseWriter;
+import com.timingjeju.api.global.security.SecurityRuntimeEnvironment;
+import com.timingjeju.api.global.security.SecurityRuntimeEnvironmentResolver;
 import com.timingjeju.api.global.security.StrictBearerTokenResolver;
 import com.timingjeju.api.global.security.SupabaseJwtDecoderFactory;
 import com.timingjeju.api.global.security.SupabaseJwtProperties;
@@ -20,11 +22,13 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationEntryPointFailureHandler;
 import org.springframework.web.cors.CorsConfigurationSource;
 
 @Configuration(proxyBeanMethods = false)
@@ -46,10 +50,9 @@ public class SecurityConfig {
       SupabaseJwtProperties properties,
       Environment environment,
       List<JwtDecoderStrategy> strategies) {
-    boolean localProfile =
-        environment.acceptsProfiles(Profiles.of("local-hs256"))
-            && !environment.acceptsProfiles(Profiles.of("prod", "production"));
-    return new SupabaseJwtDecoderFactory(properties, localProfile, strategies).create();
+    SecurityRuntimeEnvironment runtimeEnvironment =
+        SecurityRuntimeEnvironmentResolver.resolve(environment);
+    return new SupabaseJwtDecoderFactory(properties, runtimeEnvironment, strategies).create();
   }
 
   @Bean
@@ -74,6 +77,9 @@ public class SecurityConfig {
     JsonAuthenticationEntryPoint authenticationEntryPoint =
         new JsonAuthenticationEntryPoint(responseWriter);
     JsonAccessDeniedHandler accessDeniedHandler = new JsonAccessDeniedHandler(responseWriter);
+    AuthenticationEntryPointFailureHandler authenticationFailureHandler =
+        new AuthenticationEntryPointFailureHandler(authenticationEntryPoint);
+    authenticationFailureHandler.setRethrowAuthenticationServiceException(false);
 
     http.sessionManagement(
         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
@@ -100,6 +106,14 @@ public class SecurityConfig {
     http.oauth2ResourceServer(
         resourceServer ->
             resourceServer
+                .withObjectPostProcessor(
+                    new ObjectPostProcessor<BearerTokenAuthenticationFilter>() {
+                      @Override
+                      public <O extends BearerTokenAuthenticationFilter> O postProcess(O filter) {
+                        filter.setAuthenticationFailureHandler(authenticationFailureHandler);
+                        return filter;
+                      }
+                    })
                 .jwt(
                     jwt ->
                         jwt.decoder(jwtDecoder)

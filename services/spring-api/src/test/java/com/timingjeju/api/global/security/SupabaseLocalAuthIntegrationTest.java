@@ -37,6 +37,26 @@ class SupabaseLocalAuthIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.userId").isNotEmpty())
         .andExpect(jsonPath("$.role").value("AUTHENTICATED"));
+
+    mockMvc
+        .perform(
+            get("/api/v1/test/local-auth-user")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + tamperSignature(accessToken)))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("AUTH_TOKEN_INVALID"))
+        .andExpect(jsonPath("$.traceId").isNotEmpty());
+
+    mockMvc
+        .perform(get("/not-allowed").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("AUTH_ACCESS_DENIED"))
+        .andExpect(jsonPath("$.traceId").isNotEmpty());
+  }
+
+  private String tamperSignature(String token) {
+    int signatureStart = token.lastIndexOf('.') + 1;
+    char replacement = token.charAt(signatureStart) == 'A' ? 'B' : 'A';
+    return token.substring(0, signatureStart) + replacement + token.substring(signatureStart + 1);
   }
 
   static class LocalAuthEndpointConfig {

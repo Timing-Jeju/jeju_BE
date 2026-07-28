@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -20,25 +21,30 @@ import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
 
 @Tag("integration")
 class JwksCacheIntegrationTest {
 
   @Test
-  void 애플리케이션_시작에는_JWKS_조회가_필요하지_않고_조회된_key는_장애_중에도_재사용한다() throws Exception {
-    RSAKey signingKey = new RSAKeyGenerator(2048).keyID("rotation-key-1").generate();
+  void unknown_kid는_JWKS를_재조회하고_cache된_key는_endpoint_장애_중에도_재사용한다() throws Exception {
+    RSAKey oldKey = new RSAKeyGenerator(2048).keyID("rotation-key-old").generate();
+    RSAKey newKey = new RSAKeyGenerator(2048).keyID("rotation-key-new").generate();
+    RSAKey unseenKey = new RSAKeyGenerator(2048).keyID("rotation-key-unseen").generate();
+    AtomicReference<JWKSet> currentJwkSet = new AtomicReference<>(new JWKSet(oldKey.toPublicJWK()));
     AtomicInteger requestCount = new AtomicInteger();
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/auth/v1/.well-known/jwks.json",
         exchange -> {
           requestCount.incrementAndGet();
-          byte[] response =
-              new JWKSet(signingKey.toPublicJWK()).toString().getBytes(StandardCharsets.UTF_8);
+          byte[] response = currentJwkSet.get().toString().getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.getResponseHeaders().add("Cache-Control", "public, max-age=300");
           exchange.sendResponseHeaders(200, response.length);
           exchange.getResponseBody().write(response);
           exchange.close();
@@ -61,15 +67,22 @@ class JwksCacheIntegrationTest {
               "",
               Duration.ofSeconds(30));
 
-      JwtDecoder decoder = new SupabaseJwtDecoderFactory(properties, false).create();
+      JwtDecoder decoder =
+          new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.LOCAL).create();
       assertThat(requestCount).hasValue(0);
 
-      decoder.decode(token(signingKey, issuer, UUID.randomUUID()));
+      decoder.decode(token(oldKey, issuer, UUID.randomUUID()));
       assertThat(requestCount).hasValue(1);
 
+      currentJwkSet.set(new JWKSet(List.of(oldKey.toPublicJWK(), newKey.toPublicJWK())));
+      decoder.decode(token(newKey, issuer, UUID.randomUUID()));
+      assertThat(requestCount).hasValue(2);
+
       server.stop(0);
-      decoder.decode(token(signingKey, issuer, UUID.randomUUID()));
-      assertThat(requestCount).hasValue(1);
+      decoder.decode(token(oldKey, issuer, UUID.randomUUID()));
+      assertThat(requestCount).hasValue(2);
+      assertThatThrownBy(() -> decoder.decode(token(unseenKey, issuer, UUID.randomUUID())))
+          .isInstanceOf(JwtException.class);
     } finally {
       server.stop(0);
     }

@@ -6,5 +6,6 @@ public interface JwtDecoderStrategy {
 
   JwtDecoderMode mode();
 
-  NimbusJwtDecoder create(SupabaseJwtProperties properties, boolean localCompatibilityProfile);
+  NimbusJwtDecoder create(
+      SupabaseJwtProperties properties, SecurityRuntimeEnvironment runtimeEnvironment);
 }

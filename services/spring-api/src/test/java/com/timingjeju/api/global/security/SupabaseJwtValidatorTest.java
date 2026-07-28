@@ -3,6 +3,7 @@ package com.timingjeju.api.global.security;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -76,6 +77,61 @@ class SupabaseJwtValidatorTest {
             Map.of("iss", ISSUER, "aud", List.of("authenticated")));
 
     assertThat(validator.validate(missingClaims).hasErrors()).isTrue();
+  }
+
+  @Test
+  void role_sub_session_id의_null과_비문자열은_실패한다() {
+    String subject = UUID.randomUUID().toString();
+    assertInvalidClaims(Map.of("aud", List.of("authenticated"), "role", 7, "sub", subject));
+    assertInvalidClaims(Map.of("aud", List.of("authenticated"), "role", "authenticated", "sub", 7));
+    assertInvalidClaims(
+        Map.of(
+            "aud",
+            List.of("authenticated"),
+            "role",
+            "authenticated",
+            "sub",
+            subject,
+            "session_id",
+            7));
+
+    for (String claim : List.of("role", "sub", "session_id")) {
+      Map<String, Object> claims = new LinkedHashMap<>();
+      claims.put("aud", List.of("authenticated"));
+      claims.put("role", "authenticated");
+      claims.put("sub", subject);
+      claims.put(claim, null);
+      assertInvalidClaims(claims);
+    }
+  }
+
+  @Test
+  void 빈값과_canonical_형식이_아닌_UUID는_실패한다() {
+    String subject = UUID.randomUUID().toString();
+    assertInvalidClaims(
+        Map.of(
+            "aud",
+            List.of("authenticated"),
+            "role",
+            "authenticated",
+            "sub",
+            subject,
+            "session_id",
+            ""));
+    assertInvalidClaims(
+        Map.of(
+            "aud",
+            List.of("authenticated"),
+            "role",
+            "authenticated",
+            "sub",
+            subject.toUpperCase()));
+  }
+
+  private void assertInvalidClaims(Map<String, Object> claims) {
+    Instant now = Instant.now();
+    Jwt jwt = new Jwt("token", now, now.plusSeconds(300), Map.of("alg", "HS256"), claims);
+    assertThat(validator.validate(jwt).hasErrors()).isTrue();
   }
 
   private Jwt jwt(String role, String subject, List<String> audience) {

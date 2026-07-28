@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.security;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.net.URI;
@@ -9,6 +10,73 @@ import org.junit.jupiter.api.Test;
 
 @Tag("unit")
 class SecurityConfigurationValidationTest {
+
+  @Test
+  void 기본_운영_환경의_HTTP_issuer는_시작_설정이_실패한다() {
+    SupabaseJwtProperties properties =
+        jwksProperties(
+            "http://project.supabase.co/auth/v1",
+            "https://project.supabase.co/auth/v1/.well-known/jwks.json");
+
+    assertThatThrownBy(
+            () ->
+                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
+                    .create())
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("HTTPS");
+  }
+
+  @Test
+  void 기본_운영_환경의_HTTP_JWKS는_시작_설정이_실패한다() {
+    SupabaseJwtProperties properties =
+        jwksProperties(
+            "https://project.supabase.co/auth/v1",
+            "http://project.supabase.co/auth/v1/.well-known/jwks.json");
+
+    assertThatThrownBy(
+            () ->
+                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
+                    .create())
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("HTTPS");
+  }
+
+  @Test
+  void 기본_운영_환경의_HTTPS_issuer와_JWKS는_허용한다() {
+    SupabaseJwtProperties properties =
+        jwksProperties(
+            "https://project.supabase.co/auth/v1",
+            "https://project.supabase.co/auth/v1/.well-known/jwks.json");
+
+    assertThatCode(
+            () ->
+                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
+                    .create())
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  void 로컬_환경은_loopback_HTTP_JWKS만_허용한다() {
+    SupabaseJwtProperties loopback =
+        jwksProperties(
+            "http://127.0.0.1:54321/auth/v1",
+            "http://127.0.0.1:54321/auth/v1/.well-known/jwks.json");
+    SupabaseJwtProperties privateNetwork =
+        jwksProperties(
+            "http://192.168.10.10:54321/auth/v1",
+            "http://192.168.10.10:54321/auth/v1/.well-known/jwks.json");
+
+    assertThatCode(
+            () ->
+                new SupabaseJwtDecoderFactory(loopback, SecurityRuntimeEnvironment.LOCAL).create())
+        .doesNotThrowAnyException();
+    assertThatThrownBy(
+            () ->
+                new SupabaseJwtDecoderFactory(privateNetwork, SecurityRuntimeEnvironment.LOCAL)
+                    .create())
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("로컬");
+  }
 
   @Test
   void 운영_JWKS_URL이_없으면_시작_설정이_실패한다() {
@@ -21,7 +89,10 @@ class SecurityConfigurationValidationTest {
             "",
             Duration.ofSeconds(30));
 
-    assertThatThrownBy(() -> new SupabaseJwtDecoderFactory(properties, false).create())
+    assertThatThrownBy(
+            () ->
+                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
+                    .create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("SUPABASE_JWKS_URL");
   }
@@ -37,7 +108,10 @@ class SecurityConfigurationValidationTest {
             "test-only-secret-that-is-long-enough",
             Duration.ofSeconds(30));
 
-    assertThatThrownBy(() -> new SupabaseJwtDecoderFactory(properties, false).create())
+    assertThatThrownBy(
+            () ->
+                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
+                    .create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("로컬");
   }
@@ -53,8 +127,21 @@ class SecurityConfigurationValidationTest {
             "test-only-secret-that-is-long-enough",
             Duration.ofSeconds(30));
 
-    assertThatThrownBy(() -> new SupabaseJwtDecoderFactory(properties, false).create())
+    assertThatThrownBy(
+            () ->
+                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
+                    .create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("SUPABASE_JWT_SECRET");
+  }
+
+  private SupabaseJwtProperties jwksProperties(String issuer, String jwksUrl) {
+    return new SupabaseJwtProperties(
+        JwtDecoderMode.JWKS,
+        URI.create(issuer),
+        "authenticated",
+        URI.create(jwksUrl),
+        "",
+        Duration.ofSeconds(30));
   }
 }

@@ -15,8 +15,8 @@ public final class LocalHs256JwtDecoderStrategy implements JwtDecoderStrategy {
 
   @Override
   public NimbusJwtDecoder create(
-      SupabaseJwtProperties properties, boolean localCompatibilityProfile) {
-    if (!localCompatibilityProfile) {
+      SupabaseJwtProperties properties, SecurityRuntimeEnvironment runtimeEnvironment) {
+    if (runtimeEnvironment != SecurityRuntimeEnvironment.LOCAL) {
       throw new IllegalStateException("HS256 shared secret 검증은 로컬 profile에서만 허용됩니다.");
     }
     if (properties.secret().isBlank()) {

@@ -16,7 +16,9 @@ import com.nimbusds.jwt.SignedJWT;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -179,6 +181,48 @@ class SecurityIntegrationTest {
   }
 
   @Test
+  void 잘못된_claim_타입과_빈_session_id는_예외를_전파하지_않고_401이다() throws Exception {
+    String subject = UUID.randomUUID().toString();
+    List<Map<String, Object>> invalidClaims =
+        List.of(
+            Map.of("sub", subject, "role", "authenticated"),
+            Map.of(
+                "aud",
+                Map.of("unexpected", "authenticated"),
+                "sub",
+                subject,
+                "role",
+                "authenticated"),
+            Map.of("aud", 7, "sub", subject, "role", "authenticated"),
+            Map.of("aud", List.of("authenticated"), "sub", subject, "role", 7),
+            Map.of("aud", List.of("authenticated"), "sub", 7, "role", "authenticated"),
+            Map.of(
+                "aud",
+                List.of("authenticated"),
+                "sub",
+                subject,
+                "role",
+                "authenticated",
+                "session_id",
+                7),
+            Map.of(
+                "aud",
+                List.of("authenticated"),
+                "sub",
+                subject,
+                "role",
+                "authenticated",
+                "session_id",
+                ""));
+
+    for (Map<String, Object> claims : invalidClaims) {
+      assertUnauthorized(
+          get("/api/v1/test/current-user")
+              .header(HttpHeaders.AUTHORIZATION, bearer(tokenWithRawClaims(claims))));
+    }
+  }
+
+  @Test
   void actuator와_활성화된_API_문서는_공개하고_API는_보호한다() throws Exception {
     mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
     mockMvc.perform(get("/actuator/info")).andExpect(status().isOk());
@@ -296,6 +340,20 @@ class SecurityIntegrationTest {
     }
     SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), claims.build());
     jwt.sign(new MACSigner(secret.getBytes(StandardCharsets.UTF_8)));
+    return jwt.serialize();
+  }
+
+  private String tokenWithRawClaims(Map<String, Object> rawClaims) throws Exception {
+    Instant now = Instant.now();
+    Map<String, Object> claims = new LinkedHashMap<>();
+    claims.put("iss", ISSUER);
+    claims.put("iat", Date.from(now));
+    claims.put("exp", Date.from(now.plusSeconds(300)));
+    claims.putAll(rawClaims);
+    JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder();
+    claims.forEach(builder::claim);
+    SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), builder.build());
+    jwt.sign(new MACSigner(HMAC_KEY.getBytes(StandardCharsets.UTF_8)));
     return jwt.serialize();
   }
 

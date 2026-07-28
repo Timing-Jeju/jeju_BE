@@ -12,13 +12,11 @@ public final class JwksJwtDecoderStrategy implements JwtDecoderStrategy {
 
   @Override
   public NimbusJwtDecoder create(
-      SupabaseJwtProperties properties, boolean localCompatibilityProfile) {
+      SupabaseJwtProperties properties, SecurityRuntimeEnvironment runtimeEnvironment) {
     if (!properties.secret().isBlank()) {
       throw new IllegalStateException("JWKS 검증 환경에는 SUPABASE_JWT_SECRET을 주입할 수 없습니다.");
     }
-    if (!isHttpUri(properties.jwksUrl())) {
-      throw new IllegalStateException("JWKS 검증에는 SUPABASE_JWKS_URL이 필요합니다.");
-    }
+    JwtEndpointPolicy.validate(properties.jwksUrl(), "SUPABASE_JWKS_URL", runtimeEnvironment);
     return NimbusJwtDecoder.withJwkSetUri(properties.jwksUrl().toString())
         .jwsAlgorithms(
             algorithms -> {
@@ -26,12 +24,5 @@ public final class JwksJwtDecoderStrategy implements JwtDecoderStrategy {
               algorithms.add(SignatureAlgorithm.RS256);
             })
         .build();
-  }
-
-  private boolean isHttpUri(java.net.URI uri) {
-    return uri != null
-        && uri.isAbsolute()
-        && uri.getHost() != null
-        && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()));
   }
 }
