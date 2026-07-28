@@ -30,8 +30,14 @@ def current_branch() -> str:
 def validate(branch: str, paths: list[str]) -> tuple[bool, str]:
     if not BRANCH_RE.match(branch):
         return True, "현재 브랜치 type에는 운영 코드/테스트 짝 검사가 적용되지 않습니다."
-    production_changed = any(path.startswith("src/main/java/") and path.endswith(".java") for path in paths)
-    test_changed = any(path.startswith("src/test/java/") and path.endswith(".java") for path in paths)
+    production_changed = any(
+        path.startswith("services/spring-api/src/main/java/") and path.endswith(".java")
+        for path in paths
+    )
+    test_changed = any(
+        path.startswith("services/spring-api/src/test/java/") and path.endswith(".java")
+        for path in paths
+    )
     if production_changed and not test_changed:
         return False, (
             "feat/fix/refactor 브랜치에서 운영 Java 코드가 변경됐지만 테스트 변경이 없습니다. "

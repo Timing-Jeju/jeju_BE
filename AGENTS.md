@@ -1,13 +1,14 @@
-# Timing Jeju API 에이전트 규칙
+# Timing Jeju 백엔드 모노레포 에이전트 규칙
 
 ## 프로젝트와 명령
 
-- Java 21, Spring Boot 4.1, Gradle Wrapper 기반 모놀리식 API다.
-- 코드는 `com.timingjeju.api.domain` 아래에 도메인별로 모으고, 도메인 안에서 MVC 계층을 나눈다. 공통 관심사만 `global`에 둔다.
-- 로컬 실행: `./gradlew bootRun`
-- 전체 검사: `./gradlew clean check`
+- 공통 계약·DB·fixture·협업 정책은 루트에, 실행 서비스는 `services` 아래에 둔다.
+- Spring Boot 공개 API는 `services/spring-api`, FastAPI MCP는 `services/fastapi-mcp`에 둔다.
+- Spring 로컬 실행: `cd services/spring-api && ./gradlew bootRun`
+- Spring 전체 검사: `cd services/spring-api && ./gradlew clean check`
 - 필수 품질 게이트: `./scripts/quality-gate.sh`
 - Docker 검증: `./scripts/docker-smoke-test.sh`
+- 서비스별 세부 규칙은 각 디렉터리의 `AGENTS.md`를 따른다.
 
 ## 필수 개발 흐름
 

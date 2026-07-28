@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $root = git rev-parse --show-toplevel
 Set-Location $root
+$springDir = Join-Path $root "services/spring-api"
 $branch = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { git branch --show-current }
 $sha = git rev-parse HEAD 2>$null
 if (-not $sha) { $sha = "UNBORN" }
@@ -18,10 +19,19 @@ if (-not $SetupValidation) {
 }
 
 py -3 scripts/git-hooks/scan-staged-secrets.py --all-files
-./gradlew.bat --no-daemon spotlessCheck
-./gradlew.bat --no-daemon classes testClasses
-./gradlew.bat --no-daemon unitTest sliceTest integrationTest architectureTest
-./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar
+py -3 -m unittest discover -s .codex/hooks/tests -p test_*.py
+py -3 -m unittest discover -s scripts/git-hooks/tests -p test_*.py
+py -3 -m unittest scripts/tests/test_monorepo_layout.py
+
+Push-Location $springDir
+try {
+  ./gradlew.bat --no-daemon spotlessCheck
+  ./gradlew.bat --no-daemon classes testClasses
+  ./gradlew.bat --no-daemon unitTest sliceTest integrationTest architectureTest
+  ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar
+} finally {
+  Pop-Location
+}
 ./scripts/docker-smoke-test.ps1
 
 if (-not $SetupValidation -and -not $Ci -and $sha -ne "UNBORN") {

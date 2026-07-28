@@ -9,7 +9,7 @@ cd "$ROOT"
 
 command -v git >/dev/null || { echo "Git이 필요합니다." >&2; exit 1; }
 command -v python3 >/dev/null || { echo "Python 3가 필요합니다." >&2; exit 1; }
-[ -x ./gradlew ] || { echo "실행 가능한 Gradle Wrapper가 필요합니다." >&2; exit 1; }
+[ -x ./services/spring-api/gradlew ] || { echo "Spring API의 실행 가능한 Gradle Wrapper가 필요합니다." >&2; exit 1; }
 
 chmod +x .githooks/pre-commit .githooks/commit-msg .githooks/pre-push
 chmod +x scripts/*.sh scripts/git-hooks/*.py 2>/dev/null || true

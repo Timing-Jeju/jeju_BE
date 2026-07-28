@@ -1,8 +1,33 @@
 # 아키텍처
 
-## 기본 구조
+## 모노레포 구조
 
-Timing Jeju API는 하나의 배포 단위를 유지하는 모놀리식 애플리케이션입니다. 최상위 기술 계층별 분리 대신 `domain/{도메인}` 아래에 관련 코드를 함께 둡니다.
+Timing Jeju 백엔드는 Spring Boot 공개 API와 FastAPI MCP를 한 저장소에서 관리합니다. 공통 계약·DB·fixture·개발 정책은 루트에 두고 실행 코드와 언어별 도구는 서비스 디렉터리에 격리합니다.
+
+```text
+.
+├── services
+│   ├── spring-api
+│   │   ├── src
+│   │   ├── build.gradle
+│   │   ├── gradle
+│   │   └── Dockerfile
+│   └── fastapi-mcp
+│       ├── README.md
+│       └── AGENTS.md
+├── docs
+├── db
+├── fixtures
+├── scripts
+├── compose.yml
+└── AGENTS.md
+```
+
+FastAPI MCP 원본 저장소가 제공되기 전에는 `services/fastapi-mcp`에 가짜 구현을 만들지 않습니다.
+
+## Spring API 내부 구조
+
+Spring API는 서비스 내부에서 하나의 배포 단위를 유지하는 모놀리식 애플리케이션입니다. 최상위 기술 계층별 분리 대신 `domain/{도메인}` 아래에 관련 코드를 함께 둡니다.
 
 ```text
 com.timingjeju.api
@@ -39,4 +64,12 @@ com.timingjeju.api
 
 ## ArchUnit 규칙
 
-`ArchitectureTest`는 Controller의 Repository 직접 의존 금지, Controller의 Service 경유, 도메인 간 순환 의존 금지, Domain의 Global 내부 구현 의존 제한, MVC 계층 이름 규칙을 검사합니다. 아직 도메인이 없는 초기 상태에서는 빈 규칙을 허용하지만 새 클래스가 추가되는 즉시 동일 규칙이 적용됩니다.
+`services/spring-api`의 `ArchitectureTest`는 Controller의 Repository 직접 의존 금지, Controller의 Service 경유, 도메인 간 순환 의존 금지, Domain의 Global 내부 구현 의존 제한, MVC 계층 이름 규칙을 검사합니다. 아직 도메인이 없는 초기 상태에서는 빈 규칙을 허용하지만 새 클래스가 추가되는 즉시 동일 규칙이 적용됩니다.
+
+## 서비스 간 경계
+
+- 외부 공개 `/api/v1/**`, 사용자 인증·인가, DB와 외부 API는 Spring API가 담당합니다.
+- FastAPI MCP는 private network의 `/mcp`로만 호출합니다.
+- Spring은 정규화된 facts를 전달하고 FastAPI는 계산 결과를 `structuredContent`로 반환합니다.
+- FastAPI는 DB·외부 API·사용자 JWT에 직접 접근하지 않습니다.
+- 두 서비스가 함께 바뀌는 계약은 루트 `docs/designs`와 contract test에서 먼저 변경합니다.

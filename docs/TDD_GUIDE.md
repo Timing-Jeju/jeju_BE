@@ -16,4 +16,4 @@ Issue의 Acceptance Criteria를 성공, 실패, 경계값 테스트로 바꿉니
 
 JUnit `@Tag`로 `unit`, `slice`, `integration`, `architecture`를 구분합니다. 한 테스트는 한 행동을 검증하며, 메서드 이름에서 조건과 기대 결과가 드러나야 합니다. 정상 흐름뿐 아니라 Validation, 권한, 예외, 오류 응답, 동시성과 경계값을 다룹니다.
 
-JaCoCo 최소값은 `build.gradle`의 `minimumCoverage` 한 곳에서 관리합니다. 초기 골격은 비즈니스 코드가 없어 0%에서 시작하며, 첫 핵심 도메인 Issue에서 의미 있는 기준으로 올려야 합니다.
+JaCoCo 최소값은 `services/spring-api/build.gradle`의 `minimumCoverage` 한 곳에서 관리합니다. 초기 골격은 비즈니스 코드가 없어 0%에서 시작하며, 첫 핵심 도메인 Issue에서 의미 있는 기준으로 올려야 합니다.

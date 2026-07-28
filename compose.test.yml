@@ -17,7 +17,7 @@ services:
 
   api:
     build:
-      context: .
+      context: ./services/spring-api
       dockerfile: Dockerfile
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/timing_jeju_test

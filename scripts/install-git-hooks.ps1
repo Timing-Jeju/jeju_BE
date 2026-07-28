@@ -6,7 +6,7 @@ Set-Location $root
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw "Git이 필요합니다." }
 if (-not (Get-Command py -ErrorAction SilentlyContinue)) { throw "Python 3 Launcher(py)가 필요합니다." }
-if (-not (Test-Path "./gradlew.bat")) { throw "Gradle Wrapper가 필요합니다." }
+if (-not (Test-Path "./services/spring-api/gradlew.bat")) { throw "Spring API의 Gradle Wrapper가 필요합니다." }
 
 git config core.hooksPath .githooks
 Write-Host "Git Hook 설치 완료: $(git config --get core.hooksPath)"

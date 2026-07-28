@@ -262,11 +262,11 @@ Test files to create when implementation starts:
 |---|---|
 | Frontend flows | `apps/mobile/e2e/final-round-demo.spec.ts` |
 | Frontend components | `apps/mobile/src/**/__tests__/*.test.tsx` |
-| Backend engines | `apps/api/src/test/java/.../risk/RiskEngineTest.java` |
-| Transit fixtures | `apps/api/src/test/java/.../transit/TimetableEngineTest.java` |
-| API integration | `apps/api/src/test/java/.../trip/TripControllerIT.java` |
-| AI schemas | `apps/api/src/test/java/.../ai/AiSchemaValidatorTest.java` |
-| AI eval fixtures | `apps/api/src/test/resources/ai-evals/*.json` |
+| Backend engines | `services/spring-api/src/test/java/.../risk/RiskEngineTest.java` |
+| Transit fixtures | `services/spring-api/src/test/java/.../transit/TimetableEngineTest.java` |
+| API integration | `services/spring-api/src/test/java/.../trip/TripControllerIT.java` |
+| AI schemas | `services/spring-api/src/test/java/.../ai/AiSchemaValidatorTest.java` |
+| AI eval fixtures | `services/spring-api/src/test/resources/ai-evals/*.json` |
 
 ### Performance Review
 
@@ -328,9 +328,9 @@ No application source exists yet. No frontend/backend scaffold exists yet. No te
 | Step | Modules touched | Depends on |
 |---|---|---|
 | Mobile app shell | `apps/mobile/` | API contract draft |
-| Backend API and engines | `apps/api/` | data fixture schema |
-| AI schemas and evals | `apps/api/src/main/.../ai`, `apps/api/src/test/resources/ai-evals` | API DTOs |
-| Fixture data | `data/fixtures/`, `apps/api/src/test/resources/` | POC route decisions |
+| Backend API and engines | `services/spring-api/` | data fixture schema |
+| AI schemas and evals | `services/spring-api/src/main/.../ai`, `services/spring-api/src/test/resources/ai-evals` | API DTOs |
+| Fixture data | `fixtures/`, `services/spring-api/src/test/resources/` | POC route decisions |
 | Demo docs/runbook | `docs/demo/` | app/API commands |
 
 Parallel lanes:

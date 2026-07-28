@@ -3,6 +3,7 @@ set -eu
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT"
+SPRING_DIR="$ROOT/services/spring-api"
 SETUP_VALIDATION=false
 CI_MODE=false
 for arg in "$@"; do
@@ -15,6 +16,13 @@ done
 
 stage() {
   echo "[품질 게이트] $1"
+}
+
+run_spring_gradle() {
+  (
+    cd "$SPRING_DIR"
+    ./gradlew --no-daemon "$@"
+  )
 }
 
 BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-$(git branch --show-current)}}
@@ -39,22 +47,27 @@ fi
 stage "비밀정보 검사"
 python3 scripts/git-hooks/scan-staged-secrets.py --all-files
 
+stage "저장소 자동화 테스트"
+python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
+python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'
+python3 -m unittest scripts/tests/test_monorepo_layout.py
+
 stage "포맷 검사"
-./gradlew --no-daemon spotlessCheck
+run_spring_gradle spotlessCheck
 stage "컴파일"
-./gradlew --no-daemon classes testClasses
+run_spring_gradle classes testClasses
 stage "단위 테스트"
-./gradlew --no-daemon unitTest
+run_spring_gradle unitTest
 stage "Slice 테스트"
-./gradlew --no-daemon sliceTest
+run_spring_gradle sliceTest
 stage "통합 테스트"
-./gradlew --no-daemon integrationTest
+run_spring_gradle integrationTest
 stage "Architecture 테스트"
-./gradlew --no-daemon architectureTest
+run_spring_gradle architectureTest
 stage "전체 테스트와 커버리지"
-./gradlew --no-daemon test jacocoTestReport jacocoTestCoverageVerification
+run_spring_gradle test jacocoTestReport jacocoTestCoverageVerification
 stage "애플리케이션 빌드"
-./gradlew --no-daemon bootJar
+run_spring_gradle bootJar
 stage "Docker 이미지·Compose·Health Check"
 ./scripts/docker-smoke-test.sh
 

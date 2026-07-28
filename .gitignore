@@ -27,6 +27,12 @@ service-account*.json
 # Python / Node 임시 파일
 __pycache__/
 *.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 node_modules/
 
 # 생성 산출물
