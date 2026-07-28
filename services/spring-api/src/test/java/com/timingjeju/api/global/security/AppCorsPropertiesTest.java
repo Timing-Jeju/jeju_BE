@@ -92,6 +92,16 @@ class AppCorsPropertiesTest {
       strings = {
         "http://0x7f000001",
         "http://0X7F000001",
+        "http://0x7f000001.",
+        "http://0X7F000001.",
+        "http://0x",
+        "http://0X",
+        "http://0x.",
+        "http://0X.",
+        "http://127.0.0.1.",
+        "http://127.0x.0.1",
+        "http://0x.0.0.1",
+        "http://127.0x.0.1.",
         "http://0x7f.0.0.1",
         "http://127.0x0.0.1",
         "http://0x7f.0x0.0x0.0x1",
@@ -110,6 +120,26 @@ class AppCorsPropertiesTest {
     assertThatThrownBy(() -> new AppCorsProperties(List.of(nonCanonicalNumericOrigin)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Origin");
+  }
+
+  @Test
+  void DNS_trailing_root_dot은_브라우저_origin처럼_보존한다() {
+    AppCorsProperties properties =
+        new AppCorsProperties(
+            List.of(
+                "HTTP://EXAMPLE.COM.:80",
+                "http://localhost.",
+                "http://0x.example.com.",
+                "http://0xg.example.com.",
+                "http://api-0x7f.example.com."));
+
+    assertThat(properties.allowedOrigins())
+        .containsExactly(
+            "http://example.com.",
+            "http://localhost.",
+            "http://0x.example.com.",
+            "http://0xg.example.com.",
+            "http://api-0x7f.example.com.");
   }
 
   @Test

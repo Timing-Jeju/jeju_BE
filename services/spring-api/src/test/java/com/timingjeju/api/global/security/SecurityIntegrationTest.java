@@ -46,7 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
       "app.security.jwt.audience=authenticated",
       "app.security.jwt.jwks-url=",
       "app.security.jwt.secret=test-" + "only-hs256-secret-with-at-least-32-bytes",
-      "app.security.cors.allowed-origins=HTTP://LOCALHOST:80,http://localhost:3000,https://app.timing-jeju.test:443,http://127.0.0.1:80,http://[::1]:80"
+      "app.security.cors.allowed-origins=HTTP://LOCALHOST:80,http://localhost:3000,https://app.timing-jeju.test:443,http://127.0.0.1:80,http://[::1]:80,http://trailing.example.:80"
     })
 @AutoConfigureMockMvc
 @Import(SecurityIntegrationTest.TestEndpointConfig.class)
@@ -280,6 +280,7 @@ class SecurityIntegrationTest {
   void 허용한_CORS_origin만_preflight를_통과한다() throws Exception {
     assertCorsPreflightAllowed("http://127.0.0.1");
     assertCorsPreflightAllowed("http://[::1]");
+    assertCorsPreflightAllowed("http://trailing.example.");
 
     mockMvc
         .perform(

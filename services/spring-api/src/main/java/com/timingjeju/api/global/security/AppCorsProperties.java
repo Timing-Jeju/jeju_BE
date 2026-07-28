@@ -85,9 +85,16 @@ public record AppCorsProperties(List<String> allowedOrigins) {
       }
       return;
     }
-    if (isWhatwgNumericIpv4Candidate(unwrappedHost) && !isCanonicalIpv4(unwrappedHost)) {
+    String numericCandidateHost = withoutOptionalTrailingRootDot(unwrappedHost);
+    if (isWhatwgNumericIpv4Candidate(numericCandidateHost)
+        && (!numericCandidateHost.equals(unwrappedHost)
+            || !isCanonicalIpv4(numericCandidateHost))) {
       throw invalidOrigin();
     }
+  }
+
+  private static String withoutOptionalTrailingRootDot(String host) {
+    return host.endsWith(".") ? host.substring(0, host.length() - 1) : host;
   }
 
   private static boolean isWhatwgNumericIpv4Candidate(String host) {
@@ -99,8 +106,8 @@ public record AppCorsProperties(List<String> allowedOrigins) {
       return false;
     }
     if (component.startsWith("0x")) {
-      return component.length() > 2
-          && component.substring(2).chars().allMatch(AppCorsProperties::isAsciiHexDigit);
+      return component.length() == 2
+          || component.substring(2).chars().allMatch(AppCorsProperties::isAsciiHexDigit);
     }
     return component.chars().allMatch(AppCorsProperties::isAsciiDigit);
   }

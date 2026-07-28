@@ -9,7 +9,7 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 - `/v3/api-docs/**`, `/swagger-ui/**`: 해당 springdoc 기능이 활성화된 경우에만 공개
 - 그 밖의 경로: 기본 거부
 
-서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다. Origin은 `http`/`https` scheme, host와 선택적 1~65535 port만 가질 수 있습니다. userinfo, path, query, fragment, 상대 URI, encoded 우회 또는 모든 형태의 wildcard가 있거나 allowlist가 정규화 후 비면 애플리케이션 시작에 실패합니다. scheme과 host는 소문자로 정규화하고 `http:80`과 `https:443`은 브라우저의 Origin 직렬화와 같은 생략형으로 바꾼 뒤 중복을 제거합니다. 비기본 port와 IPv6 bracket은 보존합니다. 숫자형 host는 브라우저가 보내는 canonical Origin을 그대로 설정해야 합니다. 정확한 dotted-decimal IPv4와 canonical IPv6만 허용하며 leading-zero·축약·단일 정수·`0x` 16진 component IPv4, expanded/noncanonical IPv6처럼 브라우저 직렬화 결과가 달라지는 표기는 시작 시 거부합니다. 이 검증은 DNS를 조회하지 않습니다.
+서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다. Origin은 `http`/`https` scheme, host와 선택적 1~65535 port만 가질 수 있습니다. userinfo, path, query, fragment, 상대 URI, encoded 우회 또는 모든 형태의 wildcard가 있거나 allowlist가 정규화 후 비면 애플리케이션 시작에 실패합니다. scheme과 host는 소문자로 정규화하고 `http:80`과 `https:443`은 브라우저의 Origin 직렬화와 같은 생략형으로 바꾼 뒤 중복을 제거합니다. 비기본 port와 IPv6 bracket은 보존합니다. 숫자형 host는 브라우저가 보내는 canonical Origin을 그대로 설정해야 합니다. 정확한 dotted-decimal IPv4와 canonical IPv6만 허용하며 leading-zero·축약·단일 정수·bare `0x` 또는 `0x` 16진 component·numeric trailing root dot IPv4, expanded/noncanonical IPv6처럼 브라우저 직렬화 결과가 달라지는 표기는 시작 시 거부합니다. 정상 DNS host의 trailing root dot은 브라우저 Origin처럼 보존합니다. 이 검증은 DNS를 조회하지 않습니다.
 
 ## JWT 검증 계약
 
