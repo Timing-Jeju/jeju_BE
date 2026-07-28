@@ -27,13 +27,12 @@ REMOTE_SETUP_MODE=apply ./scripts/github/setup-ruleset.sh owner/repository
 `.github/workflows/ci.yml`은 `develop`·`main` 대상 Pull Request와 두 브랜치의 push에서 실행됩니다. 저장소 읽기 권한만 사용하며 다음 항목을 검증합니다.
 
 - PR 제목, Issue 연결과 Release 브랜치 경로
-- 변경 경로에 따른 Spring·FastAPI·서비스 계약 실행 범위
+- 변경 경로에 따른 Spring·서비스 계약 실행 범위
 - Java 21과 Gradle Wrapper 무결성
-- Python 3.12, uv 잠금, Ruff·mypy·pytest
 - 저장소 정책, Spring 테스트, Architecture와 JaCoCo 커버리지
 - Spring OpenAPI JSON 생성과 CI Artifact 보존
 - Docker 이미지, Compose 실행, Actuator Health Check와 리소스 정리
 
-공통 검사는 항상 실행합니다. Spring 또는 FastAPI만 변경하면 해당 서비스 검사만 추가하며, 서비스 계약이 바뀌면 두 서비스와 계약 검사를 모두 수행합니다. `quality-gate` Job은 실행 대상 Job의 성공을 하나의 필수 체크로 집계합니다.
+공통 검사는 항상 실행합니다. Spring 구현이 바뀌면 Spring 검사를 추가하고, 서비스 계약이 바뀌면 Spring과 계약 검사를 수행합니다. FastAPI의 Python 검사는 별도 [jeju_AI 저장소](https://github.com/Timing-Jeju/jeju_AI) CI가 담당합니다. `quality-gate` Job은 실행 대상 Job의 성공을 하나의 필수 체크로 집계합니다.
 
 같은 브랜치에서 새 실행이 시작되면 이전 실행을 취소합니다. Spring 테스트 결과는 실패 여부와 관계없이 Artifact로 14일간 보존하며, CI 계약 자체는 `scripts/tests/test_ci_workflow.py`로 회귀 검증합니다.

@@ -25,6 +25,10 @@ Developer 세션은 품질 게이트와 Docker 검증 뒤 PR을 만들지 않고
 
 Spring 공개 API를 추가하거나 변경하면 OpenAPI 통합 테스트를 갱신하고 `./gradlew openApiDocs`로 `build/openapi/openapi.json` 생성을 확인합니다. Swagger 설명은 Controller 구현에 누적하지 않고 [API 문서화 규칙](docs/API_DOCUMENTATION.md)의 문서 계약 인터페이스 패턴을 따릅니다.
 
+## AI 저장소와의 계약
+
+FastAPI MCP 구현은 [Timing-Jeju/jeju_AI](https://github.com/Timing-Jeju/jeju_AI)에서 변경합니다. Spring과 AI 양쪽 변경이 필요한 경우 저장소별 Issue와 PR을 만들고, 먼저 계약 버전과 fixture 호환 순서를 합의합니다. 이 저장소에는 FastAPI 소스나 Python 의존성을 추가하지 않습니다.
+
 ## 제출 전 확인
 
 ```bash
