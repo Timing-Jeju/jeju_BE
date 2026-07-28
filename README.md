@@ -94,6 +94,7 @@ supabase db reset
 ```
 
 환경별 연결, 마이그레이션 소유권, 테스트 사용자 준비와 초기화 주의사항은 [데이터베이스 개발 환경](db/README.md)을 따릅니다.
+Spring의 Supabase access token 검증, JWKS/로컬 legacy HS256 분리와 CORS 환경변수는 [인증·인가 설정](docs/AUTHENTICATION.md)을 따릅니다.
 
 ## 개발 프로세스
 
