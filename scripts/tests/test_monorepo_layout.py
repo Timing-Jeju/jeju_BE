@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -62,10 +63,38 @@ class MonorepoLayoutTest(unittest.TestCase):
             with self.subTest(path=relative_path):
                 self.assertTrue((ROOT / relative_path).exists())
 
-    def test_fastapi_service_slot_has_no_fake_implementation(self):
-        self.assertTrue((FASTAPI_MCP / "README.md").is_file())
+    def test_fastapi_service_has_only_structure_neutral_baseline(self):
+        required_paths = (
+            "README.md",
+            "AGENTS.md",
+            ".python-version",
+            "pyproject.toml",
+            "uv.lock",
+            "scripts/quality-gate.sh",
+        )
+
+        for relative_path in required_paths:
+            with self.subTest(path=relative_path):
+                self.assertTrue((FASTAPI_MCP / relative_path).is_file())
+
         self.assertFalse((FASTAPI_MCP / "src").exists())
         self.assertFalse((FASTAPI_MCP / "app").exists())
+
+    def test_fastapi_tooling_does_not_force_a_package_layout(self):
+        with (FASTAPI_MCP / "pyproject.toml").open("rb") as file:
+            pyproject = tomllib.load(file)
+
+        self.assertEqual(">=3.12,<3.13", pyproject["project"]["requires-python"])
+        self.assertFalse(pyproject["tool"]["uv"]["package"])
+
+        dependencies = pyproject["project"]["dependencies"]
+        development_dependencies = pyproject["dependency-groups"]["dev"]
+        for dependency in ("fastapi", "mcp"):
+            self.assertTrue(any(item.startswith(dependency) for item in dependencies))
+        for dependency in ("ruff", "mypy", "pytest"):
+            self.assertTrue(
+                any(item.startswith(dependency) for item in development_dependencies)
+            )
 
     def test_root_automation_targets_the_spring_service_directory(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
@@ -75,6 +104,7 @@ class MonorepoLayoutTest(unittest.TestCase):
         test_compose = (ROOT / "compose.test.yml").read_text(encoding="utf-8")
 
         self.assertIn("services/spring-api", quality_gate)
+        self.assertIn("services/fastapi-mcp", quality_gate)
         self.assertIn("./services/spring-api", compose)
         self.assertIn("./services/spring-api", test_compose)
 
