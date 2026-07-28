@@ -1,0 +1,848 @@
+Project timing_jeju_v1_1 {
+  database_type: "PostgreSQL"
+  note: "Supabase Auth + Postgres/PostGIS. Spring Boot is the only app-data writer. FastAPI MCP computes candidates/results without direct DB access."
+}
+
+Table auth.users {
+  id uuid [pk]
+  email text [unique]
+  raw_app_meta_data jsonb
+  raw_user_meta_data jsonb
+  created_at timestamptz
+  updated_at timestamptz
+  last_sign_in_at timestamptz
+}
+
+Table data_import_runs {
+  id uuid [pk]
+  source_kind text [not null]
+  source_name text [not null]
+  source_operation text
+  data_version text [not null]
+  status text [not null]
+  started_at timestamptz [not null]
+  finished_at timestamptz
+  row_count integer [not null]
+  error_code text
+  error_message text
+  metadata jsonb [not null]
+}
+
+Table app_sessions {
+  id uuid [pk]
+  user_id uuid [ref: > user_profiles.id]
+  public_token text [not null, unique]
+  display_name text
+  locale text [not null]
+  created_at timestamptz [not null]
+  last_seen_at timestamptz [not null]
+  expires_at timestamptz
+}
+
+Table user_profiles {
+  id uuid [pk, ref: > auth.users.id]
+  email text [unique]
+  nickname text
+  profile_image_url text
+  locale text [not null]
+  status text [not null]
+  onboarding_completed_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  last_login_at timestamptz
+  deleted_at timestamptz
+}
+
+Table social_accounts {
+  id uuid [pk]
+  user_id uuid [not null, ref: > user_profiles.id]
+  provider text [not null, note: "kakao, naver, google"]
+  provider_user_id text [not null]
+  provider_email text
+  provider_email_verified boolean
+  provider_nickname text
+  provider_profile_image_url text
+  scopes text[] [not null]
+  connected_at timestamptz [not null]
+  last_login_at timestamptz
+  revoked_at timestamptz
+  raw_profile jsonb [not null]
+
+  indexes {
+    (provider, provider_user_id) [unique]
+    (user_id, provider) [unique]
+  }
+}
+
+Table legal_documents {
+  id uuid [pk]
+  document_type text [not null]
+  version text [not null]
+  title text [not null]
+  content_url text [not null]
+  required boolean [not null]
+  effective_at timestamptz [not null]
+  retired_at timestamptz
+  created_at timestamptz [not null]
+
+  indexes {
+    (document_type, version) [unique]
+  }
+}
+
+Table user_consents {
+  id uuid [pk]
+  user_id uuid [not null, ref: > user_profiles.id]
+  legal_document_id uuid [not null, ref: > legal_documents.id]
+  agreed boolean [not null]
+  agreed_at timestamptz [not null]
+  withdrawn_at timestamptz
+  source text [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (user_id, legal_document_id) [unique]
+  }
+}
+
+Table tour_places {
+  id uuid [pk]
+  external_place_id text [unique]
+  content_id text
+  content_type_id text
+  name text [not null]
+  normalized_name text [not null]
+  category text [not null]
+  region_code text
+  region_label text
+  address text
+  address_detail text
+  location geography [not null]
+  image_url text
+  thumbnail_url text
+  overview text
+  recommended_stay_minutes integer
+  source_provider text [not null]
+  source_service text
+  source_modified_at timestamptz
+  import_run_id uuid [ref: > data_import_runs.id]
+  confidence numeric [not null]
+  stale boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    content_id [unique]
+  }
+}
+
+Table place_details {
+  place_id uuid [pk, ref: > tour_places.id]
+  phone text
+  homepage_url text
+  operating_hours_text text
+  closed_days_text
+  parking_text
+  pet_policy_text
+  admission_fee_text
+  facilities_text
+  reservation_info_text
+  accessibility_text
+  intro_attributes jsonb [not null]
+  source_provider text [not null]
+  source_service text
+  source_updated_at timestamptz
+  fetched_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table place_operating_hours {
+  id uuid [pk]
+  place_id uuid [not null, ref: > tour_places.id]
+  day_of_week smallint [not null]
+  is_closed boolean [not null]
+  open_time time
+  close_time time
+  last_entry_time time
+  note text
+  source_kind text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (place_id, day_of_week) [unique]
+  }
+}
+
+Table place_aliases {
+  id uuid [pk]
+  place_id uuid [not null, ref: > tour_places.id]
+  alias text [not null]
+  normalized_alias text [not null]
+  alias_type text [not null]
+  confidence numeric [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (place_id, normalized_alias, alias_type) [unique]
+  }
+}
+
+Table place_images {
+  id uuid [pk]
+  place_id uuid [not null, ref: > tour_places.id]
+  image_url text [not null]
+  thumbnail_url text
+  display_order integer [not null]
+  source_provider text [not null]
+  created_at timestamptz [not null]
+}
+
+Table saved_places {
+  id uuid [pk]
+  user_id uuid [ref: > user_profiles.id]
+  session_id uuid [ref: > app_sessions.id]
+  place_id uuid [not null, ref: > tour_places.id]
+  memo text
+  tags text[] [not null]
+  target_day integer
+  priority integer [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (user_id, place_id) [unique]
+    (session_id, place_id) [unique]
+  }
+}
+
+Table bus_stops {
+  id uuid [pk]
+  external_stop_id text [unique]
+  node_id text [not null, unique]
+  node_name text [not null]
+  node_no text
+  location geography [not null]
+  source_provider text [not null]
+  source_service text
+  import_run_id uuid [ref: > data_import_runs.id]
+  confidence numeric [not null]
+  stale boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table place_stop_links {
+  place_id uuid [pk, ref: > tour_places.id]
+  stop_id uuid [pk, ref: > bus_stops.id]
+  distance_meters integer [not null]
+  walk_minutes integer [not null]
+  link_method text [not null]
+  confidence numeric [not null]
+  created_at timestamptz [not null]
+}
+
+Table weather_grid_points {
+  id uuid [pk]
+  grid_provider text [not null]
+  nx integer [not null]
+  ny integer [not null]
+  region_name text
+  representative_location geography
+  nearest_place_id uuid [ref: > tour_places.id]
+  created_at timestamptz [not null]
+
+  indexes {
+    (grid_provider, nx, ny) [unique]
+  }
+}
+
+Table weather_observations {
+  id uuid [pk]
+  grid_point_id uuid [not null, ref: > weather_grid_points.id]
+  observed_at timestamptz [not null]
+  base_date date [not null]
+  base_time time [not null]
+  temperature_c numeric
+  precipitation_mm numeric
+  precipitation_type text
+  humidity_percent integer
+  wind_speed_mps numeric
+  wind_direction_deg integer
+  source_provider text [not null]
+  source_operation text [not null]
+  import_run_id uuid [ref: > data_import_runs.id]
+  raw_payload jsonb [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (grid_point_id, observed_at, source_operation) [unique]
+  }
+}
+
+Table weather_forecasts {
+  id uuid [pk]
+  grid_point_id uuid [not null, ref: > weather_grid_points.id]
+  forecasted_at timestamptz [not null]
+  valid_at timestamptz [not null]
+  forecast_type text [not null]
+  sky_code text
+  precipitation_type text
+  precipitation_probability_percent integer
+  precipitation_amount_mm numeric
+  temperature_c numeric
+  min_temperature_c numeric
+  max_temperature_c numeric
+  humidity_percent integer
+  wind_speed_mps numeric
+  source_provider text [not null]
+  source_operation text [not null]
+  import_run_id uuid [ref: > data_import_runs.id]
+  raw_payload jsonb [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (grid_point_id, forecasted_at, valid_at, forecast_type) [unique]
+  }
+}
+
+Table bus_routes {
+  id uuid [pk]
+  external_route_id text [unique]
+  route_no text [not null]
+  route_type text
+  direction_name text
+  source_provider text [not null]
+  source_service text
+  import_run_id uuid [ref: > data_import_runs.id]
+  confidence numeric [not null]
+  stale boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table route_stops {
+  route_id uuid [pk, ref: > bus_routes.id]
+  stop_id uuid [not null, ref: > bus_stops.id]
+  direction_key text [pk]
+  stop_sequence integer [pk]
+  travel_minutes_from_prev integer
+  import_run_id uuid [ref: > data_import_runs.id]
+
+  indexes {
+    (route_id, direction_key, stop_id) [unique]
+  }
+}
+
+Table timetable_entries {
+  id uuid [pk]
+  route_id uuid [not null, ref: > bus_routes.id]
+  stop_id uuid [not null, ref: > bus_stops.id]
+  direction_key text [not null]
+  service_day_type text [not null]
+  departure_time time [not null]
+  trip_key text
+  valid_from date
+  valid_to date
+  source_provider text [not null]
+  import_run_id uuid [ref: > data_import_runs.id]
+  confidence numeric [not null]
+  stale boolean [not null]
+  created_at timestamptz [not null]
+}
+
+Table bus_arrival_snapshots {
+  id uuid [pk]
+  stop_id uuid [not null, ref: > bus_stops.id]
+  route_id uuid [ref: > bus_routes.id]
+  external_route_id text
+  route_no text [not null]
+  direction_name text
+  estimated_arrival_seconds integer [not null]
+  remaining_stops integer
+  vehicle_type text
+  observed_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  source_provider text [not null]
+  source_operation text
+  import_run_id uuid [ref: > data_import_runs.id]
+  raw_payload jsonb [not null]
+}
+
+Table mobility_route_snapshots {
+  id uuid [pk]
+  request_hash text [not null, unique]
+  origin_location geography [not null]
+  destination_location geography [not null]
+  transport_mode text [not null]
+  departure_at timestamptz
+  distance_meters integer
+  duration_minutes integer [not null]
+  estimated_fare integer
+  source_provider text [not null]
+  source_operation text
+  route_summary jsonb [not null]
+  observed_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  raw_payload jsonb [not null]
+}
+
+Table trip_plans {
+  id uuid [pk]
+  user_id uuid [ref: > user_profiles.id]
+  session_id uuid [ref: > app_sessions.id]
+  public_token text [not null, unique]
+  title text
+  status text [not null]
+  input_text text
+  start_date date [not null]
+  end_date date [not null]
+  user_pace text [not null]
+  total_score integer
+  source_mode text [not null]
+  data_version text [not null]
+  stale boolean [not null]
+  active_schedule_version_id uuid [ref: > trip_schedule_versions.id]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  expires_at timestamptz
+}
+
+Table trip_preferences {
+  trip_plan_id uuid [pk, ref: > trip_plans.id]
+  preferred_categories text[] [not null]
+  arrival_region_code text
+  departure_region_code text
+  preferred_region_codes text[] [not null]
+  start_place_id uuid [ref: > tour_places.id]
+  end_place_id uuid [ref: > tour_places.id]
+  raw_answers jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table trip_transport_modes {
+  trip_plan_id uuid [pk, ref: > trip_plans.id]
+  transport_mode text [pk, note: "public_transit, rental_car, taxi"]
+  priority smallint [not null]
+  is_primary boolean [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (trip_plan_id, priority) [unique]
+  }
+}
+
+Table trip_place_preferences {
+  trip_plan_id uuid [pk, ref: > trip_plans.id]
+  place_id uuid [pk, ref: > tour_places.id]
+  preference_type text [pk]
+  target_day_no integer
+  priority integer [not null]
+  source text [not null]
+  created_at timestamptz [not null]
+}
+
+Table trip_transport_events {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  event_type text [not null, note: "arrival or departure"]
+  transport_type text [not null, note: "flight or ferry"]
+  terminal_place_id uuid [ref: > tour_places.id]
+  terminal_name text
+  scheduled_at timestamptz [not null]
+  transport_number text
+  source text [not null]
+  note text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (trip_plan_id, event_type) [unique]
+  }
+}
+
+Table trip_accommodations {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  place_id uuid [ref: > tour_places.id]
+  custom_name text
+  check_in_date date [not null]
+  check_out_date date [not null]
+  check_in_time time
+  check_out_time time
+  address_text text
+  sequence_no integer [not null]
+  source text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (trip_plan_id, sequence_no) [unique]
+  }
+
+  Note: "Date ranges cannot overlap within the same trip (PostgreSQL GiST exclusion constraint)."
+}
+
+Table trip_days {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  day_no integer [not null]
+  trip_date date [not null]
+  start_time time
+  end_time time
+  title text
+  safety_score integer
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (trip_plan_id, day_no) [unique]
+    (trip_plan_id, trip_date) [unique]
+    (id, trip_plan_id) [unique]
+  }
+}
+
+Table trip_schedule_versions {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  version_no integer [not null]
+  base_schedule_version_id uuid [ref: > trip_schedule_versions.id]
+  status text [not null, note: "draft, candidate, active, superseded, rejected; candidate/active requires complete located/timed items and every consecutive leg"]
+  source_type text [not null]
+  summary text
+  resulting_score integer
+  created_by_user_id uuid [ref: > user_profiles.id]
+  created_at timestamptz [not null]
+  applied_at timestamptz
+
+  indexes {
+    (trip_plan_id, version_no) [unique]
+    (id, trip_plan_id) [unique]
+  }
+}
+
+Table trip_items {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  trip_day_id uuid [not null, ref: > trip_days.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  sequence_no integer [not null]
+  item_type text [not null]
+  place_id uuid [ref: > tour_places.id]
+  title text
+  planned_start_at timestamptz
+  planned_end_at timestamptz
+  stay_minutes integer
+  buffer_after_minutes integer [not null]
+  required boolean [not null]
+  source text [not null]
+  memo text
+  facts jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (schedule_version_id, trip_day_id, sequence_no) [unique]
+    (id, schedule_version_id) [unique]
+    (id, schedule_version_id, trip_plan_id) [unique]
+  }
+
+  Note: "Immutable after the schedule version leaves draft. Runtime state is stored in trip_item_progress."
+}
+
+Table itinerary_generation_runs {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  trip_day_id uuid [not null, ref: > trip_days.id]
+  base_schedule_version_id uuid [ref: > trip_schedule_versions.id]
+  input_mode text [not null]
+  status text [not null]
+  structured_input jsonb [not null]
+  prompt_text text
+  contract_version text [not null]
+  algorithm_version text [not null]
+  model text
+  idempotency_key text [not null]
+  requested_by_user_id uuid [ref: > user_profiles.id]
+  started_at timestamptz
+  completed_at timestamptz
+  error_code text
+  error_message text
+  created_at timestamptz [not null]
+
+  indexes {
+    (trip_plan_id, idempotency_key) [unique]
+    (id, trip_plan_id) [unique]
+  }
+}
+
+Table itinerary_generation_candidates {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  generation_run_id uuid [not null, ref: > itinerary_generation_runs.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  rank_no integer [not null]
+  score integer
+  explanation text
+  selected_at timestamptz
+  created_at timestamptz [not null]
+
+  indexes {
+    (generation_run_id, rank_no) [unique]
+    (generation_run_id, schedule_version_id) [unique]
+  }
+}
+
+Table ai_conversations {
+  id uuid [pk]
+  user_id uuid [not null, ref: > user_profiles.id]
+  trip_plan_id uuid [ref: > trip_plans.id]
+  status text [not null]
+  locale text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table ai_messages {
+  id uuid [pk]
+  conversation_id uuid [not null, ref: > ai_conversations.id]
+  role text [not null]
+  content text [not null]
+  structured_payload jsonb [not null]
+  generation_run_id uuid [ref: > itinerary_generation_runs.id]
+  created_at timestamptz [not null]
+}
+
+Table trip_legs {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  trip_day_id uuid [not null, ref: > trip_days.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  sequence_no integer [not null]
+  from_item_id uuid [not null, ref: > trip_items.id]
+  to_item_id uuid [not null, ref: > trip_items.id]
+  transport_mode text [not null, note: "walk, public_transit, rental_car, taxi"]
+  origin_stop_id uuid [ref: > bus_stops.id]
+  destination_stop_id uuid [ref: > bus_stops.id]
+  route_id uuid [ref: > bus_routes.id]
+  mobility_route_snapshot_id uuid [ref: > mobility_route_snapshots.id]
+  planned_departure_at timestamptz
+  planned_arrival_at timestamptz
+  walk_minutes integer [not null]
+  wait_minutes integer [not null]
+  ride_minutes integer [not null]
+  transfer_minutes integer [not null]
+  duration_minutes integer [note: "must equal arrival-departure and walk+wait+ride+transfer when sealed"]
+  buffer_minutes integer [not null]
+  distance_meters integer
+  estimated_fare integer
+  risk_score integer
+  facts jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (schedule_version_id, trip_day_id, sequence_no) [unique]
+    (schedule_version_id, from_item_id, to_item_id) [unique]
+    (id, schedule_version_id, trip_plan_id) [unique]
+  }
+
+  Note: "Movement only. From/to items are constrained to the same trip, version and day by composite foreign keys."
+}
+
+Table trip_item_progress {
+  trip_plan_id uuid [pk, ref: > trip_plans.id]
+  schedule_version_id uuid [pk, ref: > trip_schedule_versions.id]
+  trip_item_id uuid [pk, ref: > trip_items.id]
+  status text [not null]
+  actual_started_at timestamptz
+  actual_arrived_at timestamptz
+  actual_completed_at timestamptz
+  updated_at timestamptz [not null]
+}
+
+Table trip_execution_events {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  trip_item_id uuid [ref: > trip_items.id]
+  trip_leg_id uuid [ref: > trip_legs.id]
+  event_type text [not null]
+  client_event_id text [not null]
+  location geography
+  occurred_at timestamptz [not null]
+  recorded_at timestamptz [not null]
+  metadata jsonb [not null]
+
+  indexes {
+    (trip_plan_id, client_event_id) [unique]
+  }
+
+  Note: "Append-only runtime audit."
+}
+
+Table compute_runs {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  trip_day_id uuid [ref: > trip_days.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  run_type text [not null]
+  status text [not null]
+  input_hash text [not null]
+  contract_version text [not null]
+  algorithm_version text [not null]
+  facts_snapshot_at timestamptz [not null]
+  source_data_version text [not null]
+  result_summary jsonb [not null]
+  started_at timestamptz
+  completed_at timestamptz
+  error_code text
+  error_message text
+  created_at timestamptz [not null]
+
+  indexes {
+    (id, trip_plan_id, schedule_version_id) [unique]
+    (schedule_version_id, run_type, input_hash, algorithm_version) [unique]
+  }
+}
+
+Table risk_events {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  compute_run_id uuid [not null, ref: > compute_runs.id]
+  trip_item_id uuid [ref: > trip_items.id]
+  trip_leg_id uuid [ref: > trip_legs.id]
+  event_type text [not null]
+  severity text [not null]
+  score_delta integer [not null]
+  wait_risk_minutes integer
+  reason_code text [not null]
+  computed_facts jsonb [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (id, trip_plan_id, schedule_version_id) [unique]
+  }
+}
+
+Table trip_weather_impacts {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  trip_day_id uuid [ref: > trip_days.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  compute_run_id uuid [not null, ref: > compute_runs.id]
+  trip_item_id uuid [ref: > trip_items.id]
+  trip_leg_id uuid [ref: > trip_legs.id]
+  weather_forecast_id uuid [ref: > weather_forecasts.id]
+  weather_observation_id uuid [ref: > weather_observations.id]
+  impact_type text [not null]
+  severity text [not null]
+  score_delta integer [not null]
+  recommendation_text text
+  computed_facts jsonb [not null]
+  created_at timestamptz [not null]
+}
+
+Table recommendation_candidates {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  trip_day_id uuid [ref: > trip_days.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  compute_run_id uuid [not null, ref: > compute_runs.id]
+  base_item_id uuid [ref: > trip_items.id]
+  candidate_place_id uuid [not null, ref: > tour_places.id]
+  recommendation_type text [not null]
+  available_gap_minutes integer
+  required_total_minutes integer
+  travel_minutes integer
+  stay_minutes integer
+  safety_buffer_minutes integer [not null]
+  score integer
+  reason_code text
+  facts jsonb [not null]
+  created_at timestamptz [not null]
+}
+
+Table recovery_options {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  compute_run_id uuid [not null, ref: > compute_runs.id]
+  trigger_risk_event_id uuid [ref: > risk_events.id]
+  base_schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  proposed_schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  option_type text [not null, note: 'take_next_bus | move_to_another_day | replace_place | shorten_stay | skip_optional | change_transport; automatic reorder is excluded']
+  status text [not null]
+  title text [not null]
+  explanation text
+  impact_minutes integer [not null]
+  resulting_score integer
+  change_summary jsonb [not null]
+  expires_at timestamptz
+  selected_at timestamptz
+  applied_at timestamptz
+  created_at timestamptz [not null]
+
+  indexes {
+    (id, base_schedule_version_id, proposed_schedule_version_id) [unique]
+  }
+}
+
+Table recovery_option_changes {
+  id uuid [pk]
+  recovery_option_id uuid [not null, ref: > recovery_options.id]
+  base_schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  proposed_schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  change_order integer [not null]
+  action text [not null, note: 'add | remove | move_day | update_time | shorten_stay | change_transport; automatic reorder is excluded']
+  source_item_id uuid [ref: > trip_items.id]
+  proposed_item_id uuid [ref: > trip_items.id]
+  before_value jsonb [not null]
+  after_value jsonb [not null]
+  reason_code text [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (recovery_option_id, change_order) [unique]
+  }
+}
+
+Table live_state_snapshots {
+  id uuid [pk]
+  trip_plan_id uuid [not null, ref: > trip_plans.id]
+  schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
+  active_item_id uuid [ref: > trip_items.id]
+  active_leg_id uuid [ref: > trip_legs.id]
+  compute_run_id uuid [ref: > compute_runs.id]
+  status text [not null]
+  current_location geography
+  current_place_id uuid [ref: > tour_places.id]
+  next_action text
+  observed_at timestamptz [not null]
+  facts jsonb [not null]
+}
+
+Table mcp_compute_call_logs {
+  id uuid [pk]
+  user_id uuid [ref: > user_profiles.id]
+  trip_plan_id uuid [ref: > trip_plans.id]
+  compute_run_id uuid [ref: > compute_runs.id]
+  generation_run_id uuid [ref: > itinerary_generation_runs.id]
+  request_id text [not null]
+  tool_name text [not null]
+  status text [not null]
+  contract_version text [not null]
+  provider text
+  model text
+  request_payload_redacted jsonb [not null]
+  response_payload_redacted jsonb [not null]
+  latency_ms integer
+  error_code text
+  error_message text
+  created_at timestamptz [not null]
+
+  indexes {
+    (request_id, tool_name) [unique]
+  }
+}

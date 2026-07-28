@@ -1,0 +1,110 @@
+[
+  {
+    "stopId": "stop_jeju_airport_1",
+    "nodeId": "JEB405002100",
+    "nodeName": "제주국제공항4(대정,화순,일주서로)",
+    "nodeNo": null,
+    "latitude": 33.506439,
+    "longitude": 126.492978,
+    "linkedPlaceIds": [
+      "place_jeju_airport"
+    ],
+    "distanceMetersFromPlace": 18,
+    "walkMinutesFromPlace": 1,
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스정류소정보 API",
+      "operation": "getCrdntPrxmtSttnList"
+    }
+  },
+  {
+    "stopId": "stop_jeju_airport_2",
+    "nodeId": "JEB405002099",
+    "nodeName": "제주국제공항5(평화로, 800번)",
+    "nodeNo": null,
+    "latitude": 33.506266,
+    "longitude": 126.492862,
+    "linkedPlaceIds": [
+      "place_jeju_airport"
+    ],
+    "distanceMetersFromPlace": 39,
+    "walkMinutesFromPlace": 1,
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스정류소정보 API",
+      "operation": "getCrdntPrxmtSttnList"
+    }
+  },
+  {
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "nodeName": "성산일출봉입구[동]",
+    "nodeNo": null,
+    "latitude": 33.462717,
+    "longitude": 126.933033,
+    "linkedPlaceIds": [
+      "place_seongsan_ilchulbong"
+    ],
+    "distanceMetersFromPlace": 939,
+    "walkMinutesFromPlace": 14,
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스정류소정보 API",
+      "operation": "getCrdntPrxmtSttnList"
+    }
+  },
+  {
+    "stopId": "stop_seongsan_ilchulbong_2",
+    "nodeId": "JEB406000817",
+    "nodeName": "성산일출봉입구[서]",
+    "nodeNo": null,
+    "latitude": 33.463767,
+    "longitude": 126.933767,
+    "linkedPlaceIds": [
+      "place_seongsan_ilchulbong"
+    ],
+    "distanceMetersFromPlace": 955,
+    "walkMinutesFromPlace": 14,
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스정류소정보 API",
+      "operation": "getCrdntPrxmtSttnList"
+    }
+  },
+  {
+    "stopId": "stop_seopjikoji_1",
+    "nodeId": "JEB406001405",
+    "nodeName": "섭지코지",
+    "nodeNo": null,
+    "latitude": 33.436621,
+    "longitude": 126.921991,
+    "linkedPlaceIds": [
+      "place_seopjikoji"
+    ],
+    "distanceMetersFromPlace": 905,
+    "walkMinutesFromPlace": 13,
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스정류소정보 API",
+      "operation": "getCrdntPrxmtSttnList"
+    }
+  },
+  {
+    "stopId": "stop_seopjikoji_2",
+    "nodeId": "JEB406001406",
+    "nodeName": "섭지코지",
+    "nodeNo": null,
+    "latitude": 33.436788,
+    "longitude": 126.922444,
+    "linkedPlaceIds": [
+      "place_seopjikoji"
+    ],
+    "distanceMetersFromPlace": 895,
+    "walkMinutesFromPlace": 13,
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스정류소정보 API",
+      "operation": "getCrdntPrxmtSttnList"
+    }
+  }
+]

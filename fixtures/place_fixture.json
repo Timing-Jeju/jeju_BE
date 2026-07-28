@@ -1,0 +1,97 @@
+[
+  {
+    "placeId": "place_jeju_airport",
+    "contentId": null,
+    "contentTypeId": null,
+    "name": "제주국제공항",
+    "category": "transport_hub",
+    "fallbackStopKeywords": [
+      "제주국제공항"
+    ],
+    "address": null,
+    "addressDetail": null,
+    "latitude": 33.5066,
+    "longitude": 126.493,
+    "imageUrl": null,
+    "thumbnailUrl": null,
+    "images": [],
+    "overview": null,
+    "sourceApi": {
+      "provider": "한국관광공사",
+      "service": "국문 관광정보 서비스_GW",
+      "operations": [
+        "searchKeyword2",
+        "detailCommon2",
+        "detailImage2"
+      ]
+    },
+    "nearbyStopIds": [
+      "stop_jeju_airport_1",
+      "stop_jeju_airport_2"
+    ]
+  },
+  {
+    "placeId": "place_seongsan_ilchulbong",
+    "contentId": "126435",
+    "contentTypeId": "12",
+    "name": "성산일출봉 [유네스코 세계자연유산]",
+    "category": "tourist_attraction",
+    "fallbackStopKeywords": [
+      "성산일출봉",
+      "성산일출봉입구"
+    ],
+    "address": "제주특별자치도 서귀포시 성산읍 일출로 284-12",
+    "addressDetail": "",
+    "latitude": 33.4581111174,
+    "longitude": 126.9415156012,
+    "imageUrl": "http://tong.visitkorea.or.kr/cms/resource/82/2944282_image2_1.bmp",
+    "thumbnailUrl": "http://tong.visitkorea.or.kr/cms/resource/82/2944282_image3_1.bmp",
+    "images": [],
+    "overview": null,
+    "sourceApi": {
+      "provider": "한국관광공사",
+      "service": "국문 관광정보 서비스_GW",
+      "operations": [
+        "searchKeyword2",
+        "detailCommon2",
+        "detailImage2"
+      ]
+    },
+    "nearbyStopIds": [
+      "stop_seongsan_ilchulbong_1",
+      "stop_seongsan_ilchulbong_2"
+    ]
+  },
+  {
+    "placeId": "place_seopjikoji",
+    "contentId": "127813",
+    "contentTypeId": "12",
+    "name": "섭지코지",
+    "category": "tourist_attraction",
+    "fallbackStopKeywords": [
+      "섭지코지",
+      "신양리"
+    ],
+    "address": "제주특별자치도 서귀포시 성산읍 섭지코지로 107",
+    "addressDetail": "",
+    "latitude": 33.430250088,
+    "longitude": 126.9280674087,
+    "imageUrl": "",
+    "thumbnailUrl": "",
+    "images": [],
+    "overview": null,
+    "sourceApi": {
+      "provider": "한국관광공사",
+      "service": "국문 관광정보 서비스_GW",
+      "operations": [
+        "searchKeyword2",
+        "detailCommon2",
+        "detailImage2"
+      ]
+    },
+    "nearbyStopIds": [
+      "stop_seopjikoji_1",
+      "stop_seopjikoji_2"
+    ]
+  }
+]
