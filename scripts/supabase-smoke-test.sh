@@ -8,14 +8,25 @@ SUPABASE_BIN=${SUPABASE_BIN:-supabase}
 DOCKER_BIN=${DOCKER_BIN:-docker}
 EXPECTED_CLI_VERSION=2.110.0
 DB_CONTAINER=supabase_db_timing-jeju
+SPRING_DIR="$ROOT/services/spring-api"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/timing-jeju-supabase-smoke.XXXXXX")
 
 cleanup() {
   "$SUPABASE_BIN" stop --no-backup >/dev/null 2>&1 || true
+  rm -rf "$TEMP_DIR"
 }
 trap cleanup EXIT INT TERM
 
 command -v "$SUPABASE_BIN" >/dev/null 2>&1 || {
   echo "Supabase CLI가 설치되지 않았습니다. 필요한 버전: $EXPECTED_CLI_VERSION" >&2
+  exit 1
+}
+command -v curl >/dev/null 2>&1 || {
+  echo "curl이 설치되지 않았습니다." >&2
+  exit 1
+}
+command -v python3 >/dev/null 2>&1 || {
+  echo "Python 3가 설치되지 않았습니다." >&2
   exit 1
 }
 
@@ -85,4 +96,105 @@ SEED_PROFILE_COUNT=$(
   exit 1
 }
 
-echo "[Supabase] Auth·PostGIS·public 스키마·빈 시드 반복 초기화 성공"
+echo "[Supabase] 로컬 Auth 명령 계약과 실제 access token 검증"
+STATUS_FILE="$TEMP_DIR/status.json"
+SIGNUP_PAYLOAD_FILE="$TEMP_DIR/signup-payload.json"
+SIGNUP_RESPONSE_FILE="$TEMP_DIR/signup-response.json"
+TOKEN_FILE="$TEMP_DIR/access-token"
+ISSUER_FILE="$TEMP_DIR/issuer"
+ALGORITHM_FILE="$TEMP_DIR/algorithm"
+
+umask 077
+"$SUPABASE_BIN" status -o json >"$STATUS_FILE"
+API_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["API_URL"])' "$STATUS_FILE")
+PUBLIC_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["PUBLISHABLE_KEY"])' "$STATUS_FILE")
+JWT_SECRET=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["JWT_SECRET"])' "$STATUS_FILE")
+
+TEST_EMAIL=$(python3 -c 'import uuid; print(f"security-smoke-{uuid.uuid4()}@example.test")')
+TEST_PASSWORD=$(python3 -c 'import secrets; print("Tj!" + secrets.token_urlsafe(24))')
+python3 - "$SIGNUP_PAYLOAD_FILE" "$TEST_EMAIL" "$TEST_PASSWORD" <<'PY'
+import json
+import sys
+
+path, email, password = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as output:
+    json.dump({"email": email, "password": password}, output)
+PY
+
+curl --fail --silent --show-error \
+  --request POST "$API_URL/auth/v1/signup" \
+  --header "apikey: $PUBLIC_KEY" \
+  --header "Content-Type: application/json" \
+  --data-binary "@$SIGNUP_PAYLOAD_FILE" \
+  --output "$SIGNUP_RESPONSE_FILE"
+
+python3 - "$SIGNUP_RESPONSE_FILE" "$TOKEN_FILE" "$ISSUER_FILE" "$ALGORITHM_FILE" "$API_URL" <<'PY'
+import base64
+import json
+import sys
+import uuid
+
+response_path, token_path, issuer_path, algorithm_path, api_url = sys.argv[1:]
+with open(response_path, encoding="utf-8") as response_file:
+    response = json.load(response_file)
+token = response.get("access_token")
+if not isinstance(token, str) or not token:
+    raise SystemExit("로컬 Auth 응답에 access token이 없습니다.")
+
+segments = token.split(".")
+if len(segments) != 3:
+    raise SystemExit("로컬 Auth access token이 JWT 형식이 아닙니다.")
+
+def decode(segment):
+    padded = segment + "=" * (-len(segment) % 4)
+    return json.loads(base64.urlsafe_b64decode(padded))
+
+header = decode(segments[0])
+claims = decode(segments[1])
+audience = claims.get("aud")
+audiences = audience if isinstance(audience, list) else [audience]
+expected_issuer = f"{api_url}/auth/v1"
+algorithm = header.get("alg")
+if algorithm not in {"ES256", "RS256", "HS256"}:
+    raise SystemExit("로컬 CLI access token 알고리즘을 지원하지 않습니다.")
+if claims.get("iss") != expected_issuer:
+    raise SystemExit("로컬 Auth issuer가 API URL 기반 계약과 다릅니다.")
+if "authenticated" not in audiences or claims.get("role") != "authenticated":
+    raise SystemExit("로컬 Auth audience 또는 role 계약이 다릅니다.")
+uuid.UUID(claims.get("sub", ""))
+
+with open(token_path, "w", encoding="utf-8") as token_file:
+    token_file.write(token)
+with open(issuer_path, "w", encoding="utf-8") as issuer_file:
+    issuer_file.write(claims["iss"])
+with open(algorithm_path, "w", encoding="utf-8") as algorithm_file:
+    algorithm_file.write(algorithm)
+print(f"[Supabase] 실제 token claim 확인: alg={algorithm}, aud=authenticated, role=authenticated, sub=UUID")
+PY
+
+ACCESS_TOKEN=$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read())' "$TOKEN_FILE")
+JWT_ISSUER=$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read())' "$ISSUER_FILE")
+JWT_ALGORITHM=$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read())' "$ALGORITHM_FILE")
+if [ "$JWT_ALGORITHM" = "HS256" ]; then
+  (
+    cd "$SPRING_DIR"
+    SPRING_PROFILES_ACTIVE=local-hs256 \
+      SUPABASE_JWT_ISSUER="$JWT_ISSUER" \
+      SUPABASE_JWT_AUDIENCE=authenticated \
+      SUPABASE_JWT_SECRET="$JWT_SECRET" \
+      SUPABASE_ACCESS_TOKEN="$ACCESS_TOKEN" \
+      ./gradlew --no-daemon test --tests '*SupabaseLocalAuthIntegrationTest'
+  )
+else
+  (
+    cd "$SPRING_DIR"
+    SPRING_PROFILES_ACTIVE=local \
+      SUPABASE_JWT_ISSUER="$JWT_ISSUER" \
+      SUPABASE_JWT_AUDIENCE=authenticated \
+      SUPABASE_JWKS_URL="$API_URL/auth/v1/.well-known/jwks.json" \
+      SUPABASE_ACCESS_TOKEN="$ACCESS_TOKEN" \
+      ./gradlew --no-daemon test --tests '*SupabaseLocalAuthIntegrationTest'
+  )
+fi
+
+echo "[Supabase] Auth·PostGIS·public 스키마·빈 시드·Spring 보호 API 통합 검증 성공"

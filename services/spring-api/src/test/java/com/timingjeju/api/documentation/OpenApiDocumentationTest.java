@@ -49,6 +49,17 @@ class OpenApiDocumentationTest {
   }
 
   @Test
+  void OpenAPI에_전역_bearerAuth_보안_계약이_포함된다() throws Exception {
+    mockMvc
+        .perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.type").value("http"))
+        .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
+        .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.bearerFormat").value("JWT"))
+        .andExpect(jsonPath("$.security[0].bearerAuth").isArray());
+  }
+
+  @Test
   void Swagger_UI를_조회할_수_있다() throws Exception {
     mockMvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
   }
