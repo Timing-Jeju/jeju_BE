@@ -61,6 +61,61 @@ class SecurityStartupValidationTest {
   }
 
   @Test
+  void 정확한_local은_JWKS만_local_hs256은_HS256만_허용한다() {
+    jwtContextRunner
+        .withPropertyValues(
+            "spring.profiles.active=local",
+            "app.security.jwt.mode=jwks",
+            "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
+            "app.security.jwt.jwks-url=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json")
+        .run(context -> assertThat(context).hasNotFailed());
+    jwtContextRunner
+        .withPropertyValues(
+            "spring.profiles.active=local-hs256",
+            "app.security.jwt.mode=hs256",
+            "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
+            "app.security.jwt.secret=test-" + "only-secret-that-is-long-enough")
+        .run(context -> assertThat(context).hasNotFailed());
+    jwtContextRunner
+        .withPropertyValues(
+            "spring.profiles.active=local",
+            "app.security.jwt.mode=hs256",
+            "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
+            "app.security.jwt.secret=test-" + "only-secret-that-is-long-enough")
+        .run(context -> assertThat(context).hasFailed());
+    jwtContextRunner
+        .withPropertyValues(
+            "spring.profiles.active=local-hs256",
+            "app.security.jwt.mode=jwks",
+            "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
+            "app.security.jwt.jwks-url=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json")
+        .run(context -> assertThat(context).hasFailed());
+  }
+
+  @Test
+  void local_보안_profile_혼합과_유사_profile은_context를_실패시킨다() {
+    for (String profiles :
+        new String[] {"local,staging", "local,test", "local-hs256,staging", "local,production"}) {
+      jwtContextRunner
+          .withPropertyValues(
+              "spring.profiles.active=" + profiles,
+              "app.security.jwt.mode=jwks",
+              "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
+              "app.security.jwt.jwks-url=http://127.0.0.1:54321/auth/v1/.well-known/jwks.json")
+          .run(context -> assertThat(context).as(profiles).hasFailed());
+    }
+    for (String profile : new String[] {"local-preview", "LOCAL", "Local", "local-HS256"}) {
+      jwtContextRunner
+          .withPropertyValues(
+              "spring.profiles.active=" + profile,
+              "app.security.jwt.mode=jwks",
+              "app.security.jwt.issuer=https://project.supabase.co/auth/v1",
+              "app.security.jwt.jwks-url=https://project.supabase.co/auth/v1/.well-known/jwks.json")
+          .run(context -> assertThat(context).as(profile).hasFailed());
+    }
+  }
+
+  @Test
   void CORS_allowlist가_없거나_정규화_후_비면_context가_실패한다() {
     corsContextRunner.run(context -> assertThat(context).hasFailed());
     corsContextRunner
@@ -79,6 +134,23 @@ class SecurityStartupValidationTest {
               assertThat(context.getBean(AppCorsProperties.class).allowedOrigins())
                   .containsExactly("http://localhost:3000", "https://app.timing-jeju.test");
             });
+  }
+
+  @Test
+  void 문법에_맞지_않는_CORS_origin은_context가_실패한다() {
+    for (String origin :
+        List.of(
+            "ftp://example.com",
+            "https://user@example.com",
+            "https://example.com/path",
+            "https://example.com?query=1",
+            "https://*.example.com",
+            "relative/path",
+            "http://example.com:65536")) {
+      corsContextRunner
+          .withPropertyValues("app.security.cors.allowed-origins=" + origin)
+          .run(context -> assertThat(context).as(origin).hasFailed());
+    }
   }
 
   @Configuration(proxyBeanMethods = false)

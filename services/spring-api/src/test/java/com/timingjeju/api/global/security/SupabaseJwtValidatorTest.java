@@ -29,6 +29,16 @@ class SupabaseJwtValidatorTest {
   }
 
   @Test
+  void exp가_없거나_변환된_Instant_타입이_아니면_실패한다() {
+    String subject = UUID.randomUUID().toString();
+    assertInvalidClaimsWithoutDefaultExpiration(
+        Map.of("aud", List.of("authenticated"), "role", "authenticated", "sub", subject));
+    assertInvalidClaimsWithoutDefaultExpiration(
+        Map.of(
+            "aud", List.of("authenticated"), "role", "authenticated", "sub", subject, "exp", 123));
+  }
+
+  @Test
   void audience가_다르면_실패한다() {
     assertThat(
             validator
@@ -130,6 +140,15 @@ class SupabaseJwtValidatorTest {
 
   private void assertInvalidClaims(Map<String, Object> claims) {
     Instant now = Instant.now();
+    Map<String, Object> claimsWithExpiration = new LinkedHashMap<>(claims);
+    claimsWithExpiration.putIfAbsent("exp", now.plusSeconds(300));
+    Jwt jwt =
+        new Jwt("token", now, now.plusSeconds(300), Map.of("alg", "HS256"), claimsWithExpiration);
+    assertThat(validator.validate(jwt).hasErrors()).isTrue();
+  }
+
+  private void assertInvalidClaimsWithoutDefaultExpiration(Map<String, Object> claims) {
+    Instant now = Instant.now();
     Jwt jwt = new Jwt("token", now, now.plusSeconds(300), Map.of("alg", "HS256"), claims);
     assertThat(validator.validate(jwt).hasErrors()).isTrue();
   }
@@ -141,6 +160,16 @@ class SupabaseJwtValidatorTest {
         now,
         now.plusSeconds(300),
         Map.of("alg", "HS256"),
-        Map.of("iss", ISSUER, "aud", audience, "role", role, "sub", subject));
+        Map.of(
+            "iss",
+            ISSUER,
+            "aud",
+            audience,
+            "role",
+            role,
+            "sub",
+            subject,
+            "exp",
+            now.plusSeconds(300)));
   }
 }

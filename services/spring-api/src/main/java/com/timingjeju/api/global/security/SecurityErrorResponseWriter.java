@@ -1,10 +1,10 @@
 package com.timingjeju.api.global.security;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.UUID;
 import org.springframework.http.MediaType;
+import tools.jackson.databind.ObjectMapper;
 
 public final class SecurityErrorResponseWriter {
 

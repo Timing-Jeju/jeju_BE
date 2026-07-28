@@ -2,6 +2,8 @@ package com.timingjeju.api.global.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.timingjeju.api.application.security.AuthenticatedRole;
+import com.timingjeju.api.application.security.CurrentUser;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

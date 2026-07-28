@@ -10,23 +10,23 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 public final class SupabaseJwtDecoderFactory {
 
   private final SupabaseJwtProperties properties;
-  private final SecurityRuntimeEnvironment runtimeEnvironment;
+  private final SecurityRuntimePolicy runtimePolicy;
   private final List<JwtDecoderStrategy> strategies;
 
   public SupabaseJwtDecoderFactory(
-      SupabaseJwtProperties properties, SecurityRuntimeEnvironment runtimeEnvironment) {
+      SupabaseJwtProperties properties, SecurityRuntimePolicy runtimePolicy) {
     this(
         properties,
-        runtimeEnvironment,
+        runtimePolicy,
         List.of(new JwksJwtDecoderStrategy(), new LocalHs256JwtDecoderStrategy()));
   }
 
   public SupabaseJwtDecoderFactory(
       SupabaseJwtProperties properties,
-      SecurityRuntimeEnvironment runtimeEnvironment,
+      SecurityRuntimePolicy runtimePolicy,
       List<JwtDecoderStrategy> strategies) {
     this.properties = properties;
-    this.runtimeEnvironment = runtimeEnvironment;
+    this.runtimePolicy = runtimePolicy;
     this.strategies = List.copyOf(strategies);
   }
 
@@ -37,7 +37,7 @@ public final class SupabaseJwtDecoderFactory {
             .filter(strategy -> strategy.mode() == properties.mode())
             .findFirst()
             .orElseThrow(() -> new IllegalStateException("지원하지 않는 JWT decoder mode입니다."))
-            .create(properties, runtimeEnvironment);
+            .create(properties, runtimePolicy.environment());
     decoder.setJwtValidator(
         new DelegatingOAuth2TokenValidator<>(
             new JwtTimestampValidator(properties.clockSkew()),
@@ -47,7 +47,12 @@ public final class SupabaseJwtDecoderFactory {
   }
 
   private void validateCommonProperties() {
-    JwtEndpointPolicy.validate(properties.issuer(), "SUPABASE_JWT_ISSUER", runtimeEnvironment);
+    if (properties.mode() != runtimePolicy.allowedDecoderMode()) {
+      throw new IllegalStateException(
+          "현재 보안 profile에서는 " + properties.mode() + " JWT decoder mode를 사용할 수 없습니다.");
+    }
+    JwtEndpointPolicy.validate(
+        properties.issuer(), "SUPABASE_JWT_ISSUER", runtimePolicy.environment());
     if (properties.clockSkew().isNegative()
         || properties.clockSkew().compareTo(java.time.Duration.ofSeconds(60)) > 0) {
       throw new IllegalStateException("JWT clock skew는 0초 이상 60초 이하여야 합니다.");

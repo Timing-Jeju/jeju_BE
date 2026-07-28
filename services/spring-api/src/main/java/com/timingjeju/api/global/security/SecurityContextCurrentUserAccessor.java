@@ -1,5 +1,7 @@
 package com.timingjeju.api.global.security;
 
+import com.timingjeju.api.application.security.CurrentUser;
+import com.timingjeju.api.application.security.CurrentUserAccessor;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;

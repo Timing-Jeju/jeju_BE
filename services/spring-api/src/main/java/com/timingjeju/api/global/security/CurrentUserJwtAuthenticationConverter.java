@@ -1,5 +1,7 @@
 package com.timingjeju.api.global.security;
 
+import com.timingjeju.api.application.security.AuthenticatedRole;
+import com.timingjeju.api.application.security.CurrentUser;
 import java.util.UUID;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.oauth2.jwt.Jwt;

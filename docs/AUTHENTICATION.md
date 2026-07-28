@@ -9,7 +9,7 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 - `/v3/api-docs/**`, `/swagger-ui/**`: 해당 springdoc 기능이 활성화된 경우에만 공개
 - 그 밖의 경로: 기본 거부
 
-서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다. 허용 Origin을 설정하지 않았거나 공백·쉼표만 설정하면 애플리케이션 시작에 실패합니다.
+서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다. Origin은 `http`/`https` scheme, host와 선택적 1~65535 port만 가질 수 있습니다. userinfo, path, query, fragment, 상대 URI, encoded 우회 또는 모든 형태의 wildcard가 있거나 allowlist가 정규화 후 비면 애플리케이션 시작에 실패합니다. scheme과 host는 소문자로 정규화한 뒤 중복을 제거합니다.
 
 ## JWT 검증 계약
 
@@ -17,17 +17,19 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 
 | claim | 계약 |
 | --- | --- |
-| `exp` | 만료 전이며 30초 clock skew 이내 |
-| `nbf` | 활성 시점 이후이며 30초 clock skew 이내 |
+| `exp` | 필수 숫자형 Unix timestamp이며 변환 후 만료 전 또는 30초 clock skew 이내 |
+| `nbf` | 존재하면 활성 시점 이후 또는 30초 clock skew 이내 |
 | `iss` | `SUPABASE_JWT_ISSUER`와 정확히 일치 |
 | `aud` | 문자열 또는 문자열 배열이며 `SUPABASE_JWT_AUDIENCE` 포함, 기본값 `authenticated` |
 | `role` | 문자열 `authenticated`만 허용 |
 | `sub` | 문자열이며 소문자 canonical UUID 형식 |
 | `session_id` | 존재하면 비어 있지 않은 문자열 canonical UUID 형식 |
 
-`anon`, `service_role`, 잘못된 audience/issuer와 UUID가 아닌 `sub`는 401로 거부합니다. `user_metadata`, 이메일과 nickname은 인증·소유권 판단에 사용하지 않습니다. 검증된 신원은 `CurrentUser` 값 객체로 변환하며 도메인 코드에 Spring Security `Jwt`를 전달하지 않습니다.
+공식 Supabase Claims Reference에서 `exp`와 `iat`는 필수, `nbf`는 선택 claim입니다. 이번 API 검증 계약은 Issue가 명시한 `exp`의 존재·숫자 변환·만료와, `nbf`가 있을 때의 활성 시점을 강제합니다. `iat`를 별도 정책 claim으로 확장하지 않습니다. raw `exp`가 null·문자열·객체이거나 Instant로 변환할 수 없으면 decoder 단계의 실패까지 포함해 401로 종료합니다.
 
-인증 실패는 `401 AUTH_TOKEN_INVALID`, 인증된 사용자의 접근 거부는 `403 AUTH_ACCESS_DENIED`입니다. 두 응답은 한국어 `message`와 요청 추적용 `traceId`를 포함하며 token, JWT payload와 개인정보는 응답이나 로그에 기록하지 않습니다.
+`anon`, `service_role`, 잘못된 audience/issuer와 UUID가 아닌 `sub`는 401로 거부합니다. `user_metadata`, 이메일과 nickname은 인증·소유권 판단에 사용하지 않습니다. 검증된 신원은 Spring 비의존 `application.security.CurrentUser` 값 객체로 변환합니다. 도메인은 `CurrentUserAccessor` 계약만 사용할 수 있고 `global.security`, Spring Security `Jwt` 또는 `SecurityContext`에 의존하지 않습니다.
+
+인증 실패는 `401 AUTH_TOKEN_INVALID`, 인증된 사용자의 접근 거부는 `403 AUTH_ACCESS_DENIED`입니다. 알려진 unknown `kid`와 원격 JWKS 일시 장애는 token을 노출하지 않고 401로 종료합니다. 예상하지 못한 decoder/provider 내부 장애는 401로 숨기지 않고 `500 AUTH_INTERNAL_ERROR`의 고정 한국어 message와 `traceId`만 반환합니다. 모든 보안 오류 JSON은 Spring Boot가 관리하는 Jackson 3 mapper bean으로 직렬화하며 token, JWT payload, URL query, 예외 message와 개인정보를 응답이나 로그에 기록하지 않습니다.
 
 ## 환경변수
 
@@ -43,7 +45,7 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 
 운영은 profile을 지정하지 않거나 정확한 `prod`/`production` profile에서 JWKS 전략을 사용합니다. 기본·운영 환경의 issuer와 JWKS URL은 모두 HTTPS여야 하며 HTTP이면 애플리케이션 시작에 실패합니다. `SUPABASE_JWKS_URL`이 없거나 `SUPABASE_JWT_SECRET`이 주입되어도 시작에 실패합니다. 운영 secret은 배포 플랫폼의 Secret 기능에서만 관리하며 `service_role` 또는 secret key를 사용자 요청 인증에 사용하지 않습니다.
 
-decoder mode(`jwks`/`hs256`)와 실행 환경(`LOCAL`/`PRODUCTION`)은 별도로 판별합니다. 로컬 환경은 정확한 `local` 또는 `local-hs256` profile만 인정하며 `local-preview`처럼 이름에 local이 포함된 임의 profile은 운영 정책을 적용합니다. 로컬과 운영 profile을 동시에 활성화하면 시작을 거부합니다.
+decoder mode(`jwks`/`hs256`)와 실행 환경(`LOCAL`/`PRODUCTION`)은 별도 값으로 판별합니다. 정확한 `local` profile은 local JWKS만, 정확한 `local-hs256` profile은 legacy HS256만 허용합니다. `local`에서 mode를 HS256으로 override하거나 `local-hs256`에서 JWKS를 선택하면 시작에 실패합니다. 로컬 runtime profile은 `staging`, `test`, `prod`, `production` 또는 다른 profile과 함께 사용할 수 없습니다. `local-preview`, 대소문자가 다른 이름과 앞뒤 공백도 fail-fast합니다. 보안과 무관한 단일 `test`/`staging` profile은 로컬 권한을 얻지 않고 운영 JWKS·HTTPS 정책을 적용합니다.
 
 ## 로컬 Supabase CLI
 
@@ -77,7 +79,7 @@ Supabase Edge의 JWKS cache는 10분이며 signing key 교체 시 standby key �
 
 2026년 7월 self-hosted Auth 변경으로 `API_EXTERNAL_URL` 기본값에 `/auth/v1`이 포함되었습니다. `GOTRUE_JWT_ISSUER`도 이 값을 사용하므로 self-hosted 설정을 올릴 때 issuer에 `/auth/v1`이 중복되거나 누락되지 않았는지 실제 access token에서 다시 확인합니다.
 
-구현 기준은 Supabase 공식 [JWT 검증 문서](https://supabase.com/docs/guides/auth/jwts), [JWT Signing Keys](https://supabase.com/docs/guides/auth/signing-keys), [self-hosted asymmetric Auth keys](https://supabase.com/docs/guides/self-hosting/self-hosted-auth-keys)와 Auth changelog입니다. 공식 문서에 따라 운영은 legacy shared secret보다 비대칭 signing key와 HTTPS JWKS를 우선합니다.
+구현 기준은 Supabase 공식 [JWT Claims Reference](https://supabase.com/docs/guides/auth/jwt-fields), [JWT 검증 문서](https://supabase.com/docs/guides/auth/jwts), [JWT Signing Keys](https://supabase.com/docs/guides/auth/signing-keys), [self-hosted asymmetric Auth keys](https://supabase.com/docs/guides/self-hosting/self-hosted-auth-keys)와 Auth changelog입니다. 공식 문서에 따라 운영은 legacy shared secret보다 비대칭 signing key와 HTTPS JWKS를 우선합니다.
 
 ## 검증
 

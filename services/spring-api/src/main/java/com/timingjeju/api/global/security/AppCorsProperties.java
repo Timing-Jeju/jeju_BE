@@ -1,7 +1,10 @@
 package com.timingjeju.api.global.security;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -17,13 +20,57 @@ public record AppCorsProperties(List<String> allowedOrigins) {
                 .flatMap(value -> Arrays.stream(value.split(",")))
                 .map(String::trim)
                 .filter(origin -> !origin.isBlank())
+                .map(AppCorsProperties::normalizeOrigin)
                 .distinct()
                 .toList();
     if (allowedOrigins.isEmpty()) {
       throw new IllegalArgumentException("CORS 허용 Origin을 하나 이상 설정해야 합니다.");
     }
-    if (allowedOrigins.stream().anyMatch(origin -> origin.equals("*"))) {
+  }
+
+  private static String normalizeOrigin(String value) {
+    if (value.contains("*")) {
       throw new IllegalArgumentException("CORS 허용 Origin에는 wildcard를 사용할 수 없습니다.");
     }
+    final URI uri;
+    try {
+      uri = new URI(value);
+    } catch (URISyntaxException exception) {
+      throw invalidOrigin();
+    }
+    String scheme = uri.getScheme();
+    String host = uri.getHost();
+    int port = uri.getPort();
+    if (scheme == null
+        || host == null
+        || uri.isOpaque()
+        || uri.getRawUserInfo() != null
+        || (uri.getRawPath() != null && !uri.getRawPath().isEmpty())
+        || uri.getRawQuery() != null
+        || uri.getRawFragment() != null
+        || value.contains("%")) {
+      throw invalidOrigin();
+    }
+    String normalizedScheme = scheme.toLowerCase(Locale.ROOT);
+    if (!normalizedScheme.equals("http") && !normalizedScheme.equals("https")) {
+      throw invalidOrigin();
+    }
+    if (port == 0 || port > 65535) {
+      throw invalidOrigin();
+    }
+    String normalizedHost = host.toLowerCase(Locale.ROOT);
+    if (normalizedHost.contains(":")) {
+      normalizedHost = normalizedHost.startsWith("[") ? normalizedHost : "[" + normalizedHost + "]";
+    }
+    String normalizedAuthority = normalizedHost + (port == -1 ? "" : ":" + port);
+    if (!normalizedAuthority.equalsIgnoreCase(uri.getRawAuthority())) {
+      throw invalidOrigin();
+    }
+    return normalizedScheme + "://" + normalizedAuthority;
+  }
+
+  private static IllegalArgumentException invalidOrigin() {
+    return new IllegalArgumentException(
+        "CORS 허용 Origin은 http/https scheme, host와 선택적 유효 port만 포함해야 합니다.");
   }
 }

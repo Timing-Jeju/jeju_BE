@@ -10,9 +10,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSObject;
+import com.nimbusds.jose.Payload;
 import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jose.util.JSONObjectUtils;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.timingjeju.api.application.security.CurrentUser;
+import com.timingjeju.api.application.security.CurrentUserAccessor;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
@@ -41,7 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
       "app.security.jwt.audience=authenticated",
       "app.security.jwt.jwks-url=",
       "app.security.jwt.secret=test-" + "only-hs256-secret-with-at-least-32-bytes",
-      "app.security.cors.allowed-origins=http://localhost:3000,https://app.timing-jeju.test"
+      "app.security.cors.allowed-origins=HTTP://LOCALHOST:3000,https://app.timing-jeju.test"
     })
 @AutoConfigureMockMvc
 @Import(SecurityIntegrationTest.TestEndpointConfig.class)
@@ -223,6 +228,35 @@ class SecurityIntegrationTest {
   }
 
   @Test
+  void exp가_누락_null_비숫자_변환불가이면_filter_chain은_401을_반환한다() throws Exception {
+    assertUnauthorized(
+        get("/api/v1/test/current-user")
+            .header(HttpHeaders.AUTHORIZATION, bearer(tokenWithoutExpiration())));
+    assertUnauthorized(
+        get("/api/v1/test/current-user")
+            .header(HttpHeaders.AUTHORIZATION, bearer(tokenWithRawExpiration(null))));
+    assertUnauthorized(
+        get("/api/v1/test/current-user")
+            .header(HttpHeaders.AUTHORIZATION, bearer(tokenWithRawExpiration("not-a-number"))));
+    assertUnauthorized(
+        get("/api/v1/test/current-user")
+            .header(
+                HttpHeaders.AUTHORIZATION, bearer(tokenWithRawExpiration(Map.of("seconds", 1)))));
+  }
+
+  @Test
+  void exp가_과거이거나_epoch_경계이면_filter_chain은_401을_반환한다() throws Exception {
+    assertUnauthorized(
+        get("/api/v1/test/current-user")
+            .header(
+                HttpHeaders.AUTHORIZATION,
+                bearer(tokenWithRawExpiration(Instant.now().minusSeconds(31).getEpochSecond()))));
+    assertUnauthorized(
+        get("/api/v1/test/current-user")
+            .header(HttpHeaders.AUTHORIZATION, bearer(tokenWithRawExpiration(0L))));
+  }
+
+  @Test
   void actuator와_활성화된_API_문서는_공개하고_API는_보호한다() throws Exception {
     mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
     mockMvc.perform(get("/actuator/info")).andExpect(status().isOk());
@@ -262,6 +296,20 @@ class SecurityIntegrationTest {
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
         .andExpect(status().isForbidden())
         .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+
+    mockMvc
+        .perform(
+            options("/api/v1/test/current-user")
+                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "TRACE"))
+        .andExpect(status().isForbidden());
+    mockMvc
+        .perform(
+            options("/api/v1/test/current-user")
+                .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "X-Forbidden"))
+        .andExpect(status().isForbidden());
   }
 
   @Test
@@ -353,6 +401,34 @@ class SecurityIntegrationTest {
     JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder();
     claims.forEach(builder::claim);
     SignedJWT jwt = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), builder.build());
+    jwt.sign(new MACSigner(HMAC_KEY.getBytes(StandardCharsets.UTF_8)));
+    return jwt.serialize();
+  }
+
+  private String tokenWithoutExpiration() throws Exception {
+    return signedRawPayload(baseRawClaims());
+  }
+
+  private String tokenWithRawExpiration(Object expiration) throws Exception {
+    Map<String, Object> claims = baseRawClaims();
+    claims.put("exp", expiration);
+    return signedRawPayload(claims);
+  }
+
+  private Map<String, Object> baseRawClaims() {
+    Map<String, Object> claims = new LinkedHashMap<>();
+    claims.put("iss", ISSUER);
+    claims.put("aud", List.of("authenticated"));
+    claims.put("sub", UUID.randomUUID().toString());
+    claims.put("role", "authenticated");
+    claims.put("iat", Instant.now().getEpochSecond());
+    return claims;
+  }
+
+  private String signedRawPayload(Map<String, Object> claims) throws Exception {
+    JWSObject jwt =
+        new JWSObject(
+            new JWSHeader(JWSAlgorithm.HS256), new Payload(JSONObjectUtils.toJSONString(claims)));
     jwt.sign(new MACSigner(HMAC_KEY.getBytes(StandardCharsets.UTF_8)));
     return jwt.serialize();
   }

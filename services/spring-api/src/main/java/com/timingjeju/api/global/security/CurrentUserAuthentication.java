@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.security;
 
+import com.timingjeju.api.application.security.CurrentUser;
 import java.util.List;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 

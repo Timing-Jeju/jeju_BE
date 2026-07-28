@@ -1,4 +1,4 @@
-package com.timingjeju.api.global.security;
+package com.timingjeju.api.application.security;
 
 import java.util.UUID;
 

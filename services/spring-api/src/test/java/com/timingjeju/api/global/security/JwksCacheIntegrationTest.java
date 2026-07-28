@@ -68,7 +68,10 @@ class JwksCacheIntegrationTest {
               Duration.ofSeconds(30));
 
       JwtDecoder decoder =
-          new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.LOCAL).create();
+          new SupabaseJwtDecoderFactory(
+                  properties,
+                  new SecurityRuntimePolicy(SecurityRuntimeEnvironment.LOCAL, JwtDecoderMode.JWKS))
+              .create();
       assertThat(requestCount).hasValue(0);
 
       decoder.decode(token(oldKey, issuer, UUID.randomUUID()));

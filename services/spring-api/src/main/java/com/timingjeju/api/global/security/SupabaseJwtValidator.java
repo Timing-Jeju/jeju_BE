@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.security;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
@@ -22,6 +23,9 @@ public final class SupabaseJwtValidator implements OAuth2TokenValidator<Jwt> {
   @Override
   public OAuth2TokenValidatorResult validate(Jwt jwt) {
     Map<String, Object> claims = jwt.getClaims();
+    if (!(claims.get("exp") instanceof Instant)) {
+      return OAuth2TokenValidatorResult.failure(INVALID_CLAIMS);
+    }
     if (!hasExpectedAudience(claims.get("aud"))) {
       return OAuth2TokenValidatorResult.failure(INVALID_CLAIMS);
     }

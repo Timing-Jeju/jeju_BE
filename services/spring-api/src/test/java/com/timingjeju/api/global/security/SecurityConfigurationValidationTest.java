@@ -19,9 +19,7 @@ class SecurityConfigurationValidationTest {
             "https://project.supabase.co/auth/v1/.well-known/jwks.json");
 
     assertThatThrownBy(
-            () ->
-                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
-                    .create())
+            () -> new SupabaseJwtDecoderFactory(properties, productionJwksPolicy()).create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("HTTPS");
   }
@@ -34,9 +32,7 @@ class SecurityConfigurationValidationTest {
             "http://project.supabase.co/auth/v1/.well-known/jwks.json");
 
     assertThatThrownBy(
-            () ->
-                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
-                    .create())
+            () -> new SupabaseJwtDecoderFactory(properties, productionJwksPolicy()).create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("HTTPS");
   }
@@ -48,10 +44,7 @@ class SecurityConfigurationValidationTest {
             "https://project.supabase.co/auth/v1",
             "https://project.supabase.co/auth/v1/.well-known/jwks.json");
 
-    assertThatCode(
-            () ->
-                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
-                    .create())
+    assertThatCode(() -> new SupabaseJwtDecoderFactory(properties, productionJwksPolicy()).create())
         .doesNotThrowAnyException();
   }
 
@@ -66,14 +59,10 @@ class SecurityConfigurationValidationTest {
             "http://192.168.10.10:54321/auth/v1",
             "http://192.168.10.10:54321/auth/v1/.well-known/jwks.json");
 
-    assertThatCode(
-            () ->
-                new SupabaseJwtDecoderFactory(loopback, SecurityRuntimeEnvironment.LOCAL).create())
+    assertThatCode(() -> new SupabaseJwtDecoderFactory(loopback, localJwksPolicy()).create())
         .doesNotThrowAnyException();
     assertThatThrownBy(
-            () ->
-                new SupabaseJwtDecoderFactory(privateNetwork, SecurityRuntimeEnvironment.LOCAL)
-                    .create())
+            () -> new SupabaseJwtDecoderFactory(privateNetwork, localJwksPolicy()).create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("로컬");
   }
@@ -90,9 +79,7 @@ class SecurityConfigurationValidationTest {
             Duration.ofSeconds(30));
 
     assertThatThrownBy(
-            () ->
-                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
-                    .create())
+            () -> new SupabaseJwtDecoderFactory(properties, productionJwksPolicy()).create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("SUPABASE_JWKS_URL");
   }
@@ -110,7 +97,10 @@ class SecurityConfigurationValidationTest {
 
     assertThatThrownBy(
             () ->
-                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
+                new SupabaseJwtDecoderFactory(
+                        properties,
+                        new SecurityRuntimePolicy(
+                            SecurityRuntimeEnvironment.PRODUCTION, JwtDecoderMode.HS256))
                     .create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("로컬");
@@ -128,9 +118,7 @@ class SecurityConfigurationValidationTest {
             Duration.ofSeconds(30));
 
     assertThatThrownBy(
-            () ->
-                new SupabaseJwtDecoderFactory(properties, SecurityRuntimeEnvironment.PRODUCTION)
-                    .create())
+            () -> new SupabaseJwtDecoderFactory(properties, productionJwksPolicy()).create())
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("SUPABASE_JWT_SECRET");
   }
@@ -143,5 +131,13 @@ class SecurityConfigurationValidationTest {
         URI.create(jwksUrl),
         "",
         Duration.ofSeconds(30));
+  }
+
+  private SecurityRuntimePolicy productionJwksPolicy() {
+    return new SecurityRuntimePolicy(SecurityRuntimeEnvironment.PRODUCTION, JwtDecoderMode.JWKS);
+  }
+
+  private SecurityRuntimePolicy localJwksPolicy() {
+    return new SecurityRuntimePolicy(SecurityRuntimeEnvironment.LOCAL, JwtDecoderMode.JWKS);
   }
 }

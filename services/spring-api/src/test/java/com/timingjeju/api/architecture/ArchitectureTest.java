@@ -72,6 +72,35 @@ class ArchitectureTest {
   }
 
   @Test
+  void 현재_사용자_application_계약은_Spring에_의존하지_않고_domain에서_사용할_수_있다() {
+    JavaClasses contractClasses =
+        new ClassFileImporter()
+            .importPackages(
+                "com.timingjeju.api.application.security", "com.timingjeju.api.domain.contract");
+
+    noClasses()
+        .that()
+        .resideInAnyPackage("..application.security..", "..domain.contract..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global.security..")
+        .allowEmptyShould(false)
+        .check(contractClasses);
+  }
+
+  @Test
+  void 보안_구성과_오류_writer는_Jackson2에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAnyPackage("..global.config..", "..global.security..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("com.fasterxml.jackson..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void mvc_계층_클래스는_역할을_드러내는_이름을_사용한다() {
     classes()
         .that()
