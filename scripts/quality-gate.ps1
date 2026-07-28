@@ -21,7 +21,7 @@ if (-not $SetupValidation) {
 py -3 scripts/git-hooks/scan-staged-secrets.py --all-files
 py -3 -m unittest discover -s .codex/hooks/tests -p test_*.py
 py -3 -m unittest discover -s scripts/git-hooks/tests -p test_*.py
-py -3 -m unittest scripts/tests/test_monorepo_layout.py
+py -3 -m unittest discover -s scripts/tests -p test_*.py
 
 Push-Location $springDir
 try {

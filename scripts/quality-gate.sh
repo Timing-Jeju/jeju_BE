@@ -50,7 +50,7 @@ python3 scripts/git-hooks/scan-staged-secrets.py --all-files
 stage "저장소 자동화 테스트"
 python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
 python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'
-python3 -m unittest scripts/tests/test_monorepo_layout.py
+python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
 stage "포맷 검사"
 run_spring_gradle spotlessCheck
