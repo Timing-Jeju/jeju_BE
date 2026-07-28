@@ -31,6 +31,7 @@ REMOTE_SETUP_MODE=apply ./scripts/github/setup-ruleset.sh owner/repository
 - Java 21과 Gradle Wrapper 무결성
 - Python 3.12, uv 잠금, Ruff·mypy·pytest
 - 저장소 정책, Spring 테스트, Architecture와 JaCoCo 커버리지
+- Spring OpenAPI JSON 생성과 CI Artifact 보존
 - Docker 이미지, Compose 실행, Actuator Health Check와 리소스 정리
 
 공통 검사는 항상 실행합니다. Spring 또는 FastAPI만 변경하면 해당 서비스 검사만 추가하며, 서비스 계약이 바뀌면 두 서비스와 계약 검사를 모두 수행합니다. `quality-gate` Job은 실행 대상 Job의 성공을 하나의 필수 체크로 집계합니다.

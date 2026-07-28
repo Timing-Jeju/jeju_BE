@@ -21,6 +21,10 @@ Acceptance Criteria를 성공·실패·경계값 테스트로 바꾸고 Red 실�
 
 Developer 세션은 품질 게이트와 Docker 검증 뒤 PR을 만들지 않고 Reviewer에게 넘깁니다. Reviewer는 `develop...HEAD`를 검토하며 필수 수정사항이 하나라도 있으면 개발 세션으로 반환합니다. 최신 HEAD가 APPROVED이고 품질 게이트 기록도 최신일 때만 `scripts/create-pr.*`로 PR을 생성합니다.
 
+## API 문서
+
+Spring 공개 API를 추가하거나 변경하면 OpenAPI 통합 테스트를 갱신하고 `./gradlew openApiDocs`로 `build/openapi/openapi.json` 생성을 확인합니다. Swagger 설명은 Controller 구현에 누적하지 않고 [API 문서화 규칙](docs/API_DOCUMENTATION.md)의 문서 계약 인터페이스 패턴을 따릅니다.
+
 ## 제출 전 확인
 
 ```bash

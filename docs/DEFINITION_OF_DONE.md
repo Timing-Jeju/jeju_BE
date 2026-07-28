@@ -7,6 +7,7 @@
 - Red 실패, Green 통과, Refactor 후 전체 테스트 증거가 있습니다.
 - 단위·슬라이스·통합·Architecture 테스트와 커버리지 검증이 통과했습니다.
 - 포맷, 컴파일, `bootJar` 빌드가 통과했습니다.
+- Spring 공개 API 변경 시 Swagger UI 통합 테스트와 `openApiDocs` 생성이 통과했습니다.
 - 모노레포 구조 테스트와 변경된 모든 서비스의 전용 품질 게이트가 통과했습니다.
 - FastAPI 운영 Python 파일을 추가했다면 대응 pytest와 mypy 검사가 통과했습니다.
 - Docker 이미지 빌드, Compose 실행, Health Check, 리소스 정리가 성공했습니다.

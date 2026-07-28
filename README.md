@@ -23,6 +23,7 @@
 
 - Java 21
 - Spring Boot 4.1.0
+- springdoc-openapi 3.0.3, Swagger UI
 - Gradle 9.5.1 Wrapper
 - FastAPI 0.139, MCP Python SDK 1.x, uv
 - PostgreSQL 16 + PostGIS 3.4
@@ -58,12 +59,15 @@ Set-Location services/spring-api
 
 애플리케이션 상태는 `http://localhost:8080/actuator/health`에서 확인합니다. `.env`의 예시 비밀번호는 로컬 전용이며 실제 운영 비밀값을 저장소에 넣지 않습니다.
 
+프론트엔드 협업용 Swagger UI는 `http://localhost:8080/swagger-ui/index.html`, OpenAPI JSON은 `http://localhost:8080/v3/api-docs`에서 확인합니다. 문서에는 `/api/v1/**` 공개 API만 포함합니다.
+
 ## 테스트와 품질 게이트
 
 ```bash
 cd services/spring-api
 ./gradlew clean check
 ./gradlew unitTest sliceTest integrationTest architectureTest
+./gradlew openApiDocs
 cd ../..
 ./scripts/quality-gate.sh
 ```
@@ -114,6 +118,7 @@ Base: develop
 ## 문서
 
 - [아키텍처](docs/ARCHITECTURE.md)
+- [API 문서화 규칙](docs/API_DOCUMENTATION.md)
 - [Git 및 출시 흐름](docs/GIT_WORKFLOW.md)
 - [TDD 가이드](docs/TDD_GUIDE.md)
 - [PR 전·후 코드리뷰](docs/CODE_REVIEW.md)

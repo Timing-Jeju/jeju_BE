@@ -56,6 +56,12 @@ com.timingjeju.api
 
 실제 요구사항이 생기기 전에는 예시용 Member/Auth 도메인이나 가짜 Entity를 만들지 않습니다.
 
+## API 문서화 경계
+
+Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제공합니다. 경로와 DTO Validation은 Spring MVC 코드에서 자동 추론하고, Controller 구현에는 문서 애노테이션을 반복하지 않습니다.
+
+추가 설명이 필요한 API는 `domain/{domain}/controller/docs/{Domain}ApiDocs` 문서 계약 인터페이스에 `@Operation`과 특수 응답을 작성합니다. API 전체 정보와 향후 공통 인증·오류 응답은 `global.config.OpenApiConfig`와 `OpenApiCustomizer`가 담당합니다. 세부 기준은 [API 문서화 규칙](API_DOCUMENTATION.md)을 따릅니다.
+
 ## 의존성 원칙
 
 - 호출 흐름은 `controller → service → repository`입니다.
