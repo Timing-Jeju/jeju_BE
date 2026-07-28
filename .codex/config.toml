@@ -1,0 +1,6 @@
+# 저장소 범위 Codex 설정입니다.
+codex_hooks = true
+
+[project]
+language = "ko"
+remote_setup_mode = "dry-run"

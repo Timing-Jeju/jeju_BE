@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "python3 .codex/hooks/session_start.py || py -3 .codex/hooks/session_start.py"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Shell|exec_command|apply_patch|Edit|Write",
+        "command": "python3 .codex/hooks/pre_tool_use_policy.py || py -3 .codex/hooks/pre_tool_use_policy.py"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "python3 .codex/hooks/user_prompt_secret_guard.py || py -3 .codex/hooks/user_prompt_secret_guard.py"
+      }
+    ],
+    "Stop": [
+      {
+        "command": "python3 .codex/hooks/stop_quality_gate.py || py -3 .codex/hooks/stop_quality_gate.py"
+      }
+    ]
+  }
+}

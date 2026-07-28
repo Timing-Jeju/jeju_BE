@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR 생성"
+  short_description: "승인과 품질 게이트를 검증한 뒤 안전하게 PR 생성"
+  default_prompt: "$create-pr로 검증된 브랜치의 PR을 생성하세요."
