@@ -29,6 +29,8 @@ springdoc:
   paths-to-match: /api/v1/**
 
 app:
+  social-login:
+    provider-ids: ${APP_SOCIAL_LOGIN_PROVIDER_IDS:google,kakao,custom:naver}
   security:
     jwt:
       mode: jwks

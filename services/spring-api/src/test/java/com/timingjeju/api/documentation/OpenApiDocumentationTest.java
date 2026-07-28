@@ -41,11 +41,31 @@ class OpenApiDocumentationTest {
   }
 
   @Test
-  void OpenAPI에는_공개_API_경로만_포함된다() throws Exception {
+  void OpenAPI에는_소셜_로그인_공개_API_경로와_설명이_포함된다() throws Exception {
     mockMvc
         .perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.paths").isEmpty());
+        .andExpect(jsonPath("$.paths['/api/v1/auth/social/providers'].get").exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/social/providers'].get.summary").value("소셜 로그인 공급자 조회"))
+        .andExpect(jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get").exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get.summary")
+                .value("Naver Custom OAuth UserInfo 변환"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/auth/social/naver/userinfo'].get.responses['200'].content['*/*'].schema.$ref")
+                .value("#/components/schemas/NaverUserInfoResponse"))
+        .andExpect(
+            jsonPath("$.components.schemas.NaverUserInfoResponse.properties.email_verified")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get.responses['429']").exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get.responses['503']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/auth/social/providers'].get.security").isEmpty())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get.security").isEmpty());
   }
 
   @Test

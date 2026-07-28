@@ -18,6 +18,8 @@ management:
       enabled: false
 
 app:
+  social-login:
+    provider-ids: google,kakao,custom:naver
   security:
     jwt:
       issuer: ${SUPABASE_JWT_ISSUER:https://test.supabase.invalid/auth/v1}

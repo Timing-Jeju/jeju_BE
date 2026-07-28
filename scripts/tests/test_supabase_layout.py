@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -130,6 +131,23 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertIn('"$SUPABASE_BIN" start', smoke_test)
         self.assertEqual(2, smoke_test.count('"$SUPABASE_BIN" db reset'))
         self.assertIn('"$SUPABASE_BIN" stop --no-backup', smoke_test)
+        self.assertIn("redirect_to", smoke_test)
+        self.assertIn("https://evil.invalid/social-callback", smoke_test)
+        self.assertIn("미등록 redirect URL 차단 확인 성공", smoke_test)
+
+    def test_supabase_redirect_smoke_reaches_email_link_allowlist_validation(self):
+        smoke_test = (ROOT / "scripts" / "supabase-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("/auth/v1/admin/generate_link", smoke_test)
+        self.assertIn("SERVICE_ROLE_KEY", smoke_test)
+        self.assertIn("http://127.0.0.1:3000/auth/callback", smoke_test)
+        self.assertIn("https://evil.invalid/social-callback", smoke_test)
+        self.assertIn('response.get("redirect_to")', smoke_test)
+        self.assertNotIn("provider=google", smoke_test)
+        self.assertNotIn("unsupported_provider", smoke_test)
+        self.assertNotIn("REDIRECT_LOCATION", smoke_test)
 
     def test_common_quality_gate_runs_deploy_sql_policy_independently(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
@@ -147,6 +165,52 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertIn("`format(...)`", database_docs)
         self.assertIn("의미 분석", database_docs)
         self.assertIn("코드 리뷰", database_docs)
+
+    def test_supabase_redirect_urls_are_the_only_social_redirect_authority(self):
+        config = tomllib.loads((SUPABASE / "config.toml").read_text(encoding="utf-8"))
+        redirect_urls = config["auth"]["additional_redirect_urls"]
+
+        self.assertEqual(
+            [
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:3000/auth/callback",
+            ],
+            redirect_urls,
+        )
+        self.assertTrue(all("*" not in url and "?" not in url and "#" not in url for url in redirect_urls))
+        for relative_path in (
+            ".env.example",
+            "compose.yml",
+            "compose.test.yml",
+            "services/spring-api/src/main/resources/application.yml",
+        ):
+            with self.subTest(path=relative_path):
+                contents = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertNotIn("APP_SOCIAL_LOGIN_REDIRECT_URLS", contents)
+                self.assertNotIn("app.social-login.redirect-urls", contents)
+
+    def test_unconfigured_local_oauth_providers_are_not_advertised_as_enabled(self):
+        env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+        docs = (ROOT / "docs" / "SOCIAL_LOGIN.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID", env_example)
+        self.assertNotIn("SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_SECRET", env_example)
+        self.assertNotIn("SUPABASE_AUTH_EXTERNAL_KAKAO_CLIENT_ID", env_example)
+        self.assertNotIn("SUPABASE_AUTH_EXTERNAL_KAKAO_CLIENT_SECRET", env_example)
+        self.assertIn("지원 목록이며 실제 Supabase 활성화 상태가 아닙니다", docs)
+        self.assertIn("로컬 OAuth 공급자는 기본 비활성화", docs)
+
+    def test_naver_docs_do_not_claim_unsupported_pkce_or_verified_email(self):
+        docs = (ROOT / "docs" / "SOCIAL_LOGIN.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("email_verified=true", docs)
+        self.assertNotIn("PKCE는 기본 활성 상태를 유지", docs)
+        self.assertIn("Naver는 이메일 검증 여부를 제공하지 않습니다", docs)
+        self.assertIn("자동 identity 연결", docs)
+        self.assertIn("code_challenge", docs)
+        self.assertIn("code_verifier", docs)
+        self.assertIn("scope는 전송할 필요 없음", docs)
+        self.assertIn("실제 호환성 검증 전에는 운영에서 활성화하지 않습니다", docs)
 
 
 if __name__ == "__main__":
