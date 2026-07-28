@@ -41,7 +41,9 @@ python3 scripts/deploy_sql_policy.py
 python3 -m unittest scripts.tests.test_deploy_sql_policy scripts.tests.test_supabase_layout
 ```
 
-검사기는 single-quoted string, PostgreSQL E-string, quoted identifier와 태그가 있거나 없는 dollar-quoted body를 구분하고 실제 `--`, `/* */` 주석만 제외합니다. 문자열 본문은 동적 SQL일 수 있으므로 보존하며, PostgreSQL `EXECUTE`가 실행할 문자열에 금지 SQL이 있어도 보수적으로 정책 위반으로 처리합니다. 이 정책은 단순 안내 문자열에도 같은 금지 SQL 문구를 쓰지 않도록 제한하는 대신 동적 SQL을 통한 우회를 차단합니다. 금지 객체를 설명해야 할 때는 SQL 파일이 아닌 한국어 문서를 사용합니다.
+검사기는 single-quoted string, PostgreSQL E-string, quoted identifier와 Unicode 태그를 포함한 dollar-quoted body를 구분하고 실제 `--`, `/* */` 주석만 제외합니다. 문자열 본문은 동적 SQL일 수 있으므로 보존하며, PostgreSQL `EXECUTE`의 직접 문자열 안에 금지 SQL이 연속된 토큰으로 있으면 보수적으로 정책 위반으로 처리합니다. 단순 안내 문자열에도 같은 금지 SQL 문구를 쓰지 않아야 하며, 금지 객체를 설명할 때는 SQL 파일이 아닌 한국어 문서를 사용합니다.
+
+이 검사는 SQL 실행 의미를 평가하는 범용 파서가 아닙니다. `EXECUTE 'create table auth.' || 'users(...)'` 같은 문자열 연결이나 `EXECUTE`와 `format(...)`으로 런타임에 만들어지는 객체명은 의미 분석 범위 밖입니다. 이런 동적 SQL은 자동 검사 통과만으로 안전하다고 간주하지 않고 코드 리뷰에서 금지 객체 조합 여부를 별도로 확인합니다.
 
 ## 로컬 Supabase 시작과 초기화
 

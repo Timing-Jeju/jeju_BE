@@ -143,6 +143,10 @@ class SupabaseLayoutTest(unittest.TestCase):
 
         self.assertIn("`EXECUTE`", database_docs)
         self.assertIn("보수적", database_docs)
+        self.assertIn("문자열 연결", database_docs)
+        self.assertIn("`format(...)`", database_docs)
+        self.assertIn("의미 분석", database_docs)
+        self.assertIn("코드 리뷰", database_docs)
 
 
 if __name__ == "__main__":

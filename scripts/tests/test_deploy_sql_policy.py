@@ -103,6 +103,80 @@ class DeploySqlPolicyTest(unittest.TestCase):
 
         self.assertEqual(1, len(violations))
 
+    def test_unicode_dollar_quote_tags_do_not_hide_following_forbidden_ddl(self):
+        cases = (
+            (
+                "select $한글$--$한글$; create table auth.users(id uuid);",
+                1,
+            ),
+            (
+                "select $é$/*$é$;\n"
+                "create function auth.uid() returns uuid language sql as 'select null';\n"
+                "select '*/';",
+                2,
+            ),
+        )
+
+        for sql, ddl_line in cases:
+            with self.subTest(sql=sql):
+                violations = self._find_in_deploy_sql(sql)
+
+                self.assertEqual(1, len(violations))
+                self.assertEqual(ddl_line, violations[0].line)
+
+    def test_dollar_tag_inside_identifier_does_not_turn_real_comment_into_literal(self):
+        sql = "select public.foo$guard$-- create table auth.users(id uuid);"
+
+        violations = self._find_in_deploy_sql(sql)
+
+        self.assertEqual((), violations)
+
+    def test_unicode_dollar_quote_normal_termination_preserves_comment_boundaries(self):
+        sql = """
+            select $본문$-- literal only$본문$;
+            -- create table auth.users(id uuid);
+            select 1;
+        """
+
+        violations = self._find_in_deploy_sql(sql)
+
+        self.assertEqual((), violations)
+
+    def test_unterminated_unicode_dollar_quote_at_eof_is_scanned_conservatively(self):
+        sql = "select $미종료$-- literal body create table auth.users(id uuid);"
+
+        violations = self._find_in_deploy_sql(sql)
+
+        self.assertEqual(1, len(violations))
+        self.assertEqual(1, violations[0].line)
+
+    def test_postgres_ddl_modifiers_cannot_bypass_owned_object_policy(self):
+        cases = (
+            "ALTER TABLE ONLY auth.users ADD COLUMN marker text;",
+            "CREATE UNLOGGED TABLE auth.users(id uuid);",
+            "CREATE FOREIGN TABLE auth.users(id uuid) SERVER example;",
+            "ALTER TABLE IF EXISTS ONLY auth.users ADD COLUMN marker text;",
+            'DrOp\nFoReIgN/* 실제 주석 */TaBlE IF EXISTS "auth" . "users";',
+        )
+
+        for sql in cases:
+            with self.subTest(sql=sql):
+                violations = self._find_in_deploy_sql(sql)
+
+                self.assertEqual(1, len(violations))
+                self.assertEqual("Supabase Auth 소유 객체 DDL", violations[0].rule)
+
+    def test_owned_object_matcher_respects_schema_and_identifier_boundaries(self):
+        sql = """
+            create table public.auth.users(id uuid);
+            create table auth.users_archive(id uuid);
+            alter table only public.users add column marker text;
+        """
+
+        violations = self._find_in_deploy_sql(sql)
+
+        self.assertEqual((), violations)
+
     def test_dynamic_execute_is_scanned_conservatively_inside_dollar_quoted_body(self):
         sql = """
             create function public.unsafe_dynamic_sql()
@@ -117,6 +191,21 @@ class DeploySqlPolicyTest(unittest.TestCase):
 
         self.assertEqual(1, len(violations))
         self.assertEqual("Supabase Auth 소유 객체 DDL", violations[0].rule)
+
+    def test_dynamic_sql_composition_is_outside_policy_semantic_analysis(self):
+        sql = """
+            create function public.dynamic_sql_limit()
+            returns void language plpgsql as $body$
+            begin
+              execute 'create table auth.' || 'users(id uuid)';
+              execute format('create table auth.%I(id uuid)', 'users');
+            end
+            $body$;
+        """
+
+        violations = self._find_in_deploy_sql(sql)
+
+        self.assertEqual((), violations)
 
     def test_real_nested_block_and_line_comments_are_ignored(self):
         sql = """
