@@ -138,6 +138,12 @@ class SupabaseLayoutTest(unittest.TestCase):
 
         self.assertIn("python3 scripts/deploy_sql_policy.py", quality_gate)
 
+    def test_database_docs_explain_conservative_dynamic_execute_policy(self):
+        database_docs = (ROOT / "db" / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("`EXECUTE`", database_docs)
+        self.assertIn("보수적", database_docs)
+
 
 if __name__ == "__main__":
     unittest.main()

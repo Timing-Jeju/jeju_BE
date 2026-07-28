@@ -41,6 +41,8 @@ python3 scripts/deploy_sql_policy.py
 python3 -m unittest scripts.tests.test_deploy_sql_policy scripts.tests.test_supabase_layout
 ```
 
+검사기는 single-quoted string, PostgreSQL E-string, quoted identifier와 태그가 있거나 없는 dollar-quoted body를 구분하고 실제 `--`, `/* */` 주석만 제외합니다. 문자열 본문은 동적 SQL일 수 있으므로 보존하며, PostgreSQL `EXECUTE`가 실행할 문자열에 금지 SQL이 있어도 보수적으로 정책 위반으로 처리합니다. 이 정책은 단순 안내 문자열에도 같은 금지 SQL 문구를 쓰지 않도록 제한하는 대신 동적 SQL을 통한 우회를 차단합니다. 금지 객체를 설명해야 할 때는 SQL 파일이 아닌 한국어 문서를 사용합니다.
+
 ## 로컬 Supabase 시작과 초기화
 
 필수 도구는 Docker Engine, Docker Compose, Supabase CLI `2.110.0`입니다. CLI는 [Supabase CLI v2.110.0 공식 릴리스](https://github.com/supabase/cli/releases/tag/v2.110.0)의 운영체제별 설치 파일을 사용하고 다음 명령으로 버전을 확인합니다.

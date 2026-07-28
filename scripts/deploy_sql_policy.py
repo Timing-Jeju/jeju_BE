@@ -49,10 +49,123 @@ FORBIDDEN_PATTERNS = (
     ),
 )
 
+_DOLLAR_QUOTE_START = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
 
-def _strip_comments(sql: str) -> str:
-    without_blocks = re.sub(r"/\*.*?\*/", lambda match: "\n" * match.group().count("\n"), sql, flags=re.DOTALL)
-    return re.sub(r"--[^\n]*", "", without_blocks)
+
+def _is_escape_string_start(sql: str, quote_index: int) -> bool:
+    if quote_index == 0 or sql[quote_index - 1] not in ("e", "E"):
+        return False
+    prefix_index = quote_index - 2
+    return prefix_index < 0 or not (
+        sql[prefix_index].isalnum() or sql[prefix_index] in ("_", "$")
+    )
+
+
+def _mask_comments_preserving_literals(sql: str) -> str:
+    """실제 주석만 가리고 동적 SQL까지 검사하도록 모든 literal 본문을 보존한다."""
+    result: list[str] = []
+    index = 0
+    state = "normal"
+    block_depth = 0
+    dollar_delimiter = ""
+    escape_backslash = False
+
+    while index < len(sql):
+        character = sql[index]
+
+        if state == "line_comment":
+            if character == "\n":
+                result.append(character)
+                state = "normal"
+            else:
+                result.append(" ")
+            index += 1
+            continue
+
+        if state == "block_comment":
+            if sql.startswith("/*", index):
+                result.extend((" ", " "))
+                block_depth += 1
+                index += 2
+            elif sql.startswith("*/", index):
+                result.extend((" ", " "))
+                block_depth -= 1
+                index += 2
+                if block_depth == 0:
+                    state = "normal"
+            else:
+                result.append("\n" if character == "\n" else " ")
+                index += 1
+            continue
+
+        if state == "single_quote":
+            result.append(character)
+            if escape_backslash and character == "\\" and index + 1 < len(sql):
+                result.append(sql[index + 1])
+                index += 2
+            elif character == "'" and index + 1 < len(sql) and sql[index + 1] == "'":
+                result.append(sql[index + 1])
+                index += 2
+            else:
+                if character == "'":
+                    state = "normal"
+                index += 1
+            continue
+
+        if state == "quoted_identifier":
+            result.append(character)
+            if character == '"' and index + 1 < len(sql) and sql[index + 1] == '"':
+                result.append(sql[index + 1])
+                index += 2
+            else:
+                if character == '"':
+                    state = "normal"
+                index += 1
+            continue
+
+        if state == "dollar_quote":
+            if sql.startswith(dollar_delimiter, index):
+                result.extend(dollar_delimiter)
+                index += len(dollar_delimiter)
+                state = "normal"
+            else:
+                result.append(character)
+                index += 1
+            continue
+
+        if sql.startswith("--", index):
+            result.extend((" ", " "))
+            index += 2
+            state = "line_comment"
+        elif sql.startswith("/*", index):
+            result.extend((" ", " "))
+            index += 2
+            state = "block_comment"
+            block_depth = 1
+        elif character == "'":
+            result.append(character)
+            escape_backslash = _is_escape_string_start(sql, index)
+            index += 1
+            state = "single_quote"
+        elif character == '"':
+            result.append(character)
+            index += 1
+            state = "quoted_identifier"
+        elif character == "$":
+            delimiter_match = _DOLLAR_QUOTE_START.match(sql, index)
+            if delimiter_match is None:
+                result.append(character)
+                index += 1
+            else:
+                dollar_delimiter = delimiter_match.group()
+                result.extend(dollar_delimiter)
+                index += len(dollar_delimiter)
+                state = "dollar_quote"
+        else:
+            result.append(character)
+            index += 1
+
+    return "".join(result)
 
 
 def _normalize_identifiers(sql: str) -> str:
@@ -75,7 +188,9 @@ def deploy_sql_files(root: Path = ROOT) -> tuple[Path, ...]:
 def find_violations(root: Path = ROOT) -> tuple[Violation, ...]:
     violations: list[Violation] = []
     for path in deploy_sql_files(root):
-        sql = _normalize_identifiers(_strip_comments(path.read_text(encoding="utf-8")))
+        sql = _normalize_identifiers(
+            _mask_comments_preserving_literals(path.read_text(encoding="utf-8"))
+        )
         for rule, pattern in FORBIDDEN_PATTERNS:
             for match in pattern.finditer(sql):
                 line = sql.count("\n", 0, match.start()) + 1
