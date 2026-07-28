@@ -11,12 +11,9 @@ import org.junit.jupiter.api.Test;
 class SocialLoginCatalogServiceTest {
 
   @Test
-  void 활성화한_공급자만_고정_순서와_공개_표시명으로_반환한다() {
+  void 지원하는_공급자만_고정_순서와_공개_표시명으로_반환한다() {
     SocialLoginCatalogService service =
-        new SocialLoginCatalogService(
-            new SocialLoginProperties(
-                List.of("custom:naver", "google"),
-                List.of("https://app.timing-jeju.test/auth/callback")));
+        new SocialLoginCatalogService(new SocialLoginProperties(List.of("custom:naver", "google")));
 
     assertThat(service.getProviders())
         .extracting(provider -> provider.id() + ":" + provider.displayName())

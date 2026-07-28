@@ -46,7 +46,6 @@ public class SocialLoginController implements SocialLoginApiDocs {
     Map<String, Object> response = new LinkedHashMap<>();
     response.put("sub", userInfo.sub());
     response.put("email", userInfo.email());
-    response.put("email_verified", userInfo.emailVerified());
     putIfPresent(response, "name", userInfo.name());
     putIfPresent(response, "preferred_username", userInfo.preferredUsername());
     putIfPresent(response, "picture", userInfo.picture());

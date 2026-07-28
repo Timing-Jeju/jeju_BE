@@ -30,8 +30,7 @@ services:
       SUPABASE_JWT_AUDIENCE: authenticated
       SUPABASE_JWKS_URL: https://test.supabase.invalid/auth/v1/.well-known/jwks.json
       APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
-      APP_SOCIAL_LOGIN_ENABLED_PROVIDER_IDS: google,kakao,custom:naver
-      APP_SOCIAL_LOGIN_REDIRECT_URLS: http://127.0.0.1:3000/auth/callback
+      APP_SOCIAL_LOGIN_PROVIDER_IDS: google,kakao,custom:naver
     ports:
       - "18080:8080"
     depends_on:

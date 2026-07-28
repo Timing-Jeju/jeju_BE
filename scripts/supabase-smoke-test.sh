@@ -110,6 +110,25 @@ API_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encodin
 PUBLIC_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["PUBLISHABLE_KEY"])' "$STATUS_FILE")
 JWT_SECRET=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["JWT_SECRET"])' "$STATUS_FILE")
 
+REDIRECT_HEADERS_FILE="$TEMP_DIR/redirect-headers"
+curl --silent --show-error --max-redirs 0 --get \
+  "$API_URL/auth/v1/authorize" \
+  --data-urlencode "provider=google" \
+  --data-urlencode "redirect_to=https://evil.invalid/social-callback" \
+  --dump-header "$REDIRECT_HEADERS_FILE" \
+  --output /dev/null
+REDIRECT_LOCATION=$(
+  awk 'BEGIN { IGNORECASE=1 } /^location:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' \
+    "$REDIRECT_HEADERS_FILE"
+)
+case "$REDIRECT_LOCATION" in
+  *evil.invalid*)
+    echo "Supabase Auth가 미등록 redirect URL을 허용했습니다." >&2
+    exit 1
+    ;;
+esac
+echo "[Supabase] 미등록 redirect URL 차단 확인 성공"
+
 TEST_EMAIL=$(python3 -c 'import uuid; print(f"security-smoke-{uuid.uuid4()}@example.test")')
 TEST_PASSWORD=$(python3 -c 'import secrets; print("Tj!" + secrets.token_urlsafe(24))')
 python3 - "$SIGNUP_PAYLOAD_FILE" "$TEST_EMAIL" "$TEST_PASSWORD" <<'PY'

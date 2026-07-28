@@ -25,6 +25,8 @@ public class NaverUserInfoExceptionHandler {
   private static HttpStatus statusFor(NaverUserInfoFailureCode failureCode) {
     return switch (failureCode) {
       case PROVIDER_TOKEN_INVALID, UPSTREAM_UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
+      case APPLICATION_RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+      case APPLICATION_OVERLOADED -> HttpStatus.SERVICE_UNAVAILABLE;
       case UPSTREAM_FORBIDDEN -> HttpStatus.FORBIDDEN;
       case UPSTREAM_RATE_LIMITED -> HttpStatus.SERVICE_UNAVAILABLE;
       case UPSTREAM_UNAVAILABLE, UPSTREAM_MALFORMED_RESPONSE, UPSTREAM_RESPONSE_TOO_LARGE ->

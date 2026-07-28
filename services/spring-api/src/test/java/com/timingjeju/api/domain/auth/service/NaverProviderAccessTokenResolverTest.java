@@ -24,6 +24,30 @@ class NaverProviderAccessTokenResolverTest {
   }
 
   @Test
+  void Naver_공식_최대_길이와_RFC6750_b64token_문자만_허용한다() {
+    String maxLengthToken = "A".repeat(250) + "+/~._-";
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + maxLengthToken);
+
+    assertThat(resolver.resolve(request)).isEqualTo(maxLengthToken);
+
+    for (String invalidToken :
+        java.util.List.of(
+            "A".repeat(257),
+            "first,second",
+            "first:second",
+            "first;second",
+            "first\u0000second",
+            "first\u001fsecond",
+            "first=second",
+            "token,Bearer second")) {
+      MockHttpServletRequest invalid = new MockHttpServletRequest();
+      invalid.addHeader(HttpHeaders.AUTHORIZATION, "Bearer " + invalidToken);
+      assertInvalid(invalid);
+    }
+  }
+
+  @Test
   void 누락_중복_공백_query_form_token은_모두_거부한다() {
     MockHttpServletRequest missing = new MockHttpServletRequest();
     MockHttpServletRequest duplicate = new MockHttpServletRequest();

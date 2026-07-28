@@ -7,14 +7,27 @@ import java.util.Map;
 public final class NaverUserInfoService {
 
   private final NaverUserInfoGateway gateway;
+  private final NaverUserInfoAdmissionService admissionService;
 
   public NaverUserInfoService(NaverUserInfoGateway gateway) {
+    this(gateway, NaverUserInfoAdmissionService.production());
+  }
+
+  public NaverUserInfoService(
+      NaverUserInfoGateway gateway, NaverUserInfoAdmissionService admissionService) {
     this.gateway = gateway;
+    this.admissionService = admissionService;
   }
 
   public NaverStandardUserInfo getUserInfo(String providerAccessToken) {
-    Map<String, Object> payload = gateway.getUserInfo(providerAccessToken);
+    return admissionService.execute(() -> mapUserInfo(gateway.getUserInfo(providerAccessToken)));
+  }
+
+  private static NaverStandardUserInfo mapUserInfo(Map<String, Object> payload) {
     if (payload == null) {
+      throw new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_MALFORMED_RESPONSE);
+    }
+    if (!"00".equals(payload.get("resultcode")) || !"success".equals(payload.get("message"))) {
       throw new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_MALFORMED_RESPONSE);
     }
     Object response = payload.get("response");
@@ -26,7 +39,6 @@ public final class NaverUserInfoService {
     return new NaverStandardUserInfo(
         sub,
         email,
-        true,
         optionalText(profile, "name"),
         optionalText(profile, "nickname"),
         optionalText(profile, "profile_image"));

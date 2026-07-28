@@ -17,6 +17,7 @@ import com.timingjeju.api.global.security.StrictBearerTokenResolver;
 import com.timingjeju.api.global.security.SupabaseJwtDecoderFactory;
 import com.timingjeju.api.global.security.SupabaseJwtProperties;
 import java.util.List;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -35,6 +36,9 @@ import tools.jackson.databind.ObjectMapper;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({SupabaseJwtProperties.class, AppCorsProperties.class})
 public class SecurityConfig {
+
+  private static final Set<String> PUBLIC_SOCIAL_GET_PATHS =
+      Set.of("/api/v1/auth/social/providers", "/api/v1/auth/social/naver/userinfo");
 
   @Bean
   JwtDecoderStrategy jwksJwtDecoderStrategy() {
@@ -69,7 +73,11 @@ public class SecurityConfig {
   @Order(1)
   SecurityFilterChain socialLoginSecurityFilterChain(
       HttpSecurity http, CorsConfigurationSource corsConfigurationSource) throws Exception {
-    http.securityMatcher("/api/v1/auth/social/**");
+    http.securityMatcher(
+        request ->
+            "GET".equals(request.getMethod())
+                && PUBLIC_SOCIAL_GET_PATHS.contains(
+                    request.getRequestURI().substring(request.getContextPath().length())));
     http.sessionManagement(
         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
     http.csrf(csrf -> csrf.disable());

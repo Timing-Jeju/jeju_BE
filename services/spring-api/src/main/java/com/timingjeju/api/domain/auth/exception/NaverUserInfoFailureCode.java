@@ -2,6 +2,8 @@ package com.timingjeju.api.domain.auth.exception;
 
 public enum NaverUserInfoFailureCode {
   PROVIDER_TOKEN_INVALID("SOCIAL_NAVER_TOKEN_INVALID", "네이버 인증 정보를 확인할 수 없습니다."),
+  APPLICATION_RATE_LIMITED("SOCIAL_NAVER_RATE_LIMITED", "네이버 로그인 요청이 너무 많습니다."),
+  APPLICATION_OVERLOADED("SOCIAL_NAVER_OVERLOADED", "네이버 로그인 서비스를 일시적으로 사용할 수 없습니다."),
   UPSTREAM_UNAUTHORIZED("SOCIAL_NAVER_UPSTREAM_UNAUTHORIZED", "네이버 인증 정보를 확인할 수 없습니다."),
   UPSTREAM_FORBIDDEN("SOCIAL_NAVER_UPSTREAM_FORBIDDEN", "네이버 사용자 정보 접근이 거부되었습니다."),
   UPSTREAM_RATE_LIMITED("SOCIAL_NAVER_UPSTREAM_RATE_LIMITED", "네이버 로그인 서비스를 일시적으로 사용할 수 없습니다."),

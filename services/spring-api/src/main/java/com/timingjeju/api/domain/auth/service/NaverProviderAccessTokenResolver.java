@@ -4,11 +4,13 @@ import com.timingjeju.api.domain.auth.exception.NaverUserInfoException;
 import com.timingjeju.api.domain.auth.exception.NaverUserInfoFailureCode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Collections;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 
 public final class NaverProviderAccessTokenResolver {
 
-  private static final int MAX_TOKEN_LENGTH = 4096;
+  private static final int MAX_TOKEN_LENGTH = 256;
+  private static final Pattern ALLOWED_CREDENTIAL = Pattern.compile("[A-Za-z0-9\\-._~+/]+={0,2}");
 
   public String resolve(HttpServletRequest request) {
     if (request.getQueryString() != null || isFormUrlEncoded(request.getContentType())) {
@@ -26,7 +28,7 @@ public final class NaverProviderAccessTokenResolver {
     String token = value.substring("Bearer ".length());
     if (token.isBlank()
         || token.length() > MAX_TOKEN_LENGTH
-        || token.chars().anyMatch(Character::isWhitespace)) {
+        || !ALLOWED_CREDENTIAL.matcher(token).matches()) {
       throw invalidToken();
     }
     return token;

@@ -10,7 +10,7 @@ public final class SocialLoginCatalogService {
   public SocialLoginCatalogService(SocialLoginProperties properties) {
     providers =
         SocialLoginProvider.valuesAsList().stream()
-            .filter(provider -> properties.enabledProviderIds().contains(provider.id()))
+            .filter(provider -> properties.providerIds().contains(provider.id()))
             .toList();
   }
 

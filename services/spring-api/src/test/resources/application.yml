@@ -19,8 +19,7 @@ management:
 
 app:
   social-login:
-    enabled-provider-ids: google,kakao,custom:naver
-    redirect-urls: http://127.0.0.1:3000/auth/callback
+    provider-ids: google,kakao,custom:naver
   security:
     jwt:
       issuer: ${SUPABASE_JWT_ISSUER:https://test.supabase.invalid/auth/v1}

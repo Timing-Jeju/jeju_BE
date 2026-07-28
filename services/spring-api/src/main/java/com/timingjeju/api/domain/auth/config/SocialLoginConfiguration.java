@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.auth.config;
 
+import com.timingjeju.api.domain.auth.service.NaverUserInfoAdmissionService;
 import com.timingjeju.api.domain.auth.service.NaverUserInfoGateway;
 import com.timingjeju.api.domain.auth.service.NaverUserInfoHttpGateway;
 import com.timingjeju.api.domain.auth.service.NaverUserInfoService;
@@ -24,7 +25,13 @@ public class SocialLoginConfiguration {
   }
 
   @Bean
-  NaverUserInfoService naverUserInfoService(NaverUserInfoGateway gateway) {
-    return new NaverUserInfoService(gateway);
+  NaverUserInfoAdmissionService naverUserInfoAdmissionService() {
+    return NaverUserInfoAdmissionService.production();
+  }
+
+  @Bean
+  NaverUserInfoService naverUserInfoService(
+      NaverUserInfoGateway gateway, NaverUserInfoAdmissionService admissionService) {
+    return new NaverUserInfoService(gateway, admissionService);
   }
 }

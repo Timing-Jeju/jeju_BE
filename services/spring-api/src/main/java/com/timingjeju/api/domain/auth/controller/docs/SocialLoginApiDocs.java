@@ -55,8 +55,12 @@ public interface SocialLoginApiDocs {
         description = "Naver 응답 오류",
         content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
     @ApiResponse(
+        responseCode = "429",
+        description = "Spring API 요청 제한",
+        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
+    @ApiResponse(
         responseCode = "503",
-        description = "Naver rate limit",
+        description = "Naver rate limit 또는 Spring API 동시 처리 상한",
         content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
     @ApiResponse(
         responseCode = "504",

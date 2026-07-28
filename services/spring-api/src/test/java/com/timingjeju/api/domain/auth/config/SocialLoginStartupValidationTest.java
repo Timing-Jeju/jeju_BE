@@ -15,30 +15,19 @@ class SocialLoginStartupValidationTest {
       new ApplicationContextRunner().withUserConfiguration(SocialLoginTestConfiguration.class);
 
   @Test
-  void 소셜_로그인_설정은_정확한_공급자와_redirect_allowlist에서만_시작한다() {
+  void 소셜_로그인_설정은_지원_공급자_목록으로_시작한다() {
     contextRunner
-        .withPropertyValues(
-            "app.social-login.enabled-provider-ids=google,kakao,custom:naver",
-            "app.social-login.redirect-urls=https://app.timing-jeju.test/auth/callback,http://127.0.0.1:3000/auth/callback")
+        .withPropertyValues("app.social-login.provider-ids=google,kakao,custom:naver")
         .run(context -> assertThat(context).hasNotFailed());
   }
 
   @Test
-  void 중복_미허용_공급자와_open_redirect_형식은_context를_실패시킨다() {
+  void 중복_미허용_공급자는_context를_실패시킨다() {
     contextRunner
-        .withPropertyValues(
-            "app.social-login.enabled-provider-ids=google,google",
-            "app.social-login.redirect-urls=https://app.timing-jeju.test/auth/callback")
+        .withPropertyValues("app.social-login.provider-ids=google,google")
         .run(context -> assertThat(context).hasFailed());
     contextRunner
-        .withPropertyValues(
-            "app.social-login.enabled-provider-ids=github",
-            "app.social-login.redirect-urls=https://app.timing-jeju.test/auth/callback")
-        .run(context -> assertThat(context).hasFailed());
-    contextRunner
-        .withPropertyValues(
-            "app.social-login.enabled-provider-ids=google",
-            "app.social-login.redirect-urls=https://app.timing-jeju.test/auth/callback?next=https://evil.test")
+        .withPropertyValues("app.social-login.provider-ids=github")
         .run(context -> assertThat(context).hasFailed());
   }
 

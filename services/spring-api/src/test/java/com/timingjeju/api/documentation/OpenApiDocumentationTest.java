@@ -57,8 +57,12 @@ class OpenApiDocumentationTest {
                     "$.paths['/api/v1/auth/social/naver/userinfo'].get.responses['200'].content['*/*'].schema.$ref")
                 .value("#/components/schemas/NaverUserInfoResponse"))
         .andExpect(
-            jsonPath("$.components.schemas.NaverUserInfoResponse.properties.email_verified.type")
-                .value("boolean"))
+            jsonPath("$.components.schemas.NaverUserInfoResponse.properties.email_verified")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get.responses['429']").exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get.responses['503']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/auth/social/providers'].get.security").isEmpty())
         .andExpect(
             jsonPath("$.paths['/api/v1/auth/social/naver/userinfo'].get.security").isEmpty());
