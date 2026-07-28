@@ -32,6 +32,10 @@ Spring API는 서비스 내부에서 하나의 배포 단위를 유지하는 모
 ```text
 com.timingjeju.api
 ├── TimingJejuApiApplication.java
+├── application
+│   └── security
+│       ├── CurrentUser.java
+│       └── CurrentUserAccessor.java
 ├── domain
 │   └── {domain}
 │       ├── controller
@@ -52,6 +56,8 @@ com.timingjeju.api
 ```
 
 실제 요구사항이 생기기 전에는 예시용 Member/Auth 도메인이나 가짜 Entity를 만들지 않습니다.
+
+`application.security`는 인증된 현재 사용자처럼 여러 도메인 use case가 사용할 수 있는 프레임워크 비의존 계약만 둡니다. `CurrentUser`와 `CurrentUserAccessor`는 UUID와 순수 Java 타입만 노출하며, `global.security`의 adapter가 Spring SecurityContext와 검증 완료 JWT를 이 계약으로 변환합니다. 도메인은 `global.security`, Spring `Jwt`, `SecurityContext`에 의존하지 않습니다.
 
 ## API 문서화 경계
 
@@ -78,7 +84,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 ## ArchUnit 규칙
 
-`services/spring-api`의 `ArchitectureTest`는 Controller의 Repository 직접 의존 금지, Controller의 Service 경유, 도메인 간 순환 의존 금지, Domain의 Global 내부 구현 의존 제한, MVC 계층 이름 규칙을 검사합니다. 아직 도메인이 없는 초기 상태에서는 빈 규칙을 허용하지만 새 클래스가 추가되는 즉시 동일 규칙이 적용됩니다.
+`services/spring-api`의 `ArchitectureTest`는 Controller의 Repository 직접 의존 금지, Controller의 Service 경유, 도메인 간 순환 의존 금지, Domain의 Global 내부 구현 의존 제한, application 현재 사용자 계약의 Spring 비의존성, MVC 계층 이름 규칙을 검사합니다. production-neutral domain 계약 fixture가 `CurrentUserAccessor`를 실제 소비하므로 향후 도메인 사용 시에도 `Jwt`나 `SecurityContext`가 누출되지 않는지 지속해서 검증합니다.
 
 ## 서비스 간 경계
 

@@ -6,6 +6,24 @@ spring:
     driver-class-name: org.h2.Driver
 
 management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    info:
+      enabled: true
   health:
     db:
       enabled: false
+
+app:
+  security:
+    jwt:
+      issuer: ${SUPABASE_JWT_ISSUER:https://test.supabase.invalid/auth/v1}
+      audience: ${SUPABASE_JWT_AUDIENCE:authenticated}
+      jwks-url: ${SUPABASE_JWKS_URL:https://test.supabase.invalid/auth/v1/.well-known/jwks.json}
+      secret: ${SUPABASE_JWT_SECRET:}
+      clock-skew: 30s
+    cors:
+      allowed-origins: http://localhost:3000

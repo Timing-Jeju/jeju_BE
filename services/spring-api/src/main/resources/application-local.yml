@@ -1,0 +1,4 @@
+app:
+  security:
+    jwt:
+      mode: jwks

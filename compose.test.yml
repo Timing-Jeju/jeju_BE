@@ -26,6 +26,10 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/timing_jeju_test
       SPRING_DATASOURCE_USERNAME: timing_jeju_test
       SPRING_DATASOURCE_PASSWORD: test-only-password
+      SUPABASE_JWT_ISSUER: https://test.supabase.invalid/auth/v1
+      SUPABASE_JWT_AUDIENCE: authenticated
+      SUPABASE_JWKS_URL: https://test.supabase.invalid/auth/v1/.well-known/jwks.json
+      APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
     ports:
       - "18080:8080"
     depends_on:
