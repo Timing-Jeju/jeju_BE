@@ -13,6 +13,9 @@ Timing Jeju 백엔드는 Spring Boot 공개 API와 FastAPI MCP를 한 저장소�
 │   │   ├── gradle
 │   │   └── Dockerfile
 │   └── fastapi-mcp
+│       ├── pyproject.toml
+│       ├── uv.lock
+│       ├── scripts/quality-gate.sh
 │       ├── README.md
 │       └── AGENTS.md
 ├── docs
@@ -23,7 +26,7 @@ Timing Jeju 백엔드는 Spring Boot 공개 API와 FastAPI MCP를 한 저장소�
 └── AGENTS.md
 ```
 
-FastAPI MCP 원본 저장소가 제공되기 전에는 `services/fastapi-mcp`에 가짜 구현을 만들지 않습니다.
+FastAPI MCP는 Python 3.12, 의존성 잠금과 품질 도구만 초기화합니다. 애플리케이션 패키지, 테스트 디렉터리, 실행 엔트리포인트는 첫 기능 Issue의 개발자가 TDD 시나리오와 함께 결정하며 현재 단계에서는 가짜 구현을 만들지 않습니다.
 
 ## Spring API 내부 구조
 
@@ -73,3 +76,12 @@ com.timingjeju.api
 - Spring은 정규화된 facts를 전달하고 FastAPI는 계산 결과를 `structuredContent`로 반환합니다.
 - FastAPI는 DB·외부 API·사용자 JWT에 직접 접근하지 않습니다.
 - 두 서비스가 함께 바뀌는 계약은 루트 `docs/designs`와 contract test에서 먼저 변경합니다.
+
+## CI 경계
+
+- 공통 정책과 저장소 자동화 검사는 모든 변경에서 실행합니다.
+- `services/spring-api` 변경은 Spring 검사와 Docker Health Check를 실행합니다.
+- `services/fastapi-mcp` 변경은 uv 잠금, Ruff, mypy와 pytest 검사를 실행합니다.
+- 서비스 간 계약 변경은 Spring, FastAPI와 계약 검사를 모두 실행합니다.
+- 문서만 변경하고 서비스 계약을 건드리지 않으면 무거운 서비스 검사를 생략합니다.
+- 각 Job은 독립적으로 실행되지만 최종 `quality-gate`가 결과를 하나로 집계합니다.

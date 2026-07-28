@@ -8,7 +8,7 @@
 .
 ├── services/
 │   ├── spring-api/       # 공개 API, DB·외부 API, MCP 조립과 결과 저장
-│   └── fastapi-mcp/      # 내부 계산·AI MCP, 원본 소스 가져오기 전 경계만 정의
+│   └── fastapi-mcp/      # 내부 계산·AI MCP, 구조 중립적인 Python 도구 기반
 ├── docs/                 # 공통 아키텍처와 서비스 간 계약
 ├── db/                   # 공통 PostgreSQL/PostGIS 스키마
 ├── fixtures/             # 공통 검증 fixture
@@ -17,14 +17,14 @@
 └── AGENTS.md             # 공통 개발·Git·보안 규칙
 ```
 
-두 서비스는 같은 저장소에서 계약을 함께 변경할 수 있지만 런타임, 의존성, 테스트와 배포 경계는 분리합니다. FastAPI 원본 저장소가 제공되기 전에는 예시 Tool이나 가짜 계산 코드를 만들지 않습니다.
+두 서비스는 같은 저장소에서 계약을 함께 변경할 수 있지만 런타임, 의존성, 테스트와 배포 경계는 분리합니다. FastAPI는 Python과 품질 도구만 초기화했으며 애플리케이션 패키지 구조와 예시 계산 코드는 만들지 않았습니다.
 
 ## 기술 스택
 
 - Java 21
 - Spring Boot 4.1.0
 - Gradle 9.5.1 Wrapper
-- FastAPI MCP: 소스 가져오기 대기
+- FastAPI 0.139, MCP Python SDK 1.x, uv
 - PostgreSQL 16 + PostGIS 3.4
 - JUnit 5, AssertJ, Mockito, Spring Test, ArchUnit, JaCoCo
 - Docker / Docker Compose
@@ -33,7 +33,7 @@
 
 - JDK 21
 - Docker Engine과 Docker Compose
-- Python 3.10 이상
+- Python 3.12와 uv 0.11.32 이상
 - Git, GitHub CLI(원격 설정 또는 PR 생성 시)
 
 ## 시작하기
@@ -68,9 +68,15 @@ cd ../..
 ./scripts/quality-gate.sh
 ```
 
-루트 `quality-gate`는 브랜치·비밀정보·모노레포 구조·서비스별 테스트·커버리지·빌드·Docker smoke test를 순서대로 검증합니다. 성공 기록은 커밋되지 않는 `.codex/state/quality-gates/`에 저장됩니다.
+FastAPI 최소 환경만 확인하려면 다음을 실행합니다.
 
-GitHub Actions의 `백엔드 모노레포 CI`는 `develop`·`main` 대상 PR과 두 보호 브랜치의 push에서 같은 품질 게이트를 실행합니다. PR 메타데이터와 Gradle Wrapper 무결성을 먼저 확인하고 테스트·JaCoCo 리포트를 14일간 보존합니다. 같은 브랜치에 새 커밋이 올라오면 이전 실행은 자동 취소됩니다.
+```bash
+./scripts/quality-gate.sh --scope fastapi
+```
+
+루트 `quality-gate`는 브랜치·비밀정보·모노레포 구조·Spring 검사·FastAPI 검사·Docker smoke test를 순서대로 검증합니다. 성공 기록은 커밋되지 않는 `.codex/state/quality-gates/`에 저장됩니다.
+
+GitHub Actions의 `백엔드 모노레포 CI`는 공통, Spring, FastAPI와 서비스 계약 Job을 분리합니다. 공통 검사는 항상 실행하고 서비스별 검사는 변경 경로에 따라 선택하며, 계약 변경은 양쪽 서비스와 계약 검사를 모두 실행합니다. 마지막 `quality-gate` Job이 실행 대상의 성공 여부를 하나의 필수 체크로 집계합니다.
 
 ## Docker 실행
 
@@ -81,7 +87,7 @@ docker compose -f compose.yml up --build
 
 기존 `docker-compose.yml`은 PostgreSQL/PostGIS 단독 개발용으로 유지합니다. `compose.yml`은 애플리케이션과 DB를 함께 실행하고, `compose.test.yml`은 격리된 smoke test에 사용합니다.
 
-현재 Compose에는 구현이 존재하는 Spring API만 연결되어 있습니다. FastAPI MCP 원본 소스를 가져오면 private network 서비스와 `/health/live`, `/health/ready` 검증을 추가합니다.
+현재 Compose에는 실행 엔트리포인트가 있는 Spring API만 연결되어 있습니다. FastAPI의 패키지와 엔트리포인트를 첫 기능 Issue에서 정하면 private network 서비스와 `/health/live`, `/health/ready` 검증을 추가합니다.
 
 ## 개발 프로세스
 
