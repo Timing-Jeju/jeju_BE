@@ -21,6 +21,10 @@ env/*.local
 id_rsa
 service-account*.json
 
+# Supabase CLI 로컬 상태
+supabase/.branches/
+supabase/.temp/
+
 # Codex 로컬 상태
 .codex/state/
 

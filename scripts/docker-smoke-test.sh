@@ -19,14 +19,21 @@ docker compose -p "$PROJECT" -f compose.test.yml up -d --build
 attempt=1
 while [ "$attempt" -le 60 ]; do
   if curl --fail --silent http://127.0.0.1:18080/actuator/health | grep -q '"status":"UP"'; then
-    echo "[Docker] Health Check 성공"
-    exit 0
+    break
   fi
   attempt=$((attempt + 1))
   sleep 2
 done
 
-echo "[Docker] Health Check 실패" >&2
-docker compose -p "$PROJECT" -f compose.test.yml ps >&2 || true
-docker compose -p "$PROJECT" -f compose.test.yml logs --no-color api postgres >&2 || true
-exit 1
+if [ "$attempt" -gt 60 ]; then
+  echo "[Docker] Health Check 실패" >&2
+  docker compose -p "$PROJECT" -f compose.test.yml ps >&2 || true
+  docker compose -p "$PROJECT" -f compose.test.yml logs --no-color api postgres >&2 || true
+  exit 1
+fi
+
+echo "[Docker] Health Check 성공"
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --username timing_jeju_test --dbname timing_jeju_test \
+  --file /queries/smoke_check.sql
+echo "[Docker] PostGIS·스키마·fixture 계약 검사 성공"

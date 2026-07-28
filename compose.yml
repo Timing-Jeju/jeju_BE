@@ -9,7 +9,9 @@ services:
       - "5433:5432"
     volumes:
       - timing-jeju-postgres-data:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/local-postgres/auth_compat.sql:/docker-entrypoint-initdb.d/001_auth_compat.sql:ro
+      - ./supabase/migrations/20260728000000_initial_public_schema.sql:/docker-entrypoint-initdb.d/002_application_schema.sql:ro
+      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/003_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
