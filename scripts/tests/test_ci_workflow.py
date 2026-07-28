@@ -31,13 +31,12 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn("uses: gradle/actions/wrapper-validation@v4", self.workflow)
         self.assertIn("uses: gradle/actions/setup-gradle@v4", self.workflow)
 
-    def test_pr_policy_and_service_jobs_are_separated(self):
+    def test_pr_policy_and_backend_jobs_are_separated(self):
         self.assertIn("scripts/github/validate-pr-metadata.py", self.workflow)
         for job in (
             "changes:",
             "common-check:",
             "spring-check:",
-            "fastapi-check:",
             "contract-check:",
             "quality-gate:",
         ):
@@ -47,12 +46,13 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn("scripts/ci/detect_changes.py", self.workflow)
         self.assertIn("./scripts/quality-gate.sh --ci --scope common", self.workflow)
         self.assertIn("./scripts/quality-gate.sh --ci --scope spring", self.workflow)
-        self.assertIn("./scripts/quality-gate.sh --ci --scope fastapi", self.workflow)
+        self.assertNotIn("fastapi-check:", self.workflow)
+        self.assertNotIn("--scope fastapi", self.workflow)
 
-    def test_fastapi_job_uses_pinned_python_and_uv(self):
-        self.assertIn("python-version-file: services/fastapi-mcp/.python-version", self.workflow)
-        self.assertIn("uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b", self.workflow)
-        self.assertIn("version: '0.11.32'", self.workflow)
+    def test_backend_ci_does_not_install_python_or_uv(self):
+        self.assertNotIn("actions/setup-python", self.workflow)
+        self.assertNotIn("astral-sh/setup-uv", self.workflow)
+        self.assertNotIn("services/fastapi-mcp", self.workflow)
 
     def test_test_reports_are_preserved(self):
         self.assertIn("services/spring-api/build/reports/tests/", self.workflow)

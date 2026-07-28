@@ -1,4 +1,4 @@
-name: 백엔드 모노레포 CI
+name: Spring 백엔드 CI
 
 on:
   pull_request:
@@ -19,7 +19,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       spring: ${{ steps.paths.outputs.spring }}
-      fastapi: ${{ steps.paths.outputs.fastapi }}
       contract: ${{ steps.paths.outputs.contract }}
     steps:
       - name: 저장소 Checkout
@@ -55,7 +54,7 @@ jobs:
       - name: 저장소 Checkout
         uses: actions/checkout@v4
       - name: 실행 권한 설정
-        run: chmod +x scripts/*.sh scripts/git-hooks/*.py services/fastapi-mcp/scripts/*.sh
+        run: chmod +x scripts/*.sh scripts/git-hooks/*.py
       - name: 공통 품질 게이트
         run: ./scripts/quality-gate.sh --ci --scope common
 
@@ -93,29 +92,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  fastapi-check:
-    name: FastAPI MCP 검사
-    needs: changes
-    if: needs.changes.outputs.fastapi == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: 저장소 Checkout
-        uses: actions/checkout@v4
-      - name: Python 설정
-        uses: actions/setup-python@v6
-        with:
-          python-version-file: services/fastapi-mcp/.python-version
-      - name: uv 설정
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
-        with:
-          version: '0.11.32'
-          cache-dependency-glob: services/fastapi-mcp/uv.lock
-      - name: 실행 권한 설정
-        run: chmod +x scripts/quality-gate.sh services/fastapi-mcp/scripts/quality-gate.sh
-      - name: FastAPI 최소 품질 게이트
-        run: ./scripts/quality-gate.sh --ci --scope fastapi
-
   contract-check:
     name: Spring-FastAPI 계약 검사
     needs: changes
@@ -130,7 +106,7 @@ jobs:
   quality-gate:
     name: 최종 품질 게이트
     if: always()
-    needs: [changes, pr-metadata, common-check, spring-check, fastapi-check, contract-check]
+    needs: [changes, pr-metadata, common-check, spring-check, contract-check]
     runs-on: ubuntu-24.04
     steps:
       - name: 필수 Job 결과 집계
@@ -139,10 +115,9 @@ jobs:
           PR_RESULT: ${{ needs.pr-metadata.result }}
           COMMON_RESULT: ${{ needs.common-check.result }}
           SPRING_RESULT: ${{ needs.spring-check.result }}
-          FASTAPI_RESULT: ${{ needs.fastapi-check.result }}
           CONTRACT_RESULT: ${{ needs.contract-check.result }}
         run: |
-          for result in "$CHANGES_RESULT" "$PR_RESULT" "$COMMON_RESULT" "$SPRING_RESULT" "$FASTAPI_RESULT" "$CONTRACT_RESULT"; do
+          for result in "$CHANGES_RESULT" "$PR_RESULT" "$COMMON_RESULT" "$SPRING_RESULT" "$CONTRACT_RESULT"; do
             case "$result" in
               success|skipped) ;;
               *) echo "필수 CI Job 실패: $result" >&2; exit 1 ;;
