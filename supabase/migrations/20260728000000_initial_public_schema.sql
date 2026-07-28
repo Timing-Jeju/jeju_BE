@@ -1,50 +1,8 @@
-create schema if not exists auth;
-
-do $$
-begin
-  if not exists (select 1 from pg_roles where rolname = 'anon') then
-    create role anon nologin;
-  end if;
-  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
-    create role authenticated nologin;
-  end if;
-  if not exists (select 1 from pg_roles where rolname = 'service_role') then
-    create role service_role nologin bypassrls;
-  end if;
-exception
-  when insufficient_privilege then
-    null;
-end $$;
-
-do $$
-begin
-  if not exists (
-    select 1
-    from information_schema.tables
-    where table_schema = 'auth'
-      and table_name = 'users'
-  ) then
-    create table auth.users (
-      id uuid primary key default gen_random_uuid(),
-      email text unique,
-      raw_app_meta_data jsonb not null default '{}'::jsonb,
-      raw_user_meta_data jsonb not null default '{}'::jsonb,
-      created_at timestamptz not null default now(),
-      updated_at timestamptz not null default now(),
-      last_sign_in_at timestamptz
-    );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'auth'
-      and p.proname = 'uid'
-  ) then
-    execute 'create function auth.uid() returns uuid language sql stable as $func$ select nullif(current_setting(''request.jwt.claim.sub'', true), '''')::uuid $func$';
-  end if;
-end $$;
+-- Supabase CLI가 운영과 로컬에 동일하게 적용하는 public 스키마 기준선이다.
+-- auth 스키마와 auth.users, auth.uid()는 Supabase가 소유하므로 여기서 변경하지 않는다.
+create extension if not exists pgcrypto;
+create extension if not exists postgis;
+create extension if not exists btree_gist;
 
 create table data_import_runs (
   id uuid primary key default gen_random_uuid(),

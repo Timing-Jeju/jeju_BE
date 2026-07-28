@@ -1,3 +1,5 @@
+-- 일반 PostgreSQL/PostGIS Docker 검증에서만 사용하는 로컬 fixture다.
+-- 운영 Supabase 또는 supabase db reset 경로에는 적용하지 않는다.
 begin;
 
 set local time zone 'Asia/Seoul';

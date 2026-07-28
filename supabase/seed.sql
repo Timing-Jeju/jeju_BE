@@ -1,0 +1,2 @@
+-- 운영 적용 가능 시드는 의도적으로 비워 둔다.
+-- 로컬 테스트 사용자는 Supabase Auth API를 통해 만들며 auth.users에 직접 INSERT하지 않는다.

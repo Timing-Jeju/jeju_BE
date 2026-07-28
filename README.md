@@ -11,7 +11,8 @@
 ├── services/
 │   └── spring-api/       # 공개 API, DB·외부 API, MCP 조립과 결과 저장
 ├── docs/                 # Spring 아키텍처와 서비스 간 연동 계약
-├── db/                   # PostgreSQL/PostGIS 스키마
+├── supabase/             # 단일 public 스키마 마이그레이션과 로컬 Supabase 설정
+├── db/                   # 일반 PostgreSQL 전용 호환 계층과 검증 쿼리
 ├── fixtures/             # 계약·DB 검증 fixture
 ├── scripts/              # Spring 품질 게이트와 자동화
 ├── compose.yml           # Spring API 통합 실행
@@ -25,6 +26,7 @@
 - springdoc-openapi 3.0.3, Swagger UI
 - Gradle 9.5.1 Wrapper
 - PostgreSQL 16 + PostGIS 3.4
+- Supabase CLI 2.110.0 + 로컬 PostgreSQL 17/PostGIS
 - JUnit 5, AssertJ, Mockito, Spring Test, ArchUnit, JaCoCo
 - Docker / Docker Compose
 
@@ -32,6 +34,7 @@
 
 - JDK 21
 - Docker Engine과 Docker Compose
+- Supabase CLI 2.110.0
 - Git, GitHub CLI(원격 설정 또는 PR 생성 시)
 
 ## 시작하기
@@ -80,6 +83,18 @@ docker compose -f compose.yml up --build
 
 기존 `docker-compose.yml`은 PostgreSQL/PostGIS 단독 개발용으로 유지합니다. `compose.yml`은 Spring 애플리케이션과 DB를 함께 실행하고, `compose.test.yml`은 격리된 smoke test에 사용합니다. FastAPI는 배포 환경의 private network에서 연결하며 이 저장소의 Compose가 구현 컨테이너를 소유하지 않습니다.
 
+## Supabase 로컬 환경
+
+로컬 개발은 로컬 Supabase Auth·PostgreSQL/PostGIS를, 운영은 호스팅된 Supabase Auth·PostgreSQL/PostGIS를 사용합니다. public 애플리케이션 스키마는 Flyway 없이 `supabase/migrations`만으로 관리합니다.
+
+```bash
+supabase start
+supabase db reset
+./scripts/supabase-smoke-test.sh
+```
+
+환경별 연결, 마이그레이션 소유권, 테스트 사용자 준비와 초기화 주의사항은 [데이터베이스 개발 환경](db/README.md)을 따릅니다.
+
 ## 개발 프로세스
 
 PM 세션 → Issue → 최신 `develop` 기반 작업 브랜치 → TDD → 로컬 품질 게이트 → PR 전 Reviewer 세션 → 승인 → PR → GitHub CI/공식 리뷰 → `develop` 머지 순서입니다. Release Issue만 `develop`에서 `main`으로 출시합니다.
@@ -87,6 +102,7 @@ PM 세션 → Issue → 최신 `develop` 기반 작업 브랜치 → TDD → 로
 ## 문서
 
 - [아키텍처](docs/ARCHITECTURE.md)
+- [데이터베이스 개발 환경](db/README.md)
 - [API 문서화 규칙](docs/API_DOCUMENTATION.md)
 - [Spring-FastAPI 내부 연동 명세](docs/designs/timing-jeju-spring-fastapi-integration-contract.md)
 - [FastAPI MCP 구현 계약](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)

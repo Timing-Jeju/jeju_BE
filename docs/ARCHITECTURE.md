@@ -13,6 +13,9 @@
 │       ├── gradle
 │       └── Dockerfile
 ├── docs
+├── supabase
+│   ├── config.toml
+│   └── migrations
 ├── db
 ├── fixtures
 ├── scripts
@@ -64,6 +67,14 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 트랜잭션 경계는 Service에 두고 읽기 전용과 쓰기를 구분합니다.
 - 특정 도메인 전용 코드는 `global`로 옮기지 않습니다.
 - 다른 도메인의 Repository를 직접 호출하지 않고 공개 Service, Facade 또는 명시적 application 경계를 둡니다.
+
+## 데이터베이스 마이그레이션 경계
+
+- `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
+- 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
+- Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
+- 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
+- Flyway는 현재 도입하지 않으며 도입 여부는 별도 Issue에서 결정합니다.
 
 ## ArchUnit 규칙
 
