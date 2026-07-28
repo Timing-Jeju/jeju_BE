@@ -15,7 +15,7 @@ await supabase.auth.signInWithOAuth({
 })
 ```
 
-Spring에는 로그인 시작·callback·redirect API가 없습니다. Redirect URLs의 단일 권위는 Supabase Auth입니다. 로컬에서는 버전 관리되는 `supabase/config.toml`의 `[auth].additional_redirect_urls`, 운영에서는 Supabase Dashboard의 Authentication → URL Configuration만 사용합니다. 프론트엔드는 사용자 입력 `next`, query, fragment나 외부 Origin으로 `redirectTo`를 조립하지 않고 빌드별 고정 callback만 사용합니다. 등록되지 않은 redirect는 Supabase Auth가 거부하며, 저장소 정책 테스트는 로컬 목록에 wildcard·query·fragment가 없음을 검사합니다.
+Spring에는 로그인 시작·callback·redirect API가 없습니다. Redirect URLs의 단일 권위는 Supabase Auth입니다. 로컬에서는 버전 관리되는 `supabase/config.toml`의 `[auth].additional_redirect_urls`, 운영에서는 Supabase Dashboard의 Authentication → URL Configuration만 사용합니다. 프론트엔드는 사용자 입력 `next`, query, fragment나 외부 Origin으로 `redirectTo`를 조립하지 않고 빌드별 고정 callback만 사용합니다. 등록되지 않은 redirect는 Supabase Auth가 거부하며, 저장소 정책 테스트는 로컬 목록에 wildcard·query·fragment가 없음을 검사합니다. Supabase smoke는 비활성 OAuth provider의 오류를 성공으로 간주하지 않고 실제 Auth email-link 생성 경로에서 등록된 callback이 보존되고 악성 URL이 site URL로 fail-closed되는지 대조합니다.
 
 Spring에서 공개하는 경로는 다음 두 GET뿐입니다.
 
@@ -56,7 +56,7 @@ Kakao도 로컬 `supabase/config.toml`에서 기본 비활성화이며 catalog�
 
 `GET /api/v1/auth/social/naver/userinfo`는 브라우저 로그인 API가 아니라 Supabase Auth custom provider가 back-channel에서 사용하는 adapter입니다. `Authorization: Bearer <naver-provider-access-token>`만 받으며 token은 Naver 공식 최대 길이 256자와 RFC 6750 `b64token` 문자 집합으로 제한합니다. 누락·중복·공백·control 문자·comma·colon·semicolon·query/form token은 Naver를 호출하기 전에 401로 거부합니다.
 
-adapter는 코드에 고정된 `https://openapi.naver.com/v1/nid/me`만 호출하고 redirect를 따르지 않습니다. 요청자가 URL이나 host를 지정할 수 없어 SSRF 경로가 없습니다. HTTP body는 64 KiB, 연결 2초, 요청 3초로 제한합니다. 애플리케이션 인스턴스마다 초당 60건의 고정 window와 동시 outbound 8건의 bulkhead를 적용합니다. 요청량 초과는 429, 동시 처리 상한 초과는 503이며 permit과 window가 회복되면 새 요청을 처리합니다.
+adapter는 코드에 고정된 `https://openapi.naver.com/v1/nid/me`만 호출하고 redirect를 따르지 않습니다. 요청자가 URL이나 host를 지정할 수 없어 SSRF 경로가 없습니다. HTTP body는 최대 64 KiB이며 연결은 2초, 요청 시작부터 header와 전체 body 완료까지는 3초 deadline으로 제한합니다. 200 header 또는 일부 body가 먼저 도착해도 deadline을 연장하지 않으며 초과·취소 시 HTTP subscription을 닫습니다. 별도 executor를 만들지 않아 요청별 thread나 shutdown 책임을 남기지 않습니다. 애플리케이션 인스턴스마다 초당 60건의 고정 window와 동시 outbound 8건의 bulkhead를 적용합니다. 요청량 초과는 429, 동시 처리 상한 초과는 503이며 timeout을 포함해 호출이 끝나면 permit을 반드시 반환합니다.
 
 Naver 성공 envelope는 `resultcode`가 문자열 `00`, `message`가 문자열 `success`인지 정확히 확인합니다. 누락·타입 오류·다른 값·malformed body는 표준 UserInfo로 변환하지 않습니다. nested `response.id`, `response.email`, `response.name`, `response.nickname`, `response.profile_image`만 `sub`, `email`, `name`, `preferred_username`, `picture`로 평탄화합니다. email이 없으면 `422 SOCIAL_NAVER_EMAIL_REQUIRED`이며 임의 email을 만들지 않습니다.
 

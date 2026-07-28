@@ -11,7 +11,13 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +29,7 @@ import tools.jackson.databind.ObjectMapper;
 class NaverUserInfoHttpGatewayTest {
 
   private HttpServer server;
+  private ExecutorService serverExecutor;
   private NaverUserInfoHttpGateway gateway;
   private final AtomicReference<Scenario> scenario = new AtomicReference<>();
   private final AtomicReference<String> authorizationHeader = new AtomicReference<>();
@@ -30,6 +37,8 @@ class NaverUserInfoHttpGatewayTest {
   @BeforeEach
   void setUp() throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    serverExecutor = Executors.newCachedThreadPool();
+    server.setExecutor(serverExecutor);
     server.createContext(
         "/v1/nid/me",
         exchange -> {
@@ -50,6 +59,7 @@ class NaverUserInfoHttpGatewayTest {
   @AfterEach
   void tearDown() {
     server.stop(0);
+    serverExecutor.shutdownNow();
   }
 
   @Test
@@ -97,6 +107,45 @@ class NaverUserInfoHttpGatewayTest {
         .isEqualTo("UPSTREAM_TIMEOUT");
   }
 
+  @Test
+  void 응답_header와_첫_byte_후_body가_멈춰도_전체_deadline에_취소되고_bulkhead가_회복한다() throws Exception {
+    CountDownLatch firstByteSent = new CountDownLatch(1);
+    CountDownLatch clientClosed = new CountDownLatch(1);
+    scenario.set(Scenario.stalledBody(firstByteSent, clientClosed));
+    NaverUserInfoAdmissionService admission =
+        NaverUserInfoAdmissionService.forTest(100, Duration.ofSeconds(10), 1, System::nanoTime);
+
+    long startedAt = System.nanoTime();
+    assertThatThrownBy(
+            () ->
+                admission.execute(
+                    () -> gateway.getUserInfo("opaque-provider-token-that-must-not-leak")))
+        .isInstanceOf(NaverUserInfoException.class)
+        .satisfies(
+            exception -> {
+              NaverUserInfoException failure = (NaverUserInfoException) exception;
+              assertThat(failure.code().name()).isEqualTo("UPSTREAM_TIMEOUT");
+              assertThat(failure.getMessage())
+                  .doesNotContain("opaque-provider-token-that-must-not-leak")
+                  .doesNotContain("stalled-body-secret");
+            });
+    long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+
+    assertThat(firstByteSent.await(1, TimeUnit.SECONDS)).isTrue();
+    assertThat(elapsedMillis).isBetween(2500L, 4500L);
+    assertThat(clientClosed.await(1, TimeUnit.SECONDS)).isTrue();
+
+    scenario.set(Scenario.response(200, "{\"resultcode\":\"00\",\"message\":\"success\"}"));
+    assertThat(admission.execute(() -> gateway.getUserInfo("recovered-provider-token")))
+        .containsEntry("resultcode", "00");
+  }
+
+  @Test
+  void deadline을_위한_별도_executor를_소유하지_않아_shutdown_누락을_만들지_않는다() {
+    assertThat(Arrays.stream(NaverUserInfoHttpGateway.class.getDeclaredFields()))
+        .noneMatch(field -> Executor.class.isAssignableFrom(field.getType()));
+  }
+
   private void assertFailure(int status, String expectedCode) {
     scenario.set(Scenario.response(status, "ignored"));
     assertThatThrownBy(() -> gateway.getUserInfo("opaque-provider-token"))
@@ -126,6 +175,32 @@ class NaverUserInfoHttpGatewayTest {
           Thread.currentThread().interrupt();
         }
         exchange.close();
+      };
+    }
+
+    static Scenario stalledBody(CountDownLatch firstByteSent, CountDownLatch clientClosed) {
+      return exchange -> {
+        exchange.sendResponseHeaders(200, 0);
+        try {
+          exchange.getResponseBody().write('{');
+          exchange.getResponseBody().flush();
+          firstByteSent.countDown();
+          for (int attempt = 0; attempt < 50; attempt++) {
+            try {
+              Thread.sleep(100);
+            } catch (InterruptedException exception) {
+              Thread.currentThread().interrupt();
+              return;
+            }
+            exchange.getResponseBody().write(' ');
+            exchange.getResponseBody().flush();
+          }
+          exchange.getResponseBody().write("}\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException exception) {
+          clientClosed.countDown();
+        } finally {
+          exchange.close();
+        }
       };
     }
   }

@@ -2,16 +2,23 @@ package com.timingjeju.api.domain.auth.service;
 
 import com.timingjeju.api.domain.auth.exception.NaverUserInfoException;
 import com.timingjeju.api.domain.auth.exception.NaverUserInfoFailureCode;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import tools.jackson.databind.ObjectMapper;
 
 public final class NaverUserInfoHttpGateway implements NaverUserInfoGateway {
@@ -56,25 +63,65 @@ public final class NaverUserInfoHttpGateway implements NaverUserInfoGateway {
             .header("Accept", "application/json")
             .header("Authorization", "Bearer " + providerAccessToken)
             .build();
+    AtomicReference<BoundedBodyGateway> bodySubscriber = new AtomicReference<>();
+    CompletableFuture<HttpResponse<byte[]>> responseFuture =
+        httpClient.sendAsync(
+            request,
+            responseInfo -> {
+              if (responseInfo.statusCode() != 200) {
+                return HttpResponse.BodySubscribers.replacing(new byte[0]);
+              }
+              BoundedBodyGateway subscriber = new BoundedBodyGateway(MAX_RESPONSE_BYTES);
+              bodySubscriber.set(subscriber);
+              return subscriber;
+            });
     try {
-      HttpResponse<InputStream> response =
-          httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-      try (InputStream body = response.body()) {
-        return handleResponse(response.statusCode(), body);
-      }
-    } catch (HttpTimeoutException exception) {
+      HttpResponse<byte[]> response =
+          responseFuture.get(REQUEST_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+      return handleResponse(response.statusCode(), response.body());
+    } catch (TimeoutException exception) {
+      cancel(responseFuture, bodySubscriber.get());
       throw new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_TIMEOUT);
+    } catch (ExecutionException exception) {
+      throw mapAsyncFailure(exception.getCause());
     } catch (InterruptedException exception) {
+      cancel(responseFuture, bodySubscriber.get());
       Thread.currentThread().interrupt();
       throw new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_TIMEOUT);
-    } catch (IOException exception) {
+    } catch (RuntimeException exception) {
+      if (exception instanceof NaverUserInfoException naverFailure) {
+        throw naverFailure;
+      }
       throw new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_UNAVAILABLE);
     }
   }
 
-  private Map<String, Object> handleResponse(int status, InputStream body) throws IOException {
+  private static void cancel(
+      CompletableFuture<HttpResponse<byte[]>> responseFuture, BoundedBodyGateway bodySubscriber) {
+    if (bodySubscriber != null) {
+      bodySubscriber.cancel();
+    }
+    responseFuture.cancel(true);
+  }
+
+  private static NaverUserInfoException mapAsyncFailure(Throwable failure) {
+    Throwable cause = failure;
+    while (cause.getCause() != null
+        && (cause instanceof CompletionException || cause instanceof ExecutionException)) {
+      cause = cause.getCause();
+    }
+    if (cause instanceof NaverUserInfoException naverFailure) {
+      return naverFailure;
+    }
+    if (cause instanceof HttpTimeoutException) {
+      return new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_TIMEOUT);
+    }
+    return new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_UNAVAILABLE);
+  }
+
+  private Map<String, Object> handleResponse(int status, byte[] body) {
     if (status == 200) {
-      return parse(readLimited(body));
+      return parse(body);
     }
     if (status == 401) {
       throw new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_UNAUTHORIZED);
@@ -104,22 +151,70 @@ public final class NaverUserInfoHttpGateway implements NaverUserInfoGateway {
     }
   }
 
-  private byte[] readLimited(InputStream body) throws IOException {
-    try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-      byte[] buffer = new byte[4096];
-      int total = 0;
-      for (int read; (read = body.read(buffer)) != -1; ) {
-        total += read;
-        if (total > MAX_RESPONSE_BYTES) {
-          throw new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_RESPONSE_TOO_LARGE);
-        }
-        output.write(buffer, 0, read);
-      }
-      return output.toByteArray();
-    }
-  }
-
   private static NaverUserInfoException invalidResponse() {
     return new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_MALFORMED_RESPONSE);
+  }
+
+  private static final class BoundedBodyGateway implements HttpResponse.BodySubscriber<byte[]> {
+
+    private final int maxBytes;
+    private final java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+    private final CompletableFuture<byte[]> body = new CompletableFuture<>();
+    private Flow.Subscription subscription;
+
+    private BoundedBodyGateway(int maxBytes) {
+      this.maxBytes = maxBytes;
+    }
+
+    @Override
+    public CompletionStage<byte[]> getBody() {
+      return body;
+    }
+
+    @Override
+    public synchronized void onSubscribe(Flow.Subscription subscription) {
+      if (this.subscription != null) {
+        subscription.cancel();
+        return;
+      }
+      this.subscription = subscription;
+      subscription.request(1);
+    }
+
+    @Override
+    public synchronized void onNext(List<ByteBuffer> buffers) {
+      if (body.isDone()) {
+        return;
+      }
+      for (ByteBuffer buffer : buffers) {
+        if (buffer.remaining() > maxBytes - output.size()) {
+          subscription.cancel();
+          body.completeExceptionally(
+              new NaverUserInfoException(NaverUserInfoFailureCode.UPSTREAM_RESPONSE_TOO_LARGE));
+          return;
+        }
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        output.writeBytes(bytes);
+      }
+      subscription.request(1);
+    }
+
+    @Override
+    public synchronized void onError(Throwable throwable) {
+      body.completeExceptionally(throwable);
+    }
+
+    @Override
+    public synchronized void onComplete() {
+      body.complete(output.toByteArray());
+    }
+
+    private synchronized void cancel() {
+      if (subscription != null) {
+        subscription.cancel();
+      }
+      body.cancel(true);
+    }
   }
 }

@@ -135,6 +135,20 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertIn("https://evil.invalid/social-callback", smoke_test)
         self.assertIn("미등록 redirect URL 차단 확인 성공", smoke_test)
 
+    def test_supabase_redirect_smoke_reaches_email_link_allowlist_validation(self):
+        smoke_test = (ROOT / "scripts" / "supabase-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("/auth/v1/admin/generate_link", smoke_test)
+        self.assertIn("SERVICE_ROLE_KEY", smoke_test)
+        self.assertIn("http://127.0.0.1:3000/auth/callback", smoke_test)
+        self.assertIn("https://evil.invalid/social-callback", smoke_test)
+        self.assertIn('response.get("redirect_to")', smoke_test)
+        self.assertNotIn("provider=google", smoke_test)
+        self.assertNotIn("unsupported_provider", smoke_test)
+        self.assertNotIn("REDIRECT_LOCATION", smoke_test)
+
     def test_common_quality_gate_runs_deploy_sql_policy_independently(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"

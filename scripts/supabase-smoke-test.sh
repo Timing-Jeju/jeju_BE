@@ -108,26 +108,79 @@ umask 077
 "$SUPABASE_BIN" status -o json >"$STATUS_FILE"
 API_URL=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["API_URL"])' "$STATUS_FILE")
 PUBLIC_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["PUBLISHABLE_KEY"])' "$STATUS_FILE")
+SERVICE_ROLE_KEY=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["SERVICE_ROLE_KEY"])' "$STATUS_FILE")
 JWT_SECRET=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["JWT_SECRET"])' "$STATUS_FILE")
 
-REDIRECT_HEADERS_FILE="$TEMP_DIR/redirect-headers"
-curl --silent --show-error --max-redirs 0 --get \
-  "$API_URL/auth/v1/authorize" \
-  --data-urlencode "provider=google" \
-  --data-urlencode "redirect_to=https://evil.invalid/social-callback" \
-  --dump-header "$REDIRECT_HEADERS_FILE" \
-  --output /dev/null
-REDIRECT_LOCATION=$(
-  awk 'BEGIN { IGNORECASE=1 } /^location:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit }' \
-    "$REDIRECT_HEADERS_FILE"
-)
-case "$REDIRECT_LOCATION" in
-  *evil.invalid*)
-    echo "Supabase Auth가 미등록 redirect URL을 허용했습니다." >&2
-    exit 1
-    ;;
-esac
-echo "[Supabase] 미등록 redirect URL 차단 확인 성공"
+ALLOWED_REDIRECT="http://127.0.0.1:3000/auth/callback"
+EVIL_REDIRECT="https://evil.invalid/social-callback"
+SITE_REDIRECT="http://127.0.0.1:3000"
+ALLOWED_LINK_PAYLOAD="$TEMP_DIR/allowed-link-payload.json"
+EVIL_LINK_PAYLOAD="$TEMP_DIR/evil-link-payload.json"
+ALLOWED_LINK_RESPONSE="$TEMP_DIR/allowed-link-response.json"
+EVIL_LINK_RESPONSE="$TEMP_DIR/evil-link-response.json"
+LINK_PASSWORD=$(python3 -c 'import secrets; print("Tj!" + secrets.token_urlsafe(24))')
+python3 - "$ALLOWED_LINK_PAYLOAD" "$EVIL_LINK_PAYLOAD" "$ALLOWED_REDIRECT" "$EVIL_REDIRECT" "$LINK_PASSWORD" <<'PY'
+import json
+import sys
+import uuid
+
+allowed_path, evil_path, allowed_redirect, evil_redirect, password = sys.argv[1:]
+for path, redirect_to, label in (
+    (allowed_path, allowed_redirect, "allowed"),
+    (evil_path, evil_redirect, "evil"),
+):
+    with open(path, "w", encoding="utf-8") as output:
+        json.dump(
+            {
+                "type": "signup",
+                "email": f"redirect-{label}-{uuid.uuid4()}@example.test",
+                "password": password,
+                "redirect_to": redirect_to,
+            },
+            output,
+        )
+PY
+
+ALLOWED_LINK_STATUS=$(curl --silent --show-error \
+  --request POST "$API_URL/auth/v1/admin/generate_link" \
+  --header "apikey: $PUBLIC_KEY" \
+  --header "Authorization: Bearer $SERVICE_ROLE_KEY" \
+  --header "Content-Type: application/json" \
+  --data-binary "@$ALLOWED_LINK_PAYLOAD" \
+  --output "$ALLOWED_LINK_RESPONSE" \
+  --write-out '%{http_code}')
+EVIL_LINK_STATUS=$(curl --silent --show-error \
+  --request POST "$API_URL/auth/v1/admin/generate_link" \
+  --header "apikey: $PUBLIC_KEY" \
+  --header "Authorization: Bearer $SERVICE_ROLE_KEY" \
+  --header "Content-Type: application/json" \
+  --data-binary "@$EVIL_LINK_PAYLOAD" \
+  --output "$EVIL_LINK_RESPONSE" \
+  --write-out '%{http_code}')
+[ "$ALLOWED_LINK_STATUS" = "200" ] && [ "$EVIL_LINK_STATUS" = "200" ] || {
+  echo "Supabase Auth email link redirect 검증 경로에 도달하지 못했습니다." >&2
+  exit 1
+}
+python3 - "$ALLOWED_LINK_RESPONSE" "$EVIL_LINK_RESPONSE" "$ALLOWED_REDIRECT" "$EVIL_REDIRECT" "$SITE_REDIRECT" <<'PY'
+import json
+import sys
+
+allowed_path, evil_path, allowed_redirect, evil_redirect, site_redirect = sys.argv[1:]
+with open(allowed_path, encoding="utf-8") as response_file:
+    allowed_response = json.load(response_file)
+with open(evil_path, encoding="utf-8") as response_file:
+    evil_response = json.load(response_file)
+
+if allowed_response.get("redirect_to") != allowed_redirect:
+    raise SystemExit("등록된 redirect URL이 email link 응답에 보존되지 않았습니다.")
+if evil_response.get("redirect_to") != site_redirect:
+    raise SystemExit("미등록 redirect URL이 site URL로 fail-closed되지 않았습니다.")
+if evil_response.get("redirect_to") == evil_redirect:
+    raise SystemExit("Supabase Auth가 미등록 redirect URL을 허용했습니다.")
+if not allowed_response.get("action_link") or not evil_response.get("action_link"):
+    raise SystemExit("Supabase Auth email link 생성이 완료되지 않았습니다.")
+PY
+echo "[Supabase] 실제 email link 허용 및 미등록 redirect URL 차단 확인 성공"
 
 TEST_EMAIL=$(python3 -c 'import uuid; print(f"security-smoke-{uuid.uuid4()}@example.test")')
 TEST_PASSWORD=$(python3 -c 'import secrets; print("Tj!" + secrets.token_urlsafe(24))')
