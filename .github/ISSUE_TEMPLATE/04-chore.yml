@@ -1,0 +1,24 @@
+name: 유지보수
+description: 개발 환경, 자동화 또는 저장소 유지보수를 제안합니다.
+title: "[Chore] "
+labels: ["type:chore"]
+body:
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 유지보수가 필요한 이유를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 범위, description: 변경할 설정과 제외 범위를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: 완료를 판단할 조건을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: verification
+    attributes: {label: 테스트 또는 검증 방법, description: 실행할 명령과 예상 결과를 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes: {label: Definition of Done, options: [{label: 관련 문서와 검증 결과를 갱신합니다., required: true}]}

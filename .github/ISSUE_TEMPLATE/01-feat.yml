@@ -1,0 +1,72 @@
+name: 기능 요청
+description: 새로운 사용자 기능 또는 API를 제안합니다.
+title: "[Feat] "
+labels: ["type:feat"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 문제 및 배경
+      description: 해결하려는 사용자 문제와 현재 불편을 설명해 주세요.
+    validations: {required: true}
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 완료 후 달라져야 하는 결과를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scenario
+    attributes: {label: 사용자 시나리오, description: 사용자가 어떤 흐름으로 기능을 사용하는지 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 기능 범위, description: 이번 Issue에 포함되는 작업을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: out_of_scope
+    attributes: {label: 제외 범위, description: 의도적으로 하지 않는 작업을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: api_change
+    attributes: {label: API 변경, description: Endpoint와 Request/Response 예시 또는 해당 없음을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: db_change
+    attributes: {label: DB 변경, description: Schema·Migration 변경 또는 해당 없음을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: validation
+    attributes: {label: Validation, description: 입력 제약과 경계값을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: authorization
+    attributes: {label: 권한과 보안, description: 인증·인가·민감정보 고려사항을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: 가능한 경우 Given/When/Then 형식으로 적어 주세요.
+      placeholder: |
+        Given ...
+        When ...
+        Then ...
+    validations: {required: true}
+  - type: textarea
+    id: tdd
+    attributes: {label: TDD 테스트 시나리오, description: 성공·실패·경계값 테스트를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: dependencies
+    attributes: {label: 의존성, description: 선행 Issue와 외부 의존성을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: risks
+    attributes: {label: 위험 요소, description: 보안·성능·데이터·운영 위험을 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      options:
+        - label: TDD, 전체 품질 게이트, Docker 검증과 문서 갱신을 완료합니다.
+          required: true

@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: timing-jeju-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/timing_jeju}
+    username: ${SPRING_DATASOURCE_USERNAME:timing_jeju}
+    password: ${SPRING_DATASOURCE_PASSWORD:timing_jeju}
+    hikari:
+      connection-timeout: 3000
+      validation-timeout: 2000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+    path: /swagger-ui.html
+  paths-to-match: /api/v1/**
+
+server:
+  shutdown: graceful

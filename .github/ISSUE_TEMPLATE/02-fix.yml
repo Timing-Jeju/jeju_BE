@@ -1,0 +1,46 @@
+name: 버그 수정
+description: 재현 가능한 결함과 회귀 테스트를 등록합니다.
+title: "[Fix] "
+labels: ["type:fix"]
+body:
+  - type: textarea
+    id: bug
+    attributes: {label: 버그 설명, description: 사용자가 겪는 문제를 설명해 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: reproduce
+    attributes: {label: 재현 절차, description: 최소 재현 순서를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: 기대 결과, description: 올바른 동작을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: actual
+    attributes: {label: 실제 결과, description: 현재 관찰되는 동작을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: impact
+    attributes: {label: 영향 범위, description: 사용자·데이터·운영 영향을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: logs
+    attributes: {label: 로그, description: 비밀정보와 개인정보를 제거한 핵심 로그만 적어 주세요.}
+  - type: textarea
+    id: hypothesis
+    attributes: {label: 원인 가설, description: 확인된 사실과 추정을 구분해 적어 주세요.}
+  - type: textarea
+    id: regression
+    attributes: {label: 회귀 테스트, description: 수정 전에 실패하고 수정 후 통과해야 할 테스트를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: Given/When/Then 형식의 완료 조건을 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      options:
+        - label: 재현 테스트, 전체 품질 게이트, Docker 검증을 완료합니다.
+          required: true

@@ -1,0 +1,138 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT"
+SPRING_DIR="$ROOT/services/spring-api"
+FASTAPI_DIR="$ROOT/services/fastapi-mcp"
+SETUP_VALIDATION=false
+CI_MODE=false
+SCOPE=all
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --setup-validation) SETUP_VALIDATION=true ;;
+    --ci) CI_MODE=true ;;
+    --scope)
+      shift
+      [ "$#" -gt 0 ] || { echo "--scope 값이 필요합니다." >&2; exit 2; }
+      SCOPE=$1
+      ;;
+    *) echo "알 수 없는 옵션: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+case "$SCOPE" in
+  all|common|spring|fastapi) ;;
+  *) echo "지원하지 않는 품질 게이트 범위: $SCOPE" >&2; exit 2 ;;
+esac
+
+stage() {
+  echo "[품질 게이트] $1"
+}
+
+run_spring_gradle() {
+  (
+    cd "$SPRING_DIR"
+    ./gradlew --no-daemon "$@"
+  )
+}
+
+BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-$(git branch --show-current)}}
+SHA=$(git rev-parse HEAD 2>/dev/null || printf 'UNBORN')
+
+run_common_checks() {
+  stage "Git 상태와 브랜치 검사"
+  git status --short
+  if [ "$SETUP_VALIDATION" = false ]; then
+    if [ "$CI_MODE" = true ] && { [ "$BRANCH" = main ] || [ "$BRANCH" = develop ]; }; then
+      python3 scripts/git-hooks/validate-branch.py --allow-protected "$BRANCH"
+    else
+      python3 scripts/git-hooks/validate-branch.py "$BRANCH"
+    fi
+    if [ -n "$(git status --porcelain)" ]; then
+      echo "작업 트리가 깨끗하지 않습니다." >&2
+      exit 1
+    fi
+  else
+    echo "초기 설정 검증 모드: 보호 브랜치·미추적 설정 파일을 허용합니다."
+  fi
+
+  stage "비밀정보 검사"
+  python3 scripts/git-hooks/scan-staged-secrets.py --all-files
+
+  stage "저장소 자동화 테스트"
+  python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
+  python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'
+  python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+}
+
+run_spring_checks() {
+  stage "Spring 포맷 검사"
+  run_spring_gradle spotlessCheck
+  stage "Spring 컴파일"
+  run_spring_gradle classes testClasses
+  stage "Spring 단위 테스트"
+  run_spring_gradle unitTest
+  stage "Spring Slice 테스트"
+  run_spring_gradle sliceTest
+  stage "Spring 통합 테스트"
+  run_spring_gradle integrationTest
+  stage "Spring OpenAPI 문서 생성"
+  run_spring_gradle openApiDocs
+  stage "Spring Architecture 테스트"
+  run_spring_gradle architectureTest
+  stage "Spring 전체 테스트와 커버리지"
+  run_spring_gradle test jacocoTestReport jacocoTestCoverageVerification
+  stage "Spring 애플리케이션 빌드"
+  run_spring_gradle bootJar
+  stage "Spring Docker 이미지·Compose·Health Check"
+  ./scripts/docker-smoke-test.sh
+}
+
+run_fastapi_checks() {
+  stage "FastAPI 도구·의존성·테스트 검사"
+  "$FASTAPI_DIR/scripts/quality-gate.sh"
+}
+
+case "$SCOPE" in
+  all)
+    run_common_checks
+    run_spring_checks
+    run_fastapi_checks
+    ;;
+  common) run_common_checks ;;
+  spring) run_spring_checks ;;
+  fastapi) run_fastapi_checks ;;
+esac
+
+if [ "$SCOPE" = all ] && [ "$SETUP_VALIDATION" = false ] && [ "$CI_MODE" = false ] && [ "$SHA" != "UNBORN" ]; then
+  SAFE_BRANCH=$(printf '%s' "$BRANCH" | sed 's#[^A-Za-z0-9._-]#__#g')
+  STATE_DIR=".codex/state/quality-gates"
+  mkdir -p "$STATE_DIR"
+  python3 - "$STATE_DIR/$SAFE_BRANCH.json" "$BRANCH" "$SHA" <<'PY'
+import datetime
+import json
+import sys
+from pathlib import Path
+
+path, branch, sha = sys.argv[1:]
+payload = {
+    "branch": branch,
+    "headSha": sha,
+    "checkedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    "gradleCheck": "SUCCESS",
+    "architectureTest": "SUCCESS",
+    "coverageCheck": "SUCCESS",
+    "openApiDocs": "SUCCESS",
+    "fastapiCheck": "SUCCESS",
+    "dockerBuild": "SUCCESS",
+    "dockerSmokeTest": "SUCCESS",
+    "result": "SUCCESS",
+}
+Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+  echo "품질 게이트 상태 기록: $STATE_DIR/$SAFE_BRANCH.json"
+fi
+
+echo "[품질 게이트] 모든 단계 성공"

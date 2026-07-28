@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR 전 코드리뷰"
+  short_description: "develop 대비 변경의 PR 전 품질 리뷰"
+  default_prompt: "$pre-pr-review로 최신 HEAD를 검토하고 승인 여부를 판정하세요."

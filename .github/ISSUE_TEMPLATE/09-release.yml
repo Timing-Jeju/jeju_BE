@@ -1,0 +1,32 @@
+name: 출시
+description: 검증된 develop을 main으로 출시합니다.
+title: "[Release] "
+labels: ["type:release"]
+body:
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 출시 버전과 사용자 가치를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 범위, description: 포함 변경, 제외 변경, 롤백 범위를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: develop 검증과 출시 성공 조건을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: verification
+    attributes: {label: 테스트 또는 검증 방법, description: CI·Docker·운영 Health Check와 롤백 확인을 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes:
+      label: Definition of Done
+      options:
+        - label: develop 전체 품질 게이트가 통과했습니다.
+          required: true
+        - label: develop에서 main으로 Release PR을 생성합니다.
+          required: true
+        - label: 자동 머지를 사용하지 않습니다.
+          required: true

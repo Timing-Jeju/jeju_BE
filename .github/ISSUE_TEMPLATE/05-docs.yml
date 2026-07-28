@@ -1,0 +1,24 @@
+name: 문서 변경
+description: 사용자 또는 개발자 문서의 추가·수정을 제안합니다.
+title: "[Docs] "
+labels: ["type:docs"]
+body:
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 문서 독자와 해결할 혼란을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 범위, description: 변경할 문서와 제외 범위를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: 내용·링크·명령 검증 조건을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: verification
+    attributes: {label: 테스트 또는 검증 방법, description: 링크와 예시 명령 검증 방법을 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes: {label: Definition of Done, options: [{label: 모든 사용자 노출 문서를 한국어로 확인합니다., required: true}]}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "TDD 개발"
+  short_description: "Issue 기반 Red-Green-Refactor 개발 수행"
+  default_prompt: "$tdd-development로 지정한 Issue를 테스트 우선으로 구현하세요."

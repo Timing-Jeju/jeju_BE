@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-timing_jeju}
+      POSTGRES_USER: ${POSTGRES_USER:-timing_jeju}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-timing_jeju}
+    ports:
+      - "5433:5432"
+    volumes:
+      - timing-jeju-postgres-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - ./db/queries:/queries:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ./services/spring-api
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-timing_jeju}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-timing_jeju}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-timing_jeju}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  timing-jeju-postgres-data:

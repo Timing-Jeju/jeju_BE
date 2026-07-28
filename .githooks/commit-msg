@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+python3 scripts/git-hooks/validate-commit-message.py "$1"

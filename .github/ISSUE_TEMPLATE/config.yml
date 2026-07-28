@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 보안 취약점 비공개 제보 안내
+    url: https://docs.github.com/ko/code-security/security-advisories/working-with-repository-security-advisories/privately-reporting-a-security-vulnerability
+    about: SECURITY.md를 먼저 읽고 실제 비밀정보나 취약점을 공개 Issue에 올리지 마세요.

@@ -1,0 +1,308 @@
+[
+  {
+    "timetableId": "arrival_stop_jeju_airport_1_1",
+    "stopId": "stop_jeju_airport_1",
+    "nodeId": "JEB405002100",
+    "routeId": "JEB405415101",
+    "routeNo": 151,
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 300,
+    "estimatedArrivalMinutes": 5,
+    "remainingStops": 1,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_1",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405320112",
+    "routeNo": 201,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 840,
+    "estimatedArrivalMinutes": 14,
+    "remainingStops": 9,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_2",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405320114",
+    "routeNo": 201,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 60,
+    "estimatedArrivalMinutes": 1,
+    "remainingStops": 2,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_3",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405320118",
+    "routeNo": 201,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 4200,
+    "estimatedArrivalMinutes": 70,
+    "remainingStops": 72,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_4",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405321103",
+    "routeNo": 211,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 4200,
+    "estimatedArrivalMinutes": 70,
+    "remainingStops": 55,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_5",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405321205",
+    "routeNo": 212,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 2160,
+    "estimatedArrivalMinutes": 36,
+    "remainingStops": 27,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_6",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405410112",
+    "routeNo": 101,
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 240,
+    "estimatedArrivalMinutes": 4,
+    "remainingStops": 1,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_7",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405411101",
+    "routeNo": 111,
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 4140,
+    "estimatedArrivalMinutes": 69,
+    "remainingStops": 12,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_8",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB405411171",
+    "routeNo": "111-1",
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 1140,
+    "estimatedArrivalMinutes": 19,
+    "remainingStops": 4,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_9",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB406150101",
+    "routeNo": 501,
+    "direction": "급행버스",
+    "estimatedArrivalSeconds": 60,
+    "estimatedArrivalMinutes": 1,
+    "remainingStops": 1,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_1_10",
+    "stopId": "stop_seongsan_ilchulbong_1",
+    "nodeId": "JEB406000816",
+    "routeId": "JEB406572105",
+    "routeNo": "721-3",
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 1080,
+    "estimatedArrivalMinutes": 18,
+    "remainingStops": 11,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_2_1",
+    "stopId": "stop_seongsan_ilchulbong_2",
+    "nodeId": "JEB406000817",
+    "routeId": "JEB405320111",
+    "routeNo": 201,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 660,
+    "estimatedArrivalMinutes": 11,
+    "remainingStops": 10,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_2_2",
+    "stopId": "stop_seongsan_ilchulbong_2",
+    "nodeId": "JEB406000817",
+    "routeId": "JEB405320113",
+    "routeNo": 201,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 840,
+    "estimatedArrivalMinutes": 14,
+    "remainingStops": 11,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_2_3",
+    "stopId": "stop_seongsan_ilchulbong_2",
+    "nodeId": "JEB406000817",
+    "routeId": "JEB405320115",
+    "routeNo": 201,
+    "direction": "간선버스",
+    "estimatedArrivalSeconds": 5160,
+    "estimatedArrivalMinutes": 86,
+    "remainingStops": 75,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_2_4",
+    "stopId": "stop_seongsan_ilchulbong_2",
+    "nodeId": "JEB406000817",
+    "routeId": "JEB405410111",
+    "routeNo": 101,
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 1440,
+    "estimatedArrivalMinutes": 24,
+    "remainingStops": 5,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seongsan_ilchulbong_2_5",
+    "stopId": "stop_seongsan_ilchulbong_2",
+    "nodeId": "JEB406000817",
+    "routeId": "JEB406572206",
+    "routeNo": "722-2",
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 1020,
+    "estimatedArrivalMinutes": 17,
+    "remainingStops": 18,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  },
+  {
+    "timetableId": "arrival_stop_seopjikoji_2_1",
+    "stopId": "stop_seopjikoji_2",
+    "nodeId": "JEB406001406",
+    "routeId": "JEB406572105",
+    "routeNo": "721-3",
+    "direction": "지선버스",
+    "estimatedArrivalSeconds": 480,
+    "estimatedArrivalMinutes": 8,
+    "remainingStops": 4,
+    "vehicleType": "일반차량",
+    "sourceApi": {
+      "provider": "TAGO",
+      "service": "버스도착정보 API",
+      "operation": "getSttnAcctoArvlPrearngeInfoList"
+    },
+    "cacheTtlSeconds": 30
+  }
+]

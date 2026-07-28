@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+cd "$ROOT"
+BRANCH=$(git branch --show-current)
+
+python3 scripts/git-hooks/validate-branch.py "$BRANCH"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/develop)
+      echo "main/develop 직접 push는 금지됩니다." >&2
+      exit 1
+      ;;
+  esac
+  if [ "$remote_sha" != "0000000000000000000000000000000000000000" ] && \
+     ! git merge-base --is-ancestor "$remote_sha" "$local_sha"; then
+    echo "non-fast-forward push는 force push로 간주해 차단합니다." >&2
+    exit 1
+  fi
+done
+
+./scripts/quality-gate.sh

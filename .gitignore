@@ -1,0 +1,39 @@
+# 운영체제와 IDE
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Gradle / Java
+.gradle/
+build/
+out/
+*.class
+
+# 로컬 환경변수와 비밀 파일
+.env
+.env.*
+!.env.example
+env/.env
+env/*.local
+*.pem
+*.key
+id_rsa
+service-account*.json
+
+# Codex 로컬 상태
+.codex/state/
+
+# Python / Node 임시 파일
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+
+# 생성 산출물
+outputs/
