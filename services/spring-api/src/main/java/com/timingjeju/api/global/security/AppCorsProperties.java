@@ -62,11 +62,17 @@ public record AppCorsProperties(List<String> allowedOrigins) {
     if (normalizedHost.contains(":")) {
       normalizedHost = normalizedHost.startsWith("[") ? normalizedHost : "[" + normalizedHost + "]";
     }
-    String normalizedAuthority = normalizedHost + (port == -1 ? "" : ":" + port);
-    if (!normalizedAuthority.equalsIgnoreCase(uri.getRawAuthority())) {
+    String sourceAuthority = normalizedHost + (port == -1 ? "" : ":" + port);
+    if (!sourceAuthority.equalsIgnoreCase(uri.getRawAuthority())) {
       throw invalidOrigin();
     }
-    return normalizedScheme + "://" + normalizedAuthority;
+    int canonicalPort = isDefaultPort(normalizedScheme, port) ? -1 : port;
+    String canonicalAuthority = normalizedHost + (canonicalPort == -1 ? "" : ":" + canonicalPort);
+    return normalizedScheme + "://" + canonicalAuthority;
+  }
+
+  private static boolean isDefaultPort(String scheme, int port) {
+    return (scheme.equals("http") && port == 80) || (scheme.equals("https") && port == 443);
   }
 
   private static IllegalArgumentException invalidOrigin() {

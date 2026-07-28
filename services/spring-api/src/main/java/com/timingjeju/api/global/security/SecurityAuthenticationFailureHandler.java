@@ -1,6 +1,5 @@
 package com.timingjeju.api.global.security;
 
-import com.nimbusds.jose.RemoteKeySourceException;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -30,7 +29,7 @@ public final class SecurityAuthenticationFailureHandler implements Authenticatio
       authenticationEntryPoint.commence(request, response, exception);
       return;
     }
-    if (hasCause(exception, RemoteKeySourceException.class)) {
+    if (RemoteJwksFailureClassifier.isAvailabilityFailure(exception)) {
       authenticationEntryPoint.commence(request, response, exception);
       return;
     }
@@ -39,16 +38,5 @@ public final class SecurityAuthenticationFailureHandler implements Authenticatio
         HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
         "AUTH_INTERNAL_ERROR",
         "인증 처리 중 내부 오류가 발생했습니다.");
-  }
-
-  private boolean hasCause(Throwable throwable, Class<? extends Throwable> expectedType) {
-    Throwable current = throwable;
-    while (current != null) {
-      if (expectedType.isInstance(current)) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
   }
 }

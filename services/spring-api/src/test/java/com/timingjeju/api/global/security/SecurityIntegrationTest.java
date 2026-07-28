@@ -46,7 +46,7 @@ import org.springframework.web.bind.annotation.RestController;
       "app.security.jwt.audience=authenticated",
       "app.security.jwt.jwks-url=",
       "app.security.jwt.secret=test-" + "only-hs256-secret-with-at-least-32-bytes",
-      "app.security.cors.allowed-origins=HTTP://LOCALHOST:3000,https://app.timing-jeju.test"
+      "app.security.cors.allowed-origins=HTTP://LOCALHOST:80,http://localhost:3000,https://app.timing-jeju.test:443"
     })
 @AutoConfigureMockMvc
 @Import(SecurityIntegrationTest.TestEndpointConfig.class)
@@ -278,6 +278,31 @@ class SecurityIntegrationTest {
 
   @Test
   void 허용한_CORS_origin만_preflight를_통과한다() throws Exception {
+    mockMvc
+        .perform(
+            options("/api/v1/test/current-user")
+                .with(
+                    request -> {
+                      request.setServerName("api.timing-jeju.test");
+                      return request;
+                    })
+                .header(HttpHeaders.ORIGIN, "http://localhost")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, HttpHeaders.AUTHORIZATION))
+        .andExpect(status().isOk())
+        .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost"))
+        .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+
+    mockMvc
+        .perform(
+            options("/api/v1/test/current-user")
+                .header(HttpHeaders.ORIGIN, "https://app.timing-jeju.test")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+        .andExpect(status().isOk())
+        .andExpect(
+            header()
+                .string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://app.timing-jeju.test"));
+
     mockMvc
         .perform(
             options("/api/v1/test/current-user")

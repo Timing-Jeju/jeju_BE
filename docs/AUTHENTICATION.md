@@ -9,7 +9,7 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 - `/v3/api-docs/**`, `/swagger-ui/**`: 해당 springdoc 기능이 활성화된 경우에만 공개
 - 그 밖의 경로: 기본 거부
 
-서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다. Origin은 `http`/`https` scheme, host와 선택적 1~65535 port만 가질 수 있습니다. userinfo, path, query, fragment, 상대 URI, encoded 우회 또는 모든 형태의 wildcard가 있거나 allowlist가 정규화 후 비면 애플리케이션 시작에 실패합니다. scheme과 host는 소문자로 정규화한 뒤 중복을 제거합니다.
+서버 세션은 만들지 않습니다. 인증은 쿠키가 아닌 `Authorization: Bearer <access-token>` 헤더만 사용하므로 CSRF는 비활성화했습니다. CORS는 환경변수에 명시된 정확한 Origin만 허용하고 wildcard 및 credential 요청은 허용하지 않습니다. Origin은 `http`/`https` scheme, host와 선택적 1~65535 port만 가질 수 있습니다. userinfo, path, query, fragment, 상대 URI, encoded 우회 또는 모든 형태의 wildcard가 있거나 allowlist가 정규화 후 비면 애플리케이션 시작에 실패합니다. scheme과 host는 소문자로 정규화하고 `http:80`과 `https:443`은 브라우저의 Origin 직렬화와 같은 생략형으로 바꾼 뒤 중복을 제거합니다. 비기본 port와 IPv6 bracket은 보존합니다.
 
 ## JWT 검증 계약
 
@@ -29,7 +29,7 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 
 `anon`, `service_role`, 잘못된 audience/issuer와 UUID가 아닌 `sub`는 401로 거부합니다. `user_metadata`, 이메일과 nickname은 인증·소유권 판단에 사용하지 않습니다. 검증된 신원은 Spring 비의존 `application.security.CurrentUser` 값 객체로 변환합니다. 도메인은 `CurrentUserAccessor` 계약만 사용할 수 있고 `global.security`, Spring Security `Jwt` 또는 `SecurityContext`에 의존하지 않습니다.
 
-인증 실패는 `401 AUTH_TOKEN_INVALID`, 인증된 사용자의 접근 거부는 `403 AUTH_ACCESS_DENIED`입니다. 알려진 unknown `kid`와 원격 JWKS 일시 장애는 token을 노출하지 않고 401로 종료합니다. 예상하지 못한 decoder/provider 내부 장애는 401로 숨기지 않고 `500 AUTH_INTERNAL_ERROR`의 고정 한국어 message와 `traceId`만 반환합니다. 모든 보안 오류 JSON은 Spring Boot가 관리하는 Jackson 3 mapper bean으로 직렬화하며 token, JWT payload, URL query, 예외 message와 개인정보를 응답이나 로그에 기록하지 않습니다.
+인증 실패는 `401 AUTH_TOKEN_INVALID`, 인증된 사용자의 접근 거부는 `403 AUTH_ACCESS_DENIED`입니다. 알려진 unknown `kid`와 네트워크 접근 실패 또는 JWKS endpoint의 HTTP 5xx 같은 원격 가용성 장애는 token을 노출하지 않고 401로 종료합니다. HTTP 200 응답의 malformed/invalid JWKS payload처럼 provider protocol을 신뢰할 수 없는 경우와 예상하지 못한 decoder/provider 내부 장애는 401로 숨기지 않고 `500 AUTH_INTERNAL_ERROR`의 고정 한국어 message와 `traceId`만 반환합니다. 분류는 예외 message가 아니라 원인 타입을 사용합니다. 모든 보안 오류 JSON은 Spring Boot가 관리하는 Jackson 3 mapper bean으로 직렬화하며 token, JWT payload, JWKS body, URL query, 예외 message와 개인정보를 응답이나 로그에 기록하지 않습니다.
 
 ## 환경변수
 
@@ -73,7 +73,7 @@ shared secret을 명령 출력, 문서, fixture 또는 Git에 남기지 않습�
 
 ## JWKS와 key rotation
 
-Supabase 공식 JWKS 경로는 `/auth/v1/.well-known/jwks.json`입니다. Spring의 Nimbus decoder가 공개키 조회와 캐시를 담당하며 애플리케이션 시작 시에는 JWKS 네트워크 호출을 요구하지 않습니다. 기존 `kid`를 최초 검증한 뒤 JWKS가 old→old+new로 바뀌면 unknown `kid`에서 한 번 재조회해 새 key를 검증합니다. 한 번 조회한 key는 캐시에 남아 있으므로 JWKS endpoint의 일시 장애 중에도 같은 `kid`의 기존 token을 검증할 수 있습니다. 아직 조회하지 않은 `kid`나 cache 밖의 key는 장애 중 `401 AUTH_TOKEN_INVALID`로 거부합니다. 테스트 서버는 `Cache-Control: max-age=300`을 사용해 실제 Nimbus cache/unknown-`kid` 재조회 동작을 검증합니다.
+Supabase 공식 JWKS 경로는 `/auth/v1/.well-known/jwks.json`입니다. Spring의 Nimbus decoder가 공개키 조회와 캐시를 담당하며 애플리케이션 시작 시에는 JWKS 네트워크 호출을 요구하지 않습니다. 기존 `kid`를 최초 검증한 뒤 JWKS가 old→old+new로 바뀌면 unknown `kid`에서 한 번 재조회해 새 key를 검증합니다. 한 번 조회한 key는 캐시에 남아 있으므로 JWKS endpoint의 일시 장애 중에도 같은 `kid`의 기존 token을 검증할 수 있습니다. 아직 조회하지 않은 `kid`나 cache 밖의 key는 장애 중 `401 AUTH_TOKEN_INVALID`로 거부합니다. 반면 endpoint가 HTTP 200으로 응답하더라도 body가 유효한 JWKS가 아니면 provider protocol fault로 보아 안전한 500을 반환합니다. 테스트 서버는 `Cache-Control: max-age=300`을 사용해 실제 Nimbus cache/unknown-`kid` 재조회 동작을 검증합니다.
 
 Supabase Edge의 JWKS cache는 10분이며 signing key 교체 시 standby key 생성 또는 이전 key 폐기 후 최소 20분의 전파 시간을 권장합니다. 애플리케이션에서 이보다 긴 별도 캐시를 추가하지 않습니다.
 

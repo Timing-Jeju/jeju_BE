@@ -52,9 +52,37 @@ class AppCorsPropertiesTest {
     assertThat(properties.allowedOrigins())
         .containsExactly(
             "http://localhost",
-            "https://example.com:443",
+            "https://example.com",
             "http://127.0.0.1:8080",
             "http://[::1]:3000");
+  }
+
+  @Test
+  void 기본_port는_생략형으로_정규화하고_중복제거하며_비기본_port는_보존한다() {
+    AppCorsProperties properties =
+        new AppCorsProperties(
+            List.of(
+                "http://example.com:80",
+                "http://example.com",
+                "https://example.com:443",
+                "https://example.com",
+                "http://localhost:80",
+                "https://127.0.0.1:443",
+                "http://[::1]:80",
+                "https://[2001:db8::1]:443",
+                "http://example.com:8080",
+                "https://example.com:8443"));
+
+    assertThat(properties.allowedOrigins())
+        .containsExactly(
+            "http://example.com",
+            "https://example.com",
+            "http://localhost",
+            "https://127.0.0.1",
+            "http://[::1]",
+            "https://[2001:db8::1]",
+            "http://example.com:8080",
+            "https://example.com:8443");
   }
 
   @Test
