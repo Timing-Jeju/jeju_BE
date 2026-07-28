@@ -18,5 +18,13 @@ management:
     health:
       show-details: never
 
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+    path: /swagger-ui.html
+  paths-to-match: /api/v1/**
+
 server:
   shutdown: graceful

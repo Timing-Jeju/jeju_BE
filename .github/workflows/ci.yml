@@ -81,7 +81,7 @@ jobs:
         run: chmod +x services/spring-api/gradlew scripts/*.sh
       - name: Spring 전체 품질 게이트
         run: ./scripts/quality-gate.sh --ci --scope spring
-      - name: Spring 테스트 리포트 보존
+      - name: Spring 테스트 리포트와 OpenAPI 계약 보존
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -89,6 +89,7 @@ jobs:
           path: |
             services/spring-api/build/reports/tests/
             services/spring-api/build/reports/jacoco/
+            services/spring-api/build/openapi/openapi.json
           if-no-files-found: warn
           retention-days: 14
 

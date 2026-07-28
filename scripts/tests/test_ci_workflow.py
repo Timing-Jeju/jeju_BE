@@ -57,6 +57,7 @@ class CiWorkflowTest(unittest.TestCase):
     def test_test_reports_are_preserved(self):
         self.assertIn("services/spring-api/build/reports/tests/", self.workflow)
         self.assertIn("services/spring-api/build/reports/jacoco/", self.workflow)
+        self.assertIn("services/spring-api/build/openapi/openapi.json", self.workflow)
 
 
 if __name__ == "__main__":

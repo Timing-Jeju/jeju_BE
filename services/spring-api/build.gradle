@@ -30,6 +30,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 	runtimeOnly 'org.postgresql:postgresql'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
@@ -79,8 +80,25 @@ def taggedTest = { String taskName, String tag, String descriptionText ->
 
 taggedTest('unitTest', 'unit', '도메인 및 서비스 단위 테스트를 실행합니다.')
 taggedTest('sliceTest', 'slice', 'Controller/Repository 슬라이스 테스트를 실행합니다.')
-taggedTest('integrationTest', 'integration', '통합 테스트를 실행합니다.')
+def integrationTestTask = taggedTest('integrationTest', 'integration', '통합 테스트를 실행합니다.')
 taggedTest('architectureTest', 'architecture', 'ArchUnit 아키텍처 테스트를 실행합니다.')
+
+def openApiOutput = layout.buildDirectory.file('openapi/openapi.json')
+integrationTestTask.configure {
+	outputs.file openApiOutput
+}
+
+tasks.register('openApiDocs') {
+	description = '프론트엔드 공유용 OpenAPI JSON을 생성합니다.'
+	group = 'documentation'
+	dependsOn integrationTestTask
+	outputs.file openApiOutput
+	doLast {
+		if (!openApiOutput.get().asFile.isFile()) {
+			throw new GradleException('OpenAPI JSON이 생성되지 않았습니다.')
+		}
+	}
+}
 
 jacoco {
 	toolVersion = '0.8.13'
@@ -108,5 +126,5 @@ jacocoTestCoverageVerification {
 }
 
 check {
-	dependsOn spotlessCheck, jacocoTestReport, jacocoTestCoverageVerification
+	dependsOn spotlessCheck, jacocoTestReport, jacocoTestCoverageVerification, openApiDocs
 }

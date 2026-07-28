@@ -37,6 +37,7 @@ if ($Scope -in @("all", "spring")) {
     ./gradlew.bat --no-daemon spotlessCheck
     ./gradlew.bat --no-daemon classes testClasses
     ./gradlew.bat --no-daemon unitTest sliceTest integrationTest architectureTest
+    ./gradlew.bat --no-daemon openApiDocs
     ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar
   } finally {
     Pop-Location
@@ -54,7 +55,7 @@ if ($Scope -eq "all" -and -not $SetupValidation -and -not $Ci -and $sha -ne "UNB
   New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
   $payload = [ordered]@{
     branch = $branch; headSha = $sha; checkedAt = [DateTime]::UtcNow.ToString("o")
-    gradleCheck = "SUCCESS"; architectureTest = "SUCCESS"; coverageCheck = "SUCCESS"; fastapiCheck = "SUCCESS"
+    gradleCheck = "SUCCESS"; architectureTest = "SUCCESS"; coverageCheck = "SUCCESS"; openApiDocs = "SUCCESS"; fastapiCheck = "SUCCESS"
     dockerBuild = "SUCCESS"; dockerSmokeTest = "SUCCESS"; result = "SUCCESS"
   }
   $payload | ConvertTo-Json | Set-Content -Encoding utf8 "$stateDir/$safeBranch.json"

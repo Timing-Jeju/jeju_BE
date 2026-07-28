@@ -78,6 +78,8 @@ run_spring_checks() {
   run_spring_gradle sliceTest
   stage "Spring 통합 테스트"
   run_spring_gradle integrationTest
+  stage "Spring OpenAPI 문서 생성"
+  run_spring_gradle openApiDocs
   stage "Spring Architecture 테스트"
   run_spring_gradle architectureTest
   stage "Spring 전체 테스트와 커버리지"
@@ -122,6 +124,7 @@ payload = {
     "gradleCheck": "SUCCESS",
     "architectureTest": "SUCCESS",
     "coverageCheck": "SUCCESS",
+    "openApiDocs": "SUCCESS",
     "fastapiCheck": "SUCCESS",
     "dockerBuild": "SUCCESS",
     "dockerSmokeTest": "SUCCESS",
