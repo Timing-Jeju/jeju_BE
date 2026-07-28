@@ -70,6 +70,8 @@ cd ../..
 
 루트 `quality-gate`는 브랜치·비밀정보·모노레포 구조·서비스별 테스트·커버리지·빌드·Docker smoke test를 순서대로 검증합니다. 성공 기록은 커밋되지 않는 `.codex/state/quality-gates/`에 저장됩니다.
 
+GitHub Actions의 `백엔드 모노레포 CI`는 `develop`·`main` 대상 PR과 두 보호 브랜치의 push에서 같은 품질 게이트를 실행합니다. PR 메타데이터와 Gradle Wrapper 무결성을 먼저 확인하고 테스트·JaCoCo 리포트를 14일간 보존합니다. 같은 브랜치에 새 커밋이 올라오면 이전 실행은 자동 취소됩니다.
+
 ## Docker 실행
 
 ```bash
