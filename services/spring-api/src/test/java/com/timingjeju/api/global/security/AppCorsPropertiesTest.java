@@ -86,6 +86,60 @@ class AppCorsPropertiesTest {
   }
 
   @Test
+  void 브라우저와_다르게_직렬화되는_비정규_numeric_host는_시작_설정이_실패한다() {
+    for (String nonCanonicalNumericOrigin :
+        List.of(
+            "HTTP://[0:0:0:0:0:0:0:1]:80",
+            "http://0177.0.0.1:80",
+            "http://127.1",
+            "http://2130706433",
+            "http://127.00.0.1",
+            "http://001.2.3.4",
+            "http://1.2.3.04",
+            "http://256.0.0.1",
+            "http://[2001:0db8::1]",
+            "http://[0:0::1]")) {
+      assertThatThrownBy(() -> new AppCorsProperties(List.of(nonCanonicalNumericOrigin)))
+          .as(nonCanonicalNumericOrigin)
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("Origin");
+    }
+  }
+
+  @Test
+  void canonical_IP와_DNS_like_hostname은_허용한다() {
+    AppCorsProperties properties =
+        new AppCorsProperties(
+            List.of(
+                "http://127.0.0.1:80",
+                "http://0.0.0.0",
+                "http://255.255.255.255",
+                "http://[::1]:80",
+                "http://[::]",
+                "https://[2001:db8::1]:443",
+                "HTTPS://[2001:DB8::1]",
+                "https://[2001:db8:0:1::1]",
+                "https://[2001:db8:0:1:2:3:4:5]",
+                "https://123.example.com",
+                "https://1.2.3.example",
+                "http://localhost"));
+
+    assertThat(properties.allowedOrigins())
+        .containsExactly(
+            "http://127.0.0.1",
+            "http://0.0.0.0",
+            "http://255.255.255.255",
+            "http://[::1]",
+            "http://[::]",
+            "https://[2001:db8::1]",
+            "https://[2001:db8:0:1::1]",
+            "https://[2001:db8:0:1:2:3:4:5]",
+            "https://123.example.com",
+            "https://1.2.3.example",
+            "http://localhost");
+  }
+
+  @Test
   void origin이_아닌_URI와_parser_우회는_시작_설정이_실패한다() {
     for (String invalidOrigin :
         List.of(

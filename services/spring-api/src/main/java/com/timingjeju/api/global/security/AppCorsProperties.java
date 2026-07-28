@@ -62,6 +62,7 @@ public record AppCorsProperties(List<String> allowedOrigins) {
     if (normalizedHost.contains(":")) {
       normalizedHost = normalizedHost.startsWith("[") ? normalizedHost : "[" + normalizedHost + "]";
     }
+    requireBrowserCanonicalNumericHost(normalizedHost);
     String sourceAuthority = normalizedHost + (port == -1 ? "" : ":" + port);
     if (!sourceAuthority.equalsIgnoreCase(uri.getRawAuthority())) {
       throw invalidOrigin();
@@ -73,6 +74,139 @@ public record AppCorsProperties(List<String> allowedOrigins) {
 
   private static boolean isDefaultPort(String scheme, int port) {
     return (scheme.equals("http") && port == 80) || (scheme.equals("https") && port == 443);
+  }
+
+  private static void requireBrowserCanonicalNumericHost(String host) {
+    String unwrappedHost =
+        host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+    if (unwrappedHost.contains(":")) {
+      if (!unwrappedHost.equals(canonicalIpv6(unwrappedHost))) {
+        throw invalidOrigin();
+      }
+      return;
+    }
+    if (unwrappedHost.chars().allMatch(character -> isAsciiDigit(character) || character == '.')
+        && !isCanonicalIpv4(unwrappedHost)) {
+      throw invalidOrigin();
+    }
+  }
+
+  private static boolean isCanonicalIpv4(String host) {
+    String[] octets = host.split("\\.", -1);
+    if (octets.length != 4) {
+      return false;
+    }
+    for (String octet : octets) {
+      if (octet.isEmpty()
+          || (octet.length() > 1 && octet.startsWith("0"))
+          || octet.length() > 3
+          || !octet.chars().allMatch(AppCorsProperties::isAsciiDigit)
+          || Integer.parseInt(octet) > 255) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static String canonicalIpv6(String address) {
+    if (address.contains(".")) {
+      return null;
+    }
+    int compressionIndex = address.indexOf("::");
+    if (compressionIndex != address.lastIndexOf("::")) {
+      return null;
+    }
+    String[] leftGroups =
+        ipv6Groups(compressionIndex == -1 ? address : address.substring(0, compressionIndex));
+    String[] rightGroups =
+        compressionIndex == -1
+            ? new String[0]
+            : ipv6Groups(address.substring(compressionIndex + 2));
+    int explicitGroupCount = leftGroups.length + rightGroups.length;
+    if ((compressionIndex == -1 && explicitGroupCount != 8)
+        || (compressionIndex != -1 && explicitGroupCount >= 8)) {
+      return null;
+    }
+
+    int[] groups = new int[8];
+    int cursor = 0;
+    for (String group : leftGroups) {
+      int parsed = parseIpv6Group(group);
+      if (parsed < 0) {
+        return null;
+      }
+      groups[cursor++] = parsed;
+    }
+    cursor = 8 - rightGroups.length;
+    for (String group : rightGroups) {
+      int parsed = parseIpv6Group(group);
+      if (parsed < 0) {
+        return null;
+      }
+      groups[cursor++] = parsed;
+    }
+    return formatCanonicalIpv6(groups);
+  }
+
+  private static String[] ipv6Groups(String value) {
+    return value.isEmpty() ? new String[0] : value.split(":", -1);
+  }
+
+  private static int parseIpv6Group(String group) {
+    if (group.isEmpty()
+        || group.length() > 4
+        || !group
+            .chars()
+            .allMatch(
+                character -> isAsciiDigit(character) || (character >= 'a' && character <= 'f'))) {
+      return -1;
+    }
+    try {
+      return Integer.parseInt(group, 16);
+    } catch (NumberFormatException exception) {
+      return -1;
+    }
+  }
+
+  private static boolean isAsciiDigit(int character) {
+    return character >= '0' && character <= '9';
+  }
+
+  private static String formatCanonicalIpv6(int[] groups) {
+    int bestStart = -1;
+    int bestLength = 1;
+    for (int index = 0; index < groups.length; ) {
+      if (groups[index] != 0) {
+        index++;
+        continue;
+      }
+      int end = index;
+      while (end < groups.length && groups[end] == 0) {
+        end++;
+      }
+      if (end - index > bestLength) {
+        bestStart = index;
+        bestLength = end - index;
+      }
+      index = end;
+    }
+    if (bestStart == -1) {
+      return joinIpv6Groups(groups, 0, groups.length);
+    }
+    String left = joinIpv6Groups(groups, 0, bestStart);
+    String right = joinIpv6Groups(groups, bestStart + bestLength, groups.length);
+    return left + "::" + right;
+  }
+
+  private static String joinIpv6Groups(int[] groups, int start, int end) {
+    StringBuilder result = new StringBuilder();
+    for (int index = start; index < end; index++) {
+      if (!result.isEmpty()) {
+        result.append(':');
+      }
+      result.append(Integer.toHexString(groups[index]));
+    }
+    return result.toString();
   }
 
   private static IllegalArgumentException invalidOrigin() {

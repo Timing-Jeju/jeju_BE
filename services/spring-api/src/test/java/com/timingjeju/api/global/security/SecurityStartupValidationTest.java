@@ -127,12 +127,16 @@ class SecurityStartupValidationTest {
   void 정확한_CORS_allowlist는_context에서_trim과_중복제거된다() {
     corsContextRunner
         .withPropertyValues(
-            "app.security.cors.allowed-origins= http://localhost:3000 , https://app.timing-jeju.test , http://localhost:3000 ")
+            "app.security.cors.allowed-origins= http://localhost:3000 , https://app.timing-jeju.test , http://localhost:3000 , HTTP://[::1]:80 , http://127.0.0.1:80 ")
         .run(
             context -> {
               assertThat(context).hasNotFailed();
               assertThat(context.getBean(AppCorsProperties.class).allowedOrigins())
-                  .containsExactly("http://localhost:3000", "https://app.timing-jeju.test");
+                  .containsExactly(
+                      "http://localhost:3000",
+                      "https://app.timing-jeju.test",
+                      "http://[::1]",
+                      "http://127.0.0.1");
             });
   }
 
@@ -146,7 +150,9 @@ class SecurityStartupValidationTest {
             "https://example.com?query=1",
             "https://*.example.com",
             "relative/path",
-            "http://example.com:65536")) {
+            "http://example.com:65536",
+            "HTTP://[0:0:0:0:0:0:0:1]:80",
+            "http://0177.0.0.1:80")) {
       corsContextRunner
           .withPropertyValues("app.security.cors.allowed-origins=" + origin)
           .run(context -> assertThat(context).as(origin).hasFailed());
