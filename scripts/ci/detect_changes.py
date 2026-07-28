@@ -7,7 +7,6 @@ from collections.abc import Iterable
 
 
 CONTRACT_PATHS = {
-    "docs/designs/timing-jeju-fastapi-mcp-contract.md",
     "docs/designs/timing-jeju-spring-fastapi-integration-contract.md",
 }
 SHARED_SERVICE_PATHS = {
@@ -32,9 +31,6 @@ def classify_paths(paths: Iterable[str]) -> dict[str, bool]:
         or contract
         or any(path.startswith("services/spring-api/") for path in normalized)
         or any(path.startswith("scripts/docker-smoke-test.") for path in normalized),
-        "fastapi": shared
-        or contract
-        or any(path.startswith("services/fastapi-mcp/") for path in normalized),
         "contract": contract,
     }
 

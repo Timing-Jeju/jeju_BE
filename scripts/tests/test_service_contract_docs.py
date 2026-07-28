@@ -5,21 +5,25 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-FASTAPI_CONTRACT = ROOT / "docs/designs/timing-jeju-fastapi-mcp-contract.md"
 INTEGRATION_CONTRACT = (
     ROOT / "docs/designs/timing-jeju-spring-fastapi-integration-contract.md"
 )
 
 
 class ServiceContractDocsTest(unittest.TestCase):
-    def test_both_contracts_share_required_wire_terms(self):
+    def test_backend_integration_contract_has_required_wire_terms(self):
         required_terms = ("POST /mcp", "contractVersion", "inputHash")
 
-        for path in (FASTAPI_CONTRACT, INTEGRATION_CONTRACT):
-            document = path.read_text(encoding="utf-8")
-            for term in required_terms:
-                with self.subTest(document=path.name, term=term):
-                    self.assertIn(term, document)
+        document = INTEGRATION_CONTRACT.read_text(encoding="utf-8")
+        for term in required_terms:
+            with self.subTest(term=term):
+                self.assertIn(term, document)
+
+    def test_integration_contract_links_to_ai_repository_contract(self):
+        document = INTEGRATION_CONTRACT.read_text(encoding="utf-8")
+
+        self.assertIn("https://github.com/Timing-Jeju/jeju_AI", document)
+        self.assertIn("docs/FASTAPI_MCP_CONTRACT.md", document)
 
     def test_integration_contract_defines_private_health_and_identity(self):
         document = INTEGRATION_CONTRACT.read_text(encoding="utf-8")

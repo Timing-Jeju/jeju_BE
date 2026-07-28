@@ -8,5 +8,5 @@ BRANCH=$(git branch --show-current)
 python3 scripts/git-hooks/validate-branch.py "$BRANCH"
 python3 scripts/git-hooks/scan-staged-secrets.py
 python3 scripts/git-hooks/validate-test-pair.py --branch "$BRANCH"
-python3 -m unittest scripts/tests/test_monorepo_layout.py
+python3 -m unittest scripts/tests/test_backend_layout.py
 (cd services/spring-api && ./gradlew spotlessCheck unitTest)

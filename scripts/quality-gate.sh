@@ -4,7 +4,6 @@ set -eu
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT"
 SPRING_DIR="$ROOT/services/spring-api"
-FASTAPI_DIR="$ROOT/services/fastapi-mcp"
 SETUP_VALIDATION=false
 CI_MODE=false
 SCOPE=all
@@ -23,7 +22,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$SCOPE" in
-  all|common|spring|fastapi) ;;
+  all|common|spring) ;;
   *) echo "지원하지 않는 품질 게이트 범위: $SCOPE" >&2; exit 2 ;;
 esac
 
@@ -90,20 +89,13 @@ run_spring_checks() {
   ./scripts/docker-smoke-test.sh
 }
 
-run_fastapi_checks() {
-  stage "FastAPI 도구·의존성·테스트 검사"
-  "$FASTAPI_DIR/scripts/quality-gate.sh"
-}
-
 case "$SCOPE" in
   all)
     run_common_checks
     run_spring_checks
-    run_fastapi_checks
     ;;
   common) run_common_checks ;;
   spring) run_spring_checks ;;
-  fastapi) run_fastapi_checks ;;
 esac
 
 if [ "$SCOPE" = all ] && [ "$SETUP_VALIDATION" = false ] && [ "$CI_MODE" = false ] && [ "$SHA" != "UNBORN" ]; then
@@ -125,7 +117,6 @@ payload = {
     "architectureTest": "SUCCESS",
     "coverageCheck": "SUCCESS",
     "openApiDocs": "SUCCESS",
-    "fastapiCheck": "SUCCESS",
     "dockerBuild": "SUCCESS",
     "dockerSmokeTest": "SUCCESS",
     "result": "SUCCESS",

@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import tomllib
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SPRING_API = ROOT / "services" / "spring-api"
-FASTAPI_MCP = ROOT / "services" / "fastapi-mcp"
 
 
-class MonorepoLayoutTest(unittest.TestCase):
+class BackendLayoutTest(unittest.TestCase):
     def test_spring_server_is_isolated_under_services(self):
         required_paths = (
             "build.gradle",
@@ -63,40 +61,19 @@ class MonorepoLayoutTest(unittest.TestCase):
             with self.subTest(path=relative_path):
                 self.assertTrue((ROOT / relative_path).exists())
 
-    def test_fastapi_service_has_only_structure_neutral_baseline(self):
-        required_paths = (
-            "README.md",
-            "AGENTS.md",
-            ".python-version",
-            "pyproject.toml",
-            "uv.lock",
-            "scripts/quality-gate.sh",
+    def test_fastapi_implementation_is_not_in_backend_repository(self):
+        self.assertFalse((ROOT / "services" / "fastapi-mcp").exists())
+        self.assertFalse(
+            (ROOT / "docs" / "designs" / "timing-jeju-fastapi-mcp-contract.md").exists()
         )
 
-        for relative_path in required_paths:
+    def test_backend_docs_link_to_the_separate_ai_repository(self):
+        for relative_path in ("README.md", "AGENTS.md", "docs/ARCHITECTURE.md"):
             with self.subTest(path=relative_path):
-                self.assertTrue((FASTAPI_MCP / relative_path).is_file())
+                document = (ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn("https://github.com/Timing-Jeju/jeju_AI", document)
 
-        self.assertFalse((FASTAPI_MCP / "src").exists())
-        self.assertFalse((FASTAPI_MCP / "app").exists())
-
-    def test_fastapi_tooling_does_not_force_a_package_layout(self):
-        with (FASTAPI_MCP / "pyproject.toml").open("rb") as file:
-            pyproject = tomllib.load(file)
-
-        self.assertEqual(">=3.12,<3.13", pyproject["project"]["requires-python"])
-        self.assertFalse(pyproject["tool"]["uv"]["package"])
-
-        dependencies = pyproject["project"]["dependencies"]
-        development_dependencies = pyproject["dependency-groups"]["dev"]
-        for dependency in ("fastapi", "mcp"):
-            self.assertTrue(any(item.startswith(dependency) for item in dependencies))
-        for dependency in ("ruff", "mypy", "pytest"):
-            self.assertTrue(
-                any(item.startswith(dependency) for item in development_dependencies)
-            )
-
-    def test_root_automation_targets_the_spring_service_directory(self):
+    def test_root_automation_targets_only_the_spring_service_directory(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
         )
@@ -104,7 +81,7 @@ class MonorepoLayoutTest(unittest.TestCase):
         test_compose = (ROOT / "compose.test.yml").read_text(encoding="utf-8")
 
         self.assertIn("services/spring-api", quality_gate)
-        self.assertIn("services/fastapi-mcp", quality_gate)
+        self.assertNotIn("services/fastapi-mcp", quality_gate)
         self.assertIn("./services/spring-api", compose)
         self.assertIn("./services/spring-api", test_compose)
 

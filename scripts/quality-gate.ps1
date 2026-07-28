@@ -1,7 +1,7 @@
 param(
   [switch]$SetupValidation,
   [switch]$Ci,
-  [ValidateSet("all", "common", "spring", "fastapi")]
+  [ValidateSet("all", "common", "spring")]
   [string]$Scope = "all"
 )
 $ErrorActionPreference = "Stop"
@@ -45,17 +45,13 @@ if ($Scope -in @("all", "spring")) {
   ./scripts/docker-smoke-test.ps1
 }
 
-if ($Scope -in @("all", "fastapi")) {
-  ./services/fastapi-mcp/scripts/quality-gate.ps1
-}
-
 if ($Scope -eq "all" -and -not $SetupValidation -and -not $Ci -and $sha -ne "UNBORN") {
   $safeBranch = $branch -replace '[^A-Za-z0-9._-]', '__'
   $stateDir = ".codex/state/quality-gates"
   New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
   $payload = [ordered]@{
     branch = $branch; headSha = $sha; checkedAt = [DateTime]::UtcNow.ToString("o")
-    gradleCheck = "SUCCESS"; architectureTest = "SUCCESS"; coverageCheck = "SUCCESS"; openApiDocs = "SUCCESS"; fastapiCheck = "SUCCESS"
+    gradleCheck = "SUCCESS"; architectureTest = "SUCCESS"; coverageCheck = "SUCCESS"; openApiDocs = "SUCCESS"
     dockerBuild = "SUCCESS"; dockerSmokeTest = "SUCCESS"; result = "SUCCESS"
   }
   $payload | ConvertTo-Json | Set-Content -Encoding utf8 "$stateDir/$safeBranch.json"

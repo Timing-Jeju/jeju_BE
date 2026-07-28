@@ -4,6 +4,8 @@
 
 이 문서는 프런트 요청을 받은 Spring Boot가 어떤 데이터를 조립해 FastAPI MCP에 보내고, 어떤 형식으로 결과를 받아 검증·저장·응답하는지 정의한다.
 
+FastAPI가 구현해야 하는 tool별 요청·응답 계약은 별도 [Timing-Jeju/jeju_AI의 FastAPI MCP 구현 계약](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)을 기준으로 한다.
+
 | 항목 | 확정값 |
 | --- | --- |
 | 공개 API | Spring Boot `/api/v1/**` |

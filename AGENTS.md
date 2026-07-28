@@ -1,14 +1,14 @@
-# Timing Jeju 백엔드 모노레포 에이전트 규칙
+# Timing Jeju Spring 백엔드 에이전트 규칙
 
 ## 프로젝트와 명령
 
-- 공통 계약·DB·fixture·협업 정책은 루트에, 실행 서비스는 `services` 아래에 둔다.
-- Spring Boot 공개 API는 `services/spring-api`, FastAPI MCP는 `services/fastapi-mcp`에 둔다.
+- 계약·DB·fixture·협업 정책은 루트에, Spring Boot 공개 API는 `services/spring-api`에 둔다.
+- FastAPI MCP 구현은 별도 [Timing-Jeju/jeju_AI](https://github.com/Timing-Jeju/jeju_AI) 저장소에서 관리하며 Python 소스와 의존성을 이 저장소에 두지 않는다.
 - Spring 로컬 실행: `cd services/spring-api && ./gradlew bootRun`
 - Spring 전체 검사: `cd services/spring-api && ./gradlew clean check`
 - 필수 품질 게이트: `./scripts/quality-gate.sh`
 - Docker 검증: `./scripts/docker-smoke-test.sh`
-- 서비스별 세부 규칙은 각 디렉터리의 `AGENTS.md`를 따른다.
+- Spring 세부 규칙은 `services/spring-api/AGENTS.md`를 따른다.
 
 ## 필수 개발 흐름
 

@@ -164,7 +164,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/queries/smoke_check.sql
 - [x] MCP는 Stateless Streamable HTTP `/mcp`와 `result.structuredContent`를 사용한다.
 - [x] Supabase 사용자 JWT/토큰/PII를 MCP payload로 전달하지 않는다.
 - [ ] Spring MockMvc/OpenAPI contract test는 구현 저장소에서 작성한다.
-- [ ] FastAPI JSON Schema golden test는 AI 담당 저장소에서 작성한다.
+- [ ] FastAPI JSON Schema golden test는 [jeju_AI 저장소](https://github.com/Timing-Jeju/jeju_AI)에서 작성한다.
 
 ## 9. 외부 API 검증
 
