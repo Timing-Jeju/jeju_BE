@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: timing-jeju-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/timing_jeju}
+    username: ${SPRING_DATASOURCE_USERNAME:timing_jeju}
+    password: ${SPRING_DATASOURCE_PASSWORD:timing_jeju}
+    hikari:
+      connection-timeout: 3000
+      validation-timeout: 2000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+server:
+  shutdown: graceful
