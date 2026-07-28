@@ -1,0 +1,24 @@
+name: 리팩터링
+description: 외부 동작을 유지하며 구조와 책임을 개선합니다.
+title: "[Refactor] "
+labels: ["type:refactor"]
+body:
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 현재 구조 문제와 개선 목표를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 범위, description: 유지할 외부 계약과 변경 범위를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: 동작 보존과 구조 개선 조건을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: verification
+    attributes: {label: 테스트 또는 검증 방법, description: 기존·추가 회귀 테스트를 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes: {label: Definition of Done, options: [{label: 대응 테스트와 Architecture 검증을 통과합니다., required: true}]}

@@ -1,0 +1,24 @@
+name: 테스트 개선
+description: 누락된 테스트, 안정성 또는 테스트 인프라를 개선합니다.
+title: "[Test] "
+labels: ["type:test"]
+body:
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 검증이 부족한 행동과 위험을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 범위, description: 추가·수정할 테스트 범위를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: 테스트가 보장해야 할 행동을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: verification
+    attributes: {label: 테스트 또는 검증 방법, description: 실패·통과 재현 명령을 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes: {label: Definition of Done, options: [{label: 테스트가 실제 행동을 검증하고 전체 게이트를 통과합니다., required: true}]}

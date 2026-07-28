@@ -1,0 +1,24 @@
+name: 빌드 변경
+description: 의존성, 빌드 도구 또는 배포 산출물 변경을 제안합니다.
+title: "[Build] "
+labels: ["type:build"]
+body:
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 필요한 빌드 변경과 이유를 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 범위, description: 의존성·플러그인·산출물 영향을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: 재현 가능한 완료 조건을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: verification
+    attributes: {label: 테스트 또는 검증 방법, description: 로컬·CI·Docker 검증을 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes: {label: Definition of Done, options: [{label: 전체 품질 게이트와 Docker 검증을 통과합니다., required: true}]}

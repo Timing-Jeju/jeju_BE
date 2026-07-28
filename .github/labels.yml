@@ -1,0 +1,20 @@
+labels:
+  - {name: "type:feat", color: "1f883d", description: "새 기능"}
+  - {name: "type:fix", color: "d1242f", description: "버그 수정"}
+  - {name: "type:build", color: "8250df", description: "빌드 또는 의존성"}
+  - {name: "type:chore", color: "6e7781", description: "유지보수"}
+  - {name: "type:docs", color: "0969da", description: "문서"}
+  - {name: "type:style", color: "bf8700", description: "동작 없는 스타일 변경"}
+  - {name: "type:refactor", color: "fb8f44", description: "리팩터링"}
+  - {name: "type:test", color: "0a7c72", description: "테스트"}
+  - {name: "type:release", color: "a40e26", description: "출시"}
+  - {name: "priority:P0", color: "b60205", description: "즉시 대응"}
+  - {name: "priority:P1", color: "d93f0b", description: "높은 우선순위"}
+  - {name: "priority:P2", color: "fbca04", description: "보통 우선순위"}
+  - {name: "priority:P3", color: "c2e0c6", description: "낮은 우선순위"}
+  - {name: "status:ready", color: "0e8a16", description: "개발 준비 완료"}
+  - {name: "status:in-progress", color: "1d76db", description: "진행 중"}
+  - {name: "status:blocked", color: "b60205", description: "차단됨"}
+  - {name: "status:needs-review", color: "5319e7", description: "리뷰 필요"}
+  - {name: "status:changes-requested", color: "d93f0b", description: "수정 요청"}
+  - {name: "status:approved", color: "0e8a16", description: "승인됨"}

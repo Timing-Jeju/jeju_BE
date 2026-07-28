@@ -1,0 +1,24 @@
+name: 스타일 변경
+description: 동작을 바꾸지 않는 포맷과 코드 스타일 작업을 제안합니다.
+title: "[Style] "
+labels: ["type:style"]
+body:
+  - type: textarea
+    id: goal
+    attributes: {label: 목표, description: 적용할 스타일 규칙을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: scope
+    attributes: {label: 범위, description: 대상과 동작 변경이 없음을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: acceptance
+    attributes: {label: Acceptance Criteria, description: 포맷 검사 완료 조건을 적어 주세요.}
+    validations: {required: true}
+  - type: textarea
+    id: verification
+    attributes: {label: 테스트 또는 검증 방법, description: 포맷 및 회귀 검증 명령을 적어 주세요.}
+    validations: {required: true}
+  - type: checkboxes
+    id: definition_of_done
+    attributes: {label: Definition of Done, options: [{label: 동작 변경이 없고 품질 게이트를 통과합니다., required: true}]}
