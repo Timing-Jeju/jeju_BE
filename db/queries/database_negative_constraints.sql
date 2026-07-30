@@ -49,19 +49,94 @@ insert into data_import_runs (
 );
 
 select pg_temp.expect_rejected(
+  'oversized import source key',
+  $statement$
+    insert into data_import_runs (
+      source_kind, source_name, source_operation, data_version, status,
+      finished_at, parser_version, schema_version, sync_mode, scope_key,
+      idempotency_key, source_provider, source_service
+    ) values (
+      'tour_api', 'oversized', 'sync', 'v1', 'succeeded', now(),
+      'parser-v1', 'schema-v1', 'full', 'global', 'oversized-import',
+      repeat('p', 129), 'service'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'assigned import idempotency key cannot be cleared',
+  $statement$
+    update data_import_runs
+    set idempotency_key = null
+    where id = 'f1000000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'assigned import idempotency key cannot change',
+  $statement$
+    update data_import_runs
+    set idempotency_key = 'changed-idempotency-key'
+    where id = 'f1000000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'idempotency enforcement cannot be disabled',
+  $statement$
+    update data_import_runs
+    set idempotency_enforced = false
+    where id = 'f1000000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'new import cannot opt out of idempotency enforcement',
+  $statement$
+    insert into data_import_runs (
+      source_kind, source_name, source_operation, data_version, status,
+      finished_at, parser_version, schema_version, sync_mode, scope_key,
+      idempotency_key, idempotency_enforced, source_provider, source_service
+    ) values (
+      'tour_api', 'TourAPI', 'detailCommon2', 'v1', 'succeeded', now(),
+      'parser-v1', 'schema-v1', 'lazy', 'content:opt-out',
+      'idempotency-opt-out', false, '한국관광공사', 'KorService2'
+    )
+  $statement$,
+  array['23514']
+);
+
+-- same provider service ignores source name for idempotency
+select pg_temp.expect_rejected(
   'duplicate import idempotency key',
   $statement$
     insert into data_import_runs (
       source_kind, source_name, source_operation, data_version, status,
       finished_at, parser_version, schema_version, sync_mode, scope_key,
-      idempotency_key
+      idempotency_key, source_provider, source_service
     ) values (
-      'tour_api', 'TourAPI', 'areaBasedSyncList2', '2026-07-30', 'succeeded',
+      'tour_api', 'renamed-source', 'areaBasedSyncList2', '2026-07-30', 'succeeded',
       now(), 'tour-parser-v1', 'tour-schema-v1', 'incremental', 'region:50',
-      'negative-contract-success'
+      'negative-contract-success', '한국관광공사', 'KorService2'
     )
   $statement$,
   array['23505']
+);
+
+-- different provider service may reuse an idempotency key
+insert into data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  finished_at, parser_version, schema_version, sync_mode, scope_key,
+  idempotency_key, source_provider, source_service
+) values (
+  'f1000000-0000-0000-0000-000000000004',
+  'admin_upload', 'TourAPI', 'areaBasedSyncList2', '2026-07-30', 'succeeded',
+  now(), 'admin-parser-v1', 'admin-schema-v1', 'incremental', 'region:50',
+  'negative-contract-success', '다른공급자', 'OtherService'
 );
 
 insert into data_import_runs (
@@ -75,12 +150,127 @@ insert into data_import_runs (
   'negative-running-primary', '한국관광공사', 'KorService2'
 );
 
+select pg_temp.expect_rejected(
+  'running-scope enforcement cannot be disabled',
+  $statement$
+    update data_import_runs
+    set running_scope_enforced = false
+    where id = 'f1000000-0000-0000-0000-000000000002'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'new running import cannot opt out of scope enforcement',
+  $statement$
+    insert into data_import_runs (
+      source_kind, source_name, source_operation, data_version, status,
+      parser_version, schema_version, sync_mode, scope_key,
+      running_scope_enforced, source_provider, source_service
+    ) values (
+      'tour_api', 'TourAPI', 'detailCommon2', 'v1', 'running',
+      'parser-v1', 'schema-v1', 'lazy', 'content:opt-out', false,
+      '한국관광공사', 'KorService2'
+    )
+  $statement$,
+  array['23514']
+);
+
 insert into data_import_checkpoints (
   source_provider, source_service, source_operation, scope_key,
   checkpoint, last_succeeded_run_id
 ) values (
   '한국관광공사', 'KorService2', 'areaBasedSyncList2', 'region:50',
   '{"page":2}'::jsonb, 'f1000000-0000-0000-0000-000000000001'
+);
+
+select public.advance_data_import_checkpoint(
+  '한국관광공사', 'KorService2', 'areaBasedSyncList2', 'region:50',
+  0, '{"page":3}'::jsonb, now(),
+  'f1000000-0000-0000-0000-000000000001'
+);
+
+select pg_temp.expect_rejected(
+  'checkpoint semantic fields cannot bypass the CAS function',
+  $statement$
+    update data_import_checkpoints
+    set checkpoint = '{"page":999}'::jsonb,
+        version = 2
+    where source_provider = '한국관광공사'
+      and source_service = 'KorService2'
+      and source_operation = 'areaBasedSyncList2'
+      and scope_key = 'region:50'
+  $statement$,
+  array['40001']
+);
+
+select pg_temp.expect_rejected(
+  'checkpoint compare-and-set version rejects stale writer',
+  $statement$
+    select public.advance_data_import_checkpoint(
+      '한국관광공사', 'KorService2', 'areaBasedSyncList2', 'region:50',
+      0, '{"page":4}'::jsonb, now(),
+      'f1000000-0000-0000-0000-000000000001'
+    )
+  $statement$,
+  array['40001']
+);
+
+select pg_temp.expect_rejected(
+  'checkpoint source scope is immutable',
+  $statement$
+    update data_import_checkpoints
+    set scope_key = 'region:changed'
+    where source_provider = '한국관광공사'
+      and source_service = 'KorService2'
+      and source_operation = 'areaBasedSyncList2'
+      and scope_key = 'region:50'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'checkpoint rows cannot be deleted to reset progress',
+  $statement$
+    delete from data_import_checkpoints
+    where source_provider = '한국관광공사'
+      and source_service = 'KorService2'
+      and source_operation = 'areaBasedSyncList2'
+      and scope_key = 'region:50'
+  $statement$,
+  array['P0001']
+);
+
+select pg_temp.expect_rejected(
+  'checkpoint table cannot be truncated to reset progress',
+  $statement$
+    truncate table data_import_checkpoints
+  $statement$,
+  array['P0001']
+);
+
+insert into data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  started_at, finished_at, parser_version, schema_version, sync_mode,
+  scope_key, idempotency_key, source_provider, source_service
+) values (
+  'f1000000-0000-0000-0000-000000000005',
+  'tour_api', 'TourAPI older', 'areaBasedSyncList2', '2026-07-29', 'succeeded',
+  now() - interval '10 minutes', now() - interval '9 minutes',
+  'tour-parser-v1', 'tour-schema-v1', 'incremental', 'region:50',
+  'negative-contract-older', '한국관광공사', 'KorService2'
+);
+
+select pg_temp.expect_rejected(
+  'checkpoint cannot move to an older succeeded import run',
+  $statement$
+    select public.advance_data_import_checkpoint(
+      '한국관광공사', 'KorService2', 'areaBasedSyncList2', 'region:50',
+      1, '{"page":1}'::jsonb, now(),
+      'f1000000-0000-0000-0000-000000000005'
+    )
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(
@@ -127,11 +317,12 @@ select pg_temp.expect_rejected(
   $statement$
     insert into data_import_runs (
       source_kind, source_name, source_operation, data_version, status,
-      parser_version, schema_version, sync_mode, scope_key, idempotency_key
+      parser_version, schema_version, sync_mode, scope_key, idempotency_key,
+      source_provider, source_service
     ) values (
-      'tour_api', 'TourAPI', 'detailCommon2', '2026-07-30', 'running',
+      'tour_api', 'renamed-running-source', 'detailCommon2', '2026-07-30', 'running',
       'tour-parser-v1', 'tour-schema-v1', 'lazy', 'content:running',
-      'negative-running-concurrent'
+      'negative-running-concurrent', '한국관광공사', 'KorService2'
     )
   $statement$,
   array['23505']
@@ -143,11 +334,11 @@ select pg_temp.expect_rejected(
     insert into data_import_runs (
       source_kind, source_name, source_operation, data_version, status,
       parser_version, schema_version, sync_mode, scope_key, idempotency_key,
-      retry_count
+      retry_count, source_provider, source_service
     ) values (
       'tour_api', 'TourAPI', 'detailCommon2', 'v1', 'running',
       'parser-v1', 'schema-v1', 'lazy', 'content:1',
-      'negative-retry', -1
+      'negative-retry', -1, '한국관광공사', 'KorService2'
     )
   $statement$,
   array['23514']
@@ -159,10 +350,11 @@ select pg_temp.expect_rejected(
     insert into data_import_runs (
       source_kind, source_name, source_operation, data_version, status,
       finished_at, parser_version, schema_version, sync_mode, scope_key,
-      idempotency_key
+      idempotency_key, source_provider, source_service
     ) values (
       'tour_api', 'TourAPI', 'detailCommon2', 'v1', 'running', now(),
-      'parser-v1', 'schema-v1', 'lazy', 'content:2', 'running-finished'
+      'parser-v1', 'schema-v1', 'lazy', 'content:2', 'running-finished',
+      '한국관광공사', 'KorService2'
     )
   $statement$,
   array['23514']
@@ -174,10 +366,11 @@ select pg_temp.expect_rejected(
     insert into data_import_runs (
       source_kind, source_name, source_operation, data_version, status,
       finished_at, parser_version, schema_version, sync_mode, scope_key,
-      idempotency_key
+      idempotency_key, source_provider, source_service
     ) values (
       'tour_api', 'TourAPI', 'detailCommon2', 'v1', 'failed', now(),
-      'parser-v1', 'schema-v1', 'lazy', 'content:3', 'failed-no-code'
+      'parser-v1', 'schema-v1', 'lazy', 'content:3', 'failed-no-code',
+      '한국관광공사', 'KorService2'
     )
   $statement$,
   array['23514']
@@ -189,11 +382,11 @@ select pg_temp.expect_rejected(
     insert into data_import_runs (
       source_kind, source_name, source_operation, data_version, status,
       finished_at, error_code, parser_version, schema_version, sync_mode,
-      scope_key, idempotency_key
+      scope_key, idempotency_key, source_provider, source_service
     ) values (
       'tour_api', 'TourAPI', 'detailCommon2', 'v1', 'succeeded', now(),
       'SHOULD_NOT_EXIST', 'parser-v1', 'schema-v1', 'lazy', 'content:4',
-      'succeeded-with-code'
+      'succeeded-with-code', '한국관광공사', 'KorService2'
     )
   $statement$,
   array['23514']
@@ -225,6 +418,13 @@ insert into external_api_snapshots (
   '한국관광공사', 'KorService2', 'areaBasedSyncList2', 'region:50',
   '126436', repeat('7', 64), '', 'tour-parser-v1', repeat('6', 64),
   '{}'::jsonb, '{}'::jsonb, 'received', now(), null
+),
+(
+  'f2000000-0000-0000-0000-000000000005',
+  'f1000000-0000-0000-0000-000000000004',
+  '다른공급자', 'OtherService', 'areaBasedSyncList2', 'region:50',
+  'same-id', repeat('5', 64), '', 'admin-parser-v1', repeat('4', 64),
+  '{}'::jsonb, '{}'::jsonb, 'parsed', now(), now()
 );
 
 select pg_temp.expect_rejected(
@@ -239,7 +439,22 @@ select pg_temp.expect_rejected(
       repeat('9', 64), 'tour-parser-v1', repeat('8', 64), '{}'::jsonb
     )
   $statement$,
-  array['23503']
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'oversized snapshot source key',
+  $statement$
+    insert into external_api_snapshots (
+      import_run_id, source_provider, source_service, source_operation,
+      scope_key, request_hash, parser_version, payload_hash, raw_payload
+    ) values (
+      'f1000000-0000-0000-0000-000000000001',
+      '한국관광공사', 'KorService2', 'areaBasedSyncList2', repeat('s', 513),
+      repeat('1', 64), 'tour-parser-v1', repeat('2', 64), '{}'::jsonb
+    )
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(
@@ -247,6 +462,19 @@ select pg_temp.expect_rejected(
   $statement$
     update external_api_snapshots
     set scope_key = 'region:changed'
+    where id = 'f2000000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'snapshot audit payload is immutable',
+  $statement$
+    update external_api_snapshots
+    set raw_payload = '{"changed":true}'::jsonb,
+        payload_hash = repeat('0', 64),
+        request_hash = repeat('1', 64),
+        parser_version = 'tampered-parser'
     where id = 'f2000000-0000-0000-0000-000000000001'
   $statement$,
   array['23514']
@@ -389,13 +617,139 @@ insert into tour_places (
 (
   'f3000000-0000-0000-0000-000000000001', '계약 장소 1', '계약장소1',
   'tourist_attraction', st_setsrid(st_makepoint(126.5, 33.5), 4326)::geography,
-  '한국관광공사'
+  'admin_upload'
 ),
 (
   'f3000000-0000-0000-0000-000000000002', '계약 장소 2', '계약장소2',
   'tourist_attraction', st_setsrid(st_makepoint(126.6, 33.4), 4326)::geography,
-  '다른공급자'
+  'admin_upload'
 );
+
+update public.tour_places
+set name = '수정 가능한 계약 장소 1'
+where id = 'f3000000-0000-0000-0000-000000000001';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.tour_places
+    where id = 'f3000000-0000-0000-0000-000000000001'
+      and name = '수정 가능한 계약 장소 1'
+  ) then
+    raise exception 'admin exception row remains editable failed';
+  end if;
+end;
+$$;
+
+select pg_temp.expect_rejected(
+  'new external tour place requires source snapshot lineage',
+  $statement$
+    insert into tour_places (
+      name, normalized_name, category, location, source_provider,
+      import_run_id
+    ) values (
+      'lineage 없는 외부 장소', 'lineage없는외부장소', 'tourist_attraction',
+      st_setsrid(st_makepoint(126.7, 33.3), 4326)::geography,
+      '한국관광공사', 'f1000000-0000-0000-0000-000000000001'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'external-looking row cannot borrow an admin import run',
+  $statement$
+    insert into tour_places (
+      name, normalized_name, category, location, source_provider,
+      import_run_id
+    ) values (
+      'admin run 위장 외부 장소', 'adminrun위장외부장소', 'tourist_attraction',
+      st_setsrid(st_makepoint(126.71, 33.31), 4326)::geography,
+      '한국관광공사', 'f1000000-0000-0000-0000-000000000004'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'admin marker cannot borrow a tour API import run',
+  $statement$
+    insert into tour_places (
+      name, normalized_name, category, location, source_provider,
+      import_run_id
+    ) values (
+      '외부 run 위장 관리 장소', '외부run위장관리장소', 'tourist_attraction',
+      st_setsrid(st_makepoint(126.72, 33.32), 4326)::geography,
+      'admin_upload', 'f1000000-0000-0000-0000-000000000001'
+    )
+  $statement$,
+  array['23514']
+);
+
+insert into external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation,
+  scope_key, external_record_id, request_hash, parser_version, payload_hash,
+  raw_payload, parse_status, parsed_at
+) values (
+  'f2000000-0000-0000-0000-000000000004',
+  'f1000000-0000-0000-0000-000000000001',
+  '한국관광공사', 'KorService2', 'areaBasedSyncList2', 'region:50',
+  'purge-source', repeat('8', 64), 'tour-parser-v1', repeat('9', 64),
+  '{"contentid":"purge-source"}'::jsonb, 'parsed', now()
+);
+
+insert into tour_place_sources (
+  place_id, source_provider, source_service, external_id,
+  source_snapshot_id, last_import_run_id
+) values (
+  'f3000000-0000-0000-0000-000000000001',
+  '한국관광공사', 'KorService2', 'purge-source',
+  'f2000000-0000-0000-0000-000000000004',
+  'f1000000-0000-0000-0000-000000000001'
+);
+
+delete from external_api_snapshots
+where id = 'f2000000-0000-0000-0000-000000000004';
+
+insert into public.data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  finished_at, parser_version, schema_version, sync_mode, scope_key,
+  idempotency_key, source_provider, source_service
+) values (
+  'f1000000-0000-0000-0000-000000000007',
+  'admin_upload', 'manual-contract', 'manual', 'contract-v1', 'succeeded',
+  now(), 'manual-parser', 'manual-schema', 'full', 'manual:contract',
+  'manual-contract', 'admin_upload', 'manual'
+);
+
+select pg_temp.expect_rejected(
+  'retained external row cannot borrow an optional import run',
+  $statement$
+    update public.tour_place_sources
+    set source_provider = 'admin_upload',
+        source_service = 'manual',
+        external_id = 'purge-source-laundered',
+        last_import_run_id = 'f1000000-0000-0000-0000-000000000007'
+    where external_id = 'purge-source'
+  $statement$,
+  array['23514']
+);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.tour_place_sources source_row
+    where source_row.external_id = 'purge-source'
+      and source_row.source_snapshot_id is null
+      and source_row.last_import_run_id =
+        'f1000000-0000-0000-0000-000000000001'
+  ) then
+    raise exception 'snapshot retention purge preserves import run lineage failed';
+  end if;
+end;
+$$;
 
 insert into tour_place_sources (
   place_id, source_provider, source_service, external_id,
@@ -409,8 +763,24 @@ insert into tour_place_sources (
 ),
 (
   'f3000000-0000-0000-0000-000000000002',
-  '다른공급자', 'OtherService', 'same-id', null,
-  'f1000000-0000-0000-0000-000000000001'
+  '다른공급자', 'OtherService', 'same-id',
+  'f2000000-0000-0000-0000-000000000005',
+  'f1000000-0000-0000-0000-000000000004'
+);
+
+select pg_temp.expect_rejected(
+  'new external normalized row requires source snapshot lineage',
+  $statement$
+    insert into tour_place_sources (
+      place_id, source_provider, source_service, external_id,
+      last_import_run_id
+    ) values (
+      'f3000000-0000-0000-0000-000000000002',
+      '한국관광공사', 'KorService2', 'missing-source-snapshot',
+      'f1000000-0000-0000-0000-000000000001'
+    )
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(
@@ -485,6 +855,66 @@ insert into place_operating_hours (
 );
 
 select pg_temp.expect_rejected(
+  'overnight hours cannot overlap the next service day',
+  $statement$
+    insert into place_operating_hours (
+      place_id, day_of_week, interval_no, open_time, close_time,
+      spans_next_day, valid_from, valid_to, source_kind
+    ) values (
+      'f3000000-0000-0000-0000-000000000001', 6, 1,
+      '01:00', '03:00', false, '2026-01-01', '2026-12-31', 'manual'
+    )
+  $statement$,
+  array['23P01']
+);
+
+-- midnight-ending overnight hours do not occupy the next day
+insert into place_operating_hours (
+  place_id, day_of_week, interval_no, is_closed, open_time, close_time,
+  spans_next_day, valid_from, valid_to, source_kind
+) values
+(
+  'f3000000-0000-0000-0000-000000000002', 5, 1, false,
+  '22:00', '00:00', true, '2026-01-01', '2026-12-31', 'manual'
+),
+(
+  'f3000000-0000-0000-0000-000000000002', 6, 1, true,
+  null, null, false, '2026-01-01', '2026-12-31', 'manual'
+);
+
+update public.place_operating_hours
+set last_entry_time = '23:30'
+where place_id = 'f3000000-0000-0000-0000-000000000002'
+  and day_of_week = 5;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.place_operating_hours
+    where place_id = 'f3000000-0000-0000-0000-000000000002'
+      and day_of_week = 5
+      and last_entry_time = '23:30'::time
+  ) then
+    raise exception 'manual exception row remains editable failed';
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if (
+    select count(*)
+    from public.place_operating_hours
+    where place_id = 'f3000000-0000-0000-0000-000000000002'
+      and day_of_week in (5, 6)
+  ) <> 2 then
+    raise exception 'midnight-ending overnight hours boundary was not preserved';
+  end if;
+end;
+$$;
+
+select pg_temp.expect_rejected(
   'overlapping operating-hours interval',
   $statement$
     insert into place_operating_hours (
@@ -557,10 +987,12 @@ select pg_temp.expect_rejected(
 
 insert into external_reference_codes (
   source_provider, source_service, code_type, external_code, code_name,
-  valid_from, valid_to
+  valid_from, valid_to, source_snapshot_id, import_run_id
 ) values (
   '한국관광공사', 'KorService2', 'lclsSystm1', 'EX01', '계약 분류',
-  '2026-01-01', '2026-12-31'
+  '2026-01-01', '2026-12-31',
+  'f2000000-0000-0000-0000-000000000001',
+  'f1000000-0000-0000-0000-000000000001'
 );
 
 select pg_temp.expect_rejected(
@@ -568,10 +1000,12 @@ select pg_temp.expect_rejected(
   $statement$
     insert into external_reference_codes (
       source_provider, source_service, code_type, external_code, code_name,
-      valid_from, valid_to
+      valid_from, valid_to, source_snapshot_id, import_run_id
     ) values (
       '한국관광공사', 'KorService2', 'lclsSystm1', 'EX01', '중복 분류',
-      '2026-06-01', '2027-01-01'
+      '2026-06-01', '2027-01-01',
+      'f2000000-0000-0000-0000-000000000001',
+      'f1000000-0000-0000-0000-000000000001'
     )
   $statement$,
   array['23P01']
@@ -592,6 +1026,97 @@ insert into place_images (
   'https://images.example.test/url-only.jpg', '한국관광공사', 'KorService2',
   null, 'f2000000-0000-0000-0000-000000000002',
   'f1000000-0000-0000-0000-000000000001'
+);
+
+select pg_temp.expect_rejected(
+  'oversized place image URL',
+  $statement$
+    insert into place_images (
+      place_id, image_url, source_provider, source_service
+    ) values (
+      'f3000000-0000-0000-0000-000000000001',
+      'https://images.example.test/' || repeat('x', 8193),
+      'fixture', 'image-length-contract'
+    )
+  $statement$,
+  array['23514']
+);
+
+insert into place_images (
+  place_id, image_url, source_provider, source_service, source_image_id,
+  source_snapshot_id, import_run_id
+) values (
+  'f3000000-0000-0000-0000-000000000001',
+  'https://images.example.test/url-only.jpg',
+  '한국관광공사', 'KorService2', 'serial-enriched',
+  'f2000000-0000-0000-0000-000000000002',
+  'f1000000-0000-0000-0000-000000000001'
+)
+on conflict on constraint uq_place_images_source_url_key
+do update set
+  source_image_id = excluded.source_image_id,
+  source_snapshot_id = excluded.source_snapshot_id,
+  import_run_id = excluded.import_run_id;
+
+do $$
+begin
+  if (
+    select count(*)
+    from public.place_images image
+    where image.place_id = 'f3000000-0000-0000-0000-000000000001'
+      and image.source_provider = '한국관광공사'
+      and image.source_service = 'KorService2'
+      and image.image_url = 'https://images.example.test/url-only.jpg'
+      and image.source_image_id = 'serial-enriched'
+  ) <> 1 then
+    raise exception 'image URL enrichment did not reuse exactly one row';
+  end if;
+end;
+$$;
+
+update public.place_images
+set source_url_key = null
+where place_id = 'f3000000-0000-0000-0000-000000000001'
+  and source_provider = '한국관광공사'
+  and source_service = 'KorService2'
+  and image_url = 'https://images.example.test/url-only.jpg';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.place_images image
+    where image.place_id = 'f3000000-0000-0000-0000-000000000001'
+      and image.source_provider = '한국관광공사'
+      and image.source_service = 'KorService2'
+      and image.image_url = 'https://images.example.test/url-only.jpg'
+      and image.source_url_key = public.source_identity_digest(
+        image.place_id::text,
+        image.source_provider,
+        image.source_service,
+        image.image_url
+      )
+  ) then
+    raise exception 'image source URL key cannot be cleared';
+  end if;
+end;
+$$;
+
+select pg_temp.expect_rejected(
+  'image URL-only row must be updated instead of duplicated during enrichment',
+  $statement$
+    insert into place_images (
+      place_id, image_url, source_provider, source_service, source_image_id,
+      source_snapshot_id, import_run_id
+    ) values (
+      'f3000000-0000-0000-0000-000000000001',
+      'https://images.example.test/url-only.jpg',
+      '한국관광공사', 'KorService2', 'serial-other',
+      'f2000000-0000-0000-0000-000000000002',
+      'f1000000-0000-0000-0000-000000000001'
+    )
+  $statement$,
+  array['23505']
 );
 
 select pg_temp.expect_rejected(
@@ -622,20 +1147,138 @@ select pg_temp.expect_rejected(
   array['23505']
 );
 
+insert into data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  finished_at, parser_version, schema_version, sync_mode, scope_key,
+  idempotency_key, source_provider, source_service
+) values (
+  'f1000000-0000-0000-0000-000000000006',
+  'fixture', 'transport-contract', 'seed', 'fixture-v1', 'succeeded',
+  now(), 'fixture-parser', 'fixture-schema', 'full', 'fixture:transport',
+  'transport-contract', 'fixture', 'transport'
+);
+
+select pg_temp.expect_rejected(
+  'optional row scope must match its fixture import run',
+  $statement$
+    insert into tour_places (
+      name, normalized_name, category, location, source_provider,
+      source_service, import_run_id
+    ) values (
+      'scope 불일치 fixture', 'scope불일치fixture', 'tourist_attraction',
+      st_setsrid(st_makepoint(126.73, 33.33), 4326)::geography,
+      'fixture', 'different-service',
+      'f1000000-0000-0000-0000-000000000006'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'blank stop node id',
+  $statement$
+    insert into bus_stops (
+      node_id, node_name, city_code, location, source_provider, source_service
+    ) values (
+      '', '빈 node 정류장', '39',
+      st_setsrid(st_makepoint(126.53, 33.53), 4326)::geography,
+      'fixture', 'transport'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'blank external stop id',
+  $statement$
+    insert into bus_stops (
+      external_stop_id, node_id, node_name, city_code, location,
+      source_provider, source_service
+    ) values (
+      '', 'NODE-BLANK-EXTERNAL', '빈 external 정류장', '39',
+      st_setsrid(st_makepoint(126.54, 33.54), 4326)::geography,
+      'fixture', 'transport'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'blank provider source scope',
+  $statement$
+    insert into bus_stops (
+      node_id, node_name, city_code, location, source_provider, source_service
+    ) values (
+      'NODE-BLANK-SCOPE', '빈 scope 정류장', '39',
+      st_setsrid(st_makepoint(126.55, 33.55), 4326)::geography,
+      ' ', ''
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'blank place image URL',
+  $statement$
+    insert into place_images (
+      place_id, image_url, source_provider, source_service
+    ) values (
+      'f3000000-0000-0000-0000-000000000001', '',
+      'admin_upload', 'manual'
+    )
+  $statement$,
+  array['23514']
+);
+
 insert into bus_stops (
-  id, node_id, node_name, city_code, location, source_provider, source_service
+  id, node_id, node_name, city_code, location, source_provider, source_service,
+  import_run_id
 ) values
 (
   'f4000000-0000-0000-0000-000000000001', 'NODE-SAME', '제주 정류장', '39',
-  st_setsrid(st_makepoint(126.5, 33.5), 4326)::geography, 'TAGO', 'BusSttnInfoInqireService'
+  st_setsrid(st_makepoint(126.5, 33.5), 4326)::geography, 'fixture', 'BusSttnInfoInqireService',
+  null
 ),
 (
   'f4000000-0000-0000-0000-000000000002', 'NODE-SAME', '다른 도시 정류장', '50',
-  st_setsrid(st_makepoint(127.0, 37.5), 4326)::geography, 'TAGO', 'BusSttnInfoInqireService'
+  st_setsrid(st_makepoint(127.0, 37.5), 4326)::geography, 'fixture', 'BusSttnInfoInqireService',
+  null
 ),
 (
   'f4000000-0000-0000-0000-000000000003', 'NODE-OTHER', '제주 다른 정류장', '39',
-  st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography, 'TAGO', 'BusSttnInfoInqireService'
+  st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography, 'fixture', 'BusSttnInfoInqireService',
+  null
+);
+
+update public.bus_stops
+set node_name = '수정 가능한 fixture 정류장'
+where id = 'f4000000-0000-0000-0000-000000000003';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.bus_stops
+    where id = 'f4000000-0000-0000-0000-000000000003'
+      and node_name = '수정 가능한 fixture 정류장'
+  ) then
+    raise exception 'fixture exception row remains editable failed';
+  end if;
+end;
+$$;
+
+select pg_temp.expect_rejected(
+  'oversized bus stop source key',
+  $statement$
+    insert into bus_stops (
+      node_id, node_name, city_code, location, source_provider, source_service
+    ) values (
+      'OVERSIZED-NODE', '장문 provider 정류장', '39',
+      st_setsrid(st_makepoint(126.52, 33.52), 4326)::geography,
+      repeat('p', 129), 'service'
+    )
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(
@@ -646,7 +1289,7 @@ select pg_temp.expect_rejected(
     ) values (
       'NODE-SAME', '중복 정류장', '39',
       st_setsrid(st_makepoint(126.52, 33.52), 4326)::geography,
-      'TAGO', 'BusSttnInfoInqireService'
+      'fixture', 'BusSttnInfoInqireService'
     )
   $statement$,
   array['23505']
@@ -654,15 +1297,17 @@ select pg_temp.expect_rejected(
 
 insert into bus_routes (
   id, external_route_id, route_no, direction_name, city_code,
-  source_provider, source_service
+  source_provider, source_service, import_run_id
 ) values
 (
   'f4100000-0000-0000-0000-000000000001',
-  'ROUTE-1', '101', '성산 방면', '39', 'TAGO', 'BusRouteInfoInqireService'
+  'ROUTE-1', '101', '성산 방면', '39', 'fixture', 'BusRouteInfoInqireService',
+  null
 ),
 (
   'f4100000-0000-0000-0000-000000000002',
-  'ROUTE-1', '101', '다른 도시 방면', '50', 'TAGO', 'BusRouteInfoInqireService'
+  'ROUTE-1', '101', '다른 도시 방면', '50', 'fixture', 'BusRouteInfoInqireService',
+  null
 );
 
 select pg_temp.expect_rejected(
@@ -673,17 +1318,32 @@ select pg_temp.expect_rejected(
       source_provider, source_service
     ) values (
       'ROUTE-1', '101-duplicate', '중복 방면', '39',
-      'TAGO', 'BusRouteInfoInqireService'
+      'fixture', 'BusRouteInfoInqireService'
     )
   $statement$,
   array['23505']
 );
 
+select pg_temp.expect_rejected(
+  'blank external route id',
+  $statement$
+    insert into bus_routes (
+      external_route_id, route_no, direction_name, city_code,
+      source_provider, source_service
+    ) values (
+      '', 'EMPTY', '빈 route', '39', 'fixture', 'transport'
+    )
+  $statement$,
+  array['23514']
+);
+
 insert into route_stops (
-  route_id, stop_id, direction_key, stop_sequence, source_provider, city_code
+  route_id, stop_id, direction_key, stop_sequence, source_provider, city_code,
+  import_run_id
 ) values (
   'f4100000-0000-0000-0000-000000000001',
-  'f4000000-0000-0000-0000-000000000001', 'outbound', 1, 'TAGO', '39'
+  'f4000000-0000-0000-0000-000000000001', 'outbound', 1, 'fixture', '39',
+  null
 );
 
 select pg_temp.expect_rejected(
@@ -694,20 +1354,81 @@ select pg_temp.expect_rejected(
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000002',
-      'outbound', 2, 'TAGO', '39'
+      'outbound', 2, 'fixture', '39'
     )
   $statement$,
-  array['23503']
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'blank route stop direction key',
+  $statement$
+    insert into route_stops (
+      route_id, stop_id, direction_key, stop_sequence, source_provider, city_code
+    ) values (
+      'f4100000-0000-0000-0000-000000000001',
+      'f4000000-0000-0000-0000-000000000003', '', 2, 'fixture', '39'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'blank mobility request hash',
+  $statement$
+    insert into mobility_route_snapshots (
+      request_hash, origin_location, destination_location, transport_mode,
+      duration_minutes, source_provider, source_operation, expires_at
+    ) values (
+      '',
+      st_setsrid(st_makepoint(126.50, 33.50), 4326)::geography,
+      st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography,
+      'walk', 10, 'fixture', 'route', now() + interval '1 hour'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'oversized mobility source key',
+  $statement$
+    insert into mobility_route_snapshots (
+      request_hash, origin_location, destination_location, transport_mode,
+      duration_minutes, source_provider, source_operation, expires_at
+    ) values (
+      repeat('r', 513),
+      st_setsrid(st_makepoint(126.50, 33.50), 4326)::geography,
+      st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography,
+      'walk', 10, 'fixture', 'route', now() + interval '1 hour'
+    )
+  $statement$,
+  array['23514']
 );
 
 insert into timetable_entries (
   route_id, stop_id, direction_key, service_day_type, departure_time,
-  source_provider, source_service, city_code, source_record_key
+  source_provider, source_service, city_code, source_record_key, import_run_id
 ) values (
   'f4100000-0000-0000-0000-000000000001',
   'f4000000-0000-0000-0000-000000000001', 'outbound',
-  'weekday', '09:00', 'TAGO', 'TimetableService', '39',
-  'route-1-stop-1-0900'
+  'weekday', '09:00', 'fixture', 'TimetableService', '39',
+  'route-1-stop-1-0900', null
+);
+
+select pg_temp.expect_rejected(
+  'oversized timetable source key',
+  $statement$
+    insert into timetable_entries (
+      route_id, stop_id, direction_key, service_day_type, departure_time,
+      source_provider, source_service, city_code, source_record_key
+    ) values (
+      'f4100000-0000-0000-0000-000000000001',
+      'f4000000-0000-0000-0000-000000000001', 'outbound',
+      'weekday', '09:30', 'fixture', 'TimetableService', '39',
+      repeat('t', 513)
+    )
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(
@@ -719,7 +1440,7 @@ select pg_temp.expect_rejected(
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
-      'weekday', '09:00', 'TAGO', 'TimetableService', '39',
+      'weekday', '09:00', 'fixture', 'TimetableService', '39',
       'route-1-stop-1-0900'
     )
   $statement$,
@@ -735,11 +1456,27 @@ select pg_temp.expect_rejected(
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000003', 'outbound',
-      'weekday', '10:00', 'TAGO', 'TimetableService', '39',
+      'weekday', '10:00', 'fixture', 'TimetableService', '39',
       'route-1-wrong-stop-1000'
     )
   $statement$,
-  array['23503']
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'blank timetable direction key',
+  $statement$
+    insert into timetable_entries (
+      route_id, stop_id, direction_key, service_day_type, departure_time,
+      source_provider, source_service, city_code, source_record_key
+    ) values (
+      'f4100000-0000-0000-0000-000000000001',
+      'f4000000-0000-0000-0000-000000000001', '',
+      'weekday', '10:30', 'fixture', 'TimetableService', '39',
+      'blank-direction'
+    )
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(
@@ -753,7 +1490,7 @@ select pg_temp.expect_rejected(
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
       'weekday', '09:00', '2026-01-01', '2026-12-31',
-      'TAGO', 'TimetableService', '39', 'route-1-stop-1-0900'
+      'fixture', 'TimetableService', '39', 'route-1-stop-1-0900'
     )
   $statement$,
   array['23P01']
@@ -762,12 +1499,13 @@ select pg_temp.expect_rejected(
 insert into timetable_entries (
   route_id, stop_id, direction_key, service_day_type, departure_time,
   valid_from, valid_to, source_provider, source_service, city_code,
-  source_record_key
+  source_record_key, import_run_id
 ) values (
   'f4100000-0000-0000-0000-000000000001',
   'f4000000-0000-0000-0000-000000000001', 'outbound',
   'weekday', '09:00', '2026-01-01', '2026-12-31',
-  'TAGO', 'OtherTimetableService', '39', 'route-1-stop-1-0900'
+  'fixture', 'OtherTimetableService', '39', 'route-1-stop-1-0900',
+  null
 );
 
 insert into app_sessions (id, public_token)
@@ -987,6 +1725,41 @@ insert into compute_runs (
 );
 
 select pg_temp.expect_rejected(
+  'new weather impact requires trip day',
+  $statement$
+    insert into trip_weather_impacts (
+      trip_plan_id, trip_day_id, schedule_version_id, compute_run_id,
+      trip_item_id, impact_type, severity
+    ) values (
+      'f5100000-0000-0000-0000-000000000001', null,
+      'f5300000-0000-0000-0000-000000000001',
+      'f5500000-0000-0000-0000-000000000001',
+      'f5400000-0000-0000-0000-000000000001',
+      'rain', 'yellow'
+    )
+  $statement$,
+  array['23502']
+);
+
+select pg_temp.expect_rejected(
+  'new recommendation requires trip day',
+  $statement$
+    insert into recommendation_candidates (
+      trip_plan_id, trip_day_id, schedule_version_id, compute_run_id,
+      base_item_id, candidate_place_id, recommendation_type
+    ) values (
+      'f5100000-0000-0000-0000-000000000001', null,
+      'f5300000-0000-0000-0000-000000000001',
+      'f5500000-0000-0000-0000-000000000001',
+      'f5400000-0000-0000-0000-000000000001',
+      'f3000000-0000-0000-0000-000000000002',
+      'replacement'
+    )
+  $statement$,
+  array['23502']
+);
+
+select pg_temp.expect_rejected(
   'weather impact day must match compute and item day',
   $statement$
     insert into trip_weather_impacts (
@@ -1021,6 +1794,40 @@ select pg_temp.expect_rejected(
     )
   $statement$,
   array['23503']
+);
+
+-- 실제 SHA-256 collision을 만들 수 없으므로 transaction 안에서 함수만 고정값으로
+-- 바꿔 exact 원문 collision guard를 강제로 실행하고 ROLLBACK으로 원복한다.
+create or replace function public.source_identity_digest(variadic components text[])
+returns text
+language sql
+immutable
+security invoker
+set search_path = ''
+as $$
+  select repeat('0', 64)
+$$;
+
+insert into place_images (
+  place_id, image_url, source_provider, source_service
+) values (
+  'f3000000-0000-0000-0000-000000000001',
+  'https://images.example.test/collision-a.jpg',
+  'fixture', 'digest-collision'
+);
+
+select pg_temp.expect_rejected(
+  'place image source digest collision',
+  $statement$
+    insert into place_images (
+      place_id, image_url, source_provider, source_service
+    ) values (
+      'f3000000-0000-0000-0000-000000000001',
+      'https://images.example.test/collision-b.jpg',
+      'fixture', 'digest-collision'
+    )
+  $statement$,
+  array['23505']
 );
 
 select 'database_negative_constraints' as check_name, 'PASS' as result;

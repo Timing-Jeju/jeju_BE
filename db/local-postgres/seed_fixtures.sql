@@ -6,26 +6,99 @@ set local time zone 'Asia/Seoul';
 
 insert into data_import_runs (
   id, source_kind, source_name, source_operation, data_version,
-  status, finished_at, row_count, metadata
+  status, finished_at, row_count, metadata, source_provider, source_service,
+  scope_key
 ) values
 (
   '00000000-0000-0000-0000-000000000001',
   'fixture', 'timing-jeju-place-bus-fixtures', 'seed', 'fixture-v1.1',
   'succeeded', now(), 24,
-  '{"domains":["places","bus"],"fixture":true}'::jsonb
+  '{"domains":["places","bus"],"fixture":true}'::jsonb,
+  'fixture', 'place-bus', 'fixture:place-bus'
 ),
 (
   '00000000-0000-0000-0000-000000000002',
   'fixture', 'timing-jeju-weather-fixtures', 'seed', 'fixture-v1.1',
   'succeeded', now(), 2,
-  '{"domain":"weather","fixture":true}'::jsonb
+  '{"domain":"weather","fixture":true}'::jsonb,
+  'fixture', 'weather', 'fixture:weather'
 ),
 (
   '00000000-0000-0000-0000-000000000003',
   'fixture', 'timing-jeju-mobility-fixtures', 'seed', 'fixture-v1.1',
   'succeeded', now(), 4,
-  '{"domain":"directions","fixture":true}'::jsonb
+  '{"domain":"directions","fixture":true}'::jsonb,
+  'fixture', 'directions', 'fixture:directions'
+),
+(
+  '00000000-0000-0000-0000-000000000011',
+  'tour_api', 'TourAPI 관광지 fixture', 'areaBasedList2', 'fixture-v1.1',
+  'succeeded', now(), 2, '{"domain":"places","fixture":true}'::jsonb,
+  '한국관광공사', 'TourAPI 국문 관광정보', 'fixture:kto-places'
+),
+(
+  '00000000-0000-0000-0000-000000000012',
+  'tour_api', 'TourAPI 상세 fixture', 'detailIntro2', 'fixture-v1.1',
+  'succeeded', now(), 4, '{"domain":"place-details","fixture":true}'::jsonb,
+  '한국관광공사', 'TourAPI 상세소개', 'fixture:kto-details'
+),
+(
+  '00000000-0000-0000-0000-000000000013',
+  'tour_api', 'TourAPI 이미지 fixture', 'detailImage2', 'fixture-v1.1',
+  'succeeded', now(), 2, '{"domain":"place-images","fixture":true}'::jsonb,
+  '한국관광공사', 'TourAPI 이미지', 'fixture:kto-images'
+),
+(
+  '00000000-0000-0000-0000-000000000021',
+  'tago', 'TAGO 정류소 fixture', 'getSttnNoList', 'fixture-v1.1',
+  'succeeded', now(), 3, '{"domain":"bus-stops","fixture":true}'::jsonb,
+  'TAGO', '버스정류소정보 API', 'fixture:tago-stops'
+),
+(
+  '00000000-0000-0000-0000-000000000022',
+  'tago', 'TAGO 노선 fixture', 'getRouteInfo', 'fixture-v1.1',
+  'succeeded', now(), 4, '{"domain":"bus-routes","fixture":true}'::jsonb,
+  'TAGO', '버스노선정보 API', 'fixture:tago-routes'
+),
+(
+  '00000000-0000-0000-0000-000000000023',
+  'tago', 'TAGO 시간표 fixture', 'timetable', 'fixture-v1.1',
+  'succeeded', now(), 3, '{"domain":"timetable","fixture":true}'::jsonb,
+  'TAGO', 'fixture timetable', 'fixture:tago-timetable'
+),
+(
+  '00000000-0000-0000-0000-000000000024',
+  'tago', 'TAGO 도착 fixture', 'getSttnAcctoArvlPrearngeInfoList', 'fixture-v1.1',
+  'succeeded', now(), 1, '{"domain":"bus-arrival","fixture":true}'::jsonb,
+  'TAGO', '버스도착정보 API', 'fixture:tago-arrival'
+),
+(
+  '00000000-0000-0000-0000-000000000031',
+  'weather_api', 'KMA 초단기실황 fixture', 'getUltraSrtNcst', 'fixture-v1.1',
+  'succeeded', now(), 1, '{"domain":"weather-observation","fixture":true}'::jsonb,
+  'KMA', '기상청 단기예보', 'fixture:kma-observation'
+),
+(
+  '00000000-0000-0000-0000-000000000032',
+  'weather_api', 'KMA 단기예보 fixture', 'getVilageFcst', 'fixture-v1.1',
+  'succeeded', now(), 1, '{"domain":"weather-forecast","fixture":true}'::jsonb,
+  'KMA', '기상청 단기예보', 'fixture:kma-forecast'
 );
+
+insert into external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation,
+  scope_key, request_hash, parser_version, payload_hash,
+  raw_payload, parse_status, parsed_at
+) values
+('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000011', '한국관광공사', 'TourAPI 국문 관광정보', 'areaBasedList2', 'fixture:kto-places', repeat('1', 64), 'fixture-parser-v1', repeat('a', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000102', '00000000-0000-0000-0000-000000000012', '한국관광공사', 'TourAPI 상세소개', 'detailIntro2', 'fixture:kto-details', repeat('2', 64), 'fixture-parser-v1', repeat('b', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000103', '00000000-0000-0000-0000-000000000013', '한국관광공사', 'TourAPI 이미지', 'detailImage2', 'fixture:kto-images', repeat('3', 64), 'fixture-parser-v1', repeat('c', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000021', 'TAGO', '버스정류소정보 API', 'getSttnNoList', 'fixture:tago-stops', repeat('4', 64), 'fixture-parser-v1', repeat('d', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000022', 'TAGO', '버스노선정보 API', 'getRouteInfo', 'fixture:tago-routes', repeat('5', 64), 'fixture-parser-v1', repeat('e', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023', 'TAGO', 'fixture timetable', 'timetable', 'fixture:tago-timetable', repeat('6', 64), 'fixture-parser-v1', repeat('f', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-000000000024', 'TAGO', '버스도착정보 API', 'getSttnAcctoArvlPrearngeInfoList', 'fixture:tago-arrival', repeat('7', 64), 'fixture-parser-v1', repeat('0', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000031', 'KMA', '기상청 단기예보', 'getUltraSrtNcst', 'fixture:kma-observation', repeat('8', 64), 'fixture-parser-v1', repeat('1', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000032', 'KMA', '기상청 단기예보', 'getVilageFcst', 'fixture:kma-forecast', repeat('9', 64), 'fixture-parser-v1', repeat('2', 64), '{"fixture":true}'::jsonb, 'parsed', now());
 
 insert into auth.users (
   id, email, raw_app_meta_data, raw_user_meta_data, last_sign_in_at
@@ -100,7 +173,7 @@ insert into tour_places (
   id, external_place_id, content_id, content_type_id, name, normalized_name,
   category, region_code, region_label, address, location, image_url,
   thumbnail_url, overview, recommended_stay_minutes, source_provider,
-  source_service, import_run_id
+  source_service, source_snapshot_id, import_run_id
 ) values
 (
   '20000000-0000-0000-0000-000000000001',
@@ -108,8 +181,7 @@ insert into tour_places (
   'transport_hub', 'jeju-si', '제주시', '제주특별자치도 제주시 공항로 2',
   st_setsrid(st_makepoint(126.4930, 33.5066), 4326)::geography,
   null, null, '제주 여행의 주요 항공 관문', 20,
-  'fixture', 'manual transport hub fixture',
-  '00000000-0000-0000-0000-000000000001'
+  'fixture', 'manual transport hub fixture', null, null
 ),
 (
   '20000000-0000-0000-0000-000000000002',
@@ -122,7 +194,8 @@ insert into tour_places (
   'https://example.local/images/seongsan-thumb.jpg',
   '제주 동쪽의 대표 오름 관광지', 70,
   '한국관광공사', 'TourAPI 국문 관광정보',
-  '00000000-0000-0000-0000-000000000001'
+  '00000000-0000-0000-0000-000000000101',
+  '00000000-0000-0000-0000-000000000011'
 ),
 (
   '20000000-0000-0000-0000-000000000003',
@@ -134,7 +207,8 @@ insert into tour_places (
   'https://example.local/images/seopjikoji-thumb.jpg',
   '해안 산책로와 경관을 즐길 수 있는 관광지', 60,
   '한국관광공사', 'TourAPI 국문 관광정보',
-  '00000000-0000-0000-0000-000000000001'
+  '00000000-0000-0000-0000-000000000101',
+  '00000000-0000-0000-0000-000000000011'
 ),
 (
   '20000000-0000-0000-0000-000000000004',
@@ -143,8 +217,7 @@ insert into tour_places (
   '제주특별자치도 서귀포시 성산읍 성산중앙로 1',
   st_setsrid(st_makepoint(126.9340, 33.4550), 4326)::geography,
   null, null, '첫째 날 숙소 fixture', null,
-  'fixture', 'accommodation fixture',
-  '00000000-0000-0000-0000-000000000001'
+  'fixture', 'accommodation fixture', null, null
 ),
 (
   '20000000-0000-0000-0000-000000000005',
@@ -153,8 +226,7 @@ insert into tour_places (
   '제주특별자치도 제주시 중앙로 2',
   st_setsrid(st_makepoint(126.5220, 33.5000), 4326)::geography,
   null, null, '둘째 날 숙소 fixture', null,
-  'fixture', 'accommodation fixture',
-  '00000000-0000-0000-0000-000000000001'
+  'fixture', 'accommodation fixture', null, null
 ),
 (
   '20000000-0000-0000-0000-000000000006',
@@ -163,57 +235,73 @@ insert into tour_places (
   '제주특별자치도 서귀포시 성산읍 해맞이해안로 3',
   st_setsrid(st_makepoint(126.9300, 33.4410), 4326)::geography,
   null, null, '빈 시간 추천 검증용 카페', 45,
-  'admin_upload', 'curated place fixture',
-  '00000000-0000-0000-0000-000000000001'
+  'admin_upload', 'curated place fixture', null, null
 );
 
 insert into place_details (
   place_id, phone, homepage_url, operating_hours_text, closed_days_text,
-  parking_text, admission_fee_text, intro_attributes, source_provider, source_service
+  parking_text, admission_fee_text, intro_attributes, source_provider, source_service,
+  source_snapshot_id, import_run_id
 ) values
 (
   '20000000-0000-0000-0000-000000000002', '064-000-0001',
   'https://example.local/places/seongsan', '07:30~20:00', '기상 악화 시 통제',
   '주차 가능', '성인 5,000원', '{"contentTypeId":"12"}'::jsonb,
-  '한국관광공사', 'TourAPI 상세소개'
+  '한국관광공사', 'TourAPI 상세소개',
+  '00000000-0000-0000-0000-000000000102',
+  '00000000-0000-0000-0000-000000000012'
 ),
 (
   '20000000-0000-0000-0000-000000000003', '064-000-0002',
   'https://example.local/places/seopjikoji', '09:00~18:00', '연중무휴',
   '주차 가능', '무료', '{"contentTypeId":"12"}'::jsonb,
-  '한국관광공사', 'TourAPI 상세소개'
+  '한국관광공사', 'TourAPI 상세소개',
+  '00000000-0000-0000-0000-000000000102',
+  '00000000-0000-0000-0000-000000000012'
 ),
 (
   '20000000-0000-0000-0000-000000000006', '064-000-0003',
   null, '10:00~19:00', '화요일', '주차 가능', null,
-  '{"curated":true}'::jsonb, 'admin_upload', 'curated place fixture'
+  '{"curated":true}'::jsonb, 'admin_upload', 'curated place fixture', null, null
 );
 
 insert into place_operating_hours (
-  id, place_id, day_of_week, open_time, close_time, last_entry_time, source_kind
+  id, place_id, day_of_week, open_time, close_time, last_entry_time, source_kind,
+  source_snapshot_id, import_run_id
 ) values
 (
   '21000000-0000-0000-0000-000000000001',
-  '20000000-0000-0000-0000-000000000002', 1, '07:30', '20:00', '19:00', 'parsed'
+  '20000000-0000-0000-0000-000000000002', 1, '07:30', '20:00', '19:00', 'parsed',
+  '00000000-0000-0000-0000-000000000102',
+  '00000000-0000-0000-0000-000000000012'
 ),
 (
   '21000000-0000-0000-0000-000000000002',
-  '20000000-0000-0000-0000-000000000003', 1, '09:00', '18:00', '17:30', 'parsed'
+  '20000000-0000-0000-0000-000000000003', 1, '09:00', '18:00', '17:30', 'parsed',
+  '00000000-0000-0000-0000-000000000102',
+  '00000000-0000-0000-0000-000000000012'
 ),
 (
   '21000000-0000-0000-0000-000000000003',
-  '20000000-0000-0000-0000-000000000006', 1, '10:00', '19:00', '18:30', 'manual'
+  '20000000-0000-0000-0000-000000000006', 1, '10:00', '19:00', '18:30', 'manual', null, null
 );
 
-insert into place_aliases (place_id, alias, normalized_alias, alias_type) values
-('20000000-0000-0000-0000-000000000001', '제주공항', '제주공항', 'keyword'),
-('20000000-0000-0000-0000-000000000002', '성산일출봉', '성산일출봉', 'official'),
-('20000000-0000-0000-0000-000000000002', '성산일출봉입구', '성산일출봉입구', 'fallback_stop_keyword'),
-('20000000-0000-0000-0000-000000000003', '섭지코지', '섭지코지', 'official'),
-('20000000-0000-0000-0000-000000000003', '신양리', '신양리', 'fallback_stop_keyword');
+insert into place_aliases (
+  place_id, alias, normalized_alias, alias_type, source_snapshot_id, import_run_id
+) values
+('20000000-0000-0000-0000-000000000001', '제주공항', '제주공항', 'user_query', null, null),
+('20000000-0000-0000-0000-000000000002', '성산일출봉', '성산일출봉', 'official', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000011'),
+('20000000-0000-0000-0000-000000000002', '성산일출봉입구', '성산일출봉입구', 'fallback_stop_keyword', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000011'),
+('20000000-0000-0000-0000-000000000003', '섭지코지', '섭지코지', 'official', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000011'),
+('20000000-0000-0000-0000-000000000003', '신양리', '신양리', 'fallback_stop_keyword', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000011');
 
-insert into place_images (place_id, image_url, thumbnail_url, display_order)
-select id, image_url, thumbnail_url, 0
+insert into place_images (
+  place_id, image_url, thumbnail_url, display_order, source_provider,
+  source_service, source_snapshot_id, import_run_id
+)
+select id, image_url, thumbnail_url, 0, '한국관광공사', 'TourAPI 이미지',
+  '00000000-0000-0000-0000-000000000103'::uuid,
+  '00000000-0000-0000-0000-000000000013'::uuid
 from tour_places
 where image_url is not null;
 
@@ -231,31 +319,31 @@ insert into saved_places (user_id, place_id, memo, tags, target_day, priority) v
 
 insert into bus_stops (
   id, external_stop_id, node_id, node_name, node_no, location,
-  source_provider, source_service, import_run_id
+  source_provider, source_service, source_snapshot_id, import_run_id
 ) values
 (
   '30000000-0000-0000-0000-000000000001', 'stop_jeju_airport',
   'JEB405002100', '제주국제공항4', '405002100',
   st_setsrid(st_makepoint(126.492978, 33.506439), 4326)::geography,
-  'TAGO', '버스정류소정보 API', '00000000-0000-0000-0000-000000000001'
+  'TAGO', '버스정류소정보 API', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000021'
 ),
 (
   '30000000-0000-0000-0000-000000000002', 'stop_seongsan',
   'JEB406000816', '성산일출봉입구[동]', '406000816',
   st_setsrid(st_makepoint(126.933033, 33.462717), 4326)::geography,
-  'TAGO', '버스정류소정보 API', '00000000-0000-0000-0000-000000000001'
+  'TAGO', '버스정류소정보 API', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000021'
 ),
 (
   '30000000-0000-0000-0000-000000000003', 'stop_seopjikoji',
   'JEB406001405', '섭지코지', '406001405',
   st_setsrid(st_makepoint(126.921991, 33.436621), 4326)::geography,
-  'TAGO', '버스정류소정보 API', '00000000-0000-0000-0000-000000000001'
+  'TAGO', '버스정류소정보 API', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000021'
 ),
 (
   '30000000-0000-0000-0000-000000000004', 'stop_seongsan_hotel',
   'JEB406009999', '성산 숙소 앞', '406009999',
   st_setsrid(st_makepoint(126.9341, 33.4551), 4326)::geography,
-  'fixture', 'local fixture', '00000000-0000-0000-0000-000000000001'
+  'fixture', 'local fixture', null, null
 );
 
 insert into place_stop_links (
@@ -268,34 +356,35 @@ insert into place_stop_links (
 
 insert into bus_routes (
   id, external_route_id, route_no, route_type, direction_name,
-  source_provider, source_service, import_run_id
+  source_provider, source_service, source_snapshot_id, import_run_id
 ) values (
   '40000000-0000-0000-0000-000000000001', 'JEB405320112', '201',
   '간선버스', '성산 방면', 'TAGO', '버스노선정보 API',
-  '00000000-0000-0000-0000-000000000001'
+  '00000000-0000-0000-0000-000000000202',
+  '00000000-0000-0000-0000-000000000022'
 );
 
 insert into route_stops (
   route_id, stop_id, direction_key, stop_sequence, travel_minutes_from_prev,
-  import_run_id, source_provider, city_code
+  source_snapshot_id, import_run_id, source_provider, city_code
 ) values
-('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'eastbound', 1, null, '00000000-0000-0000-0000-000000000001', 'TAGO', '39'),
-('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'eastbound', 2, 80, '00000000-0000-0000-0000-000000000001', 'TAGO', '39'),
-('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'eastbound', 3, 18, '00000000-0000-0000-0000-000000000001', 'TAGO', '39');
+('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'eastbound', 1, null, '00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000022', 'TAGO', '39'),
+('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'eastbound', 2, 80, '00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000022', 'TAGO', '39'),
+('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'eastbound', 3, 18, '00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000022', 'TAGO', '39');
 
 insert into timetable_entries (
   id, route_id, stop_id, direction_key, service_day_type, departure_time,
   trip_key, valid_from, source_provider, source_service, city_code,
-  source_record_key, import_run_id
+  source_record_key, source_snapshot_id, import_run_id
 ) values
-('41000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'eastbound', 'daily', '09:40', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-airport-0940', '00000000-0000-0000-0000-000000000001'),
-('41000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'eastbound', 'daily', '11:00', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-seongsan-1100', '00000000-0000-0000-0000-000000000001'),
-('41000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'eastbound', 'daily', '11:18', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-seopji-1118', '00000000-0000-0000-0000-000000000001');
+('41000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'eastbound', 'daily', '09:40', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-airport-0940', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023'),
+('41000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'eastbound', 'daily', '11:00', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-seongsan-1100', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023'),
+('41000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'eastbound', 'daily', '11:18', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-seopji-1118', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023');
 
 insert into bus_arrival_snapshots (
   id, stop_id, route_id, external_route_id, route_no, direction_name,
   estimated_arrival_seconds, remaining_stops, observed_at, expires_at,
-  source_provider, source_operation, import_run_id, raw_payload
+  source_provider, source_operation, source_snapshot_id, import_run_id, raw_payload
 ) values (
   '42000000-0000-0000-0000-000000000001',
   '30000000-0000-0000-0000-000000000002',
@@ -303,7 +392,8 @@ insert into bus_arrival_snapshots (
   'JEB405320112', '201', '섭지코지 방면', 2520, 18,
   now(), now() + interval '30 seconds', 'TAGO',
   'getSttnAcctoArvlPrearngeInfoList',
-  '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000204',
+  '00000000-0000-0000-0000-000000000024',
   '{"fixture":true}'::jsonb
 );
 
@@ -318,12 +408,13 @@ insert into weather_grid_points (
 insert into weather_observations (
   id, grid_point_id, observed_at, base_date, base_time, temperature_c,
   precipitation_mm, precipitation_type, humidity_percent, wind_speed_mps,
-  source_operation, import_run_id, raw_payload
+  source_operation, source_snapshot_id, import_run_id, raw_payload
 ) values (
   '35100000-0000-0000-0000-000000000001',
   '35000000-0000-0000-0000-000000000001',
   current_date + time '09:00', current_date, '09:00', 26.2, 0.0, 'none', 68, 4.2,
-  'getUltraSrtNcst', '00000000-0000-0000-0000-000000000002',
+  'getUltraSrtNcst', '00000000-0000-0000-0000-000000000301',
+  '00000000-0000-0000-0000-000000000031',
   '{"fixture":true}'::jsonb
 );
 
@@ -331,19 +422,21 @@ insert into weather_forecasts (
   id, grid_point_id, forecasted_at, valid_at, forecast_type, sky_code,
   precipitation_type, precipitation_probability_percent, precipitation_amount_mm,
   temperature_c, humidity_percent, wind_speed_mps, source_operation,
-  import_run_id, raw_payload
+  source_snapshot_id, import_run_id, raw_payload
 ) values (
   '35200000-0000-0000-0000-000000000001',
   '35000000-0000-0000-0000-000000000001',
   current_date + time '08:00', current_date + time '14:00', 'short', 'cloudy',
   'rain', 60, 1.5, 25.8, 76, 6.1, 'getVilageFcst',
-  '00000000-0000-0000-0000-000000000002', '{"fixture":true}'::jsonb
+  '00000000-0000-0000-0000-000000000302',
+  '00000000-0000-0000-0000-000000000032', '{"fixture":true}'::jsonb
 );
 
 insert into mobility_route_snapshots (
   id, request_hash, origin_location, destination_location, transport_mode,
   departure_at, distance_meters, duration_minutes, estimated_fare,
-  source_provider, source_operation, route_summary, expires_at, raw_payload
+  source_provider, source_operation, route_summary, expires_at, raw_payload,
+  import_run_id
 ) values
 (
   '43000000-0000-0000-0000-000000000001', 'fixture-airport-seongsan-bus',
@@ -351,7 +444,7 @@ insert into mobility_route_snapshots (
   st_setsrid(st_makepoint(126.9415, 33.4581), 4326)::geography,
   'public_transit', current_date + time '09:20', 47000, 105, 3000,
   'fixture', 'route', '{"routeNo":"201","transfers":0}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb
+  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
 ),
 (
   '43000000-0000-0000-0000-000000000002', 'fixture-seongsan-seopji-bus',
@@ -359,7 +452,7 @@ insert into mobility_route_snapshots (
   st_setsrid(st_makepoint(126.9281, 33.4303), 4326)::geography,
   'public_transit', current_date + time '12:20', 5100, 42, 1250,
   'fixture', 'route', '{"routeNo":"201","waitMinutes":22}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb
+  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
 ),
 (
   '43000000-0000-0000-0000-000000000003', 'fixture-seopji-hotel-taxi',
@@ -367,7 +460,7 @@ insert into mobility_route_snapshots (
   st_setsrid(st_makepoint(126.9340, 33.4550), 4326)::geography,
   'taxi', current_date + time '15:10', 4800, 12, 8500,
   'fixture', 'route', '{"traffic":"normal"}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb
+  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
 ),
 (
   '43000000-0000-0000-0000-000000000004', 'fixture-hotel-cafe-car',
@@ -375,7 +468,7 @@ insert into mobility_route_snapshots (
   st_setsrid(st_makepoint(126.9300, 33.4410), 4326)::geography,
   'rental_car', (current_date + 1) + time '10:00', 2600, 8, null,
   'fixture', 'route', '{"parking":"available"}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb
+  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
 );
 
 insert into trip_plans (

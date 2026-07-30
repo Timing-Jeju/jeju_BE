@@ -31,6 +31,8 @@ begin
       ('data_import_runs', 'sync_mode'),
       ('data_import_runs', 'scope_key'),
       ('data_import_runs', 'idempotency_key'),
+      ('data_import_runs', 'idempotency_enforced'),
+      ('data_import_runs', 'running_scope_enforced'),
       ('data_import_runs', 'parent_run_id'),
       ('data_import_runs', 'checkpoint_before'),
       ('data_import_runs', 'checkpoint_after'),
@@ -90,6 +92,7 @@ begin
       ('place_images', 'source_image_id'),
       ('place_images', 'copyright_code'),
       ('place_images', 'copyright_owner'),
+      ('place_images', 'source_url_key'),
       ('place_images', 'source_snapshot_id'),
       ('place_images', 'import_run_id'),
       ('bus_stops', 'city_code'),
@@ -123,6 +126,37 @@ begin
     raise exception 'database hardening columns are missing: %', missing_objects;
   end if;
 
+  with required_legacy_constraints(table_name, constraint_name) as (
+    values
+      ('route_stops', 'ck_route_stops_source_provider_nonblank'),
+      ('mobility_route_snapshots', 'ck_mobility_request_hash_nonblank'),
+      ('place_images', 'ck_place_images_image_url_nonblank'),
+      ('bus_stops', 'ck_bus_stops_node_id_nonblank'),
+      ('place_images', 'ck_place_images_source_key_lengths'),
+      ('bus_stops', 'ck_bus_stops_source_key_lengths'),
+      ('bus_routes', 'ck_bus_routes_source_key_lengths'),
+      ('route_stops', 'ck_route_stops_source_key_lengths'),
+      ('timetable_entries', 'ck_timetable_source_key_lengths'),
+      ('mobility_route_snapshots', 'ck_mobility_source_key_lengths')
+  )
+  select string_agg(
+      format('%s.%s', required.table_name, required.constraint_name),
+      ', ' order by required.table_name, required.constraint_name
+    )
+    into missing_objects
+  from required_legacy_constraints required
+  left join pg_catalog.pg_constraint constraint_row
+    on constraint_row.conrelid =
+       ('public.' || required.table_name)::regclass
+   and constraint_row.conname = required.constraint_name
+   and constraint_row.contype = 'c'
+   and not constraint_row.convalidated
+  where constraint_row.oid is null;
+
+  if missing_objects is not null then
+    raise exception 'legacy-preserving NOT VALID constraints are missing: %', missing_objects;
+  end if;
+
   select string_agg(c.relname, ', ' order by c.relname)
     into missing_objects
   from pg_catalog.pg_class c
@@ -152,6 +186,50 @@ begin
 
   if invalid_count <> 0 then
     raise exception 'ingestion internals must not grant direct client access: %', invalid_count;
+  end if;
+
+  if exists (select 1 from pg_catalog.pg_roles where rolname = 'anon')
+     and pg_catalog.has_function_privilege(
+       'anon',
+       to_regprocedure(
+         'public.advance_data_import_checkpoint(text,text,text,text,bigint,jsonb,timestamp with time zone,uuid)'
+       ),
+       'EXECUTE'
+     ) then
+    raise exception 'anon must not execute the checkpoint compare-and-set function';
+  end if;
+
+  if exists (select 1 from pg_catalog.pg_roles where rolname = 'authenticated')
+     and pg_catalog.has_function_privilege(
+       'authenticated',
+       to_regprocedure(
+         'public.advance_data_import_checkpoint(text,text,text,text,bigint,jsonb,timestamp with time zone,uuid)'
+       ),
+       'EXECUTE'
+     ) then
+    raise exception 'authenticated must not execute the checkpoint compare-and-set function';
+  end if;
+
+  if exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role')
+     and (
+       not pg_catalog.has_function_privilege(
+         'service_role',
+         to_regprocedure(
+           'public.advance_data_import_checkpoint(text,text,text,text,bigint,jsonb,timestamp with time zone,uuid)'
+         ),
+         'EXECUTE'
+       )
+       or pg_catalog.has_table_privilege(
+         'service_role', 'public.data_import_checkpoints', 'UPDATE'
+       )
+       or pg_catalog.has_table_privilege(
+         'service_role', 'public.data_import_checkpoints', 'DELETE'
+       )
+       or pg_catalog.has_table_privilege(
+         'service_role', 'public.data_import_checkpoints', 'TRUNCATE'
+       )
+     ) then
+    raise exception 'service_role checkpoint privileges must use only the compare-and-set function';
   end if;
 
   select string_agg(
@@ -201,6 +279,7 @@ begin
     from pg_catalog.pg_constraint constraint_row
     where constraint_row.conrelid = 'public.trip_weather_impacts'::regclass
       and constraint_row.contype = 'f'
+      and constraint_row.convalidated
       and pg_get_constraintdef(constraint_row.oid) ~*
           'FOREIGN KEY \(trip_day_id, trip_plan_id\).*trip_days'
   ) then
@@ -254,15 +333,59 @@ begin
 
   select pg_get_functiondef(to_regprocedure('public.protect_sealed_schedule_day()'))
     into function_definition;
-  if function_definition not ilike '%for share%'
+  if function_definition not ilike '%lock_trip_plan_schedule_mutex%'
      or function_definition not ilike '%trip day cannot be added%' then
     raise exception 'sealed schedule day guard must serialize inserts and mutations';
   end if;
 
-  if to_regprocedure('public.protect_sealed_schedule_day()') is null
+  if to_regprocedure('public.lock_trip_plan_schedule_mutex(uuid)') is null
+     or to_regprocedure('public.protect_sealed_schedule_day()') is null
      or to_regprocedure('public.protect_sealed_trip_plan_dates()') is null
-     or to_regprocedure('public.validate_schedule_version_base_lineage()') is null then
+     or to_regprocedure('public.validate_schedule_version_base_lineage()') is null
+     or to_regprocedure('public.require_new_day_scoped_result()') is null
+     or to_regprocedure('public.protect_legacy_null_day_result_parent()') is null then
     raise exception 'sealed schedule day/date/base-lineage guards are missing';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure('public.require_new_day_scoped_result()'))
+    into function_definition;
+  if function_definition not ilike '%legacy null-day weather lineage is immutable%'
+     or function_definition not ilike '%legacy null-day recommendation lineage is immutable%' then
+    raise exception 'legacy null-day child-lineage guard is incomplete';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.compute_runs'::regclass
+      and trigger_row.tgname = 'trg_compute_runs_legacy_null_day_parent'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.trip_items'::regclass
+      and trigger_row.tgname = 'trg_trip_items_legacy_null_day_parent'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.trip_legs'::regclass
+      and trigger_row.tgname = 'trg_trip_legs_legacy_null_day_parent'
+      and not trigger_row.tgisinternal
+  ) then
+    raise exception 'legacy null-day parent-lineage triggers are missing';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure('public.validate_trip_calendar_child()'))
+    into function_definition;
+  if function_definition not ilike '%lock_trip_plan_schedule_mutex%' then
+    raise exception 'calendar child validation must use its trip-plan mutex';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure('public.lock_trip_plan_schedule_mutex(uuid)'))
+    into function_definition;
+  if function_definition not ilike '%FROM public.trip_plans%FOR NO KEY UPDATE%' then
+    raise exception 'trip-plan schedule mutex must use FOR NO KEY UPDATE';
   end if;
 
   if not exists (
@@ -270,6 +393,7 @@ begin
     from pg_catalog.pg_constraint constraint_row
     where constraint_row.conrelid = 'public.trip_weather_impacts'::regclass
       and constraint_row.contype = 'f'
+      and constraint_row.convalidated
       and pg_get_constraintdef(constraint_row.oid) ~*
           'FOREIGN KEY \(compute_run_id, trip_plan_id, schedule_version_id, trip_day_id\).*compute_runs'
   ) or not exists (
@@ -277,6 +401,7 @@ begin
     from pg_catalog.pg_constraint constraint_row
     where constraint_row.conrelid = 'public.trip_weather_impacts'::regclass
       and constraint_row.contype = 'f'
+      and constraint_row.convalidated
       and pg_get_constraintdef(constraint_row.oid) ~*
           'FOREIGN KEY \(trip_item_id, schedule_version_id, trip_plan_id, trip_day_id\).*trip_items'
   ) then
@@ -288,6 +413,7 @@ begin
     from pg_catalog.pg_constraint constraint_row
     where constraint_row.conrelid = 'public.recommendation_candidates'::regclass
       and constraint_row.contype = 'f'
+      and constraint_row.convalidated
       and pg_get_constraintdef(constraint_row.oid) ~*
           'FOREIGN KEY \(compute_run_id, trip_plan_id, schedule_version_id, trip_day_id\).*compute_runs'
   ) or not exists (
@@ -295,10 +421,31 @@ begin
     from pg_catalog.pg_constraint constraint_row
     where constraint_row.conrelid = 'public.recommendation_candidates'::regclass
       and constraint_row.contype = 'f'
+      and constraint_row.convalidated
       and pg_get_constraintdef(constraint_row.oid) ~*
           'FOREIGN KEY \(base_item_id, schedule_version_id, trip_plan_id, trip_day_id\).*trip_items'
   ) then
     raise exception 'recommendation compute/item day composite foreign keys are missing';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.trip_weather_impacts'::regclass
+      and constraint_row.contype = 'f'
+      and constraint_row.convalidated
+      and pg_get_constraintdef(constraint_row.oid) ~*
+          'FOREIGN KEY \(compute_run_id, trip_plan_id, schedule_version_id\).*compute_runs'
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.recommendation_candidates'::regclass
+      and constraint_row.contype = 'f'
+      and constraint_row.convalidated
+      and pg_get_constraintdef(constraint_row.oid) ~*
+          'FOREIGN KEY \(compute_run_id, trip_plan_id, schedule_version_id\).*compute_runs'
+  ) then
+    raise exception 'legacy nullable-day parent foreign keys must remain validated';
   end if;
 
   select count(*) into invalid_count
@@ -310,6 +457,32 @@ begin
 
   if invalid_count = 0 then
     raise exception 'data import terminal-state constraint is missing';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_indexes index_row
+    where index_row.schemaname = 'public'
+      and index_row.indexname = 'uq_data_import_runs_idempotency'
+      and index_row.indexdef ilike '%source_provider%'
+      and index_row.indexdef ilike '%source_service%'
+      and index_row.indexdef ilike '%source_operation%'
+      and index_row.indexdef ilike '%scope_key%'
+      and index_row.indexdef ilike '%idempotency_enforced%'
+      and index_row.indexdef not ilike '%source_name%'
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_indexes index_row
+    where index_row.schemaname = 'public'
+      and index_row.indexname = 'uq_data_import_runs_running_scope'
+      and index_row.indexdef ilike '%source_provider%'
+      and index_row.indexdef ilike '%source_service%'
+      and index_row.indexdef ilike '%source_operation%'
+      and index_row.indexdef ilike '%scope_key%'
+      and index_row.indexdef ilike '%running_scope_enforced%'
+      and index_row.indexdef not ilike '%source_name%'
+  ) then
+    raise exception 'import-run canonical provider/service scope indexes are missing';
   end if;
 
   select count(*) into invalid_count
@@ -332,31 +505,90 @@ begin
     raise exception 'snapshot parse-state constraints are missing';
   end if;
 
-  if not exists (
-    select 1
-    from pg_catalog.pg_constraint constraint_row
-    where constraint_row.conrelid = 'public.external_api_snapshots'::regclass
-      and constraint_row.contype = 'f'
-      and pg_get_constraintdef(constraint_row.oid) ~*
-          'FOREIGN KEY \(import_run_id, source_provider, source_service, source_operation, scope_key\).*data_import_runs'
-  ) then
-    raise exception 'snapshot provider/service import-run foreign key is missing';
+  if to_regprocedure('public.validate_import_run_nonblank_fields()') is null
+     or to_regprocedure('public.validate_import_run_json_objects()') is null
+     or to_regprocedure('public.validate_import_run_source_key_lengths()') is null
+     or to_regprocedure('public.protect_import_run_idempotency()') is null
+     or to_regprocedure('public.protect_grandfathered_idempotency_arbiter()') is null
+     or to_regprocedure('public.protect_import_run_running_scope()') is null
+     or to_regprocedure('public.protect_import_run_source_scope()') is null
+     or to_regprocedure('public.validate_external_snapshot_import_scope()') is null then
+    raise exception 'exact import-run source-scope guards are missing';
   end if;
 
   if not exists (
     select 1
-    from pg_catalog.pg_constraint constraint_row
-    where constraint_row.conrelid = 'public.data_import_checkpoints'::regclass
-      and constraint_row.contype = 'f'
-      and pg_get_constraintdef(constraint_row.oid) ~*
-          'FOREIGN KEY \(last_succeeded_run_id, source_provider, source_service, source_operation, scope_key\).*data_import_runs'
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_nonblank_insert'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_protect_idempotency_arbiter'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_running_scope_guard'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_idempotency_guard'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_nonblank_update'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_json_insert'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_json_update'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_source_key_insert'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_source_key_update'
+      and not trigger_row.tgisinternal
   ) then
-    raise exception 'checkpoint import-run scope foreign key is missing';
+    raise exception 'import-run source-key transition guards are missing';
   end if;
 
   if to_regprocedure('public.validate_checkpoint_succeeded_run()') is null
+     or to_regprocedure('public.protect_checkpoint_progress()') is null
+     or to_regprocedure(
+       'public.advance_data_import_checkpoint(text,text,text,text,bigint,jsonb,timestamp with time zone,uuid)'
+     ) is null
+     or to_regprocedure('public.prevent_checkpoint_reset()') is null
+     or to_regprocedure('public.protect_checkpoint_succeeded_run()') is null
+     or to_regprocedure('public.normalized_lineage_is_optional(text,jsonb)') is null
      or to_regprocedure('public.validate_normalized_source_lineage()') is null
-     or to_regprocedure('public.protect_external_snapshot_identity()') is null then
+     or to_regprocedure('public.protect_external_snapshot_identity()') is null
+     or to_regprocedure('public.prevent_duplicate_place_image_source()') is null
+     or to_regprocedure('public.source_identity_digest(text[])') is null
+     or to_regprocedure('public.validate_route_stop_source_scope()') is null
+     or to_regprocedure('public.validate_timetable_source_scope()') is null
+     or to_regprocedure('public.validate_place_hours_cross_day_overlap()') is null then
     raise exception 'ingestion lineage validation functions are missing';
   end if;
 
@@ -364,6 +596,48 @@ begin
     into function_definition;
   if function_definition not ilike '%FOR SHARE%' then
     raise exception 'checkpoint run validation must lock the referenced run';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure('public.protect_checkpoint_progress()'))
+    into function_definition;
+  if function_definition not ilike '%old.version + 1%'
+     or function_definition not ilike '%older succeeded import run%' then
+    raise exception 'checkpoint compare-and-set/latest-run guard is missing';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure(
+    'public.advance_data_import_checkpoint(text,text,text,text,bigint,jsonb,timestamp with time zone,uuid)'
+  )) into function_definition;
+  if function_definition not ilike '%WHERE%version = p_expected_version%'
+     or function_definition not ilike '%version = checkpoint_row.version + 1%'
+     or function_definition not ilike '%checkpoint compare-and-set expected version is stale%' then
+    raise exception 'checkpoint atomic compare-and-set function is incomplete';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_checkpoints'::regclass
+      and trigger_row.tgname = 'trg_data_import_checkpoints_no_delete'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_checkpoints'::regclass
+      and trigger_row.tgname = 'trg_data_import_checkpoints_no_truncate'
+      and not trigger_row.tgisinternal
+  ) then
+    raise exception 'checkpoint delete/truncate reset guards are missing';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_protect_checkpoint'
+      and not trigger_row.tgisinternal
+  ) then
+    raise exception 'checkpoint referenced-run status guard is missing';
   end if;
 
   select pg_get_functiondef(to_regprocedure('public.validate_normalized_source_lineage()'))
@@ -374,11 +648,22 @@ begin
   if function_definition not ilike '%FOR SHARE%' then
     raise exception 'normalized lineage must lock its source snapshot';
   end if;
+  if function_definition not ilike '%requires a source snapshot and import run%'
+     or function_definition not ilike '%TG_OP = ''INSERT''%'
+     or function_definition not ilike '%legacy lineage-free row content is immutable%'
+     or function_definition not ilike '%old_lineage_optional AND lineage_optional%'
+     or function_definition not ilike '%normalized_lineage_is_optional%'
+     or function_definition not ilike '%normalized_row - ARRAY[''updated_at''%'
+     or function_definition not ilike '%snapshot purge may clear only the source pointer%'
+     or function_definition ilike '%lineage_optional := tg_table_name = ''tour_places'' OR%' then
+    raise exception 'new normalized external rows must require full source lineage';
+  end if;
 
   select pg_get_functiondef(to_regprocedure('public.protect_external_snapshot_identity()'))
     into function_definition;
-  if function_definition not ilike '%cannot return to an unparsed status%' then
-    raise exception 'snapshot parse status regression guard is missing';
+  if function_definition not ilike '%cannot return to an unparsed status%'
+     or function_definition not ilike '%audit payload is immutable%' then
+    raise exception 'snapshot parse regression/audit immutability guard is missing';
   end if;
 
   select count(*) into invalid_count
@@ -413,33 +698,20 @@ begin
     raise exception 'timetable scoped validity overlap exclusion is missing';
   end if;
 
-  if not exists (
-    select 1
-    from pg_catalog.pg_constraint constraint_row
-    where constraint_row.conrelid = 'public.route_stops'::regclass
-      and constraint_row.contype = 'f'
-      and pg_get_constraintdef(constraint_row.oid) ~*
-          'FOREIGN KEY \(route_id, source_provider, city_code\).*bus_routes'
-  ) or not exists (
-    select 1
-    from pg_catalog.pg_constraint constraint_row
-    where constraint_row.conrelid = 'public.route_stops'::regclass
-      and constraint_row.contype = 'f'
-      and pg_get_constraintdef(constraint_row.oid) ~*
-          'FOREIGN KEY \(stop_id, source_provider, city_code\).*bus_stops'
-  ) then
-    raise exception 'route-stop provider/city scope foreign keys are missing';
+  select pg_get_functiondef(to_regprocedure('public.validate_route_stop_source_scope()'))
+    into function_definition;
+  if function_definition not ilike '%FOR KEY SHARE%'
+     or function_definition not ilike '%bus_routes%'
+     or function_definition not ilike '%bus_stops%' then
+    raise exception 'route-stop exact provider/city guard is incomplete';
   end if;
 
-  if not exists (
-    select 1
-    from pg_catalog.pg_constraint constraint_row
-    where constraint_row.conrelid = 'public.timetable_entries'::regclass
-      and constraint_row.contype = 'f'
-      and pg_get_constraintdef(constraint_row.oid) ~*
-          'FOREIGN KEY \(route_id, direction_key, stop_id, source_provider, city_code\).*route_stops'
-  ) then
-    raise exception 'timetable route-stop provider/city scope foreign key is missing';
+  select pg_get_functiondef(to_regprocedure('public.validate_timetable_source_scope()'))
+    into function_definition;
+  if function_definition not ilike '%FOR KEY SHARE%'
+     or function_definition not ilike '%legacy timetable source identity is immutable%'
+     or function_definition not ilike '%valid route stop%' then
+    raise exception 'timetable exact source-scope guard is incomplete';
   end if;
 
   select count(*) into invalid_count
@@ -461,6 +733,65 @@ begin
 
   if invalid_count = 0 then
     raise exception 'operating-hours last-entry interval constraint is missing';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure('public.prevent_duplicate_place_image_source()'))
+    into function_definition;
+  if function_definition not ilike '%pg_advisory_xact_lock%'
+     or function_definition not ilike '%image_url%'
+     or function_definition not ilike '%source_identity_digest%'
+     or function_definition not ilike '%digest collision%' then
+    raise exception 'place-image provider URL idempotency guard is missing';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.routine_privileges privilege_row
+    where privilege_row.specific_schema = 'public'
+      and privilege_row.routine_name = 'source_identity_digest'
+      and privilege_row.privilege_type = 'EXECUTE'
+      and privilege_row.grantee = 'PUBLIC'
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'anon')
+    and pg_catalog.has_function_privilege(
+      'anon',
+      'public.source_identity_digest(text[])',
+      'EXECUTE'
+    )
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'authenticated')
+    and pg_catalog.has_function_privilege(
+      'authenticated',
+      'public.source_identity_digest(text[])',
+      'EXECUTE'
+    )
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role')
+    and not pg_catalog.has_function_privilege(
+      'service_role',
+      'public.source_identity_digest(text[])',
+      'EXECUTE'
+    )
+  ) then
+    raise exception 'place-image digest helper permissions are unsafe';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.place_images'::regclass
+      and constraint_row.contype = 'u'
+      and constraint_row.conname = 'uq_place_images_source_url_key'
+      and pg_get_constraintdef(constraint_row.oid) ilike '%source_url_key%'
+  ) then
+    raise exception 'place-image source URL ON CONFLICT key is missing';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure('public.validate_place_hours_cross_day_overlap()'))
+    into function_definition;
+  if function_definition not ilike '%previous overnight service day%'
+     or function_definition not ilike '%next service day%' then
+    raise exception 'operating-hours cross-day overlap guard is missing';
   end if;
 end;
 $$;
