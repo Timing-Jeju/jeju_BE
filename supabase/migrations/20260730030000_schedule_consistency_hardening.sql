@@ -1,5 +1,26 @@
 -- Issue #11: 확정 일정과 날짜 기반 계산 결과의 교차 행 무결성을 강화한다.
 
+-- 일정 봉인과 Day/달력 변경은 아직 커밋되지 않은 schedule version의 가시성에
+-- 의존하지 않고 같은 여행 행을 먼저 잠근다. NO KEY UPDATE는 FK의 KEY SHARE와
+-- 충돌하지 않으면서 같은 trip_plan의 검증 작업끼리는 직렬화한다.
+create function public.lock_trip_plan_schedule_mutex(target_trip_plan_id uuid)
+returns void
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  perform p.id
+  from public.trip_plans p
+  where p.id = target_trip_plan_id
+  for no key update;
+
+  if not found then
+    raise exception 'trip plan % does not exist', target_trip_plan_id;
+  end if;
+end;
+$$;
+
 create or replace function public.validate_schedule_version_base_lineage()
 returns trigger
 language plpgsql
@@ -14,6 +35,8 @@ begin
     raise exception 'schedule version number is immutable';
   end if;
 
+  perform public.lock_trip_plan_schedule_mutex(new.trip_plan_id);
+
   if new.base_schedule_version_id is null then
     return new;
   end if;
@@ -27,8 +50,7 @@ begin
     into parent_version_no
   from public.trip_schedule_versions parent
   where parent.id = new.base_schedule_version_id
-    and parent.trip_plan_id = new.trip_plan_id
-  for share;
+    and parent.trip_plan_id = new.trip_plan_id;
 
   if not found then
     raise exception 'base schedule version % does not belong to trip %',
@@ -47,6 +69,51 @@ create trigger trg_schedule_version_base_lineage
 before insert or update of base_schedule_version_id, version_no, trip_plan_id
 on public.trip_schedule_versions
 for each row execute function public.validate_schedule_version_base_lineage();
+
+-- 자식 생성과 여행 날짜 변경이 서로의 부재를 동시에 관찰하지 못하도록
+-- 두 경로가 같은 trip_plans 행 잠금을 공유한다.
+create or replace function public.validate_trip_calendar_child()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  plan_start_date date;
+  plan_end_date date;
+  event_local_date date;
+begin
+  perform public.lock_trip_plan_schedule_mutex(new.trip_plan_id);
+
+  select p.start_date, p.end_date
+    into plan_start_date, plan_end_date
+  from public.trip_plans p
+  where p.id = new.trip_plan_id;
+
+  if tg_table_name = 'trip_days' then
+    if new.trip_date <> plan_start_date + (new.day_no - 1)
+       or new.trip_date > plan_end_date then
+      raise exception 'trip day % date % is inconsistent with trip range %..%',
+        new.day_no, new.trip_date, plan_start_date, plan_end_date;
+    end if;
+  elsif tg_table_name = 'trip_transport_events' then
+    event_local_date := timezone('Asia/Seoul', new.scheduled_at)::date;
+    if event_local_date < plan_start_date or event_local_date > plan_end_date then
+      raise exception 'transport event date % is outside trip range %..%',
+        event_local_date, plan_start_date, plan_end_date;
+    end if;
+  elsif tg_table_name = 'trip_accommodations' then
+    if new.check_in_date < plan_start_date
+       or new.check_out_date > plan_end_date
+       or new.check_out_date <= new.check_in_date then
+      raise exception 'accommodation range %..% is outside trip range %..%',
+        new.check_in_date, new.check_out_date, plan_start_date, plan_end_date;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
 
 create or replace function public.protect_sealed_schedule_day()
 returns trigger
@@ -78,11 +145,7 @@ begin
     return old;
   end if;
 
-  perform version.id
-  from public.trip_schedule_versions version
-  where version.trip_plan_id = target_trip_plan_id
-  order by version.id
-  for share;
+  perform public.lock_trip_plan_schedule_mutex(target_trip_plan_id);
 
   if tg_op = 'INSERT'
      and exists (
@@ -131,11 +194,7 @@ begin
     return new;
   end if;
 
-  perform version.id
-  from public.trip_schedule_versions version
-  where version.trip_plan_id = old.id
-  order by version.id
-  for share;
+  perform public.lock_trip_plan_schedule_mutex(old.id);
 
   if exists (
     select 1
@@ -201,12 +260,76 @@ as $$
 begin
   if new.status in ('candidate', 'active')
      and (tg_op = 'INSERT' or old.status is distinct from new.status) then
+    perform public.lock_trip_plan_schedule_mutex(new.trip_plan_id);
     perform public.assert_schedule_version_sealable(new.id, new.trip_plan_id);
     perform public.assert_schedule_day_coverage(new.id, new.trip_plan_id);
     perform public.assert_schedule_day_item_windows(new.id, new.trip_plan_id);
   end if;
 
   return new;
+end;
+$$;
+
+-- 새 trigger는 과거 행에 자동 실행되지 않으므로 이미 봉인된 일정도 한 번 감사한다.
+-- 잘못된 봉인 상태를 조용히 유지하거나 임의로 상태를 바꾸지 않고 명확히 중단한다.
+do $$
+declare
+  sealed_version record;
+  invalid_base record;
+begin
+  select
+    child.id as child_id,
+    parent.id as parent_id,
+    child.version_no as child_version_no,
+    parent.version_no as parent_version_no
+    into invalid_base
+  from public.trip_schedule_versions child
+  join public.trip_schedule_versions parent
+    on parent.id = child.base_schedule_version_id
+   and parent.trip_plan_id = child.trip_plan_id
+  where child.base_schedule_version_id is not null
+    and parent.version_no >= child.version_no
+  order by child.id
+  limit 1;
+
+  if found then
+    raise exception using
+      errcode = '23514',
+      message = 'legacy schedule base lineage is invalid',
+      detail = pg_catalog.format(
+        'child_id=%s, parent_id=%s, child_version_no=%s, parent_version_no=%s',
+        invalid_base.child_id,
+        invalid_base.parent_id,
+        invalid_base.child_version_no,
+        invalid_base.parent_version_no
+      );
+  end if;
+
+  for sealed_version in
+    select version.id, version.trip_plan_id
+    from public.trip_schedule_versions version
+    where version.status in ('candidate', 'active')
+    order by version.trip_plan_id, version.version_no
+  loop
+    begin
+      perform public.assert_schedule_version_sealable(
+        sealed_version.id,
+        sealed_version.trip_plan_id
+      );
+      perform public.assert_schedule_day_coverage(
+        sealed_version.id,
+        sealed_version.trip_plan_id
+      );
+      perform public.assert_schedule_day_item_windows(
+        sealed_version.id,
+        sealed_version.trip_plan_id
+      );
+    exception when others then
+      raise exception 'legacy sealed schedule failed integrity audit: %',
+        sealed_version.id
+        using detail = sqlerrm;
+    end;
+  end loop;
 end;
 $$;
 
@@ -291,29 +414,241 @@ alter table public.compute_runs
   add constraint uq_compute_runs_day_identity
     unique (id, trip_plan_id, schedule_version_id, trip_day_id);
 
-alter table public.trip_weather_impacts
-  alter column trip_day_id set not null;
+create function public.require_new_day_scoped_result()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  old_result jsonb;
+  new_result jsonb;
+begin
+  new_result := to_jsonb(new);
 
+  if new.trip_day_id is null
+     and (
+       tg_op = 'INSERT'
+       or old.trip_day_id is not null
+     ) then
+    raise exception using
+      errcode = '23502',
+      message = 'new day-scoped result requires trip_day_id';
+  end if;
+
+  if tg_op = 'UPDATE' and old.trip_day_id is null and new.trip_day_id is null then
+    old_result := to_jsonb(old);
+
+    if tg_table_name = 'trip_weather_impacts'
+       and (
+         old_result ->> 'trip_plan_id' is distinct from new_result ->> 'trip_plan_id'
+         or old_result ->> 'schedule_version_id'
+            is distinct from new_result ->> 'schedule_version_id'
+         or old_result ->> 'compute_run_id'
+            is distinct from new_result ->> 'compute_run_id'
+         or old_result ->> 'trip_item_id'
+            is distinct from new_result ->> 'trip_item_id'
+         or old_result ->> 'trip_leg_id'
+            is distinct from new_result ->> 'trip_leg_id'
+       ) then
+      raise exception using
+        errcode = '23514',
+        message = 'legacy null-day weather lineage is immutable until day repair';
+    end if;
+
+    if tg_table_name = 'recommendation_candidates'
+       and (
+         old_result ->> 'trip_plan_id' is distinct from new_result ->> 'trip_plan_id'
+         or old_result ->> 'schedule_version_id'
+            is distinct from new_result ->> 'schedule_version_id'
+         or old_result ->> 'compute_run_id'
+            is distinct from new_result ->> 'compute_run_id'
+         or old_result ->> 'base_item_id'
+            is distinct from new_result ->> 'base_item_id'
+       ) then
+      raise exception using
+        errcode = '23514',
+        message = 'legacy null-day recommendation lineage is immutable until day repair';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger trg_trip_weather_impacts_require_day
+before insert or update on public.trip_weather_impacts
+for each row execute function public.require_new_day_scoped_result();
+
+create trigger trg_recommendation_candidates_require_day
+before insert or update on public.recommendation_candidates
+for each row execute function public.require_new_day_scoped_result();
+
+create function public.protect_legacy_null_day_result_parent()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if old.trip_day_id is not distinct from new.trip_day_id then
+    return new;
+  end if;
+
+  if tg_table_name = 'compute_runs'
+     and (
+       exists (
+         select 1
+         from public.trip_weather_impacts impact
+         where impact.trip_day_id is null
+           and impact.compute_run_id = old.id
+       )
+       or exists (
+         select 1
+         from public.recommendation_candidates candidate
+         where candidate.trip_day_id is null
+           and candidate.compute_run_id = old.id
+       )
+     ) then
+    raise exception using
+      errcode = '23514',
+      message = 'compute run day is immutable while legacy null-day results reference it';
+  end if;
+
+  if tg_table_name = 'trip_items'
+     and (
+       exists (
+         select 1
+         from public.trip_weather_impacts impact
+         where impact.trip_day_id is null
+           and impact.trip_item_id = old.id
+       )
+       or exists (
+         select 1
+         from public.recommendation_candidates candidate
+         where candidate.trip_day_id is null
+           and candidate.base_item_id = old.id
+       )
+     ) then
+    raise exception using
+      errcode = '23514',
+      message = 'trip item day is immutable while legacy null-day results reference it';
+  end if;
+
+  if tg_table_name = 'trip_legs'
+     and exists (
+       select 1
+       from public.trip_weather_impacts impact
+       where impact.trip_day_id is null
+         and impact.trip_leg_id = old.id
+     ) then
+    raise exception using
+      errcode = '23514',
+      message = 'trip leg day is immutable while legacy null-day results reference it';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger trg_compute_runs_legacy_null_day_parent
+before update of trip_day_id on public.compute_runs
+for each row execute function public.protect_legacy_null_day_result_parent();
+
+create trigger trg_trip_items_legacy_null_day_parent
+before update of trip_day_id on public.trip_items
+for each row execute function public.protect_legacy_null_day_result_parent();
+
+create trigger trg_trip_legs_legacy_null_day_parent
+before update of trip_day_id on public.trip_legs
+for each row execute function public.protect_legacy_null_day_result_parent();
+
+-- NULL day인 v1 결과는 grandfathering하지만, 이미 day가 있던 결과의 부모가
+-- 서로 다른 day를 가리키는 상태는 새 FK를 설치하기 전에 명확히 중단한다.
 do $$
 declare
-  constraint_name text;
+  invalid_result record;
 begin
-  for constraint_name in
-    select constraint_row.conname
-    from pg_catalog.pg_constraint constraint_row
-    where constraint_row.conrelid = 'public.trip_weather_impacts'::regclass
-      and constraint_row.contype = 'f'
-      and constraint_row.confrelid in (
-        'public.compute_runs'::regclass,
-        'public.trip_items'::regclass,
-        'public.trip_legs'::regclass
+  select 'trip_weather_impacts'::text as result_kind, impact.id as result_id
+    into invalid_result
+  from public.trip_weather_impacts impact
+  where impact.trip_day_id is not null
+    and (
+      not exists (
+        select 1
+        from public.compute_runs compute_run
+        where compute_run.id = impact.compute_run_id
+          and compute_run.trip_plan_id = impact.trip_plan_id
+          and compute_run.schedule_version_id = impact.schedule_version_id
+          and compute_run.trip_day_id = impact.trip_day_id
       )
-  loop
-    execute format(
-      'alter table public.trip_weather_impacts drop constraint %I',
-      constraint_name
-    );
-  end loop;
+      or (
+        impact.trip_item_id is not null
+        and not exists (
+          select 1
+          from public.trip_items item
+          where item.id = impact.trip_item_id
+            and item.schedule_version_id = impact.schedule_version_id
+            and item.trip_plan_id = impact.trip_plan_id
+            and item.trip_day_id = impact.trip_day_id
+        )
+      )
+      or (
+        impact.trip_leg_id is not null
+        and not exists (
+          select 1
+          from public.trip_legs leg
+          where leg.id = impact.trip_leg_id
+            and leg.schedule_version_id = impact.schedule_version_id
+            and leg.trip_plan_id = impact.trip_plan_id
+            and leg.trip_day_id = impact.trip_day_id
+        )
+      )
+    )
+  order by impact.id
+  limit 1;
+
+  if not found then
+    select 'recommendation_candidates'::text as result_kind,
+           candidate.id as result_id
+      into invalid_result
+    from public.recommendation_candidates candidate
+    where candidate.trip_day_id is not null
+      and (
+        not exists (
+          select 1
+          from public.compute_runs compute_run
+          where compute_run.id = candidate.compute_run_id
+            and compute_run.trip_plan_id = candidate.trip_plan_id
+            and compute_run.schedule_version_id = candidate.schedule_version_id
+            and compute_run.trip_day_id = candidate.trip_day_id
+        )
+        or (
+          candidate.base_item_id is not null
+          and not exists (
+            select 1
+            from public.trip_items item
+            where item.id = candidate.base_item_id
+              and item.schedule_version_id = candidate.schedule_version_id
+              and item.trip_plan_id = candidate.trip_plan_id
+              and item.trip_day_id = candidate.trip_day_id
+          )
+        )
+      )
+    order by candidate.id
+    limit 1;
+  end if;
+
+  if found then
+    raise exception using
+      errcode = '23514',
+      message = 'legacy day-scoped result failed same-day lineage audit',
+      detail = pg_catalog.format(
+        'result_kind=%s, result_id=%s',
+        invalid_result.result_kind,
+        invalid_result.result_id
+      );
+  end if;
 end;
 $$;
 
@@ -321,15 +656,24 @@ alter table public.trip_weather_impacts
   add constraint fk_trip_weather_impacts_compute_day
     foreign key (compute_run_id, trip_plan_id, schedule_version_id, trip_day_id)
     references public.compute_runs (id, trip_plan_id, schedule_version_id, trip_day_id)
-    on delete cascade,
+    on delete cascade
+    not valid,
   add constraint fk_trip_weather_impacts_item_day
     foreign key (trip_item_id, schedule_version_id, trip_plan_id, trip_day_id)
     references public.trip_items (id, schedule_version_id, trip_plan_id, trip_day_id)
-    on delete cascade,
+    on delete cascade
+    not valid,
   add constraint fk_trip_weather_impacts_leg_day
     foreign key (trip_leg_id, schedule_version_id, trip_plan_id, trip_day_id)
     references public.trip_legs (id, schedule_version_id, trip_plan_id, trip_day_id)
-    on delete cascade;
+    on delete cascade
+    not valid;
+
+alter table public.trip_weather_impacts
+  validate constraint fk_trip_weather_impacts_trip_day_plan,
+  validate constraint fk_trip_weather_impacts_compute_day,
+  validate constraint fk_trip_weather_impacts_item_day,
+  validate constraint fk_trip_weather_impacts_leg_day;
 
 create index idx_trip_weather_impacts_compute_day
   on public.trip_weather_impacts
@@ -344,38 +688,20 @@ create index idx_trip_weather_impacts_leg_day
   where trip_leg_id is not null;
 
 alter table public.recommendation_candidates
-  alter column trip_day_id set not null;
-
-do $$
-declare
-  constraint_name text;
-begin
-  for constraint_name in
-    select constraint_row.conname
-    from pg_catalog.pg_constraint constraint_row
-    where constraint_row.conrelid = 'public.recommendation_candidates'::regclass
-      and constraint_row.contype = 'f'
-      and constraint_row.confrelid in (
-        'public.compute_runs'::regclass,
-        'public.trip_items'::regclass
-      )
-  loop
-    execute format(
-      'alter table public.recommendation_candidates drop constraint %I',
-      constraint_name
-    );
-  end loop;
-end;
-$$;
-
-alter table public.recommendation_candidates
   add constraint fk_recommendation_candidates_compute_day
     foreign key (compute_run_id, trip_plan_id, schedule_version_id, trip_day_id)
     references public.compute_runs (id, trip_plan_id, schedule_version_id, trip_day_id)
-    on delete cascade,
+    on delete cascade
+    not valid,
   add constraint fk_recommendation_candidates_base_item_day
     foreign key (base_item_id, schedule_version_id, trip_plan_id, trip_day_id)
-    references public.trip_items (id, schedule_version_id, trip_plan_id, trip_day_id);
+    references public.trip_items (id, schedule_version_id, trip_plan_id, trip_day_id)
+    not valid;
+
+alter table public.recommendation_candidates
+  validate constraint fk_recommendation_candidates_trip_day_plan,
+  validate constraint fk_recommendation_candidates_compute_day,
+  validate constraint fk_recommendation_candidates_base_item_day;
 
 create index idx_recommendation_candidates_compute_day
   on public.recommendation_candidates

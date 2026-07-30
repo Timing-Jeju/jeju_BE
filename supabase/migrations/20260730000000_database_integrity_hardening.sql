@@ -38,13 +38,13 @@ alter table public.data_import_runs
       and (idempotency_key is null or btrim(idempotency_key) <> '')
       and (error_code is null or btrim(error_code) <> '')
       and (error_message is null or btrim(error_message) <> '')
-    ),
+    ) not valid,
   add constraint chk_data_import_runs_json_objects
     check (
       jsonb_typeof(metadata) = 'object'
       and jsonb_typeof(checkpoint_before) = 'object'
       and jsonb_typeof(checkpoint_after) = 'object'
-    ),
+    ) not valid,
   add constraint chk_data_import_runs_sync_mode
     check (sync_mode in ('full', 'incremental', 'lazy', 'snapshot')),
   add constraint chk_data_import_runs_nonnegative_counts
@@ -63,7 +63,7 @@ alter table public.data_import_runs
     check (
       (error_code is null and error_message is null)
       or (error_code is not null and error_message is not null)
-    ),
+    ) not valid,
   add constraint chk_data_import_runs_state_fields
     check (
       (
@@ -88,9 +88,9 @@ alter table public.data_import_runs
         status in ('partial', 'cancelled')
         and finished_at is not null
       )
-    ),
+    ) not valid,
   add constraint chk_data_import_runs_time_order
-    check (finished_at is null or finished_at >= started_at),
+    check (finished_at is null or finished_at >= started_at) not valid,
   add constraint chk_data_import_runs_parent_not_self
     check (parent_run_id is null or parent_run_id <> id),
   add constraint fk_data_import_runs_parent
@@ -98,31 +98,12 @@ alter table public.data_import_runs
     references public.data_import_runs (id)
     on delete set null;
 
-create unique index uq_data_import_runs_idempotency
-  on public.data_import_runs (
-    source_kind,
-    source_name,
-    source_operation,
-    scope_key,
-    idempotency_key
-  ) nulls not distinct
-  where idempotency_key is not null;
-
-create unique index uq_data_import_runs_running_scope
-  on public.data_import_runs (
-    source_kind,
-    source_name,
-    coalesce(source_operation, ''),
-    scope_key
-  )
-  where status = 'running';
-
 create index idx_data_import_runs_parent
   on public.data_import_runs (parent_run_id);
 
 alter table public.trip_schedule_versions
   add constraint chk_trip_schedule_versions_base_not_self
-    check (base_schedule_version_id is null or base_schedule_version_id <> id);
+    check (base_schedule_version_id is null or base_schedule_version_id <> id) not valid;
 
 create function public.assert_schedule_day_coverage(
   target_schedule_version_id uuid,
@@ -280,7 +261,8 @@ alter table public.trip_weather_impacts
   add constraint fk_trip_weather_impacts_trip_day_plan
     foreign key (trip_day_id, trip_plan_id)
     references public.trip_days (id, trip_plan_id)
-    on delete cascade;
+    on delete cascade
+    not valid;
 
 create index idx_trip_weather_impacts_day_plan
   on public.trip_weather_impacts (trip_day_id, trip_plan_id);
@@ -290,27 +272,28 @@ alter table public.recommendation_candidates
   add constraint fk_recommendation_candidates_trip_day_plan
     foreign key (trip_day_id, trip_plan_id)
     references public.trip_days (id, trip_plan_id)
-    on delete cascade;
+    on delete cascade
+    not valid;
 
 create index idx_recommendation_candidates_day_plan
   on public.recommendation_candidates (trip_day_id, trip_plan_id);
 
 alter table public.weather_observations
   add constraint chk_weather_observations_precipitation_nonnegative
-    check (precipitation_mm is null or precipitation_mm >= 0),
+    check (precipitation_mm is null or precipitation_mm >= 0) not valid,
   add constraint chk_weather_observations_wind_nonnegative
-    check (wind_speed_mps is null or wind_speed_mps >= 0);
+    check (wind_speed_mps is null or wind_speed_mps >= 0) not valid;
 
 alter table public.weather_forecasts
   add constraint chk_weather_forecasts_precipitation_nonnegative
-    check (precipitation_amount_mm is null or precipitation_amount_mm >= 0),
+    check (precipitation_amount_mm is null or precipitation_amount_mm >= 0) not valid,
   add constraint chk_weather_forecasts_wind_nonnegative
-    check (wind_speed_mps is null or wind_speed_mps >= 0),
+    check (wind_speed_mps is null or wind_speed_mps >= 0) not valid,
   add constraint chk_weather_forecasts_time_order
-    check (forecasted_at <= valid_at),
+    check (forecasted_at <= valid_at) not valid,
   add constraint chk_weather_forecasts_temperature_order
     check (
       min_temperature_c is null
       or max_temperature_c is null
       or min_temperature_c <= max_temperature_c
-    );
+    ) not valid;

@@ -20,6 +20,17 @@ create table public.data_import_checkpoints (
     check (btrim(source_operation) <> ''),
   constraint ck_data_import_checkpoints_scope_nonblank
     check (btrim(scope_key) <> ''),
+  constraint ck_data_import_checkpoints_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_service) <= 128
+      and octet_length(source_operation) <= 128
+      and octet_length(scope_key) <= 512
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(source_operation)
+        + octet_length(scope_key) <= 1024
+    ),
   constraint ck_data_import_checkpoints_object
     check (jsonb_typeof(checkpoint) = 'object'),
   constraint ck_data_import_checkpoints_version
@@ -63,6 +74,20 @@ create table public.external_api_snapshots (
     check (btrim(source_operation) <> ''),
   constraint ck_external_snapshots_scope_nonblank
     check (btrim(scope_key) <> ''),
+  constraint ck_external_snapshots_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_service) <= 128
+      and octet_length(source_operation) <= 128
+      and octet_length(scope_key) <= 512
+      and (external_record_id is null or octet_length(external_record_id) <= 512)
+      and octet_length(page_key) <= 512
+      and octet_length(parser_version) <= 128
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(source_operation)
+        + octet_length(scope_key) <= 1024
+    ),
   constraint ck_external_snapshots_external_id_nonblank
     check (external_record_id is null or btrim(external_record_id) <> ''),
   constraint ck_external_snapshots_request_hash
@@ -138,6 +163,15 @@ create table public.tour_place_sources (
     check (btrim(source_service) <> ''),
   constraint ck_tour_place_sources_external_id_nonblank
     check (btrim(external_id) <> ''),
+  constraint ck_tour_place_sources_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_service) <= 128
+      and octet_length(external_id) <= 512
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(external_id) <= 1024
+    ),
   constraint ck_tour_place_sources_lifecycle_order
     check (
       (stale_at is null or stale_at >= created_at)
@@ -187,6 +221,17 @@ create table public.place_detail_items (
     check (btrim(item_type) <> ''),
   constraint ck_place_detail_items_source_key_nonblank
     check (btrim(source_item_key) <> ''),
+  constraint ck_place_detail_items_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_service) <= 128
+      and octet_length(item_type) <= 128
+      and octet_length(source_item_key) <= 512
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(item_type)
+        + octet_length(source_item_key) <= 1024
+    ),
   constraint ck_place_detail_items_sequence
     check (sequence_no is null or sequence_no > 0),
   constraint ck_place_detail_items_attributes_object
@@ -234,6 +279,21 @@ create table public.external_reference_codes (
     check (btrim(external_code) <> ''),
   constraint ck_external_reference_codes_name_nonblank
     check (btrim(code_name) <> ''),
+  constraint ck_external_reference_codes_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_service) <= 128
+      and octet_length(code_type) <= 128
+      and octet_length(external_code) <= 512
+      and (
+        parent_external_code is null
+        or octet_length(parent_external_code) <= 512
+      )
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(code_type)
+        + octet_length(external_code) <= 1024
+    ),
   constraint ck_external_reference_codes_attributes_object
     check (jsonb_typeof(attributes) = 'object'),
   constraint ck_external_reference_codes_validity
@@ -283,18 +343,29 @@ alter table public.place_operating_hours
   add column import_run_id uuid references public.data_import_runs(id) on delete set null,
   add column last_seen_at timestamptz not null default now(),
   add column stale_at timestamptz,
-  add column tombstoned_at timestamptz,
+  add column tombstoned_at timestamptz;
+
+-- v1은 22:00~02:00 같은 익일 종료를 별도 플래그 없이 허용했다.
+-- 기존 시간을 변경하지 않고 의미만 명시한 뒤 신규 행부터 엄격한 CHECK를 적용한다.
+update public.place_operating_hours
+set spans_next_day = true
+where not is_closed
+  and open_time is not null
+  and close_time is not null
+  and close_time <= open_time;
+
+alter table public.place_operating_hours
   add constraint ck_place_hours_interval_no check (interval_no > 0),
   add constraint ck_place_hours_validity check (valid_to is null or valid_to >= valid_from),
   add constraint ck_place_hours_closed_values check (
     (is_closed and open_time is null and close_time is null and last_entry_time is null)
     or (not is_closed and open_time is not null and close_time is not null)
-  ),
+  ) not valid,
   add constraint ck_place_hours_time_order check (
     is_closed
     or (spans_next_day and close_time <= open_time)
     or (not spans_next_day and close_time > open_time)
-  ),
+  ) not valid,
   add constraint uq_place_hours_interval unique (
     place_id, day_of_week, interval_no, valid_from
   ),
@@ -351,10 +422,15 @@ alter table public.place_images
 
 create unique index uq_place_images_provider_source_id
   on public.place_images (place_id, source_provider, source_service, source_image_id)
-  where source_image_id is not null;
-create unique index uq_place_images_provider_url_without_source_id
-  on public.place_images (place_id, source_provider, source_service, image_url)
-  where source_image_id is null;
+  where source_image_id is not null
+    and octet_length(source_provider) <= 128
+    and octet_length(source_service) <= 128
+    and octet_length(source_image_id) <= 512
+    and octet_length(source_provider)
+      + octet_length(source_service)
+      + octet_length(source_image_id) <= 1024;
+-- v1 URL은 인덱싱되지 않은 장문일 수 있다. raw URL 복합 인덱스 대신
+-- 다음 migration의 고정 길이 digest key로 반복 적재를 제어한다.
 create index idx_place_images_source_snapshot
   on public.place_images (source_snapshot_id)
   where source_snapshot_id is not null;
@@ -380,13 +456,48 @@ where source_service is null or btrim(source_service) = '';
 
 alter table public.bus_stops
   alter column source_service set default 'legacy',
-  alter column source_service set not null;
+  alter column source_service set not null,
+  add constraint ck_bus_stops_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_service) <= 128
+      and octet_length(city_code) <= 64
+      and octet_length(node_id) <= 512
+      and (
+        external_stop_id is null
+        or octet_length(external_stop_id) <= 512
+      )
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(city_code)
+        + octet_length(node_id) <= 1024
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(city_code)
+        + coalesce(octet_length(external_stop_id), 0) <= 1024
+    ) not valid;
 
 create unique index uq_bus_stops_provider_city_node
-  on public.bus_stops (source_provider, source_service, city_code, node_id);
+  on public.bus_stops (source_provider, source_service, city_code, node_id)
+  where octet_length(source_provider) <= 128
+    and octet_length(source_service) <= 128
+    and octet_length(city_code) <= 64
+    and octet_length(node_id) <= 512
+    and octet_length(source_provider)
+      + octet_length(source_service)
+      + octet_length(city_code)
+      + octet_length(node_id) <= 1024;
 create unique index uq_bus_stops_provider_city_external
   on public.bus_stops (source_provider, source_service, city_code, external_stop_id)
-  where external_stop_id is not null;
+  where external_stop_id is not null
+    and octet_length(source_provider) <= 128
+    and octet_length(source_service) <= 128
+    and octet_length(city_code) <= 64
+    and octet_length(external_stop_id) <= 512
+    and octet_length(source_provider)
+      + octet_length(source_service)
+      + octet_length(city_code)
+      + octet_length(external_stop_id) <= 1024;
 create index idx_bus_stops_source_snapshot
   on public.bus_stops (source_snapshot_id)
   where source_snapshot_id is not null;
@@ -407,11 +518,33 @@ where source_service is null or btrim(source_service) = '';
 
 alter table public.bus_routes
   alter column source_service set default 'legacy',
-  alter column source_service set not null;
+  alter column source_service set not null,
+  add constraint ck_bus_routes_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_service) <= 128
+      and octet_length(city_code) <= 64
+      and (
+        external_route_id is null
+        or octet_length(external_route_id) <= 512
+      )
+      and octet_length(source_provider)
+        + octet_length(source_service)
+        + octet_length(city_code)
+        + coalesce(octet_length(external_route_id), 0) <= 1024
+    ) not valid;
 
 create unique index uq_bus_routes_provider_city_external
   on public.bus_routes (source_provider, source_service, city_code, external_route_id)
-  where external_route_id is not null;
+  where external_route_id is not null
+    and octet_length(source_provider) <= 128
+    and octet_length(source_service) <= 128
+    and octet_length(city_code) <= 64
+    and octet_length(external_route_id) <= 512
+    and octet_length(source_provider)
+      + octet_length(source_service)
+      + octet_length(city_code)
+      + octet_length(external_route_id) <= 1024;
 create index idx_bus_routes_source_snapshot
   on public.bus_routes (source_snapshot_id)
   where source_snapshot_id is not null;
@@ -450,12 +583,18 @@ alter table public.timetable_entries
   add constraint fk_timetable_route_direction_stop
     foreign key (route_id, direction_key, stop_id)
     references public.route_stops (route_id, direction_key, stop_id)
-    on delete cascade;
+    on delete cascade
+    not valid;
 
 create unique index uq_timetable_provider_source_record_validity
-  on public.timetable_entries (source_provider, source_record_key, valid_from);
+  on public.timetable_entries (source_provider, source_record_key, valid_from)
+  where octet_length(source_provider) <= 128
+    and octet_length(source_record_key) <= 512
+    and octet_length(source_provider)
+      + octet_length(source_record_key) <= 768;
 create index idx_timetable_route_direction_stop
-  on public.timetable_entries (route_id, direction_key, stop_id);
+  on public.timetable_entries (route_id, direction_key, stop_id)
+  where octet_length(direction_key) <= 512;
 create index idx_timetable_source_snapshot
   on public.timetable_entries (source_snapshot_id)
   where source_snapshot_id is not null;
@@ -490,16 +629,33 @@ where source_operation is null or btrim(source_operation) = '';
 alter table public.mobility_route_snapshots
   alter column source_operation set default 'route',
   alter column source_operation set not null,
-  add constraint ck_mobility_request_hash_nonblank check (btrim(request_hash) <> '');
+  add constraint ck_mobility_request_hash_nonblank
+    check (btrim(request_hash) <> '') not valid,
+  add constraint ck_mobility_source_key_lengths
+    check (
+      octet_length(source_provider) <= 128
+      and octet_length(source_operation) <= 128
+      and octet_length(request_hash) <= 512
+    ) not valid;
 
 create unique index uq_mobility_provider_request_observed
   on public.mobility_route_snapshots (
     source_provider, source_operation, request_hash, observed_at
-  );
+  )
+  where octet_length(source_provider) <= 128
+    and octet_length(source_operation) <= 128
+    and octet_length(request_hash) <= 512
+    and octet_length(source_provider)
+      + octet_length(source_operation)
+      + octet_length(request_hash) <= 1024;
 create index idx_mobility_provider_request_latest
   on public.mobility_route_snapshots (
     source_provider, request_hash, observed_at desc
-  );
+  )
+  where octet_length(source_provider) <= 128
+    and octet_length(request_hash) <= 512
+    and octet_length(source_provider)
+      + octet_length(request_hash) <= 768;
 create index idx_mobility_source_snapshot
   on public.mobility_route_snapshots (source_snapshot_id)
   where source_snapshot_id is not null;
