@@ -12,14 +12,14 @@
 
 | 기능 | 1차 Source | 보조 Source | 계산/저장 |
 | --- | --- | --- | --- |
-| 관광지/숙소/음식점 기본정보 | TourAPI `KorService2` | 관리자 큐레이션 | Spring -> place tables |
-| 버스 정류장/노선/경유 순서 | TAGO | 제주 보조 데이터 | Spring -> transit tables |
-| 실시간 버스 도착 | TAGO | 최근 snapshot fallback | Spring -> arrival snapshots |
+| 관광지/숙소/음식점 기본정보 | TourAPI `KorService2` | 관리자 큐레이션 | Spring -> raw snapshot -> place tables |
+| 버스 정류장/노선/경유 순서 | TAGO | 제주 보조 데이터 | Spring -> raw snapshot -> transit tables |
+| 실시간 버스 도착 | TAGO | 최근 snapshot fallback | Spring -> raw snapshot -> arrival snapshots |
 | 대중교통 경로 후보 | TMAP 대중교통 API 권장 | TAGO graph fallback | Spring facts -> FastAPI 선택/검증 |
-| 자동차/렌터카 경로 | TMAP 자동차 경로 API 권장 | 공급자 adapter 교체 가능 | Spring -> mobility snapshots |
-| 택시 시간/예상 요금 | TMAP 자동차 경로 응답 권장 | 별도 요금 정책 | Spring -> mobility snapshots |
-| 도보 경로 | TMAP 보행자 경로 API 권장 | PostGIS 직선거리 보수 추정 | Spring -> mobility snapshots |
-| 날씨 실황/예보 | KMA 단기예보 | 마지막 유효 예보 | Spring -> weather tables |
+| 자동차/렌터카 경로 | TMAP 자동차 경로 API 권장 | 공급자 adapter 교체 가능 | Spring -> raw snapshot -> mobility snapshots |
+| 택시 시간/예상 요금 | TMAP 자동차 경로 응답 권장 | 별도 요금 정책 | Spring -> raw snapshot -> mobility snapshots |
+| 도보 경로 | TMAP 보행자 경로 API 권장 | PostGIS 직선거리 보수 추정 | Spring -> raw snapshot -> mobility snapshots |
+| 날씨 실황/예보 | KMA 단기예보 | 마지막 유효 예보 | Spring -> raw snapshot -> weather tables |
 | 위험도/추천/복구 | 외부 API 아님 | - | FastAPI MCP 계산, Spring 저장 |
 
 TMAP은 현재 설계 기본값이다. 실제 발급 계정의 상품/쿼터/약관과 제주 응답 품질을 POC로 통과해야 확정한다. `mobility_route_snapshots.source_provider`를 두어 공급자를 교체할 수 있게 했다.
@@ -34,10 +34,11 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
   -> 장소·교통·날씨 정규화 read model
 ```
 
-- `data_import_runs`는 `parser_version`, `schema_version`, `sync_mode`, `scope_key`, `request_fingerprint`, `idempotency_key`, parent/retry, 전후 checkpoint와 fetched/inserted/updated/skipped/rejected/deleted/staled 건수를 기록한다. 상태는 `running`, `succeeded`, `failed`, `partial`, `cancelled`를 구분한다.
-- `external_api_snapshots`는 provider/service/operation/scope, 요청·payload SHA-256, page, parser version과 `received`/`parsed`/`rejected`/`ignored`/`tombstoned` 상태를 보존한다. API key, Authorization 헤더, 원문 요청 URL과 PII는 저장하지 않는다.
-- 검증을 통과한 정규화 행만 `import_run_id`와 `source_snapshot_id`를 남긴다. 실행 FK는 batch를, `source_snapshot_id`는 해당 행을 만든 실제 원문을 가리키는 lineage다.
-- `data_import_checkpoints`는 provider/service/operation/scope별 마지막 성공 지점만 보존한다. 실패·부분 실행의 cursor는 승격하지 않고 정규화 upsert가 끝난 서버 트랜잭션에서 마지막으로 갱신한다.
+- `data_import_runs`는 `parser_version`, `schema_version`, `sync_mode`, `scope_key`, `request_fingerprint`, `idempotency_key`, parent/retry, 전후 checkpoint와 fetched/inserted/updated/skipped/rejected/deleted/staled 건수를 기록한다. 상태는 `running`, `succeeded`, `failed`, `partial`, `cancelled`를 구분한다. 신규 실행은 `idempotency_enforced`와 `running_scope_enforced`가 항상 `true`다. 멱등 marker의 가장 오래된 행만 partial unique `ON CONFLICT` arbiter이고 선삭제 보호를 받는다. 실행 중 marker는 새 동일 범위 run을 trigger `23505`로 직접 거부하며 `ON CONFLICT` arbiter가 아니다.
+- `external_api_snapshots`는 provider/service/operation/scope, 요청·payload SHA-256, page, parser version과 `received`/`parsed`/`rejected`/`ignored`/`tombstoned` 상태를 보존한다. 한 run의 모든 snapshot은 정확히 하나의 provider/service/operation/scope를 공유한다. API key, Authorization 헤더, 원문 요청 URL과 PII는 저장하지 않는다.
+- 외부 정규화 행은 `parsed`/`tombstoned` 원문과 같은 `import_run_id`·`source_snapshot_id`를 반드시 남긴다. 수동·fixture·admin 입력만 명시적 예외이며 이전·새 행이 모두 예외 성격일 때 편집할 수 있다. 외부 lineage 없는 legacy 정규화 행은 source marker를 예외 값으로 바꿔 우회하거나 내용을 변경할 수 없지만 유효한 원문과 같은 범위 run을 동시에 붙이는 정상 재수집 repair/upsert로 복구할 수 있다. 기존 non-NULL lineage도 소급 감사한다.
+- legacy run의 다중 snapshot 범위나 기준 코드·시간표·open/closed 영업시간의 겹치는 유효기간은 식별자를 포함한 사전 audit에서 마이그레이션을 중단한다. 자동 삭제·병합하지 않고 run 분리·행 격리·원천 기준 기간 정리 후 다시 적용한다.
+- `data_import_checkpoints`는 provider/service/operation/scope별 마지막 성공 지점만 보존한다. DB의 기대-version CAS 함수로만 전진하며 stale writer는 `40001`, 역행·DELETE·TRUNCATE는 실패한다. 함수는 구현됐고 Spring caller는 후속 importer Issue에서 연결한다.
 - `weather_observations`, `weather_forecasts`, `bus_arrival_snapshots`, `mobility_route_snapshots`의 기존 `raw_payload` 컬럼은 호환을 위해 유지하지만 공통 원문 기준은 `external_api_snapshots`이며 신규 적재는 `source_snapshot_id`를 연결한다.
 - 수집 내부 테이블은 RLS를 켜고 `anon`·`authenticated` policy/grant를 두지 않는다. 운영 적재의 서버 전용 `service_role`을 브라우저나 FastAPI MCP에 전달하지 않는다.
 
@@ -58,17 +59,17 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
 
 | Operation | 용도 | DB |
 | --- | --- | --- |
-| `ldongCode2` | 법정동 시도·시군구 코드 동기화 | `external_reference_codes` |
-| `lclsSystmCode2` | 관광 분류체계 코드 동기화 | `external_reference_codes` |
+| `ldongCode2` | 법정동 시도·시군구 코드 동기화 | `external_api_snapshots` -> `external_reference_codes` |
+| `lclsSystmCode2` | 관광 분류체계 코드 동기화 | `external_api_snapshots` -> `external_reference_codes` |
 | `areaBasedList2` | 제주 지역 관광정보 batch 수집 | `external_api_snapshots` -> `tour_places`, `tour_place_sources` |
 | `locationBasedList2` | 지도 중심 주변 장소 탐색 보강 | `external_api_snapshots` -> `tour_places`, `tour_place_sources` |
-| `searchKeyword2` | 검색어 후보 탐색 | `tour_places`, `tour_place_sources`, `place_aliases` |
-| `searchStay2` | 숙박 후보 | `tour_places`, `tour_place_sources` |
-| `detailCommon2` | 공통 상세/개요 | `tour_places`, `place_details` |
-| `detailIntro2` | 유형별 이용정보 | `place_details` |
-| `detailInfo2` | 반복/부가 정보 | `place_detail_items` |
-| `detailImage2` | 이미지 목록/저작권 코드 | `place_images` |
-| `areaBasedSyncList2` | 변경분 동기화 | `data_import_runs`, `data_import_checkpoints`, snapshot 후 place upsert |
+| `searchKeyword2` | 검색어 후보 탐색 | `external_api_snapshots` -> `tour_places`, `tour_place_sources`, `place_aliases` |
+| `searchStay2` | 숙박 후보 | `external_api_snapshots` -> `tour_places`, `tour_place_sources` |
+| `detailCommon2` | 공통 상세/개요 | `external_api_snapshots` -> `tour_places`, `place_details` |
+| `detailIntro2` | 유형별 이용정보 | `external_api_snapshots` -> `place_details` |
+| `detailInfo2` | 반복/부가 정보 | `external_api_snapshots` -> `place_detail_items` |
+| `detailImage2` | 이미지 목록/저작권 코드 | `external_api_snapshots` -> `place_images` |
+| `areaBasedSyncList2` | 변경분 동기화 | `data_import_runs` -> `external_api_snapshots` -> place upsert -> checkpoint CAS |
 
 정확한 operation suffix와 필수 파라미터는 발급받은 최신 Swagger/활용 매뉴얼로 integration test에서 다시 고정한다.
 
@@ -88,10 +89,10 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
 | `overview` | `tour_places.overview` | `overview` | HTML 정제 필요 |
 | 유형별 이용시간/휴무/주차 | `place_details.*_text` | `operations` | content type별 필드가 다름 |
 | 반복 상세의 `serialnum` 등 | `place_detail_items.source_item_key`, `attributes` | 유형별 반복 항목 | item type/key별 멱등 upsert |
-| 이미지 ID·명·저작권 | `place_images.source_image_id`, `image_name`, copyright/license 컬럼 | 이미지 목록 | ID가 없으면 provider/service+URL로 중복 방지 |
+| 이미지 ID·명·저작권 | `place_images.source_image_id`, `source_url_key`, `image_name`, copyright/license 컬럼 | 이미지 목록 | URL key는 길이 prefix를 포함한 place/provider/service/URL SHA-256 digest이고 `(place_id, source_url_key)`가 `ON CONFLICT` 기준; 원본 비교로 collision 차단, ID는 추가 unique |
 | `modifiedtime` | `tour_place_sources.source_modified_at` | 직접 노출 안 함 | 증분 동기화 및 lifecycle 판단 |
 
-`detailIntro2`의 운영시간 원문 text는 `place_details`에 보존하고, 파싱·검수된 반복 영업시간은 `place_operating_hours`에 요일별 `interval_no`로 여러 건 저장한다. 유효기간은 `valid_from`/`valid_to`, 자정을 넘는 구간은 `spans_next_day`로 표현하며 같은 유효기간에 겹치는 영업 구간은 DB에서 거부한다. `detailInfo2`의 반복 부가 항목과 `detailImage2`의 여러 이미지는 각각 `place_detail_items`, `place_images`로 분리하고 모두 `source_snapshot_id` lineage를 갖는다.
+`detailIntro2`의 운영시간 원문 text는 `place_details`에 보존하고 파싱·검수된 반복 영업시간은 요일별 `interval_no`로 저장한다. 자정을 넘는 구간은 익일 첫 구간·휴무와 겹칠 수 없고 정확히 `00:00` 종료는 다음 날을 점유하지 않는다. `detailInfo2`와 `detailImage2` 정규화 행은 원문과 같은 snapshot·run lineage를 모두 갖는다.
 
 ### 3.4 TourAPI에서 직접 오지 않는 값
 
@@ -144,7 +145,7 @@ GET http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnLis
 | `gpslati`, `gpslong` | `bus_stops.location` |
 | 도시코드 | `bus_stops.city_code`, `external_reference_codes` |
 
-정류장 natural key는 `nodeid` 단독이 아니라 `(source_provider, source_service, city_code, node_id)`다. `external_stop_id`를 받는 operation도 같은 provider/service/city 범위에서만 unique이며, 정규화 행은 원문 `external_api_snapshots`를 `source_snapshot_id`로 가리킨다.
+정류장 natural key는 `nodeid` 단독이 아니라 `(source_provider, source_service, city_code, node_id)`다. 정규화 행은 원문 snapshot과 같은 import run을 모두 연결한다.
 
 ### 4.3 노선과 경유 정류장
 
@@ -167,7 +168,7 @@ GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteInfoIem
 | 평일/토/일 배차간격 | route summary, 위험도 facts |
 | 노선별 경유 정류장 목록 | `route_stops` |
 
-도시코드는 하드코딩하지 않고 각 TAGO 서비스의 `도시코드 목록 조회` 결과를 `external_reference_codes`에 provider/service별로 적재한 뒤 환경 초기화 시 검증한다. 노선 natural key도 `(source_provider, source_service, city_code, external_route_id)` 범위다. `route_stops`는 노선·방향별 반복 경유 순서를 보존하고 snapshot lineage를 남긴다.
+도시코드는 하드코딩하지 않고 각 TAGO 서비스의 `도시코드 목록 조회` 원문을 snapshot으로 보존한 뒤 `external_reference_codes`에 적재한다. 노선 natural key도 provider/service/city 범위이며 `route_stops`도 같은 snapshot·run lineage를 남긴다.
 
 ### 4.4 실시간 도착
 
@@ -201,7 +202,7 @@ GET http://apis.data.go.kr/1613000/ArvlInfoInqireService/getSttnAcctoArvlPrearng
 | 환승 가능성/안전 버퍼 | FastAPI MCP 계산 |
 | 버스를 놓쳤을 때 다음 일정 | FastAPI MCP 복구 계산 |
 
-`timetable_entries`는 TAGO에서 항상 채워지는 테이블이 아니다. 첫차/막차/배차간격만 있는 노선은 별도 confidence와 source를 남긴다. 확보한 반복 시간표는 provider가 제공하거나 adapter가 안정적으로 만든 `source_record_key`와 `valid_from` 조합으로 멱등 upsert하고, `(route_id, direction_key, stop_id)` FK로 실제 경유 정류장에 속한 시간만 허용한다. 각 시간표 행도 `source_snapshot_id`로 원문을 추적한다.
+`timetable_entries`는 TAGO에서 항상 채워지는 테이블이 아니다. 확보한 반복 시간표는 source record와 유효기간으로 멱등 upsert한다. UUID FK가 route/stop 존재와 삭제 전파를 보장하고 source scope trigger가 route·stop·route_stop의 `(route_id, direction_key, stop_id, source_provider, city_code)` 조합을 잠금과 함께 검증한다. v1의 경유 누락/provider 불일치 `city_code=NULL`은 보존하되 lineage 없이 내용을 바꿀 수 없다. 유효한 `parsed`/`tombstoned` snapshot과 같은 범위 run을 함께 연결해 정상 scope로 복구하는 재수집은 허용한다. 외부 신규 시간표도 같은 snapshot·run을 연결한다.
 
 ## 5. TMAP 경로 API 설계 기본값
 
@@ -243,7 +244,7 @@ GET http://apis.data.go.kr/1613000/ArvlInfoInqireService/getSttnAcctoArvlPrearng
 }
 ```
 
-DB 행은 위 정규화 값에 더해 `import_run_id`와 `source_snapshot_id`를 저장한다. 같은 `request_hash`라도 공급자·operation·관측 시각이 다르면 별도 snapshot이며, unique 범위는 `(source_provider, source_operation, request_hash, observed_at)`이다.
+DB 행은 위 정규화 값에 더해 같은 원문 범위의 `import_run_id`와 `source_snapshot_id`를 저장한다. 같은 `request_hash`라도 공급자·operation·관측 시각이 다르면 별도 행이며 unique 범위는 `(source_provider, source_operation, request_hash, observed_at)`이다.
 
 ### 5.2 POC 통과 조건
 
@@ -269,9 +270,9 @@ POC 실패 시 adapter만 ODsay(대중교통) + 자동차/도보 공급자로 �
 
 | Operation | 목적 | DB |
 | --- | --- | --- |
-| `getUltraSrtNcst` | 현재 실황 | `weather_observations` |
-| `getUltraSrtFcst` | 수시간 이내 예보 | `weather_forecasts` |
-| `getVilageFcst` | 여행 일정 단기예보 | `weather_forecasts` |
+| `getUltraSrtNcst` | 현재 실황 | `external_api_snapshots` -> `weather_observations` |
+| `getUltraSrtFcst` | 수시간 이내 예보 | `external_api_snapshots` -> `weather_forecasts` |
+| `getVilageFcst` | 여행 일정 단기예보 | `external_api_snapshots` -> `weather_forecasts` |
 | `getFcstVersion` | 예보 버전 감사 | `external_api_snapshots`, import metadata |
 
 Example:
@@ -314,7 +315,7 @@ GET http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst
 
 예보 자체는 `weather_forecasts`, 일정별 영향은 FastAPI 계산 후 `trip_weather_impacts`에 분리 저장한다.
 
-KMA 원문은 먼저 `external_api_snapshots`에 저장하고, category 파싱을 통과한 `weather_observations`와 `weather_forecasts`가 해당 `source_snapshot_id`를 가리킨다. parser version을 snapshot에 남기므로 category 문자열 해석 규칙이 바뀌어도 같은 원문을 재처리할 수 있다.
+KMA 원문은 먼저 `external_api_snapshots`에 저장하고, category 파싱을 통과한 날씨 행이 해당 snapshot과 같은 import run을 함께 가리킨다. parser version을 남기므로 해석 규칙이 바뀌어도 같은 원문을 재처리할 수 있다.
 
 ## 7. Source of Truth 표
 
@@ -377,5 +378,5 @@ external.weather.KmaForecastClient
 - KMA 위경도 -> `nx`, `ny` 변환 golden test를 만든다.
 - KMA base time 이전 발표 fallback과 category 문자열 parser를 검증한다.
 - 모든 adapter가 timeout, retry, circuit breaker, metric을 가진다.
-- raw snapshot 저장과 parser 검증이 성공한 뒤에만 정규화 upsert가 일어나고 모든 행의 `source_snapshot_id`가 같은 원문을 가리키는지 확인한다.
-- 부분 실패·재시도·동시 실행에서도 provider/service/operation/scope checkpoint와 provider 범위 natural key가 중복되거나 앞당겨지지 않는지 확인한다.
+- raw snapshot이 `parsed`/`tombstoned`가 된 뒤에만 정규화 upsert하고 모든 외부 행의 snapshot과 import run 범위가 같은지 확인한다.
+- 부분 실패·재시도·동시 실행에서 기대 version이 낡은 checkpoint writer가 `40001`로 실패하고 마지막 성공 run이 단조롭게 전진하는지 확인한다.

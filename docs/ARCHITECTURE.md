@@ -81,7 +81,8 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 ## 데이터베이스 마이그레이션 경계
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
-- 마이그레이션은 최초 public 스키마 → 데이터 무결성 강화 → 외부 적재 기반 순서로 누적 적용하며 기존 파일을 수정하지 않습니다.
+- 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
+- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 순서로 누적 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -105,13 +106,15 @@ external_api_snapshots (버전이 명시된 raw snapshot)
 Spring 공개 API · 일정 계산용 facts
 ```
 
-- raw snapshot은 parser/schema 버전과 payload hash를 함께 보존해 재처리와 감사가 가능하도록 합니다. 공개 API는 raw payload가 아니라 정규화 read model만 읽습니다.
-- `import_run_id`와 `source_snapshot_id`로 원천 실행부터 정규화 행까지 lineage를 추적하고, provider·service·operation·scope 불일치를 DB에서 거부합니다.
-- provider·service·operation·scope별 idempotency key와 provider 범위 natural key를 DB unique 제약으로 보장해 동시 재수집도 중복 행을 만들지 않게 합니다.
-- checkpoint는 범위별 마지막 성공 위치입니다. 같은 provider·service·operation·scope의 `succeeded` 실행만 참조할 수 있고, 참조된 실행을 실패 상태로 되돌리는 변경도 DB가 거부합니다.
-- 수집 내부 테이블은 RLS를 활성화하고 `anon`·`authenticated` 정책과 직접 권한을 만들지 않습니다. raw snapshot, 거부 레코드와 checkpoint는 Spring의 서버 전용 `service_role`만 접근하며 브라우저와 FastAPI MCP에는 노출하지 않습니다.
+- import run은 parser/schema 버전을, raw snapshot은 parser version과 payload hash를 보존해 재처리와 감사가 가능하도록 합니다. 공개 API는 raw payload가 아니라 정규화 read model만 읽습니다.
+- 외부 정규화 행은 `parsed`/`tombstoned` snapshot과 동일한 import run을 반드시 연결하고 provider·service·operation·scope 불일치를 DB에서 거부합니다. `manual`·`fixture`·`admin_upload`는 명시적 예외이며 이전·새 행이 모두 예외 성격을 유지할 때 편집할 수 있습니다. 외부 lineage 없는 legacy 정규화 행은 marker를 예외 값으로 바꿔 우회하거나 내용을 변경할 수 없지만, 유효한 snapshot과 같은 범위의 run을 동시에 연결하는 정상 재수집 repair/upsert로 복구할 수 있습니다. retention 삭제는 정규화 내용과 run을 유지하고 snapshot 포인터만 제거합니다. 기존 non-NULL lineage도 전체 정규화 테이블에서 소급 감사합니다.
+- 한 import run의 모든 snapshot은 정확히 하나의 provider·service·operation·scope를 공유합니다. legacy 다중 범위 실행은 자동 보정하지 않고 실행 ID와 충돌 범위를 출력해 중단하며, snapshot을 범위별 run으로 분리·격리한 뒤 재적용합니다.
+- provider·service·operation·scope별 idempotency key와 provider 범위 natural key를 DB unique 제약으로 보장해 동시 재수집도 중복 행을 만들지 않게 합니다. 멱등 marker의 가장 오래된 행만 partial unique `ON CONFLICT` arbiter이고 grandfathered 동생 행이 남아 있으면 선삭제할 수 없습니다. 실행 중 marker는 후속 중복을 격리하되 새 동일 범위 run을 BEFORE trigger의 `23505`로 직접 거부하며 `ON CONFLICT` arbiter 의미를 갖지 않습니다. 신규 행은 두 계약을 모두 적용받습니다.
+- checkpoint는 범위별 마지막 성공 위치이며 `advance_data_import_checkpoint(...)`의 기대 version CAS로만 한 단계 전진합니다. stale writer는 `40001`로 실패하고 source scope 변경, 이전 run 역행, DELETE·TRUNCATE는 금지합니다.
+- 수집 내부 테이블은 RLS를 활성화하고 `anon`·`authenticated` 정책과 직접 권한을 만들지 않습니다. 두 역할은 checkpoint 함수도 실행할 수 없고, 서버 전용 `service_role`만 직접 UPDATE·DELETE·TRUNCATE 없이 CAS 함수를 호출합니다. 이 권한은 브라우저와 FastAPI MCP에 노출하지 않습니다.
+- 기준 코드·시간표·같은 요일 open/closed 영업시간과 자정을 넘는 영업시간은 유효기간이 겹칠 수 없습니다. exclusion constraint 전에 legacy pair audit를 수행하고 정확한 충돌 행 ID로 중단하며 데이터를 조용히 삭제·병합하지 않습니다. 정확히 `00:00`에 끝나는 구간은 다음 날을 점유하지 않습니다.
 
-확정된 `candidate`·`active` 일정은 항목과 이동 구간뿐 아니라 여행 일자의 날짜·시간 창도 변경할 수 없습니다. 일정 항목의 시작과 종료는 모두 같은 제주 현지 Day 안에 있어야 합니다. 일정 버전의 `version_no`는 생성 후 바꿀 수 없고 base는 더 작은 `version_no`만 가리키므로 순환 계보가 생기지 않으며, 날씨 영향과 추천 후보는 item·leg·compute run과 같은 `trip_day_id`를 복합 FK로 공유합니다.
+확정된 `candidate`·`active` 일정은 항목과 이동 구간뿐 아니라 여행 일자의 날짜·시간 창도 변경할 수 없습니다. 봉인과 Day/여행 날짜 변경은 같은 `trip_plan` mutex를 잠그므로 write-skew를 차단하며 실제 2세션 계약으로 검증합니다. 일정 항목의 시작과 종료는 모두 같은 제주 현지 Day 안에 있어야 합니다. 일정 버전의 `version_no`는 생성 후 바꿀 수 없고 base는 더 작은 번호만 가리킵니다. 날씨 영향과 추천 후보의 `trip_day_id`는 legacy NULL을 보존하되 신규 행에는 필수이며 item·leg·compute run과 같은 Day를 복합 FK로 공유합니다. legacy NULL-Day 결과는 부모 compute/item/leg의 Day와 자신의 계보를 함께 동결하고, 결과의 `trip_day_id`와 같은 Day의 부모를 한 번에 지정하는 명시적 repair만 허용합니다.
 
 ## ArchUnit 규칙
 
