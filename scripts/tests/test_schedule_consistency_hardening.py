@@ -43,6 +43,10 @@ class ScheduleConsistencyHardeningTest(unittest.TestCase):
         self.assertRegex(migration, r"status\s+in\s*\(\s*'candidate'\s*,\s*'active'\s*\)")
         self.assertIn("assert_schedule_day_item_windows", migration)
         self.assertIn("timezone('asia/seoul', item.planned_start_at)", migration)
+        self.assertIn(
+            "timezone('asia/seoul', item.planned_end_at)::date <> day.trip_date",
+            migration,
+        )
 
     def test_schedule_content_guard_locks_version_status(self):
         migration = self.migration()
@@ -56,6 +60,7 @@ class ScheduleConsistencyHardeningTest(unittest.TestCase):
 
         self.assertIn("validate_schedule_version_base_lineage", migration)
         self.assertIn("parent_version_no >= new.version_no", migration)
+        self.assertIn("schedule version number is immutable", migration)
         self.assertRegex(
             migration,
             r"before insert or update of base_schedule_version_id, version_no, trip_plan_id",

@@ -789,7 +789,7 @@ Table trip_schedule_versions {
     (id, trip_plan_id) [unique]
   }
 
-  Note: "base_schedule_version_id는 같은 여행의 더 작은 version_no만 참조할 수 있다. candidate/active 봉인 시 Day 날짜·시간 범위까지 검사한다."
+  Note: "version_no는 생성 후 불변이며 base_schedule_version_id는 같은 여행의 더 작은 번호만 참조한다. candidate/active 봉인 시 항목 시작·종료가 같은 제주 현지 Day의 날짜·시간 범위 안인지 검사한다."
 }
 
 Table trip_items {

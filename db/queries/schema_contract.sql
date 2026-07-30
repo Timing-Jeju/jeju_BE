@@ -230,6 +230,20 @@ begin
     raise exception 'schedule sealing must validate content and complete day coverage';
   end if;
 
+  select pg_get_functiondef(to_regprocedure('public.assert_schedule_day_item_windows(uuid,uuid)'))
+    into function_definition;
+  if function_definition not ilike '%planned_start_at%date%trip_date%'
+     or function_definition not ilike '%planned_end_at%date%trip_date%' then
+    raise exception 'schedule item window must keep both endpoints on its trip day';
+  end if;
+
+  select pg_get_functiondef(to_regprocedure('public.validate_schedule_version_base_lineage()'))
+    into function_definition;
+  if function_definition not ilike '%version_no is distinct from old.version_no%'
+     or function_definition not ilike '%version number is immutable%' then
+    raise exception 'schedule version number immutability guard is missing';
+  end if;
+
   select pg_get_functiondef(to_regprocedure('public.require_draft_schedule_version()'))
     into function_definition;
   if function_definition not ilike '%old_version_id%'

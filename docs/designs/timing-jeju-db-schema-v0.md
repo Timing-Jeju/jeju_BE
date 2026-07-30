@@ -200,7 +200,7 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 
 `trip_legs`는 이동만 표현한다. 체류를 `stay` leg로 저장하지 않는다.
 
-일정 버전의 `base_schedule_version_id`는 같은 여행에서 현재 `version_no`보다 작은 선행 버전만 참조할 수 있어 self/forward/cycle 계보를 차단한다. `candidate` 또는 `active`로 봉인할 때 DB 함수가 모든 항목의 장소/좌표, 시작·종료, 체류시간 일치, Day별 연속 순번, 시간 비중첩, 인접 항목마다 하나의 완전한 leg, Day 날짜·허용 시간 범위를 검사한다. leg는 출발·도착 시간차, `duration_minutes`, 도보·대기·탑승·환승 합계가 일치해야 한다. 봉인된 버전이 사용하는 Day의 번호·날짜·시간과 여행 시작·종료 날짜는 직접 수정할 수 없으며, 항목·구간 변경도 draft에서만 가능하다. 관심 장소처럼 시간 없는 데이터는 `saved_places`에 둘 수 있지만 일정 버전으로는 봉인할 수 없다.
+일정 버전의 `version_no`는 생성 후 바꿀 수 없고 `base_schedule_version_id`는 같은 여행에서 현재 번호보다 작은 선행 버전만 참조할 수 있어 self/forward/cycle 계보를 차단한다. `candidate` 또는 `active`로 봉인할 때 DB 함수가 모든 항목의 장소/좌표, 시작·종료, 체류시간 일치, Day별 연속 순번, 시간 비중첩, 인접 항목마다 하나의 완전한 leg, Day 날짜·허용 시간 범위를 검사한다. 항목의 시작과 종료는 모두 같은 제주 현지 Day에 있어야 하며 leg는 출발·도착 시간차, `duration_minutes`, 도보·대기·탑승·환승 합계가 일치해야 한다. 봉인된 버전이 사용하는 Day의 번호·날짜·시간과 여행 시작·종료 날짜는 직접 수정할 수 없으며, 항목·구간 변경도 draft에서만 가능하다. 관심 장소처럼 시간 없는 데이터는 `saved_places`에 둘 수 있지만 일정 버전으로는 봉인할 수 없다.
 
 ### 4.7 Compute/Recovery
 

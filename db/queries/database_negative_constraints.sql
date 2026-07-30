@@ -831,6 +831,16 @@ select pg_temp.expect_rejected(
   array['23514']
 );
 
+select pg_temp.expect_rejected(
+  'schedule version number is immutable after creation',
+  $statement$
+    update trip_schedule_versions
+    set version_no = 3
+    where id = 'f5300000-0000-0000-0000-000000000002'
+  $statement$,
+  array['P0001']
+);
+
 insert into trip_items (
   id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no,
   item_type, place_id, planned_start_at, planned_end_at, stay_minutes, source
@@ -858,6 +868,24 @@ insert into trip_items (
   'f5300000-0000-0000-0000-000000000002', 1, 'place_visit',
   'f3000000-0000-0000-0000-000000000001',
   '2026-08-10 11:00:00+09', '2026-08-10 12:00:00+09', 60, 'system'
+);
+
+select pg_temp.expect_rejected(
+  'schedule item cannot end on another day',
+  $statement$
+    insert into trip_items (
+      id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no,
+      item_type, place_id, planned_start_at, planned_end_at, stay_minutes, source
+    ) values (
+      'f5400000-0000-0000-0000-000000000004',
+      'f5100000-0000-0000-0000-000000000002',
+      'f5200000-0000-0000-0000-000000000003',
+      'f5300000-0000-0000-0000-000000000003', 1, 'place_visit',
+      'f3000000-0000-0000-0000-000000000001',
+      '2026-09-01 23:30:00+09', '2026-09-02 00:30:00+09', 60, 'system'
+    )
+  $statement$,
+  array['P0001']
 );
 
 select public.assert_schedule_day_coverage(

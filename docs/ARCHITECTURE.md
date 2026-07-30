@@ -111,7 +111,7 @@ Spring 공개 API · 일정 계산용 facts
 - checkpoint는 범위별 마지막 성공 위치입니다. 같은 provider·service·operation·scope의 `succeeded` 실행만 참조할 수 있고, 참조된 실행을 실패 상태로 되돌리는 변경도 DB가 거부합니다.
 - 수집 내부 테이블은 RLS를 활성화하고 `anon`·`authenticated` 정책과 직접 권한을 만들지 않습니다. raw snapshot, 거부 레코드와 checkpoint는 Spring의 서버 전용 `service_role`만 접근하며 브라우저와 FastAPI MCP에는 노출하지 않습니다.
 
-확정된 `candidate`·`active` 일정은 항목과 이동 구간뿐 아니라 여행 일자의 날짜·시간 창도 변경할 수 없습니다. 일정 버전의 base는 더 작은 `version_no`만 가리키므로 순환 계보가 생기지 않으며, 날씨 영향과 추천 후보는 item·leg·compute run과 같은 `trip_day_id`를 복합 FK로 공유합니다.
+확정된 `candidate`·`active` 일정은 항목과 이동 구간뿐 아니라 여행 일자의 날짜·시간 창도 변경할 수 없습니다. 일정 항목의 시작과 종료는 모두 같은 제주 현지 Day 안에 있어야 합니다. 일정 버전의 `version_no`는 생성 후 바꿀 수 없고 base는 더 작은 `version_no`만 가리키므로 순환 계보가 생기지 않으며, 날씨 영향과 추천 후보는 item·leg·compute run과 같은 `trip_day_id`를 복합 FK로 공유합니다.
 
 ## ArchUnit 규칙
 

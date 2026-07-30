@@ -9,6 +9,11 @@ as $$
 declare
   parent_version_no integer;
 begin
+  if tg_op = 'UPDATE'
+     and new.version_no is distinct from old.version_no then
+    raise exception 'schedule version number is immutable';
+  end if;
+
   if new.base_schedule_version_id is null then
     return new;
   end if;
@@ -170,6 +175,7 @@ begin
       and item.trip_plan_id = target_trip_plan_id
       and (
         timezone('Asia/Seoul', item.planned_start_at)::date <> day.trip_date
+        or timezone('Asia/Seoul', item.planned_end_at)::date <> day.trip_date
         or (
           day.start_time is not null
           and timezone('Asia/Seoul', item.planned_start_at)::time < day.start_time
