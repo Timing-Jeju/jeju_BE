@@ -81,10 +81,37 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 ## 데이터베이스 마이그레이션 경계
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
+- 마이그레이션은 최초 public 스키마 → 데이터 무결성 강화 → 외부 적재 기반 순서로 누적 적용하며 기존 파일을 수정하지 않습니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
-- Flyway는 현재 도입하지 않으며 도입 여부는 별도 Issue에서 결정합니다.
+- Spring classpath와 `db/migration`에는 Flyway를 도입하지 않습니다. Supabase migration과 이중으로 스키마 이력을 관리하지 않으며, 도입 여부는 별도 Issue에서 결정합니다.
+
+## 외부 데이터 적재 경계
+
+```text
+TourAPI · TAGO · KMA 원천 응답
+              │
+              ▼
+data_import_runs ── data_import_checkpoints
+              │
+              ▼
+external_api_snapshots (버전이 명시된 raw snapshot)
+              │ 검증·파싱
+              ▼
+장소 · 교통 · 날씨 정규화 read model
+              │
+              ▼
+Spring 공개 API · 일정 계산용 facts
+```
+
+- raw snapshot은 parser/schema 버전과 payload hash를 함께 보존해 재처리와 감사가 가능하도록 합니다. 공개 API는 raw payload가 아니라 정규화 read model만 읽습니다.
+- `import_run_id`와 `source_snapshot_id`로 원천 실행부터 정규화 행까지 lineage를 추적하고, provider·service·operation·scope 불일치를 DB에서 거부합니다.
+- provider·service·operation·scope별 idempotency key와 provider 범위 natural key를 DB unique 제약으로 보장해 동시 재수집도 중복 행을 만들지 않게 합니다.
+- checkpoint는 범위별 마지막 성공 위치입니다. 같은 provider·service·operation·scope의 `succeeded` 실행만 참조할 수 있고, 참조된 실행을 실패 상태로 되돌리는 변경도 DB가 거부합니다.
+- 수집 내부 테이블은 RLS를 활성화하고 `anon`·`authenticated` 정책과 직접 권한을 만들지 않습니다. raw snapshot, 거부 레코드와 checkpoint는 Spring의 서버 전용 `service_role`만 접근하며 브라우저와 FastAPI MCP에는 노출하지 않습니다.
+
+확정된 `candidate`·`active` 일정은 항목과 이동 구간뿐 아니라 여행 일자의 날짜·시간 창도 변경할 수 없습니다. 일정 버전의 base는 더 작은 `version_no`만 가리키므로 순환 계보가 생기지 않으며, 날씨 영향과 추천 후보는 item·leg·compute run과 같은 `trip_day_id`를 복합 FK로 공유합니다.
 
 ## ArchUnit 규칙
 

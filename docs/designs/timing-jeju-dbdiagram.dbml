@@ -1,6 +1,6 @@
-Project timing_jeju_v1_1 {
+Project timing_jeju_v1_2 {
   database_type: "PostgreSQL"
-  note: "Supabase Auth + Postgres/PostGIS. Spring Boot is the only app-data writer. FastAPI MCP computes candidates/results without direct DB access."
+  note: "Supabase Auth + Postgres/PostGIS. Spring Boot만 앱 데이터를 쓰며, 정규화 행은 parsed/tombstoned 원문 snapshot과 같은 import run·source scope 계보를 유지한다."
 }
 
 Table auth.users {
@@ -17,16 +17,180 @@ Table data_import_runs {
   id uuid [pk]
   source_kind text [not null]
   source_name text [not null]
-  source_operation text
+  source_provider text [not null]
+  source_service text [not null]
+  source_operation text [not null]
   data_version text [not null]
-  status text [not null]
+  parser_version text [not null]
+  schema_version text [not null]
+  sync_mode text [not null, note: "full, incremental, lazy, snapshot"]
+  scope_key text [not null]
+  request_fingerprint text
+  idempotency_key text
+  parent_run_id uuid [ref: > data_import_runs.id]
+  checkpoint_before jsonb [not null]
+  checkpoint_after jsonb [not null]
+  status text [not null, note: "running, succeeded, failed, partial, cancelled; 같은 source/operation/scope의 running은 1건"]
   started_at timestamptz [not null]
   finished_at timestamptz
   row_count integer [not null]
+  retry_count integer [not null]
+  fetched_count integer [not null]
+  inserted_count integer [not null]
+  updated_count integer [not null]
+  skipped_count integer [not null]
+  rejected_count integer [not null]
+  deleted_count integer [not null]
+  staled_count integer [not null]
   error_code text
   error_message text
   metadata jsonb [not null]
+
+  indexes {
+    (id, source_provider, source_service) [unique]
+    (id, source_provider, source_service, source_operation, scope_key) [unique]
+    (source_kind, source_name, source_operation, scope_key, idempotency_key) [unique, note: "idempotency_key가 있을 때 NULLS NOT DISTINCT로 적용"]
+  }
 }
+
+Table data_import_checkpoints {
+  id uuid [pk]
+  source_provider text [not null]
+  source_service text [not null]
+  source_operation text [not null]
+  scope_key text [not null]
+  checkpoint jsonb [not null]
+  source_watermark_at timestamptz
+  last_succeeded_run_id uuid [ref: > data_import_runs.id]
+  version bigint [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (source_provider, source_service, source_operation, scope_key) [unique]
+  }
+
+  Note: "last_succeeded_run_id는 같은 source scope의 succeeded run만 참조하며, run 삭제 시 source scope는 보존하고 ID만 NULL로 만든다."
+}
+
+Table external_api_snapshots {
+  id uuid [pk]
+  import_run_id uuid [not null, ref: > data_import_runs.id]
+  source_provider text [not null]
+  source_service text [not null]
+  source_operation text [not null]
+  scope_key text [not null]
+  external_record_id text
+  request_hash text [not null, note: "SHA-256 소문자 hex"]
+  page_key text [not null]
+  http_status integer
+  provider_result_code text
+  fetched_at timestamptz [not null]
+  source_modified_at timestamptz
+  expires_at timestamptz
+  parser_version text [not null]
+  payload_hash text [not null, note: "SHA-256 소문자 hex"]
+  parse_status text [not null, note: "received, parsed, rejected, ignored, tombstoned"]
+  parsed_at timestamptz
+  error_code text
+  error_message text
+  request_metadata_redacted jsonb [not null]
+  raw_payload jsonb [not null]
+  purge_after timestamptz
+
+  indexes {
+    (import_run_id, source_operation, request_hash, page_key, payload_hash) [unique]
+  }
+
+  Note: "import_run_id와 provider/service/operation/scope 식별자는 생성 후 변경할 수 없다."
+}
+
+Table tour_place_sources {
+  id uuid [pk]
+  place_id uuid [not null, ref: > tour_places.id]
+  source_provider text [not null]
+  source_service text [not null]
+  external_id text [not null]
+  content_type_id text
+  area_code text
+  sigungu_code text
+  category_code_1 text
+  category_code_2 text
+  category_code_3 text
+  l_dong_regn_cd text [note: "KorService2 lDongRegnCd 원문 코드"]
+  l_dong_signgu_cd text [note: "KorService2 lDongSignguCd 원문 코드"]
+  lcls_systm1 text [note: "KorService2 lclsSystm1 원문 분류 코드"]
+  lcls_systm2 text [note: "KorService2 lclsSystm2 원문 분류 코드"]
+  lcls_systm3 text [note: "KorService2 lclsSystm3 원문 분류 코드"]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  last_import_run_id uuid [ref: > data_import_runs.id]
+  source_modified_at timestamptz
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
+  source_deleted_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (source_provider, source_service, external_id) [unique]
+  }
+}
+
+Table place_detail_items {
+  id uuid [pk]
+  place_id uuid [not null, ref: > tour_places.id]
+  source_provider text [not null]
+  source_service text [not null]
+  content_type_id text
+  item_type text [not null]
+  source_item_key text [not null]
+  title text
+  sequence_no integer
+  attributes jsonb [not null]
+  payload_hash text [not null, note: "SHA-256 소문자 hex"]
+  source_modified_at timestamptz
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  import_run_id uuid [ref: > data_import_runs.id]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (place_id, source_provider, source_service, item_type, source_item_key) [unique]
+  }
+}
+
+Table external_reference_codes {
+  id uuid [pk]
+  source_provider text [not null]
+  source_service text [not null]
+  code_type text [not null]
+  external_code text [not null]
+  parent_external_code text
+  code_name text [not null]
+  code_path text
+  attributes jsonb [not null]
+  valid_from date [not null, note: "기본값 -infinity"]
+  valid_to date
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  import_run_id uuid [ref: > data_import_runs.id]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (source_provider, source_service, code_type, external_code, valid_from) [unique]
+  }
+
+  Note: "같은 provider/service/code type/code의 [valid_from, valid_to] 유효기간은 GiST exclusion으로 겹칠 수 없다."
+}
+
+Ref: external_api_snapshots.(import_run_id, source_provider, source_service, source_operation, scope_key) > data_import_runs.(id, source_provider, source_service, source_operation, scope_key) [delete: cascade]
+Ref: data_import_checkpoints.(last_succeeded_run_id, source_provider, source_service, source_operation, scope_key) > data_import_runs.(id, source_provider, source_service, source_operation, scope_key)
 
 Table app_sessions {
   id uuid [pk]
@@ -126,8 +290,13 @@ Table tour_places {
   source_service text
   source_modified_at timestamptz
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
   confidence numeric [not null]
   stale boolean [not null]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  stale_reason text
+  source_deleted_at timestamptz
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 
@@ -153,6 +322,11 @@ Table place_details {
   source_service text
   source_updated_at timestamptz
   fetched_at timestamptz [not null]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  import_run_id uuid [ref: > data_import_runs.id]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
   updated_at timestamptz [not null]
 }
 
@@ -160,18 +334,29 @@ Table place_operating_hours {
   id uuid [pk]
   place_id uuid [not null, ref: > tour_places.id]
   day_of_week smallint [not null]
+  interval_no integer [not null]
+  valid_from date [not null, note: "기본값 -infinity"]
+  valid_to date
   is_closed boolean [not null]
   open_time time
   close_time time
   last_entry_time time
+  spans_next_day boolean [not null]
   note text
   source_kind text [not null]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  import_run_id uuid [ref: > data_import_runs.id]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 
   indexes {
-    (place_id, day_of_week) [unique]
+    (place_id, day_of_week, interval_no, valid_from) [unique]
   }
+
+  Note: "같은 장소·요일에서 overlapping 유효기간의 open/closed 상태 충돌은 GiST exclusion으로 금지하며, last_entry_time은 실제 영업 구간 안이어야 한다."
 }
 
 Table place_aliases {
@@ -181,6 +366,11 @@ Table place_aliases {
   normalized_alias text [not null]
   alias_type text [not null]
   confidence numeric [not null]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  import_run_id uuid [ref: > data_import_runs.id]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
   created_at timestamptz [not null]
 
   indexes {
@@ -195,7 +385,25 @@ Table place_images {
   thumbnail_url text
   display_order integer [not null]
   source_provider text [not null]
+  source_service text [not null]
+  source_image_id text
+  image_name text
+  copyright_code text
+  copyright_owner text
+  license_text text
+  source_modified_at timestamptz
+  payload_hash text
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  import_run_id uuid [ref: > data_import_runs.id]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
   created_at timestamptz [not null]
+
+  indexes {
+    (place_id, source_provider, source_service, source_image_id) [unique, note: "source_image_id가 있을 때 적용"]
+    (place_id, source_provider, source_service, image_url) [unique, note: "source_image_id가 없을 때 적용"]
+  }
 }
 
 Table saved_places {
@@ -218,18 +426,29 @@ Table saved_places {
 
 Table bus_stops {
   id uuid [pk]
-  external_stop_id text [unique]
-  node_id text [not null, unique]
+  external_stop_id text
+  node_id text [not null]
   node_name text [not null]
   node_no text
   location geography [not null]
   source_provider text [not null]
-  source_service text
+  source_service text [not null]
+  city_code text [not null]
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
   confidence numeric [not null]
   stale boolean [not null]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
+  source_deleted_at timestamptz
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
+
+  indexes {
+    (source_provider, source_service, city_code, node_id) [unique]
+    (source_provider, source_service, city_code, external_stop_id) [unique, note: "external_stop_id가 있을 때 적용"]
+  }
 }
 
 Table place_stop_links {
@@ -272,6 +491,7 @@ Table weather_observations {
   source_provider text [not null]
   source_operation text [not null]
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
   raw_payload jsonb [not null]
   created_at timestamptz [not null]
 
@@ -298,6 +518,7 @@ Table weather_forecasts {
   source_provider text [not null]
   source_operation text [not null]
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
   raw_payload jsonb [not null]
   created_at timestamptz [not null]
 
@@ -308,17 +529,27 @@ Table weather_forecasts {
 
 Table bus_routes {
   id uuid [pk]
-  external_route_id text [unique]
+  external_route_id text
   route_no text [not null]
   route_type text
   direction_name text
   source_provider text [not null]
-  source_service text
+  source_service text [not null]
+  city_code text [not null]
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
   confidence numeric [not null]
   stale boolean [not null]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
+  source_deleted_at timestamptz
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
+
+  indexes {
+    (source_provider, source_service, city_code, external_route_id) [unique, note: "external_route_id가 있을 때 적용"]
+  }
 }
 
 Table route_stops {
@@ -327,11 +558,20 @@ Table route_stops {
   direction_key text [pk]
   stop_sequence integer [pk]
   travel_minutes_from_prev integer
+  source_provider text [not null]
+  city_code text [not null]
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
 
   indexes {
     (route_id, direction_key, stop_id) [unique]
+    (route_id, direction_key, stop_id, source_provider, city_code) [unique]
   }
+
+  Note: "route와 stop은 같은 source_provider와 city_code 범위여야 한다."
 }
 
 Table timetable_entries {
@@ -342,13 +582,26 @@ Table timetable_entries {
   service_day_type text [not null]
   departure_time time [not null]
   trip_key text
-  valid_from date
+  source_record_key text [not null]
+  valid_from date [not null, note: "기본값 -infinity"]
   valid_to date
   source_provider text [not null]
+  source_service text [not null]
+  city_code text [not null]
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
   confidence numeric [not null]
   stale boolean [not null]
+  last_seen_at timestamptz [not null]
+  stale_at timestamptz
+  tombstoned_at timestamptz
   created_at timestamptz [not null]
+
+  indexes {
+    (source_provider, source_service, city_code, source_record_key, valid_from) [unique]
+  }
+
+  Note: "같은 provider/service/city/source record의 [valid_from, valid_to] 유효기간은 GiST exclusion으로 겹칠 수 없다."
 }
 
 Table bus_arrival_snapshots {
@@ -366,12 +619,13 @@ Table bus_arrival_snapshots {
   source_provider text [not null]
   source_operation text
   import_run_id uuid [ref: > data_import_runs.id]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
   raw_payload jsonb [not null]
 }
 
 Table mobility_route_snapshots {
   id uuid [pk]
-  request_hash text [not null, unique]
+  request_hash text [not null]
   origin_location geography [not null]
   destination_location geography [not null]
   transport_mode text [not null]
@@ -380,12 +634,22 @@ Table mobility_route_snapshots {
   duration_minutes integer [not null]
   estimated_fare integer
   source_provider text [not null]
-  source_operation text
+  source_operation text [not null]
   route_summary jsonb [not null]
   observed_at timestamptz [not null]
   expires_at timestamptz [not null]
   raw_payload jsonb [not null]
+  source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  import_run_id uuid [ref: > data_import_runs.id]
+
+  indexes {
+    (source_provider, source_operation, request_hash, observed_at) [unique]
+  }
 }
+
+Ref: route_stops.(route_id, source_provider, city_code) > bus_routes.(id, source_provider, city_code) [delete: cascade]
+Ref: route_stops.(stop_id, source_provider, city_code) > bus_stops.(id, source_provider, city_code) [delete: cascade]
+Ref: timetable_entries.(route_id, direction_key, stop_id, source_provider, city_code) > route_stops.(route_id, direction_key, stop_id, source_provider, city_code) [delete: cascade]
 
 Table trip_plans {
   id uuid [pk]
@@ -406,6 +670,8 @@ Table trip_plans {
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
   expires_at timestamptz
+
+  Note: "candidate 또는 active 일정 버전이 존재하면 start_date와 end_date를 변경할 수 없다."
 }
 
 Table trip_preferences {
@@ -501,6 +767,8 @@ Table trip_days {
     (trip_plan_id, trip_date) [unique]
     (id, trip_plan_id) [unique]
   }
+
+  Note: "candidate 또는 active 버전이 사용하는 Day는 day_no, trip_date, start_time, end_time을 변경하거나 직접 삭제할 수 없다."
 }
 
 Table trip_schedule_versions {
@@ -520,6 +788,8 @@ Table trip_schedule_versions {
     (trip_plan_id, version_no) [unique]
     (id, trip_plan_id) [unique]
   }
+
+  Note: "base_schedule_version_id는 같은 여행의 더 작은 version_no만 참조할 수 있다. candidate/active 봉인 시 Day 날짜·시간 범위까지 검사한다."
 }
 
 Table trip_items {
@@ -546,6 +816,7 @@ Table trip_items {
     (schedule_version_id, trip_day_id, sequence_no) [unique]
     (id, schedule_version_id) [unique]
     (id, schedule_version_id, trip_plan_id) [unique]
+    (id, schedule_version_id, trip_plan_id, trip_day_id) [unique]
   }
 
   Note: "Immutable after the schedule version leaves draft. Runtime state is stored in trip_item_progress."
@@ -646,6 +917,7 @@ Table trip_legs {
     (schedule_version_id, trip_day_id, sequence_no) [unique]
     (schedule_version_id, from_item_id, to_item_id) [unique]
     (id, schedule_version_id, trip_plan_id) [unique]
+    (id, schedule_version_id, trip_plan_id, trip_day_id) [unique]
   }
 
   Note: "Movement only. From/to items are constrained to the same trip, version and day by composite foreign keys."
@@ -703,6 +975,7 @@ Table compute_runs {
 
   indexes {
     (id, trip_plan_id, schedule_version_id) [unique]
+    (id, trip_plan_id, schedule_version_id, trip_day_id) [unique]
     (schedule_version_id, run_type, input_hash, algorithm_version) [unique]
   }
 }
@@ -730,11 +1003,11 @@ Table risk_events {
 Table trip_weather_impacts {
   id uuid [pk]
   trip_plan_id uuid [not null, ref: > trip_plans.id]
-  trip_day_id uuid [ref: > trip_days.id]
+  trip_day_id uuid [not null, ref: > trip_days.id]
   schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
-  compute_run_id uuid [not null, ref: > compute_runs.id]
-  trip_item_id uuid [ref: > trip_items.id]
-  trip_leg_id uuid [ref: > trip_legs.id]
+  compute_run_id uuid [not null]
+  trip_item_id uuid
+  trip_leg_id uuid
   weather_forecast_id uuid [ref: > weather_forecasts.id]
   weather_observation_id uuid [ref: > weather_observations.id]
   impact_type text [not null]
@@ -748,10 +1021,10 @@ Table trip_weather_impacts {
 Table recommendation_candidates {
   id uuid [pk]
   trip_plan_id uuid [not null, ref: > trip_plans.id]
-  trip_day_id uuid [ref: > trip_days.id]
+  trip_day_id uuid [not null, ref: > trip_days.id]
   schedule_version_id uuid [not null, ref: > trip_schedule_versions.id]
-  compute_run_id uuid [not null, ref: > compute_runs.id]
-  base_item_id uuid [ref: > trip_items.id]
+  compute_run_id uuid [not null]
+  base_item_id uuid
   candidate_place_id uuid [not null, ref: > tour_places.id]
   recommendation_type text [not null]
   available_gap_minutes integer
@@ -764,6 +1037,12 @@ Table recommendation_candidates {
   facts jsonb [not null]
   created_at timestamptz [not null]
 }
+
+Ref: trip_weather_impacts.(compute_run_id, trip_plan_id, schedule_version_id, trip_day_id) > compute_runs.(id, trip_plan_id, schedule_version_id, trip_day_id) [delete: cascade]
+Ref: trip_weather_impacts.(trip_item_id, schedule_version_id, trip_plan_id, trip_day_id) > trip_items.(id, schedule_version_id, trip_plan_id, trip_day_id) [delete: cascade]
+Ref: trip_weather_impacts.(trip_leg_id, schedule_version_id, trip_plan_id, trip_day_id) > trip_legs.(id, schedule_version_id, trip_plan_id, trip_day_id) [delete: cascade]
+Ref: recommendation_candidates.(compute_run_id, trip_plan_id, schedule_version_id, trip_day_id) > compute_runs.(id, trip_plan_id, schedule_version_id, trip_day_id) [delete: cascade]
+Ref: recommendation_candidates.(base_item_id, schedule_version_id, trip_plan_id, trip_day_id) > trip_items.(id, schedule_version_id, trip_plan_id, trip_day_id)
 
 Table recovery_options {
   id uuid [pk]
