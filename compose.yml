@@ -11,7 +11,11 @@ services:
       - timing-jeju-postgres-data:/var/lib/postgresql/data
       - ./db/local-postgres/auth_compat.sql:/docker-entrypoint-initdb.d/001_auth_compat.sql:ro
       - ./supabase/migrations/20260728000000_initial_public_schema.sql:/docker-entrypoint-initdb.d/002_application_schema.sql:ro
-      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/003_seed_fixtures.sql:ro
+      - ./supabase/migrations/20260730000000_database_integrity_hardening.sql:/docker-entrypoint-initdb.d/003_database_integrity_hardening.sql:ro
+      - ./supabase/migrations/20260730010000_external_ingestion_foundation.sql:/docker-entrypoint-initdb.d/004_external_ingestion_foundation.sql:ro
+      - ./supabase/migrations/20260730020000_ingestion_consistency_hardening.sql:/docker-entrypoint-initdb.d/005_ingestion_consistency_hardening.sql:ro
+      - ./supabase/migrations/20260730030000_schedule_consistency_hardening.sql:/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql:ro
+      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/007_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]

@@ -34,6 +34,19 @@ fi
 
 echo "[Docker] Health Check 성공"
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
-  psql --no-psqlrc --username timing_jeju_test --dbname timing_jeju_test \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test \
+  --file /queries/schema_contract.sql
+echo "[Docker] 스키마 계약 검사 성공"
+
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test \
+  --file /queries/database_negative_constraints.sql
+echo "[Docker] 음수 무결성 계약 검사 성공"
+
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test \
   --file /queries/smoke_check.sql
-echo "[Docker] PostGIS·스키마·fixture 계약 검사 성공"
+echo "[Docker] PostGIS·fixture 계약 검사 성공"
