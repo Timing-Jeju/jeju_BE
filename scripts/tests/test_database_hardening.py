@@ -40,6 +40,7 @@ LEGACY_FOUNDATION_CONFLICT_FIXTURES = (
     ROOT / "db" / "queries" / "legacy_foundation_unparsed_lineage_conflict_fixture.sql",
     ROOT / "db" / "queries" / "legacy_foundation_run_lineage_conflict_fixture.sql",
     ROOT / "db" / "queries" / "legacy_foundation_source_lineage_conflict_fixture.sql",
+    ROOT / "db" / "queries" / "legacy_foundation_optional_lineage_conflict_fixture.sql",
 )
 CONCURRENCY_CONTRACT = ROOT / "db" / "queries" / "database_concurrency_contract.sql"
 
@@ -239,6 +240,14 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("source_snapshot_id=%s", consistency)
         self.assertIn("normalized_run_id=%s, snapshot_run_id=%s", consistency)
         self.assertIn("parse_status=%s", consistency)
+        self.assertIn("normalized_run_origin=%s/%s", consistency)
+        self.assertIn("snapshot_run_origin=%s/%s", consistency)
+        self.assertRegex(
+            consistency,
+            r"normalized_lineage_is_optional\s*\([^;]+"
+            r"snapshot_import_run\.source_kind[^;]+"
+            r"normalized_import_run\.source_kind",
+        )
         for table_name in (
             "tour_places",
             "tour_place_sources",
@@ -264,6 +273,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "legacy_foundation_unparsed_lineage_conflict_fixture.sql",
             "legacy_foundation_run_lineage_conflict_fixture.sql",
             "legacy_foundation_source_lineage_conflict_fixture.sql",
+            "legacy_foundation_optional_lineage_conflict_fixture.sql",
         ):
             with self.subTest(fixture_name=fixture_name):
                 self.assertIn(f"/queries/{fixture_name}", docker_smoke)
@@ -649,6 +659,13 @@ class DatabaseHardeningTest(unittest.TestCase):
             migration,
             r"old_lineage_optional\s+and\s+lineage_optional",
         )
+        self.assertIn("old_origin_is_external", migration)
+        self.assertRegex(
+            migration,
+            r"old_origin_is_external\s*:=.*?"
+            r"(?:source_kind|run_source_kind).*?"
+            r"(?:source_provider|run_source_provider)",
+        )
         self.assertIn(
             "external normalized row cannot become an optional lineage row",
             migration,
@@ -668,6 +685,18 @@ class DatabaseHardeningTest(unittest.TestCase):
         )
         self.assertIn(
             "snapshot-backed external row cannot become optional without lineage",
+            negative_contract,
+        )
+        self.assertIn(
+            "snapshot-backed user-query alias cannot clear a live snapshot pointer",
+            negative_contract,
+        )
+        self.assertIn(
+            "snapshot-backed user-query alias cannot remove external lineage",
+            negative_contract,
+        )
+        self.assertIn(
+            "snapshot-backed reserved provider cannot remove external lineage",
             negative_contract,
         )
         self.assertIn("admin exception row remains editable", negative_contract)

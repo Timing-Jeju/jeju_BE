@@ -652,6 +652,7 @@ begin
      or function_definition not ilike '%TG_OP = ''INSERT''%'
      or function_definition not ilike '%legacy lineage-free row content is immutable%'
      or function_definition not ilike '%old_lineage_optional AND lineage_optional%'
+     or function_definition not ilike '%old_origin_is_external%'
      or function_definition not ilike '%normalized_lineage_is_optional%'
      or function_definition not ilike '%normalized_row - ARRAY[''updated_at''%'
      or function_definition not ilike '%snapshot purge may clear only the source pointer%'

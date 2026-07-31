@@ -18,6 +18,7 @@ CHECKPOINT_SCOPE_CONFLICT_DB="timing_jeju_legacy_checkpoint_conflict_scope"
 UNPARSED_LINEAGE_CONFLICT_DB="timing_jeju_legacy_lineage_unparsed"
 RUN_LINEAGE_CONFLICT_DB="timing_jeju_legacy_lineage_run"
 SOURCE_LINEAGE_CONFLICT_DB="timing_jeju_legacy_lineage_source"
+OPTIONAL_LINEAGE_CONFLICT_DB="timing_jeju_legacy_lineage_optional"
 CONCURRENCY_DB="timing_jeju_concurrency"
 HOURS_CONFLICT_LOG=$(mktemp -t timing-jeju-hours-conflict.XXXXXX)
 RESULT_DAY_CONFLICT_LOG=$(mktemp -t timing-jeju-result-day-conflict.XXXXXX)
@@ -32,7 +33,7 @@ cleanup() {
     "$OPEN_CLOSED_CONFLICT_DB" "$SNAPSHOT_SCOPE_CONFLICT_DB" \
     "$CHECKPOINT_STATUS_CONFLICT_DB" "$CHECKPOINT_SCOPE_CONFLICT_DB" \
     "$UNPARSED_LINEAGE_CONFLICT_DB" "$RUN_LINEAGE_CONFLICT_DB" \
-    "$SOURCE_LINEAGE_CONFLICT_DB" \
+    "$SOURCE_LINEAGE_CONFLICT_DB" "$OPTIONAL_LINEAGE_CONFLICT_DB" \
     "$CONCURRENCY_DB"
   do
     docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -315,6 +316,13 @@ assert_consistency_upgrade_failure \
   "23514.*legacy normalized source lineage audit failed" \
   "e8220000" \
   "legacy snapshot·정규화 source scope 충돌"
+
+assert_consistency_upgrade_failure \
+  "$OPTIONAL_LINEAGE_CONFLICT_DB" \
+  /queries/legacy_foundation_optional_lineage_conflict_fixture.sql \
+  "23514.*legacy normalized source lineage audit failed" \
+  "e8330000" \
+  "legacy snapshot-backed optional marker 계보 충돌"
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   createdb --username timing_jeju_test "$CONCURRENCY_DB"

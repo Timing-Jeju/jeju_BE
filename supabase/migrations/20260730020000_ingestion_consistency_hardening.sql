@@ -1140,12 +1140,18 @@ declare
   normalized_row jsonb := to_jsonb(new);
   old_normalized_row jsonb;
   normalized_run_id uuid;
+  old_normalized_run_id uuid;
   run_source_kind text;
   run_source_provider text;
   run_source_service text;
   run_source_operation text;
+  old_snapshot_run_source_kind text;
+  old_snapshot_run_source_provider text;
+  old_normalized_run_source_kind text;
+  old_normalized_run_source_provider text;
   lineage_optional boolean := false;
   old_lineage_optional boolean := false;
+  old_origin_is_external boolean := false;
   snapshot_row public.external_api_snapshots%rowtype;
 begin
   normalized_run_id := coalesce(
@@ -1159,6 +1165,57 @@ begin
       tg_table_name,
       old_normalized_row
     );
+    if old_lineage_optional then
+      old_normalized_run_id := coalesce(
+        (old_normalized_row ->> 'import_run_id')::uuid,
+        (old_normalized_row ->> 'last_import_run_id')::uuid
+      );
+
+      if old_normalized_row ->> 'source_snapshot_id' is not null then
+        select
+          import_run.source_kind,
+          import_run.source_provider
+          into
+            old_snapshot_run_source_kind,
+            old_snapshot_run_source_provider
+        from public.external_api_snapshots snapshot
+        join public.data_import_runs import_run
+          on import_run.id = snapshot.import_run_id
+        where snapshot.id =
+          (old_normalized_row ->> 'source_snapshot_id')::uuid
+        for share of snapshot, import_run;
+      end if;
+
+      if old_normalized_run_id is not null then
+        select
+          import_run.source_kind,
+          import_run.source_provider
+          into
+            old_normalized_run_source_kind,
+            old_normalized_run_source_provider
+        from public.data_import_runs import_run
+        where import_run.id = old_normalized_run_id
+        for share;
+      end if;
+
+      old_origin_is_external :=
+        coalesce(
+          old_snapshot_run_source_kind not in ('fixture', 'admin_upload'),
+          false
+        )
+        or coalesce(
+          old_snapshot_run_source_provider not in ('fixture', 'admin_upload'),
+          false
+        )
+        or coalesce(
+          old_normalized_run_source_kind not in ('fixture', 'admin_upload'),
+          false
+        )
+        or coalesce(
+          old_normalized_run_source_provider not in ('fixture', 'admin_upload'),
+          false
+        );
+    end if;
   end if;
 
   lineage_optional := public.normalized_lineage_is_optional(
@@ -1189,6 +1246,16 @@ begin
              = old_normalized_row - array['source_snapshot_id', 'updated_at'] then
         -- snapshot purge may clear only the source pointer; import-run lineage remains.
         return new;
+      end if;
+
+      if old_lineage_optional
+         and old_origin_is_external
+         and old_normalized_row ->> 'source_snapshot_id' is not null then
+        -- marker가 이미 optional이어도 실제 외부 snapshot/run 출처를 우회할 수 없다.
+        -- 살아 있는 snapshot의 pointer 제거와 내용 변경을 분리한 2단계 우회도 막는다.
+        raise exception using
+          errcode = '23514',
+          message = 'snapshot-backed optional row cannot remove external lineage';
       end if;
 
       if old_normalized_row ->> 'source_snapshot_id' is null then
@@ -2148,11 +2215,22 @@ begin
           snapshot.parse_status,
           snapshot.source_provider as snapshot_provider,
           snapshot.source_service as snapshot_service,
-          snapshot.source_operation as snapshot_operation
+          snapshot.source_operation as snapshot_operation,
+          snapshot_import_run.source_kind as snapshot_run_source_kind,
+          snapshot_import_run.source_provider as snapshot_run_source_provider,
+          normalized_import_run.source_kind as normalized_run_source_kind,
+          normalized_import_run.source_provider as normalized_run_source_provider
         from public.%I source_row
         left join public.external_api_snapshots snapshot
           on snapshot.id = nullif(
             to_jsonb(source_row) ->> 'source_snapshot_id', ''
+          )::uuid
+        left join public.data_import_runs snapshot_import_run
+          on snapshot_import_run.id = snapshot.import_run_id
+        left join public.data_import_runs normalized_import_run
+          on normalized_import_run.id = coalesce(
+            nullif(to_jsonb(source_row) ->> 'import_run_id', ''),
+            nullif(to_jsonb(source_row) ->> 'last_import_run_id', '')
           )::uuid
         where nullif(
                 to_jsonb(source_row) ->> 'source_snapshot_id', ''
@@ -2183,9 +2261,26 @@ begin
               and to_jsonb(source_row) ->> 'source_operation'
                   is distinct from snapshot.source_operation
             )
+            or (
+              public.normalized_lineage_is_optional(
+                %L,
+                to_jsonb(source_row)
+              )
+              and (
+                snapshot_import_run.source_kind
+                  not in ('fixture', 'admin_upload')
+                or snapshot_import_run.source_provider
+                  not in ('fixture', 'admin_upload')
+                or normalized_import_run.source_kind
+                  not in ('fixture', 'admin_upload')
+                or normalized_import_run.source_provider
+                  not in ('fixture', 'admin_upload')
+              )
+            )
           )
         limit 1
       $audit$,
+      target_table,
       target_table
     ) into invalid_lineage;
 
@@ -2214,7 +2309,7 @@ begin
         errcode = '23514',
         message = 'legacy normalized source lineage audit failed',
         detail = pg_catalog.format(
-          'table=%s, row_id=%s, source_snapshot_id=%s, normalized_run_id=%s, snapshot_run_id=%s, parse_status=%s, normalized_scope=%s/%s/%s, snapshot_scope=%s/%s/%s',
+          'table=%s, row_id=%s, source_snapshot_id=%s, normalized_run_id=%s, snapshot_run_id=%s, parse_status=%s, normalized_scope=%s/%s/%s, snapshot_scope=%s/%s/%s, normalized_run_origin=%s/%s, snapshot_run_origin=%s/%s',
           target_table,
           row_id,
           invalid_lineage.normalized_row ->> 'source_snapshot_id',
@@ -2226,7 +2321,11 @@ begin
           invalid_lineage.normalized_row ->> 'source_operation',
           invalid_lineage.snapshot_provider,
           invalid_lineage.snapshot_service,
-          invalid_lineage.snapshot_operation
+          invalid_lineage.snapshot_operation,
+          invalid_lineage.normalized_run_source_kind,
+          invalid_lineage.normalized_run_source_provider,
+          invalid_lineage.snapshot_run_source_kind,
+          invalid_lineage.snapshot_run_source_provider
         );
     end if;
   end loop;

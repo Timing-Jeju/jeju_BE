@@ -642,6 +642,88 @@ begin
 end;
 $$;
 
+insert into public.place_aliases (
+  id, place_id, alias, normalized_alias, alias_type,
+  source_snapshot_id, import_run_id
+) values (
+  'f3100000-0000-0000-0000-000000000001',
+  'f3000000-0000-0000-0000-000000000001',
+  '외부 원문 사용자 검색어', '외부원문사용자검색어', 'user_query',
+  'f2000000-0000-0000-0000-000000000001',
+  'f1000000-0000-0000-0000-000000000001'
+);
+
+select pg_temp.expect_rejected(
+  'snapshot-backed user-query alias cannot clear a live snapshot pointer',
+  $statement$
+    update public.place_aliases
+    set source_snapshot_id = null
+    where id = 'f3100000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'snapshot-backed user-query alias cannot remove external lineage',
+  $statement$
+    update public.place_aliases
+    set alias = '계보를 지운 사용자 검색어',
+        normalized_alias = '계보를지운사용자검색어',
+        source_snapshot_id = null,
+        import_run_id = null
+    where id = 'f3100000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+insert into public.data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  finished_at, parser_version, schema_version, sync_mode, scope_key,
+  idempotency_key, source_provider, source_service
+) values (
+  'f1000000-0000-0000-0000-000000000008',
+  'tour_api', 'reserved-marker-external', 'reservedMarkerSync', 'contract-v1',
+  'succeeded', now(), 'reserved-parser-v1', 'reserved-schema-v1', 'full',
+  'reserved:50', 'reserved-marker-external', 'manual', 'reserved-service'
+);
+
+insert into public.external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation,
+  scope_key, external_record_id, request_hash, parser_version, payload_hash,
+  raw_payload, parse_status, parsed_at
+) values (
+  'f2000000-0000-0000-0000-000000000008',
+  'f1000000-0000-0000-0000-000000000008',
+  'manual', 'reserved-service', 'reservedMarkerSync', 'reserved:50',
+  'reserved-source', repeat('1', 64), 'reserved-parser-v1', repeat('2', 64),
+  '{"external_id":"reserved-source"}'::jsonb, 'parsed', now()
+);
+
+insert into public.tour_place_sources (
+  id, place_id, source_provider, source_service, external_id,
+  source_snapshot_id, last_import_run_id
+) values (
+  'f3200000-0000-0000-0000-000000000001',
+  'f3000000-0000-0000-0000-000000000001',
+  'manual', 'reserved-service', 'reserved-source',
+  'f2000000-0000-0000-0000-000000000008',
+  'f1000000-0000-0000-0000-000000000008'
+);
+
+select pg_temp.expect_rejected(
+  'snapshot-backed reserved provider cannot remove external lineage',
+  $statement$
+    update public.tour_place_sources
+    set source_provider = 'admin_upload',
+        source_service = 'manual',
+        external_id = 'reserved-source-laundered',
+        source_snapshot_id = null,
+        last_import_run_id = null
+    where id = 'f3200000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
 select pg_temp.expect_rejected(
   'new external tour place requires source snapshot lineage',
   $statement$
