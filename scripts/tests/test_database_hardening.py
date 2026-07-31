@@ -586,6 +586,15 @@ class DatabaseHardeningTest(unittest.TestCase):
             r"foreign key\s*\(\s*import_run_id\s*,\s*source_provider",
         )
         self.assertIn("protect_import_run_source_scope", migration)
+        self.assertRegex(
+            migration,
+            r"old\.source_kind\s+is\s+distinct\s+from\s+new\.source_kind",
+        )
+        self.assertRegex(
+            migration,
+            r"before update of source_kind,\s*source_provider,\s*source_service,"
+            r"\s*source_operation,\s*scope_key",
+        )
         self.assertIn("validate_external_snapshot_import_scope", migration)
         self.assertIn("for key share", migration)
         self.assertIn("validate_normalized_source_lineage", migration)
@@ -670,6 +679,10 @@ class DatabaseHardeningTest(unittest.TestCase):
             "external normalized row cannot become an optional lineage row",
             migration,
         )
+        self.assertIn(
+            "external normalized content requires new source lineage",
+            migration,
+        )
 
         negative_contract = NEGATIVE_CONTRACT.read_text(encoding="utf-8").lower()
         self.assertIn("new external tour place requires source snapshot lineage", negative_contract)
@@ -699,6 +712,24 @@ class DatabaseHardeningTest(unittest.TestCase):
             "snapshot-backed reserved provider cannot remove external lineage",
             negative_contract,
         )
+        self.assertIn("import run source kind is immutable", negative_contract)
+        self.assertIn(
+            "same external snapshot and run cannot rewrite normalized content",
+            negative_contract,
+        )
+        self.assertIn(
+            "retained external optional row cannot remove its last import run",
+            negative_contract,
+        )
+        self.assertIn(
+            "retained external optional row cannot rewrite normalized content",
+            negative_contract,
+        )
+        self.assertIn(
+            "retained external optional row cannot rewrite content and remove lineage",
+            negative_contract,
+        )
+        self.assertIn("matching snapshot and run lineage repair failed", negative_contract)
         self.assertIn("admin exception row remains editable", negative_contract)
         self.assertIn("fixture exception row remains editable", negative_contract)
         self.assertIn("manual exception row remains editable", negative_contract)

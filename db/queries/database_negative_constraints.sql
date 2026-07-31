@@ -676,6 +676,17 @@ select pg_temp.expect_rejected(
   array['23514']
 );
 
+select pg_temp.expect_rejected(
+  'same external snapshot and run cannot rewrite normalized content',
+  $statement$
+    update public.place_aliases
+    set alias = '같은 원문으로 바꾼 사용자 검색어',
+        normalized_alias = '같은원문으로바꾼사용자검색어'
+    where id = 'f3100000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
 insert into public.data_import_runs (
   id, source_kind, source_name, source_operation, data_version, status,
   finished_at, parser_version, schema_version, sync_mode, scope_key,
@@ -684,7 +695,7 @@ insert into public.data_import_runs (
   'f1000000-0000-0000-0000-000000000008',
   'tour_api', 'reserved-marker-external', 'reservedMarkerSync', 'contract-v1',
   'succeeded', now(), 'reserved-parser-v1', 'reserved-schema-v1', 'full',
-  'reserved:50', 'reserved-marker-external', 'manual', 'reserved-service'
+  'reserved:50', 'reserved-marker-external', 'admin_upload', 'reserved-service'
 );
 
 insert into public.external_api_snapshots (
@@ -694,7 +705,7 @@ insert into public.external_api_snapshots (
 ) values (
   'f2000000-0000-0000-0000-000000000008',
   'f1000000-0000-0000-0000-000000000008',
-  'manual', 'reserved-service', 'reservedMarkerSync', 'reserved:50',
+  'admin_upload', 'reserved-service', 'reservedMarkerSync', 'reserved:50',
   'reserved-source', repeat('1', 64), 'reserved-parser-v1', repeat('2', 64),
   '{"external_id":"reserved-source"}'::jsonb, 'parsed', now()
 );
@@ -705,9 +716,19 @@ insert into public.tour_place_sources (
 ) values (
   'f3200000-0000-0000-0000-000000000001',
   'f3000000-0000-0000-0000-000000000001',
-  'manual', 'reserved-service', 'reserved-source',
+  'admin_upload', 'reserved-service', 'reserved-source',
   'f2000000-0000-0000-0000-000000000008',
   'f1000000-0000-0000-0000-000000000008'
+);
+
+select pg_temp.expect_rejected(
+  'import run source kind is immutable',
+  $statement$
+    update public.data_import_runs
+    set source_kind = 'admin_upload'
+    where id = 'f1000000-0000-0000-0000-000000000008'
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(
@@ -791,6 +812,17 @@ insert into tour_place_sources (
   'f1000000-0000-0000-0000-000000000001'
 );
 
+insert into public.place_aliases (
+  id, place_id, alias, normalized_alias, alias_type,
+  source_snapshot_id, import_run_id
+) values (
+  'f3100000-0000-0000-0000-000000000002',
+  'f3000000-0000-0000-0000-000000000001',
+  '보존기간 만료 외부 별칭', '보존기간만료외부별칭', 'user_query',
+  'f2000000-0000-0000-0000-000000000004',
+  'f1000000-0000-0000-0000-000000000001'
+);
+
 select pg_temp.expect_rejected(
   'snapshot-backed external row cannot become optional without lineage',
   $statement$
@@ -807,6 +839,39 @@ select pg_temp.expect_rejected(
 
 delete from external_api_snapshots
 where id = 'f2000000-0000-0000-0000-000000000004';
+
+select pg_temp.expect_rejected(
+  'retained external optional row cannot remove its last import run',
+  $statement$
+    update public.place_aliases
+    set import_run_id = null
+    where id = 'f3100000-0000-0000-0000-000000000002'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'retained external optional row cannot rewrite normalized content',
+  $statement$
+    update public.place_aliases
+    set alias = '보존기간 이후 바꾼 외부 별칭',
+        normalized_alias = '보존기간이후바꾼외부별칭'
+    where id = 'f3100000-0000-0000-0000-000000000002'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'retained external optional row cannot rewrite content and remove lineage',
+  $statement$
+    update public.place_aliases
+    set alias = '계보를 세탁한 외부 별칭',
+        normalized_alias = '계보를세탁한외부별칭',
+        import_run_id = null
+    where id = 'f3100000-0000-0000-0000-000000000002'
+  $statement$,
+  array['23514']
+);
 
 insert into public.data_import_runs (
   id, source_kind, source_name, source_operation, data_version, status,
@@ -843,6 +908,30 @@ begin
         'f1000000-0000-0000-0000-000000000001'
   ) then
     raise exception 'snapshot retention purge preserves import run lineage failed';
+  end if;
+end;
+$$;
+
+update public.place_aliases
+set alias = '새 원문으로 복구한 외부 별칭',
+    normalized_alias = '새원문으로복구한외부별칭',
+    source_snapshot_id = 'f2000000-0000-0000-0000-000000000001',
+    import_run_id = 'f1000000-0000-0000-0000-000000000001'
+where id = 'f3100000-0000-0000-0000-000000000002';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.place_aliases alias_row
+    where alias_row.id = 'f3100000-0000-0000-0000-000000000002'
+      and alias_row.alias = '새 원문으로 복구한 외부 별칭'
+      and alias_row.source_snapshot_id =
+        'f2000000-0000-0000-0000-000000000001'
+      and alias_row.import_run_id =
+        'f1000000-0000-0000-0000-000000000001'
+  ) then
+    raise exception 'matching snapshot and run lineage repair failed';
   end if;
 end;
 $$;
@@ -1138,6 +1227,18 @@ select pg_temp.expect_rejected(
   array['23514']
 );
 
+insert into public.external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation,
+  scope_key, external_record_id, request_hash, parser_version, payload_hash,
+  raw_payload, parse_status, parsed_at
+) values (
+  'f2000000-0000-0000-0000-000000000009',
+  'f1000000-0000-0000-0000-000000000001',
+  '한국관광공사', 'KorService2', 'areaBasedSyncList2', 'region:50',
+  'image-url-enrichment', repeat('e', 64), 'tour-parser-v1',
+  repeat('f', 64), '{"image":"serial-enriched"}'::jsonb, 'parsed', now()
+);
+
 insert into place_images (
   place_id, image_url, source_provider, source_service, source_image_id,
   source_snapshot_id, import_run_id
@@ -1145,7 +1246,7 @@ insert into place_images (
   'f3000000-0000-0000-0000-000000000001',
   'https://images.example.test/url-only.jpg',
   '한국관광공사', 'KorService2', 'serial-enriched',
-  'f2000000-0000-0000-0000-000000000002',
+  'f2000000-0000-0000-0000-000000000009',
   'f1000000-0000-0000-0000-000000000001'
 )
 on conflict on constraint uq_place_images_source_url_key

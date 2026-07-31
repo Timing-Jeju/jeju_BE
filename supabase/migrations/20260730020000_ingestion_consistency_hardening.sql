@@ -537,13 +537,14 @@ security invoker
 set search_path = ''
 as $$
 begin
-  if old.source_provider is distinct from new.source_provider
+  if old.source_kind is distinct from new.source_kind
+     or old.source_provider is distinct from new.source_provider
      or old.source_service is distinct from new.source_service
      or old.source_operation is distinct from new.source_operation
      or old.scope_key is distinct from new.scope_key then
     raise exception using
       errcode = '23514',
-      message = 'import run source scope is immutable';
+      message = 'import run source origin and scope are immutable';
   end if;
 
   return new;
@@ -551,7 +552,7 @@ end;
 $$;
 
 create trigger trg_data_import_runs_source_scope_immutable
-before update of source_provider, source_service, source_operation, scope_key
+before update of source_kind, source_provider, source_service, source_operation, scope_key
 on public.data_import_runs
 for each row execute function public.protect_import_run_source_scope();
 
@@ -1139,6 +1140,8 @@ as $$
 declare
   normalized_row jsonb := to_jsonb(new);
   old_normalized_row jsonb;
+  normalized_snapshot_id uuid;
+  old_snapshot_id uuid;
   normalized_run_id uuid;
   old_normalized_run_id uuid;
   run_source_kind text;
@@ -1154,6 +1157,8 @@ declare
   old_origin_is_external boolean := false;
   snapshot_row public.external_api_snapshots%rowtype;
 begin
+  normalized_snapshot_id :=
+    (normalized_row ->> 'source_snapshot_id')::uuid;
   normalized_run_id := coalesce(
     (normalized_row ->> 'import_run_id')::uuid,
     (normalized_row ->> 'last_import_run_id')::uuid
@@ -1165,57 +1170,56 @@ begin
       tg_table_name,
       old_normalized_row
     );
-    if old_lineage_optional then
-      old_normalized_run_id := coalesce(
-        (old_normalized_row ->> 'import_run_id')::uuid,
-        (old_normalized_row ->> 'last_import_run_id')::uuid
-      );
+    old_snapshot_id :=
+      (old_normalized_row ->> 'source_snapshot_id')::uuid;
+    old_normalized_run_id := coalesce(
+      (old_normalized_row ->> 'import_run_id')::uuid,
+      (old_normalized_row ->> 'last_import_run_id')::uuid
+    );
 
-      if old_normalized_row ->> 'source_snapshot_id' is not null then
-        select
-          import_run.source_kind,
-          import_run.source_provider
-          into
-            old_snapshot_run_source_kind,
-            old_snapshot_run_source_provider
-        from public.external_api_snapshots snapshot
-        join public.data_import_runs import_run
-          on import_run.id = snapshot.import_run_id
-        where snapshot.id =
-          (old_normalized_row ->> 'source_snapshot_id')::uuid
-        for share of snapshot, import_run;
-      end if;
-
-      if old_normalized_run_id is not null then
-        select
-          import_run.source_kind,
-          import_run.source_provider
-          into
-            old_normalized_run_source_kind,
-            old_normalized_run_source_provider
-        from public.data_import_runs import_run
-        where import_run.id = old_normalized_run_id
-        for share;
-      end if;
-
-      old_origin_is_external :=
-        coalesce(
-          old_snapshot_run_source_kind not in ('fixture', 'admin_upload'),
-          false
-        )
-        or coalesce(
-          old_snapshot_run_source_provider not in ('fixture', 'admin_upload'),
-          false
-        )
-        or coalesce(
-          old_normalized_run_source_kind not in ('fixture', 'admin_upload'),
-          false
-        )
-        or coalesce(
-          old_normalized_run_source_provider not in ('fixture', 'admin_upload'),
-          false
-        );
+    if old_snapshot_id is not null then
+      select
+        import_run.source_kind,
+        import_run.source_provider
+        into
+          old_snapshot_run_source_kind,
+          old_snapshot_run_source_provider
+      from public.external_api_snapshots snapshot
+      join public.data_import_runs import_run
+        on import_run.id = snapshot.import_run_id
+      where snapshot.id = old_snapshot_id
+      for share of snapshot, import_run;
     end if;
+
+    if old_normalized_run_id is not null then
+      select
+        import_run.source_kind,
+        import_run.source_provider
+        into
+          old_normalized_run_source_kind,
+          old_normalized_run_source_provider
+      from public.data_import_runs import_run
+      where import_run.id = old_normalized_run_id
+      for share;
+    end if;
+
+    old_origin_is_external :=
+      coalesce(
+        old_snapshot_run_source_kind not in ('fixture', 'admin_upload'),
+        false
+      )
+      or coalesce(
+        old_snapshot_run_source_provider not in ('fixture', 'admin_upload'),
+        false
+      )
+      or coalesce(
+        old_normalized_run_source_kind not in ('fixture', 'admin_upload'),
+        false
+      )
+      or coalesce(
+        old_normalized_run_source_provider not in ('fixture', 'admin_upload'),
+        false
+      );
   end if;
 
   lineage_optional := public.normalized_lineage_is_optional(
@@ -1231,6 +1235,45 @@ begin
     raise exception using
       errcode = '23514',
       message = 'external normalized row cannot become an optional lineage row';
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old_origin_is_external
+     and normalized_snapshot_id is not distinct from old_snapshot_id
+     and normalized_run_id is not distinct from old_normalized_run_id
+     and normalized_row - array[
+           'source_snapshot_id',
+           'import_run_id',
+           'last_import_run_id',
+           'updated_at'
+         ]
+         is distinct from
+         old_normalized_row - array[
+           'source_snapshot_id',
+           'import_run_id',
+           'last_import_run_id',
+           'updated_at'
+         ] then
+    -- 같은 외부 원문은 서로 다른 정규화 내용을 설명할 수 없다.
+    -- 내용 변경은 새 parsed/tombstoned snapshot과 matching run을 함께 연결한다.
+    raise exception using
+      errcode = '23514',
+      message = 'external normalized content requires new source lineage';
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old_origin_is_external
+     and old_snapshot_id is null
+     and normalized_snapshot_id is null then
+    if normalized_run_id is distinct from old_normalized_run_id then
+      raise exception using
+        errcode = '23514',
+        message = 'retained external normalized row must preserve its import run';
+    end if;
+
+    -- retention 이후에는 timestamp 유지 작업만 허용한다. 내용 또는 run을
+    -- 바꾸려면 새 parsed/tombstoned snapshot과 matching run을 함께 연결한다.
+    return new;
   end if;
 
   if normalized_row ->> 'source_snapshot_id' is null then
@@ -1250,7 +1293,7 @@ begin
 
       if old_lineage_optional
          and old_origin_is_external
-         and old_normalized_row ->> 'source_snapshot_id' is not null then
+         and old_snapshot_id is not null then
         -- marker가 이미 optional이어도 실제 외부 snapshot/run 출처를 우회할 수 없다.
         -- 살아 있는 snapshot의 pointer 제거와 내용 변경을 분리한 2단계 우회도 막는다.
         raise exception using
