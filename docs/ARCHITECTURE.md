@@ -82,7 +82,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 순서로 누적 적용합니다.
+- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 순서로 누적 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -107,7 +107,7 @@ Spring 공개 API · 일정 계산용 facts
 ```
 
 - import run은 parser/schema 버전을, raw snapshot은 parser version과 payload hash를 보존해 재처리와 감사가 가능하도록 합니다. 공개 API는 raw payload가 아니라 정규화 read model만 읽습니다.
-- 외부 정규화 행은 `parsed`/`tombstoned` snapshot과 동일한 import run을 반드시 연결하고 provider·service·operation·scope 불일치를 DB에서 거부합니다. 같은 snapshot과 run의 재실행은 정규화 내용이 같을 때만 멱등 처리하며, 내용이 달라지는 upsert는 새 snapshot과 그 snapshot의 matching run을 함께 연결해야 합니다. `manual`·`fixture`·`admin_upload`는 명시적 예외이며 이전·새 행이 모두 예외 성격을 유지할 때 편집할 수 있습니다. 외부 lineage 없는 legacy 행과 snapshot-backed 외부 행 모두 marker를 예외 값으로 바꾸면서 lineage를 제거할 수 없습니다. marker가 이미 예외 값이어도 OLD snapshot/run의 실제 `source_kind`·provider가 외부이면 내용 변경과 계보 제거를 거부합니다. 유효한 새 snapshot과 matching run을 동시에 연결하는 정상 재수집 repair/upsert는 허용합니다. retention 삭제는 정규화 내용과 run을 유지하고 snapshot 포인터만 제거하며, 이후에도 새 원문을 연결하기 전에는 내용과 마지막 run을 바꿀 수 없습니다. 기존 non-NULL lineage와 snapshot-backed optional marker 불일치도 전체 정규화 테이블에서 소급 감사합니다.
+- 외부 정규화 행은 `parsed`/`tombstoned` snapshot과 동일한 import run을 반드시 연결하고 provider·service·operation·scope 불일치를 DB에서 거부합니다. 같은 snapshot과 run의 재실행은 정규화 내용이 같을 때만 멱등 처리하며, 내용이 달라지는 upsert는 새 snapshot과 그 snapshot의 matching run을 함께 연결해야 합니다. `manual`·`fixture`·`admin_upload`는 명시적 예외이며 이전·새 행이 모두 예외 성격을 유지할 때 편집할 수 있습니다. 외부 lineage 없는 legacy 행과 snapshot-backed 외부 행 모두 marker를 예외 값으로 바꾸면서 lineage를 제거할 수 없습니다. marker가 이미 예외 값이어도 OLD snapshot/run의 실제 `source_kind`·provider가 외부이면 내용 변경과 계보 제거를 거부합니다. 유효한 새 snapshot과 matching run을 동시에 연결하는 정상 재수집 repair/upsert는 허용합니다. retention 삭제는 정규화 내용과 run을 유지하고 snapshot 포인터만 제거하며, 이후에도 새 원문을 연결하기 전에는 내용과 마지막 run을 바꿀 수 없습니다. 16개 정규화 테이블이 참조하는 external run은 snapshot 유무와 관계없이 부모 DELETE를 `23503`으로 거부합니다. 정규화 참조가 없는 종료 run과 실제 fixture/admin run 삭제는 허용해 optional/manual 경계를 유지합니다. 기존 non-NULL lineage와 snapshot-backed optional marker 불일치도 전체 정규화 테이블에서 소급 감사합니다.
 - 한 import run의 `source_kind`·provider·service·operation·scope는 생성 후 바뀌지 않고, 모든 snapshot은 그 단일 범위를 공유합니다. legacy 다중 범위 실행은 자동 보정하지 않고 실행 ID와 충돌 범위를 출력해 중단하며, snapshot을 범위별 run으로 분리·격리한 뒤 재적용합니다.
 - provider·service·operation·scope별 idempotency key와 provider 범위 natural key를 DB unique 제약으로 보장해 동시 재수집도 중복 행을 만들지 않게 합니다. 멱등 marker의 가장 오래된 행만 partial unique `ON CONFLICT` arbiter이고 grandfathered 동생 행이 남아 있으면 선삭제할 수 없습니다. 실행 중 marker는 후속 중복을 격리하되 새 동일 범위 run을 BEFORE trigger의 `23505`로 직접 거부하며 `ON CONFLICT` arbiter 의미를 갖지 않습니다. 신규 행은 두 계약을 모두 적용받습니다.
 - checkpoint는 범위별 마지막 성공 위치이며 `advance_data_import_checkpoint(...)`의 기대 version CAS로만 한 단계 전진합니다. stale writer는 `40001`로 실패하고 source scope 변경, 이전 run 역행, DELETE·TRUNCATE는 금지합니다.

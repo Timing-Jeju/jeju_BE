@@ -182,6 +182,7 @@ for upgrade_sql in \
   /queries/legacy_foundation_running_scope_fixture.sql \
   /docker-entrypoint-initdb.d/005_ingestion_consistency_hardening.sql \
   /docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql \
+  /docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -334,6 +335,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/004_external_ingestion_foundation.sql \
   /docker-entrypoint-initdb.d/005_ingestion_consistency_hardening.sql \
   /docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql \
+  /docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

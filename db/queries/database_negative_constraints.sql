@@ -912,6 +912,241 @@ begin
 end;
 $$;
 
+insert into public.data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  finished_at, parser_version, schema_version, sync_mode, scope_key,
+  idempotency_key, source_provider, source_service
+) values (
+  'fa100000-0000-0000-0000-000000000001',
+  'tour_api', 'TourAPI retained alias run', 'searchKeyword2',
+  '2026-07-31', 'succeeded', now(), 'tour-parser-v1', 'tour-schema-v1',
+  'incremental', 'keyword:retained-run', 'retained-alias-run',
+  '한국관광공사', 'KorService2'
+);
+
+insert into public.external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation,
+  scope_key, external_record_id, request_hash, parser_version, payload_hash,
+  raw_payload, parse_status, parsed_at
+) values (
+  'fa200000-0000-0000-0000-000000000001',
+  'fa100000-0000-0000-0000-000000000001',
+  '한국관광공사', 'KorService2', 'searchKeyword2',
+  'keyword:retained-run', 'retained-alias',
+  repeat('a', 64), 'tour-parser-v1', repeat('b', 64),
+  '{"title":"삭제할 수 없는 실행 별칭"}'::jsonb, 'parsed', now()
+);
+
+insert into public.place_aliases (
+  id, place_id, alias, normalized_alias, alias_type,
+  source_snapshot_id, import_run_id
+) values (
+  'fa310000-0000-0000-0000-000000000001',
+  'f3000000-0000-0000-0000-000000000001',
+  '실행 계보 보존 외부 별칭', '실행계보보존외부별칭', 'user_query',
+  'fa200000-0000-0000-0000-000000000001',
+  'fa100000-0000-0000-0000-000000000001'
+);
+
+set local role service_role;
+
+delete from public.external_api_snapshots
+where id = 'fa200000-0000-0000-0000-000000000001';
+
+reset role;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.place_aliases alias_row
+    join public.data_import_runs import_run
+      on import_run.id = alias_row.import_run_id
+    where alias_row.id = 'fa310000-0000-0000-0000-000000000001'
+      and alias_row.alias = '실행 계보 보존 외부 별칭'
+      and alias_row.source_snapshot_id is null
+      and alias_row.import_run_id =
+        'fa100000-0000-0000-0000-000000000001'
+      and import_run.source_kind = 'tour_api'
+  ) then
+    raise exception 'snapshot retention must preserve normalized content and external run';
+  end if;
+end;
+$$;
+
+set local role service_role;
+
+select pg_temp.expect_rejected(
+  'external normalized import run cannot be deleted after snapshot retention',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23503']
+);
+
+reset role;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.place_aliases alias_row
+    join public.data_import_runs import_run
+      on import_run.id = alias_row.import_run_id
+    where alias_row.id = 'fa310000-0000-0000-0000-000000000001'
+      and alias_row.alias = '실행 계보 보존 외부 별칭'
+      and alias_row.source_snapshot_id is null
+      and alias_row.import_run_id =
+        'fa100000-0000-0000-0000-000000000001'
+      and import_run.source_kind = 'tour_api'
+  ) then
+    raise exception 'rejected external run deletion must preserve normalized lineage';
+  end if;
+end;
+$$;
+
+insert into public.data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  finished_at, parser_version, schema_version, sync_mode, scope_key,
+  idempotency_key, source_provider, source_service,
+  error_code, error_message
+) values
+(
+  'fa100000-0000-0000-0000-000000000002',
+  'tour_api', 'unreferenced succeeded run', 'detailCommon2',
+  '2026-07-31', 'succeeded', now(), 'tour-parser-v1', 'tour-schema-v1',
+  'lazy', 'content:unreferenced-success', 'unreferenced-success',
+  '한국관광공사', 'KorService2', null, null
+),
+(
+  'fa100000-0000-0000-0000-000000000003',
+  'tour_api', 'unreferenced failed run', 'detailCommon2',
+  '2026-07-31', 'failed', now(), 'tour-parser-v1', 'tour-schema-v1',
+  'lazy', 'content:unreferenced-failure', 'unreferenced-failure',
+  '한국관광공사', 'KorService2', 'UPSTREAM_TIMEOUT', '시간 제한'
+);
+
+insert into public.external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation,
+  scope_key, external_record_id, request_hash, parser_version, payload_hash,
+  raw_payload, parse_status
+) values (
+  'fa200000-0000-0000-0000-000000000002',
+  'fa100000-0000-0000-0000-000000000002',
+  '한국관광공사', 'KorService2', 'detailCommon2',
+  'content:unreferenced-success', 'unreferenced-snapshot',
+  repeat('c', 64), 'tour-parser-v1', repeat('d', 64),
+  '{"contentid":"unreferenced"}'::jsonb, 'received'
+);
+
+set local role service_role;
+
+delete from public.data_import_runs
+where id in (
+  'fa100000-0000-0000-0000-000000000002',
+  'fa100000-0000-0000-0000-000000000003'
+);
+
+reset role;
+
+do $$
+begin
+  if exists (
+    select 1
+    from public.data_import_runs
+    where id in (
+      'fa100000-0000-0000-0000-000000000002',
+      'fa100000-0000-0000-0000-000000000003'
+    )
+  ) or exists (
+    select 1
+    from public.external_api_snapshots
+    where id = 'fa200000-0000-0000-0000-000000000002'
+  ) then
+    raise exception 'unreferenced succeeded and failed import runs remain deletable';
+  end if;
+end;
+$$;
+
+insert into public.data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status,
+  finished_at, parser_version, schema_version, sync_mode, scope_key,
+  idempotency_key, source_provider, source_service
+) values
+(
+  'fa100000-0000-0000-0000-000000000004',
+  'fixture', 'deletable fixture run', 'seed', 'fixture-v1',
+  'succeeded', now(), 'fixture-parser', 'fixture-schema', 'full',
+  'fixture:deletable-run', 'deletable-fixture-run',
+  'fixture', 'fixture-delete'
+),
+(
+  'fa100000-0000-0000-0000-000000000005',
+  'admin_upload', 'deletable manual run', 'manual', 'manual-v1',
+  'succeeded', now(), 'manual-parser', 'manual-schema', 'full',
+  'manual:deletable-run', 'deletable-manual-run',
+  'admin_upload', 'manual'
+);
+
+insert into public.tour_place_sources (
+  id, place_id, source_provider, source_service, external_id,
+  last_import_run_id
+) values (
+  'fa320000-0000-0000-0000-000000000001',
+  'f3000000-0000-0000-0000-000000000001',
+  'fixture', 'fixture-delete', 'deletable-fixture-source',
+  'fa100000-0000-0000-0000-000000000004'
+);
+
+insert into public.place_aliases (
+  id, place_id, alias, normalized_alias, alias_type, import_run_id
+) values (
+  'fa310000-0000-0000-0000-000000000002',
+  'f3000000-0000-0000-0000-000000000001',
+  '삭제 가능한 수동 별칭', '삭제가능한수동별칭', 'user_query',
+  'fa100000-0000-0000-0000-000000000005'
+);
+
+set local role service_role;
+
+delete from public.data_import_runs
+where id in (
+  'fa100000-0000-0000-0000-000000000004',
+  'fa100000-0000-0000-0000-000000000005'
+);
+
+reset role;
+
+update public.tour_place_sources
+set external_id = 'deletable-fixture-source-updated'
+where id = 'fa320000-0000-0000-0000-000000000001';
+
+update public.place_aliases
+set alias = '삭제 후 수정한 수동 별칭',
+    normalized_alias = '삭제후수정한수동별칭'
+where id = 'fa310000-0000-0000-0000-000000000002';
+
+do $$
+begin
+  if not exists (
+    select 1
+    from public.tour_place_sources source_row
+    where source_row.id = 'fa320000-0000-0000-0000-000000000001'
+      and source_row.last_import_run_id is null
+      and source_row.external_id = 'deletable-fixture-source-updated'
+  ) or not exists (
+    select 1
+    from public.place_aliases alias_row
+    where alias_row.id = 'fa310000-0000-0000-0000-000000000002'
+      and alias_row.import_run_id is null
+      and alias_row.alias = '삭제 후 수정한 수동 별칭'
+  ) then
+    raise exception 'fixture and admin normalized import runs remain deletable';
+  end if;
+end;
+$$;
+
 update public.place_aliases
 set alias = '새 원문으로 복구한 외부 별칭',
     normalized_alias = '새원문으로복구한외부별칭',

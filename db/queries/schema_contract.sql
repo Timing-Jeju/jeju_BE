@@ -708,6 +708,127 @@ begin
     raise exception 'new normalized external rows must require full source lineage';
   end if;
 
+  if to_regprocedure(
+       'public.protect_external_normalized_import_run()'
+     ) is null then
+    raise exception 'external normalized import-run removal guard is missing';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname =
+          'trg_data_import_runs_protect_normalized_lineage'
+      and not trigger_row.tgisinternal
+      and trigger_row.tgtype = 11
+  ) then
+    raise exception 'external normalized import-run parent guard is missing';
+  end if;
+
+  select pg_catalog.regexp_replace(
+      pg_catalog.lower(
+        pg_catalog.pg_get_functiondef(
+          to_regprocedure('public.protect_external_normalized_import_run()')
+        )
+      ),
+      '\s+',
+      ' ',
+      'g'
+    )
+    into function_definition;
+
+  with required_run_references(reference_name, function_fragment) as (
+    values
+      (
+        'tour_places/import_run_id',
+        'from public.tour_places where import_run_id = old.id'
+      ),
+      (
+        'tour_place_sources/last_import_run_id',
+        'from public.tour_place_sources where last_import_run_id = old.id'
+      ),
+      (
+        'place_details/import_run_id',
+        'from public.place_details where import_run_id = old.id'
+      ),
+      (
+        'place_detail_items/import_run_id',
+        'from public.place_detail_items where import_run_id = old.id'
+      ),
+      (
+        'place_operating_hours/import_run_id',
+        'from public.place_operating_hours where import_run_id = old.id'
+      ),
+      (
+        'place_aliases/import_run_id',
+        'from public.place_aliases where import_run_id = old.id'
+      ),
+      (
+        'place_images/import_run_id',
+        'from public.place_images where import_run_id = old.id'
+      ),
+      (
+        'external_reference_codes/import_run_id',
+        'from public.external_reference_codes where import_run_id = old.id'
+      ),
+      (
+        'bus_stops/import_run_id',
+        'from public.bus_stops where import_run_id = old.id'
+      ),
+      (
+        'bus_routes/import_run_id',
+        'from public.bus_routes where import_run_id = old.id'
+      ),
+      (
+        'route_stops/import_run_id',
+        'from public.route_stops where import_run_id = old.id'
+      ),
+      (
+        'timetable_entries/import_run_id',
+        'from public.timetable_entries where import_run_id = old.id'
+      ),
+      (
+        'weather_observations/import_run_id',
+        'from public.weather_observations where import_run_id = old.id'
+      ),
+      (
+        'weather_forecasts/import_run_id',
+        'from public.weather_forecasts where import_run_id = old.id'
+      ),
+      (
+        'bus_arrival_snapshots/import_run_id',
+        'from public.bus_arrival_snapshots where import_run_id = old.id'
+      ),
+      (
+        'mobility_route_snapshots/import_run_id',
+        'from public.mobility_route_snapshots where import_run_id = old.id'
+      )
+  )
+  select pg_catalog.string_agg(
+      required.reference_name,
+      ', ' order by required.reference_name
+    )
+    into missing_objects
+  from required_run_references required
+  where pg_catalog.strpos(
+          function_definition,
+          required.function_fragment
+        ) = 0;
+
+  if missing_objects is not null
+     or function_definition not like '%errcode = ''23503''%'
+     or function_definition not like
+        '%external import run is still referenced by normalized data%'
+     or function_definition not like
+        '%old.source_kind in (''fixture'', ''admin_upload'')%'
+     or function_definition not like
+        '%old.source_provider in (''fixture'', ''admin_upload'')%' then
+    raise exception
+      'external normalized import-run guard is incomplete: %',
+      coalesce(missing_objects, 'origin predicate or SQLSTATE');
+  end if;
+
   select pg_get_functiondef(to_regprocedure('public.protect_external_snapshot_identity()'))
     into function_definition;
   if function_definition not ilike '%cannot return to an unparsed status%'

@@ -11,6 +11,9 @@ INTEGRITY_MIGRATION = MIGRATIONS / "20260730000000_database_integrity_hardening.
 INGESTION_MIGRATION = MIGRATIONS / "20260730010000_external_ingestion_foundation.sql"
 CONSISTENCY_MIGRATION = MIGRATIONS / "20260730020000_ingestion_consistency_hardening.sql"
 SCHEDULE_MIGRATION = MIGRATIONS / "20260730030000_schedule_consistency_hardening.sql"
+RUN_RETENTION_MIGRATION = (
+    MIGRATIONS / "20260730040000_import_run_lineage_retention.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -64,6 +67,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260730010000_external_ingestion_foundation.sql",
                 "20260730020000_ingestion_consistency_hardening.sql",
                 "20260730030000_schedule_consistency_hardening.sql",
+                "20260730040000_import_run_lineage_retention.sql",
             ],
             migration_names,
         )
@@ -76,6 +80,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260730010000_external_ingestion_foundation.sql",
             "./supabase/migrations/20260730020000_ingestion_consistency_hardening.sql",
             "./supabase/migrations/20260730030000_schedule_consistency_hardening.sql",
+            "./supabase/migrations/20260730040000_import_run_lineage_retention.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -133,6 +138,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/queries/legacy_foundation_running_scope_fixture.sql",
             "/docker-entrypoint-initdb.d/005_ingestion_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql",
+            "/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
         ):
             with self.subTest(path=path):
@@ -190,6 +196,76 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("invalid legacy route stop accepted new payload lineage", legacy_contract)
         self.assertIn("invalid legacy timetable accepted new payload lineage", legacy_contract)
         self.assertIn("legacy null-day result lost its compute parent cascade", legacy_contract)
+
+    def test_external_normalized_run_delete_guard_covers_every_lineage_table(self):
+        retention = self.read_migration(RUN_RETENTION_MIGRATION)
+        schema_contract = compact_sql(SCHEMA_CONTRACT.read_text(encoding="utf-8"))
+        negative_contract = compact_sql(
+            NEGATIVE_CONTRACT.read_text(encoding="utf-8")
+        )
+
+        self.assertIn("protect_external_normalized_import_run", retention)
+        self.assertIn(
+            "external import run is still referenced by normalized data",
+            retention,
+        )
+        self.assertRegex(retention, r"errcode\s*=\s*'23503'")
+        self.assertRegex(
+            retention,
+            r"create trigger trg_data_import_runs_protect_normalized_lineage"
+            r"\s+before delete on public\.data_import_runs",
+        )
+
+        normalized_run_references = (
+            ("tour_places", "import_run_id"),
+            ("tour_place_sources", "last_import_run_id"),
+            ("place_details", "import_run_id"),
+            ("place_detail_items", "import_run_id"),
+            ("place_operating_hours", "import_run_id"),
+            ("place_aliases", "import_run_id"),
+            ("place_images", "import_run_id"),
+            ("external_reference_codes", "import_run_id"),
+            ("bus_stops", "import_run_id"),
+            ("bus_routes", "import_run_id"),
+            ("route_stops", "import_run_id"),
+            ("timetable_entries", "import_run_id"),
+            ("weather_observations", "import_run_id"),
+            ("weather_forecasts", "import_run_id"),
+            ("bus_arrival_snapshots", "import_run_id"),
+            ("mobility_route_snapshots", "import_run_id"),
+        )
+        for table_name, run_column in normalized_run_references:
+            with self.subTest(table_name=table_name):
+                self.assertRegex(
+                    retention,
+                    rf"\('{table_name}',\s*'{run_column}'\)",
+                )
+                self.assertIn(f"'{table_name}/{run_column}'", schema_contract)
+
+        self.assertIn(
+            "protect_external_normalized_import_run()",
+            schema_contract,
+        )
+        self.assertIn(
+            "trg_data_import_runs_protect_normalized_lineage",
+            schema_contract,
+        )
+        self.assertIn(
+            "snapshot retention must preserve normalized content and external run",
+            negative_contract,
+        )
+        self.assertIn(
+            "external normalized import run cannot be deleted after snapshot retention",
+            negative_contract,
+        )
+        self.assertIn(
+            "unreferenced succeeded and failed import runs remain deletable",
+            negative_contract,
+        )
+        self.assertIn(
+            "fixture and admin normalized import runs remain deletable",
+            negative_contract,
+        )
 
     def test_legacy_checkpoint_run_scope_is_audited_before_trigger_installation(self):
         consistency = self.read_migration(CONSISTENCY_MIGRATION)
@@ -357,6 +433,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/004_external_ingestion_foundation.sql",
             "/docker-entrypoint-initdb.d/005_ingestion_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql",
+            "/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql",
         ):
             with self.subTest(path=path):
                 self.assertIn(path, docker_smoke)
