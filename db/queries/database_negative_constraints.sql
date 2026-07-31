@@ -1025,6 +1025,20 @@ insert into public.data_import_runs (
   '2026-07-31', 'failed', now(), 'tour-parser-v1', 'tour-schema-v1',
   'lazy', 'content:unreferenced-failure', 'unreferenced-failure',
   '한국관광공사', 'KorService2', 'UPSTREAM_TIMEOUT', '시간 제한'
+),
+(
+  'fa100000-0000-0000-0000-000000000011',
+  'fixture', 'unreferenced fixture run', 'seed',
+  'fixture-v1', 'succeeded', now(), 'fixture-parser', 'fixture-schema',
+  'full', 'fixture:unreferenced', 'unreferenced-fixture',
+  'fixture', 'fixture-unreferenced', null, null
+),
+(
+  'fa100000-0000-0000-0000-000000000012',
+  'admin_upload', 'unreferenced admin run', 'manual',
+  'admin-v1', 'succeeded', now(), 'admin-parser', 'admin-schema',
+  'full', 'admin:unreferenced', 'unreferenced-admin',
+  'admin_upload', 'admin-unreferenced', null, null
 );
 
 insert into public.external_api_snapshots (
@@ -1045,7 +1059,9 @@ set local role service_role;
 delete from public.data_import_runs
 where id in (
   'fa100000-0000-0000-0000-000000000002',
-  'fa100000-0000-0000-0000-000000000003'
+  'fa100000-0000-0000-0000-000000000003',
+  'fa100000-0000-0000-0000-000000000011',
+  'fa100000-0000-0000-0000-000000000012'
 );
 
 reset role;
@@ -1057,14 +1073,17 @@ begin
     from public.data_import_runs
     where id in (
       'fa100000-0000-0000-0000-000000000002',
-      'fa100000-0000-0000-0000-000000000003'
+      'fa100000-0000-0000-0000-000000000003',
+      'fa100000-0000-0000-0000-000000000011',
+      'fa100000-0000-0000-0000-000000000012'
     )
   ) or exists (
     select 1
     from public.external_api_snapshots
     where id = 'fa200000-0000-0000-0000-000000000002'
   ) then
-    raise exception 'unreferenced succeeded and failed import runs remain deletable';
+    raise exception
+      'unreferenced succeeded failed fixture and admin import runs remain deletable';
   end if;
 end;
 $$;
@@ -1076,17 +1095,74 @@ insert into public.data_import_runs (
 ) values
 (
   'fa100000-0000-0000-0000-000000000004',
-  'fixture', 'deletable fixture run', 'seed', 'fixture-v1',
+  'fixture', 'fixture source ledger run', 'seed', 'fixture-v1',
   'succeeded', now(), 'fixture-parser', 'fixture-schema', 'full',
-  'fixture:deletable-run', 'deletable-fixture-run',
+  'fixture:source-ledger', 'fixture-source-ledger',
   'fixture', 'fixture-delete'
 ),
 (
   'fa100000-0000-0000-0000-000000000005',
-  'admin_upload', 'deletable manual run', 'manual', 'manual-v1',
+  'admin_upload', 'admin alias ledger run', 'manual', 'manual-v1',
   'succeeded', now(), 'manual-parser', 'manual-schema', 'full',
-  'manual:deletable-run', 'deletable-manual-run',
+  'manual:alias-ledger', 'admin-alias-ledger',
   'admin_upload', 'manual'
+),
+(
+  'fa100000-0000-0000-0000-000000000006',
+  'fixture', 'snapshot-backed fixture source run', 'seed', 'fixture-v1',
+  'succeeded', now(), 'fixture-parser', 'fixture-schema', 'full',
+  'fixture:snapshot-source', 'fixture-snapshot-source',
+  'fixture', 'fixture-snapshot-source'
+),
+(
+  'fa100000-0000-0000-0000-000000000007',
+  'admin_upload', 'snapshot-backed admin alias run', 'manual', 'manual-v1',
+  'succeeded', now(), 'admin-parser', 'admin-schema', 'full',
+  'admin:snapshot-alias', 'admin-snapshot-alias',
+  'admin_upload', 'admin-snapshot-alias'
+),
+(
+  'fa100000-0000-0000-0000-000000000008',
+  'fixture', 'fixture tour-place ledger run', 'seed-place', 'fixture-v1',
+  'succeeded', now(), 'fixture-parser', 'fixture-schema', 'full',
+  'fixture:tour-place', 'fixture-tour-place',
+  'fixture', 'fixture-tour-place'
+),
+(
+  'fa100000-0000-0000-0000-000000000009',
+  'admin_upload', 'admin bus-stop ledger run', 'manual-stop', 'admin-v1',
+  'succeeded', now(), 'admin-parser', 'admin-schema', 'full',
+  'admin:bus-stop', 'admin-bus-stop',
+  'admin_upload', 'admin-bus-stop'
+),
+(
+  'fa100000-0000-0000-0000-000000000010',
+  'fixture', 'fixture weather ledger run', 'fixture-weather', 'fixture-v1',
+  'succeeded', now(), 'fixture-parser', 'fixture-schema', 'full',
+  'fixture:weather', 'fixture-weather',
+  'fixture', 'fixture-weather'
+);
+
+insert into public.external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation,
+  scope_key, external_record_id, request_hash, parser_version, payload_hash,
+  raw_payload, parse_status, parsed_at
+) values
+(
+  'fa200000-0000-0000-0000-000000000006',
+  'fa100000-0000-0000-0000-000000000006',
+  'fixture', 'fixture-snapshot-source', 'seed',
+  'fixture:snapshot-source', 'fixture-snapshot-source',
+  repeat('e', 64), 'fixture-parser', repeat('f', 64),
+  '{"fixture":"snapshot-source"}'::jsonb, 'parsed', now()
+),
+(
+  'fa200000-0000-0000-0000-000000000007',
+  'fa100000-0000-0000-0000-000000000007',
+  'admin_upload', 'admin-snapshot-alias', 'manual',
+  'admin:snapshot-alias', 'admin-snapshot-alias',
+  repeat('1', 64), 'admin-parser', repeat('2', 64),
+  '{"admin":"snapshot-alias"}'::jsonb, 'parsed', now()
 );
 
 insert into public.tour_place_sources (
@@ -1099,50 +1175,183 @@ insert into public.tour_place_sources (
   'fa100000-0000-0000-0000-000000000004'
 );
 
+insert into public.tour_place_sources (
+  id, place_id, source_provider, source_service, external_id,
+  source_snapshot_id, last_import_run_id
+) values (
+  'fa320000-0000-0000-0000-000000000002',
+  'f3000000-0000-0000-0000-000000000001',
+  'fixture', 'fixture-snapshot-source', 'snapshot-backed-fixture-source',
+  'fa200000-0000-0000-0000-000000000006',
+  'fa100000-0000-0000-0000-000000000006'
+);
+
 insert into public.place_aliases (
   id, place_id, alias, normalized_alias, alias_type, import_run_id
 ) values (
   'fa310000-0000-0000-0000-000000000002',
   'f3000000-0000-0000-0000-000000000001',
-  '삭제 가능한 수동 별칭', '삭제가능한수동별칭', 'user_query',
+  '보존하는 수동 별칭', '보존하는수동별칭', 'user_query',
   'fa100000-0000-0000-0000-000000000005'
+);
+
+insert into public.place_aliases (
+  id, place_id, alias, normalized_alias, alias_type,
+  source_snapshot_id, import_run_id
+) values (
+  'fa310000-0000-0000-0000-000000000003',
+  'f3000000-0000-0000-0000-000000000001',
+  '원문 있는 수동 별칭', '원문있는수동별칭', 'user_query',
+  'fa200000-0000-0000-0000-000000000007',
+  'fa100000-0000-0000-0000-000000000007'
+);
+
+insert into public.tour_places (
+  id, name, normalized_name, category, location,
+  source_provider, source_service, import_run_id
+) values (
+  'fa300000-0000-0000-0000-000000000008',
+  'fixture 계보 장소', 'fixture계보장소', 'tourist_attraction',
+  st_setsrid(st_makepoint(126.53, 33.53), 4326)::geography,
+  'fixture', 'fixture-tour-place',
+  'fa100000-0000-0000-0000-000000000008'
+);
+
+insert into public.bus_stops (
+  id, node_id, node_name, location, source_provider, source_service,
+  city_code, import_run_id
+) values (
+  'fa340000-0000-0000-0000-000000000009',
+  'ADMIN-LEDGER-STOP', '관리자 계보 정류장',
+  st_setsrid(st_makepoint(126.54, 33.54), 4326)::geography,
+  'admin_upload', 'admin-bus-stop', '39',
+  'fa100000-0000-0000-0000-000000000009'
+);
+
+insert into public.weather_observations (
+  id, grid_point_id, observed_at, base_date, base_time,
+  source_provider, source_operation, import_run_id
+) values (
+  'fa350000-0000-0000-0000-000000000010',
+  'f2500000-0000-0000-0000-000000000001',
+  '2026-07-31 12:00:00+09', '2026-07-31', '12:00',
+  'fixture', 'fixture-weather',
+  'fa100000-0000-0000-0000-000000000010'
 );
 
 set local role service_role;
 
-delete from public.data_import_runs
-where id in (
-  'fa100000-0000-0000-0000-000000000004',
-  'fa100000-0000-0000-0000-000000000005'
+select pg_temp.expect_rejected(
+  'fixture tour-place source import run remains protected',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000004'
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'admin place-alias import run remains protected',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000005'
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'snapshot-backed fixture source import run remains protected',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000006'
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'snapshot-backed admin alias import run remains protected',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000007'
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'fixture tour-place import run remains protected',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000008'
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'admin bus-stop import run remains protected',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000009'
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'fixture weather-observation import run remains protected',
+  $statement$
+    delete from public.data_import_runs
+    where id = 'fa100000-0000-0000-0000-000000000010'
+  $statement$,
+  array['23503']
 );
 
 reset role;
 
-update public.tour_place_sources
-set external_id = 'deletable-fixture-source-updated'
-where id = 'fa320000-0000-0000-0000-000000000001';
-
-update public.place_aliases
-set alias = '삭제 후 수정한 수동 별칭',
-    normalized_alias = '삭제후수정한수동별칭'
-where id = 'fa310000-0000-0000-0000-000000000002';
-
 do $$
 begin
+  if (
+    select count(*)
+    from public.data_import_runs
+    where id in (
+      'fa100000-0000-0000-0000-000000000004',
+      'fa100000-0000-0000-0000-000000000005',
+      'fa100000-0000-0000-0000-000000000006',
+      'fa100000-0000-0000-0000-000000000007',
+      'fa100000-0000-0000-0000-000000000008',
+      'fa100000-0000-0000-0000-000000000009',
+      'fa100000-0000-0000-0000-000000000010'
+    )
+  ) <> 7 then
+    raise exception 'rejected normalized import-run deletion lost ledger parents';
+  end if;
+
   if not exists (
     select 1
-    from public.tour_place_sources source_row
-    where source_row.id = 'fa320000-0000-0000-0000-000000000001'
-      and source_row.last_import_run_id is null
-      and source_row.external_id = 'deletable-fixture-source-updated'
+    from public.tour_place_sources
+    where id = 'fa320000-0000-0000-0000-000000000001'
+      and last_import_run_id =
+        'fa100000-0000-0000-0000-000000000004'
   ) or not exists (
     select 1
-    from public.place_aliases alias_row
-    where alias_row.id = 'fa310000-0000-0000-0000-000000000002'
-      and alias_row.import_run_id is null
-      and alias_row.alias = '삭제 후 수정한 수동 별칭'
+    from public.place_aliases
+    where id = 'fa310000-0000-0000-0000-000000000002'
+      and import_run_id = 'fa100000-0000-0000-0000-000000000005'
+  ) or not exists (
+    select 1
+    from public.tour_place_sources
+    where id = 'fa320000-0000-0000-0000-000000000002'
+      and source_snapshot_id =
+        'fa200000-0000-0000-0000-000000000006'
+      and last_import_run_id =
+        'fa100000-0000-0000-0000-000000000006'
+  ) or not exists (
+    select 1
+    from public.place_aliases
+    where id = 'fa310000-0000-0000-0000-000000000003'
+      and source_snapshot_id =
+        'fa200000-0000-0000-0000-000000000007'
+      and import_run_id = 'fa100000-0000-0000-0000-000000000007'
   ) then
-    raise exception 'fixture and admin normalized import runs remain deletable';
+    raise exception 'rejected normalized import-run deletion lost lineage';
   end if;
 end;
 $$;

@@ -1,9 +1,10 @@
--- 원문 snapshot 보존기간이 끝나도 외부 정규화 행의 마지막 import run은
--- 감사 계보로 남아야 한다. 부모 DELETE 전에 16개 read model 참조를 확인해
--- ON DELETE SET NULL FK가 외부 계보를 지우는 경로만 차단한다.
+-- data_import_runs는 외부·fixture·관리자 적재를 모두 기록하는 provenance
+-- ledger다. 부모 DELETE 전에 16개 read model 참조를 확인해 origin이나 FK의
+-- 삭제 동작과 무관하게 정규화 계보가 사라지는 경로를 차단한다.
 do $$
 declare
   missing_references text;
+  unexpected_references text;
 begin
   with required_references(table_name, run_column) as (
     values
@@ -23,54 +24,85 @@ begin
       ('weather_forecasts', 'import_run_id'),
       ('bus_arrival_snapshots', 'import_run_id'),
       ('mobility_route_snapshots', 'import_run_id')
-  )
-  select pg_catalog.string_agg(
-      pg_catalog.format('%s/%s', required.table_name, required.run_column),
-      ', ' order by required.table_name
-    )
-    into missing_references
-  from required_references required
-  where not exists (
-    select 1
+  ),
+  actual_references(table_name, run_column) as (
+    select
+      child_table.relname,
+      child_column.attname
     from pg_catalog.pg_constraint constraint_row
-    join pg_catalog.pg_attribute column_row
-      on column_row.attrelid = constraint_row.conrelid
-     and column_row.attname = required.run_column
-    where constraint_row.conrelid = pg_catalog.to_regclass(
-            'public.' || required.table_name
-          )
-      and constraint_row.confrelid = 'public.data_import_runs'::regclass
+    join pg_catalog.pg_class child_table
+      on child_table.oid = constraint_row.conrelid
+    join pg_catalog.pg_namespace child_schema
+      on child_schema.oid = child_table.relnamespace
+    join pg_catalog.pg_attribute child_column
+      on child_column.attrelid = constraint_row.conrelid
+     and constraint_row.conkey =
+         array[child_column.attnum]::smallint[]
+    where constraint_row.confrelid = 'public.data_import_runs'::regclass
       and constraint_row.contype = 'f'
-      and constraint_row.conkey =
-          array[column_row.attnum]::smallint[]
-  );
+      and child_schema.nspname = 'public'
+      and child_table.relname in (
+        select required.table_name
+        from required_references required
+      )
+  )
+  select
+    (
+      select pg_catalog.string_agg(
+          pg_catalog.format(
+            '%s/%s',
+            required.table_name,
+            required.run_column
+          ),
+          ', ' order by required.table_name, required.run_column
+        )
+      from required_references required
+      where not exists (
+        select 1
+        from actual_references actual
+        where actual.table_name = required.table_name
+          and actual.run_column = required.run_column
+      )
+    ),
+    (
+      select pg_catalog.string_agg(
+          pg_catalog.format('%s/%s', actual.table_name, actual.run_column),
+          ', ' order by actual.table_name, actual.run_column
+        )
+      from actual_references actual
+      where not exists (
+        select 1
+        from required_references required
+        where required.table_name = actual.table_name
+          and required.run_column = actual.run_column
+      )
+    )
+    into missing_references, unexpected_references;
 
-  if missing_references is not null then
+  if missing_references is not null
+     or unexpected_references is not null then
     raise exception using
       errcode = '23514',
-      message = 'normalized import-run reference audit failed',
+      message = 'normalized import-run foreign-key mapping audit failed',
       detail = pg_catalog.format(
-        'missing foreign-key references: %s',
-        missing_references
+        'missing foreign-key references: %s; unexpected foreign-key references: %s',
+        coalesce(missing_references, 'none'),
+        coalesce(unexpected_references, 'none')
       );
   end if;
 end;
 $$;
 
-create function public.protect_external_normalized_import_run()
+create function public.protect_normalized_import_run()
 returns trigger
 language plpgsql
 security invoker
 set search_path = ''
 as $$
 begin
-  -- fixture/admin 계보는 삭제 후 optional/manual 행으로 계속 관리할 수 있다.
-  -- 둘 중 하나라도 예외 marker가 아니면 기존 lineage 판정과 같이 external이다.
-  if old.source_kind in ('fixture', 'admin_upload')
-     and old.source_provider in ('fixture', 'admin_upload') then
-    return old;
-  end if;
-
+  -- BEFORE DELETE는 FK referential action보다 먼저 실행된다. 따라서 기존
+  -- 8개 NO ACTION과 8개 SET NULL의 confdeltype 차이에 의존하지 않고,
+  -- 삭제 전의 live reference를 하나의 ledger 정책으로 검사할 수 있다.
   if exists (
        select 1
        from public.tour_places
@@ -153,9 +185,9 @@ begin
      ) then
     raise exception using
       errcode = '23503',
-      message = 'external import run is still referenced by normalized data',
+      message = 'import run is still referenced by normalized data',
       detail = pg_catalog.format('import_run_id=%s', old.id),
-      hint = 'Retain the import run while normalized rows reference it.';
+      hint = 'Retain every provenance run while normalized rows reference it.';
   end if;
 
   return old;
@@ -165,4 +197,4 @@ $$;
 create trigger trg_data_import_runs_protect_normalized_lineage
 before delete on public.data_import_runs
 for each row
-execute function public.protect_external_normalized_import_run();
+execute function public.protect_normalized_import_run();

@@ -709,9 +709,9 @@ begin
   end if;
 
   if to_regprocedure(
-       'public.protect_external_normalized_import_run()'
+       'public.protect_normalized_import_run()'
      ) is null then
-    raise exception 'external normalized import-run removal guard is missing';
+    raise exception 'normalized import-run ledger removal guard is missing';
   end if;
 
   if not exists (
@@ -723,13 +723,13 @@ begin
       and not trigger_row.tgisinternal
       and trigger_row.tgtype = 11
   ) then
-    raise exception 'external normalized import-run parent guard is missing';
+    raise exception 'normalized import-run ledger parent guard is missing';
   end if;
 
   select pg_catalog.regexp_replace(
       pg_catalog.lower(
         pg_catalog.pg_get_functiondef(
-          to_regprocedure('public.protect_external_normalized_import_run()')
+          to_regprocedure('public.protect_normalized_import_run()')
         )
       ),
       '\s+',
@@ -819,14 +819,92 @@ begin
   if missing_objects is not null
      or function_definition not like '%errcode = ''23503''%'
      or function_definition not like
-        '%external import run is still referenced by normalized data%'
-     or function_definition not like
-        '%old.source_kind in (''fixture'', ''admin_upload'')%'
-     or function_definition not like
-        '%old.source_provider in (''fixture'', ''admin_upload'')%' then
+        '%import run is still referenced by normalized data%'
+     or function_definition like '%old.source_kind%'
+     or function_definition like '%old.source_provider%' then
     raise exception
-      'external normalized import-run guard is incomplete: %',
-      coalesce(missing_objects, 'origin predicate or SQLSTATE');
+      'normalized import-run ledger guard is incomplete: %',
+      coalesce(missing_objects, 'origin bypass or SQLSTATE');
+  end if;
+
+  with required_run_references(table_name, column_name) as (
+    values
+      ('tour_places', 'import_run_id'),
+      ('tour_place_sources', 'last_import_run_id'),
+      ('place_details', 'import_run_id'),
+      ('place_detail_items', 'import_run_id'),
+      ('place_operating_hours', 'import_run_id'),
+      ('place_aliases', 'import_run_id'),
+      ('place_images', 'import_run_id'),
+      ('external_reference_codes', 'import_run_id'),
+      ('bus_stops', 'import_run_id'),
+      ('bus_routes', 'import_run_id'),
+      ('route_stops', 'import_run_id'),
+      ('timetable_entries', 'import_run_id'),
+      ('weather_observations', 'import_run_id'),
+      ('weather_forecasts', 'import_run_id'),
+      ('bus_arrival_snapshots', 'import_run_id'),
+      ('mobility_route_snapshots', 'import_run_id')
+  ),
+  actual_run_references(table_name, column_name) as (
+    select
+      child_table.relname,
+      child_column.attname
+    from pg_catalog.pg_constraint constraint_row
+    join pg_catalog.pg_class child_table
+      on child_table.oid = constraint_row.conrelid
+    join pg_catalog.pg_namespace child_schema
+      on child_schema.oid = child_table.relnamespace
+    join pg_catalog.pg_attribute child_column
+      on child_column.attrelid = constraint_row.conrelid
+     and constraint_row.conkey =
+         array[child_column.attnum]::smallint[]
+    where constraint_row.contype = 'f'
+      and constraint_row.confrelid = 'public.data_import_runs'::regclass
+      and child_schema.nspname = 'public'
+      and child_table.relname in (
+        select required.table_name
+        from required_run_references required
+      )
+  ),
+  mapping_differences(reference_name) as (
+    select pg_catalog.format(
+      'missing:%s/%s',
+      required.table_name,
+      required.column_name
+    )
+    from required_run_references required
+    where not exists (
+      select 1
+      from actual_run_references actual
+      where actual.table_name = required.table_name
+        and actual.column_name = required.column_name
+    )
+    union all
+    select pg_catalog.format(
+      'unexpected:%s/%s',
+      actual.table_name,
+      actual.column_name
+    )
+    from actual_run_references actual
+    where not exists (
+      select 1
+      from required_run_references required
+      where required.table_name = actual.table_name
+        and required.column_name = actual.column_name
+    )
+  )
+  select pg_catalog.string_agg(
+      difference.reference_name,
+      ', ' order by difference.reference_name
+    )
+    into missing_objects
+  from mapping_differences difference;
+
+  if missing_objects is not null then
+    raise exception
+      'normalized import-run foreign-key mapping is not exact: %',
+      missing_objects;
   end if;
 
   select pg_get_functiondef(to_regprocedure('public.protect_external_snapshot_identity()'))

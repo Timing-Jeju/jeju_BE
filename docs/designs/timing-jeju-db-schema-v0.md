@@ -53,7 +53,7 @@ FastAPI 결과도 Spring이 검증 후 저장하므로 DB connection string과 s
   -> 장소·교통·날씨 정규화 read model
 ```
 
-외부 정규화 행은 `import_run_id`와 `source_snapshot_id`로 실행과 원문 snapshot을 함께 가리켜야 한다. DB constraint trigger가 run·snapshot과 provider·service·operation 범위를 일치시키며 `parsed` 또는 삭제 사실을 정상 파싱한 `tombstoned` snapshot만 허용한다. 같은 snapshot/run으로는 내용이 같은 멱등 upsert만 허용하고, 내용 변경은 새 snapshot과 그 snapshot의 matching run을 연결해야 한다. `received`·`rejected`·`ignored` 원문은 반영하지 않는다. `manual`·`fixture`·`admin_upload`는 명시적 예외이며 이전·새 행이 모두 예외일 때 편집할 수 있다. 외부 lineage 없는 legacy 행과 snapshot-backed 외부 행 모두 marker를 예외 값으로 바꾸면서 lineage를 제거할 수 없다. marker가 이미 예외 값이어도 OLD snapshot과 run의 실제 `source_kind`·provider가 외부이면 살아 있는 snapshot과 run 계보를 제거할 수 없다. 유효한 새 snapshot과 matching run을 동시에 연결하는 정상 재수집 repair/upsert는 허용한다. retention으로 snapshot을 삭제하면 정규화 내용과 run은 유지하고 `source_snapshot_id`만 NULL로 만들며, 새 원문 repair 전에는 내용과 마지막 run을 바꿀 수 없다. 16개 정규화 테이블이 참조하는 external run은 snapshot 유무와 관계없이 부모 DELETE를 `23503`으로 거부한다. 정규화 참조가 없는 종료 run과 실제 fixture/admin run 삭제는 허용한다. 기존 non-NULL lineage와 snapshot-backed optional marker 불일치도 16개 정규화 테이블에서 실제 run origin까지 소급 감사한다.
+외부 정규화 행은 `import_run_id`와 `source_snapshot_id`로 실행과 원문 snapshot을 함께 가리켜야 한다. DB constraint trigger가 run·snapshot과 provider·service·operation 범위를 일치시키며 `parsed` 또는 삭제 사실을 정상 파싱한 `tombstoned` snapshot만 허용한다. 같은 snapshot/run으로는 내용이 같은 멱등 upsert만 허용하고, 내용 변경은 새 snapshot과 그 snapshot의 matching run을 연결해야 한다. `received`·`rejected`·`ignored` 원문은 반영하지 않는다. `manual`·`fixture`·`admin_upload`는 snapshot 필수성의 명시적 예외이며 이전·새 행이 모두 예외일 때 편집할 수 있다. 외부 lineage 없는 legacy 행과 snapshot-backed 외부 행 모두 marker를 예외 값으로 바꾸면서 lineage를 제거할 수 없다. marker가 이미 예외 값이어도 OLD snapshot과 run의 실제 `source_kind`·provider가 외부이면 살아 있는 snapshot과 run 계보를 제거할 수 없다. 유효한 새 snapshot과 matching run을 동시에 연결하는 정상 재수집 repair/upsert는 허용한다. retention으로 snapshot을 삭제하면 정규화 내용과 run은 유지하고 `source_snapshot_id`만 NULL로 만들며, 새 원문 repair 전에는 내용과 마지막 run을 바꿀 수 없다. `data_import_runs`는 외부·fixture·admin origin을 모두 보존하는 provenance ledger이므로 16개 정규화 테이블 중 하나라도 run을 참조하면 snapshot 유무와 origin에 관계없이 부모 DELETE를 `23503`으로 거부하고 미참조 succeeded·failed·fixture·admin run만 삭제할 수 있다. catalog audit는 정확한 16개 table/column FK mapping을 보장한다. 8개 `NO ACTION`과 8개 `SET NULL`은 유지하되 부모의 `BEFORE DELETE` guard가 FK action보다 먼저 live reference를 검사하므로 정책은 `confdeltype`에 의존하지 않는다. 기존 non-NULL lineage와 snapshot-backed optional marker 불일치도 16개 정규화 테이블에서 실제 run origin까지 소급 감사한다.
 
 ```mermaid
 erDiagram
@@ -123,7 +123,7 @@ erDiagram
 
 소셜 provider는 `kakao`, `naver`, `google`이다. 이메일/비밀번호 사용자는 `social_accounts` 행이 없어도 정상이다.
 
-`data_import_runs.status`는 `running`, `succeeded`, `failed`, `partial`, `cancelled`를 구분하고 성공/실패 종료 시각과 오류 필드 조합을 DB가 검사한다. run의 `source_kind`·provider·service·operation·scope는 생성 후 불변이다. 동일 provider/service/operation/scope의 실행 중 run은 하나만 허용하며, `idempotency_key`가 있으면 같은 범위에서 중복 실행을 막는다. 정상 신규 행은 `running_scope_enforced`와 `idempotency_enforced`가 항상 `true`다. 멱등 중복은 `(started_at, id)` 기준 첫 행만 `idempotency_enforced=true` canonical arbiter로 남고, grandfathered 동생이 있으면 선삭제할 수 없다. 이 marker 조건 partial unique index만 신규 importer의 `ON CONFLICT` 기준이다. 실행 중 중복도 첫 행만 `running_scope_enforced=true`지만 후속 `false` 행이 남은 범위에 새 run을 쓰면 BEFORE trigger가 직접 `23505`로 거부하며 canonical 삭제 보호나 `ON CONFLICT` 의미는 없다. 길이와 충돌을 해소한 legacy 행만 각 marker를 true로 올려 복구한다. External run 삭제 전에는 16개 정규화 run FK를 모두 검사하고 하나라도 참조하면 `23503`으로 중단한다.
+`data_import_runs.status`는 `running`, `succeeded`, `failed`, `partial`, `cancelled`를 구분하고 성공/실패 종료 시각과 오류 필드 조합을 DB가 검사한다. run의 `source_kind`·provider·service·operation·scope는 생성 후 불변이다. 동일 provider/service/operation/scope의 실행 중 run은 하나만 허용하며, `idempotency_key`가 있으면 같은 범위에서 중복 실행을 막는다. 정상 신규 행은 `running_scope_enforced`와 `idempotency_enforced`가 항상 `true`다. 멱등 중복은 `(started_at, id)` 기준 첫 행만 `idempotency_enforced=true` canonical arbiter로 남고, grandfathered 동생이 있으면 선삭제할 수 없다. 이 marker 조건 partial unique index만 신규 importer의 `ON CONFLICT` 기준이다. 실행 중 중복도 첫 행만 `running_scope_enforced=true`지만 후속 `false` 행이 남은 범위에 새 run을 쓰면 BEFORE trigger가 직접 `23505`로 거부하며 canonical 삭제 보호나 `ON CONFLICT` 의미는 없다. 길이와 충돌을 해소한 legacy 행만 각 marker를 true로 올려 복구한다. 모든 origin의 run 삭제 전에는 16개 정규화 run FK를 검사하고 하나라도 참조하면 `23503`으로 중단한다.
 
 한 run에 연결된 모든 `external_api_snapshots`는 정확히 하나의 provider·service·operation·scope를 공유한다. legacy 다중 범위 실행은 run ID와 충돌 범위를 출력하고 마이그레이션을 중단하며, 운영자가 snapshot을 범위별 별도 run으로 분리하거나 격리한 뒤 재적용한다. 기준 코드·시간표·같은 요일 open/closed 영업시간의 legacy 유효기간 중복도 exclusion 설치 전 pair audit에서 정확한 두 행 ID로 중단한다. 자동 삭제나 임의 병합은 하지 않는다.
 
@@ -351,7 +351,7 @@ stateDiagram-v2
 - 사용자 탈퇴는 Supabase Auth 삭제와 앱 aggregate 삭제를 Spring job으로 조정한다.
 - `trip_execution_events`, `mcp_compute_call_logs`는 운영 보존 기간과 개인정보 정책을 별도로 정한다.
 - 위치 원문은 최소화하고 필요하면 격자화한다.
-- `external_api_snapshots`는 계산 재현 기간 동안 보존한 뒤 `purge_after` 기준의 별도 retention job으로 정리한다. 삭제 시 정규화 내용과 import run lineage는 유지하고 snapshot 포인터만 NULL로 만들며, 새 원문을 연결하기 전에는 내용과 마지막 run을 바꾸지 않는다. External 정규화 행이 마지막 run을 참조하는 동안 부모 run은 삭제할 수 없다.
+- `external_api_snapshots`는 계산 재현 기간 동안 보존한 뒤 `purge_after` 기준의 별도 retention job으로 정리한다. 삭제 시 정규화 내용과 import run lineage는 유지하고 snapshot 포인터만 NULL로 만들며, 새 원문을 연결하기 전에는 내용과 마지막 run을 바꾸지 않는다. 정규화 행이 run을 참조하는 동안 origin과 관계없이 provenance 부모 run은 삭제할 수 없다.
 - 장소/노선 기준정보는 hard delete보다 `stale` 표시 후 재검증한다.
 
 ## 11. 데이터 초기화

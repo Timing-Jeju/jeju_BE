@@ -197,17 +197,23 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("invalid legacy timetable accepted new payload lineage", legacy_contract)
         self.assertIn("legacy null-day result lost its compute parent cascade", legacy_contract)
 
-    def test_external_normalized_run_delete_guard_covers_every_lineage_table(self):
+    def test_normalized_run_ledger_delete_guard_covers_every_lineage_table(self):
         retention = self.read_migration(RUN_RETENTION_MIGRATION)
         schema_contract = compact_sql(SCHEMA_CONTRACT.read_text(encoding="utf-8"))
         negative_contract = compact_sql(
             NEGATIVE_CONTRACT.read_text(encoding="utf-8")
         )
 
-        self.assertIn("protect_external_normalized_import_run", retention)
+        self.assertIn("protect_normalized_import_run", retention)
         self.assertIn(
-            "external import run is still referenced by normalized data",
+            "import run is still referenced by normalized data",
             retention,
+        )
+        self.assertNotIn("protect_external_normalized_import_run", retention)
+        self.assertNotRegex(
+            retention,
+            r"old\.source_kind\s+in\s+\('fixture',\s*'admin_upload'\)"
+            r".+return old",
         )
         self.assertRegex(retention, r"errcode\s*=\s*'23503'")
         self.assertRegex(
@@ -215,6 +221,12 @@ class DatabaseHardeningTest(unittest.TestCase):
             r"create trigger trg_data_import_runs_protect_normalized_lineage"
             r"\s+before delete on public\.data_import_runs",
         )
+        self.assertIn(
+            "normalized import-run foreign-key mapping audit failed",
+            retention,
+        )
+        self.assertIn("missing foreign-key references", retention)
+        self.assertIn("unexpected foreign-key references", retention)
 
         normalized_run_references = (
             ("tour_places", "import_run_id"),
@@ -243,7 +255,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 self.assertIn(f"'{table_name}/{run_column}'", schema_contract)
 
         self.assertIn(
-            "protect_external_normalized_import_run()",
+            "protect_normalized_import_run()",
             schema_contract,
         )
         self.assertIn(
@@ -259,13 +271,20 @@ class DatabaseHardeningTest(unittest.TestCase):
             negative_contract,
         )
         self.assertIn(
-            "unreferenced succeeded and failed import runs remain deletable",
+            "unreferenced succeeded failed fixture and admin import runs remain deletable",
             negative_contract,
         )
-        self.assertIn(
-            "fixture and admin normalized import runs remain deletable",
-            negative_contract,
-        )
+        for runtime_contract in (
+            "fixture tour-place source import run remains protected",
+            "admin place-alias import run remains protected",
+            "snapshot-backed fixture source import run remains protected",
+            "snapshot-backed admin alias import run remains protected",
+            "fixture tour-place import run remains protected",
+            "admin bus-stop import run remains protected",
+            "fixture weather-observation import run remains protected",
+        ):
+            with self.subTest(runtime_contract=runtime_contract):
+                self.assertIn(runtime_contract, negative_contract)
 
     def test_legacy_checkpoint_run_scope_is_audited_before_trigger_installation(self):
         consistency = self.read_migration(CONSISTENCY_MIGRATION)
