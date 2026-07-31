@@ -1166,6 +1166,16 @@ begin
     normalized_row
   );
 
+  if tg_op = 'UPDATE'
+     and not old_lineage_optional
+     and lineage_optional then
+    -- 외부 원본 행은 한 번의 UPDATE로 optional 표식과 lineage를 함께 제거할 수 없다.
+    -- snapshot 보존기간 만료는 아래 pointer-only 예외만 허용한다.
+    raise exception using
+      errcode = '23514',
+      message = 'external normalized row cannot become an optional lineage row';
+  end if;
+
   if normalized_row ->> 'source_snapshot_id' is null then
     if tg_op = 'UPDATE' then
       if old_normalized_row ->> 'source_snapshot_id' is not null

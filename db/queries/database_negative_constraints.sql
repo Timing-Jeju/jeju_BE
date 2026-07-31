@@ -709,6 +709,20 @@ insert into tour_place_sources (
   'f1000000-0000-0000-0000-000000000001'
 );
 
+select pg_temp.expect_rejected(
+  'snapshot-backed external row cannot become optional without lineage',
+  $statement$
+    update public.tour_place_sources
+    set source_provider = 'admin_upload',
+        source_service = 'manual',
+        external_id = 'purge-source-laundered',
+        source_snapshot_id = null,
+        last_import_run_id = null
+    where external_id = 'purge-source'
+  $statement$,
+  array['23514']
+);
+
 delete from external_api_snapshots
 where id = 'f2000000-0000-0000-0000-000000000004';
 

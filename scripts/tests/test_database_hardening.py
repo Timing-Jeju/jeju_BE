@@ -649,6 +649,10 @@ class DatabaseHardeningTest(unittest.TestCase):
             migration,
             r"old_lineage_optional\s+and\s+lineage_optional",
         )
+        self.assertIn(
+            "external normalized row cannot become an optional lineage row",
+            migration,
+        )
 
         negative_contract = NEGATIVE_CONTRACT.read_text(encoding="utf-8").lower()
         self.assertIn("new external tour place requires source snapshot lineage", negative_contract)
@@ -660,6 +664,10 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("optional row scope must match its fixture import run", negative_contract)
         self.assertIn(
             "retained external row cannot borrow an optional import run",
+            negative_contract,
+        )
+        self.assertIn(
+            "snapshot-backed external row cannot become optional without lineage",
             negative_contract,
         )
         self.assertIn("admin exception row remains editable", negative_contract)

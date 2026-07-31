@@ -52,7 +52,7 @@ FastAPI 결과도 Spring이 검증 후 저장하므로 DB connection string과 s
   -> 장소·교통·날씨 정규화 read model
 ```
 
-외부 정규화 행은 `import_run_id`와 `source_snapshot_id`로 실행과 원문 snapshot을 함께 가리켜야 한다. DB constraint trigger가 run·snapshot과 provider·service·operation 범위를 일치시키며 `parsed` 또는 삭제 사실을 정상 파싱한 `tombstoned` snapshot만 허용한다. `received`·`rejected`·`ignored` 원문은 반영하지 않는다. `manual`·`fixture`·`admin_upload`는 명시적 예외이며 이전·새 행이 모두 예외일 때 편집할 수 있다. 외부 lineage 없는 legacy 정규화 행은 marker를 예외 값으로 바꿔 우회하거나 내용을 변경할 수 없지만 유효한 snapshot과 같은 범위의 run을 동시에 연결하는 정상 재수집 repair/upsert로 복구할 수 있다. retention으로 snapshot을 삭제하면 정규화 내용과 run은 유지하고 `source_snapshot_id`만 NULL로 만든다. 기존 non-NULL lineage도 16개 정규화 테이블에서 소급 감사한다.
+외부 정규화 행은 `import_run_id`와 `source_snapshot_id`로 실행과 원문 snapshot을 함께 가리켜야 한다. DB constraint trigger가 run·snapshot과 provider·service·operation 범위를 일치시키며 `parsed` 또는 삭제 사실을 정상 파싱한 `tombstoned` snapshot만 허용한다. `received`·`rejected`·`ignored` 원문은 반영하지 않는다. `manual`·`fixture`·`admin_upload`는 명시적 예외이며 이전·새 행이 모두 예외일 때 편집할 수 있다. 외부 lineage 없는 legacy 행과 snapshot-backed 외부 행 모두 marker를 예외 값으로 바꾸면서 lineage를 제거할 수 없다. 유효한 snapshot과 같은 범위의 run을 동시에 연결하는 정상 재수집 repair/upsert는 허용한다. retention으로 snapshot을 삭제하면 정규화 내용과 run은 유지하고 `source_snapshot_id`만 NULL로 만든다. 기존 non-NULL lineage도 16개 정규화 테이블에서 소급 감사한다.
 
 ```mermaid
 erDiagram
