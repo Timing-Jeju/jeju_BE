@@ -62,6 +62,8 @@ provider·service·operation·scope와 source key/payload hash를 포함한 uniq
 
 `data_import_checkpoints`, `external_api_snapshots` 등 수집 내부 테이블은 RLS를 활성화하되 `anon`·`authenticated` 정책과 직접 grant를 두지 않습니다. 운영 적재는 비밀 저장소에서 주입한 서버 전용 `service_role`만 사용하고 브라우저·FastAPI MCP에는 이 권한을 전달하지 않습니다. raw payload와 오류 상세에는 API key, token, PII를 저장하지 않으며 보존 기한이 지난 snapshot은 별도 운영 작업에서 정리합니다.
 
+`service_role`은 정상 앱 쓰기에 필요한 SELECT·INSERT·UPDATE·DELETE와 명시적 RPC 권한을 유지하지만, 행 trigger를 우회하는 `TRUNCATE`는 현재와 향후 모든 public 테이블에서 회수합니다. 파괴적 테이블 초기화는 서버 런타임이 아니라 통제된 migration owner 작업으로만 수행합니다.
+
 정책 검사는 독립적으로 실행할 수 있습니다.
 
 ```bash

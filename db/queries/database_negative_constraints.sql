@@ -1864,6 +1864,16 @@ update trip_schedule_versions
 set status = 'candidate'
 where id = 'f5300000-0000-0000-0000-000000000001';
 
+set local role service_role;
+
+select pg_temp.expect_rejected(
+  'service role cannot truncate sealed schedule days',
+  'truncate table public.trip_days cascade',
+  array['42501']
+);
+
+reset role;
+
 select pg_temp.expect_rejected(
   'moving content out of sealed schedule version',
   $statement$
@@ -1918,6 +1928,22 @@ select pg_temp.expect_rejected(
   $statement$,
   array['P0001']
 );
+
+create table public.service_role_default_privilege_probe (
+  id integer primary key
+);
+
+set local role service_role;
+
+select pg_temp.expect_rejected(
+  'service role cannot truncate future public tables',
+  'truncate table public.service_role_default_privilege_probe',
+  array['42501']
+);
+
+reset role;
+
+drop table public.service_role_default_privilege_probe;
 
 select pg_temp.expect_rejected(
   'schedule base lineage cannot point forward',

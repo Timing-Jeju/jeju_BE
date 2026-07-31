@@ -389,6 +389,33 @@ class DatabaseHardeningTest(unittest.TestCase):
                     "dblink는 삭제되는 Docker 동시성 검사 DB에만 설치해야 합니다",
                 )
 
+    def test_service_role_cannot_bypass_row_guards_with_truncate(self):
+        migration = self.read_migration(SCHEDULE_MIGRATION)
+        schema_contract = SCHEMA_CONTRACT.read_text(encoding="utf-8").lower()
+        negative_contract = NEGATIVE_CONTRACT.read_text(encoding="utf-8").lower()
+
+        self.assertIn(
+            "revoke truncate on all tables in schema public from service_role",
+            migration,
+        )
+        self.assertIn(
+            "alter default privileges in schema public revoke truncate "
+            "on tables from service_role",
+            migration,
+        )
+        self.assertIn(
+            "service_role must not have truncate on public application tables",
+            schema_contract,
+        )
+        self.assertIn(
+            "service role cannot truncate sealed schedule days",
+            negative_contract,
+        )
+        self.assertIn(
+            "service role cannot truncate future public tables",
+            negative_contract,
+        )
+
     def test_import_run_state_machine_and_idempotency_are_database_constraints(self):
         migration = self.read_migration(INTEGRITY_MIGRATION)
 

@@ -41,6 +41,7 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
 - `data_import_checkpoints`는 provider/service/operation/scope별 마지막 성공 지점만 보존한다. DB의 기대-version CAS 함수로만 전진하며 stale writer는 `40001`, 역행·DELETE·TRUNCATE는 실패한다. 함수는 구현됐고 Spring caller는 후속 importer Issue에서 연결한다.
 - `weather_observations`, `weather_forecasts`, `bus_arrival_snapshots`, `mobility_route_snapshots`의 기존 `raw_payload` 컬럼은 호환을 위해 유지하지만 공통 원문 기준은 `external_api_snapshots`이며 신규 적재는 `source_snapshot_id`를 연결한다.
 - 수집 내부 테이블은 RLS를 켜고 `anon`·`authenticated` policy/grant를 두지 않는다. 운영 적재의 서버 전용 `service_role`을 브라우저나 FastAPI MCP에 전달하지 않는다.
+- `service_role`은 필요한 DML·RPC를 유지하지만 행 trigger를 우회하는 `TRUNCATE`는 기존·향후 public 테이블에서 허용하지 않는다. 파괴적 초기화는 통제된 migration owner 작업으로만 수행한다.
 
 이번 이슈는 위 DB 기반과 계약만 추가한다. 실제 Spring importer, 주기 실행, retry/checkpoint 갱신과 retention job은 아직 구현하지 않았으며 별도 GitHub Issue에서 진행한다.
 

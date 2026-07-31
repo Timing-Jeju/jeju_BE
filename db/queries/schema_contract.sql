@@ -232,6 +232,45 @@ begin
     raise exception 'service_role checkpoint privileges must use only the compare-and-set function';
   end if;
 
+  if exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role') then
+    select pg_catalog.string_agg(
+        pg_catalog.format('%I.%I', namespace_row.nspname, table_row.relname),
+        ', ' order by table_row.relname
+      )
+      into missing_objects
+    from pg_catalog.pg_class table_row
+    join pg_catalog.pg_namespace namespace_row
+      on namespace_row.oid = table_row.relnamespace
+    where namespace_row.nspname = 'public'
+      and table_row.relkind in ('r', 'p')
+      and pg_catalog.has_table_privilege(
+        'service_role',
+        table_row.oid,
+        'TRUNCATE'
+      );
+
+    if missing_objects is not null then
+      raise exception
+        'service_role must not have TRUNCATE on public application tables: %',
+        missing_objects;
+    end if;
+
+    if not pg_catalog.has_table_privilege(
+         'service_role', 'public.trip_days', 'SELECT'
+       )
+       or not pg_catalog.has_table_privilege(
+         'service_role', 'public.trip_days', 'INSERT'
+       )
+       or not pg_catalog.has_table_privilege(
+         'service_role', 'public.trip_days', 'UPDATE'
+       )
+       or not pg_catalog.has_table_privilege(
+         'service_role', 'public.trip_days', 'DELETE'
+       ) then
+      raise exception 'service_role schedule DML privileges are incomplete';
+    end if;
+  end if;
+
   select string_agg(
       format('%s.%s', constraint_row.conrelid::regclass, constraint_row.conname),
       ', ' order by constraint_row.conrelid::regclass::text, constraint_row.conname

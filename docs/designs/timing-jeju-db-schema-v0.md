@@ -130,6 +130,8 @@ erDiagram
 
 `external_api_snapshots.raw_payload`에는 API key, Authorization 헤더, 원문 요청 URL과 PII를 저장하지 않는다. source identity뿐 아니라 request hash, parser version, payload hash와 raw payload 같은 감사 필드는 생성 후 바꿀 수 없고 `parsed`/`tombstoned` 상태를 미파싱 상태로 되돌릴 수 없다. 공개 API와 계산 계층은 이 테이블을 직접 읽지 않는다. 수집 내부 테이블 5개는 RLS를 켜되 `anon`·`authenticated` policy와 직접 grant를 두지 않는다.
 
+`service_role`은 필요한 앱 DML과 허용된 RPC만 사용하며, 행 trigger를 우회하는 `TRUNCATE` 권한은 기존·향후 모든 public 테이블에서 제거한다. 파괴적 초기화는 통제된 migration owner 경로로 제한한다.
+
 ### 4.2 Places
 
 | 테이블 | 의미 | 원천 |
@@ -391,6 +393,7 @@ stateDiagram-v2
 
 - 51개 public 앱 테이블 존재/RLS 활성.
 - 신규 수집 내부 테이블 5개에 client policy/grant가 없고 checkpoint는 `service_role`의 CAS 함수 호출만 허용함.
+- `service_role`이 public 앱 테이블의 DML은 유지하되 기존·향후 테이블의 `TRUNCATE`는 수행할 수 없음.
 - raw snapshot에서 정규화 테이블까지 `import_run_id`/`source_snapshot_id` lineage와 provider 범위 unique/trigger가 존재하고 한 run이 정확히 한 snapshot 범위를 소유함.
 - 외부 기준 코드·시간표 유효기간과 영업시간 open/closed 충돌이 식별자 포함 preflight 및 exclusion constraint로 차단됨.
 - route/stop/timetable의 provider·city 범위는 UUID FK와 검증 trigger로, 계산 결과의 trip Day 범위는 4열 복합 FK와 NULL-Day 보호 trigger로 일치함.

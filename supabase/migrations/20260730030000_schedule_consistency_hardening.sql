@@ -711,3 +711,22 @@ create index idx_recommendation_candidates_base_item_day
   on public.recommendation_candidates
     (base_item_id, schedule_version_id, trip_plan_id, trip_day_id)
   where base_item_id is not null;
+
+-- row trigger를 실행하지 않는 TRUNCATE가 확정 일정과 계보 guard를 우회하지
+-- 못하도록 서버 역할에서도 파괴적 테이블 초기화 권한만 회수한다. 운영 DML과
+-- 명시적으로 허용된 RPC 권한은 유지하고, 이후 public 테이블에도 같은 최소
+-- 권한 경계가 적용되도록 migration owner의 default privilege를 함께 좁힌다.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_catalog.pg_roles
+    where rolname = 'service_role'
+  ) then
+    execute
+      'revoke truncate on all tables in schema public from service_role';
+    execute
+      'alter default privileges in schema public revoke truncate on tables from service_role';
+  end if;
+end;
+$$;
