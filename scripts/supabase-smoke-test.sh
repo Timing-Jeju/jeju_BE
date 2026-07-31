@@ -66,6 +66,16 @@ if ! "$SUPABASE_BIN" db reset >/dev/null 2>&1; then
   exit 1
 fi
 
+SERVER_VERSION_NUM=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "show server_version_num;"
+)
+if [ "$SERVER_VERSION_NUM" -lt 170000 ] || [ "$SERVER_VERSION_NUM" -ge 180000 ]; then
+  echo "Supabase PostgreSQL 17이 필요합니다. 현재 server_version_num: $SERVER_VERSION_NUM" >&2
+  exit 1
+fi
+
 EXTENSION_COUNT=$(
   "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
     --username postgres --dbname postgres \
@@ -122,6 +132,12 @@ echo "[Supabase] 음수 무결성 계약 검사"
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username postgres --dbname postgres --file - \
   < "$ROOT/db/queries/database_negative_constraints.sql"
+
+echo "[Supabase] PostgreSQL 17 실제 2세션 동시성 계약 검사"
+"$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username supabase_admin --dbname postgres --file - \
+  < "$ROOT/db/queries/database_concurrency_contract.sql"
 
 echo "[Supabase] 로컬 Auth 명령 계약과 실제 access token 검증"
 STATUS_FILE="$TEMP_DIR/status.json"

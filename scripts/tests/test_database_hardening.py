@@ -364,6 +364,16 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("create extension if not exists dblink", concurrency_contract)
         self.assertIn("dblink_send_query", concurrency_contract)
         self.assertIn("pg_blocking_pids", concurrency_contract)
+        self.assertIn(
+            "create function concurrency_contract.drain_async_result",
+            concurrency_contract,
+        )
+        self.assertGreaterEqual(
+            concurrency_contract.count(
+                "select concurrency_contract.drain_async_result("
+            ),
+            4,
+        )
         self.assertIn("advance_data_import_checkpoint", concurrency_contract)
         self.assertIn(
             "begin isolation level repeatable read",
@@ -407,6 +417,8 @@ class DatabaseHardeningTest(unittest.TestCase):
             "service_role must not have truncate on public application tables",
             schema_contract,
         )
+        self.assertIn("pg_catalog.pg_depend", schema_contract)
+        self.assertIn("dependency_row.deptype = 'e'", schema_contract)
         self.assertIn(
             "service role cannot truncate sealed schedule days",
             negative_contract,
@@ -414,6 +426,26 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn(
             "service role cannot truncate future public tables",
             negative_contract,
+        )
+
+    def test_supabase_smoke_runs_postgres17_two_session_contract(self):
+        supabase_smoke = (
+            ROOT / "scripts" / "supabase-smoke-test.sh"
+        ).read_text(encoding="utf-8").lower()
+        supabase_config = (
+            ROOT / "supabase" / "config.toml"
+        ).read_text(encoding="utf-8").lower()
+
+        self.assertIn("major_version = 17", supabase_config)
+        self.assertIn("server_version_num", supabase_smoke)
+        self.assertIn("database_concurrency_contract.sql", supabase_smoke)
+        self.assertIn(
+            "--username supabase_admin --dbname postgres --file -",
+            supabase_smoke,
+        )
+        self.assertIn(
+            "postgresql 17 실제 2세션 동시성 계약 검사",
+            supabase_smoke,
         )
 
     def test_import_run_state_machine_and_idempotency_are_database_constraints(self):

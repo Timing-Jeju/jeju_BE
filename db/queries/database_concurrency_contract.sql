@@ -61,6 +61,18 @@ begin
 end;
 $$;
 
+-- PostgreSQL/libpq 버전에 따라 비동기 SELECT의 행 결과 다음에 빈 PGresult를
+-- 한 번 더 소비해야 같은 연결에서 다음 명령을 보낼 수 있다.
+create function concurrency_contract.drain_async_result(connection_name text)
+returns void
+language plpgsql
+as $$
+begin
+  perform remote.result_code
+  from public.dblink_get_result(connection_name) as remote(result_code text);
+end;
+$$;
+
 -- 체크포인트 갱신 결과는 SQLSTATE만 반환한다. 비밀정보나 원문 오류 메시지는
 -- 테스트 출력에 포함하지 않는다.
 create function concurrency_contract.try_checkpoint_advance(writer_name text)
@@ -206,6 +218,8 @@ begin
   end if;
 end;
 $$;
+
+select concurrency_contract.drain_async_result('checkpoint_b');
 
 do $$
 declare
@@ -437,6 +451,8 @@ begin
 end;
 $$;
 
+select concurrency_contract.drain_async_result('schedule_b');
+
 do $$
 declare
   final_status text;
@@ -664,6 +680,8 @@ begin
 end;
 $$;
 
+select concurrency_contract.drain_async_result('schedule_rr_b');
+
 select public.dblink_exec('schedule_rr_b', 'commit');
 
 do $$
@@ -855,6 +873,8 @@ begin
   end if;
 end;
 $$;
+
+select concurrency_contract.drain_async_result('hours_rr_b');
 
 select public.dblink_exec('hours_rr_b', 'commit');
 

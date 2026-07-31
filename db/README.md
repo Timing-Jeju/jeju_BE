@@ -62,7 +62,7 @@ provider·service·operation·scope와 source key/payload hash를 포함한 uniq
 
 `data_import_checkpoints`, `external_api_snapshots` 등 수집 내부 테이블은 RLS를 활성화하되 `anon`·`authenticated` 정책과 직접 grant를 두지 않습니다. 운영 적재는 비밀 저장소에서 주입한 서버 전용 `service_role`만 사용하고 브라우저·FastAPI MCP에는 이 권한을 전달하지 않습니다. raw payload와 오류 상세에는 API key, token, PII를 저장하지 않으며 보존 기한이 지난 snapshot은 별도 운영 작업에서 정리합니다.
 
-`service_role`은 정상 앱 쓰기에 필요한 SELECT·INSERT·UPDATE·DELETE와 명시적 RPC 권한을 유지하지만, 행 trigger를 우회하는 `TRUNCATE`는 현재와 향후 모든 public 테이블에서 회수합니다. 파괴적 테이블 초기화는 서버 런타임이 아니라 통제된 migration owner 작업으로만 수행합니다.
+`service_role`은 정상 앱 쓰기에 필요한 SELECT·INSERT·UPDATE·DELETE와 명시적 RPC 권한을 유지하지만, 행 trigger를 우회하는 `TRUNCATE`는 현재와 향후 public 앱 테이블에서 회수합니다. `spatial_ref_sys` 같은 확장 관리 객체는 확장 소유자의 ACL 경계이므로 앱 테이블 권한 검사에서 제외합니다. 파괴적 앱 테이블 초기화는 서버 런타임이 아니라 통제된 migration owner 작업으로만 수행합니다.
 
 정책 검사는 독립적으로 실행할 수 있습니다.
 
@@ -118,4 +118,4 @@ docker compose down -v
 docker compose up -d postgres
 ```
 
-`./scripts/docker-smoke-test.sh`는 clean bootstrap 외에도 실제 v1→최신 재생, checkpoint status/scope, 정규화 lineage, 기준 코드·시간표·영업시간·다중 snapshot 범위·익일 영업시간·결과 Day·일정 base 계보 충돌의 명시적 마이그레이션 중단, 체크포인트 CAS와 일정·교차 요일 영업시간 write-skew의 실제 2세션 대기·재검증을 실행합니다. 일정과 영업시간의 부모 행 MVCC 쓰기 펜스는 오래된 `REPEATABLE READ` writer를 `40001`로 중단합니다. 테스트용 `dblink` 확장은 삭제되는 격리 DB에만 설치하며 운영 마이그레이션에는 포함하지 않습니다. 두 스모크 스크립트는 스키마 계약과 rollback 기반 음수 무결성 계약을 모두 실행합니다. Supabase 경로는 운영용 빈 시드가 신규 수집 테이블에도 행을 만들지 않는지 추가로 확인하며, 성공·실패와 관계없이 자신이 만든 컨테이너와 임시 DB 자원을 정리합니다.
+`./scripts/docker-smoke-test.sh`는 clean bootstrap 외에도 실제 v1→최신 재생, checkpoint status/scope, 정규화 lineage, 기준 코드·시간표·영업시간·다중 snapshot 범위·익일 영업시간·결과 Day·일정 base 계보 충돌의 명시적 마이그레이션 중단, 체크포인트 CAS와 일정·교차 요일 영업시간 write-skew의 실제 2세션 대기·재검증을 실행합니다. 일정과 영업시간의 부모 행 MVCC 쓰기 펜스는 오래된 `REPEATABLE READ` writer를 `40001`로 중단합니다. 테스트용 `dblink` 확장은 삭제되는 격리 DB나 종료 시 폐기되는 로컬 Supabase DB에만 설치하며 운영 마이그레이션에는 포함하지 않습니다. 두 스모크 스크립트는 스키마 계약과 rollback 기반 음수 무결성 계약을 모두 실행합니다. Supabase 경로는 PostgreSQL 17을 명시적으로 확인하고 같은 2세션 계약을 재실행하며, 운영용 빈 시드가 신규 수집 테이블에도 행을 만들지 않는지 추가로 검사합니다. 성공·실패와 관계없이 자신이 만든 컨테이너와 임시 DB 자원을 정리합니다.

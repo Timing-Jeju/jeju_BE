@@ -243,6 +243,14 @@ begin
       on namespace_row.oid = table_row.relnamespace
     where namespace_row.nspname = 'public'
       and table_row.relkind in ('r', 'p')
+      and not exists (
+        select 1
+        from pg_catalog.pg_depend dependency_row
+        where dependency_row.classid =
+              'pg_catalog.pg_class'::pg_catalog.regclass
+          and dependency_row.objid = table_row.oid
+          and dependency_row.deptype = 'e'
+      )
       and pg_catalog.has_table_privilege(
         'service_role',
         table_row.oid,
