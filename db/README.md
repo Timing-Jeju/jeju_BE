@@ -116,4 +116,4 @@ docker compose down -v
 docker compose up -d postgres
 ```
 
-`./scripts/docker-smoke-test.sh`는 clean bootstrap 외에도 실제 v1→최신 재생, checkpoint status/scope, 정규화 lineage, 기준 코드·시간표·영업시간·다중 snapshot 범위·익일 영업시간·결과 Day·일정 base 계보 충돌의 명시적 마이그레이션 중단, 체크포인트 CAS와 일정 write-skew의 실제 2세션 대기·재검증을 실행합니다. 테스트용 `dblink` 확장은 삭제되는 격리 DB에만 설치하며 운영 마이그레이션에는 포함하지 않습니다. 두 스모크 스크립트는 스키마 계약과 rollback 기반 음수 무결성 계약을 모두 실행합니다. Supabase 경로는 운영용 빈 시드가 신규 수집 테이블에도 행을 만들지 않는지 추가로 확인하며, 성공·실패와 관계없이 자신이 만든 컨테이너와 임시 DB 자원을 정리합니다.
+`./scripts/docker-smoke-test.sh`는 clean bootstrap 외에도 실제 v1→최신 재생, checkpoint status/scope, 정규화 lineage, 기준 코드·시간표·영업시간·다중 snapshot 범위·익일 영업시간·결과 Day·일정 base 계보 충돌의 명시적 마이그레이션 중단, 체크포인트 CAS와 일정·교차 요일 영업시간 write-skew의 실제 2세션 대기·재검증을 실행합니다. 일정과 영업시간의 부모 행 MVCC 쓰기 펜스는 오래된 `REPEATABLE READ` writer를 `40001`로 중단합니다. 테스트용 `dblink` 확장은 삭제되는 격리 DB에만 설치하며 운영 마이그레이션에는 포함하지 않습니다. 두 스모크 스크립트는 스키마 계약과 rollback 기반 음수 무결성 계약을 모두 실행합니다. Supabase 경로는 운영용 빈 시드가 신규 수집 테이블에도 행을 만들지 않는지 추가로 확인하며, 성공·실패와 관계없이 자신이 만든 컨테이너와 임시 DB 자원을 정리합니다.

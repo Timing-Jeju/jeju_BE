@@ -365,6 +365,18 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("dblink_send_query", concurrency_contract)
         self.assertIn("pg_blocking_pids", concurrency_contract)
         self.assertIn("advance_data_import_checkpoint", concurrency_contract)
+        self.assertIn(
+            "begin isolation level repeatable read",
+            concurrency_contract,
+        )
+        self.assertIn(
+            "repeatable-read schedule writer must return 40001",
+            concurrency_contract,
+        )
+        self.assertIn(
+            "repeatable-read operating-hours writer must return 40001",
+            concurrency_contract,
+        )
         self.assertIn("40001", concurrency_contract)
         self.assertIn("p0001", concurrency_contract)
         self.assertIn("database_concurrency_contract", concurrency_contract)
@@ -926,6 +938,11 @@ class DatabaseHardeningTest(unittest.TestCase):
         )
         self.assertIn("validate_place_hours_cross_day_overlap", migration)
         self.assertIn("overnight operating hours overlap the next service day", migration)
+        self.assertRegex(
+            migration,
+            r"update public\.tour_places\s+set updated_at\s*=\s*updated_at"
+            r"\s+where id\s*=\s*new\.place_id",
+        )
         self.assertIn("legacy operating hours failed cross-day overlap audit", migration)
         self.assertLess(
             migration.index("legacy operating hours failed cross-day overlap audit"),
@@ -1016,6 +1033,7 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("place_operating_hours", negative_contract)
         self.assertIn("timetable_entries", negative_contract)
         self.assertIn("assert_schedule_day_coverage", negative_contract)
+        self.assertIn("draft trip dates remain mutable", negative_contract)
 
 
 if __name__ == "__main__":

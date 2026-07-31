@@ -92,7 +92,7 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
 | 이미지 ID·명·저작권 | `place_images.source_image_id`, `source_url_key`, `image_name`, copyright/license 컬럼 | 이미지 목록 | URL key는 길이 prefix를 포함한 place/provider/service/URL SHA-256 digest이고 `(place_id, source_url_key)`가 `ON CONFLICT` 기준; 원본 비교로 collision 차단, ID는 추가 unique |
 | `modifiedtime` | `tour_place_sources.source_modified_at` | 직접 노출 안 함 | 증분 동기화 및 lifecycle 판단 |
 
-`detailIntro2`의 운영시간 원문 text는 `place_details`에 보존하고 파싱·검수된 반복 영업시간은 요일별 `interval_no`로 저장한다. 자정을 넘는 구간은 익일 첫 구간·휴무와 겹칠 수 없고 정확히 `00:00` 종료는 다음 날을 점유하지 않는다. `detailInfo2`와 `detailImage2` 정규화 행은 원문과 같은 snapshot·run lineage를 모두 갖는다.
+`detailIntro2`의 운영시간 원문 text는 `place_details`에 보존하고 파싱·검수된 반복 영업시간은 요일별 `interval_no`로 저장한다. 자정을 넘는 구간은 익일 첫 구간·휴무와 겹칠 수 없고 정확히 `00:00` 종료는 다음 날을 점유하지 않는다. 장소 행 MVCC 쓰기 펜스가 교차 요일 검사를 직렬화하며 오래된 `REPEATABLE READ` writer는 `40001`로 실패한다. `detailInfo2`와 `detailImage2` 정규화 행은 원문과 같은 snapshot·run lineage를 모두 갖는다.
 
 ### 3.4 TourAPI에서 직접 오지 않는 값
 

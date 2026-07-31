@@ -1,8 +1,9 @@
 -- Issue #11: 확정 일정과 날짜 기반 계산 결과의 교차 행 무결성을 강화한다.
 
 -- 일정 봉인과 Day/달력 변경은 아직 커밋되지 않은 schedule version의 가시성에
--- 의존하지 않고 같은 여행 행을 먼저 잠근다. NO KEY UPDATE는 FK의 KEY SHARE와
--- 충돌하지 않으면서 같은 trip_plan의 검증 작업끼리는 직렬화한다.
+-- 의존하지 않고 같은 여행 행에 MVCC 쓰기 펜스를 먼저 세운다. READ COMMITTED는
+-- 같은 trip_plan의 최신 상태를 다시 읽고, 오래된 REPEATABLE READ 스냅샷은
+-- 대기 후 40001로 중단되어 확정 일정에 stale 쓰기를 남길 수 없다.
 create function public.lock_trip_plan_schedule_mutex(target_trip_plan_id uuid)
 returns void
 language plpgsql
@@ -10,10 +11,9 @@ security invoker
 set search_path = ''
 as $$
 begin
-  perform p.id
-  from public.trip_plans p
-  where p.id = target_trip_plan_id
-  for no key update;
+  update public.trip_plans p
+  set updated_at = p.updated_at
+  where p.id = target_trip_plan_id;
 
   if not found then
     raise exception 'trip plan % does not exist', target_trip_plan_id;
@@ -194,7 +194,8 @@ begin
     return new;
   end if;
 
-  perform public.lock_trip_plan_schedule_mutex(old.id);
+  -- 이 함수는 trip_plans 자체의 BEFORE UPDATE trigger다. 바깥 UPDATE가 이미
+  -- 같은 부모 행의 MVCC 쓰기 펜스이므로 동일 행을 재귀 UPDATE하지 않는다.
 
   if exists (
     select 1

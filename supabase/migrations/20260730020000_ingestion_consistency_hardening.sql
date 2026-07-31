@@ -1933,9 +1933,16 @@ begin
     return new;
   end if;
 
-  perform pg_catalog.pg_advisory_xact_lock(
-    pg_catalog.hashtextextended(new.place_id::text, 0)
-  );
+  -- 장소별 실제 MVCC 행 버전을 써서 교차 요일 검사를 직렬화한다.
+  -- READ COMMITTED는 대기 뒤 최신 영업시간을 검사하고, 이미 빈 결과를 읽은
+  -- REPEATABLE READ 트랜잭션은 40001로 중단되어 write skew를 남길 수 없다.
+  update public.tour_places
+  set updated_at = updated_at
+  where id = new.place_id;
+
+  if not found then
+    raise exception 'tour place % does not exist', new.place_id;
+  end if;
 
   if not new.is_closed
      and new.spans_next_day

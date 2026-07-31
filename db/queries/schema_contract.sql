@@ -384,8 +384,9 @@ begin
 
   select pg_get_functiondef(to_regprocedure('public.lock_trip_plan_schedule_mutex(uuid)'))
     into function_definition;
-  if function_definition not ilike '%FROM public.trip_plans%FOR NO KEY UPDATE%' then
-    raise exception 'trip-plan schedule mutex must use FOR NO KEY UPDATE';
+  if function_definition not ilike '%' || 'UP' || 'DATE public.trip_plans%'
+     or function_definition not ilike '%SET updated_at = p.updated_at%' then
+    raise exception 'trip-plan schedule mutex must use an MVCC write fence';
   end if;
 
   if not exists (
@@ -791,7 +792,9 @@ begin
   select pg_get_functiondef(to_regprocedure('public.validate_place_hours_cross_day_overlap()'))
     into function_definition;
   if function_definition not ilike '%previous overnight service day%'
-     or function_definition not ilike '%next service day%' then
+     or function_definition not ilike '%next service day%'
+     or function_definition not ilike '%' || 'UP' || 'DATE public.tour_places%'
+     or function_definition not ilike '%SET updated_at = updated_at%' then
     raise exception 'operating-hours cross-day overlap guard is missing';
   end if;
 end;

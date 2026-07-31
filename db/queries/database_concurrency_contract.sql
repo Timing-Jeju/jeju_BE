@@ -476,4 +476,405 @@ $$;
 select public.dblink_disconnect('schedule_a');
 select public.dblink_disconnect('schedule_b');
 
+-- REPEATABLE READ 일정 시나리오: B가 draft 상태를 먼저 읽어 스냅샷을
+-- 고정한 뒤 A가 같은 일정 버전을 봉인한다. 같은 trip_plan의 Day 쓰기는
+-- 부모 행 MVCC 쓰기 펜스에서 40001로 거부되어야 하며 stale draft 판단으로
+-- 확정 일정 내용을 바꿔서는 안 된다.
+create function concurrency_contract.try_repeatable_read_trip_day_update()
+returns text
+language plpgsql
+as $$
+begin
+  update public.trip_days
+  set start_time = '10:30'
+  where id = 'fc320000-0000-0000-0000-000000000001';
+  return 'OK';
+exception when others then
+  return sqlstate;
+end;
+$$;
+
+insert into public.app_sessions (id, public_token)
+values (
+  'fc300000-0000-0000-0000-000000000001',
+  'database-concurrency-contract-rr-session'
+);
+
+insert into public.trip_plans (
+  id,
+  session_id,
+  public_token,
+  status,
+  start_date,
+  end_date,
+  source_mode,
+  data_version
+) values (
+  'fc310000-0000-0000-0000-000000000001',
+  'fc300000-0000-0000-0000-000000000001',
+  'database-concurrency-contract-rr-trip',
+  'draft',
+  '2026-08-21',
+  '2026-08-21',
+  'fixture',
+  'contract-v1'
+);
+
+insert into public.trip_days (id, trip_plan_id, day_no, trip_date)
+values (
+  'fc320000-0000-0000-0000-000000000001',
+  'fc310000-0000-0000-0000-000000000001',
+  1,
+  '2026-08-21'
+);
+
+insert into public.trip_schedule_versions (
+  id, trip_plan_id, version_no, status, source_type
+) values (
+  'fc330000-0000-0000-0000-000000000001',
+  'fc310000-0000-0000-0000-000000000001',
+  1,
+  'draft',
+  'initial'
+);
+
+insert into public.trip_items (
+  id,
+  trip_plan_id,
+  trip_day_id,
+  schedule_version_id,
+  sequence_no,
+  item_type,
+  title,
+  planned_start_at,
+  planned_end_at,
+  stay_minutes,
+  source,
+  facts
+) values (
+  'fc340000-0000-0000-0000-000000000001',
+  'fc310000-0000-0000-0000-000000000001',
+  'fc320000-0000-0000-0000-000000000001',
+  'fc330000-0000-0000-0000-000000000001',
+  1,
+  'custom',
+  'REPEATABLE READ 동시성 계약 일정',
+  '2026-08-21 09:00:00+09',
+  '2026-08-21 10:00:00+09',
+  60,
+  'system',
+  '{"location":{"lat":33.45,"lng":126.55}}'::jsonb
+);
+
+select public.dblink_connect(
+  'schedule_rr_a',
+  pg_catalog.format(
+    'dbname=%L user=%L application_name=%L',
+    current_database(),
+    current_user,
+    'timing-jeju-schedule-rr-a'
+  )
+);
+select public.dblink_connect(
+  'schedule_rr_b',
+  pg_catalog.format(
+    'dbname=%L user=%L application_name=%L',
+    current_database(),
+    current_user,
+    'timing-jeju-schedule-rr-b'
+  )
+);
+
+insert into concurrency_contract.connection_pids
+select 'schedule_rr', 'a', remote.backend_pid
+from public.dblink('schedule_rr_a', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+
+insert into concurrency_contract.connection_pids
+select 'schedule_rr', 'b', remote.backend_pid
+from public.dblink('schedule_rr_b', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+
+select public.dblink_exec(
+  'schedule_rr_b',
+  'begin isolation level repeatable read'
+);
+
+do $$
+declare
+  snapshot_status text;
+begin
+  select remote.status
+    into snapshot_status
+  from public.dblink(
+    'schedule_rr_b',
+    $query$
+      select status
+      from public.trip_schedule_versions
+      where id = 'fc330000-0000-0000-0000-000000000001'
+    $query$
+  ) as remote(status text);
+
+  if snapshot_status <> 'draft' then
+    raise exception 'repeatable-read schedule snapshot was not draft';
+  end if;
+end;
+$$;
+
+select public.dblink_exec('schedule_rr_a', 'begin');
+select public.dblink_exec(
+  'schedule_rr_a',
+  $query$
+    update public.trip_schedule_versions
+    set status = 'candidate'
+    where id = 'fc330000-0000-0000-0000-000000000001'
+  $query$
+);
+
+do $$
+begin
+  if public.dblink_send_query(
+       'schedule_rr_b',
+       'select concurrency_contract.try_repeatable_read_trip_day_update()'
+     ) <> 1 then
+    raise exception 'repeatable-read schedule query was not dispatched';
+  end if;
+end;
+$$;
+
+select concurrency_contract.assert_connection_is_blocked(
+  'schedule_rr', 'a', 'b', 'schedule_rr_b'
+);
+
+select public.dblink_exec('schedule_rr_a', 'commit');
+
+do $$
+declare
+  result_code text;
+begin
+  select remote.result_code
+    into result_code
+  from public.dblink_get_result('schedule_rr_b') as remote(result_code text);
+
+  if result_code <> '40001' then
+    raise exception
+      'repeatable-read schedule writer must return 40001, got %',
+      result_code;
+  end if;
+end;
+$$;
+
+select public.dblink_exec('schedule_rr_b', 'commit');
+
+do $$
+declare
+  final_status text;
+  final_start_time time;
+begin
+  select version.status, day.start_time
+    into final_status, final_start_time
+  from public.trip_schedule_versions version
+  join public.trip_days day
+    on day.trip_plan_id = version.trip_plan_id
+  where version.id = 'fc330000-0000-0000-0000-000000000001'
+    and day.id = 'fc320000-0000-0000-0000-000000000001';
+
+  if final_status <> 'candidate' or final_start_time is not null then
+    raise exception
+      'repeatable-read schedule concurrency final state is inconsistent';
+  end if;
+end;
+$$;
+
+select public.dblink_disconnect('schedule_rr_a');
+select public.dblink_disconnect('schedule_rr_b');
+
+-- REPEATABLE READ 영업시간 시나리오: B가 빈 영업시간 스냅샷을 먼저 읽은
+-- 뒤 A가 금요일 22:00~토요일 02:00 구간을 추가한다. B의 토요일
+-- 01:00~03:00 추가는 장소 부모 행 MVCC 쓰기 펜스에서 40001이어야 한다.
+create function concurrency_contract.try_repeatable_read_hours_insert()
+returns text
+language plpgsql
+as $$
+begin
+  insert into public.place_operating_hours (
+    id,
+    place_id,
+    day_of_week,
+    interval_no,
+    open_time,
+    close_time,
+    spans_next_day,
+    valid_from,
+    source_kind
+  ) values (
+    'fc410000-0000-0000-0000-000000000002',
+    'fc400000-0000-0000-0000-000000000001',
+    6,
+    1,
+    '01:00',
+    '03:00',
+    false,
+    '2026-01-01',
+    'manual'
+  );
+  return 'OK';
+exception when others then
+  return sqlstate;
+end;
+$$;
+
+insert into public.tour_places (
+  id,
+  name,
+  normalized_name,
+  category,
+  location,
+  source_provider
+) values (
+  'fc400000-0000-0000-0000-000000000001',
+  'REPEATABLE READ 영업시간 장소',
+  'repeatableread영업시간장소',
+  'tourist_attraction',
+  st_setsrid(st_makepoint(126.55, 33.45), 4326)::geography,
+  'admin_upload'
+);
+
+select public.dblink_connect(
+  'hours_rr_a',
+  pg_catalog.format(
+    'dbname=%L user=%L application_name=%L',
+    current_database(),
+    current_user,
+    'timing-jeju-hours-rr-a'
+  )
+);
+select public.dblink_connect(
+  'hours_rr_b',
+  pg_catalog.format(
+    'dbname=%L user=%L application_name=%L',
+    current_database(),
+    current_user,
+    'timing-jeju-hours-rr-b'
+  )
+);
+
+insert into concurrency_contract.connection_pids
+select 'hours_rr', 'a', remote.backend_pid
+from public.dblink('hours_rr_a', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+
+insert into concurrency_contract.connection_pids
+select 'hours_rr', 'b', remote.backend_pid
+from public.dblink('hours_rr_b', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+
+select public.dblink_exec(
+  'hours_rr_b',
+  'begin isolation level repeatable read'
+);
+
+do $$
+declare
+  snapshot_count integer;
+begin
+  select remote.hours_count
+    into snapshot_count
+  from public.dblink(
+    'hours_rr_b',
+    $query$
+      select count(*)::integer
+      from public.place_operating_hours
+      where place_id = 'fc400000-0000-0000-0000-000000000001'
+    $query$
+  ) as remote(hours_count integer);
+
+  if snapshot_count <> 0 then
+    raise exception 'repeatable-read operating-hours snapshot was not empty';
+  end if;
+end;
+$$;
+
+select public.dblink_exec('hours_rr_a', 'begin');
+select public.dblink_exec(
+  'hours_rr_a',
+  $query$
+    insert into public.place_operating_hours (
+      id,
+      place_id,
+      day_of_week,
+      interval_no,
+      open_time,
+      close_time,
+      spans_next_day,
+      valid_from,
+      source_kind
+    ) values (
+      'fc410000-0000-0000-0000-000000000001',
+      'fc400000-0000-0000-0000-000000000001',
+      5,
+      1,
+      '22:00',
+      '02:00',
+      true,
+      '2026-01-01',
+      'manual'
+    )
+  $query$
+);
+
+do $$
+begin
+  if public.dblink_send_query(
+       'hours_rr_b',
+       'select concurrency_contract.try_repeatable_read_hours_insert()'
+     ) <> 1 then
+    raise exception 'repeatable-read operating-hours query was not dispatched';
+  end if;
+end;
+$$;
+
+select concurrency_contract.assert_connection_is_blocked(
+  'hours_rr', 'a', 'b', 'hours_rr_b'
+);
+
+select public.dblink_exec('hours_rr_a', 'commit');
+
+do $$
+declare
+  result_code text;
+begin
+  select remote.result_code
+    into result_code
+  from public.dblink_get_result('hours_rr_b') as remote(result_code text);
+
+  if result_code <> '40001' then
+    raise exception
+      'repeatable-read operating-hours writer must return 40001, got %',
+      result_code;
+  end if;
+end;
+$$;
+
+select public.dblink_exec('hours_rr_b', 'commit');
+
+do $$
+declare
+  final_count integer;
+begin
+  select count(*)::integer
+    into final_count
+  from public.place_operating_hours
+  where place_id = 'fc400000-0000-0000-0000-000000000001';
+
+  if final_count <> 1 then
+    raise exception
+      'repeatable-read operating-hours final state is inconsistent';
+  end if;
+end;
+$$;
+
+select public.dblink_disconnect('hours_rr_a');
+select public.dblink_disconnect('hours_rr_b');
+
 select 'database_concurrency_contract PASS' as result;

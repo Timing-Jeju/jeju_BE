@@ -1725,6 +1725,27 @@ insert into trip_plans (
   'draft', '2026-09-01', '2026-09-01', 'fixture', 'contract-v1'
 );
 
+-- 부모 trip_plans UPDATE 자체가 일정 쓰기 펜스다. BEFORE trigger에서 같은
+-- 행을 다시 UPDATE하지 않고, 봉인되지 않은 여행 날짜는 정상 변경되어야 한다.
+update trip_plans
+set end_date = '2026-09-02'
+where id = 'f5100000-0000-0000-0000-000000000002';
+
+do $$
+declare
+  actual_end_date date;
+begin
+  select plan.end_date
+    into actual_end_date
+  from trip_plans plan
+  where plan.id = 'f5100000-0000-0000-0000-000000000002';
+
+  if actual_end_date <> date '2026-09-02' then
+    raise exception 'draft trip dates remain mutable';
+  end if;
+end;
+$$;
+
 insert into trip_days (id, trip_plan_id, day_no, trip_date)
 values
 (

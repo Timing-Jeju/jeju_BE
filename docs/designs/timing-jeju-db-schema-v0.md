@@ -145,7 +145,7 @@ erDiagram
 
 `recommended_stay_minutes`는 TourAPI 원천값이 아니다. 큐레이션 또는 계산 결과이며 장소 row에 앱 기준값으로 저장한다.
 
-`tour_places`는 앱의 통합 장소 read model이고 외부 natural key는 `tour_place_sources`의 `(source_provider, source_service, external_id)`가 소유한다. TourAPI KorService2의 최신 법정동·분류 원문은 `l_dong_regn_cd`, `l_dong_signgu_cd`, `lcls_systm1`, `lcls_systm2`, `lcls_systm3`에 보존하며 기존 컬럼은 legacy 호환 필드다. `place_detail_items`는 provider/service/item key로 멱등 upsert한다. 영업시간은 같은 요일뿐 아니라 익일 첫 구간·휴무와도 겹칠 수 없고 정확히 `00:00`에 끝나는 구간은 다음 날을 점유하지 않는다. 충돌하는 legacy 조합은 자동 수정하지 않고 migration을 중단한다. 신규 이미지와 URL 변경은 trigger가 길이 prefix를 포함한 `(place_id, source_provider, source_service, image_url)`의 SHA-256 digest를 `source_url_key`로 계산한다. declarative unique `(place_id, source_url_key)`가 `ON CONFLICT` 기준이며 advisory lock과 원본 비교가 digest collision을 차단한다. `source_image_id`가 있으면 별도 unique도 적용하고, v1의 기존 중복 URL만 `source_url_key=NULL`로 보존한다.
+`tour_places`는 앱의 통합 장소 read model이고 외부 natural key는 `tour_place_sources`의 `(source_provider, source_service, external_id)`가 소유한다. TourAPI KorService2의 최신 법정동·분류 원문은 `l_dong_regn_cd`, `l_dong_signgu_cd`, `lcls_systm1`, `lcls_systm2`, `lcls_systm3`에 보존하며 기존 컬럼은 legacy 호환 필드다. `place_detail_items`는 provider/service/item key로 멱등 upsert한다. 영업시간은 같은 요일뿐 아니라 익일 첫 구간·휴무와도 겹칠 수 없고 정확히 `00:00`에 끝나는 구간은 다음 날을 점유하지 않는다. 교차 요일 검사는 같은 장소 행에 MVCC 쓰기 펜스를 세워 직렬화하고 오래된 `REPEATABLE READ` writer는 `40001`로 중단한다. 충돌하는 legacy 조합은 자동 수정하지 않고 migration을 중단한다. 신규 이미지와 URL 변경은 trigger가 길이 prefix를 포함한 `(place_id, source_provider, source_service, image_url)`의 SHA-256 digest를 `source_url_key`로 계산한다. declarative unique `(place_id, source_url_key)`가 `ON CONFLICT` 기준이며 advisory lock과 원본 비교가 digest collision을 차단한다. `source_image_id`가 있으면 별도 unique도 적용하고, v1의 기존 중복 URL만 `source_url_key=NULL`로 보존한다.
 
 ### 4.3 Transit/Mobility
 
@@ -204,7 +204,7 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 
 `trip_legs`는 이동만 표현한다. 체류를 `stay` leg로 저장하지 않는다.
 
-일정 버전의 `version_no`는 생성 후 바꿀 수 없고 `base_schedule_version_id`는 같은 여행의 더 작은 번호만 참조한다. `candidate` 또는 `active` 봉인은 장소/좌표, 시간, Day 순번·범위, 인접 leg의 완전성을 검사한다. 봉인과 Day/여행 날짜 변경은 같은 `trip_plan` row를 `FOR NO KEY UPDATE`로 잠가 동시 write-skew를 차단하고, migration 당시 이미 봉인된 legacy 일정도 audit한다. 항목의 시작과 종료는 모두 같은 제주 현지 Day에 있어야 하며 leg의 시간차와 구성 시간 합계가 일치해야 한다. 관심 장소처럼 시간 없는 데이터는 `saved_places`에 둘 수 있지만 일정 버전으로는 봉인할 수 없다.
+일정 버전의 `version_no`는 생성 후 바꿀 수 없고 `base_schedule_version_id`는 같은 여행의 더 작은 번호만 참조한다. `candidate` 또는 `active` 봉인은 장소/좌표, 시간, Day 순번·범위, 인접 leg의 완전성을 검사한다. 봉인과 Day/여행 날짜 변경은 같은 `trip_plan` 행에 MVCC 쓰기 펜스를 세워 동시 write-skew를 차단한다. `READ COMMITTED`에서는 대기 후 최신 상태를 다시 검사하고 오래된 `REPEATABLE READ` writer는 `40001`로 중단한다. migration 당시 이미 봉인된 legacy 일정도 audit한다. 항목의 시작과 종료는 모두 같은 제주 현지 Day에 있어야 하며 leg의 시간차와 구성 시간 합계가 일치해야 한다. 관심 장소처럼 시간 없는 데이터는 `saved_places`에 둘 수 있지만 일정 버전으로는 봉인할 수 없다.
 
 ### 4.7 Compute/Recovery
 

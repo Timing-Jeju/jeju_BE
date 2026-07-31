@@ -63,7 +63,7 @@ class ScheduleConsistencyHardeningTest(unittest.TestCase):
         self.assertGreaterEqual(guard.count("for share"), 3)
         self.assertNotIn("for key share", guard)
 
-    def test_calendar_child_and_parent_date_changes_share_the_parent_lock(self):
+    def test_calendar_child_and_parent_date_changes_share_parent_write_ordering(self):
         migration = self.migration()
 
         self.assertIn("create or replace function public.validate_trip_calendar_child", migration)
@@ -76,8 +76,10 @@ class ScheduleConsistencyHardeningTest(unittest.TestCase):
         mutex = self.function_definition("lock_trip_plan_schedule_mutex")
         self.assertRegex(
             mutex,
-            r"from public\.trip_plans p where p\.id = target_trip_plan_id for no key update",
+            r"update public\.trip_plans p set updated_at = p\.updated_at "
+            r"where p\.id = target_trip_plan_id",
         )
+        self.assertNotIn("for no key update", mutex)
 
         calendar_child = self.function_definition("validate_trip_calendar_child")
         sealed_day = self.function_definition("protect_sealed_schedule_day")
@@ -88,12 +90,14 @@ class ScheduleConsistencyHardeningTest(unittest.TestCase):
         for function_name, definition in (
             ("validate_trip_calendar_child", calendar_child),
             ("protect_sealed_schedule_day", sealed_day),
-            ("protect_sealed_trip_plan_dates", plan_dates),
             ("validate_schedule_version_sealing", sealing),
             ("validate_schedule_version_base_lineage", base_lineage),
         ):
             with self.subTest(function=function_name):
                 self.assertIn("perform public.lock_trip_plan_schedule_mutex", definition)
+
+        self.assertNotIn("perform public.lock_trip_plan_schedule_mutex", plan_dates)
+        self.assertIn("from public.trip_schedule_versions version", plan_dates)
 
         self.assertLess(
             sealing.index("perform public.lock_trip_plan_schedule_mutex"),
@@ -105,10 +109,7 @@ class ScheduleConsistencyHardeningTest(unittest.TestCase):
         )
         self.assertNotIn("for share", base_lineage)
 
-        for function_name, definition in (
-            ("protect_sealed_schedule_day", sealed_day),
-            ("protect_sealed_trip_plan_dates", plan_dates),
-        ):
+        for function_name, definition in (("protect_sealed_schedule_day", sealed_day),):
             with self.subTest(lock_order=function_name):
                 self.assertLess(
                     definition.index("perform public.lock_trip_plan_schedule_mutex"),
