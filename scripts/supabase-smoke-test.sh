@@ -66,6 +66,16 @@ if ! "$SUPABASE_BIN" db reset >/dev/null 2>&1; then
   exit 1
 fi
 
+SERVER_VERSION_NUM=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "show server_version_num;"
+)
+if [ "$SERVER_VERSION_NUM" -lt 170000 ] || [ "$SERVER_VERSION_NUM" -ge 180000 ]; then
+  echo "Supabase PostgreSQL 17이 필요합니다. 현재 server_version_num: $SERVER_VERSION_NUM" >&2
+  exit 1
+fi
+
 EXTENSION_COUNT=$(
   "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
     --username postgres --dbname postgres \
@@ -81,7 +91,7 @@ TABLE_COUNT=$(
     --username postgres --dbname postgres \
     --command "select count(*) from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE';"
 )
-[ "$TABLE_COUNT" -ge 46 ] || {
+[ "$TABLE_COUNT" -ge 51 ] || {
   echo "public 애플리케이션 테이블이 누락되었습니다. 현재: $TABLE_COUNT" >&2
   exit 1
 }
@@ -95,6 +105,39 @@ SEED_PROFILE_COUNT=$(
   echo "빈 운영 시드에 예상하지 않은 사용자 프로필이 있습니다." >&2
   exit 1
 }
+
+INGESTION_SEED_COUNT=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "select
+      (select count(*) from public.data_import_checkpoints)
+      + (select count(*) from public.external_api_snapshots)
+      + (select count(*) from public.tour_place_sources)
+      + (select count(*) from public.place_detail_items)
+      + (select count(*) from public.external_reference_codes);"
+)
+[ "$INGESTION_SEED_COUNT" = "0" ] || {
+  echo "빈 운영 시드에 예상하지 않은 외부 데이터 적재 행이 있습니다." >&2
+  exit 1
+}
+
+echo "[Supabase] 스키마 계약 검사"
+"$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres --file - \
+  < "$ROOT/db/queries/schema_contract.sql"
+
+echo "[Supabase] 음수 무결성 계약 검사"
+"$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres --file - \
+  < "$ROOT/db/queries/database_negative_constraints.sql"
+
+echo "[Supabase] PostgreSQL 17 실제 2세션 동시성 계약 검사"
+"$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username supabase_admin --dbname postgres --file - \
+  < "$ROOT/db/queries/database_concurrency_contract.sql"
 
 echo "[Supabase] 로컬 Auth 명령 계약과 실제 access token 검증"
 STATUS_FILE="$TEMP_DIR/status.json"
@@ -269,4 +312,4 @@ else
   )
 fi
 
-echo "[Supabase] Auth·PostGIS·public 스키마·빈 시드·Spring 보호 API 통합 검증 성공"
+echo "[Supabase] Auth·PostGIS·public 스키마·DB 계약·빈 시드·Spring 보호 API 통합 검증 성공"
