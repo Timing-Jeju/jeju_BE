@@ -1,0 +1,9 @@
+spring:
+  test:
+    database:
+      replace: none
+
+management:
+  health:
+    db:
+      enabled: true
