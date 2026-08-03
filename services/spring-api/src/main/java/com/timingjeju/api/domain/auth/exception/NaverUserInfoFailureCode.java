@@ -16,18 +16,18 @@ public enum NaverUserInfoFailureCode {
   EMAIL_REQUIRED("SOCIAL_NAVER_EMAIL_REQUIRED", "이메일 제공 동의가 필요합니다.");
 
   private final String externalCode;
-  private final String message;
+  private final String detail;
 
-  NaverUserInfoFailureCode(String externalCode, String message) {
+  NaverUserInfoFailureCode(String externalCode, String detail) {
     this.externalCode = externalCode;
-    this.message = message;
+    this.detail = detail;
   }
 
   public String externalCode() {
     return externalCode;
   }
 
-  public String message() {
-    return message;
+  public String detail() {
+    return detail;
   }
 }

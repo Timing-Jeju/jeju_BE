@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.security;
 
+import com.timingjeju.api.global.error.ProblemResponseWriter;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -9,9 +10,9 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 
 public final class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-  private final SecurityErrorResponseWriter responseWriter;
+  private final ProblemResponseWriter responseWriter;
 
-  public JsonAuthenticationEntryPoint(SecurityErrorResponseWriter responseWriter) {
+  public JsonAuthenticationEntryPoint(ProblemResponseWriter responseWriter) {
     this.responseWriter = responseWriter;
   }
 
@@ -21,7 +22,6 @@ public final class JsonAuthenticationEntryPoint implements AuthenticationEntryPo
       HttpServletResponse response,
       AuthenticationException authenticationException)
       throws IOException, ServletException {
-    responseWriter.write(
-        response, HttpServletResponse.SC_UNAUTHORIZED, "AUTH_TOKEN_INVALID", "인증 토큰이 유효하지 않습니다.");
+    responseWriter.write(request, response, "AUTH_TOKEN_INVALID");
   }
 }

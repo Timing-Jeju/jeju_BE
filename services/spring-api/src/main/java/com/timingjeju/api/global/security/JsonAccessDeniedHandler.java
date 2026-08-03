@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.security;
 
+import com.timingjeju.api.global.error.ProblemResponseWriter;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -9,9 +10,9 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 
 public final class JsonAccessDeniedHandler implements AccessDeniedHandler {
 
-  private final SecurityErrorResponseWriter responseWriter;
+  private final ProblemResponseWriter responseWriter;
 
-  public JsonAccessDeniedHandler(SecurityErrorResponseWriter responseWriter) {
+  public JsonAccessDeniedHandler(ProblemResponseWriter responseWriter) {
     this.responseWriter = responseWriter;
   }
 
@@ -21,7 +22,6 @@ public final class JsonAccessDeniedHandler implements AccessDeniedHandler {
       HttpServletResponse response,
       AccessDeniedException accessDeniedException)
       throws IOException, ServletException {
-    responseWriter.write(
-        response, HttpServletResponse.SC_FORBIDDEN, "AUTH_ACCESS_DENIED", "접근 권한이 없습니다.");
+    responseWriter.write(request, response, "AUTH_ACCESS_DENIED");
   }
 }

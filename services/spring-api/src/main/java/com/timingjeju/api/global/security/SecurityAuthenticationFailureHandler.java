@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.security;
 
+import com.timingjeju.api.global.error.ProblemResponseWriter;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -12,11 +13,10 @@ import org.springframework.security.web.authentication.AuthenticationFailureHand
 public final class SecurityAuthenticationFailureHandler implements AuthenticationFailureHandler {
 
   private final AuthenticationEntryPoint authenticationEntryPoint;
-  private final SecurityErrorResponseWriter responseWriter;
+  private final ProblemResponseWriter responseWriter;
 
   public SecurityAuthenticationFailureHandler(
-      AuthenticationEntryPoint authenticationEntryPoint,
-      SecurityErrorResponseWriter responseWriter) {
+      AuthenticationEntryPoint authenticationEntryPoint, ProblemResponseWriter responseWriter) {
     this.authenticationEntryPoint = authenticationEntryPoint;
     this.responseWriter = responseWriter;
   }
@@ -33,10 +33,6 @@ public final class SecurityAuthenticationFailureHandler implements Authenticatio
       authenticationEntryPoint.commence(request, response, exception);
       return;
     }
-    responseWriter.write(
-        response,
-        HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
-        "AUTH_INTERNAL_ERROR",
-        "인증 처리 중 내부 오류가 발생했습니다.");
+    responseWriter.write(request, response, "AUTH_INTERNAL_ERROR");
   }
 }

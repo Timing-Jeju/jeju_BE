@@ -28,6 +28,10 @@ springdoc:
     path: /swagger-ui.html
   paths-to-match: /api/v1/**
 
+logging:
+  level:
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
+
 app:
   social-login:
     provider-ids: ${APP_SOCIAL_LOGIN_PROVIDER_IDS:google,kakao,custom:naver}

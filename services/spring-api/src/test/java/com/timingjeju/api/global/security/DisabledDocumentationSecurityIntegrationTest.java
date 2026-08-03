@@ -1,9 +1,7 @@
 package com.timingjeju.api.global.security;
 
-import static org.hamcrest.Matchers.matchesPattern;
+import static com.timingjeju.api.support.http.ProblemDetailsAssertions.problemDetails;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,6 +10,7 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.timingjeju.api.global.error.ProblemResponseWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
@@ -22,7 +21,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 @Tag("integration")
@@ -59,27 +57,29 @@ class DisabledDocumentationSecurityIntegrationTest {
   void Swagger_비활성_환경의_401과_403은_UTF8_JSON_계약을_유지한다() throws Exception {
     mockMvc
         .perform(get("/api/v1/protected"))
-        .andExpect(status().isUnauthorized())
-        .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/json;charset=UTF-8"))
-        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.code").value("AUTH_TOKEN_INVALID"))
-        .andExpect(jsonPath("$.message").value("인증 토큰이 유효하지 않습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern("[0-9a-f]{32}")));
+        .andExpectAll(
+            problemDetails(
+                401,
+                "https://api.timing-jeju.example/problems/auth-token-invalid",
+                "인증에 실패했습니다.",
+                "AUTH_TOKEN_INVALID",
+                "인증 토큰이 유효하지 않습니다."));
 
     mockMvc
         .perform(get("/not-allowed").header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))
-        .andExpect(status().isForbidden())
-        .andExpect(header().string(HttpHeaders.CONTENT_TYPE, "application/json;charset=UTF-8"))
-        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.code").value("AUTH_ACCESS_DENIED"))
-        .andExpect(jsonPath("$.message").value("접근 권한이 없습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern("[0-9a-f]{32}")));
+        .andExpectAll(
+            problemDetails(
+                403,
+                "https://api.timing-jeju.example/problems/auth-access-denied",
+                "접근이 거부되었습니다.",
+                "AUTH_ACCESS_DENIED",
+                "접근 권한이 없습니다."));
   }
 
   @Test
   void 보안_오류_writer는_Boot_Jackson3_mapper_주입_계약을_사용한다() {
     org.assertj.core.api.Assertions.assertThat(
-            SecurityErrorResponseWriter.class.getConstructors()[0].getParameterTypes()[0].getName())
+            ProblemResponseWriter.class.getConstructors()[0].getParameterTypes()[0].getName())
         .isEqualTo("tools.jackson.databind.ObjectMapper");
   }
 
