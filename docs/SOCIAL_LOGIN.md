@@ -77,7 +77,7 @@ Naver는 이메일 검증 여부를 제공하지 않습니다. 따라서 adapter
 5. email 제공 동의를 필수로 요청하되, email이 검증됐다고 간주하지 않습니다.
 6. 신규/기존 동일 이메일 사용자의 자동 identity 연결 결과를 확인하고 기대와 다르면 운영 활성화를 중단합니다.
 
-원본 token, Naver body, provider 오류 메시지, 이메일·휴대전화·생년월일·성별·연령대는 로그·오류·DB에 남기지 않습니다. 오류 응답은 분류된 `code`, 고정 한국어 `message`, `traceId`만 제공합니다.
+원본 token, Naver body, provider 오류 메시지, 이메일·휴대전화·생년월일·성별·연령대는 로그·오류·DB에 남기지 않습니다. 오류 응답은 공통 `application/problem+json` writer를 사용해 `type`, `title`, `status`, 고정 한국어 `detail`, occurrence URI `instance`, 분류된 `code`, 요청 단위 `traceId`, 빈 `fieldErrors` 정확히 8개 필드를 제공합니다. `instance`는 `urn:timing-jeju:problem:<traceId>`이며 `X-Trace-Id` 헤더와 body에는 같은 32자리 소문자 hex 값을 사용합니다. `message` 필드와 query string은 공개하지 않습니다.
 
 ## 공식 근거
 

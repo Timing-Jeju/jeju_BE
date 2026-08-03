@@ -47,7 +47,7 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 
 운영 마이그레이션은 `auth` 스키마, `auth.users`, `auth.uid()`를 생성·교체·삭제하지 않으며 `auth.users`에 직접 INSERT하지 않습니다. `auth.users` 외래키와 `auth.uid()`를 사용하는 RLS 정책은 Supabase 소유 객체를 참조할 뿐 변경하지 않으므로 유지합니다.
 
-현재 Flyway는 도입하지 않습니다. Flyway 의존성·설정·`db/migration`을 추가하지 않고, 도입 여부는 향후 별도 GitHub Issue에서 검토합니다. 운영에 `db/local-postgres` 파일을 적용하거나 이 파일을 `supabase db push` 대상으로 복사하면 안 됩니다.
+현재 기능 개발 로드맵 전체에서 Flyway는 도입하지 않습니다. Flyway 의존성·설정·`db/migration`을 추가하지 않고, 도입 여부는 모든 주요 기능 개발이 끝난 뒤 마지막 안정화 GitHub Issue에서만 검토합니다. 운영에 `db/local-postgres` 파일을 적용하거나 이 파일을 `supabase db push` 대상으로 복사하면 안 됩니다.
 
 ## 외부 데이터 적재와 read model
 

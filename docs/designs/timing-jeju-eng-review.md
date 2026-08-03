@@ -59,7 +59,7 @@ app/
 | Build | Maven | Spring Initializr 기본 흐름과 공모전 팀 협업에 단순하다. |
 | API style | REST JSON | 모바일 앱과 AI 레이어가 소비하기 쉽고 테스트가 쉽다. |
 | DB | PostgreSQL + PostGIS | 관광지 좌표와 정류장 반경 검색은 핵심 기능이다. |
-| Migration | Flyway | TourAPI/버스 데이터 스키마가 바뀔 때 이력을 남긴다. |
+| Migration | Supabase CLI (`supabase/migrations`) | public 스키마 변경 이력을 단일 운영 기준으로 관리한다. Flyway는 주요 기능 개발이 모두 끝난 뒤 마지막 별도 안정화 Issue에서만 검토한다. |
 | Cache | Caffeine first | TourAPI 응답과 demo corridor 데이터를 빠르게 재사용한다. Redis는 Phase 2. |
 | XLSX import | Apache POI | 제주 버스 시간표 파일 import에 필요하다. |
 | HTTP clients | Spring `RestClient`/`WebClient`, one style only | 외부 API 호출 방식을 섞지 않는다. |
@@ -409,7 +409,7 @@ MVP 구현 가능성 점수: **8/10**
 | Build | Maven | 팀 프로젝트/공모전에서 진입 장벽이 낮고 Spring Initializr 기본 흐름과 잘 맞다. |
 | API style | REST JSON | 프론트와 분리하기 쉽고, 데모/테스트가 단순하다. |
 | Persistence | Spring Data JPA + Hibernate Spatial | 일반 엔티티와 위치 쿼리를 함께 다룬다. |
-| Migration | Flyway | 버스/관광 데이터 스키마 변경 이력을 명시적으로 관리한다. |
+| Migration | Supabase CLI (`supabase/migrations`) | public 스키마 변경 이력을 단일 운영 기준으로 관리한다. Flyway는 주요 기능 개발이 모두 끝난 뒤 마지막 별도 안정화 Issue에서만 검토한다. |
 | Validation | Spring Validation | 입력 일정, 날짜, 좌표, priority 값을 서버에서 막는다. |
 | Scheduling | Spring Scheduler | TourAPI 캐시 warm-up, 버스 데이터 import job에 충분하다. |
 | Observability | Spring Boot Actuator + Micrometer | API 상태, cache, import 실패, OpenAI fallback을 볼 수 있다. |
@@ -796,7 +796,7 @@ Backend:
   Spring Web MVC
   Spring Data JPA
   PostgreSQL 17 + PostGIS
-  Flyway
+  Supabase CLI migrations (supabase/migrations)
   Apache POI
   Caffeine
   OpenAI Java SDK
