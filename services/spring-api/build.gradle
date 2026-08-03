@@ -39,7 +39,9 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-jdbc-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation "com.tngtech.archunit:archunit-junit5:${archUnitVersion}"
+	testImplementation 'org.testcontainers:testcontainers-postgresql'
 	testRuntimeOnly 'com.h2database:h2'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -84,6 +86,20 @@ taggedTest('unitTest', 'unit', '도메인 및 서비스 단위 테스트를 실�
 taggedTest('sliceTest', 'slice', 'Controller/Repository 슬라이스 테스트를 실행합니다.')
 def integrationTestTask = taggedTest('integrationTest', 'integration', '통합 테스트를 실행합니다.')
 taggedTest('architectureTest', 'architecture', 'ArchUnit 아키텍처 테스트를 실행합니다.')
+
+def repositoryTestSchema = files(
+	file('../../db/local-postgres/auth_compat.sql'),
+	fileTree('../../supabase/migrations') {
+		include '*.sql'
+	}
+)
+
+integrationTestTask.configure {
+	inputs.files(repositoryTestSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+}
+tasks.named('test', Test) {
+	inputs.files(repositoryTestSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+}
 
 def openApiOutput = layout.buildDirectory.file('openapi/openapi.json')
 integrationTestTask.configure {

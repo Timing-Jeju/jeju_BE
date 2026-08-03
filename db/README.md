@@ -105,6 +105,8 @@ supabase db reset
 
 기존 Spring Docker 검증은 Supabase Auth 컨테이너 대신 로컬 전용 호환 계층을 먼저 적용한 뒤 같은 `supabase/migrations` 기준선을 적용합니다.
 
+Spring Repository 통합 테스트는 `services/spring-api`의 Testcontainers 공통 기반을 사용합니다. 이 경로는 PostGIS 16 격리 컨테이너에 `auth_compat.sql`과 timestamp순 canonical migration만 적용하고 로컬 seed fixture는 적용하지 않습니다. 테스트 연결은 Spring Boot service connection이 임의 포트와 실행별 비밀번호로 제공하며, 각 테스트 트랜잭션과 컨테이너는 실행 후 자동 정리됩니다. PostgreSQL 17은 실제 Supabase CLI reset/smoke 경로에서 별도로 검증합니다.
+
 일반 PostgreSQL 초기화 순서는 Auth 호환 객체 → 최초 public 스키마 → 기본 무결성 강화 → 외부 적재 기반 → 적재 일관성 강화 → 일정 일관성 강화 → 로컬 fixture입니다. fixture보다 앞에서 모든 운영 마이그레이션을 적용하므로 fixture가 신규 제약과 동일한 경로를 검증합니다.
 
 ```bash
