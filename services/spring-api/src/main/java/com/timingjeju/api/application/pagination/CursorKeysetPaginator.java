@@ -2,22 +2,34 @@ package com.timingjeju.api.application.pagination;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 public final class CursorKeysetPaginator {
 
   private CursorKeysetPaginator() {}
 
+  /** 직렬화 문자열의 타입을 추측하지 않는다. 호출자는 sort 값과 tie-breaker의 오름차순 비교 의미를 각각 명시해야 한다. */
   public static <T> CursorPage<T> page(
-      List<T> rows, CursorPageRequest request, Function<T, CursorPosition> positionExtractor) {
-    List<T> sortedRows =
-        rows.stream().sorted(comparator(request.context().sort(), positionExtractor)).toList();
+      List<T> rows,
+      CursorPageRequest request,
+      Function<T, CursorPosition> positionExtractor,
+      Comparator<String> ascendingSortValueComparator,
+      Comparator<String> ascendingTieBreakerComparator) {
+    Comparator<CursorPosition> ascendingPositionComparator =
+        positionComparator(ascendingSortValueComparator, ascendingTieBreakerComparator);
+    Comparator<T> rowComparator =
+        rowComparator(request.context().sort(), positionExtractor, ascendingPositionComparator);
+    List<T> sortedRows = rows.stream().sorted(rowComparator).toList();
     List<T> window =
         sortedRows.stream()
             .filter(
                 row ->
                     isAfter(
-                        positionExtractor.apply(row), request.after(), request.context().sort()))
+                        positionExtractor.apply(row),
+                        request.after(),
+                        request.context().sort(),
+                        ascendingPositionComparator))
             .limit((long) request.size() + 1)
             .toList();
     boolean hasNext = window.size() > request.size();
@@ -29,25 +41,35 @@ public final class CursorKeysetPaginator {
     return new CursorPage<>(items, new CursorPageInfo(request.size(), hasNext, nextCursor));
   }
 
-  private static <T> Comparator<T> comparator(
-      CursorSort sort, Function<T, CursorPosition> positionExtractor) {
-    Comparator<T> comparator =
-        Comparator.comparing((T row) -> positionExtractor.apply(row).sortValue())
-            .thenComparing(row -> positionExtractor.apply(row).tieBreaker());
+  private static Comparator<CursorPosition> positionComparator(
+      Comparator<String> ascendingSortValueComparator,
+      Comparator<String> ascendingTieBreakerComparator) {
+    Objects.requireNonNull(ascendingSortValueComparator, "ascendingSortValueComparator");
+    Objects.requireNonNull(ascendingTieBreakerComparator, "ascendingTieBreakerComparator");
+    return Comparator.comparing(CursorPosition::sortValue, ascendingSortValueComparator)
+        .thenComparing(CursorPosition::tieBreaker, ascendingTieBreakerComparator);
+  }
+
+  private static <T> Comparator<T> rowComparator(
+      CursorSort sort,
+      Function<T, CursorPosition> positionExtractor,
+      Comparator<CursorPosition> ascendingPositionComparator) {
+    Comparator<T> comparator = Comparator.comparing(positionExtractor, ascendingPositionComparator);
     if (sort.direction() == CursorDirection.DESC) {
       comparator = comparator.reversed();
     }
     return comparator;
   }
 
-  private static boolean isAfter(CursorPosition position, CursorPosition cursor, CursorSort sort) {
+  private static boolean isAfter(
+      CursorPosition position,
+      CursorPosition cursor,
+      CursorSort sort,
+      Comparator<CursorPosition> ascendingPositionComparator) {
     if (cursor == null) {
       return true;
     }
-    int sortComparison = position.sortValue().compareTo(cursor.sortValue());
-    if (sortComparison == 0) {
-      sortComparison = position.tieBreaker().compareTo(cursor.tieBreaker());
-    }
-    return sort.direction() == CursorDirection.ASC ? sortComparison > 0 : sortComparison < 0;
+    int comparison = ascendingPositionComparator.compare(position, cursor);
+    return sort.direction() == CursorDirection.ASC ? comparison > 0 : comparison < 0;
   }
 }
