@@ -36,10 +36,11 @@ public final class CursorCodec {
     String signature = hmacSha256Hex(canonicalJson(unsignedPayload));
     LinkedHashMap<String, String> signedPayload = new LinkedHashMap<>(unsignedPayload);
     signedPayload.put("sig", signature);
-    String encoded =
-        Base64.getUrlEncoder()
-            .withoutPadding()
-            .encodeToString(canonicalJson(signedPayload).getBytes(StandardCharsets.UTF_8));
+    byte[] signedJsonBytes = canonicalJson(signedPayload).getBytes(StandardCharsets.UTF_8);
+    if (signedJsonBytes.length > MAX_DECODED_JSON_BYTES) {
+      throw new IllegalArgumentException("decoded cursor payload is too long");
+    }
+    String encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(signedJsonBytes);
     if (encoded.length() > MAX_ENCODED_LENGTH) {
       throw new IllegalArgumentException("encoded cursor is too long");
     }

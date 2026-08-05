@@ -1,5 +1,7 @@
 package com.timingjeju.api.application.pagination;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Objects;
 
 public record CursorSort(String key, CursorDirection direction, String tieBreakerKey) {
@@ -19,7 +21,18 @@ public record CursorSort(String key, CursorDirection direction, String tieBreake
   }
 
   String token() {
-    return key + ":" + direction.name() + ":" + tieBreakerKey;
+    return "v1."
+        + encodeComponent(key)
+        + "."
+        + direction.name()
+        + "."
+        + encodeComponent(tieBreakerKey);
+  }
+
+  private static String encodeComponent(String value) {
+    return Base64.getUrlEncoder()
+        .withoutPadding()
+        .encodeToString(value.getBytes(StandardCharsets.UTF_8));
   }
 
   private static String requireText(String value, String name) {

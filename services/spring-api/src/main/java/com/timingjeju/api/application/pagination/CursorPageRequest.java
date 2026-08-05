@@ -21,10 +21,7 @@ public record CursorPageRequest(
   public static CursorPageRequest of(
       Integer size, String encodedCursor, CursorContext context, CursorCodec codec) {
     int normalizedSize = size == null ? DEFAULT_SIZE : size;
-    CursorPosition after =
-        encodedCursor == null || encodedCursor.isBlank()
-            ? null
-            : codec.decode(encodedCursor, context);
+    CursorPosition after = encodedCursor == null ? null : codec.decode(encodedCursor, context);
     return new CursorPageRequest(normalizedSize, after, context, codec);
   }
 }

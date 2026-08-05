@@ -34,6 +34,16 @@ class CursorPaginationContractTest {
   }
 
   @Test
+  void null_cursor만_미제공이고_빈문자열과_공백은_CURSOR_INVALID로_거부한다() {
+    assertThat(CursorPageRequest.of(20, null, CONTEXT, CODEC).after()).isNull();
+
+    assertThatThrownBy(() -> CursorPageRequest.of(20, "", CONTEXT, CODEC))
+        .isInstanceOf(CursorInvalidException.class);
+    assertThatThrownBy(() -> CursorPageRequest.of(20, "   ", CONTEXT, CODEC))
+        .isInstanceOf(CursorInvalidException.class);
+  }
+
+  @Test
   void 데이터_21개를_size20으로_조회하면_20개와_nextCursor를_반환한다() {
     List<PlaceRow> rows =
         IntStream.rangeClosed(1, 21)
