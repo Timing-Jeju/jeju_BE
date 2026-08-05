@@ -1,10 +1,12 @@
 package com.timingjeju.api.domain.auth.config;
 
+import com.timingjeju.api.domain.auth.controller.NaverProblemDefinitionContributor;
 import com.timingjeju.api.domain.auth.service.NaverUserInfoAdmissionService;
 import com.timingjeju.api.domain.auth.service.NaverUserInfoGateway;
 import com.timingjeju.api.domain.auth.service.NaverUserInfoHttpGateway;
 import com.timingjeju.api.domain.auth.service.NaverUserInfoService;
 import com.timingjeju.api.domain.auth.service.SocialLoginCatalogService;
+import com.timingjeju.api.global.error.ProblemDefinitionContributor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,5 +35,10 @@ public class SocialLoginConfiguration {
   NaverUserInfoService naverUserInfoService(
       NaverUserInfoGateway gateway, NaverUserInfoAdmissionService admissionService) {
     return new NaverUserInfoService(gateway, admissionService);
+  }
+
+  @Bean
+  ProblemDefinitionContributor naverProblemDefinitionContributor() {
+    return new NaverProblemDefinitionContributor();
   }
 }

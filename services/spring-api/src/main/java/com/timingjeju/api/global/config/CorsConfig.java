@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.config;
 
+import com.timingjeju.api.global.logging.RequestTraceId;
 import com.timingjeju.api.global.security.AppCorsProperties;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -26,6 +27,7 @@ public class CorsConfig {
             HttpMethod.DELETE.name(),
             HttpMethod.OPTIONS.name()));
     configuration.setAllowedHeaders(List.of(HttpHeaders.AUTHORIZATION, HttpHeaders.CONTENT_TYPE));
+    configuration.setExposedHeaders(List.of(RequestTraceId.TRACE_ID_HEADER));
     configuration.setAllowCredentials(false);
     configuration.setMaxAge(3600L);
 

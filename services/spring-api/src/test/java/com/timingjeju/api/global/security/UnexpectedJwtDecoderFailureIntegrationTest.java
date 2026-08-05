@@ -1,13 +1,12 @@
 package com.timingjeju.api.global.security;
 
+import static com.timingjeju.api.support.http.ProblemDetailsAssertions.problemDetails;
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.timingjeju.api.global.error.ProblemResponseWriter;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +17,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
@@ -40,7 +39,7 @@ class UnexpectedJwtDecoderFailureIntegrationTest {
       "https://jwks.example.test/keys?token=should-never-appear";
 
   @Autowired private MockMvc mockMvc;
-  @Autowired private SecurityErrorResponseWriter responseWriter;
+  @Autowired private ProblemResponseWriter responseWriter;
 
   @Test
   void 예상하지_못한_decoder_내부_장애는_401로_숨기지_않고_안전한_500을_반환한다() throws Exception {
@@ -48,11 +47,13 @@ class UnexpectedJwtDecoderFailureIntegrationTest {
         .perform(
             get("/api/v1/internal-fault")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer signed-looking-token"))
-        .andExpect(status().isInternalServerError())
-        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.code").value("AUTH_INTERNAL_ERROR"))
-        .andExpect(jsonPath("$.message").value("인증 처리 중 내부 오류가 발생했습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern("[0-9a-f]{32}")))
+        .andExpectAll(
+            problemDetails(
+                500,
+                "https://api.timing-jeju.example/problems/auth-internal-error",
+                "내부 서버 오류가 발생했습니다.",
+                "AUTH_INTERNAL_ERROR",
+                "인증 처리 중 내부 오류가 발생했습니다."))
         .andExpect(content().string(not(containsString(SENSITIVE_INTERNAL_MESSAGE))));
   }
 
@@ -62,7 +63,10 @@ class UnexpectedJwtDecoderFailureIntegrationTest {
     response.getWriter().write("existing-response");
     response.flushBuffer();
 
-    responseWriter.write(response, 500, "AUTH_INTERNAL_ERROR", "인증 처리 중 내부 오류가 발생했습니다.");
+    responseWriter.write(
+        new MockHttpServletRequest("GET", "/api/v1/internal-fault"),
+        response,
+        "AUTH_INTERNAL_ERROR");
 
     org.assertj.core.api.Assertions.assertThat(response.getContentAsString())
         .isEqualTo("existing-response");

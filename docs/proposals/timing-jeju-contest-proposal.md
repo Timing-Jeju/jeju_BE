@@ -577,7 +577,7 @@ React timeline/map/cards
 - Spring Data JPA
 - Hibernate Spatial
 - PostgreSQL 17 + PostGIS
-- Flyway
+- Supabase CLI migrations (`supabase/migrations` 단일 운영 기준)
 - Apache POI
 - Caffeine Cache
 - OpenAI Java SDK

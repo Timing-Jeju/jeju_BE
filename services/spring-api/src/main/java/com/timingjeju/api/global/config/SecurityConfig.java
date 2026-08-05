@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.config;
 
 import com.timingjeju.api.application.security.CurrentUserAccessor;
+import com.timingjeju.api.global.error.ProblemResponseWriter;
 import com.timingjeju.api.global.security.AppCorsProperties;
 import com.timingjeju.api.global.security.CurrentUserJwtAuthenticationConverter;
 import com.timingjeju.api.global.security.JsonAccessDeniedHandler;
@@ -8,9 +9,9 @@ import com.timingjeju.api.global.security.JsonAuthenticationEntryPoint;
 import com.timingjeju.api.global.security.JwksJwtDecoderStrategy;
 import com.timingjeju.api.global.security.JwtDecoderStrategy;
 import com.timingjeju.api.global.security.LocalHs256JwtDecoderStrategy;
+import com.timingjeju.api.global.security.ProblemCorsProcessor;
 import com.timingjeju.api.global.security.SecurityAuthenticationFailureHandler;
 import com.timingjeju.api.global.security.SecurityContextCurrentUserAccessor;
-import com.timingjeju.api.global.security.SecurityErrorResponseWriter;
 import com.timingjeju.api.global.security.SecurityRuntimeEnvironmentResolver;
 import com.timingjeju.api.global.security.SecurityRuntimePolicy;
 import com.timingjeju.api.global.security.StrictBearerTokenResolver;
@@ -31,7 +32,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfigurationSource;
-import tools.jackson.databind.ObjectMapper;
+import org.springframework.web.filter.CorsFilter;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({SupabaseJwtProperties.class, AppCorsProperties.class})
@@ -65,14 +66,17 @@ public class SecurityConfig {
   }
 
   @Bean
-  SecurityErrorResponseWriter securityErrorResponseWriter(ObjectMapper objectMapper) {
-    return new SecurityErrorResponseWriter(objectMapper);
+  ProblemCorsProcessor problemCorsProcessor(ProblemResponseWriter responseWriter) {
+    return new ProblemCorsProcessor(responseWriter);
   }
 
   @Bean
   @Order(1)
   SecurityFilterChain socialLoginSecurityFilterChain(
-      HttpSecurity http, CorsConfigurationSource corsConfigurationSource) throws Exception {
+      HttpSecurity http,
+      CorsConfigurationSource corsConfigurationSource,
+      ProblemCorsProcessor corsProcessor)
+      throws Exception {
     http.securityMatcher(
         request ->
             "GET".equals(request.getMethod())
@@ -81,7 +85,7 @@ public class SecurityConfig {
     http.sessionManagement(
         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
     http.csrf(csrf -> csrf.disable());
-    http.cors(cors -> cors.configurationSource(corsConfigurationSource));
+    addProblemCorsFilter(http, corsConfigurationSource, corsProcessor);
     http.authorizeHttpRequests(requests -> requests.anyRequest().permitAll());
     return http.build();
   }
@@ -92,7 +96,8 @@ public class SecurityConfig {
       HttpSecurity http,
       JwtDecoder jwtDecoder,
       CorsConfigurationSource corsConfigurationSource,
-      SecurityErrorResponseWriter responseWriter,
+      ProblemCorsProcessor corsProcessor,
+      ProblemResponseWriter responseWriter,
       @Value("${springdoc.api-docs.enabled:true}") boolean apiDocsEnabled,
       @Value("${springdoc.swagger-ui.enabled:true}") boolean swaggerUiEnabled)
       throws Exception {
@@ -106,7 +111,7 @@ public class SecurityConfig {
         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
     // Authorization 헤더의 Bearer token만 사용하고 쿠키 세션을 만들지 않으므로 CSRF를 비활성화한다.
     http.csrf(csrf -> csrf.disable());
-    http.cors(cors -> cors.configurationSource(corsConfigurationSource));
+    addProblemCorsFilter(http, corsConfigurationSource, corsProcessor);
     http.exceptionHandling(
         exceptions ->
             exceptions
@@ -144,5 +149,14 @@ public class SecurityConfig {
                 .authenticationEntryPoint(authenticationEntryPoint)
                 .accessDeniedHandler(accessDeniedHandler));
     return http.build();
+  }
+
+  private static void addProblemCorsFilter(
+      HttpSecurity http,
+      CorsConfigurationSource configurationSource,
+      ProblemCorsProcessor corsProcessor) {
+    CorsFilter corsFilter = new CorsFilter(configurationSource);
+    corsFilter.setCorsProcessor(corsProcessor);
+    http.addFilter(corsFilter);
   }
 }

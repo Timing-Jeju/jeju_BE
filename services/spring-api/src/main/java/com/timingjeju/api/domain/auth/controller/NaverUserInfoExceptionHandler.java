@@ -1,38 +1,29 @@
 package com.timingjeju.api.domain.auth.controller;
 
-import com.timingjeju.api.domain.auth.dto.response.SocialLoginErrorResponse;
 import com.timingjeju.api.domain.auth.exception.NaverUserInfoException;
-import com.timingjeju.api.domain.auth.exception.NaverUserInfoFailureCode;
-import java.util.UUID;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import com.timingjeju.api.global.error.ProblemResponseWriter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice(assignableTypes = SocialLoginController.class)
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class NaverUserInfoExceptionHandler {
 
-  @ExceptionHandler(NaverUserInfoException.class)
-  ResponseEntity<SocialLoginErrorResponse> handle(NaverUserInfoException exception) {
-    var failureCode = exception.code();
-    String traceId = UUID.randomUUID().toString().replace("-", "");
-    return ResponseEntity.status(statusFor(failureCode).value())
-        .body(
-            new SocialLoginErrorResponse(
-                failureCode.externalCode(), failureCode.message(), traceId));
+  private final ProblemResponseWriter responseWriter;
+
+  public NaverUserInfoExceptionHandler(ProblemResponseWriter responseWriter) {
+    this.responseWriter = responseWriter;
   }
 
-  private static HttpStatus statusFor(NaverUserInfoFailureCode failureCode) {
-    return switch (failureCode) {
-      case PROVIDER_TOKEN_INVALID, UPSTREAM_UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
-      case APPLICATION_RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
-      case APPLICATION_OVERLOADED -> HttpStatus.SERVICE_UNAVAILABLE;
-      case UPSTREAM_FORBIDDEN -> HttpStatus.FORBIDDEN;
-      case UPSTREAM_RATE_LIMITED -> HttpStatus.SERVICE_UNAVAILABLE;
-      case UPSTREAM_UNAVAILABLE, UPSTREAM_MALFORMED_RESPONSE, UPSTREAM_RESPONSE_TOO_LARGE ->
-          HttpStatus.BAD_GATEWAY;
-      case UPSTREAM_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
-      case EMAIL_REQUIRED -> HttpStatus.UNPROCESSABLE_ENTITY;
-    };
+  @ExceptionHandler(NaverUserInfoException.class)
+  void handle(
+      NaverUserInfoException exception, HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    responseWriter.write(request, response, exception.code().externalCode());
   }
 }

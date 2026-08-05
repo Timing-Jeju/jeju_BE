@@ -65,6 +65,12 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 추가 설명이 필요한 API는 `domain/{domain}/controller/docs/{Domain}ApiDocs` 문서 계약 인터페이스에 `@Operation`과 특수 응답을 작성합니다. API 전체 정보와 향후 공통 인증·오류 응답은 `global.config.OpenApiConfig`와 `OpenApiCustomizer`가 담당합니다. 세부 기준은 [API 문서화 규칙](API_DOCUMENTATION.md)을 따릅니다.
 
+## 공통 오류와 trace 경계
+
+`global.error`는 공개 API의 단일 `application/problem+json` DTO, 확장 가능한 code registry, MVC exception 변환과 servlet response writer를 소유합니다. Security filter chain, CORS processor와 도메인별 Controller advice는 같은 writer를 사용하고 응답이 이미 commit되면 본문을 다시 쓰지 않습니다. 아직 commit되지 않은 partial body는 초기화한 뒤 공통 오류만 기록합니다. 도메인은 자체 오류 분류를 `ProblemDefinitionContributor`로 제공할 수 있지만 `global.error`가 도메인 구현에 역으로 의존하지 않습니다.
+
+`global.logging`의 가장 이른 servlet filter가 사용자 입력을 신뢰하지 않고 요청마다 32자리 소문자 hex `traceId`를 생성합니다. 같은 값만 request attribute, `X-Trace-Id` 응답 헤더와 오류 body로 전파합니다. MDC에는 동기 dispatch, MVC `Callable` worker, async/error redispatch 동안 같은 값을 설정하고 각 처리 종료 시 이전 값을 복원합니다. 오류 `instance`는 같은 `traceId`를 포함한 occurrence URI `urn:timing-jeju:problem:<traceId>`로 고정하여 raw path segment와 query string을 반사하지 않습니다. 공통 advice가 처리한 raw exception의 Spring DEBUG 출력은 비활성화하고 token, provider payload와 PII를 응답이나 애플리케이션 로그에 공개하지 않습니다.
+
 ## 의존성 원칙
 
 - 호출 흐름은 `controller → service → repository`입니다.
@@ -86,7 +92,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
-- Spring classpath와 `db/migration`에는 Flyway를 도입하지 않습니다. Supabase migration과 이중으로 스키마 이력을 관리하지 않으며, 도입 여부는 별도 Issue에서 결정합니다.
+- 현재 기능 개발 로드맵 전체에서 Spring classpath와 `db/migration`에 Flyway를 도입하지 않습니다. `supabase/migrations`만 운영 DB 마이그레이션의 단일 기준으로 유지합니다. Flyway 검토는 모든 주요 기능 개발이 끝난 뒤 마지막 안정화 Issue에서만 수행하며, 그 전에는 의존성·application 설정·디렉터리·테스트를 추가하지 않습니다.
 
 ## 외부 데이터 적재 경계
 

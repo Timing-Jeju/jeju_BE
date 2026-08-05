@@ -1,7 +1,7 @@
 package com.timingjeju.api.domain.auth.controller;
 
+import static com.timingjeju.api.support.http.ProblemDetailsAssertions.problemDetails;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -42,7 +42,6 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(SocialLoginIntegrationTest.TestGatewayConfiguration.class)
 class SocialLoginIntegrationTest {
 
-  private static final String TRACE_ID_PATTERN = "[0-9a-f]{32}";
   private static final String TEST_JWT_SIGNING_KEY =
       "test-only-hs256-signing-key-with-at-least-32-bytes";
 
@@ -132,10 +131,13 @@ class SocialLoginIntegrationTest {
         .perform(
             get("/api/v1/auth/social/naver/userinfo")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer opaque-provider-token"))
-        .andExpect(status().isServiceUnavailable())
-        .andExpect(jsonPath("$.code").value("SOCIAL_NAVER_UPSTREAM_RATE_LIMITED"))
-        .andExpect(jsonPath("$.message").value("네이버 로그인 서비스를 일시적으로 사용할 수 없습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern(TRACE_ID_PATTERN)))
+        .andExpectAll(
+            problemDetails(
+                503,
+                "https://api.timing-jeju.example/problems/social-naver-upstream-rate-limited",
+                "외부 서비스 요청을 완료하지 못했습니다.",
+                "SOCIAL_NAVER_UPSTREAM_RATE_LIMITED",
+                "네이버 로그인 서비스를 일시적으로 사용할 수 없습니다."))
         .andExpect(jsonPath("$..providerToken").doesNotExist())
         .andExpect(jsonPath("$..mobile").doesNotExist());
   }
@@ -148,9 +150,13 @@ class SocialLoginIntegrationTest {
         .perform(
             get("/api/v1/auth/social/naver/userinfo")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer opaque-provider-token"))
-        .andExpect(status().isTooManyRequests())
-        .andExpect(jsonPath("$.code").value("SOCIAL_NAVER_RATE_LIMITED"))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern(TRACE_ID_PATTERN)));
+        .andExpectAll(
+            problemDetails(
+                429,
+                "https://api.timing-jeju.example/problems/social-naver-rate-limited",
+                "요청이 너무 많습니다.",
+                "SOCIAL_NAVER_RATE_LIMITED",
+                "네이버 로그인 요청이 너무 많습니다."));
 
     gateway.failure.set(
         new NaverUserInfoException(NaverUserInfoFailureCode.APPLICATION_OVERLOADED));
@@ -158,9 +164,13 @@ class SocialLoginIntegrationTest {
         .perform(
             get("/api/v1/auth/social/naver/userinfo")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer opaque-provider-token"))
-        .andExpect(status().isServiceUnavailable())
-        .andExpect(jsonPath("$.code").value("SOCIAL_NAVER_OVERLOADED"))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern(TRACE_ID_PATTERN)));
+        .andExpectAll(
+            problemDetails(
+                503,
+                "https://api.timing-jeju.example/problems/social-naver-overloaded",
+                "서비스를 일시적으로 사용할 수 없습니다.",
+                "SOCIAL_NAVER_OVERLOADED",
+                "네이버 로그인 서비스를 일시적으로 사용할 수 없습니다."));
   }
 
   private void assertTokenInvalid(
@@ -168,10 +178,13 @@ class SocialLoginIntegrationTest {
       throws Exception {
     mockMvc
         .perform(request)
-        .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("SOCIAL_NAVER_TOKEN_INVALID"))
-        .andExpect(jsonPath("$.message").value("네이버 인증 정보를 확인할 수 없습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern(TRACE_ID_PATTERN)));
+        .andExpectAll(
+            problemDetails(
+                401,
+                "https://api.timing-jeju.example/problems/social-naver-token-invalid",
+                "인증에 실패했습니다.",
+                "SOCIAL_NAVER_TOKEN_INVALID",
+                "네이버 인증 정보를 확인할 수 없습니다."));
   }
 
   @TestConfiguration(proxyBeanMethods = false)

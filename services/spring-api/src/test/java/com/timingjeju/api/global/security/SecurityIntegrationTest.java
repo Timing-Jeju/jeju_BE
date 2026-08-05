@@ -1,9 +1,9 @@
 package com.timingjeju.api.global.security;
 
-import static org.hamcrest.Matchers.matchesPattern;
+import static com.timingjeju.api.global.logging.RequestTraceId.TRACE_ID_HEADER;
+import static com.timingjeju.api.support.http.ProblemDetailsAssertions.problemDetails;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -33,7 +33,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -54,8 +53,6 @@ class SecurityIntegrationTest {
 
   private static final String ISSUER = "http://127.0.0.1:54321/auth/v1";
   private static final String HMAC_KEY = "test-only-hs256-secret-with-at-least-32-bytes";
-  private static final String TRACE_ID_PATTERN = "[0-9a-f]{32}";
-
   @Autowired private MockMvc mockMvc;
 
   @Test
@@ -270,10 +267,13 @@ class SecurityIntegrationTest {
     mockMvc
         .perform(
             get("/not-allowed").header(HttpHeaders.AUTHORIZATION, bearer(token(UUID.randomUUID()))))
-        .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("AUTH_ACCESS_DENIED"))
-        .andExpect(jsonPath("$.message").value("접근 권한이 없습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern(TRACE_ID_PATTERN)));
+        .andExpectAll(
+            problemDetails(
+                403,
+                "https://api.timing-jeju.example/problems/auth-access-denied",
+                "접근이 거부되었습니다.",
+                "AUTH_ACCESS_DENIED",
+                "접근 권한이 없습니다."));
   }
 
   @Test
@@ -323,7 +323,13 @@ class SecurityIntegrationTest {
             options("/api/v1/test/current-user")
                 .header(HttpHeaders.ORIGIN, "https://evil.example")
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
-        .andExpect(status().isForbidden())
+        .andExpectAll(
+            problemDetails(
+                403,
+                "https://api.timing-jeju.example/problems/auth-access-denied",
+                "접근이 거부되었습니다.",
+                "AUTH_ACCESS_DENIED",
+                "접근 권한이 없습니다."))
         .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
 
     mockMvc
@@ -331,14 +337,67 @@ class SecurityIntegrationTest {
             options("/api/v1/test/current-user")
                 .header(HttpHeaders.ORIGIN, "http://localhost:3000")
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "TRACE"))
-        .andExpect(status().isForbidden());
+        .andExpectAll(
+            problemDetails(
+                403,
+                "https://api.timing-jeju.example/problems/auth-access-denied",
+                "접근이 거부되었습니다.",
+                "AUTH_ACCESS_DENIED",
+                "접근 권한이 없습니다."));
     mockMvc
         .perform(
             options("/api/v1/test/current-user")
                 .header(HttpHeaders.ORIGIN, "http://localhost:3000")
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET")
                 .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "X-Forbidden"))
-        .andExpect(status().isForbidden());
+        .andExpectAll(
+            problemDetails(
+                403,
+                "https://api.timing-jeju.example/problems/auth-access-denied",
+                "접근이 거부되었습니다.",
+                "AUTH_ACCESS_DENIED",
+                "접근 권한이 없습니다."));
+
+    mockMvc
+        .perform(
+            get("/api/v1/auth/social/providers").header(HttpHeaders.ORIGIN, "https://evil.example"))
+        .andExpectAll(
+            problemDetails(
+                403,
+                "https://api.timing-jeju.example/problems/auth-access-denied",
+                "접근이 거부되었습니다.",
+                "AUTH_ACCESS_DENIED",
+                "접근 권한이 없습니다."));
+  }
+
+  @Test
+  void 허용된_CORS_성공_응답은_trace_id_header를_브라우저에_노출한다() throws Exception {
+    mockMvc
+        .perform(
+            get("/api/v1/auth/social/providers")
+                .header(HttpHeaders.ORIGIN, "http://localhost:3000"))
+        .andExpect(status().isOk())
+        .andExpect(
+            header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
+        .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, TRACE_ID_HEADER))
+        .andExpect(header().exists(TRACE_ID_HEADER));
+  }
+
+  @Test
+  void 허용된_CORS_오류_응답도_origin과_trace_id_header를_보존한다() throws Exception {
+    mockMvc
+        .perform(
+            get("/api/v1/test/current-user").header(HttpHeaders.ORIGIN, "http://localhost:3000"))
+        .andExpectAll(
+            problemDetails(
+                401,
+                "https://api.timing-jeju.example/problems/auth-token-invalid",
+                "인증에 실패했습니다.",
+                "AUTH_TOKEN_INVALID",
+                "인증 토큰이 유효하지 않습니다."))
+        .andExpect(
+            header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
+        .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, TRACE_ID_HEADER));
   }
 
   private void assertCorsPreflightAllowed(String origin) throws Exception {
@@ -375,11 +434,13 @@ class SecurityIntegrationTest {
       throws Exception {
     mockMvc
         .perform(request)
-        .andExpect(status().isUnauthorized())
-        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.code").value("AUTH_TOKEN_INVALID"))
-        .andExpect(jsonPath("$.message").value("인증 토큰이 유효하지 않습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern(TRACE_ID_PATTERN)));
+        .andExpectAll(
+            problemDetails(
+                401,
+                "https://api.timing-jeju.example/problems/auth-token-invalid",
+                "인증에 실패했습니다.",
+                "AUTH_TOKEN_INVALID",
+                "인증 토큰이 유효하지 않습니다."));
   }
 
   private String token(UUID userId) throws Exception {

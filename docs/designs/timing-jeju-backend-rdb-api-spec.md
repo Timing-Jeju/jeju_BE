@@ -120,14 +120,15 @@ Response:
   "type": "https://api.timing-jeju.example/problems/schedule-version-conflict",
   "title": "일정 버전이 변경되었습니다.",
   "status": 409,
-  "code": "SCHEDULE_VERSION_CONFLICT",
   "detail": "최신 일정을 다시 조회한 뒤 변경을 재시도해 주세요.",
-  "instance": "/api/v1/trips/50000000-0000-0000-0000-000000000001/schedule/items/61000000-0000-0000-0000-000000000003",
-  "traceId": "01JZQ2AN8R7H9W67M3ZQ9JXK1D",
-  "currentActiveScheduleVersionId": "60000000-0000-0000-0000-000000000004",
+  "instance": "urn:timing-jeju:problem:4bf92f3577b34da6a3ce929d0e0e4736",
+  "code": "SCHEDULE_VERSION_CONFLICT",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
   "fieldErrors": []
 }
 ```
+
+오류 응답은 위 8개 필드만 사용하고 `message`나 도메인별 추가 envelope 필드를 넣지 않는다. `traceId`는 32자리 소문자 hex이며 `X-Trace-Id` 응답 헤더와 같아야 한다. `instance`는 같은 값을 접미사로 사용한 occurrence URI `urn:timing-jeju:problem:<traceId>`다.
 
 ### 6.5 비동기 실행 응답
 

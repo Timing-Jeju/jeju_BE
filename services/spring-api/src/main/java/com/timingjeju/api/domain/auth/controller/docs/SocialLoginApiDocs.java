@@ -1,8 +1,8 @@
 package com.timingjeju.api.domain.auth.controller.docs;
 
 import com.timingjeju.api.domain.auth.dto.response.NaverUserInfoResponse;
-import com.timingjeju.api.domain.auth.dto.response.SocialLoginErrorResponse;
 import com.timingjeju.api.domain.auth.dto.response.SocialLoginProvidersResponse;
+import com.timingjeju.api.global.error.ApiProblemDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -41,31 +41,52 @@ public interface SocialLoginApiDocs {
     @ApiResponse(
         responseCode = "401",
         description = "Bearer 형식 또는 Naver token이 유효하지 않음",
-        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "403",
         description = "Naver 사용자 정보 접근 거부",
-        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "422",
         description = "Naver email 동의가 없음",
-        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "502",
         description = "Naver 응답 오류",
-        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "429",
         description = "Spring API 요청 제한",
-        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "503",
         description = "Naver rate limit 또는 Spring API 동시 처리 상한",
-        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class))),
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "504",
         description = "Naver 응답 시간 초과",
-        content = @Content(schema = @Schema(implementation = SocialLoginErrorResponse.class)))
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   Map<String, Object> getNaverUserInfo(HttpServletRequest request);
 }

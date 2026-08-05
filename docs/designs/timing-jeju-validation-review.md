@@ -184,7 +184,7 @@ PM 메모:
 |---:|---|---|---|
 | 1 | 실제 API key 확보 여부 확인 | TourAPI/공공데이터 실호출 가능성 결정 | `.env.example` 초안, 필요한 key 목록 |
 | 2 | API DTO 계약 초안 작성 | 프론트/백엔드 병렬 구현 준비 | `trip-plan-contract.md` |
-| 3 | DB 스키마 초안 작성 | import/fixture 구조 고정 | `schema-v0.md` 또는 Flyway draft |
+| 3 | DB 스키마 초안 작성 | import/fixture 구조 고정 | `schema-v0.md`와 `supabase/migrations` draft |
 | 4 | 101/201 시간표 import POC | 시간표 제약을 코드로 확인 | Apache POI import spike |
 | 5 | OpenAI schema/eval fixture | AI guardrail을 테스트로 고정 | JSON schema + 20 prompt fixtures |
 | 6 | Expo fixture 화면 flow | API 이전에도 데모 가능하게 함 | fixture JSON + screen route list |
@@ -195,7 +195,7 @@ PM 메모:
 |---|---|---|---|---|---|
 | Expo 지도 전략 | Sagan | GO_WITH_GUARDRAIL | 포함 | 네이티브 지도 SDK 제외 | 딥링크 URL scheme smoke test |
 | 모바일-서버 API DTO | Dewey | GO_WITH_GUARDRAIL | 포함 | `computed`/`ai` 분리 | OpenAPI/shared type 작성 |
-| PostgreSQL/PostGIS 스키마 | Herschel | GO_WITH_GUARDRAIL | 포함 | fixture와 운영 데이터 동일 테이블 | Flyway draft 작성 |
+| PostgreSQL/PostGIS 스키마 | Herschel | GO_WITH_GUARDRAIL | 포함 | fixture와 운영 데이터 동일 테이블 | `supabase/migrations` draft 작성 |
 
 ### 05. Expo 지도 전략
 
@@ -229,7 +229,7 @@ PM 메모:
 - 공통 meta에는 `requestId`, `mode`, `fixtureScenarioId`, `dataVersion`, `generatedAt`, `warnings`를 둔다.
 - `mode`는 `live | fixture | auto_fallback`으로 제한한다.
 - 점수 필드는 서버 소유다. `routeCoverageScore=100`, `scheduleSafetyScore=38`, `feasibilityScore=81`을 POC 기준으로 재현해야 한다.
-- 공통 error envelope는 `code`, `message`, `userAction`, `retryable`, `details`, `meta`를 가진다.
+- 공통 error envelope는 `type`, `title`, `status`, `detail`, `instance`, `code`, `traceId`, `fieldErrors` 정확히 8개 필드만 가지며 `message`를 넣지 않는다.
 
 ### 07. PostgreSQL/PostGIS 스키마
 
@@ -238,7 +238,7 @@ PM 메모:
 신뢰도: 상. MVP에 필요한 테이블과 PostGIS 사용 경계가 명확하다.  
 MVP 반영: 포함. PostgreSQL + PostGIS는 필수다.  
 필수 guardrail: 동쪽 코리도어 fixture와 운영 import 데이터가 같은 테이블과 같은 엔진 경로를 타야 한다. 별도 demo table은 금지한다.  
-추가 검증 필요: Flyway draft와 PostGIS nearest-stop integration test를 만든다.  
+추가 검증 필요: 단일 운영 기준인 `supabase/migrations` draft와 PostGIS nearest-stop integration test를 만든다. Flyway는 주요 기능 개발이 모두 끝난 뒤 마지막 별도 안정화 Issue에서만 검토한다.
 구현 backlog: `data_import_runs`, `tour_places`, `bus_stops`, `bus_routes`, `route_stops`, `timetable_entries`, `trip_plans`, `trip_legs`, `risk_events`.
 
 PM 메모:

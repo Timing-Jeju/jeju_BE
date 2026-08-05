@@ -1,12 +1,10 @@
 package com.timingjeju.api.global.security;
 
+import static com.timingjeju.api.support.http.ProblemDetailsAssertions.problemDetails;
 import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
@@ -31,7 +29,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -77,11 +74,13 @@ class MalformedJwksSecurityIntegrationTest {
 
     mockMvc
         .perform(get("/api/v1/provider-fault").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-        .andExpect(status().isInternalServerError())
-        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-        .andExpect(jsonPath("$.code").value("AUTH_INTERNAL_ERROR"))
-        .andExpect(jsonPath("$.message").value("인증 처리 중 내부 오류가 발생했습니다."))
-        .andExpect(jsonPath("$.traceId").value(matchesPattern("[0-9a-f]{32}")))
+        .andExpectAll(
+            problemDetails(
+                500,
+                "https://api.timing-jeju.example/problems/auth-internal-error",
+                "내부 서버 오류가 발생했습니다.",
+                "AUTH_INTERNAL_ERROR",
+                "인증 처리 중 내부 오류가 발생했습니다."))
         .andExpect(content().string(not(containsString(MALFORMED_JWKS))))
         .andExpect(content().string(not(containsString(SIGNING_KEY.getKeyID()))))
         .andExpect(content().string(not(containsString(token))));

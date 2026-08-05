@@ -102,13 +102,25 @@ class ArchitectureTest {
   }
 
   @Test
-  void 보안_구성과_오류_writer는_Jackson2에_의존하지_않는다() {
+  void 보안_구성과_공통_오류_writer는_Jackson2에_의존하지_않는다() {
     noClasses()
         .that()
-        .resideInAnyPackage("..global.config..", "..global.security..")
+        .resideInAnyPackage("..global.config..", "..global.error..", "..global.security..")
         .should()
         .dependOnClassesThat()
         .resideInAnyPackage("com.fasterxml.jackson..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
+  void 공통_오류_계약은_도메인_구현에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..global.error..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAPackage("..domain..")
         .allowEmptyShould(false)
         .check(classes);
   }
