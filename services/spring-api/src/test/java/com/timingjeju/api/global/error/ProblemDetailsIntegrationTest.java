@@ -16,6 +16,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.timingjeju.api.application.pagination.CursorInvalidException;
 import com.timingjeju.api.global.logging.RequestTraceIdFilter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -453,6 +454,19 @@ class ProblemDetailsIntegrationTest {
   }
 
   @Test
+  void 잘못된_cursor는_공통_Problem_Details의_CURSOR_INVALID로_반환한다() throws Exception {
+    mockMvc
+        .perform(get("/problem-test/cursor-invalid"))
+        .andExpectAll(
+            problemDetails(
+                400,
+                "https://api.timing-jeju.example/problems/cursor-invalid",
+                "커서가 유효하지 않습니다.",
+                "CURSOR_INVALID",
+                "목록을 처음부터 다시 조회해 주세요."));
+  }
+
+  @Test
   void 예상하지_못한_예외는_raw_message_PII_provider_payload_없이_고정_500을_반환한다() throws Exception {
     mockMvc
         .perform(get("/problem-test/unknown"))
@@ -508,6 +522,11 @@ class ProblemDetailsIntegrationTest {
     @GetMapping("/problem-test/upstream")
     void upstream() {
       throw new ApiProblemException("UPSTREAM_ERROR");
+    }
+
+    @GetMapping("/problem-test/cursor-invalid")
+    void cursorInvalid() {
+      throw new CursorInvalidException();
     }
 
     @GetMapping("/problem-test/unknown")

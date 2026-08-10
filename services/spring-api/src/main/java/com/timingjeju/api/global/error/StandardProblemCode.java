@@ -5,6 +5,7 @@ import java.util.List;
 
 public enum StandardProblemCode {
   VALIDATION_FAILED(400, "요청 값이 올바르지 않습니다.", "입력값을 확인해 주세요."),
+  CURSOR_INVALID(400, "커서가 유효하지 않습니다.", "목록을 처음부터 다시 조회해 주세요."),
   AUTH_TOKEN_INVALID(401, "인증에 실패했습니다.", "인증 토큰이 유효하지 않습니다."),
   AUTH_ACCESS_DENIED(403, "접근이 거부되었습니다.", "접근 권한이 없습니다."),
   RESOURCE_NOT_FOUND(404, "요청한 리소스를 찾을 수 없습니다.", "요청한 리소스가 존재하지 않습니다."),

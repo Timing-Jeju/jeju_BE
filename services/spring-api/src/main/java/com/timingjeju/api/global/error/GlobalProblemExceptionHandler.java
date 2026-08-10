@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.error;
 
+import com.timingjeju.api.application.pagination.CursorInvalidException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolationException;
@@ -229,6 +230,12 @@ public final class GlobalProblemExceptionHandler {
       ApiProblemException exception, HttpServletRequest request, HttpServletResponse response)
       throws IOException {
     responseWriter.write(request, response, exception.code());
+  }
+
+  @ExceptionHandler(CursorInvalidException.class)
+  void handleCursorInvalid(HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    responseWriter.write(request, response, CursorInvalidException.PROBLEM_CODE);
   }
 
   @ExceptionHandler({AuthenticationException.class, AccessDeniedException.class})
