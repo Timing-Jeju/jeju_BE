@@ -786,7 +786,7 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
         or parsed.port is not None
         or parsed.username is not None
         or parsed.password is not None
-        or parsed.hostname not in {"figma.com", "www.figma.com"}
+        or parsed.hostname != "www.figma.com"
         or bool(parsed.params)
         or bool(parsed.fragment)
         or not _non_empty(file_key)

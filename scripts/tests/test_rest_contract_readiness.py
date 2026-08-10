@@ -1480,6 +1480,40 @@ class RestContractReadinessTest(unittest.TestCase):
                 self.assertIn(f"{label} linkage", result.stderr)
                 self.assertNotIn("Traceback", output)
 
+    def test_figma_linkage_requires_exact_www_host_in_actual_cli(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            self.assertEqual(
+                [], self.validator.validate_catalog(catalog, repo_root=repo_root)
+            )
+
+            figma_link = first["readiness"]["metadata"]["evidence"]["figmaNode"]
+            figma_link["url"] = figma_link["url"].replace(
+                "https://www.figma.com/", "https://figma.com/"
+            )
+            catalog_path = repo_root / "catalog.json"
+            catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+            result = subprocess.run(
+                ["python3", str(VALIDATOR_PATH), str(catalog_path)],
+                cwd=ROOT,
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+            output = result.stdout + result.stderr
+            self.assertEqual(1, result.returncode)
+            self.assertIn("Figma linkage", result.stderr)
+            self.assertNotIn("Traceback", output)
+
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
