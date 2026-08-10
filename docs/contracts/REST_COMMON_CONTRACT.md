@@ -13,6 +13,8 @@
 
 각 endpoint는 허용된 HTTP method와 `/api/v1/...` path, `read/list/create/update/delete/compute/apply` operation 분류를 사용합니다. path의 `.`·`..` segment, 빈 segment와 중복 slash는 허용하지 않으며 method/path 중복은 segment를 canonicalize한 identity로 판단합니다. `{id}`와 `{resourceId}`처럼 이름만 다른 placeholder는 같은 Spring route token으로 정규화하되 static segment와 placeholder는 구분합니다. URL decoding은 하지 않고 `%`가 든 path를 보수적으로 거부합니다. `list` operation은 `pagination=none`을 사용할 수 없고 opaque cursor, 정수 size 범위, non-empty stable sort/tie-breaker의 canonical pagination을 상속합니다. `create`, `compute`, `apply`는 `required=false`로 낮출 수 없고 `Idempotency-Key`, scope, TTL, replay, payload conflict, concurrent request 필드를 정확한 구조와 non-empty 값으로 작성합니다. 나머지 operation의 기본값은 `required=false`, `header=none`입니다. path/query/header/body schema와 owner, presence, response status, DB owner, request-time call, lineage, Figma 상태도 올바른 타입과 non-empty 값이어야 합니다. HTTP status와 ownership Issue는 JSON integer만 허용하므로 boolean·float·null을 정수로 간주하지 않습니다. success/errors 각 status 배열은 내부 중복이 없고 서로도 겹치지 않아야 합니다.
 
+공통 template은 성공·오류 HTTP status의 모양과 분류만 정의합니다. `responses.success`는 2xx(200..299), `responses.errors`는 4xx/5xx(400..599)만 허용하며 3xx는 어느 쪽에도 넣을 수 없습니다. endpoint별 실제 request·success·problem JSON 예시는 #82~#94가 소유합니다. Example Ready는 requestFixture/successFixture/problemFixture의 실제 파일 evidence로 검증합니다. 이 세 evidence는 각 도메인의 `fixtures/contracts/<domain>/*.json`에 작성하며 공통 template에 endpoint별 example linkage schema를 추가하지 않습니다.
+
 ## 구현 소유 경계
 
 이 문서는 상세 DB schema나 migration을 구현하지 않습니다. durable command schema/migration은 #108, 위치 TTL cleanup은 #109, lease·retry·복구 worker runtime은 #74가 소유합니다. `supabase/migrations`가 운영 schema의 단일 기준이며 Flyway와 FastAPI Python 소스는 이 범위에 들어오지 않습니다.

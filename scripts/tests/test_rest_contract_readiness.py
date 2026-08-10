@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR_PATH = ROOT / "scripts" / "validate_rest_contracts.py"
 CATALOG_PATH = ROOT / "docs" / "contracts" / "rest" / "catalog.json"
 TEMPLATE_PATH = ROOT / "docs" / "contracts" / "rest" / "endpoint-template.json"
+COMMON_CONTRACT_PATH = ROOT / "docs" / "contracts" / "REST_COMMON_CONTRACT.md"
 
 
 def load_validator():
@@ -1113,6 +1114,72 @@ class RestContractReadinessTest(unittest.TestCase):
                 endpoint["responses"] = responses
                 catalog["endpoints"] = [endpoint]
                 self.assertTrue(self.validator.validate_catalog(catalog))
+
+    def test_response_status_sets_are_classified_by_success_and_error_ranges(self):
+        valid_cases = (
+            {"success": [200], "errors": [400]},
+            {"success": [299], "errors": [599]},
+            {"success": [200, 204, 299], "errors": [400, 404, 599]},
+        )
+        invalid_cases = (
+            {"success": [199], "errors": [400]},
+            {"success": [300], "errors": [400]},
+            {"success": [399], "errors": [400]},
+            {"success": [404], "errors": [400]},
+            {"success": [600], "errors": [400]},
+            {"success": [200], "errors": [199]},
+            {"success": [200], "errors": [200]},
+            {"success": [200], "errors": [299]},
+            {"success": [200], "errors": [300]},
+            {"success": [200], "errors": [399]},
+            {"success": [200], "errors": [600]},
+        )
+
+        for responses in valid_cases:
+            with self.subTest(valid=responses):
+                catalog = copy.deepcopy(self.catalog)
+                endpoint = self.endpoint()
+                endpoint["responses"] = responses
+                catalog["endpoints"] = [endpoint]
+                self.assertEqual([], self.validator.validate_catalog(catalog))
+
+        for responses in invalid_cases:
+            with self.subTest(invalid=responses):
+                catalog = copy.deepcopy(self.catalog)
+                endpoint = self.endpoint()
+                endpoint["responses"] = responses
+                catalog["endpoints"] = [endpoint]
+                errors = self.validator.validate_catalog(catalog)
+                self.assertTrue(any("responses" in error for error in errors), errors)
+
+    def test_common_contract_assigns_endpoint_examples_to_domain_fixtures(self):
+        document = COMMON_CONTRACT_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "공통 template은 성공·오류 HTTP status의 모양과 분류만 정의합니다.",
+            document,
+        )
+        self.assertIn(
+            "endpoint별 실제 request·success·problem JSON 예시는 #82~#94가 소유합니다.",
+            document,
+        )
+        self.assertIn(
+            "Example Ready는 requestFixture/successFixture/problemFixture의 실제 파일 evidence로 검증합니다.",
+            document,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            self.assertEqual(
+                [], self.validator.validate_catalog(catalog, repo_root=repo_root)
+            )
 
     def test_malformed_membership_values_return_korean_errors_without_traceback(self):
         mutations = {

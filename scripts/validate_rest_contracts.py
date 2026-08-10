@@ -473,14 +473,18 @@ def _validate_endpoint_responses(responses: Any, label: str, errors: list[str]) 
         return
     for kind in ("success", "errors"):
         codes = responses.get(kind)
+        minimum, maximum = (200, 299) if kind == "success" else (400, 599)
         if (
             not isinstance(codes, list)
             or not codes
-            or not all(type(code) is int and 100 <= code <= 599 for code in codes)
+            or not all(
+                type(code) is int and minimum <= code <= maximum for code in codes
+            )
             or len(codes) != len(set(codes))
         ):
             errors.append(
-                f"{label}의 responses.{kind}는 unique 정수 HTTP status 배열이어야 합니다."
+                f"{label}의 responses.{kind}는 {minimum}..{maximum} 범위의 "
+                "unique 정수 HTTP status 배열이어야 합니다."
             )
     success = responses.get("success")
     failure = responses.get("errors")
