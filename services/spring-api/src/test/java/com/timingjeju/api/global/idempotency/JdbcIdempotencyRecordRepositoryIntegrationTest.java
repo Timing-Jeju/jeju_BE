@@ -20,6 +20,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,7 @@ class JdbcIdempotencyRecordRepositoryIntegrationTest {
   @Autowired private JdbcIdempotencyRecordRepository repository;
   @Autowired private IdempotencyUseCase useCase;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private DataSource dataSource;
 
   @AfterEach
   void cleanUp() {
@@ -264,6 +266,60 @@ class JdbcIdempotencyRecordRepositoryIntegrationTest {
   }
 
   @Test
+  void winner가_loser의_update와_select_사이에_release해도_loser가_재획득한다() throws Exception {
+    IdempotencyRequest request = request(UUID.randomUUID(), UUID.randomUUID());
+    IdempotencyAcquisition winner = repository.acquire(request.scope(), request.requestHash(), NOW);
+    AtomicInteger executions = new AtomicInteger();
+
+    jdbcTemplate.execute(
+        """
+        create or replace function public.test_block_idempotency_update()
+        returns trigger language plpgsql as $$
+        begin
+          perform pg_advisory_lock(170017);
+          perform pg_advisory_unlock(170017);
+          return null;
+        end
+        $$
+        """);
+    jdbcTemplate.execute(
+        """
+        create trigger test_block_idempotency_update
+        before update on public.api_idempotency_records
+        for each statement execute function public.test_block_idempotency_update()
+        """);
+
+    try (var blocker = dataSource.getConnection();
+        var statement = blocker.createStatement();
+        var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      statement.execute("select pg_advisory_lock(170017)");
+      var loser =
+          executor.submit(
+              () ->
+                  useCase.execute(
+                      request,
+                      () -> {
+                        executions.incrementAndGet();
+                        return response("loser-winner");
+                      }));
+
+      awaitAdvisoryLockWaiter();
+      repository.release(
+          request.scope(), request.requestHash(), winner.attemptToken().orElseThrow());
+      statement.execute("select pg_advisory_unlock(170017)");
+
+      assertThat(loser.get(2, TimeUnit.SECONDS).body()).containsExactly(bytes("loser-winner"));
+    } finally {
+      jdbcTemplate.execute(
+          "drop trigger if exists test_block_idempotency_update on public.api_idempotency_records");
+      jdbcTemplate.execute("drop function if exists public.test_block_idempotency_update()");
+    }
+
+    assertThat(executions).hasValue(1);
+    assertThat(recordState(request.scope())).isEqualTo("COMPLETED");
+  }
+
+  @Test
   void operation_예외는_업무_row와_processing_marker를_함께_rollback하고_재시도된다() {
     UUID owner = UUID.randomUUID();
     IdempotencyRequest request = request(owner, UUID.randomUUID());
@@ -324,6 +380,41 @@ class JdbcIdempotencyRecordRepositoryIntegrationTest {
         scope.method(),
         scope.normalizedPath(),
         scope.idempotencyKey());
+  }
+
+  private String recordState(IdempotencyScope scope) {
+    return jdbcTemplate.queryForObject(
+        """
+        select state from public.api_idempotency_records
+        where owner_sub = ? and http_method = ? and normalized_path = ? and idempotency_key = ?
+        """,
+        String.class,
+        scope.ownerSub(),
+        scope.method(),
+        scope.normalizedPath(),
+        scope.idempotencyKey());
+  }
+
+  private void awaitAdvisoryLockWaiter() {
+    for (int attempt = 0; attempt < 200; attempt++) {
+      Integer waiters =
+          jdbcTemplate.queryForObject(
+              """
+              select count(*) from pg_locks
+              where locktype = 'advisory' and objid = 170017 and not granted
+              """,
+              Integer.class);
+      if (waiters != null && waiters > 0) {
+        return;
+      }
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        throw new IllegalStateException(exception);
+      }
+    }
+    throw new IllegalStateException("loser가 idempotency UPDATE 경계에 도달하지 못했습니다.");
   }
 
   private static IdempotencyRequest request(UUID owner, UUID key) {

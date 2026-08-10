@@ -16,6 +16,7 @@ scope는 `ownerSub + method + normalizedPath + key`입니다. method는 대문�
 - lease 안의 동일 hash loser도 `409 IDEMPOTENCY_KEY_REUSED`이며 `retryAfterSeconds=1`을 제공합니다. HTTP adapter는 이를 `Retry-After: 1`로 변환해야 합니다.
 - lease takeover마다 UUID attempt token을 새로 발급합니다. 만료된 이전 winner는 새 marker를 완료하거나 삭제할 수 없습니다.
 - operation과 `COMPLETED` 전환은 같은 transaction입니다. 예외 또는 반환된 5xx는 rollback하고 marker를 정리하여 같은 요청의 재시도를 허용합니다. 프로세스 강제 종료로 정리가 불가능한 경우 2분 lease가 복구 경계입니다.
+- loser의 조건부 UPDATE 직후 winner가 marker를 정리해 조회가 비는 경합은 최대 2회로 제한해 재획득합니다. 두 번 연속 같은 경합이면 5xx 대신 기존 `PROCESSING`/`Retry-After: 1` 계약으로 응답하여 무한 재시도를 막습니다.
 
 ## 후속 API 통합 규칙
 

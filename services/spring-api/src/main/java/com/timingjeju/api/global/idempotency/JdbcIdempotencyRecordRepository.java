@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -20,6 +21,7 @@ public class JdbcIdempotencyRecordRepository implements IdempotencyRecordStore {
 
   private static final Duration PROCESSING_LEASE = Duration.ofMinutes(2);
   private static final Duration COMPLETED_TTL = Duration.ofHours(24);
+  private static final int MAX_ACQUIRE_ATTEMPTS = 2;
 
   private final JdbcTemplate jdbcTemplate;
   private final IdempotencyAttemptTokenGenerator attemptTokenGenerator;
@@ -33,6 +35,20 @@ public class JdbcIdempotencyRecordRepository implements IdempotencyRecordStore {
 
   @Override
   public IdempotencyAcquisition acquire(IdempotencyScope scope, String requestHash, Instant now) {
+    for (int attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt++) {
+      Optional<IdempotencyAcquisition> acquisition = tryAcquire(scope, requestHash, now);
+      if (acquisition.isPresent()) {
+        return acquisition.orElseThrow();
+      }
+    }
+
+    // A winner may release between each conditional UPDATE and SELECT. Avoid turning that
+    // bounded, transient race into a 5xx; the caller uses the normal PROCESSING retry contract.
+    return IdempotencyAcquisition.processing();
+  }
+
+  private Optional<IdempotencyAcquisition> tryAcquire(
+      IdempotencyScope scope, String requestHash, Instant now) {
     UUID attemptToken = attemptTokenGenerator.generate();
     int inserted =
         jdbcTemplate.update(
@@ -53,7 +69,7 @@ public class JdbcIdempotencyRecordRepository implements IdempotencyRecordStore {
             timestamp(now.plus(PROCESSING_LEASE)),
             timestamp(now.plus(COMPLETED_TTL)));
     if (inserted == 1) {
-      return IdempotencyAcquisition.acquired(attemptToken);
+      return Optional.of(IdempotencyAcquisition.acquired(attemptToken));
     }
 
     int takenOver =
@@ -81,7 +97,7 @@ public class JdbcIdempotencyRecordRepository implements IdempotencyRecordStore {
             timestamp(now),
             timestamp(now));
     if (takenOver == 1) {
-      return IdempotencyAcquisition.acquired(attemptToken);
+      return Optional.of(IdempotencyAcquisition.acquired(attemptToken));
     }
 
     return findCurrent(scope, requestHash);
@@ -138,7 +154,7 @@ public class JdbcIdempotencyRecordRepository implements IdempotencyRecordStore {
         attemptToken);
   }
 
-  private IdempotencyAcquisition findCurrent(IdempotencyScope scope, String requestHash) {
+  private Optional<IdempotencyAcquisition> findCurrent(IdempotencyScope scope, String requestHash) {
     List<StoredRecord> records =
         jdbcTemplate.query(
             """
@@ -151,17 +167,20 @@ public class JdbcIdempotencyRecordRepository implements IdempotencyRecordStore {
             scope.method(),
             scope.normalizedPath(),
             scope.idempotencyKey());
+    if (records.isEmpty()) {
+      return Optional.empty();
+    }
     if (records.size() != 1) {
-      throw new IllegalStateException("idempotency acquisition 결과를 찾을 수 없습니다.");
+      throw new IllegalStateException("idempotency acquisition 결과가 유일하지 않습니다.");
     }
     StoredRecord record = records.getFirst();
     if (!record.requestHash.equals(requestHash)) {
-      return IdempotencyAcquisition.reused();
+      return Optional.of(IdempotencyAcquisition.reused());
     }
     if (record.response == null) {
-      return IdempotencyAcquisition.processing();
+      return Optional.of(IdempotencyAcquisition.processing());
     }
-    return IdempotencyAcquisition.replay(record.response);
+    return Optional.of(IdempotencyAcquisition.replay(record.response));
   }
 
   private StoredRecord storedRecord(ResultSet resultSet) throws SQLException {
