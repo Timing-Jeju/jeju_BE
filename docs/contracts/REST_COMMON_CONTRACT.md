@@ -11,7 +11,7 @@
 - 비동기 run 상태는 `queued/running/succeeded/failed/cancelled`뿐입니다. 접수 응답은 `Location`, `Retry-After`, 실패 조회는 `failure` object를 정의합니다. fallback 성공은 `status=succeeded`, `result_source=fallback`이고 `fallback` 상태를 만들지 않습니다. 후보 만료는 run 상태가 아니라 `expiresAt`입니다.
 - 접수 재현성 hash는 `commandInputHash`, 실제 MCP wire 입력 hash는 `mcpInputHash`로 분리합니다. worker는 불변 command snapshot만 읽습니다.
 
-각 endpoint는 허용된 HTTP method와 `/api/v1/...` path, `read/list/create/update/delete/compute/apply` operation 분류를 사용합니다. `create`, `compute`, `apply`는 `required=false`로 낮출 수 없고 `Idempotency-Key`, scope, TTL, replay, payload conflict, concurrent request 필드를 정확한 구조와 non-empty 값으로 작성합니다. 나머지 operation의 기본값은 `required=false`, `header=none`입니다. path/query/header/body schema와 owner, presence, response status, DB owner, request-time call, lineage, Figma 상태도 올바른 타입과 non-empty 값이어야 합니다.
+각 endpoint는 허용된 HTTP method와 `/api/v1/...` path, `read/list/create/update/delete/compute/apply` operation 분류를 사용합니다. path의 `.`·`..` segment, 빈 segment와 중복 slash는 허용하지 않으며 method/path 중복은 segment를 canonicalize한 identity로 판단합니다. URL decoding은 하지 않고 `%`가 든 path를 보수적으로 거부합니다. `create`, `compute`, `apply`는 `required=false`로 낮출 수 없고 `Idempotency-Key`, scope, TTL, replay, payload conflict, concurrent request 필드를 정확한 구조와 non-empty 값으로 작성합니다. 나머지 operation의 기본값은 `required=false`, `header=none`입니다. path/query/header/body schema와 owner, presence, response status, DB owner, request-time call, lineage, Figma 상태도 올바른 타입과 non-empty 값이어야 합니다. HTTP status와 ownership Issue는 JSON integer만 허용하므로 boolean·float·null을 정수로 간주하지 않으며 status 배열은 중복될 수 없습니다.
 
 ## 구현 소유 경계
 
@@ -22,11 +22,13 @@
 각 도메인은 Metadata Ready, Example Ready, Implementation Ready를 독립적으로 관리합니다.
 
 - 각 단계는 `{ "status": "ready|not-ready", "evidence": object|null }` 구조입니다. `not-ready`의 evidence는 `null`이어야 하며 truthy 문자열이나 임의 배열로 승격할 수 없습니다.
-- `Metadata Ready`: local, Notion, Figma의 `contractVersion`이 모두 같고 `localDocument/notionPage/figmaNode` 증거가 있을 때만 `ready`입니다.
-- `Example Ready`: Metadata Ready 이후, 비밀정보나 실제 사용자 데이터가 없는 `requestFixture/successFixture/problemFixture` 증거가 있을 때만 `ready`입니다.
-- `Implementation Ready`: Metadata와 Example Ready 이후, `controller/openApiTest/contractTest` 증거가 모두 있을 때만 `ready`입니다. 구현 전에는 승격할 수 없습니다.
+- `Metadata Ready`: local, Notion, Figma의 `contractVersion`이 모두 같고 `localDocument/notionPage/figmaNode` 증거가 있을 때만 `ready`입니다. local 문서는 `docs/contracts/domains/<domain>/*.md`의 실제 파일이어야 합니다. Notion은 `{url,pageId}`, Figma는 `{url,fileKey,nodeId}` exact linkage 객체이며 URL과 identifier가 서로 일치해야 합니다.
+- `Example Ready`: Metadata Ready 이후, 비밀정보나 실제 사용자 데이터가 없는 `requestFixture/successFixture/problemFixture` 증거가 있을 때만 `ready`입니다. 세 파일은 `fixtures/contracts/<domain>/*.json` 안에 실제로 존재해야 합니다.
+- `Implementation Ready`: Metadata와 Example Ready 이후, `controller/openApiTest/contractTest` 증거가 모두 있을 때만 `ready`입니다. Controller는 해당 도메인의 Spring main source, 두 테스트는 해당 도메인의 Spring test source에 존재하는 `.java` 파일이어야 합니다. 구현 전에는 승격할 수 없습니다.
 - Notion/Figma가 아직 연결되지 않은 경우 `not-linked`로 두며 임의 버전을 추정하지 않습니다. 연결된 뒤에는 local 버전과 정확히 같아야 합니다.
+
+모든 local evidence는 저장소 root 기준 상대 경로만 허용합니다. 파일 실재와 단계별 종류·확장자·도메인 소유 범위를 검사하며 `..` traversal, 절대 경로, 저장소 밖을 가리키는 symlink는 승격 증거가 될 수 없습니다.
 
 ## 자동 검사
 
-`python3 scripts/validate_rest_contracts.py`는 catalog와 `endpoint-template.json`을 실제로 함께 읽습니다. 지원하는 canonical `contractVersion`은 `1.0.0`이며 catalog/template/domain을 함께 바꿔도 다른 버전은 허용하지 않습니다. 모든 catalog/template/endpoint/readiness JSON 객체는 문서화된 키만 허용하는 closed-world 계약입니다. 검증기는 unknown·missing·duplicate field, 필수 field와 default 상속 drift, method/path 중복, 필수 필드의 공백·타입, 인증·멱등성·cursor 상속, run/candidate/fallback 혼용, Problem Details 구형 필드, hash/소유권 drift, #82~#94 exactly-once 상속, 구조화 readiness와 버전 drift를 traceback 없이 한국어 오류로 보고합니다. 이 검사는 `./scripts/quality-gate.sh`의 공통 단계에서 항상 실행됩니다.
+`python3 scripts/validate_rest_contracts.py`는 catalog와 `endpoint-template.json`을 실제로 함께 읽습니다. JSON parser 단계에서 모든 깊이의 duplicate key를 last-value로 덮기 전에 거부합니다. 지원하는 canonical `contractVersion`은 `1.0.0`이며 catalog/template/domain을 함께 바꿔도 다른 버전은 허용하지 않습니다. 모든 catalog/template/endpoint/readiness JSON 객체는 문서화된 키만 허용하는 closed-world 계약입니다. 검증기는 unknown·missing·duplicate field/key, 필수 field와 default 상속 drift, canonical method/path 중복, 필수 필드의 공백·strict JSON 타입, 인증·멱등성·cursor 상속, run/candidate/fallback 혼용, Problem Details 구형 필드, hash/소유권 drift, #82~#94 exactly-once 상속, 구조화 readiness·실재 evidence와 버전 drift를 traceback 없이 한국어 오류로 보고합니다. 이 검사는 `./scripts/quality-gate.sh`의 공통 단계에서 항상 실행됩니다.

@@ -127,6 +127,60 @@ class RestContractReadinessTest(unittest.TestCase):
             },
         }
 
+    @staticmethod
+    def create_ready_evidence(repo_root: Path, domain="profile-legal"):
+        paths = {
+            "localDocument": Path("docs/contracts/domains") / domain / "contract.md",
+            "requestFixture": Path("fixtures/contracts") / domain / "request.json",
+            "successFixture": Path("fixtures/contracts") / domain / "success.json",
+            "problemFixture": Path("fixtures/contracts") / domain / "problem.json",
+            "controller": Path("services/spring-api/src/main/java/com/timingjeju/api/domain")
+            / domain.replace("-", "")
+            / "controller"
+            / "ProfileLegalController.java",
+            "openApiTest": Path("services/spring-api/src/test/java/com/timingjeju/api/domain")
+            / domain.replace("-", "")
+            / "ProfileLegalOpenApiTest.java",
+            "contractTest": Path("services/spring-api/src/test/java/com/timingjeju/api/domain")
+            / domain.replace("-", "")
+            / "ProfileLegalContractTest.java",
+        }
+        for path in paths.values():
+            target = repo_root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("{}" if target.suffix == ".json" else "evidence", encoding="utf-8")
+        return {
+            "metadata": {
+                "status": "ready",
+                "evidence": {
+                    "localDocument": str(paths["localDocument"]),
+                    "notionPage": {
+                        "url": "https://www.notion.so/timingjeju/0123456789abcdef0123456789abcdef",
+                        "pageId": "0123456789abcdef0123456789abcdef",
+                    },
+                    "figmaNode": {
+                        "url": "https://www.figma.com/design/AbCdEf123456/Profile?node-id=10-20",
+                        "fileKey": "AbCdEf123456",
+                        "nodeId": "10:20",
+                    },
+                },
+            },
+            "example": {
+                "status": "ready",
+                "evidence": {
+                    field: str(paths[field])
+                    for field in ("requestFixture", "successFixture", "problemFixture")
+                },
+            },
+            "implementation": {
+                "status": "ready",
+                "evidence": {
+                    field: str(paths[field])
+                    for field in ("controller", "openApiTest", "contractTest")
+                },
+            },
+        }
+
     def validate_files(self, catalog, template):
         with tempfile.TemporaryDirectory() as directory:
             catalog_path = Path(directory) / "catalog.json"
@@ -433,30 +487,36 @@ class RestContractReadinessTest(unittest.TestCase):
                 self.assertTrue(any("not-linked" in error for error in errors))
 
     def test_ready_domain_requires_exact_structured_evidence_for_every_stage(self):
-        catalog = copy.deepcopy(self.catalog)
-        first = catalog["domainContracts"][0]
-        first["versions"] = {
-            "local": catalog["contractVersion"],
-            "notion": catalog["contractVersion"],
-            "figma": catalog["contractVersion"],
-        }
-        first["readiness"] = self.ready_readiness()
-        self.assertEqual([], self.validator.validate_catalog(catalog))
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            self.assertEqual(
+                [], self.validator.validate_catalog(catalog, repo_root=repo_root)
+            )
 
-        for stage, field in (
-            ("metadata", "notionPage"),
-            ("example", "problemFixture"),
-            ("implementation", "controller"),
-            ("implementation", "openApiTest"),
-            ("implementation", "contractTest"),
-        ):
-            with self.subTest(stage=stage, field=field):
-                mutated = copy.deepcopy(catalog)
-                mutated["domainContracts"][0]["readiness"][stage]["evidence"].pop(
-                    field
-                )
-                errors = self.validator.validate_catalog(mutated)
-                self.assertTrue(any("evidence" in error for error in errors))
+            for stage, field in (
+                ("metadata", "notionPage"),
+                ("example", "problemFixture"),
+                ("implementation", "controller"),
+                ("implementation", "openApiTest"),
+                ("implementation", "contractTest"),
+            ):
+                with self.subTest(stage=stage, field=field):
+                    mutated = copy.deepcopy(catalog)
+                    mutated["domainContracts"][0]["readiness"][stage]["evidence"].pop(
+                        field
+                    )
+                    errors = self.validator.validate_catalog(
+                        mutated, repo_root=repo_root
+                    )
+                    self.assertTrue(any("evidence" in error for error in errors))
 
     def test_malformed_nested_types_return_errors_without_traceback(self):
         mutations = (
@@ -676,6 +736,221 @@ class RestContractReadinessTest(unittest.TestCase):
                 endpoint["pagination"]["size"] = size
                 catalog["endpoints"] = [endpoint]
                 self.assertEqual([], self.validator.validate_catalog(catalog))
+
+    def test_rejects_dot_segments_and_detects_canonical_path_duplicates(self):
+        for path in ("/api/v1/../admin", "/api/v1/./resources"):
+            with self.subTest(path=path):
+                catalog = copy.deepcopy(self.catalog)
+                catalog["endpoints"] = [self.endpoint(path=path)]
+                errors = self.validator.validate_catalog(catalog)
+                self.assertTrue(any("dot segment" in error for error in errors), errors)
+
+        catalog = copy.deepcopy(self.catalog)
+        catalog["endpoints"] = [
+            self.endpoint(path="/api/v1/resources"),
+            self.endpoint(path="/api/v1/./resources"),
+        ]
+        errors = self.validator.validate_catalog(catalog)
+        self.assertTrue(any("canonical method/path 중복" in error for error in errors), errors)
+
+    def test_ready_evidence_requires_real_owned_repository_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory) / "repo"
+            repo_root.mkdir()
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+
+            invalid_paths = {
+                "missing local document": (
+                    "metadata",
+                    "localDocument",
+                    "docs/contracts/domains/profile-legal/missing.md",
+                ),
+                "path traversal": ("metadata", "localDocument", "../outside.md"),
+                "wrong fixture extension": (
+                    "example",
+                    "requestFixture",
+                    "docs/contracts/domains/profile-legal/contract.md",
+                ),
+                "controller outside owned source": (
+                    "implementation",
+                    "controller",
+                    "services/spring-api/src/test/java/com/timingjeju/api/domain/profilelegal/ProfileLegalOpenApiTest.java",
+                ),
+            }
+            for name, (stage, field, value) in invalid_paths.items():
+                with self.subTest(name=name):
+                    mutated = copy.deepcopy(catalog)
+                    mutated["domainContracts"][0]["readiness"][stage]["evidence"][
+                        field
+                    ] = value
+                    errors = self.validator.validate_catalog(
+                        mutated, repo_root=repo_root
+                    )
+                    self.assertTrue(any("evidence 경로" in error for error in errors), errors)
+
+            outside = Path(directory) / "outside.md"
+            outside.write_text("outside", encoding="utf-8")
+            symlink = repo_root / "docs/contracts/domains/profile-legal/link.md"
+            symlink.symlink_to(outside)
+            first["readiness"]["metadata"]["evidence"]["localDocument"] = str(
+                symlink.relative_to(repo_root)
+            )
+            errors = self.validator.validate_catalog(catalog, repo_root=repo_root)
+            self.assertTrue(any("symlink" in error or "저장소 밖" in error for error in errors), errors)
+
+    def test_ready_metadata_requires_verifiable_notion_and_figma_linkage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            mutations = {
+                "fake strings": lambda evidence: evidence.update(
+                    {"notionPage": "truthy", "figmaNode": "truthy"}
+                ),
+                "notion id mismatch": lambda evidence: evidence["notionPage"].update(
+                    {"pageId": "ffffffffffffffffffffffffffffffff"}
+                ),
+                "figma node mismatch": lambda evidence: evidence["figmaNode"].update(
+                    {"nodeId": "99:99"}
+                ),
+            }
+            for name, mutation in mutations.items():
+                with self.subTest(name=name):
+                    mutated = copy.deepcopy(catalog)
+                    mutation(
+                        mutated["domainContracts"][0]["readiness"]["metadata"][
+                            "evidence"
+                        ]
+                    )
+                    errors = self.validator.validate_catalog(
+                        mutated, repo_root=repo_root
+                    )
+                    self.assertTrue(any("linkage" in error for error in errors), errors)
+
+    def test_json_loader_rejects_duplicate_keys_at_every_depth_without_traceback(self):
+        catalog_text = CATALOG_PATH.read_text(encoding="utf-8")
+        template_text = TEMPLATE_PATH.read_text(encoding="utf-8")
+        cases = {
+            "catalog top": (
+                catalog_text.replace(
+                    '"contractVersion": "1.0.0",',
+                    '"contractVersion": "1.0.0", "contractVersion": "9.9.9",',
+                    1,
+                ),
+                template_text,
+            ),
+            "catalog nested": (
+                catalog_text.replace(
+                    '"cursor": "opaque",',
+                    '"cursor": "opaque", "cursor": "transparent",',
+                    1,
+                ),
+                template_text,
+            ),
+            "template top": (
+                catalog_text,
+                template_text.replace(
+                    '"templateId": "timing-jeju-rest-contract/v1",',
+                    '"templateId": "timing-jeju-rest-contract/v1", "templateId": "other",',
+                    1,
+                ),
+            ),
+            "template nested": (
+                catalog_text,
+                template_text.replace(
+                    '"pagination": {"type": "none"}',
+                    '"pagination": {"type": "none", "type": "cursor"}',
+                    1,
+                ),
+            ),
+        }
+        for name, (raw_catalog, raw_template) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                catalog_path = Path(directory) / "catalog.json"
+                template_path = Path(directory) / "template.json"
+                catalog_path.write_text(raw_catalog, encoding="utf-8")
+                template_path.write_text(raw_template, encoding="utf-8")
+                errors = self.validator.validate_contract_files(
+                    catalog_path, template_path
+                )
+                self.assertTrue(any("중복 JSON 키" in error for error in errors), errors)
+                result = subprocess.run(
+                    [
+                        "python3",
+                        str(VALIDATOR_PATH),
+                        str(catalog_path),
+                        "--template",
+                        str(template_path),
+                    ],
+                    cwd=ROOT,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+                self.assertEqual(1, result.returncode)
+                self.assertIn("중복 JSON 키", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_rejects_strict_json_type_and_unique_array_bypasses(self):
+        mutations = {
+            "blank resource hiding": lambda catalog: catalog["commonRules"][
+                "authorization"
+            ].__setitem__("resourceHiding", " "),
+            "wrong resource hiding": lambda catalog: catalog["commonRules"][
+                "authorization"
+            ].__setitem__("resourceHiding", "always 200"),
+            "duplicate forbidden field": lambda catalog: catalog["commonRules"][
+                "problemDetails"
+            ]["forbiddenFields"].append("message"),
+            "response bool": lambda catalog: catalog["endpoints"].append(
+                {**self.endpoint(), "responses": {"success": [True], "errors": [400]}}
+            ),
+            "response float": lambda catalog: catalog["endpoints"].append(
+                {**self.endpoint(), "responses": {"success": [200.0], "errors": [400]}}
+            ),
+            "duplicate response": lambda catalog: catalog["endpoints"].append(
+                {**self.endpoint(), "responses": {"success": [200, 200], "errors": [400]}}
+            ),
+            "ownership float": lambda catalog: catalog["ownership"].__setitem__(
+                "durableCommandSchema", 108.0
+            ),
+            "ownership bool": lambda catalog: catalog["ownership"].__setitem__(
+                "workerRuntime", True
+            ),
+            "ownership null": lambda catalog: catalog["ownership"].__setitem__(
+                "locationCleanup", None
+            ),
+            "domain issue float": lambda catalog: catalog["domainContracts"][
+                0
+            ].__setitem__("issue", 82.0),
+            "domain issue bool": lambda catalog: catalog["domainContracts"][
+                0
+            ].__setitem__("issue", True),
+            "auth status float": lambda catalog: catalog["endpoints"].append(
+                {
+                    **self.endpoint(),
+                    "auth": {"mode": "required", "missingToken": 401.0, "invalidToken": 401.0},
+                }
+            ),
+        }
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                catalog = copy.deepcopy(self.catalog)
+                mutation(catalog)
+                self.assertTrue(self.validator.validate_catalog(catalog))
 
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(

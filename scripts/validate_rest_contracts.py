@@ -10,11 +10,13 @@ import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 
 CATALOG_VERSION = "rest-contract-catalog/v1"
 TEMPLATE_ID = "timing-jeju-rest-contract/v1"
 CANONICAL_CONTRACT_VERSION = "1.0.0"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 AUTH_MODES = {"required", "optional"}
 ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 ALLOWED_OPERATIONS = {"read", "list", "create", "update", "delete", "compute", "apply"}
@@ -128,6 +130,22 @@ TEMPLATE_FIELDS = {
     "endpoint",
 }
 TEMPLATE_DEFAULT_FIELDS = {"auth", "idempotency", "pagination"}
+RESOURCE_HIDING = "소유 리소스는 정책에 따라 403 또는 404로 은닉"
+NOTION_LINK_FIELDS = {"url", "pageId"}
+FIGMA_LINK_FIELDS = {"url", "fileKey", "nodeId"}
+
+
+class DuplicateJsonKeyError(ValueError):
+    """JSON object 안의 중복 key를 last-value 처리 전에 차단한다."""
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise DuplicateJsonKeyError(key)
+        value[key] = item
+    return value
 
 
 def _non_empty(value: Any) -> bool:
@@ -151,6 +169,19 @@ def _exact_string_list(value: Any, expected: set[str]) -> bool:
     )
 
 
+def _canonical_path(path: str) -> str:
+    segments: list[str] = []
+    for segment in path.split("/"):
+        if not segment or segment == ".":
+            continue
+        if segment == "..":
+            if segments:
+                segments.pop()
+            continue
+        segments.append(segment)
+    return "/" + "/".join(segments)
+
+
 def _object(value: Any, label: str, errors: list[str]) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -167,7 +198,9 @@ def _reject_unknown_fields(
         errors.append(f"{label}에 허용되지 않은 필드 {field}가 있습니다.")
 
 
-def validate_catalog(catalog: dict[str, Any]) -> list[str]:
+def validate_catalog(
+    catalog: dict[str, Any], repo_root: Path = REPOSITORY_ROOT
+) -> list[str]:
     errors: list[str] = []
     _reject_unknown_fields(catalog, CATALOG_FIELDS, "catalog", errors)
     contract_version = catalog.get("contractVersion")
@@ -187,7 +220,13 @@ def validate_catalog(catalog: dict[str, Any]) -> list[str]:
     _validate_common_rules(catalog.get("commonRules"), errors)
     _validate_ownership(catalog.get("ownership"), errors)
     _validate_endpoints(catalog.get("endpoints"), contract_version, errors)
-    _validate_domains(catalog.get("domainContracts"), contract_version, template_id, errors)
+    _validate_domains(
+        catalog.get("domainContracts"),
+        contract_version,
+        template_id,
+        errors,
+        repo_root.resolve(),
+    )
     return errors
 
 
@@ -211,6 +250,8 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
     for field, expected in exact_authorization.items():
         if authorization.get(field) != expected:
             errors.append(f"공통 인증 {field}는 {expected}이어야 합니다.")
+    if authorization.get("resourceHiding") != RESOURCE_HIDING:
+        errors.append(f"공통 인증 resourceHiding은 '{RESOURCE_HIDING}'이어야 합니다.")
 
     idempotency = _object(rules.get("idempotency"), "commonRules.idempotency", errors)
     _reject_unknown_fields(
@@ -262,6 +303,8 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
         errors.append(
             "Problem Details 필드는 type,title,status,detail,instance,code,traceId,fieldErrors와 정확히 일치해야 합니다."
         )
+    if not _exact_string_list(forbidden_value, FORBIDDEN_PROBLEM_FIELDS):
+        errors.append("Problem Details forbiddenFields는 message/violations 정확 unique 집합이어야 합니다.")
     for name in sorted(FORBIDDEN_PROBLEM_FIELDS):
         if name in fields or name not in forbidden:
             errors.append(f"Problem Details에서 {name} 필드는 금지해야 합니다.")
@@ -304,7 +347,7 @@ def _validate_ownership(ownership: Any, errors: list[str]) -> None:
         return
     _reject_unknown_fields(ownership, OWNERSHIP_FIELDS, "ownership", errors)
     for name, issue in expected.items():
-        if ownership.get(name) != issue:
+        if type(ownership.get(name)) is not int or ownership.get(name) != issue:
             errors.append(f"{name} 구현 소유자는 #{issue}여야 합니다.")
 
 
@@ -334,9 +377,14 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
             errors.append(f"{label}의 path는 /api/v1/... 형식이어야 합니다.")
         if not isinstance(operation, str) or operation not in ALLOWED_OPERATIONS:
             errors.append(f"{label}의 operation 분류가 허용되지 않습니다.")
-        identity = (str(method), str(path))
+        if isinstance(path, str) and any(
+            segment in {".", ".."} for segment in path.split("/")
+        ):
+            errors.append(f"{label}의 path에는 dot segment를 사용할 수 없습니다.")
+        canonical_path = _canonical_path(path) if isinstance(path, str) else str(path)
+        identity = (str(method), canonical_path)
         if identity in identities:
-            errors.append(f"endpoint method/path 중복: {method} {path}")
+            errors.append(f"endpoint canonical method/path 중복: {method} {canonical_path}")
         identities.add(identity)
 
         for field in ("owner", "presence", "dbOwner", "requestTimeCall", "dataLineage"):
@@ -363,11 +411,13 @@ def _validate_endpoint_auth(auth: Any, label: str, errors: list[str]) -> None:
     mode = auth.get("mode")
     if mode not in AUTH_MODES:
         errors.append(f"{label}의 인증 mode는 required 또는 optional이어야 합니다.")
-    if mode == "required" and auth.get("missingToken") != 401:
+    if mode == "required" and (
+        type(auth.get("missingToken")) is not int or auth.get("missingToken") != 401
+    ):
         errors.append(f"{label}의 required 인증은 token 없음에 401이어야 합니다.")
     if mode == "optional" and auth.get("missingToken") != "anonymous":
         errors.append(f"{label}의 optional 인증은 token 없음에 anonymous여야 합니다.")
-    if auth.get("invalidToken") != 401:
+    if type(auth.get("invalidToken")) is not int or auth.get("invalidToken") != 401:
         errors.append(f"{label}은 invalid token에 401이어야 합니다.")
 
 
@@ -384,10 +434,15 @@ def _validate_endpoint_responses(responses: Any, label: str, errors: list[str]) 
         return
     for kind in ("success", "errors"):
         codes = responses.get(kind)
-        if not isinstance(codes, list) or not codes or not all(
-            isinstance(code, int) and 100 <= code <= 599 for code in codes
+        if (
+            not isinstance(codes, list)
+            or not codes
+            or not all(type(code) is int and 100 <= code <= 599 for code in codes)
+            or len(codes) != len(set(codes))
         ):
-            errors.append(f"{label}의 responses.{kind}는 HTTP status 배열이어야 합니다.")
+            errors.append(
+                f"{label}의 responses.{kind}는 unique 정수 HTTP status 배열이어야 합니다."
+            )
 
 
 def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
@@ -460,7 +515,11 @@ def _validate_endpoint_pagination(pagination: Any, label: str, errors: list[str]
 
 
 def _validate_domains(
-    domains: Any, contract_version: Any, template_id: Any, errors: list[str]
+    domains: Any,
+    contract_version: Any,
+    template_id: Any,
+    errors: list[str],
+    repo_root: Path,
 ) -> None:
     if not isinstance(domains, list):
         errors.append("domainContracts 배열이 필요합니다.")
@@ -468,7 +527,7 @@ def _validate_domains(
 
     issue_values: list[int] = []
     for index, domain in enumerate(domains):
-        if isinstance(domain, dict) and isinstance(domain.get("issue"), int):
+        if isinstance(domain, dict) and type(domain.get("issue")) is int:
             issue_values.append(domain["issue"])
         elif isinstance(domain, dict):
             errors.append(f"domainContracts[{index}]의 issue는 정수여야 합니다.")
@@ -496,7 +555,12 @@ def _validate_domains(
             errors.append(f"도메인 계약 #{issue}의 domain은 비어 있을 수 없습니다.")
         _validate_domain_versions(domain.get("versions"), issue, contract_version, errors)
         _validate_domain_readiness(
-            domain.get("readiness"), domain.get("versions"), issue, errors
+            domain.get("readiness"),
+            domain.get("versions"),
+            issue,
+            domain.get("domain"),
+            errors,
+            repo_root,
         )
 
 
@@ -519,8 +583,147 @@ def _validate_domain_versions(
             )
 
 
+def _validate_evidence_path(
+    value: Any,
+    issue: Any,
+    field: str,
+    domain: Any,
+    repo_root: Path,
+    expected_prefix: Path,
+    expected_suffix: str,
+    errors: list[str],
+) -> None:
+    label = f"도메인 계약 #{issue}의 {field} evidence 경로"
+    if not _non_empty(value):
+        errors.append(f"{label}가 필요합니다.")
+        return
+    relative = Path(value)
+    if relative.is_absolute() or any(part in {".", ".."} for part in relative.parts):
+        errors.append(f"{label}는 저장소 내부 상대 경로여야 합니다.")
+        return
+    candidate = repo_root / relative
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(repo_root)
+    except (OSError, ValueError):
+        errors.append(f"{label}가 없거나 symlink로 저장소 밖을 가리킵니다.")
+        return
+    if not resolved.is_file():
+        errors.append(f"{label}는 실제 파일이어야 합니다.")
+        return
+    if not str(relative).endswith(expected_suffix) or not relative.is_relative_to(
+        expected_prefix
+    ):
+        errors.append(f"{label}의 종류·확장자·소유 범위가 잘못되었습니다.")
+        return
+    domain_token = str(domain).replace("-", "").lower()
+    if domain_token not in str(relative).replace("-", "").lower():
+        errors.append(f"{label}가 도메인 {domain} 소유 범위와 다릅니다.")
+
+
+def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
+    if not isinstance(value, dict) or set(value) != NOTION_LINK_FIELDS:
+        errors.append(f"도메인 계약 #{issue}의 Notion linkage evidence가 잘못되었습니다.")
+        return
+    url = value.get("url")
+    page_id = value.get("pageId")
+    normalized_id = re.sub(r"-", "", page_id) if isinstance(page_id, str) else ""
+    parsed = urlparse(url) if isinstance(url, str) else None
+    if (
+        parsed is None
+        or parsed.scheme != "https"
+        or not parsed.hostname
+        or not (
+            parsed.hostname == "notion.so" or parsed.hostname.endswith(".notion.so")
+        )
+        or not re.fullmatch(r"[0-9a-fA-F]{32}", normalized_id)
+        or normalized_id.lower() not in re.sub(r"-", "", parsed.path).lower()
+    ):
+        errors.append(f"도메인 계약 #{issue}의 Notion linkage URL/identifier가 일치하지 않습니다.")
+
+
+def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
+    if not isinstance(value, dict) or set(value) != FIGMA_LINK_FIELDS:
+        errors.append(f"도메인 계약 #{issue}의 Figma linkage evidence가 잘못되었습니다.")
+        return
+    url = value.get("url")
+    file_key = value.get("fileKey")
+    node_id = value.get("nodeId")
+    parsed = urlparse(url) if isinstance(url, str) else None
+    query_node = parse_qs(parsed.query).get("node-id", [None])[0] if parsed else None
+    if (
+        parsed is None
+        or parsed.scheme != "https"
+        or parsed.hostname not in {"figma.com", "www.figma.com"}
+        or not _non_empty(file_key)
+        or f"/{file_key}/" not in parsed.path
+        or not isinstance(node_id, str)
+        or not re.fullmatch(r"\d+:\d+", node_id)
+        or not isinstance(query_node, str)
+        or query_node.replace("-", ":") != node_id
+    ):
+        errors.append(f"도메인 계약 #{issue}의 Figma linkage URL/identifier가 일치하지 않습니다.")
+
+
+def _validate_ready_evidence(
+    stage: str,
+    evidence: dict[str, Any],
+    issue: Any,
+    domain: Any,
+    repo_root: Path,
+    errors: list[str],
+) -> None:
+    domain_token = str(domain).replace("-", "")
+    if stage == "metadata":
+        _validate_evidence_path(
+            evidence.get("localDocument"),
+            issue,
+            "localDocument",
+            domain,
+            repo_root,
+            Path("docs/contracts/domains") / str(domain),
+            ".md",
+            errors,
+        )
+        _validate_notion_link(evidence.get("notionPage"), issue, errors)
+        _validate_figma_link(evidence.get("figmaNode"), issue, errors)
+        return
+    if stage == "example":
+        for field in ("requestFixture", "successFixture", "problemFixture"):
+            _validate_evidence_path(
+                evidence.get(field),
+                issue,
+                field,
+                domain,
+                repo_root,
+                Path("fixtures/contracts") / str(domain),
+                ".json",
+                errors,
+            )
+        return
+    main_prefix = Path(
+        f"services/spring-api/src/main/java/com/timingjeju/api/domain/{domain_token}"
+    )
+    test_prefix = Path(
+        f"services/spring-api/src/test/java/com/timingjeju/api/domain/{domain_token}"
+    )
+    for field, prefix, suffix in (
+        ("controller", main_prefix, "Controller.java"),
+        ("openApiTest", test_prefix, "OpenApiTest.java"),
+        ("contractTest", test_prefix, "ContractTest.java"),
+    ):
+        _validate_evidence_path(
+            evidence.get(field), issue, field, domain, repo_root, prefix, suffix, errors
+        )
+
+
 def _validate_domain_readiness(
-    readiness: Any, versions: Any, issue: Any, errors: list[str]
+    readiness: Any,
+    versions: Any,
+    issue: Any,
+    domain: Any,
+    errors: list[str],
+    repo_root: Path,
 ) -> None:
     _reject_unknown_fields(
         readiness, READINESS_FIELDS, f"도메인 계약 #{issue}.readiness", errors
@@ -558,11 +761,16 @@ def _validate_domain_readiness(
             errors.append(f"도메인 계약 #{issue}의 {stage} readiness status가 잘못되었습니다.")
         elif status == "not-ready" and evidence is not None:
             errors.append(f"도메인 계약 #{issue}의 not-ready {stage} evidence는 null이어야 합니다.")
-        elif status == "ready" and not _exact_non_empty_mapping(
-            evidence, READINESS_EVIDENCE_FIELDS[stage]
-        ):
-            label = "Implementation Ready" if stage == "implementation" else stage
-            errors.append(f"도메인 계약 #{issue}의 {label} evidence는 구조화 정확 집합이어야 합니다.")
+        elif status == "ready":
+            if not isinstance(evidence, dict) or set(evidence) != READINESS_EVIDENCE_FIELDS[stage]:
+                label = "Implementation Ready" if stage == "implementation" else stage
+                errors.append(
+                    f"도메인 계약 #{issue}의 {label} evidence는 구조화 정확 집합이어야 합니다."
+                )
+            else:
+                _validate_ready_evidence(
+                    stage, evidence, issue, domain, repo_root, errors
+                )
 
     if isinstance(versions, dict) and (
         versions.get("notion") == "not-linked" or versions.get("figma") == "not-linked"
@@ -651,7 +859,11 @@ def validate_template(
 
 def _read_json(path: Path, label: str) -> tuple[dict[str, Any] | None, list[str]]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_unique_json_object
+        )
+    except DuplicateJsonKeyError as error:
+        return None, [f"REST 계약 {label}에 중복 JSON 키 '{error}'가 있습니다."]
     except (OSError, json.JSONDecodeError) as error:
         return None, [f"REST 계약 {label}를 읽을 수 없습니다: {error}"]
     if not isinstance(value, dict):
@@ -665,7 +877,7 @@ def validate_contract_files(catalog_path: Path, template_path: Path) -> list[str
     errors.extend(template_errors)
     if catalog is None:
         return errors
-    errors.extend(validate_catalog(catalog))
+    errors.extend(validate_catalog(catalog, repo_root=REPOSITORY_ROOT))
     if template is not None:
         errors.extend(validate_template(template, catalog))
     return errors
