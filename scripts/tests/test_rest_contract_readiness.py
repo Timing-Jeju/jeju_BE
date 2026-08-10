@@ -1114,6 +1114,140 @@ class RestContractReadinessTest(unittest.TestCase):
                 catalog["endpoints"] = [endpoint]
                 self.assertTrue(self.validator.validate_catalog(catalog))
 
+    def test_malformed_membership_values_return_korean_errors_without_traceback(self):
+        mutations = {
+            "auth mode": lambda catalog, value: catalog["endpoints"].append(
+                {**self.endpoint(), "auth": {**self.endpoint()["auth"], "mode": value}}
+            ),
+            "operation": lambda catalog, value: catalog["endpoints"].append(
+                {**self.endpoint(), "operation": value}
+            ),
+            "notion version": lambda catalog, value: catalog["domainContracts"][
+                0
+            ]["versions"].__setitem__("notion", value),
+            "contract version": lambda catalog, value: catalog.__setitem__(
+                "contractVersion", value
+            ),
+        }
+        malformed_values = ([], {}, None, True, 1.0)
+        for name, mutation in mutations.items():
+            for value in malformed_values:
+                with self.subTest(name=name, value=value):
+                    catalog = copy.deepcopy(self.catalog)
+                    mutation(catalog, value)
+                    errors = self.validator.validate_catalog(catalog)
+                    self.assertTrue(errors)
+                    self.assertTrue(all(isinstance(error, str) for error in errors), errors)
+
+    def test_malformed_membership_cli_exits_one_without_traceback(self):
+        mutations = {
+            "auth mode": lambda catalog: catalog["endpoints"].append(
+                {**self.endpoint(), "auth": {**self.endpoint()["auth"], "mode": []}}
+            ),
+            "operation": lambda catalog: catalog["endpoints"].append(
+                {**self.endpoint(), "operation": []}
+            ),
+            "notion version": lambda catalog: catalog["domainContracts"][0][
+                "versions"
+            ].__setitem__("notion", []),
+            "contract version": lambda catalog: catalog.__setitem__(
+                "contractVersion", []
+            ),
+        }
+        for name, mutation in mutations.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                catalog = copy.deepcopy(self.catalog)
+                mutation(catalog)
+                path = Path(directory) / "catalog.json"
+                path.write_text(json.dumps(catalog), encoding="utf-8")
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR_PATH), str(path)],
+                    cwd=ROOT,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+                self.assertEqual(1, result.returncode)
+                self.assertIn("REST 계약 readiness 검사 실패", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
+    def test_notion_linkage_requires_exact_canonical_page_id_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            page_id = "0123456789abcdef0123456789abcdef"
+            valid_links = (
+                {
+                    "url": f"https://www.notion.so/timingjeju/Profile-Legal-{page_id}",
+                    "pageId": page_id,
+                },
+                {
+                    "url": f"https://timingjeju.notion.so/Profile-Legal-{page_id}",
+                    "pageId": "01234567-89ab-cdef-0123-456789abcdef",
+                },
+                {
+                    "url": "https://www.notion.so/Profile-Legal-01234567-89ab-cdef-0123-456789abcdef",
+                    "pageId": page_id,
+                },
+            )
+            for linkage in valid_links:
+                with self.subTest(valid=linkage):
+                    mutated = copy.deepcopy(catalog)
+                    mutated["domainContracts"][0]["readiness"]["metadata"][
+                        "evidence"
+                    ]["notionPage"] = linkage
+                    self.assertEqual(
+                        [], self.validator.validate_catalog(mutated, repo_root=repo_root)
+                    )
+
+            invalid_links = (
+                {
+                    "url": f"https://www.notion.so/timingjeju/a{page_id}",
+                    "pageId": page_id,
+                },
+                {
+                    "url": f"https://www.notion.so/timingjeju/{page_id}a",
+                    "pageId": page_id,
+                },
+                {
+                    "url": f"https://www.notion.so/timingjeju/0{page_id}f",
+                    "pageId": page_id,
+                },
+                {
+                    "url": f"https://www.notion.so/timingjeju/Profile-Legal-{page_id}",
+                    "pageId": "ffffffffffffffffffffffffffffffff",
+                },
+                {
+                    "url": f"https://www.notion.so/a/b/Profile-Legal-{page_id}",
+                    "pageId": page_id,
+                },
+                {
+                    "url": f"https://www.notion.so/{page_id}-Profile-Legal-{page_id}",
+                    "pageId": page_id,
+                },
+                {
+                    "url": f"https://notion.so.evil.example/Profile-Legal-{page_id}",
+                    "pageId": page_id,
+                },
+            )
+            for linkage in invalid_links:
+                with self.subTest(invalid=linkage):
+                    mutated = copy.deepcopy(catalog)
+                    mutated["domainContracts"][0]["readiness"]["metadata"][
+                        "evidence"
+                    ]["notionPage"] = linkage
+                    errors = self.validator.validate_catalog(
+                        mutated, repo_root=repo_root
+                    )
+                    self.assertTrue(any("Notion linkage" in error for error in errors), errors)
+
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"

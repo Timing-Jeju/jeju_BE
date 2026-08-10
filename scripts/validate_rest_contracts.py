@@ -148,6 +148,10 @@ TEMPLATE_DEFAULT_FIELDS = {"auth", "idempotency", "pagination"}
 RESOURCE_HIDING = "소유 리소스는 정책에 따라 403 또는 404로 은닉"
 NOTION_LINK_FIELDS = {"url", "pageId"}
 FIGMA_LINK_FIELDS = {"url", "fileKey", "nodeId"}
+NOTION_PAGE_ID = (
+    r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
 
 
 class DuplicateJsonKeyError(ValueError):
@@ -165,6 +169,10 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _non_empty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _allowed_string(value: Any, allowed: set[str]) -> bool:
+    return isinstance(value, str) and value in allowed
 
 
 def _exact_non_empty_mapping(value: Any, fields: set[str]) -> bool:
@@ -389,11 +397,11 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
         method = endpoint.get("method")
         path = endpoint.get("path")
         operation = endpoint.get("operation")
-        if not isinstance(method, str) or method not in ALLOWED_METHODS:
+        if not _allowed_string(method, ALLOWED_METHODS):
             errors.append(f"{label}의 method는 GET/POST/PUT/PATCH/DELETE 중 하나여야 합니다.")
         if not isinstance(path, str) or not PATH_PATTERN.fullmatch(path):
             errors.append(f"{label}의 path는 /api/v1/... 형식이어야 합니다.")
-        if not isinstance(operation, str) or operation not in ALLOWED_OPERATIONS:
+        if not _allowed_string(operation, ALLOWED_OPERATIONS):
             errors.append(f"{label}의 operation 분류가 허용되지 않습니다.")
         if isinstance(path, str) and any(
             segment in {".", ".."} for segment in path.split("/")
@@ -429,7 +437,7 @@ def _validate_endpoint_auth(auth: Any, label: str, errors: list[str]) -> None:
         errors.append(f"{label}의 auth schema가 정확하지 않습니다.")
         return
     mode = auth.get("mode")
-    if mode not in AUTH_MODES:
+    if not _allowed_string(mode, AUTH_MODES):
         errors.append(f"{label}의 인증 mode는 required 또는 optional이어야 합니다.")
     if mode == "required" and (
         type(auth.get("missingToken")) is not int or auth.get("missingToken") != 401
@@ -483,15 +491,16 @@ def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
 def _validate_endpoint_idempotency(
     idempotency: Any, operation: Any, label: str, errors: list[str]
 ) -> None:
+    idempotent_operation = _allowed_string(operation, IDEMPOTENT_OPERATIONS)
     allowed_fields = (
         REQUIRED_IDEMPOTENCY_FIELDS
-        if operation in IDEMPOTENT_OPERATIONS
+        if idempotent_operation
         else set(TEMPLATE_DEFAULTS["idempotency"])
     )
     _reject_unknown_fields(
         idempotency, allowed_fields, f"{label}.idempotency", errors
     )
-    if operation in IDEMPOTENT_OPERATIONS:
+    if idempotent_operation:
         if not isinstance(idempotency, dict) or set(idempotency) != REQUIRED_IDEMPOTENCY_FIELDS:
             errors.append(
                 f"{label}의 {operation} operation은 Idempotency-Key 멱등성 상세 계약 정확 집합이 필요합니다."
@@ -631,7 +640,10 @@ def _validate_domain_versions(
         errors.append(f"도메인 계약 #{issue}의 local contract version이 다릅니다.")
     for source in ("notion", "figma"):
         version = versions.get(source)
-        if version not in {contract_version, "not-linked"}:
+        if not isinstance(version, str) or version not in (
+            contract_version,
+            "not-linked",
+        ):
             errors.append(
                 f"도메인 계약 #{issue}의 Notion/Figma/local contract version drift: {source}={version}"
             )
@@ -688,8 +700,29 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
         return
     url = value.get("url")
     page_id = value.get("pageId")
-    normalized_id = re.sub(r"-", "", page_id) if isinstance(page_id, str) else ""
+    normalized_id = (
+        page_id.replace("-", "").lower()
+        if isinstance(page_id, str) and re.fullmatch(NOTION_PAGE_ID, page_id)
+        else ""
+    )
     parsed = urlparse(url) if isinstance(url, str) else None
+    path_segments = (
+        [segment for segment in parsed.path.split("/") if segment] if parsed else []
+    )
+    path_id = ""
+    if (
+        parsed
+        and 1 <= len(path_segments) <= 2
+        and all(re.fullmatch(r"[A-Za-z0-9_-]+", segment) for segment in path_segments)
+    ):
+        leaf = path_segments[-1]
+        match = re.search(rf"(?:^|[-_])(?P<page_id>{NOTION_PAGE_ID})$", leaf)
+        if match:
+            prefix_and_route = "/".join(path_segments[:-1]) + leaf[
+                : match.start("page_id")
+            ]
+            if not re.search(NOTION_PAGE_ID, prefix_and_route):
+                path_id = match.group("page_id").replace("-", "").lower()
     if (
         parsed is None
         or parsed.scheme != "https"
@@ -697,8 +730,11 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
         or not (
             parsed.hostname == "notion.so" or parsed.hostname.endswith(".notion.so")
         )
-        or not re.fullmatch(r"[0-9a-fA-F]{32}", normalized_id)
-        or normalized_id.lower() not in re.sub(r"-", "", parsed.path).lower()
+        or bool(parsed.params)
+        or bool(parsed.query)
+        or bool(parsed.fragment)
+        or not normalized_id
+        or path_id != normalized_id
     ):
         errors.append(f"도메인 계약 #{issue}의 Notion linkage URL/identifier가 일치하지 않습니다.")
 
