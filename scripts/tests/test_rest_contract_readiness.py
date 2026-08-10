@@ -952,6 +952,168 @@ class RestContractReadinessTest(unittest.TestCase):
                 mutation(catalog)
                 self.assertTrue(self.validator.validate_catalog(catalog))
 
+    def test_route_identity_canonicalizes_placeholder_names_only(self):
+        duplicate_pairs = (
+            (
+                "/api/v1/resources/{id}",
+                "/api/v1/resources/{resourceId}",
+            ),
+            (
+                "/api/v1/trips/{tripId}/days/{dayId}",
+                "/api/v1/trips/{id}/days/{resourceId}",
+            ),
+        )
+        for first_path, second_path in duplicate_pairs:
+            with self.subTest(first=first_path, second=second_path):
+                catalog = copy.deepcopy(self.catalog)
+                catalog["endpoints"] = [
+                    self.endpoint(path=first_path),
+                    self.endpoint(path=second_path),
+                ]
+                errors = self.validator.validate_catalog(catalog)
+                self.assertTrue(
+                    any("canonical method/path 중복" in error for error in errors),
+                    errors,
+                )
+
+        catalog = copy.deepcopy(self.catalog)
+        catalog["endpoints"] = [
+            self.endpoint(path="/api/v1/resources/static"),
+            self.endpoint(path="/api/v1/resources/{id}"),
+        ]
+        self.assertEqual([], self.validator.validate_catalog(catalog))
+
+    def test_list_operation_requires_exact_canonical_cursor_pagination(self):
+        catalog = copy.deepcopy(self.catalog)
+        endpoint = self.endpoint(operation="list")
+        endpoint["pagination"] = {"type": "none"}
+        catalog["endpoints"] = [endpoint]
+        errors = self.validator.validate_catalog(catalog)
+        self.assertTrue(any("list operation" in error for error in errors), errors)
+
+        catalog = copy.deepcopy(self.catalog)
+        endpoint = self.endpoint(operation="list")
+        catalog["commonRules"]["cursor"]["cursor"] = "transparent"
+        endpoint["pagination"]["cursor"] = "transparent"
+        catalog["endpoints"] = [endpoint]
+        errors = self.validator.validate_catalog(catalog)
+        self.assertTrue(any("canonical cursor" in error for error in errors), errors)
+
+    def test_domain_issue_mapping_and_domain_names_are_canonical_and_unique(self):
+        catalog = copy.deepcopy(self.catalog)
+        first, second = catalog["domainContracts"][:2]
+        first["issue"], second["issue"] = second["issue"], first["issue"]
+        errors = self.validator.validate_catalog(catalog)
+        self.assertTrue(any("canonical issue/domain mapping" in error for error in errors), errors)
+
+        catalog = copy.deepcopy(self.catalog)
+        catalog["domainContracts"][1]["domain"] = catalog["domainContracts"][0][
+            "domain"
+        ]
+        errors = self.validator.validate_catalog(catalog)
+        self.assertTrue(any("domain 중복" in error for error in errors), errors)
+
+    def test_evidence_symlink_target_must_keep_stage_domain_and_file_kind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            link = repo_root / "docs/contracts/domains/profile-legal/link.md"
+            original = first["readiness"]["metadata"]["evidence"]["localDocument"]
+
+            cross_domain = repo_root / "docs/contracts/domains/places/contract.md"
+            cross_domain.parent.mkdir(parents=True, exist_ok=True)
+            cross_domain.write_text("other domain", encoding="utf-8")
+            link.symlink_to(cross_domain)
+            first["readiness"]["metadata"]["evidence"]["localDocument"] = str(
+                link.relative_to(repo_root)
+            )
+            errors = self.validator.validate_catalog(catalog, repo_root=repo_root)
+            self.assertTrue(any("resolve된 evidence" in error for error in errors), errors)
+
+            link.unlink()
+            wrong_type = repo_root / "docs/contracts/domains/profile-legal/data.json"
+            wrong_type.write_text("{}", encoding="utf-8")
+            link.symlink_to(wrong_type)
+            errors = self.validator.validate_catalog(catalog, repo_root=repo_root)
+            self.assertTrue(any("resolve된 evidence" in error for error in errors), errors)
+
+            link.unlink()
+            outside = Path(directory).with_name(f"{Path(directory).name}-outside.md")
+            outside.write_text("outside", encoding="utf-8")
+            try:
+                link.symlink_to(outside)
+                errors = self.validator.validate_catalog(catalog, repo_root=repo_root)
+                self.assertTrue(
+                    any("symlink" in error or "저장소 밖" in error for error in errors),
+                    errors,
+                )
+            finally:
+                outside.unlink(missing_ok=True)
+            first["readiness"]["metadata"]["evidence"]["localDocument"] = original
+
+    def test_figma_link_requires_exact_route_file_key_and_single_node_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            mutations = {
+                "evil route": {
+                    "url": "https://www.figma.com/evil/AbCdEf123456/Profile?node-id=10-20",
+                },
+                "slash file key": {
+                    "url": "https://www.figma.com/design/Ab/Cd/Profile?node-id=10-20",
+                    "fileKey": "Ab/Cd",
+                },
+                "duplicate node id": {
+                    "url": "https://www.figma.com/file/AbCdEf123456/Profile?node-id=10-20&node-id=10-20",
+                },
+                "extra query": {
+                    "url": "https://www.figma.com/file/AbCdEf123456/Profile?node-id=10-20&t=abc",
+                },
+                "node mismatch": {"nodeId": "99:99"},
+            }
+            for name, updates in mutations.items():
+                with self.subTest(name=name):
+                    mutated = copy.deepcopy(catalog)
+                    linkage = mutated["domainContracts"][0]["readiness"]["metadata"][
+                        "evidence"
+                    ]["figmaNode"]
+                    linkage.update(updates)
+                    errors = self.validator.validate_catalog(
+                        mutated, repo_root=repo_root
+                    )
+                    self.assertTrue(any("Figma linkage" in error for error in errors), errors)
+
+    def test_response_status_sets_are_unique_disjoint_and_strict_integers(self):
+        response_cases = (
+            {"success": [200], "errors": [200, 400]},
+            {"success": [200, 200], "errors": [400]},
+            {"success": [200], "errors": [400, 400]},
+            {"success": [True], "errors": [400]},
+            {"success": [200.0], "errors": [400]},
+            {"success": ["200"], "errors": [400]},
+        )
+        for responses in response_cases:
+            with self.subTest(responses=responses):
+                catalog = copy.deepcopy(self.catalog)
+                endpoint = self.endpoint()
+                endpoint["responses"] = responses
+                catalog["endpoints"] = [endpoint]
+                self.assertTrue(self.validator.validate_catalog(catalog))
+
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"

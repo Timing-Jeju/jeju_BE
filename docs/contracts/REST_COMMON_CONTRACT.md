@@ -11,7 +11,7 @@
 - 비동기 run 상태는 `queued/running/succeeded/failed/cancelled`뿐입니다. 접수 응답은 `Location`, `Retry-After`, 실패 조회는 `failure` object를 정의합니다. fallback 성공은 `status=succeeded`, `result_source=fallback`이고 `fallback` 상태를 만들지 않습니다. 후보 만료는 run 상태가 아니라 `expiresAt`입니다.
 - 접수 재현성 hash는 `commandInputHash`, 실제 MCP wire 입력 hash는 `mcpInputHash`로 분리합니다. worker는 불변 command snapshot만 읽습니다.
 
-각 endpoint는 허용된 HTTP method와 `/api/v1/...` path, `read/list/create/update/delete/compute/apply` operation 분류를 사용합니다. path의 `.`·`..` segment, 빈 segment와 중복 slash는 허용하지 않으며 method/path 중복은 segment를 canonicalize한 identity로 판단합니다. URL decoding은 하지 않고 `%`가 든 path를 보수적으로 거부합니다. `create`, `compute`, `apply`는 `required=false`로 낮출 수 없고 `Idempotency-Key`, scope, TTL, replay, payload conflict, concurrent request 필드를 정확한 구조와 non-empty 값으로 작성합니다. 나머지 operation의 기본값은 `required=false`, `header=none`입니다. path/query/header/body schema와 owner, presence, response status, DB owner, request-time call, lineage, Figma 상태도 올바른 타입과 non-empty 값이어야 합니다. HTTP status와 ownership Issue는 JSON integer만 허용하므로 boolean·float·null을 정수로 간주하지 않으며 status 배열은 중복될 수 없습니다.
+각 endpoint는 허용된 HTTP method와 `/api/v1/...` path, `read/list/create/update/delete/compute/apply` operation 분류를 사용합니다. path의 `.`·`..` segment, 빈 segment와 중복 slash는 허용하지 않으며 method/path 중복은 segment를 canonicalize한 identity로 판단합니다. `{id}`와 `{resourceId}`처럼 이름만 다른 placeholder는 같은 Spring route token으로 정규화하되 static segment와 placeholder는 구분합니다. URL decoding은 하지 않고 `%`가 든 path를 보수적으로 거부합니다. `list` operation은 `pagination=none`을 사용할 수 없고 opaque cursor, 정수 size 범위, non-empty stable sort/tie-breaker의 canonical pagination을 상속합니다. `create`, `compute`, `apply`는 `required=false`로 낮출 수 없고 `Idempotency-Key`, scope, TTL, replay, payload conflict, concurrent request 필드를 정확한 구조와 non-empty 값으로 작성합니다. 나머지 operation의 기본값은 `required=false`, `header=none`입니다. path/query/header/body schema와 owner, presence, response status, DB owner, request-time call, lineage, Figma 상태도 올바른 타입과 non-empty 값이어야 합니다. HTTP status와 ownership Issue는 JSON integer만 허용하므로 boolean·float·null을 정수로 간주하지 않습니다. success/errors 각 status 배열은 내부 중복이 없고 서로도 겹치지 않아야 합니다.
 
 ## 구현 소유 경계
 
@@ -21,13 +21,15 @@
 
 각 도메인은 Metadata Ready, Example Ready, Implementation Ready를 독립적으로 관리합니다.
 
+#82~#94의 canonical domain은 순서대로 `profile-legal`, `places`, `saved-places`, `trips`, `preferences-transport`, `accommodations`, `schedules`, `schedule-ai`, `feasibility-legs`, `spare-time`, `recovery`, `live`, `weather`입니다. Issue와 domain 이름은 이 mapping을 함께 따라야 하고 각 domain은 정확히 한 번만 존재해야 합니다.
+
 - 각 단계는 `{ "status": "ready|not-ready", "evidence": object|null }` 구조입니다. `not-ready`의 evidence는 `null`이어야 하며 truthy 문자열이나 임의 배열로 승격할 수 없습니다.
-- `Metadata Ready`: local, Notion, Figma의 `contractVersion`이 모두 같고 `localDocument/notionPage/figmaNode` 증거가 있을 때만 `ready`입니다. local 문서는 `docs/contracts/domains/<domain>/*.md`의 실제 파일이어야 합니다. Notion은 `{url,pageId}`, Figma는 `{url,fileKey,nodeId}` exact linkage 객체이며 URL과 identifier가 서로 일치해야 합니다.
+- `Metadata Ready`: local, Notion, Figma의 `contractVersion`이 모두 같고 `localDocument/notionPage/figmaNode` 증거가 있을 때만 `ready`입니다. local 문서는 `docs/contracts/domains/<domain>/*.md`의 실제 파일이어야 합니다. Notion은 `{url,pageId}` exact linkage 객체입니다. Figma는 `{url,fileKey,nodeId}` 객체이며 `https://www.figma.com/(design|file)/<single-segment-fileKey>/...` URL의 단일 `node-id` query가 identifier와 정확히 일치해야 합니다.
 - `Example Ready`: Metadata Ready 이후, 비밀정보나 실제 사용자 데이터가 없는 `requestFixture/successFixture/problemFixture` 증거가 있을 때만 `ready`입니다. 세 파일은 `fixtures/contracts/<domain>/*.json` 안에 실제로 존재해야 합니다.
 - `Implementation Ready`: Metadata와 Example Ready 이후, `controller/openApiTest/contractTest` 증거가 모두 있을 때만 `ready`입니다. Controller는 해당 도메인의 Spring main source, 두 테스트는 해당 도메인의 Spring test source에 존재하는 `.java` 파일이어야 합니다. 구현 전에는 승격할 수 없습니다.
 - Notion/Figma가 아직 연결되지 않은 경우 `not-linked`로 두며 임의 버전을 추정하지 않습니다. 연결된 뒤에는 local 버전과 정확히 같아야 합니다.
 
-모든 local evidence는 저장소 root 기준 상대 경로만 허용합니다. 파일 실재와 단계별 종류·확장자·도메인 소유 범위를 검사하며 `..` traversal, 절대 경로, 저장소 밖을 가리키는 symlink는 승격 증거가 될 수 없습니다.
+모든 local evidence는 저장소 root 기준 상대 경로만 허용합니다. 파일 실재와 단계별 종류·확장자·도메인 소유 범위를 검사하며 `..` traversal, 절대 경로, 저장소 밖을 가리키는 symlink는 승격 증거가 될 수 없습니다. symlink의 lexical 경로뿐 아니라 resolve된 target도 같은 stage/domain prefix와 파일 종류·확장자 안에 있어야 합니다.
 
 ## 자동 검사
 

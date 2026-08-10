@@ -22,7 +22,22 @@ ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 ALLOWED_OPERATIONS = {"read", "list", "create", "update", "delete", "compute", "apply"}
 IDEMPOTENT_OPERATIONS = {"create", "compute", "apply"}
 RUN_STATES = ["queued", "running", "succeeded", "failed", "cancelled"]
-DOMAIN_ISSUES = set(range(82, 95))
+DOMAIN_CONTRACTS = {
+    82: "profile-legal",
+    83: "places",
+    84: "saved-places",
+    85: "trips",
+    86: "preferences-transport",
+    87: "accommodations",
+    88: "schedules",
+    89: "schedule-ai",
+    90: "feasibility-legs",
+    91: "spare-time",
+    92: "recovery",
+    93: "live",
+    94: "weather",
+}
+DOMAIN_ISSUES = set(DOMAIN_CONTRACTS)
 PATH_PATTERN = re.compile(
     r"^/api/v1(?:/(?:[A-Za-z0-9._~-]+|\{[A-Za-z][A-Za-z0-9]*\}))+?$"
 )
@@ -177,6 +192,9 @@ def _canonical_path(path: str) -> str:
         if segment == "..":
             if segments:
                 segments.pop()
+            continue
+        if segment.startswith("{") and segment.endswith("}"):
+            segments.append("{}")
             continue
         segments.append(segment)
     return "/" + "/".join(segments)
@@ -398,7 +416,9 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
         _validate_endpoint_responses(endpoint.get("responses"), label, errors)
         _validate_endpoint_figma(endpoint.get("figma"), label, errors)
         _validate_endpoint_idempotency(endpoint.get("idempotency"), operation, label, errors)
-        _validate_endpoint_pagination(endpoint.get("pagination"), label, errors)
+        _validate_endpoint_pagination(
+            endpoint.get("pagination"), operation, label, errors
+        )
 
 
 def _validate_endpoint_auth(auth: Any, label: str, errors: list[str]) -> None:
@@ -443,6 +463,15 @@ def _validate_endpoint_responses(responses: Any, label: str, errors: list[str]) 
             errors.append(
                 f"{label}의 responses.{kind}는 unique 정수 HTTP status 배열이어야 합니다."
             )
+    success = responses.get("success")
+    failure = responses.get("errors")
+    if (
+        isinstance(success, list)
+        and isinstance(failure, list)
+        and all(type(code) is int for code in success + failure)
+        and set(success) & set(failure)
+    ):
+        errors.append(f"{label}의 responses success/errors HTTP status는 disjoint여야 합니다.")
 
 
 def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
@@ -483,7 +512,9 @@ def _validate_endpoint_idempotency(
         )
 
 
-def _validate_endpoint_pagination(pagination: Any, label: str, errors: list[str]) -> None:
+def _validate_endpoint_pagination(
+    pagination: Any, operation: Any, label: str, errors: list[str]
+) -> None:
     allowed_fields = (
         {"type"}
         if isinstance(pagination, dict) and pagination.get("type") == "none"
@@ -491,6 +522,10 @@ def _validate_endpoint_pagination(pagination: Any, label: str, errors: list[str]
     )
     _reject_unknown_fields(pagination, allowed_fields, f"{label}.pagination", errors)
     if pagination == TEMPLATE_DEFAULTS["pagination"]:
+        if operation == "list":
+            errors.append(
+                f"{label}의 list operation은 canonical cursor pagination이 필수입니다."
+            )
         return
     expected = {"type", "cursor", "size", "stableSort", "tieBreaker"}
     if not isinstance(pagination, dict) or set(pagination) != expected:
@@ -498,6 +533,10 @@ def _validate_endpoint_pagination(pagination: Any, label: str, errors: list[str]
         return
     if pagination.get("type") != "cursor" or pagination.get("cursor") != "opaque":
         errors.append(f"{label}의 cursor는 opaque여야 합니다.")
+        if operation == "list":
+            errors.append(
+                f"{label}의 list operation은 canonical cursor pagination을 상속해야 합니다."
+            )
     size = pagination.get("size")
     _reject_unknown_fields(size, {"default", "max"}, f"{label}.pagination.size", errors)
     if (
@@ -541,6 +580,15 @@ def _validate_domains(
         if count != 1:
             errors.append(f"도메인 계약 #{issue}가 {count}회 중복되었습니다.")
 
+    domain_values = [
+        domain.get("domain")
+        for domain in domains
+        if isinstance(domain, dict) and _non_empty(domain.get("domain"))
+    ]
+    for domain_name, count in sorted(Counter(domain_values).items()):
+        if count != 1:
+            errors.append(f"도메인 계약 domain 중복: {domain_name} ({count}회)")
+
     for domain in domains:
         if not isinstance(domain, dict):
             errors.append("domainContracts 항목은 객체여야 합니다.")
@@ -553,6 +601,12 @@ def _validate_domains(
             errors.append(f"도메인 계약 #{issue}는 공통 템플릿을 명시적으로 상속해야 합니다.")
         if not _non_empty(domain.get("domain")):
             errors.append(f"도메인 계약 #{issue}의 domain은 비어 있을 수 없습니다.")
+        elif type(issue) is not int or DOMAIN_CONTRACTS.get(issue) != domain.get(
+            "domain"
+        ):
+            errors.append(
+                f"도메인 계약 #{issue}의 canonical issue/domain mapping이 다릅니다."
+            )
         _validate_domain_versions(domain.get("versions"), issue, contract_version, errors)
         _validate_domain_readiness(
             domain.get("readiness"),
@@ -604,7 +658,7 @@ def _validate_evidence_path(
     candidate = repo_root / relative
     try:
         resolved = candidate.resolve(strict=True)
-        resolved.relative_to(repo_root)
+        resolved_relative = resolved.relative_to(repo_root)
     except (OSError, ValueError):
         errors.append(f"{label}가 없거나 symlink로 저장소 밖을 가리킵니다.")
         return
@@ -616,8 +670,15 @@ def _validate_evidence_path(
     ):
         errors.append(f"{label}의 종류·확장자·소유 범위가 잘못되었습니다.")
         return
+    if not str(resolved_relative).endswith(
+        expected_suffix
+    ) or not resolved_relative.is_relative_to(expected_prefix):
+        errors.append(
+            f"{label}의 resolve된 evidence 종류·확장자·소유 범위가 잘못되었습니다."
+        )
+        return
     domain_token = str(domain).replace("-", "").lower()
-    if domain_token not in str(relative).replace("-", "").lower():
+    if domain_token not in str(resolved_relative).replace("-", "").lower():
         errors.append(f"{label}가 도메인 {domain} 소유 범위와 다릅니다.")
 
 
@@ -650,17 +711,25 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
     file_key = value.get("fileKey")
     node_id = value.get("nodeId")
     parsed = urlparse(url) if isinstance(url, str) else None
-    query_node = parse_qs(parsed.query).get("node-id", [None])[0] if parsed else None
+    query = parse_qs(parsed.query, keep_blank_values=True) if parsed else {}
+    query_nodes = query.get("node-id", [])
+    path_segments = parsed.path.split("/") if parsed else []
     if (
         parsed is None
         or parsed.scheme != "https"
         or parsed.hostname not in {"figma.com", "www.figma.com"}
         or not _non_empty(file_key)
-        or f"/{file_key}/" not in parsed.path
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", file_key)
+        or len(path_segments) < 4
+        or path_segments[1] not in {"design", "file"}
+        or path_segments[2] != file_key
+        or not path_segments[3]
         or not isinstance(node_id, str)
         or not re.fullmatch(r"\d+:\d+", node_id)
-        or not isinstance(query_node, str)
-        or query_node.replace("-", ":") != node_id
+        or set(query) != {"node-id"}
+        or len(query_nodes) != 1
+        or not re.fullmatch(r"\d+-\d+", query_nodes[0])
+        or query_nodes[0].replace("-", ":") != node_id
     ):
         errors.append(f"도메인 계약 #{issue}의 Figma linkage URL/identifier가 일치하지 않습니다.")
 
