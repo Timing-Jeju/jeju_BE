@@ -6,7 +6,7 @@
 
 - 인증은 `required` 또는 `optional`만 사용합니다. 권한 판단은 검증된 JWT의 canonical `sub`만 사용하고 `user_metadata`는 사용하지 않습니다. required 요청의 token 없음은 401, optional 요청의 token 없음은 익명 흐름이고, invalid token은 두 mode 모두 401입니다. token 없음과 invalid token은 서로 다른 `code`로 분류합니다. 소유 리소스는 도메인 정책에 따라 403 또는 404로 은닉합니다.
 - 생성·계산·적용 요청은 `Idempotency-Key`의 scope, TTL, replay, payload conflict, 동시 요청 규칙을 모두 명시합니다.
-- 목록은 opaque cursor, size 범위, stable sort와 고유 tie-breaker를 함께 명시합니다.
+- 목록은 opaque cursor, 정수 size(`1 <= default <= max <= 100`, boolean 제외), stable sort와 고유 tie-breaker를 함께 명시합니다.
 - 오류 본문은 `application/problem+json`의 `type,title,status,detail,instance,code,traceId,fieldErrors`만 사용합니다. `message`, `violations`, token, PII, command payload, raw provider payload를 응답·로그·metric tag에 남기지 않습니다.
 - 비동기 run 상태는 `queued/running/succeeded/failed/cancelled`뿐입니다. 접수 응답은 `Location`, `Retry-After`, 실패 조회는 `failure` object를 정의합니다. fallback 성공은 `status=succeeded`, `result_source=fallback`이고 `fallback` 상태를 만들지 않습니다. 후보 만료는 run 상태가 아니라 `expiresAt`입니다.
 - 접수 재현성 hash는 `commandInputHash`, 실제 MCP wire 입력 hash는 `mcpInputHash`로 분리합니다. worker는 불변 command snapshot만 읽습니다.
@@ -29,4 +29,4 @@
 
 ## 자동 검사
 
-`python3 scripts/validate_rest_contracts.py`는 catalog와 `endpoint-template.json`을 실제로 함께 읽습니다. catalog/template version, 필수 field와 default 상속 drift, method/path 중복, 필수 필드의 공백·타입, 인증·멱등성·cursor 상속, run/candidate/fallback 혼용, Problem Details 구형 필드, hash/소유권 drift, #82~#94 exactly-once 상속, 구조화 readiness와 버전 drift를 한국어 오류로 보고합니다. 이 검사는 `./scripts/quality-gate.sh`의 공통 단계에서 항상 실행됩니다.
+`python3 scripts/validate_rest_contracts.py`는 catalog와 `endpoint-template.json`을 실제로 함께 읽습니다. 지원하는 canonical `contractVersion`은 `1.0.0`이며 catalog/template/domain을 함께 바꿔도 다른 버전은 허용하지 않습니다. 모든 catalog/template/endpoint/readiness JSON 객체는 문서화된 키만 허용하는 closed-world 계약입니다. 검증기는 unknown·missing·duplicate field, 필수 field와 default 상속 drift, method/path 중복, 필수 필드의 공백·타입, 인증·멱등성·cursor 상속, run/candidate/fallback 혼용, Problem Details 구형 필드, hash/소유권 drift, #82~#94 exactly-once 상속, 구조화 readiness와 버전 drift를 traceback 없이 한국어 오류로 보고합니다. 이 검사는 `./scripts/quality-gate.sh`의 공통 단계에서 항상 실행됩니다.

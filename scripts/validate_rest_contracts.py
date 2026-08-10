@@ -14,6 +14,7 @@ from typing import Any
 
 CATALOG_VERSION = "rest-contract-catalog/v1"
 TEMPLATE_ID = "timing-jeju-rest-contract/v1"
+CANONICAL_CONTRACT_VERSION = "1.0.0"
 AUTH_MODES = {"required", "optional"}
 ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 ALLOWED_OPERATIONS = {"read", "list", "create", "update", "delete", "compute", "apply"}
@@ -74,6 +75,59 @@ TEMPLATE_DEFAULTS = {
     "idempotency": {"required": False, "header": "none"},
     "pagination": {"type": "none"},
 }
+CATALOG_FIELDS = {
+    "catalogVersion",
+    "templateId",
+    "contractVersion",
+    "commonRules",
+    "ownership",
+    "endpoints",
+    "domainContracts",
+}
+COMMON_RULE_FIELDS = {
+    "authorization",
+    "idempotency",
+    "cursor",
+    "problemDetails",
+    "asyncRun",
+    "hashes",
+}
+AUTHORIZATION_FIELDS = {
+    "modes",
+    "principal",
+    "missingTokenCode",
+    "invalidTokenCode",
+    "resourceHiding",
+}
+COMMON_IDEMPOTENCY_FIELDS = {"header", "requiredFor", "requires"}
+CURSOR_RULE_FIELDS = {"cursor", "requires"}
+PROBLEM_DETAILS_FIELDS = {"mediaType", "fields", "forbiddenFields"}
+ASYNC_RUN_FIELDS = {
+    "states",
+    "headers",
+    "failureObjectFields",
+    "fallback",
+    "candidateExpiryField",
+    "workerInput",
+}
+FALLBACK_FIELDS = {"status", "result_source"}
+HASH_FIELDS = {"commandInputHash", "mcpInputHash"}
+OWNERSHIP_FIELDS = {"durableCommandSchema", "locationCleanup", "workerRuntime"}
+DOMAIN_FIELDS = {"issue", "domain", "inherits", "versions", "readiness"}
+VERSION_FIELDS = {"local", "notion", "figma"}
+READINESS_FIELDS = set(READINESS_STAGES)
+READINESS_STAGE_FIELDS = {"status", "evidence"}
+TEMPLATE_FIELDS = {
+    "catalogVersion",
+    "templateId",
+    "contractVersion",
+    "requiredEndpointFields",
+    "allowedMethods",
+    "allowedOperations",
+    "defaults",
+    "endpoint",
+}
+TEMPLATE_DEFAULT_FIELDS = {"auth", "idempotency", "pagination"}
 
 
 def _non_empty(value: Any) -> bool:
@@ -104,8 +158,18 @@ def _object(value: Any, label: str, errors: list[str]) -> dict[str, Any]:
     return {}
 
 
+def _reject_unknown_fields(
+    value: Any, allowed_fields: set[str], label: str, errors: list[str]
+) -> None:
+    if not isinstance(value, dict):
+        return
+    for field in sorted(set(value) - allowed_fields):
+        errors.append(f"{label}에 허용되지 않은 필드 {field}가 있습니다.")
+
+
 def validate_catalog(catalog: dict[str, Any]) -> list[str]:
     errors: list[str] = []
+    _reject_unknown_fields(catalog, CATALOG_FIELDS, "catalog", errors)
     contract_version = catalog.get("contractVersion")
     template_id = catalog.get("templateId")
 
@@ -113,6 +177,10 @@ def validate_catalog(catalog: dict[str, Any]) -> list[str]:
         errors.append(f"catalogVersion은 {CATALOG_VERSION}이어야 합니다.")
     if not _non_empty(contract_version):
         errors.append("공통 계약 버전(contractVersion)이 필요합니다.")
+    elif contract_version != CANONICAL_CONTRACT_VERSION:
+        errors.append(
+            f"지원하는 canonical contractVersion은 {CANONICAL_CONTRACT_VERSION}입니다."
+        )
     if template_id != TEMPLATE_ID:
         errors.append(f"공통 계약 templateId는 {TEMPLATE_ID}이어야 합니다.")
 
@@ -127,8 +195,12 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
     if not isinstance(rules, dict):
         errors.append("commonRules 객체가 필요합니다.")
         return
+    _reject_unknown_fields(rules, COMMON_RULE_FIELDS, "commonRules", errors)
 
     authorization = _object(rules.get("authorization"), "commonRules.authorization", errors)
+    _reject_unknown_fields(
+        authorization, AUTHORIZATION_FIELDS, "commonRules.authorization", errors
+    )
     if not _exact_string_list(authorization.get("modes"), AUTH_MODES):
         errors.append("인증 mode는 required와 optional만 허용합니다.")
     exact_authorization = {
@@ -141,6 +213,9 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
             errors.append(f"공통 인증 {field}는 {expected}이어야 합니다.")
 
     idempotency = _object(rules.get("idempotency"), "commonRules.idempotency", errors)
+    _reject_unknown_fields(
+        idempotency, COMMON_IDEMPOTENCY_FIELDS, "commonRules.idempotency", errors
+    )
     if idempotency.get("header") != "Idempotency-Key":
         errors.append("공통 멱등성 header는 Idempotency-Key여야 합니다.")
     if not _exact_string_list(idempotency.get("requiredFor"), IDEMPOTENT_OPERATIONS):
@@ -155,6 +230,7 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
         errors.append("멱등성 scope/TTL/replay/payload conflict/동시 요청 계약이 필요합니다.")
 
     cursor = _object(rules.get("cursor"), "commonRules.cursor", errors)
+    _reject_unknown_fields(cursor, CURSOR_RULE_FIELDS, "commonRules.cursor", errors)
     if cursor.get("cursor") != "opaque":
         errors.append("공통 cursor는 opaque여야 합니다.")
     if not _exact_string_list(
@@ -163,6 +239,9 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
         errors.append("cursor는 size, stable sort, tie-breaker를 모두 요구해야 합니다.")
 
     problem = _object(rules.get("problemDetails"), "commonRules.problemDetails", errors)
+    _reject_unknown_fields(
+        problem, PROBLEM_DETAILS_FIELDS, "commonRules.problemDetails", errors
+    )
     if problem.get("mediaType") != "application/problem+json":
         errors.append("Problem Details mediaType은 application/problem+json이어야 합니다.")
     fields_value = problem.get("fields")
@@ -188,11 +267,15 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
             errors.append(f"Problem Details에서 {name} 필드는 금지해야 합니다.")
 
     run = _object(rules.get("asyncRun"), "commonRules.asyncRun", errors)
+    _reject_unknown_fields(run, ASYNC_RUN_FIELDS, "commonRules.asyncRun", errors)
     if run.get("states") != RUN_STATES:
         errors.append(
             "비동기 run canonical 상태는 queued/running/succeeded/failed/cancelled 순서와 값만 허용합니다."
         )
     fallback = run.get("fallback")
+    _reject_unknown_fields(
+        fallback, FALLBACK_FIELDS, "commonRules.asyncRun.fallback", errors
+    )
     if fallback != {"status": "succeeded", "result_source": "fallback"}:
         errors.append("fallback 성공은 status=succeeded, result_source=fallback이어야 합니다.")
     if run.get("candidateExpiryField") != "expiresAt":
@@ -205,6 +288,7 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
         errors.append("비동기 workerInput은 immutable command snapshot이어야 합니다.")
 
     hashes = _object(rules.get("hashes"), "commonRules.hashes", errors)
+    _reject_unknown_fields(hashes, HASH_FIELDS, "commonRules.hashes", errors)
     if hashes.get("commandInputHash") != "commandInputHash":
         errors.append("접수 hash 명칭은 commandInputHash여야 합니다.")
     if hashes.get("mcpInputHash") != "mcpInputHash":
@@ -218,6 +302,7 @@ def _validate_ownership(ownership: Any, errors: list[str]) -> None:
     if not isinstance(ownership, dict):
         errors.append("후속 구현 소유권(ownership)이 필요합니다.")
         return
+    _reject_unknown_fields(ownership, OWNERSHIP_FIELDS, "ownership", errors)
     for name, issue in expected.items():
         if ownership.get(name) != issue:
             errors.append(f"{name} 구현 소유자는 #{issue}여야 합니다.")
@@ -238,8 +323,7 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
         missing = REQUIRED_ENDPOINT_FIELDS - endpoint_fields
         for field in sorted(missing):
             errors.append(f"{label}에 필수 계약 필드 {field}가 없습니다.")
-        for field in sorted(endpoint_fields - REQUIRED_ENDPOINT_FIELDS):
-            errors.append(f"{label}에 허용되지 않은 계약 필드 {field}가 있습니다.")
+        _reject_unknown_fields(endpoint, REQUIRED_ENDPOINT_FIELDS, label, errors)
 
         method = endpoint.get("method")
         path = endpoint.get("path")
@@ -270,6 +354,9 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
 
 
 def _validate_endpoint_auth(auth: Any, label: str, errors: list[str]) -> None:
+    _reject_unknown_fields(
+        auth, {"mode", "missingToken", "invalidToken"}, f"{label}.auth", errors
+    )
     if not isinstance(auth, dict) or set(auth) != {"mode", "missingToken", "invalidToken"}:
         errors.append(f"{label}의 auth schema가 정확하지 않습니다.")
         return
@@ -285,11 +372,13 @@ def _validate_endpoint_auth(auth: Any, label: str, errors: list[str]) -> None:
 
 
 def _validate_endpoint_schemas(schemas: Any, label: str, errors: list[str]) -> None:
+    _reject_unknown_fields(schemas, REQUIRED_SCHEMAS, f"{label}.schemas", errors)
     if not _exact_non_empty_mapping(schemas, REQUIRED_SCHEMAS):
         errors.append(f"{label}은 non-empty path/query/header/body schema를 정확히 명시해야 합니다.")
 
 
 def _validate_endpoint_responses(responses: Any, label: str, errors: list[str]) -> None:
+    _reject_unknown_fields(responses, {"success", "errors"}, f"{label}.responses", errors)
     if not isinstance(responses, dict) or set(responses) != {"success", "errors"}:
         errors.append(f"{label}의 responses schema가 정확하지 않습니다.")
         return
@@ -302,6 +391,7 @@ def _validate_endpoint_responses(responses: Any, label: str, errors: list[str]) 
 
 
 def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
+    _reject_unknown_fields(figma, REQUIRED_FIGMA_FIELDS, f"{label}.figma", errors)
     if not _exact_non_empty_mapping(figma, REQUIRED_FIGMA_FIELDS):
         errors.append(f"{label}은 non-empty Figma node/action/loading/empty/error를 명시해야 합니다.")
 
@@ -309,6 +399,14 @@ def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
 def _validate_endpoint_idempotency(
     idempotency: Any, operation: Any, label: str, errors: list[str]
 ) -> None:
+    allowed_fields = (
+        REQUIRED_IDEMPOTENCY_FIELDS
+        if operation in IDEMPOTENT_OPERATIONS
+        else set(TEMPLATE_DEFAULTS["idempotency"])
+    )
+    _reject_unknown_fields(
+        idempotency, allowed_fields, f"{label}.idempotency", errors
+    )
     if operation in IDEMPOTENT_OPERATIONS:
         if not isinstance(idempotency, dict) or set(idempotency) != REQUIRED_IDEMPOTENCY_FIELDS:
             errors.append(
@@ -331,6 +429,12 @@ def _validate_endpoint_idempotency(
 
 
 def _validate_endpoint_pagination(pagination: Any, label: str, errors: list[str]) -> None:
+    allowed_fields = (
+        {"type"}
+        if isinstance(pagination, dict) and pagination.get("type") == "none"
+        else {"type", "cursor", "size", "stableSort", "tieBreaker"}
+    )
+    _reject_unknown_fields(pagination, allowed_fields, f"{label}.pagination", errors)
     if pagination == TEMPLATE_DEFAULTS["pagination"]:
         return
     expected = {"type", "cursor", "size", "stableSort", "tieBreaker"}
@@ -340,12 +444,13 @@ def _validate_endpoint_pagination(pagination: Any, label: str, errors: list[str]
     if pagination.get("type") != "cursor" or pagination.get("cursor") != "opaque":
         errors.append(f"{label}의 cursor는 opaque여야 합니다.")
     size = pagination.get("size")
+    _reject_unknown_fields(size, {"default", "max"}, f"{label}.pagination.size", errors)
     if (
         not isinstance(size, dict)
         or set(size) != {"default", "max"}
-        or not isinstance(size.get("default"), int)
-        or not isinstance(size.get("max"), int)
-        or not 0 < size["default"] <= size["max"]
+        or type(size.get("default")) is not int
+        or type(size.get("max")) is not int
+        or not 1 <= size["default"] <= size["max"] <= 100
     ):
         errors.append(f"{label}의 cursor size 정책이 잘못되었습니다.")
     if not _non_empty(pagination.get("stableSort")):
@@ -381,6 +486,9 @@ def _validate_domains(
         if not isinstance(domain, dict):
             errors.append("domainContracts 항목은 객체여야 합니다.")
             continue
+        _reject_unknown_fields(
+            domain, DOMAIN_FIELDS, f"도메인 계약 #{domain.get('issue', '?')}", errors
+        )
         issue = domain.get("issue", "?")
         if domain.get("inherits") != template_id:
             errors.append(f"도메인 계약 #{issue}는 공통 템플릿을 명시적으로 상속해야 합니다.")
@@ -395,6 +503,9 @@ def _validate_domains(
 def _validate_domain_versions(
     versions: Any, issue: Any, contract_version: Any, errors: list[str]
 ) -> None:
+    _reject_unknown_fields(
+        versions, VERSION_FIELDS, f"도메인 계약 #{issue}.versions", errors
+    )
     if not isinstance(versions, dict) or set(versions) != {"local", "notion", "figma"}:
         errors.append(f"도메인 계약 #{issue}의 versions schema가 정확하지 않습니다.")
         return
@@ -411,6 +522,9 @@ def _validate_domain_versions(
 def _validate_domain_readiness(
     readiness: Any, versions: Any, issue: Any, errors: list[str]
 ) -> None:
+    _reject_unknown_fields(
+        readiness, READINESS_FIELDS, f"도메인 계약 #{issue}.readiness", errors
+    )
     if not isinstance(readiness, dict) or set(readiness) != set(READINESS_STAGES):
         errors.append(f"도메인 계약 #{issue}의 readiness는 세 단계 구조화 객체여야 합니다.")
         return
@@ -418,6 +532,12 @@ def _validate_domain_readiness(
     statuses: dict[str, Any] = {}
     for stage in READINESS_STAGES:
         entry = readiness.get(stage)
+        _reject_unknown_fields(
+            entry,
+            READINESS_STAGE_FIELDS,
+            f"도메인 계약 #{issue}.readiness.{stage}",
+            errors,
+        )
         if not isinstance(entry, dict) or set(entry) != {"status", "evidence"}:
             stage_label = "Implementation Ready" if stage == "implementation" else stage
             errors.append(
@@ -427,6 +547,12 @@ def _validate_domain_readiness(
             continue
         status = entry.get("status")
         evidence = entry.get("evidence")
+        _reject_unknown_fields(
+            evidence,
+            READINESS_EVIDENCE_FIELDS[stage],
+            f"도메인 계약 #{issue}.readiness.{stage}.evidence",
+            errors,
+        )
         statuses[stage] = status
         if not isinstance(status, str) or status not in {"ready", "not-ready"}:
             errors.append(f"도메인 계약 #{issue}의 {stage} readiness status가 잘못되었습니다.")
@@ -468,12 +594,17 @@ def validate_template(
     template: dict[str, Any], catalog: dict[str, Any]
 ) -> list[str]:
     errors: list[str] = []
+    _reject_unknown_fields(template, TEMPLATE_FIELDS, "endpoint template", errors)
     if template.get("catalogVersion") != catalog.get("catalogVersion"):
         errors.append("endpoint template의 catalogVersion이 catalog와 다릅니다.")
     if template.get("templateId") != catalog.get("templateId"):
         errors.append("endpoint template의 templateId가 catalog와 다릅니다.")
     if template.get("contractVersion") != catalog.get("contractVersion"):
         errors.append("endpoint template의 contractVersion이 catalog와 다릅니다.")
+    if template.get("contractVersion") != CANONICAL_CONTRACT_VERSION:
+        errors.append(
+            f"지원하는 canonical contractVersion은 {CANONICAL_CONTRACT_VERSION}입니다."
+        )
     if not _exact_string_list(
         template.get("requiredEndpointFields"), REQUIRED_ENDPOINT_FIELDS
     ):
@@ -482,9 +613,29 @@ def validate_template(
         errors.append("endpoint template의 허용 method 정확 집합이 다릅니다.")
     if not _exact_string_list(template.get("allowedOperations"), ALLOWED_OPERATIONS):
         errors.append("endpoint template의 허용 operation 정확 집합이 다릅니다.")
-    if template.get("defaults") != TEMPLATE_DEFAULTS:
+    defaults = template.get("defaults")
+    _reject_unknown_fields(
+        defaults, TEMPLATE_DEFAULT_FIELDS, "endpoint template.defaults", errors
+    )
+    if isinstance(defaults, dict):
+        _reject_unknown_fields(
+            defaults.get("auth"), set(TEMPLATE_DEFAULTS["auth"]),
+            "endpoint template.defaults.auth", errors,
+        )
+        _reject_unknown_fields(
+            defaults.get("idempotency"), set(TEMPLATE_DEFAULTS["idempotency"]),
+            "endpoint template.defaults.idempotency", errors,
+        )
+        _reject_unknown_fields(
+            defaults.get("pagination"), set(TEMPLATE_DEFAULTS["pagination"]),
+            "endpoint template.defaults.pagination", errors,
+        )
+    if defaults != TEMPLATE_DEFAULTS:
         errors.append("endpoint template의 auth/idempotency/pagination default 상속이 다릅니다.")
     endpoint = template.get("endpoint")
+    _reject_unknown_fields(
+        endpoint, REQUIRED_ENDPOINT_FIELDS, "endpoint template.endpoint", errors
+    )
     if not isinstance(endpoint, dict) or set(endpoint) != REQUIRED_ENDPOINT_FIELDS:
         errors.append("endpoint template 본문의 field 정확 집합이 다릅니다.")
     else:

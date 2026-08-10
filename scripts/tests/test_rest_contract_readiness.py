@@ -481,6 +481,202 @@ class RestContractReadinessTest(unittest.TestCase):
                 mutation(catalog)
                 self.assertTrue(self.validator.validate_catalog(catalog))
 
+    def test_rejects_unknown_field_in_every_catalog_object(self):
+        mutations = {
+            "catalog": lambda catalog: catalog.__setitem__("unknown", True),
+            "commonRules": lambda catalog: catalog["commonRules"].__setitem__(
+                "unknown", True
+            ),
+            "authorization": lambda catalog: catalog["commonRules"][
+                "authorization"
+            ].__setitem__("unknown", True),
+            "common idempotency": lambda catalog: catalog["commonRules"][
+                "idempotency"
+            ].__setitem__("unknown", True),
+            "cursor": lambda catalog: catalog["commonRules"]["cursor"].__setitem__(
+                "unknown", True
+            ),
+            "problemDetails": lambda catalog: catalog["commonRules"][
+                "problemDetails"
+            ].__setitem__("unknown", True),
+            "asyncRun": lambda catalog: catalog["commonRules"][
+                "asyncRun"
+            ].__setitem__("unknown", True),
+            "fallback": lambda catalog: catalog["commonRules"]["asyncRun"][
+                "fallback"
+            ].__setitem__("unknown", True),
+            "hashes": lambda catalog: catalog["commonRules"]["hashes"].__setitem__(
+                "unknown", True
+            ),
+            "ownership": lambda catalog: catalog["ownership"].__setitem__(
+                "unknown", True
+            ),
+            "domain": lambda catalog: catalog["domainContracts"][0].__setitem__(
+                "unknown", True
+            ),
+            "versions": lambda catalog: catalog["domainContracts"][0][
+                "versions"
+            ].__setitem__("unknown", True),
+            "readiness": lambda catalog: catalog["domainContracts"][0][
+                "readiness"
+            ].__setitem__("unknown", True),
+            "readiness stage": lambda catalog: catalog["domainContracts"][0][
+                "readiness"
+            ]["metadata"].__setitem__("unknown", True),
+        }
+
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                catalog = copy.deepcopy(self.catalog)
+                mutation(catalog)
+                errors = self.validator.validate_catalog(catalog)
+                self.assertTrue(
+                    any("허용되지 않은" in error for error in errors), errors
+                )
+
+    def test_rejects_unknown_field_in_every_endpoint_object(self):
+        mutations = {
+            "endpoint": lambda endpoint: endpoint.__setitem__("unknown", True),
+            "auth": lambda endpoint: endpoint["auth"].__setitem__("unknown", True),
+            "schemas": lambda endpoint: endpoint["schemas"].__setitem__(
+                "unknown", True
+            ),
+            "responses": lambda endpoint: endpoint["responses"].__setitem__(
+                "unknown", True
+            ),
+            "figma": lambda endpoint: endpoint["figma"].__setitem__("unknown", True),
+            "idempotency": lambda endpoint: endpoint["idempotency"].__setitem__(
+                "unknown", True
+            ),
+            "pagination": lambda endpoint: endpoint["pagination"].__setitem__(
+                "unknown", True
+            ),
+            "pagination size": lambda endpoint: endpoint["pagination"][
+                "size"
+            ].__setitem__("unknown", True),
+        }
+
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                catalog = copy.deepcopy(self.catalog)
+                endpoint = self.endpoint()
+                mutation(endpoint)
+                catalog["endpoints"] = [endpoint]
+                errors = self.validator.validate_catalog(catalog)
+                self.assertTrue(
+                    any("허용되지 않은" in error for error in errors), errors
+                )
+
+    def test_rejects_unknown_field_in_every_template_object(self):
+        mutations = {
+            "template": lambda template: template.__setitem__("unknown", True),
+            "defaults": lambda template: template["defaults"].__setitem__(
+                "unknown", True
+            ),
+            "default auth": lambda template: template["defaults"]["auth"].__setitem__(
+                "unknown", True
+            ),
+            "default idempotency": lambda template: template["defaults"][
+                "idempotency"
+            ].__setitem__("unknown", True),
+            "default pagination": lambda template: template["defaults"][
+                "pagination"
+            ].__setitem__("unknown", True),
+            "template endpoint": lambda template: template["endpoint"].__setitem__(
+                "unknown", True
+            ),
+            "template endpoint auth": lambda template: template["endpoint"][
+                "auth"
+            ].__setitem__("unknown", True),
+            "template endpoint schemas": lambda template: template["endpoint"][
+                "schemas"
+            ].__setitem__("unknown", True),
+            "template endpoint responses": lambda template: template["endpoint"][
+                "responses"
+            ].__setitem__("unknown", True),
+            "template endpoint figma": lambda template: template["endpoint"][
+                "figma"
+            ].__setitem__("unknown", True),
+            "template endpoint idempotency": lambda template: template["endpoint"][
+                "idempotency"
+            ].__setitem__("unknown", True),
+            "template endpoint pagination": lambda template: template["endpoint"][
+                "pagination"
+            ].__setitem__("unknown", True),
+        }
+
+        for name, mutation in mutations.items():
+            with self.subTest(name=name):
+                template = copy.deepcopy(self.template)
+                mutation(template)
+                errors = self.validate_files(self.catalog, template)
+                self.assertTrue(
+                    any("허용되지 않은" in error for error in errors), errors
+                )
+
+    def test_rejects_unknown_field_in_structured_readiness_evidence(self):
+        for stage in ("metadata", "example", "implementation"):
+            with self.subTest(stage=stage):
+                catalog = copy.deepcopy(self.catalog)
+                first = catalog["domainContracts"][0]
+                first["versions"] = {
+                    "local": catalog["contractVersion"],
+                    "notion": catalog["contractVersion"],
+                    "figma": catalog["contractVersion"],
+                }
+                first["readiness"] = self.ready_readiness()
+                first["readiness"][stage]["evidence"]["unknown"] = True
+                errors = self.validator.validate_catalog(catalog)
+                self.assertTrue(
+                    any("허용되지 않은" in error for error in errors), errors
+                )
+
+    def test_coordinated_contract_version_change_cannot_bypass_canonical_version(self):
+        catalog = copy.deepcopy(self.catalog)
+        template = copy.deepcopy(self.template)
+        catalog["contractVersion"] = "9.9.9"
+        template["contractVersion"] = "9.9.9"
+        template["endpoint"]["contractVersion"] = "9.9.9"
+        for domain in catalog["domainContracts"]:
+            domain["versions"]["local"] = "9.9.9"
+
+        errors = self.validate_files(catalog, template)
+        self.assertTrue(
+            any("지원하는 canonical contractVersion" in error for error in errors),
+            errors,
+        )
+
+    def test_cursor_size_rejects_boolean_and_out_of_range_values(self):
+        invalid_sizes = (
+            {"default": True, "max": 100},
+            {"default": 1, "max": True},
+            {"default": -1, "max": 100},
+            {"default": 0, "max": 100},
+            {"default": 1, "max": -1},
+            {"default": 1, "max": 0},
+            {"default": 1, "max": 101},
+        )
+        for size in invalid_sizes:
+            with self.subTest(size=size):
+                catalog = copy.deepcopy(self.catalog)
+                endpoint = self.endpoint()
+                endpoint["pagination"]["size"] = size
+                catalog["endpoints"] = [endpoint]
+                self.assertTrue(self.validator.validate_catalog(catalog))
+
+    def test_cursor_size_accepts_1_50_100_boundaries(self):
+        for size in (
+            {"default": 1, "max": 50},
+            {"default": 50, "max": 100},
+            {"default": 100, "max": 100},
+        ):
+            with self.subTest(size=size):
+                catalog = copy.deepcopy(self.catalog)
+                endpoint = self.endpoint()
+                endpoint["pagination"]["size"] = size
+                catalog["endpoints"] = [endpoint]
+                self.assertEqual([], self.validator.validate_catalog(catalog))
+
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
