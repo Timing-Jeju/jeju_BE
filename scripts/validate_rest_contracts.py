@@ -738,6 +738,8 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
         parsed is None
         or parsed.scheme != "https"
         or parsed.port is not None
+        or parsed.username is not None
+        or parsed.password is not None
         or not parsed.hostname
         or not (
             parsed.hostname == "notion.so" or parsed.hostname.endswith(".notion.so")
@@ -766,13 +768,17 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
         parsed is None
         or parsed.scheme != "https"
         or parsed.port is not None
+        or parsed.username is not None
+        or parsed.password is not None
         or parsed.hostname not in {"figma.com", "www.figma.com"}
+        or bool(parsed.params)
+        or bool(parsed.fragment)
         or not _non_empty(file_key)
         or not re.fullmatch(r"[A-Za-z0-9_-]+", file_key)
-        or len(path_segments) < 4
+        or len(path_segments) != 4
         or path_segments[1] not in {"design", "file"}
         or path_segments[2] != file_key
-        or not path_segments[3]
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", path_segments[3])
         or not isinstance(node_id, str)
         or not re.fullmatch(r"\d+:\d+", node_id)
         or set(query) != {"node-id"}

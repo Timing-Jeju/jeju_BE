@@ -1293,6 +1293,88 @@ class RestContractReadinessTest(unittest.TestCase):
                 self.assertNotIn("Traceback", output)
                 self.assertNotIn("ValueError", output)
 
+    def test_noncanonical_linkage_url_components_fail_actual_cli(self):
+        page_id = "0123456789abcdef0123456789abcdef"
+        cases = (
+            (
+                "Notion",
+                "notionPage",
+                f"https://user@www.notion.so/Profile-Legal-{page_id}",
+            ),
+            (
+                "Notion",
+                "notionPage",
+                f"https://www.notion.so/Profile-Legal-{page_id}?view=full",
+            ),
+            (
+                "Notion",
+                "notionPage",
+                f"https://www.notion.so/Profile-Legal-{page_id}#fragment",
+            ),
+            (
+                "Notion",
+                "notionPage",
+                f"https://www.notion.so/Profile-Legal-{page_id};params",
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile/extra?node-id=10-20",
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://user:pass@www.figma.com/design/AbCdEf123456/Profile?node-id=10-20#fragment",
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile;params?node-id=10-20",
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile%2FLegal?node-id=10-20",
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/..?node-id=10-20",
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/?node-id=10-20",
+            ),
+        )
+        for label, field, noncanonical_url in cases:
+            with self.subTest(label=label, url=noncanonical_url), tempfile.TemporaryDirectory() as directory:
+                repo_root = Path(directory)
+                catalog = copy.deepcopy(self.catalog)
+                first = catalog["domainContracts"][0]
+                first["versions"] = {
+                    "local": catalog["contractVersion"],
+                    "notion": catalog["contractVersion"],
+                    "figma": catalog["contractVersion"],
+                }
+                first["readiness"] = self.create_ready_evidence(repo_root)
+                first["readiness"]["metadata"]["evidence"][field]["url"] = noncanonical_url
+                catalog_path = repo_root / "catalog.json"
+                catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR_PATH), str(catalog_path)],
+                    cwd=ROOT,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+
+                output = result.stdout + result.stderr
+                self.assertEqual(1, result.returncode)
+                self.assertIn(f"{label} linkage", result.stderr)
+                self.assertNotIn("Traceback", output)
+
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
