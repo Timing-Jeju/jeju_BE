@@ -18,6 +18,9 @@ class ProblemCodeRegistryTest {
     assertThat(registry.find("VALIDATION_FAILED").status()).isEqualTo(400);
     assertThat(registry.find("RESOURCE_NOT_FOUND").status()).isEqualTo(404);
     assertThat(registry.find("CONFLICT").status()).isEqualTo(409);
+    assertThat(registry.find("IDEMPOTENCY_KEY_REQUIRED").status()).isEqualTo(400);
+    assertThat(registry.find("IDEMPOTENCY_KEY_INVALID").status()).isEqualTo(400);
+    assertThat(registry.find("IDEMPOTENCY_KEY_REUSED").status()).isEqualTo(409);
     assertThat(registry.find("UPSTREAM_ERROR").status()).isEqualTo(502);
     assertThat(registry.find("NOT_REGISTERED").code()).isEqualTo("INTERNAL_SERVER_ERROR");
     assertThat(registry.find("NOT_REGISTERED").status()).isEqualTo(500);
