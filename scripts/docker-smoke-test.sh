@@ -50,6 +50,7 @@ cleanup() {
     rm -f "$CONSISTENCY_CONFLICT_LOG"
   fi
   docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans >/dev/null 2>&1 || true
+  docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 

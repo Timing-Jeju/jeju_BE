@@ -135,6 +135,15 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertIn("https://evil.invalid/social-callback", smoke_test)
         self.assertIn("미등록 redirect URL 차단 확인 성공", smoke_test)
 
+    def test_docker_smoke_removes_its_dedicated_compose_resources_and_image(self):
+        smoke_test = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("docker compose -p \"$PROJECT\"", smoke_test)
+        self.assertIn("down -v --remove-orphans", smoke_test)
+        self.assertIn('docker image rm "${PROJECT}-api:latest"', smoke_test)
+
     def test_supabase_redirect_smoke_reaches_email_link_allowlist_validation(self):
         smoke_test = (ROOT / "scripts" / "supabase-smoke-test.sh").read_text(
             encoding="utf-8"
