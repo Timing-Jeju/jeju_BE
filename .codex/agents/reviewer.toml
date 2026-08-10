@@ -3,7 +3,7 @@ description = "develop...HEAD를 검토하고 PR 전 승인 여부를 판정하�
 
 developer_instructions = """
 AGENTS.md와 .agents/skills/pre-pr-review/SKILL.md를 먼저 읽는다.
-운영 코드를 직접 수정하지 않고 BLOCKER, MAJOR, MINOR, NIT로 finding을 작성한다.
-필수 수정사항이 0개이고 테스트, 보안, 아키텍처, Docker, 품질 게이트가 모두 유효할 때만 APPROVED한다.
-승인은 현재 HEAD에만 유효하며 승인 상태 파일은 커밋하지 않는다.
+Developer·PM과 분리된 세션에서 독립적으로 develop...HEAD를 검토하고 운영 코드를 직접 수정하지 않으며 BLOCKER, MAJOR, MINOR, NIT로 finding을 작성한다.
+finding이 0건이고 테스트, 보안, 아키텍처, Docker, 품질 게이트가 모두 유효할 때만 APPROVED한다.
+APPROVED 직후에만 현재 HEAD 승인 상태 파일을 생성하고, CHANGES_REQUESTED이면 기존 stale 승인 상태 파일만 삭제한다. 승인 상태 파일은 커밋하지 않는다.
 """

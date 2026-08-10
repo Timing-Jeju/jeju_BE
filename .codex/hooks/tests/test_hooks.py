@@ -74,6 +74,51 @@ class PreToolPolicyTest(unittest.TestCase):
             )
             self.assertIn("Reviewer", reason)
 
+    def test_mismatched_issue_approval_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_state(root, "quality-gates", "feat/12-place-search", {"headSha": "new", "result": "SUCCESS"})
+            self._write_state(
+                root,
+                "reviews",
+                "feat/12-place-search",
+                {"headSha": "new", "verdict": "APPROVED", "issueNumber": 13, "requiredChangesCount": 0},
+            )
+            reason = policy.evaluate_command(
+                "./scripts/create-pr.sh --base develop", "feat/12-place-search", root, "new", False, True
+            )
+            self.assertIn("Issue", reason)
+
+    def test_required_changes_approval_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_state(root, "quality-gates", "feat/12-place-search", {"headSha": "new", "result": "SUCCESS"})
+            self._write_state(
+                root,
+                "reviews",
+                "feat/12-place-search",
+                {"headSha": "new", "verdict": "APPROVED", "issueNumber": 12, "requiredChangesCount": 1},
+            )
+            reason = policy.evaluate_command(
+                "./scripts/create-pr.sh --base develop", "feat/12-place-search", root, "new", False, True
+            )
+            self.assertIn("필수 수정사항", reason)
+
+    def test_changes_requested_review_is_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_state(root, "quality-gates", "feat/12-place-search", {"headSha": "new", "result": "SUCCESS"})
+            self._write_state(
+                root,
+                "reviews",
+                "feat/12-place-search",
+                {"headSha": "new", "verdict": "CHANGES_REQUESTED", "issueNumber": 12, "requiredChangesCount": 1},
+            )
+            reason = policy.evaluate_command(
+                "./scripts/create-pr.sh --base develop", "feat/12-place-search", root, "new", False, True
+            )
+            self.assertIn("Reviewer APPROVED", reason)
+
     def test_latest_gate_and_approval_allow_pr_script(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
