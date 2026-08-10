@@ -14,6 +14,7 @@ SCHEDULE_MIGRATION = MIGRATIONS / "20260730030000_schedule_consistency_hardening
 RUN_RETENTION_MIGRATION = (
     MIGRATIONS / "20260730040000_import_run_lineage_retention.sql"
 )
+IDEMPOTENCY_MIGRATION = MIGRATIONS / "20260810000000_api_idempotency_registry.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -68,6 +69,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260730020000_ingestion_consistency_hardening.sql",
                 "20260730030000_schedule_consistency_hardening.sql",
                 "20260730040000_import_run_lineage_retention.sql",
+                "20260810000000_api_idempotency_registry.sql",
             ],
             migration_names,
         )
@@ -81,6 +83,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260730020000_ingestion_consistency_hardening.sql",
             "./supabase/migrations/20260730030000_schedule_consistency_hardening.sql",
             "./supabase/migrations/20260730040000_import_run_lineage_retention.sql",
+            "./supabase/migrations/20260810000000_api_idempotency_registry.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -93,6 +96,27 @@ class DatabaseHardeningTest(unittest.TestCase):
                     f"{compose_name}에 migration 또는 fixture mount가 누락됐습니다",
                 )
                 self.assertEqual(sorted(positions), positions)
+
+    def test_api_idempotency_registry_has_scope_timing_payload_and_security_guards(self):
+        migration = self.read_migration(IDEMPOTENCY_MIGRATION)
+
+        for fragment in (
+            "primary key (owner_sub, http_method, normalized_path, idempotency_key)",
+            "state in ('processing', 'completed')",
+            "lease_expires_at = created_at + interval '2 minutes'",
+            "expires_at = completed_at + interval '24 hours'",
+            "octet_length(response_body) <= 1048576",
+            "response_status between 100 and 499",
+            "alter table public.api_idempotency_records enable row level security",
+            "revoke all on public.api_idempotency_records from anon",
+            "revoke all on public.api_idempotency_records from authenticated",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
+
+        self.assertNotIn("request_body", migration)
+        self.assertNotIn("authorization", migration)
+        self.assertNotIn("bearer_token", migration)
 
     def test_both_database_smokes_execute_seed_free_schema_and_negative_contracts(self):
         docker_smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
@@ -139,6 +163,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/005_ingestion_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql",
+            "/docker-entrypoint-initdb.d/008_api_idempotency_registry.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
         ):
             with self.subTest(path=path):
@@ -453,6 +478,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/005_ingestion_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql",
+            "/docker-entrypoint-initdb.d/008_api_idempotency_registry.sql",
         ):
             with self.subTest(path=path):
                 self.assertIn(path, docker_smoke)

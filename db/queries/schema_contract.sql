@@ -9,7 +9,8 @@ declare
     'external_api_snapshots',
     'tour_place_sources',
     'place_detail_items',
-    'external_reference_codes'
+    'external_reference_codes',
+    'api_idempotency_records'
   ];
   missing_objects text;
   invalid_count integer;
@@ -46,6 +47,18 @@ begin
       ('data_import_runs', 'staled_count'),
       ('data_import_runs', 'source_provider'),
       ('data_import_runs', 'source_service'),
+      ('api_idempotency_records', 'owner_sub'),
+      ('api_idempotency_records', 'http_method'),
+      ('api_idempotency_records', 'normalized_path'),
+      ('api_idempotency_records', 'idempotency_key'),
+      ('api_idempotency_records', 'request_hash'),
+      ('api_idempotency_records', 'attempt_token'),
+      ('api_idempotency_records', 'state'),
+      ('api_idempotency_records', 'response_status'),
+      ('api_idempotency_records', 'response_headers'),
+      ('api_idempotency_records', 'response_body'),
+      ('api_idempotency_records', 'lease_expires_at'),
+      ('api_idempotency_records', 'expires_at'),
       ('data_import_checkpoints', 'source_provider'),
       ('data_import_checkpoints', 'source_service'),
       ('data_import_checkpoints', 'source_operation'),
