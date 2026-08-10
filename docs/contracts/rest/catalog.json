@@ -1,0 +1,61 @@
+{
+  "catalogVersion": "rest-contract-catalog/v1",
+  "templateId": "timing-jeju-rest-contract/v1",
+  "contractVersion": "1.0.0",
+  "commonRules": {
+    "authorization": {
+      "modes": ["required", "optional"],
+      "principal": "canonical JWT sub",
+      "missingTokenCode": "AUTHENTICATION_REQUIRED",
+      "invalidTokenCode": "INVALID_ACCESS_TOKEN",
+      "resourceHiding": "소유 리소스는 정책에 따라 403 또는 404로 은닉"
+    },
+    "idempotency": {
+      "header": "Idempotency-Key",
+      "requiredFor": ["create", "compute", "apply"],
+      "requires": ["scope", "ttl", "replay", "payloadConflict", "concurrentRequest"]
+    },
+    "cursor": {
+      "cursor": "opaque",
+      "requires": ["size", "stableSort", "tieBreaker"]
+    },
+    "problemDetails": {
+      "mediaType": "application/problem+json",
+      "fields": ["type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"],
+      "forbiddenFields": ["message", "violations"]
+    },
+    "asyncRun": {
+      "states": ["queued", "running", "succeeded", "failed", "cancelled"],
+      "headers": ["Location", "Retry-After"],
+      "failureObjectFields": ["code", "detail", "retryable"],
+      "fallback": {"status": "succeeded", "result_source": "fallback"},
+      "candidateExpiryField": "expiresAt",
+      "workerInput": "immutable command snapshot"
+    },
+    "hashes": {
+      "commandInputHash": "commandInputHash",
+      "mcpInputHash": "mcpInputHash"
+    }
+  },
+  "ownership": {
+    "durableCommandSchema": 108,
+    "locationCleanup": 109,
+    "workerRuntime": 74
+  },
+  "endpoints": [],
+  "domainContracts": [
+    {"issue": 82, "domain": "profile-legal", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 83, "domain": "places", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 84, "domain": "saved-places", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 85, "domain": "trips", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 86, "domain": "preferences-transport", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 87, "domain": "accommodations", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 88, "domain": "schedules", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 89, "domain": "schedule-ai", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 90, "domain": "feasibility-legs", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 91, "domain": "spare-time", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 92, "domain": "recovery", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 93, "domain": "live", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}},
+    {"issue": 94, "domain": "weather", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": "not-ready", "example": "not-ready", "implementation": "not-ready"}}
+  ]
+}

@@ -63,6 +63,9 @@ run_common_checks() {
   stage "배포 SQL 정책 검사"
   python3 scripts/deploy_sql_policy.py
 
+  stage "REST 공통 계약 readiness 검사"
+  python3 scripts/validate_rest_contracts.py
+
   stage "저장소 자동화 테스트"
   python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
   python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'

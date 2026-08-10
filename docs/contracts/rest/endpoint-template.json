@@ -1,0 +1,16 @@
+{
+  "method": "GET|POST|PUT|PATCH|DELETE",
+  "path": "/api/v1/...",
+  "auth": {"mode": "required|optional", "missingToken": "required는 401, optional은 anonymous", "invalidToken": 401},
+  "owner": "domain",
+  "schemas": {"path": "schema|none", "query": "schema|none", "headers": "schema|none", "body": "schema|none"},
+  "presence": "각 필드의 required/optional/null/omitted를 명시",
+  "responses": {"success": [], "errors": []},
+  "dbOwner": "Spring|none|후속 Issue",
+  "requestTimeCall": "none|Spring adapter|private MCP",
+  "dataLineage": "원천과 정규화 계보",
+  "figma": {"node": "node-id|none", "action": "사용자 행동", "loading": "처리", "empty": "처리", "error": "처리"},
+  "contractVersion": "1.0.0",
+  "idempotency": {"required": false, "header": "none|Idempotency-Key", "scope": "명시", "ttl": "명시", "replay": "명시", "payloadConflict": "명시", "concurrentRequest": "명시"},
+  "pagination": {"type": "none|cursor", "cursor": "opaque", "size": {"default": 20, "max": 100}, "stableSort": "명시", "tieBreaker": "고유 키"}
+}
