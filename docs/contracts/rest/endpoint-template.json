@@ -1,0 +1,30 @@
+{
+  "catalogVersion": "rest-contract-catalog/v1",
+  "templateId": "timing-jeju-rest-contract/v1",
+  "contractVersion": "1.0.0",
+  "requiredEndpointFields": ["method", "path", "operation", "auth", "owner", "schemas", "presence", "responses", "dbOwner", "requestTimeCall", "dataLineage", "figma", "contractVersion", "idempotency", "pagination"],
+  "allowedMethods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  "allowedOperations": ["read", "list", "create", "update", "delete", "compute", "apply"],
+  "defaults": {
+    "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+    "idempotency": {"required": false, "header": "none"},
+    "pagination": {"type": "none"}
+  },
+  "endpoint": {
+    "method": "GET",
+    "path": "/api/v1/resources",
+    "operation": "read",
+    "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+    "owner": "domain",
+    "schemas": {"path": "none", "query": "none", "headers": "CommonHeaders", "body": "none"},
+    "presence": "각 필드의 required/optional/null/omitted를 명시",
+    "responses": {"success": [200], "errors": [400, 401]},
+    "dbOwner": "Spring|none|후속 Issue",
+    "requestTimeCall": "none|Spring adapter|private MCP",
+    "dataLineage": "원천과 정규화 계보",
+    "figma": {"node": "node-id|none", "action": "사용자 행동", "loading": "처리", "empty": "처리", "error": "처리"},
+    "contractVersion": "1.0.0",
+    "idempotency": {"required": false, "header": "none"},
+    "pagination": {"type": "none"}
+  }
+}
