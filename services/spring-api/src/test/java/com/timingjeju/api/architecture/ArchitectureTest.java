@@ -90,6 +90,18 @@ class ArchitectureTest {
   }
 
   @Test
+  void 멱등성_application_port는_Spring과_JDBC_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.idempotency..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global.idempotency..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void 소셜_로그인_domain은_Spring_Security나_global_보안_구현에_의존하지_않는다() {
     noClasses()
         .that()

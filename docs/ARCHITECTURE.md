@@ -88,11 +88,15 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 순서로 누적 적용합니다.
+- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 → `20260810000000` 변경 API 멱등성 registry 순서로 누적 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
 - 현재 기능 개발 로드맵 전체에서 Spring classpath와 `db/migration`에 Flyway를 도입하지 않습니다. `supabase/migrations`만 운영 DB 마이그레이션의 단일 기준으로 유지합니다. Flyway 검토는 모든 주요 기능 개발이 끝난 뒤 마지막 안정화 Issue에서만 수행하며, 그 전에는 의존성·application 설정·디렉터리·테스트를 추가하지 않습니다.
+
+## 변경 API 멱등성 경계
+
+후속 생성·계산·적용 API는 [멱등성 application 계약](IDEMPOTENCY.md)의 `IdempotencyUseCase`를 통해서만 업무 변경을 실행합니다. application port는 Spring/JDBC에 의존하지 않고 `global.idempotency` adapter가 PostgreSQL registry와 트랜잭션을 연결합니다. 이 공통 기반 자체는 공개 endpoint를 추가하지 않습니다.
 
 ## 외부 데이터 적재 경계
 

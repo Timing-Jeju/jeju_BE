@@ -18,7 +18,7 @@ declare
     'trip_legs', 'trip_item_progress', 'trip_execution_events',
     'compute_runs', 'risk_events', 'trip_weather_impacts',
     'recommendation_candidates', 'recovery_options', 'recovery_option_changes',
-    'live_state_snapshots', 'mcp_compute_call_logs'
+    'live_state_snapshots', 'mcp_compute_call_logs', 'api_idempotency_records'
   ];
   missing_tables text;
   rls_disabled_tables text;
