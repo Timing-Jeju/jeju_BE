@@ -11,6 +11,8 @@
 - 비동기 run 상태는 `queued/running/succeeded/failed/cancelled`뿐입니다. 접수 응답은 `Location`, `Retry-After`, 실패 조회는 `failure` object를 정의합니다. fallback 성공은 `status=succeeded`, `result_source=fallback`이고 `fallback` 상태를 만들지 않습니다. 후보 만료는 run 상태가 아니라 `expiresAt`입니다.
 - 접수 재현성 hash는 `commandInputHash`, 실제 MCP wire 입력 hash는 `mcpInputHash`로 분리합니다. worker는 불변 command snapshot만 읽습니다.
 
+각 endpoint는 허용된 HTTP method와 `/api/v1/...` path, `read/list/create/update/delete/compute/apply` operation 분류를 사용합니다. `create`, `compute`, `apply`는 `required=false`로 낮출 수 없고 `Idempotency-Key`, scope, TTL, replay, payload conflict, concurrent request 필드를 정확한 구조와 non-empty 값으로 작성합니다. 나머지 operation의 기본값은 `required=false`, `header=none`입니다. path/query/header/body schema와 owner, presence, response status, DB owner, request-time call, lineage, Figma 상태도 올바른 타입과 non-empty 값이어야 합니다.
+
 ## 구현 소유 경계
 
 이 문서는 상세 DB schema나 migration을 구현하지 않습니다. durable command schema/migration은 #108, 위치 TTL cleanup은 #109, lease·retry·복구 worker runtime은 #74가 소유합니다. `supabase/migrations`가 운영 schema의 단일 기준이며 Flyway와 FastAPI Python 소스는 이 범위에 들어오지 않습니다.
@@ -19,11 +21,12 @@
 
 각 도메인은 Metadata Ready, Example Ready, Implementation Ready를 독립적으로 관리합니다.
 
-- `Metadata Ready`: local, Notion, Figma의 `contractVersion`이 모두 같고 필수 metadata가 있을 때만 `ready`입니다.
-- `Example Ready`: 비밀정보나 실제 사용자 데이터가 없는 검증된 요청·응답·오류 예시 증거가 있을 때만 `ready`입니다.
-- `Implementation Ready`: Controller 구현과 OpenAPI/contract test 증거가 있을 때만 `ready`입니다. 구현 전에는 승격할 수 없습니다.
+- 각 단계는 `{ "status": "ready|not-ready", "evidence": object|null }` 구조입니다. `not-ready`의 evidence는 `null`이어야 하며 truthy 문자열이나 임의 배열로 승격할 수 없습니다.
+- `Metadata Ready`: local, Notion, Figma의 `contractVersion`이 모두 같고 `localDocument/notionPage/figmaNode` 증거가 있을 때만 `ready`입니다.
+- `Example Ready`: Metadata Ready 이후, 비밀정보나 실제 사용자 데이터가 없는 `requestFixture/successFixture/problemFixture` 증거가 있을 때만 `ready`입니다.
+- `Implementation Ready`: Metadata와 Example Ready 이후, `controller/openApiTest/contractTest` 증거가 모두 있을 때만 `ready`입니다. 구현 전에는 승격할 수 없습니다.
 - Notion/Figma가 아직 연결되지 않은 경우 `not-linked`로 두며 임의 버전을 추정하지 않습니다. 연결된 뒤에는 local 버전과 정확히 같아야 합니다.
 
 ## 자동 검사
 
-`python3 scripts/validate_rest_contracts.py`는 method/path 중복, 필수 필드, 인증·멱등성·cursor 상속, run/candidate/fallback 혼용, Problem Details 구형 필드, hash/소유권 drift, #82~#94 상속, readiness와 버전 drift를 한국어 오류로 보고합니다. 이 검사는 `./scripts/quality-gate.sh`의 공통 단계에서 항상 실행됩니다.
+`python3 scripts/validate_rest_contracts.py`는 catalog와 `endpoint-template.json`을 실제로 함께 읽습니다. catalog/template version, 필수 field와 default 상속 drift, method/path 중복, 필수 필드의 공백·타입, 인증·멱등성·cursor 상속, run/candidate/fallback 혼용, Problem Details 구형 필드, hash/소유권 drift, #82~#94 exactly-once 상속, 구조화 readiness와 버전 drift를 한국어 오류로 보고합니다. 이 검사는 `./scripts/quality-gate.sh`의 공통 단계에서 항상 실행됩니다.
