@@ -1375,6 +1375,111 @@ class RestContractReadinessTest(unittest.TestCase):
                 self.assertIn(f"{label} linkage", result.stderr)
                 self.assertNotIn("Traceback", output)
 
+    def test_raw_linkage_url_must_equal_ascii_canonical_form_in_actual_cli(self):
+        page_id = "0123456789abcdef0123456789abcdef"
+        cases = (
+            ("Notion", "notionPage", f"https://www.notion.so//Profile-{page_id}", {}),
+            (
+                "Notion",
+                "notionPage",
+                f"https://www.notion.so/timingjeju//Profile-{page_id}",
+                {},
+            ),
+            ("Notion", "notionPage", f"https://www.notion.so/Profile-{page_id}/", {}),
+            ("Notion", "notionPage", f"https://www.notion.so/Profile-{page_id}?", {}),
+            ("Notion", "notionPage", f"https://www.notion.so/Profile-{page_id}#", {}),
+            ("Notion", "notionPage", f"https://www.notion.so/Profile-{page_id};", {}),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile?node-id=%31%30-20",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile?node%2Did=10-20",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/%41bCdEf123456/Profile?node-id=10-20",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile?node-id=١٠-٢٠",
+                {"nodeId": "١٠:٢٠"},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com//design/AbCdEf123456/Profile?node-id=10-20",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456//Profile?node-id=10-20",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile/?node-id=10-20",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile?node-id=10-20&",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile?node-id=10-20#",
+                {},
+            ),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com/design/AbCdEf123456/Profile;?node-id=10-20",
+                {},
+            ),
+        )
+        for label, field, raw_url, updates in cases:
+            with self.subTest(label=label, url=raw_url), tempfile.TemporaryDirectory() as directory:
+                repo_root = Path(directory)
+                catalog = copy.deepcopy(self.catalog)
+                first = catalog["domainContracts"][0]
+                first["versions"] = {
+                    "local": catalog["contractVersion"],
+                    "notion": catalog["contractVersion"],
+                    "figma": catalog["contractVersion"],
+                }
+                first["readiness"] = self.create_ready_evidence(repo_root)
+                linkage = first["readiness"]["metadata"]["evidence"][field]
+                linkage["url"] = raw_url
+                linkage.update(updates)
+                catalog_path = repo_root / "catalog.json"
+                catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR_PATH), str(catalog_path)],
+                    cwd=ROOT,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+
+                output = result.stdout + result.stderr
+                self.assertEqual(1, result.returncode)
+                self.assertIn(f"{label} linkage", result.stderr)
+                self.assertNotIn("Traceback", output)
+
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"

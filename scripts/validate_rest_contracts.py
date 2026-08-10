@@ -10,7 +10,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
-from urllib.parse import ParseResult, parse_qs, urlparse
+from urllib.parse import ParseResult, urlparse
 
 
 CATALOG_VERSION = "rest-contract-catalog/v1"
@@ -721,11 +721,14 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
         [segment for segment in parsed.path.split("/") if segment] if parsed else []
     )
     path_id = ""
+    canonical_url = ""
     if (
         parsed
+        and parsed.hostname
         and 1 <= len(path_segments) <= 2
         and all(re.fullmatch(r"[A-Za-z0-9_-]+", segment) for segment in path_segments)
     ):
+        canonical_url = f"https://{parsed.hostname}/{'/'.join(path_segments)}"
         leaf = path_segments[-1]
         match = re.search(rf"(?:^|[-_])(?P<page_id>{NOTION_PAGE_ID})$", leaf)
         if match:
@@ -749,6 +752,7 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
         or bool(parsed.fragment)
         or not normalized_id
         or path_id != normalized_id
+        or url != canonical_url
     ):
         errors.append(f"도메인 계약 #{issue}의 Notion linkage URL/identifier가 일치하지 않습니다.")
 
@@ -761,9 +765,21 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
     file_key = value.get("fileKey")
     node_id = value.get("nodeId")
     parsed = _safe_parse_linkage_url(url)
-    query = parse_qs(parsed.query, keep_blank_values=True) if parsed else {}
-    query_nodes = query.get("node-id", [])
     path_segments = parsed.path.split("/") if parsed else []
+    ascii_node_id = (
+        node_id
+        if isinstance(node_id, str) and re.fullmatch(r"[0-9]+:[0-9]+", node_id)
+        else ""
+    )
+    expected_query = (
+        f"node-id={ascii_node_id.replace(':', '-')}" if ascii_node_id else ""
+    )
+    canonical_url = (
+        f"https://{parsed.hostname}/{path_segments[1]}/{path_segments[2]}/"
+        f"{path_segments[3]}?{expected_query}"
+        if parsed and parsed.hostname and len(path_segments) == 4 and expected_query
+        else ""
+    )
     if (
         parsed is None
         or parsed.scheme != "https"
@@ -779,12 +795,9 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
         or path_segments[1] not in {"design", "file"}
         or path_segments[2] != file_key
         or not re.fullmatch(r"[A-Za-z0-9_-]+", path_segments[3])
-        or not isinstance(node_id, str)
-        or not re.fullmatch(r"\d+:\d+", node_id)
-        or set(query) != {"node-id"}
-        or len(query_nodes) != 1
-        or not re.fullmatch(r"\d+-\d+", query_nodes[0])
-        or query_nodes[0].replace("-", ":") != node_id
+        or not ascii_node_id
+        or parsed.query != expected_query
+        or url != canonical_url
     ):
         errors.append(f"도메인 계약 #{issue}의 Figma linkage URL/identifier가 일치하지 않습니다.")
 
