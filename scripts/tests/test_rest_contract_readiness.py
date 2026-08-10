@@ -1248,6 +1248,51 @@ class RestContractReadinessTest(unittest.TestCase):
                     )
                     self.assertTrue(any("Notion linkage" in error for error in errors), errors)
 
+    def test_malformed_linkage_urls_fail_cli_without_parser_exception_details(self):
+        cases = (
+            ("Notion", "notionPage", "https://["),
+            (
+                "Notion",
+                "notionPage",
+                "https://www.notion.so:invalid/Profile-Legal-0123456789abcdef0123456789abcdef",
+            ),
+            ("Figma", "figmaNode", "https://["),
+            (
+                "Figma",
+                "figmaNode",
+                "https://www.figma.com:invalid/design/AbCdEf123456/Profile?node-id=10-20",
+            ),
+        )
+        for label, field, malformed_url in cases:
+            with self.subTest(label=label, url=malformed_url), tempfile.TemporaryDirectory() as directory:
+                repo_root = Path(directory)
+                catalog = copy.deepcopy(self.catalog)
+                first = catalog["domainContracts"][0]
+                first["versions"] = {
+                    "local": catalog["contractVersion"],
+                    "notion": catalog["contractVersion"],
+                    "figma": catalog["contractVersion"],
+                }
+                first["readiness"] = self.create_ready_evidence(repo_root)
+                first["readiness"]["metadata"]["evidence"][field]["url"] = malformed_url
+                catalog_path = repo_root / "catalog.json"
+                catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR_PATH), str(catalog_path)],
+                    cwd=ROOT,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+
+                output = result.stdout + result.stderr
+                self.assertEqual(1, result.returncode)
+                self.assertIn("REST 계약 readiness 검사 실패", result.stderr)
+                self.assertIn(f"{label} linkage", result.stderr)
+                self.assertNotIn("Traceback", output)
+                self.assertNotIn("ValueError", output)
+
     def test_quality_gate_executes_rest_contract_validator(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"

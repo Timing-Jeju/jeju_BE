@@ -10,7 +10,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import ParseResult, parse_qs, urlparse
 
 
 CATALOG_VERSION = "rest-contract-catalog/v1"
@@ -173,6 +173,17 @@ def _non_empty(value: Any) -> bool:
 
 def _allowed_string(value: Any, allowed: set[str]) -> bool:
     return isinstance(value, str) and value in allowed
+
+
+def _safe_parse_linkage_url(value: Any) -> ParseResult | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = urlparse(value)
+        _ = parsed.hostname, parsed.port
+    except ValueError:
+        return None
+    return parsed
 
 
 def _exact_non_empty_mapping(value: Any, fields: set[str]) -> bool:
@@ -705,7 +716,7 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
         if isinstance(page_id, str) and re.fullmatch(NOTION_PAGE_ID, page_id)
         else ""
     )
-    parsed = urlparse(url) if isinstance(url, str) else None
+    parsed = _safe_parse_linkage_url(url)
     path_segments = (
         [segment for segment in parsed.path.split("/") if segment] if parsed else []
     )
@@ -726,6 +737,7 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
     if (
         parsed is None
         or parsed.scheme != "https"
+        or parsed.port is not None
         or not parsed.hostname
         or not (
             parsed.hostname == "notion.so" or parsed.hostname.endswith(".notion.so")
@@ -746,13 +758,14 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
     url = value.get("url")
     file_key = value.get("fileKey")
     node_id = value.get("nodeId")
-    parsed = urlparse(url) if isinstance(url, str) else None
+    parsed = _safe_parse_linkage_url(url)
     query = parse_qs(parsed.query, keep_blank_values=True) if parsed else {}
     query_nodes = query.get("node-id", [])
     path_segments = parsed.path.split("/") if parsed else []
     if (
         parsed is None
         or parsed.scheme != "https"
+        or parsed.port is not None
         or parsed.hostname not in {"figma.com", "www.figma.com"}
         or not _non_empty(file_key)
         or not re.fullmatch(r"[A-Za-z0-9_-]+", file_key)
