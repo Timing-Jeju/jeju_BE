@@ -174,6 +174,20 @@ class JdbcRunLeaseRepositoryIntegrationTest {
   }
 
   @Test
+  void 현재_fencing_token만_안정적인_error_code로_terminal_failed를_기록한다() {
+    UUID runId = insertQueuedRun("terminal-failure");
+    RunLease lease = repository.claimAvailable("worker", NOW, NOW.plusSeconds(30), 50).getFirst();
+
+    assertThat(repository.fail(lease, NOW.plusSeconds(1), "ASYNC_RUN_EXECUTION_FAILED")).isTrue();
+    assertThat(status(runId)).isEqualTo("failed");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select error_code from public.compute_runs where id = ?", String.class, runId))
+        .isEqualTo("ASYNC_RUN_EXECUTION_FAILED");
+    assertThat(repository.fail(lease, NOW.plusSeconds(2), "STALE_WRITE")).isFalse();
+  }
+
+  @Test
   void migration은_lease_fencing_retry_컬럼만_추가하고_payload나_token을_저장하지_않는다() {
     List<String> columns =
         jdbcTemplate.queryForList(
