@@ -36,3 +36,9 @@
 ## 자동 검사
 
 `python3 scripts/validate_rest_contracts.py`는 catalog와 `endpoint-template.json`을 실제로 함께 읽습니다. JSON parser 단계에서 모든 깊이의 duplicate key를 last-value로 덮기 전에 거부합니다. 지원하는 canonical `contractVersion`은 `1.0.0`이며 catalog/template/domain을 함께 바꿔도 다른 버전은 허용하지 않습니다. 모든 catalog/template/endpoint/readiness JSON 객체는 문서화된 키만 허용하는 closed-world 계약입니다. 외부 JSON 값을 허용 집합에서 찾기 전에 string 타입을 확인하므로 list/object/null/boolean/float를 넣어도 membership `TypeError`가 발생하지 않습니다. 검증기는 unknown·missing·duplicate field/key, 필수 field와 default 상속 drift, canonical method/path 중복, 필수 필드의 공백·strict JSON 타입, 인증·멱등성·cursor 상속, run/candidate/fallback 혼용, Problem Details 구형 필드, hash/소유권 drift, #82~#94 exactly-once 상속, 구조화 readiness·실재 evidence와 버전 drift를 traceback 없이 한국어 오류로 보고합니다. 이 검사는 `./scripts/quality-gate.sh`의 공통 단계에서 항상 실행됩니다.
+
+Issue #83의 장소 endpoint 상세 schema는
+[`domains/places/contract.json`](domains/places/contract.json)이 canonical 기준이고
+`python3 scripts/validate_places_contract.py`가 목록·상세 identity, 위치/query/cursor,
+필드별 provenance, `nearbyStops`, 오류 matrix, Notion/Figma linkage와 fixture를 추가로
+검사합니다. 이 검사도 공통 품질 게이트에서 항상 실행됩니다.

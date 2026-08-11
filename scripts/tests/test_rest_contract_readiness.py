@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +15,21 @@ VALIDATOR_PATH = ROOT / "scripts" / "validate_rest_contracts.py"
 CATALOG_PATH = ROOT / "docs" / "contracts" / "rest" / "catalog.json"
 TEMPLATE_PATH = ROOT / "docs" / "contracts" / "rest" / "endpoint-template.json"
 COMMON_CONTRACT_PATH = ROOT / "docs" / "contracts" / "REST_COMMON_CONTRACT.md"
+
+
+def active_quality_gate_validator_commands(shell_source: str) -> set[str]:
+    """현재 품질 게이트의 직접 실행 validator 명령만 추출한다."""
+    commands = set()
+    for line in shell_source.splitlines():
+        tokens = shlex.split(line, comments=True, posix=True)
+        if (
+            len(tokens) == 2
+            and tokens[0] == "python3"
+            and tokens[1].startswith("scripts/validate_")
+            and tokens[1].endswith(".py")
+        ):
+            commands.add(" ".join(tokens))
+    return commands
 
 
 def load_validator():
@@ -129,7 +145,25 @@ class RestContractReadinessTest(unittest.TestCase):
         }
 
     @staticmethod
+    def materialize_repository_ready_evidence(repo_root: Path):
+        """임시 repo에서도 실제 catalog의 ready evidence를 보존한다."""
+        for relative in (
+            Path("docs/contracts/domains/places/contract.md"),
+            Path("fixtures/contracts/places/request.json"),
+            Path("fixtures/contracts/places/success.json"),
+            Path("fixtures/contracts/places/problem.json"),
+        ):
+            target = repo_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                target.write_text(
+                    "{}" if target.suffix == ".json" else "places evidence",
+                    encoding="utf-8",
+                )
+
+    @staticmethod
     def create_ready_evidence(repo_root: Path, domain="profile-legal"):
+        RestContractReadinessTest.materialize_repository_ready_evidence(repo_root)
         paths = {
             "localDocument": Path("docs/contracts/domains") / domain / "contract.md",
             "requestFixture": Path("fixtures/contracts") / domain / "request.json",
@@ -184,6 +218,7 @@ class RestContractReadinessTest(unittest.TestCase):
 
     def validate_files(self, catalog, template):
         with tempfile.TemporaryDirectory() as directory:
+            self.materialize_repository_ready_evidence(Path(directory))
             catalog_path = Path(directory) / "catalog.json"
             template_path = Path(directory) / "endpoint-template.json"
             catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
@@ -1581,11 +1616,33 @@ class RestContractReadinessTest(unittest.TestCase):
             self.assertIn("Figma linkage", result.stderr)
             self.assertNotIn("Traceback", output)
 
-    def test_quality_gate_executes_rest_contract_validator(self):
+    def test_quality_gate_executes_common_and_domain_contract_validators(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
         )
-        self.assertIn("python3 scripts/validate_rest_contracts.py", quality_gate)
+        required_commands = (
+            "python3 scripts/validate_rest_contracts.py",
+            "python3 scripts/validate_places_contract.py",
+            "python3 scripts/validate_saved_places_contract.py",
+        )
+
+        def assert_required_commands_are_active(shell_source):
+            active_commands = active_quality_gate_validator_commands(shell_source)
+            for command in required_commands:
+                self.assertIn(command, active_commands)
+
+        assert_required_commands_are_active(quality_gate)
+        for command in required_commands:
+            mutations = {
+                "deleted": quality_gate.replace(command, ""),
+                "commented": quality_gate.replace(command, f"# {command}"),
+                "quoted": quality_gate.replace(command, f"printf '%s\\n' '{command}'"),
+                "disabled": quality_gate.replace(command, f"false && {command}"),
+            }
+            for mutation, shell_source in mutations.items():
+                with self.subTest(command=command, mutation=mutation):
+                    with self.assertRaises(AssertionError):
+                        assert_required_commands_are_active(shell_source)
 
 
 if __name__ == "__main__":
