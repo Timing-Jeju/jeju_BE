@@ -1,0 +1,375 @@
+{
+  "schemaVersion": "timing-jeju-places-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "v1.1",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 83,
+  "implementationIssue": 66,
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/places",
+      "operation": "list",
+      "auth": {
+        "mode": "optional",
+        "missingToken": "anonymous",
+        "invalidToken": 401
+      },
+      "query": {
+        "query": {
+          "required": false,
+          "nullable": false,
+          "omitted": "전체 이름/별칭",
+          "type": "trimmed string",
+          "minimumLength": 1,
+          "maximumLength": 100
+        },
+        "category": {
+          "required": false,
+          "nullable": false,
+          "omitted": "모든 카테고리",
+          "pattern": "^[a-z][a-z0-9_]{0,49}$"
+        },
+        "regionCode": {
+          "required": false,
+          "nullable": false,
+          "omitted": "모든 제주 지역",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"
+        },
+        "lat": {
+          "required": false,
+          "nullable": false,
+          "minimum": -90,
+          "maximum": 90,
+          "pairedWith": "lng"
+        },
+        "lng": {
+          "required": false,
+          "nullable": false,
+          "minimum": -180,
+          "maximum": 180,
+          "pairedWith": "lat"
+        },
+        "radiusMeters": {
+          "required": false,
+          "nullable": false,
+          "minimum": 100,
+          "maximum": 50000,
+          "default": 10000,
+          "requires": [
+            "lat",
+            "lng"
+          ]
+        },
+        "cursor": {
+          "required": false,
+          "nullable": false,
+          "type": "opaque string",
+          "maximumLength": 2048
+        },
+        "size": {
+          "required": false,
+          "nullable": false,
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        }
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor": "opaque",
+        "size": {
+          "default": 20,
+          "max": 100
+        },
+        "stableSort": {
+          "nearby": [
+            "distanceMeters ASC NULLS LAST",
+            "normalizedName ASC",
+            "placeId ASC"
+          ],
+          "default": [
+            "normalizedName ASC",
+            "placeId ASC"
+          ]
+        },
+        "tieBreaker": "placeId ASC",
+        "cursorScope": [
+          "query",
+          "category",
+          "regionCode",
+          "lat",
+          "lng",
+          "radiusMeters",
+          "size",
+          "sortProfile"
+        ],
+        "filterChange": "reject CURSOR_CONTEXT_MISMATCH"
+      },
+      "successStatus": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/places/{placeId}",
+      "operation": "read",
+      "auth": {
+        "mode": "optional",
+        "missingToken": "anonymous",
+        "invalidToken": 401
+      },
+      "pathParameters": {
+        "placeId": {
+          "required": true,
+          "nullable": false,
+          "type": "canonical UUID"
+        }
+      },
+      "successStatus": 200
+    }
+  ],
+  "anonymousPersonalization": {
+    "list": {
+      "saved": false,
+      "memo": null,
+      "tags": []
+    },
+    "detail": {
+      "saved": {
+        "value": false,
+        "memo": null,
+        "tags": []
+      }
+    }
+  },
+  "responseConsistency": {
+    "list": [
+      "placeId",
+      "contentId",
+      "name",
+      "category",
+      "regionCode",
+      "regionLabel",
+      "address",
+      "location",
+      "thumbnailUrl",
+      "recommendedStayMinutes",
+      "operationsSummary",
+      "distanceMeters",
+      "saved",
+      "memo",
+      "tags"
+    ],
+    "detail": [
+      "placeId",
+      "contentId",
+      "name",
+      "category",
+      "regionCode",
+      "regionLabel",
+      "address",
+      "location",
+      "thumbnailUrl",
+      "recommendedStayMinutes",
+      "operationsSummary",
+      "saved",
+      "overview",
+      "contact",
+      "operations",
+      "images",
+      "nearbyStops"
+    ],
+    "rules": {
+      "recommendedStayMinutes": "목록과 상세에서 같은 curated 값 또는 null",
+      "thumbnailUrl": "상세 images의 displayOrder 최우선 thumbnail과 동일하거나 null",
+      "operationsSummary": "상세 operations에서 파생한 동일 시점 요약 또는 null"
+    }
+  },
+  "fieldOwnership": {
+    "placeCore": {
+      "owner": "TourAPI normalized read model",
+      "provider": "tour_places.source_provider",
+      "observedAt": "tour_places.source_modified_at or updated_at",
+      "expiresAt": "ingestion freshness policy projection",
+      "stale": "tour_places.stale"
+    },
+    "recommendedStayMinutes": {
+      "owner": "Timing Jeju app curation",
+      "provider": "TIMING_JEJU",
+      "observedAt": "tour_places.updated_at",
+      "expiresAt": null,
+      "stale": false
+    },
+    "images": {
+      "owner": "TourAPI normalized image read model",
+      "provider": "place_images.source_provider",
+      "observedAt": "place_images.created_at",
+      "expiresAt": "parent place freshness projection",
+      "stale": "parent place stale projection"
+    },
+    "operations": {
+      "owner": "TourAPI normalized detail read model",
+      "provider": "place_details.source_provider",
+      "observedAt": "place_details.source_updated_at or fetched_at",
+      "expiresAt": "parent place freshness projection",
+      "stale": "parent place stale projection"
+    },
+    "savedMemoTags": {
+      "owner": "authenticated user input",
+      "provider": "TIMING_JEJU",
+      "observedAt": "saved_places.updated_at",
+      "expiresAt": null,
+      "stale": false
+    },
+    "nearbyStops": {
+      "owner": "TAGO stop + Timing Jeju place-stop link",
+      "provider": "place_stop_links.source_provider",
+      "observedAt": "place_stop_links.observed_at",
+      "expiresAt": "place_stop_links.expires_at",
+      "stale": "expires_at <= now()"
+    }
+  },
+  "nearbyStops": {
+    "presence": "required non-null array from #66 contract version",
+    "itemFields": [
+      "stopId",
+      "stopName",
+      "distanceMeters",
+      "walkMinutes",
+      "linkMethod",
+      "provider",
+      "observedAt",
+      "expiresAt",
+      "stale"
+    ],
+    "nullableFields": [
+      "walkMinutes"
+    ],
+    "eligibility": [
+      "place_stop_links.enabled = true",
+      "place_stop_links.tombstoned_at IS NULL",
+      "bus_stops.tombstoned_at IS NULL",
+      "bus_stops.source_deleted_at IS NULL",
+      "distance_meters <= configured maximum"
+    ],
+    "inclusion": {
+      "fresh": true,
+      "staleOnly": true,
+      "disabled": false,
+      "tombstoned": false,
+      "outOfRadius": false,
+      "stopTombstoned": false,
+      "stopSourceDeleted": false
+    },
+    "emptyWhen": "eligible fresh/stale link count = 0",
+    "emptyResponse": {
+      "status": 200,
+      "nearbyStops": []
+    },
+    "freshBoundary": "expiresAt > now()",
+    "staleBoundary": "expiresAt <= now()",
+    "sort": [
+      "stale ASC",
+      "distanceMeters ASC",
+      "walkMinutes ASC NULLS LAST",
+      "stopId ASC"
+    ],
+    "maxItems": 5,
+    "deduplicateBy": "stopId",
+    "owners": {
+      "contractIssue": 83,
+      "migrationIssue": 37,
+      "implementationIssue": 66
+    },
+    "readiness": {
+      "baseContract": "metadata+example ready",
+      "implementation": "not-ready until #66 Controller/OpenAPI/Repository/integration evidence"
+    },
+    "compatibility": "additive; 기존 consumer는 알 수 없는 필드를 무시"
+  },
+  "errors": {
+    "400": [
+      "INVALID_QUERY_PARAMETER",
+      "INVALID_GEO_FILTER",
+      "CURSOR_CONTEXT_MISMATCH",
+      "INVALID_CURSOR"
+    ],
+    "401": [
+      "INVALID_ACCESS_TOKEN"
+    ],
+    "404": [
+      "PLACE_NOT_FOUND"
+    ],
+    "422": [
+      "PLACE_QUERY_CONSTRAINT_VIOLATION"
+    ],
+    "429": [
+      "UPSTREAM_RATE_LIMITED"
+    ],
+    "503": [
+      "PLACE_DATA_UNAVAILABLE"
+    ]
+  },
+  "problemExample": {
+    "type": "https://api.timing-jeju.com/problems/invalid-geo-filter",
+    "title": "요청 위치 조건이 올바르지 않습니다",
+    "status": 400,
+    "detail": "위도와 경도는 함께 입력하고 반경은 100m 이상 50000m 이하로 입력해 주세요.",
+    "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+    "code": "INVALID_GEO_FILTER",
+    "traceId": "0123456789abcdef0123456789abcdef",
+    "fieldErrors": [
+      {
+        "field": "radiusMeters",
+        "reason": "범위는 100 이상 50000 이하여야 합니다"
+      }
+    ]
+  },
+  "traceability": {
+    "localDocument": "docs/contracts/domains/places/contract.md",
+    "notion": {
+      "databaseId": "40914d1e-551f-4cfc-9604-0190ecda7b6c",
+      "databaseUrl": "https://app.notion.com/p/40914d1e551f4cfc96040190ecda7b6c?pvs=204",
+      "declaredVersion": "v1.1",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/v1/places",
+          "pageId": "3a40a87c-7ce5-8107-98bf-fdb79281852b",
+          "url": "https://app.notion.com/p/3a40a87c7ce5810798bffdb79281852b?pvs=204"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/places/{placeId}",
+          "pageId": "3a40a87c-7ce5-81c4-9339-cb8d061b602d",
+          "url": "https://app.notion.com/p/3a40a87c7ce581c49339cb8d061b602d?pvs=204"
+        }
+      ]
+    },
+    "figma": {
+      "fileKey": "4mKep38zm17iupVSQVsSJW",
+      "nodeId": "251-4347",
+      "url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW/%EA%B4%80%EA%B4%91%EB%8D%B0%EC%9D%B4%ED%84%B0-%EA%B3%B5%EB%AA%A8%EC%A0%84?node-id=251-4347&p=f&t=DDs4My39PfbNrfZT-0",
+      "screens": [
+        {
+          "action": "지도 장소 검색·카테고리·내 근처 탐색",
+          "endpoint": "GET /api/v1/places",
+          "loading": "장소 카드 skeleton",
+          "empty": "조건에 맞는 장소가 없습니다",
+          "error": "재시도 가능한 한국어 Problem Details 안내"
+        },
+        {
+          "action": "장소 상세·이미지·이용정보·주변 정류장 확인",
+          "endpoint": "GET /api/v1/places/{placeId}",
+          "loading": "상세 section skeleton",
+          "empty": "nearbyStops만 빈 배열; 장소 상세은 유지",
+          "error": "장소 없음 또는 데이터 사용 불가 안내"
+        }
+      ]
+    }
+  },
+  "fixtures": {
+    "request": "fixtures/contracts/places/request.json",
+    "success": "fixtures/contracts/places/success.json",
+    "problem": "fixtures/contracts/places/problem.json"
+  }
+}

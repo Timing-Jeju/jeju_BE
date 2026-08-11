@@ -129,7 +129,25 @@ class RestContractReadinessTest(unittest.TestCase):
         }
 
     @staticmethod
+    def materialize_repository_ready_evidence(repo_root: Path):
+        """임시 repo에서도 실제 catalog의 ready evidence를 보존한다."""
+        for relative in (
+            Path("docs/contracts/domains/places/contract.md"),
+            Path("fixtures/contracts/places/request.json"),
+            Path("fixtures/contracts/places/success.json"),
+            Path("fixtures/contracts/places/problem.json"),
+        ):
+            target = repo_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not target.exists():
+                target.write_text(
+                    "{}" if target.suffix == ".json" else "places evidence",
+                    encoding="utf-8",
+                )
+
+    @staticmethod
     def create_ready_evidence(repo_root: Path, domain="profile-legal"):
+        RestContractReadinessTest.materialize_repository_ready_evidence(repo_root)
         paths = {
             "localDocument": Path("docs/contracts/domains") / domain / "contract.md",
             "requestFixture": Path("fixtures/contracts") / domain / "request.json",
@@ -184,6 +202,7 @@ class RestContractReadinessTest(unittest.TestCase):
 
     def validate_files(self, catalog, template):
         with tempfile.TemporaryDirectory() as directory:
+            self.materialize_repository_ready_evidence(Path(directory))
             catalog_path = Path(directory) / "catalog.json"
             template_path = Path(directory) / "endpoint-template.json"
             catalog_path.write_text(json.dumps(catalog), encoding="utf-8")

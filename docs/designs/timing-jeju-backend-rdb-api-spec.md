@@ -417,9 +417,11 @@ Response `200`:
       },
       "thumbnailUrl": "https://example.com/seongsan-thumb.jpg",
       "recommendedStayMinutes": 70,
+      "operationsSummary": "07:30~20:00",
       "distanceMeters": 120,
       "saved": true,
-      "memo": "오전에 방문"
+      "memo": "오전에 방문",
+      "tags": ["필수", "동쪽"]
     }
   ],
   "page": {
@@ -451,9 +453,17 @@ Response `200`:
   "contentId": "126435",
   "name": "성산일출봉",
   "category": "tourist_attraction",
+  "regionCode": "seongsan",
   "regionLabel": "성산",
+  "address": "제주특별자치도 서귀포시 성산읍 일출로 284-12",
+  "location": {
+    "lat": 33.458111,
+    "lng": 126.941516
+  },
+  "thumbnailUrl": "https://example.com/seongsan-thumb.jpg",
   "overview": "제주 동쪽의 대표 오름 관광지입니다.",
   "recommendedStayMinutes": 70,
+  "operationsSummary": "07:30~20:00",
   "contact": {
     "phone": "064-000-0001",
     "homepageUrl": "https://example.com/seongsan"
@@ -467,28 +477,41 @@ Response `200`:
   "images": [
     {
       "url": "https://example.com/seongsan.jpg",
-      "thumbnailUrl": "https://example.com/seongsan-thumb.jpg"
+      "thumbnailUrl": "https://example.com/seongsan-thumb.jpg",
+      "provider": "TOUR_API",
+      "observedAt": "2026-08-03T08:55:00+09:00",
+      "expiresAt": "2026-08-04T08:55:00+09:00",
+      "stale": false
     }
   ],
   "nearbyStops": [
     {
       "stopId": "30000000-0000-0000-0000-000000000002",
-      "nodeId": "JEB406000816",
-      "name": "성산일출봉입구[동]",
-      "distanceMeters": 939,
-      "walkMinutes": 14
+      "stopName": "성산일출봉입구",
+      "distanceMeters": 280,
+      "walkMinutes": 4,
+      "linkMethod": "spatial_radius",
+      "provider": "TAGO",
+      "observedAt": "2026-08-03T09:00:00+09:00",
+      "expiresAt": "2026-08-04T09:00:00+09:00",
+      "stale": false
     }
   ],
   "saved": {
     "value": true,
     "memo": "오전에 방문",
-    "tags": [
-      "필수",
-      "동쪽"
-    ]
+    "tags": ["필수", "동쪽"]
   }
 }
 ```
+
+두 endpoint의 query 범위, cursor filter fingerprint, Optional 인증의 익명 shape,
+필드 owner/freshness, `nearbyStops` eligibility·stale fallback·정렬·readiness와 오류
+matrix의 canonical 기준은
+[`docs/contracts/domains/places/contract.md`](../contracts/domains/places/contract.md)입니다.
+`nearbyStops`는 #66 contract version부터 항상 포함하는 null 아닌 additive 배열이고,
+eligible 행이 없을 때만 상세 `200`과 `[]`를 반환합니다. stale-only 결과는 각 항목의
+`stale=true`로 반환하며 별도 freshness reason 필드는 만들지 않습니다.
 
 ### 10.3 `GET /api/v1/saved-places`
 
