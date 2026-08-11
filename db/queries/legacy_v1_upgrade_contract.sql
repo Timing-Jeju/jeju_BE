@@ -577,6 +577,18 @@ begin
     raise exception 'legacy transport row could not be repaired by parsed lineage';
   end if;
 
+  if not exists (
+    select 1
+    from public.compute_runs
+    where id = 'e4400000-0000-0000-0000-000000000003'
+      and status = 'succeeded'
+      and result_source = 'fallback'
+      and attempt_count = 0
+      and fencing_token = 0
+  ) then
+    raise exception 'legacy fallback compute run was not normalized';
+  end if;
+
 
   begin
     update public.compute_runs

@@ -437,6 +437,14 @@ insert into public.compute_runs (
   'e4200000-0000-0000-0000-000000000001',
   'feasibility', 'succeeded', 'legacy-v1-compute-day-2',
   'v1', 'v1', now(), 'v1'
+),
+(
+  'e4400000-0000-0000-0000-000000000003',
+  'e4000000-0000-0000-0000-000000000001',
+  'e4100000-0000-0000-0000-000000000002',
+  'e4200000-0000-0000-0000-000000000001',
+  'recovery', 'fallback', 'legacy-v1-fallback-day-2',
+  'v1', 'v1', now(), 'v1'
 );
 
 insert into public.trip_weather_impacts (
