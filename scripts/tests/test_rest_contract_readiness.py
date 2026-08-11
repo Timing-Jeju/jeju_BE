@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +15,21 @@ VALIDATOR_PATH = ROOT / "scripts" / "validate_rest_contracts.py"
 CATALOG_PATH = ROOT / "docs" / "contracts" / "rest" / "catalog.json"
 TEMPLATE_PATH = ROOT / "docs" / "contracts" / "rest" / "endpoint-template.json"
 COMMON_CONTRACT_PATH = ROOT / "docs" / "contracts" / "REST_COMMON_CONTRACT.md"
+
+
+def active_quality_gate_validator_commands(shell_source: str) -> set[str]:
+    """현재 품질 게이트의 직접 실행 validator 명령만 추출한다."""
+    commands = set()
+    for line in shell_source.splitlines():
+        tokens = shlex.split(line, comments=True, posix=True)
+        if (
+            len(tokens) == 2
+            and tokens[0] == "python3"
+            and tokens[1].startswith("scripts/validate_")
+            and tokens[1].endswith(".py")
+        ):
+            commands.add(" ".join(tokens))
+    return commands
 
 
 def load_validator():
@@ -1604,9 +1620,29 @@ class RestContractReadinessTest(unittest.TestCase):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
         )
-        self.assertIn("python3 scripts/validate_rest_contracts.py", quality_gate)
-        self.assertIn("python3 scripts/validate_places_contract.py", quality_gate)
-        self.assertIn("python3 scripts/validate_saved_places_contract.py", quality_gate)
+        required_commands = (
+            "python3 scripts/validate_rest_contracts.py",
+            "python3 scripts/validate_places_contract.py",
+            "python3 scripts/validate_saved_places_contract.py",
+        )
+
+        def assert_required_commands_are_active(shell_source):
+            active_commands = active_quality_gate_validator_commands(shell_source)
+            for command in required_commands:
+                self.assertIn(command, active_commands)
+
+        assert_required_commands_are_active(quality_gate)
+        for command in required_commands:
+            mutations = {
+                "deleted": quality_gate.replace(command, ""),
+                "commented": quality_gate.replace(command, f"# {command}"),
+                "quoted": quality_gate.replace(command, f"printf '%s\\n' '{command}'"),
+                "disabled": quality_gate.replace(command, f"false && {command}"),
+            }
+            for mutation, shell_source in mutations.items():
+                with self.subTest(command=command, mutation=mutation):
+                    with self.assertRaises(AssertionError):
+                        assert_required_commands_are_active(shell_source)
 
 
 if __name__ == "__main__":
