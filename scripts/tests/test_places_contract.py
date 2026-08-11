@@ -4,6 +4,8 @@ import copy
 import importlib.util
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,31 +45,35 @@ class PlacesContractTest(unittest.TestCase):
             f"expected={expected!r}, errors={errors!r}",
         )
 
+    def copy_validation_inputs(self, temporary_root):
+        fixture_directory = temporary_root / "fixtures/contracts/places"
+        document_directory = temporary_root / "docs/contracts/domains/places"
+        catalog_directory = temporary_root / "docs/contracts/rest"
+        design_directory = temporary_root / "docs/designs"
+        fixture_directory.mkdir(parents=True)
+        document_directory.mkdir(parents=True)
+        catalog_directory.mkdir(parents=True)
+        design_directory.mkdir(parents=True)
+        for source in (ROOT / "fixtures/contracts/places").glob("*.json"):
+            shutil.copy2(source, fixture_directory / source.name)
+        shutil.copy2(
+            ROOT / "docs/contracts/domains/places/contract.md",
+            document_directory / "contract.md",
+        )
+        shutil.copy2(
+            ROOT / "docs/contracts/rest/catalog.json",
+            catalog_directory / "catalog.json",
+        )
+        shutil.copy2(
+            ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md",
+            design_directory / "timing-jeju-backend-rdb-api-spec.md",
+        )
+        return fixture_directory
+
     def fixture_errors(self, fixture_name, mutate):
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
-            fixture_directory = temporary_root / "fixtures/contracts/places"
-            document_directory = temporary_root / "docs/contracts/domains/places"
-            catalog_directory = temporary_root / "docs/contracts/rest"
-            design_directory = temporary_root / "docs/designs"
-            fixture_directory.mkdir(parents=True)
-            document_directory.mkdir(parents=True)
-            catalog_directory.mkdir(parents=True)
-            design_directory.mkdir(parents=True)
-            for source in (ROOT / "fixtures/contracts/places").glob("*.json"):
-                shutil.copy2(source, fixture_directory / source.name)
-            shutil.copy2(
-                ROOT / "docs/contracts/domains/places/contract.md",
-                document_directory / "contract.md",
-            )
-            shutil.copy2(
-                ROOT / "docs/contracts/rest/catalog.json",
-                catalog_directory / "catalog.json",
-            )
-            shutil.copy2(
-                ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md",
-                design_directory / "timing-jeju-backend-rdb-api-spec.md",
-            )
+            fixture_directory = self.copy_validation_inputs(temporary_root)
             fixture_path = fixture_directory / f"{fixture_name}.json"
             fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
             mutate(fixture)
@@ -288,16 +294,167 @@ class PlacesContractTest(unittest.TestCase):
                     "success.detail.images[0].url",
                 )
 
-    def test_rejects_non_finite_json_numbers_with_exact_field_path(self):
-        for value in (float("nan"), float("inf"), float("-inf")):
+    def test_rejects_non_finite_json_numbers_during_strict_json_loading(self):
+        for value, token in (
+            (float("nan"), "NaN"),
+            (float("inf"), "Infinity"),
+            (float("-inf"), "-Infinity"),
+        ):
             with self.subTest(value=value):
                 self.assert_fixture_rejected(
                     "request",
-                    lambda fixture, value=value: fixture["endpoints"]["list"]["query"].update(
-                        lat=value
-                    ),
-                    "request.list.query.lat",
+                    lambda fixture, value=value: fixture["endpoints"]["list"][
+                        "query"
+                    ].update(lat=value),
+                    f"비표준 JSON 상수 {token}",
                 )
+
+    def test_rejects_non_standard_json_constants_in_every_json_load_path(self):
+        for token in ("NaN", "Infinity", "-Infinity"):
+            with (
+                self.subTest(path="contract", token=token),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                contract_path = Path(directory) / "contract.json"
+                contract_path.write_text(
+                    CONTRACT_PATH.read_text(encoding="utf-8").replace(
+                        '"ownerIssue": 83', f'"ownerIssue": {token}'
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, f"비표준 JSON 상수 {token}"):
+                    validator.load_contract(contract_path)
+
+            with (
+                self.subTest(path="catalog", token=token),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                temporary_root = Path(directory)
+                self.copy_validation_inputs(temporary_root)
+                catalog_path = temporary_root / "docs/contracts/rest/catalog.json"
+                catalog_path.write_text(
+                    catalog_path.read_text(encoding="utf-8").replace(
+                        '"catalogVersion": "rest-contract-catalog/v1"',
+                        f'"catalogVersion": {token}',
+                    ),
+                    encoding="utf-8",
+                )
+                errors = validator.validate_contract(self.contract(), temporary_root)
+                self.assertTrue(
+                    any(f"비표준 JSON 상수 {token}" in error for error in errors),
+                    errors,
+                )
+
+            for fixture_name in ("request", "success", "problem"):
+                with (
+                    self.subTest(path=fixture_name, token=token),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    temporary_root = Path(directory)
+                    fixture_directory = self.copy_validation_inputs(temporary_root)
+                    fixture_path = fixture_directory / f"{fixture_name}.json"
+                    fixture_path.write_text(
+                        fixture_path.read_text(encoding="utf-8").replace(
+                            "{", f'{{\n  "reviewerProbe": {token},', 1
+                        ),
+                        encoding="utf-8",
+                    )
+                    errors = validator.validate_contract(self.contract(), temporary_root)
+                    self.assertTrue(
+                        any(f"비표준 JSON 상수 {token}" in error for error in errors),
+                        errors,
+                    )
+
+    def test_cli_reports_non_standard_json_constant_in_korean_and_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            contract_path = Path(directory) / "contract.json"
+            contract_path.write_text(
+                CONTRACT_PATH.read_text(encoding="utf-8").replace(
+                    '"ownerIssue": 83', '"ownerIssue": NaN'
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(VALIDATOR_PATH),
+                    "--contract",
+                    str(contract_path),
+                    "--root",
+                    str(ROOT),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("장소 REST 계약 검사 실패", result.stderr)
+        self.assertIn("비표준 JSON 상수 NaN", result.stderr)
+
+    def test_temporal_order_uses_the_same_strict_rfc3339_parser(self):
+        valid_pairs = (
+            ("2026-08-03t08:55:00z", "2026-08-03T08:55:00Z"),
+            ("2026-08-03T09:00:00+09:00", "2026-08-03T00:00:00Z"),
+            ("2026-08-03T23:59:59-01:00", "2026-08-04T01:00:00Z"),
+        )
+        for observed_at, expires_at in valid_pairs:
+            with self.subTest(observed_at=observed_at, expires_at=expires_at):
+                errors = self.fixture_errors(
+                    "success",
+                    lambda fixture, observed_at=observed_at, expires_at=expires_at: fixture[
+                        "detail"
+                    ]["nearbyStops"][0].update(
+                        observedAt=observed_at,
+                        expiresAt=expires_at,
+                    ),
+                )
+                self.assertEqual([], errors)
+
+        self.assert_fixture_rejected(
+            "success",
+            lambda fixture: fixture["detail"]["nearbyStops"][0].update(
+                observedAt="2026-08-04t00:00:00z",
+                expiresAt="2026-08-03T23:59:59Z",
+            ),
+            "observedAt은 expiresAt보다 늦을 수 없습니다",
+        )
+
+    def test_catalog_contract_and_document_keep_all_readiness_not_ready(self):
+        contract = self.contract()
+        nearby_readiness = contract["nearbyStops"]["readiness"]
+        document = (
+            ROOT / "docs/contracts/domains/places/contract.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(
+            {
+                "metadata": "not-ready",
+                "example": "not-ready",
+                "implementation": "not-ready",
+            },
+            nearby_readiness,
+        )
+        self.assertIn(
+            "readiness: metadata=not-ready, example=not-ready, implementation=not-ready",
+            document,
+        )
+        self.assertNotIn("Metadata/Example Ready", document)
+
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            self.copy_validation_inputs(temporary_root)
+            document_path = temporary_root / "docs/contracts/domains/places/contract.md"
+            document_path.write_text(
+                document_path.read_text(encoding="utf-8").replace(
+                    "readiness: metadata=not-ready, example=not-ready, implementation=not-ready",
+                    "readiness: metadata=ready, example=ready, implementation=not-ready",
+                ),
+                encoding="utf-8",
+            )
+            errors = validator.validate_contract(contract, temporary_root)
+            self.assertTrue(any("readiness 문서" in error for error in errors), errors)
 
     def test_query_is_trimmed_before_one_to_one_hundred_character_validation(self):
         contract = self.contract()
@@ -489,7 +646,7 @@ class PlacesContractTest(unittest.TestCase):
                 lambda c: c["nearbyStops"]["readiness"].update(
                     implementation="ready"
                 ),
-                "#66 완료 전",
+                "#66 증거 전",
             ),
         )
         for mutate, expected in mutations:

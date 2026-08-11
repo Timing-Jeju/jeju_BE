@@ -135,7 +135,7 @@ eligible 행은 `expiresAt > now()`이면 fresh, `expiresAt <= now()`이면 stal
 
 정렬은 `stale ASC`, `distanceMeters ASC`, `walkMinutes ASC NULLS LAST`, `stopId ASC`이며 stopId당 한 번, 전체 최대 5개입니다. 별도 freshness reason 필드는 만들지 않습니다. 기존 consumer가 알 수 없는 additive field를 무시할 수 있어야 합니다.
 
-#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. #66 evidence가 없으므로 현재 기본 계약은 Metadata/Example Ready이고 extension Implementation Ready는 아닙니다.
+#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 단일화합니다.
 
 ## endpoint별 오류 matrix
 

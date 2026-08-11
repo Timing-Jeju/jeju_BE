@@ -165,12 +165,12 @@ RFC3986_URI = re.compile(
 INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
-class _InvalidJsonConstant:
-    def __init__(self, token: str) -> None:
-        self.token = token
+class NonStandardJsonConstantError(ValueError):
+    """RFC 8259에 없는 Python JSON 숫자 상수를 나타낸다."""
 
-    def __repr__(self) -> str:
-        return f"invalid JSON constant {self.token}"
+
+def _reject_json_constant(token: str) -> Any:
+    raise NonStandardJsonConstantError(f"비표준 JSON 상수 {token}은 허용하지 않습니다.")
 
 
 def _expect(condition: bool, message: str, errors: list[str]) -> None:
@@ -236,7 +236,20 @@ def _valid_uri(value: str) -> bool:
 
 
 def _strict_json_loads(text: str) -> Any:
-    return json.loads(text, parse_constant=_InvalidJsonConstant)
+    return json.loads(text, parse_constant=_reject_json_constant)
+
+
+def _parse_rfc3339(value: str) -> datetime | None:
+    if RFC3339_DATE_TIME.fullmatch(value) is None:
+        return None
+    try:
+        normalized = value.replace("t", "T")
+        if normalized[-1] in {"Z", "z"}:
+            normalized = normalized[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(normalized)
+    except (ValueError, AttributeError):
+        return None
+    return parsed if parsed.tzinfo is not None else None
 
 
 def _valid_format(value: str, format_name: str) -> bool:
@@ -246,16 +259,7 @@ def _valid_format(value: str, format_name: str) -> bool:
         except (ValueError, AttributeError):
             return False
     if format_name == "date-time":
-        if RFC3339_DATE_TIME.fullmatch(value) is None:
-            return False
-        try:
-            normalized = value.replace("t", "T")
-            if normalized[-1] in {"Z", "z"}:
-                normalized = normalized[:-1] + "+00:00"
-            parsed = datetime.fromisoformat(normalized)
-            return parsed.tzinfo is not None
-        except (ValueError, AttributeError):
-            return False
+        return _parse_rfc3339(value) is not None
     if format_name == "uri":
         return _valid_uri(value)
     if format_name == "urn":
@@ -406,14 +410,14 @@ def _validate_temporal_order(value: Any, path: str, errors: list[str]) -> None:
         observed_at = value.get("observedAt")
         expires_at = value.get("expiresAt")
         if isinstance(observed_at, str) and isinstance(expires_at, str):
-            try:
-                observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
-                expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-            except ValueError:
-                pass
-            else:
-                if observed.tzinfo is not None and expires.tzinfo is not None and observed > expires:
-                    errors.append(f"{path}: observedAt은 expiresAt보다 늦을 수 없습니다.")
+            observed = _parse_rfc3339(observed_at)
+            expires = _parse_rfc3339(expires_at)
+            if observed is None or expires is None:
+                errors.append(
+                    f"{path}: observedAt/expiresAt은 timezone을 포함한 RFC 3339여야 합니다."
+                )
+            elif observed > expires:
+                errors.append(f"{path}: observedAt은 expiresAt보다 늦을 수 없습니다.")
         for key, child in value.items():
             _validate_temporal_order(child, f"{path}.{key}", errors)
     elif isinstance(value, list):
@@ -699,10 +703,13 @@ def _validate_nearby_stops(contract: dict[str, Any], errors: list[str]) -> None:
     )
     readiness = nearby.get("readiness", {})
     _expect(
-        readiness.get("baseContract") == "metadata+example ready"
-        and readiness.get("implementation")
-        == "not-ready until #66 Controller/OpenAPI/Repository/integration evidence",
-        "#66 완료 전 nearbyStops extension은 Implementation Ready가 될 수 없습니다.",
+        readiness
+        == {
+            "metadata": "not-ready",
+            "example": "not-ready",
+            "implementation": "not-ready",
+        },
+        "외부 연결과 #66 증거 전 nearbyStops readiness는 모두 not-ready여야 합니다.",
         errors,
     )
 
@@ -811,8 +818,11 @@ def _validate_catalog_alignment(errors: list[str], repo_root: Path) -> None:
     catalog_path = repo_root / "docs/contracts/rest/catalog.json"
     try:
         catalog = _strict_json_loads(catalog_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        errors.append("REST catalog를 읽을 수 없어 local/Notion readiness를 비교할 수 없습니다.")
+    except (OSError, json.JSONDecodeError, NonStandardJsonConstantError) as error:
+        errors.append(
+            "REST catalog를 읽을 수 없어 local/Notion readiness를 비교할 수 없습니다: "
+            f"{error}"
+        )
         return
     endpoints = catalog.get("endpoints", []) if isinstance(catalog, dict) else []
     places_endpoints = {
@@ -849,6 +859,19 @@ def _validate_catalog_alignment(errors: list[str], repo_root: Path) -> None:
         and readiness.get("example") == {"status": "not-ready", "evidence": None}
         and readiness.get("implementation") == {"status": "not-ready", "evidence": None},
         "external version 미정렬 시 metadata/example/implementation은 모두 not-ready여야 합니다.",
+        errors,
+    )
+    document_path = repo_root / "docs/contracts/domains/places/contract.md"
+    try:
+        document = document_path.read_text(encoding="utf-8")
+    except OSError:
+        document = ""
+    readiness_marker = (
+        "readiness: metadata=not-ready, example=not-ready, implementation=not-ready"
+    )
+    _expect(
+        readiness_marker in document,
+        "catalog의 not-ready 상태와 readiness 문서가 일치하지 않습니다.",
         errors,
     )
 
@@ -900,8 +923,8 @@ def _validate_fixtures(
             loaded[kind] = _strict_json_loads(
                 (repo_root / relative).read_text(encoding="utf-8")
             )
-        except (OSError, json.JSONDecodeError):
-            errors.append(f"{kind} fixture가 없거나 올바른 JSON이 아닙니다.")
+        except (OSError, json.JSONDecodeError, NonStandardJsonConstantError) as error:
+            errors.append(f"{kind} fixture가 없거나 올바른 JSON이 아닙니다: {error}")
     if set(loaded) != {"request", "success", "problem"}:
         return
     schemas = contract.get("schemas")
@@ -1042,7 +1065,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         contract = load_contract(args.contract)
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, json.JSONDecodeError, NonStandardJsonConstantError) as error:
         print(f"장소 REST 계약 검사 실패: {error}", file=sys.stderr)
         return 1
     errors = validate_contract(contract, args.root.resolve())

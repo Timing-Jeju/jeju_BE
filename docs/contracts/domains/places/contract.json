@@ -496,8 +496,9 @@
       "implementationIssue": 66
     },
     "readiness": {
-      "baseContract": "metadata+example ready",
-      "implementation": "not-ready until #66 Controller/OpenAPI/Repository/integration evidence"
+      "metadata": "not-ready",
+      "example": "not-ready",
+      "implementation": "not-ready"
     },
     "compatibility": "additive; 기존 consumer는 알 수 없는 필드를 무시"
   },
