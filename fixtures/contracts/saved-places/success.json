@@ -1,0 +1,94 @@
+{
+  "list": {
+    "items": [
+      {
+        "placeId": "20000000-0000-0000-0000-000000000003",
+        "name": "성산일출봉",
+        "category": "tourist_attraction",
+        "regionLabel": "성산",
+        "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
+        "memo": "오전에 방문",
+        "tags": [
+          "동쪽",
+          "필수"
+        ],
+        "priority": 5,
+        "targetDay": 1,
+        "savedAt": "2026-08-03T08:40:00+09:00",
+        "updatedAt": "2026-08-03T08:40:00+09:00"
+      }
+    ],
+    "page": {
+      "size": 20,
+      "hasNext": false,
+      "nextCursor": null
+    }
+  },
+  "create": {
+    "status": 201,
+    "headers": {
+      "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
+      "ETag": "\"saved-place-fixture-v1\"",
+      "Idempotency-Replayed": "false"
+    },
+    "body": {
+      "placeId": "20000000-0000-0000-0000-000000000003",
+      "name": "성산일출봉",
+      "category": "tourist_attraction",
+      "regionLabel": "성산",
+      "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
+      "memo": "날씨가 좋으면 방문",
+      "tags": [
+        "동쪽",
+        "선택"
+      ],
+      "priority": 5,
+      "targetDay": 1,
+      "savedAt": "2026-08-03T09:05:00+09:00",
+      "updatedAt": "2026-08-03T09:05:00+09:00"
+    }
+  },
+  "createReplay": {
+    "status": 201,
+    "headers": {
+      "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
+      "ETag": "\"saved-place-fixture-v1\"",
+      "Idempotency-Replayed": "true"
+    },
+    "bodyRef": "create.body"
+  },
+  "createExisting": {
+    "status": 200,
+    "headers": {
+      "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
+      "ETag": "\"saved-place-fixture-v1\"",
+      "Idempotency-Replayed": "true"
+    },
+    "bodyRef": "create.body"
+  },
+  "patch": {
+    "status": 200,
+    "headers": {
+      "ETag": "\"saved-place-fixture-v2\""
+    },
+    "body": {
+      "placeId": "20000000-0000-0000-0000-000000000003",
+      "name": "성산일출봉",
+      "category": "tourist_attraction",
+      "regionLabel": "성산",
+      "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
+      "memo": null,
+      "tags": [
+        "동쪽"
+      ],
+      "priority": 0,
+      "targetDay": 2,
+      "savedAt": "2026-08-03T09:05:00+09:00",
+      "updatedAt": "2026-08-03T09:06:00+09:00"
+    }
+  },
+  "delete": {
+    "status": 204,
+    "body": null
+  }
+}
