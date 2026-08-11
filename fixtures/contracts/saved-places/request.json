@@ -1,0 +1,64 @@
+{
+  "contractVersion": "1.0.0",
+  "list": {
+    "method": "GET",
+    "path": "/api/v1/me/saved-places",
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>"
+    },
+    "query": {
+      "tag": "동쪽",
+      "category": "tourist_attraction",
+      "regionCode": "seongsan",
+      "sort": "saved_at_desc",
+      "size": 20
+    }
+  },
+  "create": {
+    "method": "POST",
+    "path": "/api/v1/me/saved-places",
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>",
+      "Idempotency-Key": "fixture-saved-place-create-001"
+    },
+    "body": {
+      "placeId": "20000000-0000-0000-0000-000000000003",
+      "memo": "날씨가 좋으면 방문",
+      "tags": [
+        "동쪽",
+        "선택"
+      ],
+      "priority": 5,
+      "targetDay": 1
+    }
+  },
+  "patch": {
+    "method": "PATCH",
+    "path": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
+    "pathParameters": {
+      "placeId": "20000000-0000-0000-0000-000000000003"
+    },
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>",
+      "If-Match": "\"saved-place-fixture-v1\""
+    },
+    "body": {
+      "memo": null,
+      "tags": [
+        "동쪽"
+      ],
+      "priority": null,
+      "targetDay": 2
+    }
+  },
+  "delete": {
+    "method": "DELETE",
+    "path": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
+    "pathParameters": {
+      "placeId": "20000000-0000-0000-0000-000000000003"
+    },
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>"
+    }
+  }
+}

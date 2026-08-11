@@ -1600,11 +1600,13 @@ class RestContractReadinessTest(unittest.TestCase):
             self.assertIn("Figma linkage", result.stderr)
             self.assertNotIn("Traceback", output)
 
-    def test_quality_gate_executes_rest_contract_validator(self):
+    def test_quality_gate_executes_common_and_domain_contract_validators(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
         )
         self.assertIn("python3 scripts/validate_rest_contracts.py", quality_gate)
+        self.assertIn("python3 scripts/validate_places_contract.py", quality_gate)
+        self.assertIn("python3 scripts/validate_saved_places_contract.py", quality_gate)
 
 
 if __name__ == "__main__":

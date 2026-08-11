@@ -1,0 +1,979 @@
+{
+  "schemaVersion": "timing-jeju-saved-places-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "v1.1",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 84,
+  "implementationIssue": 34,
+  "schemas": {
+    "PlaceId": {
+      "type": "string",
+      "nullable": false,
+      "format": "uuid"
+    },
+    "Memo": {
+      "type": "string",
+      "nullable": true,
+      "normalization": "trim",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "Tag": {
+      "type": "string",
+      "nullable": false,
+      "normalization": "trim+nfc",
+      "minLength": 1,
+      "maxLength": 50
+    },
+    "Category": {
+      "type": "string",
+      "nullable": false,
+      "pattern": "^[a-z][a-z0-9_]{0,49}$"
+    },
+    "RegionCode": {
+      "type": "string",
+      "nullable": false,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 50
+    },
+    "Tags": {
+      "type": "array",
+      "nullable": true,
+      "maxItems": 20,
+      "uniqueItems": true,
+      "canonicalOrder": "unicode-codepoint-asc",
+      "items": {
+        "$ref": "Tag",
+        "nullable": false
+      }
+    },
+    "Priority": {
+      "type": "integer",
+      "nullable": true,
+      "minimum": 0,
+      "maximum": 5
+    },
+    "TargetDay": {
+      "type": "integer",
+      "nullable": true,
+      "minimum": 1,
+      "maximum": 365
+    },
+    "SavedPlacesListQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "tag": {
+          "$ref": "Tag",
+          "nullable": false
+        },
+        "category": {
+          "$ref": "Category",
+          "nullable": false
+        },
+        "regionCode": {
+          "$ref": "RegionCode",
+          "nullable": false
+        },
+        "sort": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "saved_at_desc",
+            "priority_desc",
+            "target_day_asc"
+          ]
+        },
+        "cursor": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "size": {
+          "type": "integer",
+          "nullable": false,
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+    "SavedPlacePath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placeId"
+      ],
+      "properties": {
+        "placeId": {
+          "$ref": "PlaceId",
+          "nullable": false
+        }
+      }
+    },
+    "CreateSavedPlaceHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Idempotency-Key"
+      ],
+      "properties": {
+        "Idempotency-Key": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        }
+      }
+    },
+    "PatchSavedPlaceHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "If-Match"
+      ],
+      "properties": {
+        "If-Match": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^\"[A-Za-z0-9._:-]{1,128}\"$"
+        }
+      }
+    },
+    "CreateSavedPlaceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placeId"
+      ],
+      "properties": {
+        "placeId": {
+          "$ref": "PlaceId",
+          "nullable": false
+        },
+        "memo": {
+          "$ref": "Memo",
+          "nullable": true
+        },
+        "tags": {
+          "$ref": "Tags",
+          "nullable": true
+        },
+        "priority": {
+          "$ref": "Priority",
+          "nullable": true
+        },
+        "targetDay": {
+          "$ref": "TargetDay",
+          "nullable": true
+        }
+      }
+    },
+    "PatchSavedPlaceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "minProperties": 1,
+      "properties": {
+        "memo": {
+          "$ref": "Memo",
+          "nullable": true
+        },
+        "tags": {
+          "$ref": "Tags",
+          "nullable": true
+        },
+        "priority": {
+          "$ref": "Priority",
+          "nullable": true
+        },
+        "targetDay": {
+          "$ref": "TargetDay",
+          "nullable": true
+        }
+      }
+    },
+    "SavedPlace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placeId",
+        "name",
+        "category",
+        "regionLabel",
+        "thumbnailUrl",
+        "recommendedStayMinutes",
+        "memo",
+        "tags",
+        "priority",
+        "targetDay",
+        "savedAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "placeId": {
+          "$ref": "PlaceId",
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "category": {
+          "$ref": "Category",
+          "nullable": false
+        },
+        "regionLabel": {
+          "type": "string",
+          "nullable": true,
+          "maxLength": 100
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "nullable": true,
+          "format": "uri"
+        },
+        "recommendedStayMinutes": {
+          "type": "integer",
+          "nullable": true,
+          "minimum": 0
+        },
+        "memo": {
+          "$ref": "Memo",
+          "nullable": true
+        },
+        "tags": {
+          "type": "array",
+          "nullable": false,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "canonicalOrder": "unicode-codepoint-asc",
+          "items": {
+            "$ref": "Tag",
+            "nullable": false
+          }
+        },
+        "priority": {
+          "type": "integer",
+          "nullable": false,
+          "minimum": 0,
+          "maximum": 5
+        },
+        "targetDay": {
+          "$ref": "TargetDay",
+          "nullable": true
+        },
+        "savedAt": {
+          "type": "string",
+          "nullable": false,
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "nullable": false,
+          "format": "date-time"
+        }
+      }
+    },
+    "CursorPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size",
+        "hasNext",
+        "nextCursor"
+      ],
+      "properties": {
+        "size": {
+          "type": "integer",
+          "nullable": false,
+          "minimum": 1,
+          "maximum": 100
+        },
+        "hasNext": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "nextCursor": {
+          "type": "string",
+          "nullable": true,
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      }
+    },
+    "SavedPlacesListResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "page"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "nullable": false,
+          "items": {
+            "$ref": "SavedPlace",
+            "nullable": false
+          }
+        },
+        "page": {
+          "$ref": "CursorPage",
+          "nullable": false
+        }
+      }
+    },
+    "FieldError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "reason"
+      ],
+      "properties": {
+        "field": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1
+        }
+      }
+    },
+    "ProblemDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "code",
+        "traceId",
+        "fieldErrors"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "nullable": false,
+          "format": "uri"
+        },
+        "title": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1
+        },
+        "status": {
+          "type": "integer",
+          "nullable": false,
+          "enum": [
+            400,
+            401,
+            404,
+            409,
+            422
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1
+        },
+        "instance": {
+          "type": "string",
+          "nullable": false,
+          "format": "urn"
+        },
+        "code": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^[A-Z][A-Z0-9_]+$"
+        },
+        "traceId": {
+          "type": "string",
+          "nullable": false,
+          "format": "trace-id"
+        },
+        "fieldErrors": {
+          "type": "array",
+          "nullable": false,
+          "items": {
+            "$ref": "FieldError",
+            "nullable": false
+          }
+        }
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/me/saved-places",
+      "operation": "list",
+      "requestSchema": "SavedPlacesListQuery",
+      "headersSchema": "CommonHeaders",
+      "successSchema": "SavedPlacesListResponse",
+      "auth": {
+        "mode": "required",
+        "principal": "canonical JWT sub",
+        "missingToken": {
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED"
+        },
+        "invalidToken": {
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN"
+        }
+      },
+      "query": {
+        "tag": {
+          "required": false,
+          "nullable": false,
+          "omitted": "all owner tags",
+          "normalization": "trim+nfc",
+          "match": "exact element membership"
+        },
+        "category": {
+          "required": false,
+          "nullable": false,
+          "omitted": "all categories",
+          "match": "tour_places.category exact match"
+        },
+        "regionCode": {
+          "required": false,
+          "nullable": false,
+          "omitted": "all regions",
+          "match": "tour_places.region_code exact match"
+        },
+        "sort": {
+          "required": false,
+          "nullable": false,
+          "omitted": "saved_at_desc"
+        },
+        "cursor": {
+          "required": false,
+          "nullable": false,
+          "omitted": "first page",
+          "type": "opaque"
+        },
+        "size": {
+          "required": false,
+          "nullable": false,
+          "omitted": 20,
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "pagination": {
+        "type": "cursor",
+        "cursor": "opaque",
+        "filterChange": "reject CURSOR_CONTEXT_MISMATCH"
+      },
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "successStatuses": [
+        200
+      ],
+      "responseHeaders": {
+        "Content-Type": "application/json"
+      },
+      "problems": [
+        {
+          "condition": "query type, enum, range or tag normalization invalid",
+          "status": 400,
+          "code": "INVALID_QUERY_PARAMETER",
+          "type": "https://api.timing-jeju.com/problems/invalid-query-parameter"
+        },
+        {
+          "condition": "cursor malformed or unverifiable",
+          "status": 400,
+          "code": "INVALID_CURSOR",
+          "type": "https://api.timing-jeju.com/problems/invalid-cursor"
+        },
+        {
+          "condition": "cursor owner, tag, category, regionCode, sort or size scope differs",
+          "status": 400,
+          "code": "CURSOR_CONTEXT_MISMATCH",
+          "type": "https://api.timing-jeju.com/problems/cursor-context-mismatch"
+        },
+        {
+          "condition": "authorization header missing",
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED",
+          "type": "https://api.timing-jeju.com/problems/authentication-required"
+        },
+        {
+          "condition": "authorization token invalid",
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN",
+          "type": "https://api.timing-jeju.com/problems/invalid-access-token"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/me/saved-places",
+      "operation": "create",
+      "requestSchema": "CreateSavedPlaceRequest",
+      "headersSchema": "CreateSavedPlaceHeaders",
+      "successSchema": "SavedPlace",
+      "auth": {
+        "mode": "required",
+        "principal": "canonical JWT sub",
+        "missingToken": {
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED"
+        },
+        "invalidToken": {
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN"
+        }
+      },
+      "body": {
+        "placeId": {
+          "required": true,
+          "nullable": false
+        },
+        "memo": {
+          "required": false,
+          "nullable": true,
+          "omitted": null,
+          "null": "store null"
+        },
+        "tags": {
+          "required": false,
+          "nullable": true,
+          "omitted": [],
+          "null": "store empty array"
+        },
+        "priority": {
+          "required": false,
+          "nullable": true,
+          "omitted": 0,
+          "null": "store zero"
+        },
+        "targetDay": {
+          "required": false,
+          "nullable": true,
+          "omitted": null,
+          "null": "store null"
+        }
+      },
+      "pagination": {
+        "type": "none"
+      },
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonicalSub + POST + /api/v1/me/saved-places",
+        "ttl": "24h after terminal response",
+        "replay": "same key and canonical payload reuses original status, Content-Type, Location, ETag and body; only current Idempotency-Replayed is overridden to true",
+        "payloadConflict": "same key and different canonical payload returns 409 IDEMPOTENCY_PAYLOAD_CONFLICT",
+        "concurrentRequest": "same key and payload waits then replays; same owner/place with different keys resolves unique race deterministically"
+      },
+      "successStatuses": [
+        200,
+        201
+      ],
+      "responseHeaders": {
+        "Content-Type": "application/json",
+        "Location": "/api/v1/me/saved-places/{placeId}",
+        "ETag": "strong opaque saved-place version",
+        "Idempotency-Replayed": "true|false"
+      },
+      "problems": [
+        {
+          "condition": "body or Idempotency-Key invalid",
+          "status": 400,
+          "code": "INVALID_REQUEST",
+          "type": "https://api.timing-jeju.com/problems/invalid-request"
+        },
+        {
+          "condition": "authorization header missing",
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED",
+          "type": "https://api.timing-jeju.com/problems/authentication-required"
+        },
+        {
+          "condition": "authorization token invalid",
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN",
+          "type": "https://api.timing-jeju.com/problems/invalid-access-token"
+        },
+        {
+          "condition": "place does not exist or is not readable",
+          "status": 404,
+          "code": "PLACE_NOT_FOUND",
+          "type": "https://api.timing-jeju.com/problems/place-not-found"
+        },
+        {
+          "condition": "same Idempotency-Key with different canonical payload",
+          "status": 409,
+          "code": "IDEMPOTENCY_PAYLOAD_CONFLICT",
+          "type": "https://api.timing-jeju.com/problems/idempotency-payload-conflict"
+        },
+        {
+          "condition": "different key targets existing owner/place with different current payload",
+          "status": 409,
+          "code": "SAVED_PLACE_ALREADY_EXISTS",
+          "type": "https://api.timing-jeju.com/problems/saved-place-already-exists"
+        },
+        {
+          "condition": "normalized memo, tags, priority or targetDay violates domain rule",
+          "status": 422,
+          "code": "SAVED_PLACE_CONSTRAINT_VIOLATION",
+          "type": "https://api.timing-jeju.com/problems/saved-place-constraint-violation"
+        }
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/me/saved-places/{placeId}",
+      "operation": "update",
+      "requestSchema": "PatchSavedPlaceRequest",
+      "headersSchema": "PatchSavedPlaceHeaders",
+      "successSchema": "SavedPlace",
+      "auth": {
+        "mode": "required",
+        "principal": "canonical JWT sub",
+        "missingToken": {
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED"
+        },
+        "invalidToken": {
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN"
+        }
+      },
+      "pathParameters": {
+        "placeId": {
+          "required": true,
+          "nullable": false,
+          "type": "canonical UUID"
+        }
+      },
+      "body": {
+        "minimumPresentFields": 1,
+        "omitted": "unchanged",
+        "memo": "null clears; non-null fully replaces",
+        "tags": "null resets to []; array fully replaces after trim+nfc+deduplicate+sort",
+        "priority": "null resets to 0; integer fully replaces",
+        "targetDay": "null clears; integer fully replaces"
+      },
+      "pagination": {
+        "type": "none"
+      },
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "concurrency": {
+        "header": "If-Match",
+        "required": true,
+        "match": "strong ETag derived from placeId and updatedAt",
+        "mismatch": {
+          "status": 409,
+          "code": "SAVED_PLACE_VERSION_CONFLICT"
+        }
+      },
+      "successStatuses": [
+        200
+      ],
+      "responseHeaders": {
+        "Content-Type": "application/json",
+        "ETag": "new strong opaque saved-place version"
+      },
+      "problems": [
+        {
+          "condition": "path, If-Match or body invalid; no patch fields present",
+          "status": 400,
+          "code": "INVALID_REQUEST",
+          "type": "https://api.timing-jeju.com/problems/invalid-request"
+        },
+        {
+          "condition": "authorization header missing",
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED",
+          "type": "https://api.timing-jeju.com/problems/authentication-required"
+        },
+        {
+          "condition": "authorization token invalid",
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN",
+          "type": "https://api.timing-jeju.com/problems/invalid-access-token"
+        },
+        {
+          "condition": "saved place absent or owned by another canonical sub",
+          "status": 404,
+          "code": "SAVED_PLACE_NOT_FOUND",
+          "type": "https://api.timing-jeju.com/problems/saved-place-not-found"
+        },
+        {
+          "condition": "If-Match does not equal current owner resource ETag",
+          "status": 409,
+          "code": "SAVED_PLACE_VERSION_CONFLICT",
+          "type": "https://api.timing-jeju.com/problems/saved-place-version-conflict"
+        },
+        {
+          "condition": "normalized memo, tags, priority or targetDay violates domain rule",
+          "status": 422,
+          "code": "SAVED_PLACE_CONSTRAINT_VIOLATION",
+          "type": "https://api.timing-jeju.com/problems/saved-place-constraint-violation"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/me/saved-places/{placeId}",
+      "operation": "delete",
+      "requestSchema": "SavedPlacePath",
+      "headersSchema": "CommonHeaders",
+      "successSchema": "none",
+      "auth": {
+        "mode": "required",
+        "principal": "canonical JWT sub",
+        "missingToken": {
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED"
+        },
+        "invalidToken": {
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN"
+        }
+      },
+      "pathParameters": {
+        "placeId": {
+          "required": true,
+          "nullable": false,
+          "type": "canonical UUID"
+        }
+      },
+      "body": "none",
+      "pagination": {
+        "type": "none"
+      },
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "successStatuses": [
+        204
+      ],
+      "responseHeaders": {},
+      "problems": [
+        {
+          "condition": "placeId is not canonical UUID",
+          "status": 400,
+          "code": "INVALID_REQUEST",
+          "type": "https://api.timing-jeju.com/problems/invalid-request"
+        },
+        {
+          "condition": "authorization header missing",
+          "status": 401,
+          "code": "AUTHENTICATION_REQUIRED",
+          "type": "https://api.timing-jeju.com/problems/authentication-required"
+        },
+        {
+          "condition": "authorization token invalid",
+          "status": 401,
+          "code": "INVALID_ACCESS_TOKEN",
+          "type": "https://api.timing-jeju.com/problems/invalid-access-token"
+        },
+        {
+          "condition": "saved place absent, already deleted or owned by another canonical sub",
+          "status": 404,
+          "code": "SAVED_PLACE_NOT_FOUND",
+          "type": "https://api.timing-jeju.com/problems/saved-place-not-found"
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "cursor": "opaque",
+    "size": {
+      "default": 20,
+      "maximum": 100
+    },
+    "sorts": {
+      "saved_at_desc": [
+        "saved_at DESC",
+        "place_id ASC"
+      ],
+      "priority_desc": [
+        "priority DESC",
+        "saved_at DESC",
+        "place_id ASC"
+      ],
+      "target_day_asc": [
+        "target_day ASC NULLS LAST",
+        "saved_at DESC",
+        "place_id ASC"
+      ]
+    },
+    "tieBreaker": "placeId ASC",
+    "cursorScope": [
+      "canonicalSub",
+      "tag",
+      "category",
+      "regionCode",
+      "sort",
+      "size"
+    ],
+    "filterChange": "reject CURSOR_CONTEXT_MISMATCH"
+  },
+  "createSemantics": {
+    "firstCreate": {
+      "status": 201,
+      "replayed": false
+    },
+    "sameKeySamePayload": {
+      "status": 201,
+      "replayed": true,
+      "result": "원본 status, Content-Type, Location, ETag, body를 재사용하고 현재 응답의 Idempotency-Replayed만 true로 덮음"
+    },
+    "sameKeyDifferentPayload": {
+      "status": 409,
+      "code": "IDEMPOTENCY_PAYLOAD_CONFLICT"
+    },
+    "differentKeySameCurrentPayload": {
+      "status": 200,
+      "replayed": true,
+      "result": "current owner resource"
+    },
+    "differentKeyDifferentPayload": {
+      "status": 409,
+      "code": "SAVED_PLACE_ALREADY_EXISTS",
+      "nextAction": "PATCH with current ETag"
+    },
+    "canonicalPayload": "placeId + normalized memo + canonical tags + effective priority + effective targetDay"
+  },
+  "patchSemantics": {
+    "memo": {
+      "omitted": "unchanged",
+      "null": "clear",
+      "value": "replace"
+    },
+    "tags": {
+      "omitted": "unchanged",
+      "null": "reset-to-empty",
+      "array": "replace"
+    },
+    "priority": {
+      "omitted": "unchanged",
+      "null": "reset-to-zero",
+      "value": "replace"
+    },
+    "targetDay": {
+      "omitted": "unchanged",
+      "null": "clear",
+      "value": "replace"
+    },
+    "minimumPresentFields": 1
+  },
+  "deleteSemantics": {
+    "first": "204",
+    "repeat": "404",
+    "crossOwner": "404",
+    "responseBody": "none"
+  },
+  "ownership": {
+    "principal": "canonical JWT sub",
+    "ownerColumn": "saved_places.user_id",
+    "crossOwnerConcealment": "404",
+    "forbiddenClaims": [
+      "user_metadata",
+      "email",
+      "provider payload"
+    ]
+  },
+  "storage": {
+    "table": "saved_places",
+    "uniqueKey": [
+      "user_id",
+      "place_id"
+    ],
+    "tags": {
+      "databaseType": "text[]",
+      "semanticType": "normalized set",
+      "ownerScope": "canonical JWT sub only",
+      "order": "unicode-codepoint-asc"
+    },
+    "schemaChange": "none in Issue #84",
+    "migrationOwner": "follow-up implementation Issue #34",
+    "flyway": "forbidden until final stabilization"
+  },
+  "externalTraceability": {
+    "notion": {
+      "status": "not-ready",
+      "contractVersion": "not-linked",
+      "observedSourceSpecVersion": "v1.1",
+      "observedStatus": "Draft",
+      "canonicalSectionVersion": "1.0.0",
+      "implementationOwnerIssue": 34,
+      "observedCanonicalPaths": [
+        "/api/v1/me/saved-places",
+        "/api/v1/me/saved-places/{placeId}"
+      ],
+      "pages": [
+        {
+          "method": "GET",
+          "pageId": "3a40a87c-7ce5-816e-8462-c2fcbf087f2e",
+          "url": "https://www.notion.so/3a40a87c7ce5816e8462c2fcbf087f2e"
+        },
+        {
+          "method": "POST",
+          "pageId": "3a40a87c-7ce5-8190-af66-ecffaebb8fad",
+          "url": "https://www.notion.so/3a40a87c7ce58190af66ecffaebb8fad"
+        },
+        {
+          "method": "PATCH",
+          "pageId": "3a40a87c-7ce5-8167-a0d6-e296da1170de",
+          "url": "https://www.notion.so/3a40a87c7ce58167a0d6e296da1170de"
+        },
+        {
+          "method": "DELETE",
+          "pageId": "3a40a87c-7ce5-81c2-a950-f026488e013c",
+          "url": "https://www.notion.so/3a40a87c7ce581c2a950f026488e013c"
+        }
+      ],
+      "alignment": "4개 페이지의 canonical path, Draft status, canonical v1.0.0 section과 Issue #34 구현 owner를 재조회 검증",
+      "remainingGate": "Issue #34 구현과 실제 example 검증 전에는 not-linked/not-ready 유지"
+    },
+    "figma": {
+      "status": "not-ready",
+      "contractVersion": "not-linked",
+      "fileKey": "4mKep38zm17iupVSQVsSJW",
+      "startingNode": "251:4347",
+      "observedNodes": [
+        "329:4937",
+        "329:4975"
+      ],
+      "observedActions": [
+        "장소 상세에서 메모·태그 입력 후 관심 등록",
+        "관심 장소 목록과 tag filter",
+        "관심 장소를 Day 일정 생성 입력으로 선택"
+      ],
+      "missingStateEvidence": [
+        "loading",
+        "empty",
+        "error"
+      ],
+      "requiredPatch": "loading, empty, error frame과 API contractVersion 1.0.0 명시"
+    }
+  },
+  "readiness": {
+    "metadata": "not-ready",
+    "example": "not-ready",
+    "implementation": "not-ready",
+    "reason": "Notion canonical section은 정렬됐지만 Issue #34 구현/example이 없고 Figma contract version/state evidence가 없음"
+  }
+}
