@@ -66,6 +66,9 @@ run_common_checks() {
   stage "REST 공통 계약 readiness 검사"
   python3 scripts/validate_rest_contracts.py
 
+  stage "관심 장소 CRUD 계약 검사"
+  python3 scripts/validate_saved_places_contract.py
+
   stage "저장소 자동화 테스트"
   python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
   python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'
