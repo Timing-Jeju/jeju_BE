@@ -42,6 +42,8 @@ class ReviewerApprovalPolicyContractTest(unittest.TestCase):
         self.assertIn("실제 timing-jeju-reviewer", skill)
         self.assertIn("finding이 0건", skill)
         self.assertIn("APPROVED 직후", skill)
+        self.assertIn("record_review_state.py", skill)
+        self.assertIn("추가 사용자 확인", skill)
         self.assertIn("CHANGES_REQUESTED이면 기존 stale 승인 상태 파일만 제거", skill)
         for field in (
             "issueNumber",
@@ -62,6 +64,24 @@ class ReviewerApprovalPolicyContractTest(unittest.TestCase):
         self.assertIn("APPROVED 직후", code_review)
         self.assertIn("CHANGES_REQUESTED", code_review)
         self.assertIn("stale 승인 상태 파일", code_review)
+        self.assertIn("record_review_state.py", code_review)
+        self.assertIn("호출자 역할을 OS 수준에서 증명", code_review)
+
+    def test_developer_and_pm_are_forbidden_from_running_recorder(self):
+        developer = self._read(".codex/agents/developer.toml")
+        pm = self._read(".codex/agents/pm.toml")
+
+        self.assertIn("record_review_state.py", developer)
+        self.assertIn("실행하지 않는다", developer)
+        self.assertIn("record_review_state.py", pm)
+        self.assertIn("실행하지 않는다", pm)
+
+    def test_reviewer_agent_runs_only_the_validated_recorder(self):
+        reviewer = self._read(".codex/agents/reviewer.toml")
+
+        self.assertIn("record_review_state.py", reviewer)
+        self.assertIn("직접 편집", reviewer)
+        self.assertIn("추가 사용자 확인", reviewer)
 
 
 if __name__ == "__main__":

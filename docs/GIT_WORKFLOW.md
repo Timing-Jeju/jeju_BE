@@ -19,7 +19,7 @@ git switch -c feat/14-place-search
 
 PM 세션 → Issue 생성 → Developer 세션 → 최신 develop → 작업 브랜치 → TDD → 작업 단위 커밋 → 로컬 품질 게이트 → PR 전 Reviewer → 승인 → PR 생성 → GitHub CI와 공식 리뷰 → develop 머지 순서입니다.
 
-PR 전 리뷰는 Codex Reviewer가 수행하는 내부 품질 게이트입니다. PR 생성 후 리뷰는 GitHub에서 사람의 승인과 CI를 받는 공식 절차입니다. 두 절차를 서로 대체하지 않습니다.
+PR 전 리뷰는 독립 Reviewer가 수행하는 내부 품질 게이트입니다. Reviewer는 판정 완료 후 저장소의 `scripts/record_review_state.py`로만 결과를 기록하며, PM·Developer와 create-pr 단계는 승인 상태를 만들거나 수정하지 않습니다. PR 생성 후 리뷰는 GitHub에서 사람의 승인과 CI를 받는 공식 절차입니다. 두 절차를 서로 대체하지 않습니다.
 
 ## 출시
 
