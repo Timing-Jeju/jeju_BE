@@ -485,6 +485,56 @@ class SavedPlacesContractTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("success fixture", result.stdout)
 
+    def test_json_success_contract_declares_content_type_for_create_and_patch(self) -> None:
+        contract = self._load_json(CONTRACT)
+        endpoints = {
+            endpoint["operation"]: endpoint for endpoint in contract["endpoints"]
+        }
+
+        self.assertEqual(
+            "application/json", endpoints["create"]["responseHeaders"]["Content-Type"]
+        )
+        self.assertEqual(
+            "application/json", endpoints["update"]["responseHeaders"]["Content-Type"]
+        )
+        self.assertEqual({}, endpoints["delete"]["responseHeaders"])
+
+    def test_json_success_response_headers_are_exact_and_closed(self) -> None:
+        mutations = {}
+        for response_name in ("create", "createReplay", "createExisting", "patch"):
+            mutations[f"{response_name} Content-Type 누락"] = (
+                lambda value, name=response_name: value[name]["headers"].pop(
+                    "Content-Type", None
+                )
+            )
+            mutations[f"{response_name} Content-Type 오류"] = (
+                lambda value, name=response_name: value[name]["headers"].update(
+                    {"Content-Type": "text/plain"}
+                )
+            )
+            mutations[f"{response_name} 추가 header"] = (
+                lambda value, name=response_name: value[name]["headers"].update(
+                    {"X-Debug": "true"}
+                )
+            )
+
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), self._temporary_repository() as root:
+                fixture = root / "fixtures" / "contracts" / "saved-places" / "success.json"
+                value = self._load_json(fixture)
+                mutate(value)
+                self._write_json(fixture, value)
+
+                result = self._run_validator(root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("success fixture", result.stdout)
+
+    def test_delete_204_keeps_empty_headers_and_null_body(self) -> None:
+        fixture = self._load_json(FIXTURE_ROOT / "success.json")
+
+        self.assertEqual({"status": 204, "headers": {}, "body": None}, fixture["delete"])
+
     def test_idempotency_replay_reuses_original_response_except_replay_header(self) -> None:
         contract = self._load_json(CONTRACT)
         fixture = self._load_json(FIXTURE_ROOT / "success.json")
@@ -493,12 +543,17 @@ class SavedPlacesContractTest(unittest.TestCase):
         replay = fixture["createReplay"]
 
         self.assertEqual(
-            "원본 status, Location, ETag, body를 재사용하고 현재 응답의 Idempotency-Replayed만 true로 덮음",
+            "원본 status, Content-Type, Location, ETag, body를 재사용하고 현재 응답의 Idempotency-Replayed만 true로 덮음",
             semantics["result"],
         )
         self.assertEqual(original["status"], replay["status"])
         self.assertEqual(original["headers"]["Location"], replay["headers"]["Location"])
         self.assertEqual(original["headers"]["ETag"], replay["headers"]["ETag"])
+        self.assertEqual("application/json", original["headers"].get("Content-Type"))
+        self.assertEqual(
+            original["headers"].get("Content-Type"),
+            replay["headers"].get("Content-Type"),
+        )
         self.assertEqual("false", original["headers"]["Idempotency-Replayed"])
         self.assertEqual("true", replay["headers"]["Idempotency-Replayed"])
         self.assertEqual("create.body", replay["bodyRef"])

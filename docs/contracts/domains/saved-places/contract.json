@@ -576,7 +576,7 @@
         "header": "Idempotency-Key",
         "scope": "canonicalSub + POST + /api/v1/me/saved-places",
         "ttl": "24h after terminal response",
-        "replay": "same key and canonical payload reuses original status, Location, ETag and body; only current Idempotency-Replayed is overridden to true",
+        "replay": "same key and canonical payload reuses original status, Content-Type, Location, ETag and body; only current Idempotency-Replayed is overridden to true",
         "payloadConflict": "same key and different canonical payload returns 409 IDEMPOTENCY_PAYLOAD_CONFLICT",
         "concurrentRequest": "same key and payload waits then replays; same owner/place with different keys resolves unique race deterministically"
       },
@@ -585,6 +585,7 @@
         201
       ],
       "responseHeaders": {
+        "Content-Type": "application/json",
         "Location": "/api/v1/me/saved-places/{placeId}",
         "ETag": "strong opaque saved-place version",
         "Idempotency-Replayed": "true|false"
@@ -688,6 +689,7 @@
         200
       ],
       "responseHeaders": {
+        "Content-Type": "application/json",
         "ETag": "new strong opaque saved-place version"
       },
       "problems": [
@@ -836,7 +838,7 @@
     "sameKeySamePayload": {
       "status": 201,
       "replayed": true,
-      "result": "원본 status, Location, ETag, body를 재사용하고 현재 응답의 Idempotency-Replayed만 true로 덮음"
+      "result": "원본 status, Content-Type, Location, ETag, body를 재사용하고 현재 응답의 Idempotency-Replayed만 true로 덮음"
     },
     "sameKeyDifferentPayload": {
       "status": 409,

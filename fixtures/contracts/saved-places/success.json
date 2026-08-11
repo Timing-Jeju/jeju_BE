@@ -34,6 +34,7 @@
   "create": {
     "status": 201,
     "headers": {
+      "Content-Type": "application/json",
       "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
       "ETag": "\"saved-place-fixture-v1\"",
       "Idempotency-Replayed": "false"
@@ -59,6 +60,7 @@
   "createReplay": {
     "status": 201,
     "headers": {
+      "Content-Type": "application/json",
       "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
       "ETag": "\"saved-place-fixture-v1\"",
       "Idempotency-Replayed": "true"
@@ -68,6 +70,7 @@
   "createExisting": {
     "status": 200,
     "headers": {
+      "Content-Type": "application/json",
       "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
       "ETag": "\"saved-place-fixture-v1\"",
       "Idempotency-Replayed": "true"
@@ -77,6 +80,7 @@
   "patch": {
     "status": 200,
     "headers": {
+      "Content-Type": "application/json",
       "ETag": "\"saved-place-fixture-v2\""
     },
     "body": {

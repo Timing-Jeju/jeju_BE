@@ -55,8 +55,8 @@ POST body에서 `placeId`만 required/non-null입니다.
 
 `Idempotency-Key`는 `[A-Za-z0-9._:-]{1,128}`이고 scope는 `canonicalSub + POST + canonical path`, terminal TTL은 24시간입니다.
 
-- 최초 생성: 201, `Idempotency-Replayed: false`, `Location`, strong `ETag`.
-- 같은 key+canonical payload: 원본 status, `Location`, `ETag`, body를 그대로 재사용하고 현재 응답의 `Idempotency-Replayed`만 `true`로 덮습니다.
+- 최초 생성: 201, `Content-Type: application/json`, `Idempotency-Replayed: false`, `Location`, strong `ETag`.
+- 같은 key+canonical payload: 원본 status, `Content-Type`, `Location`, `ETag`, body를 그대로 재사용하고 현재 응답의 `Idempotency-Replayed`만 `true`로 덮습니다.
 - 같은 key+다른 payload: `409 IDEMPOTENCY_PAYLOAD_CONFLICT`.
 - 다른 key지만 같은 owner/place와 현재 payload까지 동일: 200 current resource, replay=true.
 - 다른 key와 다른 payload: `409 SAVED_PLACE_ALREADY_EXISTS`; 현재 ETag를 읽고 PATCH해야 합니다.
@@ -75,7 +75,7 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 | `priority` | 유지 | 0으로 reset | 전체 replace |
 | `targetDay` | 유지 | clear | 전체 replace |
 
-`If-Match` strong ETag가 필수입니다. ETag는 `placeId`와 `updatedAt` 기반의 opaque 값이며 현재 owner row와 다르면 `409 SAVED_PLACE_VERSION_CONFLICT`입니다. 성공은 새 ETag와 200 body를 반환합니다. `savedAt <= updatedAt`을 항상 만족합니다.
+`If-Match` strong ETag가 필수입니다. ETag는 `placeId`와 `updatedAt` 기반의 opaque 값이며 현재 owner row와 다르면 `409 SAVED_PLACE_VERSION_CONFLICT`입니다. 성공은 `Content-Type: application/json`, 새 ETag와 200 body를 반환합니다. `savedAt <= updatedAt`을 항상 만족합니다.
 
 ## DELETE와 소유 리소스 은닉
 
@@ -91,7 +91,7 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 - `thumbnailUrl`은 값이 있으면 absolute HTTPS URI입니다.
 - 시각은 `T` 구분자와 `Z` 또는 `±HH:MM` timezone을 포함한 엄격한 RFC 3339 date-time입니다. 공백 구분, compact 표기, offset 초, timezone 생략은 허용하지 않습니다.
 
-목록은 `items`와 `page={size,hasNext,nextCursor}`를 반환합니다. 알 수 없는 property, JSON duplicate key, `NaN`/`Infinity`, boolean을 integer로 사용한 값, 잘못된 URI/date-time/UUID는 계약 검사에서 거부합니다.
+목록은 `items`와 `page={size,hasNext,nextCursor}`를 반환합니다. JSON body가 있는 GET·POST·PATCH 성공 응답은 `Content-Type: application/json`을 포함하며 선언된 header 외 추가 header를 허용하지 않습니다. DELETE 204는 빈 headers와 body 없음 계약을 유지합니다. 알 수 없는 property, JSON duplicate key, `NaN`/`Infinity`, boolean을 integer로 사용한 값, 잘못된 URI/date-time/UUID는 계약 검사에서 거부합니다.
 
 ## 오류 matrix
 

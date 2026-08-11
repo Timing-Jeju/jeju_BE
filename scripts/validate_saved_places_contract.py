@@ -39,7 +39,7 @@ CONTRACT_FIELDS = {
     "externalTraceability",
     "readiness",
 }
-CANONICAL_CONTRACT_SHA256 = "4eb04c872ee232cfc55fa1cf3096df0d2e9906012c457487ec7b701f7c546353"
+CANONICAL_CONTRACT_SHA256 = "528771139877b6cae8161cc971b8eafa2128d99d9c381d847ceacdb4015dbaaa"
 CANONICAL_CATALOG_SHA256 = "1282a8a890aacb8f7738f65e5b1044b1ca4c49791bb5fe2faf07e3c649369147"
 EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/me/saved-places"),
@@ -367,6 +367,7 @@ def _validate_success_fixture(
         _validate_value(response.get("body"), schemas.get("SavedPlace"), schemas, f"{label}.{name}.body", errors)
     create = fixture.get("create", {})
     if create.get("status") != 201 or create.get("headers") != {
+        "Content-Type": "application/json",
         "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
         "ETag": '"saved-place-fixture-v1"',
         "Idempotency-Replayed": "false",
@@ -375,6 +376,7 @@ def _validate_success_fixture(
     for name, status in (("createReplay", 201), ("createExisting", 200)):
         response = fixture.get(name, {})
         expected_headers = {
+            "Content-Type": "application/json",
             "Location": "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003",
             "ETag": '"saved-place-fixture-v1"',
             "Idempotency-Replayed": "true",
@@ -398,7 +400,10 @@ def _validate_success_fixture(
                     "재사용하고 replay header만 바꿔야 합니다."
                 )
     patch = fixture.get("patch", {})
-    if patch.get("status") != 200 or patch.get("headers") != {"ETag": '"saved-place-fixture-v2"'}:
+    if patch.get("status") != 200 or patch.get("headers") != {
+        "Content-Type": "application/json",
+        "ETag": '"saved-place-fixture-v2"',
+    }:
         errors.append(f"{label}.patch status/ETag가 정확하지 않습니다.")
     if fixture.get("delete") != {"status": 204, "headers": {}, "body": None}:
         errors.append(f"{label}.delete는 빈 headers, 204와 null body여야 합니다.")
