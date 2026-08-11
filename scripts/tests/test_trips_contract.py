@@ -17,6 +17,20 @@ VALIDATOR = ROOT / "scripts" / "validate_trips_contract.py"
 CONTRACT = ROOT / "docs" / "contracts" / "domains" / "trips" / "contract.json"
 CATALOG = ROOT / "docs" / "contracts" / "rest" / "catalog.json"
 FIXTURES = ROOT / "fixtures" / "contracts" / "trips"
+CURSOR_PAGE_REQUEST = (
+    ROOT
+    / "services"
+    / "spring-api"
+    / "src"
+    / "main"
+    / "java"
+    / "com"
+    / "timingjeju"
+    / "api"
+    / "application"
+    / "pagination"
+    / "CursorPageRequest.java"
+)
 
 
 class TripsContractTest(unittest.TestCase):
@@ -35,6 +49,7 @@ class TripsContractTest(unittest.TestCase):
                 ROOT / "supabase" / "migrations" / "20260728000000_initial_public_schema.sql",
                 ROOT / "supabase" / "migrations" / "20260810000000_api_idempotency_registry.sql",
                 ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "application" / "idempotency" / "IdempotencyRequest.java",
+                CURSOR_PAGE_REQUEST,
                 ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "global" / "error" / "StandardProblemCode.java",
             ):
                 target = root / source.relative_to(ROOT)
@@ -196,6 +211,44 @@ class TripsContractTest(unittest.TestCase):
                 result = self._run(root)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("catalog idempotency semantic", result.stdout)
+
+    def test_trip_list_size_inherits_common_cursor_page_maximum(self) -> None:
+        contract = self._load(CONTRACT)
+        catalog = self._load(CATALOG)
+        source = CURSOR_PAGE_REQUEST.read_text(encoding="utf-8")
+        common_maximum = int(source.split("MAX_SIZE = ", 1)[1].split(";", 1)[0])
+        catalog_list = next(
+            endpoint
+            for endpoint in catalog["endpoints"]
+            if endpoint["method"] == "GET" and endpoint["path"] == "/api/v1/trips"
+        )
+
+        self.assertEqual(50, common_maximum)
+        self.assertEqual(
+            common_maximum,
+            contract["schemas"]["TripsListQuery"]["properties"]["size"]["maximum"],
+        )
+        self.assertEqual(
+            common_maximum,
+            contract["schemas"]["CursorPage"]["properties"]["size"]["maximum"],
+        )
+        self.assertEqual(common_maximum, contract["endpoints"][0]["pagination"]["maxSize"])
+        self.assertEqual(common_maximum, catalog_list["pagination"]["size"]["max"])
+        document = (ROOT / "docs" / "contracts" / "domains" / "trips" / "contract.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("공통 `CursorPageRequest.MAX_SIZE`와 같은 50", document)
+        self.assertNotIn("최대 크기는 100", document)
+
+    def test_validator_rejects_common_cursor_page_maximum_drift(self) -> None:
+        with self._temporary_repository() as root:
+            path = root / CURSOR_PAGE_REQUEST.relative_to(ROOT)
+            source = path.read_text(encoding="utf-8")
+            path.write_text(source.replace("MAX_SIZE = 50", "MAX_SIZE = 40"), encoding="utf-8")
+            result = self._run(root)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("pagination common", result.stdout)
 
     def test_strict_json_rejects_duplicate_and_non_finite_values(self) -> None:
         raw_values = (

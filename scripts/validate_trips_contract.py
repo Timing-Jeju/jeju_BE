@@ -30,11 +30,14 @@ IDEMPOTENCY_MIGRATION_RELATIVE = Path(
 IDEMPOTENCY_REQUEST_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/application/idempotency/IdempotencyRequest.java"
 )
+CURSOR_PAGE_REQUEST_RELATIVE = Path(
+    "services/spring-api/src/main/java/com/timingjeju/api/application/pagination/CursorPageRequest.java"
+)
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "e958d80ad916110cf00ed0619af1afc38a3a59ec2b15227ce405fe3daecffcb0"
-CANONICAL_CATALOG_SHA256 = "2a92dc1a3b554557c107bb9885d7a336ec9003fb60f3c048da6e67c06e5e1bcc"
+CANONICAL_CONTRACT_SHA256 = "a995979115a847f283fc750973cb5ba53fa6fe46c86d11a2a560d239ee67e453"
+CANONICAL_CATALOG_SHA256 = "7e92f1549c6dd0625f91da5bbc89a37e4a7ba800a7941ad7de7a69b5dc3758d0"
 CONTRACT_FIELDS = {
     "schemaVersion",
     "contractVersion",
@@ -172,6 +175,7 @@ def validate(root: Path) -> list[str]:
         return errors + ["여행 schemas는 object여야 합니다."]
     _validate_canonical_semantics(contract, errors)
     _validate_catalog_idempotency_semantics(contract, catalog, errors)
+    _validate_common_pagination(root, contract, catalog, errors)
     _validate_request_fixture(request, schemas, errors)
     _validate_success_fixture(success, schemas, errors)
     _validate_problem_fixture(problems, schemas, errors)
@@ -202,7 +206,7 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
 
     endpoints = contract.get("endpoints", [])
     if len(endpoints) == 5:
-        if endpoints[0].get("pagination") != {"type": "cursor", "defaultSize": 20, "maxSize": 100}:
+        if endpoints[0].get("pagination") != {"type": "cursor", "defaultSize": 20, "maxSize": 50}:
             errors.append("여행 list pagination canonical 계약이 다릅니다.")
         create_idempotency = endpoints[1].get("idempotency", {})
         if not isinstance(create_idempotency, dict) or (
@@ -294,6 +298,53 @@ def _validate_catalog_idempotency_semantics(
     actual = catalog_create.get("idempotency") if isinstance(catalog_create, dict) else None
     if actual != expected:
         errors.append("catalog idempotency semantic: 여행 POST가 canonical 계약과 다릅니다.")
+
+
+def _validate_common_pagination(
+    root: Path, contract: dict[str, Any], catalog: Any, errors: list[str]
+) -> None:
+    try:
+        source = (root / CURSOR_PAGE_REQUEST_RELATIVE).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        errors.append("pagination common: CursorPageRequest를 읽을 수 없습니다.")
+        return
+    match = re.search(r"\bMAX_SIZE\s*=\s*(\d+)\s*;", source)
+    if match is None:
+        errors.append("pagination common: CursorPageRequest.MAX_SIZE를 확인할 수 없습니다.")
+        return
+    common_maximum = int(match.group(1))
+    schemas = contract.get("schemas")
+    endpoints = contract.get("endpoints")
+    catalog_endpoints = catalog.get("endpoints") if isinstance(catalog, dict) else None
+    if not isinstance(schemas, dict) or not isinstance(endpoints, list) or not isinstance(catalog_endpoints, list):
+        return
+    query_maximum = (
+        schemas.get("TripsListQuery", {}).get("properties", {}).get("size", {}).get("maximum")
+    )
+    page_maximum = schemas.get("CursorPage", {}).get("properties", {}).get("size", {}).get("maximum")
+    endpoint_maximum = endpoints[0].get("pagination", {}).get("maxSize") if endpoints else None
+    catalog_list = next(
+        (
+            item
+            for item in catalog_endpoints
+            if isinstance(item, dict)
+            and item.get("method") == "GET"
+            and item.get("path") == "/api/v1/trips"
+        ),
+        None,
+    )
+    catalog_maximum = (
+        catalog_list.get("pagination", {}).get("size", {}).get("max")
+        if isinstance(catalog_list, dict)
+        else None
+    )
+    if common_maximum != 50 or {
+        query_maximum,
+        page_maximum,
+        endpoint_maximum,
+        catalog_maximum,
+    } != {common_maximum}:
+        errors.append("pagination common: 여행 목록 size 최대값이 CursorPageRequest.MAX_SIZE와 다릅니다.")
 
 
 def _validate_request_fixture(fixture: Any, schemas: dict[str, Any], errors: list[str]) -> None:

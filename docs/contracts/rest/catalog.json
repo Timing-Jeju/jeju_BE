@@ -160,7 +160,7 @@
       "figma": {"node": "182-3248", "action": "여행 기본 조건에서 본인 여행 목록 진입; exact CRUD state 근거는 not-ready", "loading": "근거 미확정; not-ready", "empty": "근거 미확정; not-ready", "error": "근거 미확정; not-ready"},
       "contractVersion": "1.0.0",
       "idempotency": {"required": false, "header": "none"},
-      "pagination": {"type": "cursor", "cursor": "opaque", "size": {"default": 20, "max": 100}, "stableSort": "updatedAt DESC, tripId DESC scoped by canonicalSub/status/sort", "tieBreaker": "tripId DESC"}
+      "pagination": {"type": "cursor", "cursor": "opaque", "size": {"default": 20, "max": 50}, "stableSort": "updatedAt DESC, tripId DESC scoped by canonicalSub/status/sort", "tieBreaker": "tripId DESC"}
     },
     {
       "method": "POST",

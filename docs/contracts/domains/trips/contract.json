@@ -49,7 +49,7 @@
         "status": {"$ref": "TripStatus", "nullable": false},
         "sort": {"type": "string", "nullable": false, "enum": ["updated_at_desc"]},
         "cursor": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 2048},
-        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100}
+        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 50}
       }
     },
     "CreateTripHeaders": {
@@ -178,7 +178,7 @@
       "additionalProperties": false,
       "required": ["size", "hasNext", "nextCursor"],
       "properties": {
-        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100},
+        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 50},
         "hasNext": {"type": "boolean", "nullable": false},
         "nextCursor": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 2048}
       }
@@ -232,7 +232,7 @@
       "owner": "canonical JWT sub",
       "responses": {"success": [200], "errors": [400, 401]},
       "idempotency": {"required": false, "header": "none"},
-      "pagination": {"type": "cursor", "defaultSize": 20, "maxSize": 100},
+      "pagination": {"type": "cursor", "defaultSize": 20, "maxSize": 50},
       "figma": {"node": "182:3248", "action": "여행 기본 조건에서 생성된 본인 여행 목록 진입", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}
     },
     {

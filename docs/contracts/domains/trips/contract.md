@@ -34,7 +34,7 @@
 
 ## 목록과 점수 계약
 
-- 기본 크기는 20, 최대 크기는 100이다.
+- 기본 크기는 20, 최대 크기는 공통 `CursorPageRequest.MAX_SIZE`와 같은 50이다.
 - 정렬은 RFC3339 문자열 사전순이 아니라 실제 instant 기준 `updatedAt DESC`이며, 같은 instant에서만 `tripId DESC`를 적용한다. cursor는 canonical sub, status, sort 문맥에 묶인 불투명 값이다.
 - 다음 페이지가 있으면 `nextCursor`가 반드시 있고, 마지막 페이지에는 없어야 한다.
 - `totalScore`는 항상 존재하되 값은 0..100 정수 또는 `null`이다.
