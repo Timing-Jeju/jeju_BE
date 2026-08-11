@@ -44,7 +44,7 @@ public final class ThreadedRunExecutionSupervisor implements RunExecutionSupervi
   }
 
   @Override
-  public CompletableFuture<Void> supervise(
+  public CompletableFuture<RunResultSource> supervise(
       RunLease lease,
       Instant deadline,
       Duration heartbeatInterval,
@@ -66,13 +66,12 @@ public final class ThreadedRunExecutionSupervisor implements RunExecutionSupervi
       return CompletableFuture.failedFuture(new RetryableRunException(DEADLINE_EXCEEDED));
     }
 
-    CompletableFuture<Void> completion = new CompletableFuture<>();
+    CompletableFuture<RunResultSource> completion = new CompletableFuture<>();
     Future<?> execution =
         taskExecutor.submit(
             () -> {
               try {
-                executor.execute(lease, deadline);
-                completion.complete(null);
+                completion.complete(executor.execute(lease, deadline));
               } catch (Throwable failure) {
                 completion.completeExceptionally(failure);
               }

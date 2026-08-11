@@ -3,11 +3,17 @@ package com.timingjeju.api.application.asyncrun;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.DoubleSupplier;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -22,26 +28,37 @@ class AsyncRunWorkerTest {
   void poll은_최대_50개를_claim하고_성공한_run을_fencing_token으로_완료한다() {
     RecordingRepository repository = new RecordingRepository(List.of(new RunLease(RUN_ID, 7, 1)));
     RecordingExecutor executor = new RecordingExecutor();
-    TestWorker worker = worker(repository, executor, () -> 0.5d);
 
-    worker.pollOnce();
+    worker(repository, executor, () -> 0.5d).pollOnce();
 
     assertThat(repository.claimLimit).isEqualTo(50);
-    assertThat(repository.claimLeaseUntil).isEqualTo(NOW.plusSeconds(30));
+    assertThat(repository.claimLeaseDuration).isEqualTo(Duration.ofSeconds(30));
     assertThat(executor.deadline).isEqualTo(NOW.plusSeconds(60));
-    assertThat(repository.heartbeatLeaseUntil).isEqualTo(NOW.plusSeconds(30));
+    assertThat(repository.heartbeatLeaseDuration).isEqualTo(Duration.ofSeconds(30));
     assertThat(repository.succeeded).containsExactly(new RunLease(RUN_ID, 7, 1));
+    assertThat(repository.resultSource).isEqualTo(RunResultSource.COMPUTED);
   }
 
   @Test
-  void retryable_실패는_full_jitter_backoff로_queued에_되돌린다() {
+  void executor가_fallback을_반환하면_fencing_완료에_fallback_source를_전달한다() {
+    RecordingRepository repository = new RecordingRepository(List.of(new RunLease(RUN_ID, 12, 1)));
+    RecordingExecutor executor = new RecordingExecutor();
+    executor.resultSource = RunResultSource.FALLBACK;
+
+    worker(repository, executor, () -> 0.5d).pollOnce();
+
+    assertThat(repository.resultSource).isEqualTo(RunResultSource.FALLBACK);
+  }
+
+  @Test
+  void retryable_실패는_full_jitter_backoff_duration으로_queued에_되돌린다() {
     RecordingRepository repository = new RecordingRepository(List.of(new RunLease(RUN_ID, 8, 3)));
     RecordingExecutor executor = new RecordingExecutor();
     executor.failure = new RetryableRunException("MCP_TEMPORARY");
 
     worker(repository, executor, () -> 0.5d).pollOnce();
 
-    assertThat(repository.retriedAt).isEqualTo(NOW.plusSeconds(2));
+    assertThat(repository.retryDelay).isEqualTo(Duration.ofSeconds(2));
     assertThat(repository.errorCode).isEqualTo("MCP_TEMPORARY");
     assertThat(repository.failed).isEmpty();
   }
@@ -55,7 +72,7 @@ class AsyncRunWorkerTest {
     worker(repository, executor, () -> 0.5d).pollOnce();
 
     assertThat(repository.failed).containsExactly(new RunLease(RUN_ID, 9, 5));
-    assertThat(repository.retriedAt).isNull();
+    assertThat(repository.retryDelay).isNull();
   }
 
   @Test
@@ -68,6 +85,26 @@ class AsyncRunWorkerTest {
 
     assertThat(repository.claimCalls).isZero();
     assertThat(worker.supervisor.shutdownCalls).isEqualTo(1);
+  }
+
+  @Test
+  void poll이_claim중일_때_shutdown은_claim된_run의_submit이_끝난_뒤_supervisor를_닫는다() throws Exception {
+    BlockingClaimRepository repository = new BlockingClaimRepository();
+    RecordingSupervisor supervisor = new RecordingSupervisor();
+    AsyncRunWorker worker = worker(repository, new RecordingExecutor(), supervisor, () -> 0.5d);
+
+    try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+      var poll = pool.submit(worker::pollOnce);
+      assertThat(repository.claimEntered.await(1, TimeUnit.SECONDS)).isTrue();
+      var shutdown = pool.submit(worker::shutdown);
+      repository.releaseClaim.countDown();
+      poll.get(1, TimeUnit.SECONDS);
+      shutdown.get(1, TimeUnit.SECONDS);
+    }
+
+    assertThat(supervisor.superviseCalls).isEqualTo(1);
+    assertThat(supervisor.superviseAfterShutdown).isFalse();
+    assertThat(supervisor.shutdownCalls).isEqualTo(1);
   }
 
   @Test
@@ -84,16 +121,22 @@ class AsyncRunWorkerTest {
   private static TestWorker worker(
       RecordingRepository repository, RecordingExecutor executor, DoubleSupplier jitter) {
     RecordingSupervisor supervisor = new RecordingSupervisor();
-    return new TestWorker(
-        new AsyncRunWorker(
-            "worker-74",
-            repository,
-            executor,
-            supervisor,
-            RunExecutionPolicy.defaults(),
-            Clock.fixed(NOW, ZoneOffset.UTC),
-            jitter),
-        supervisor);
+    return new TestWorker(worker(repository, executor, supervisor, jitter), supervisor);
+  }
+
+  private static AsyncRunWorker worker(
+      RecordingRepository repository,
+      RecordingExecutor executor,
+      RecordingSupervisor supervisor,
+      DoubleSupplier jitter) {
+    return new AsyncRunWorker(
+        "worker-74",
+        repository,
+        executor,
+        supervisor,
+        RunExecutionPolicy.defaults(),
+        Clock.fixed(NOW, ZoneOffset.UTC),
+        jitter);
   }
 
   private record TestWorker(AsyncRunWorker worker, RecordingSupervisor supervisor) {
@@ -108,25 +151,30 @@ class AsyncRunWorkerTest {
 
   private static final class RecordingSupervisor implements RunExecutionSupervisor {
     private int shutdownCalls;
+    private int superviseCalls;
+    private boolean closed;
+    private boolean superviseAfterShutdown;
 
     @Override
-    public java.util.concurrent.CompletableFuture<Void> supervise(
+    public CompletableFuture<RunResultSource> supervise(
         RunLease lease,
         Instant deadline,
-        java.time.Duration heartbeatInterval,
+        Duration heartbeatInterval,
         AsyncRunExecutor executor,
         java.util.function.BooleanSupplier heartbeat) {
+      superviseCalls++;
+      superviseAfterShutdown |= closed;
       try {
         heartbeat.getAsBoolean();
-        executor.execute(lease, deadline);
-        return java.util.concurrent.CompletableFuture.completedFuture(null);
+        return CompletableFuture.completedFuture(executor.execute(lease, deadline));
       } catch (RuntimeException failure) {
-        return java.util.concurrent.CompletableFuture.failedFuture(failure);
+        return CompletableFuture.failedFuture(failure);
       }
     }
 
     @Override
-    public void shutdown(java.time.Duration drainTimeout) {
+    public void shutdown(Duration drainTimeout) {
+      closed = true;
       shutdownCalls++;
     }
   }
@@ -134,26 +182,29 @@ class AsyncRunWorkerTest {
   private static final class RecordingExecutor implements AsyncRunExecutor {
     private Instant deadline;
     private RuntimeException failure;
+    private RunResultSource resultSource = RunResultSource.COMPUTED;
 
     @Override
-    public void execute(RunLease lease, Instant deadline) {
+    public RunResultSource execute(RunLease lease, Instant deadline) {
       this.deadline = deadline;
       if (failure != null) {
         throw failure;
       }
+      return resultSource;
     }
   }
 
-  private static final class RecordingRepository implements RunLeaseRepository {
+  private static class RecordingRepository implements RunLeaseRepository {
     private final List<RunLease> claims;
     private final List<RunLease> succeeded = new ArrayList<>();
     private final List<RunLease> failed = new ArrayList<>();
     private int claimCalls;
     private int claimLimit;
-    private Instant claimLeaseUntil;
-    private Instant retriedAt;
-    private Instant heartbeatLeaseUntil;
+    private Duration claimLeaseDuration;
+    private Duration retryDelay;
+    private Duration heartbeatLeaseDuration;
     private String errorCode;
+    private RunResultSource resultSource;
     private boolean terminalAccepted = true;
     private int forceWrites;
 
@@ -162,38 +213,61 @@ class AsyncRunWorkerTest {
     }
 
     @Override
-    public List<RunLease> claimAvailable(
-        String workerId, Instant now, Instant leaseUntil, int limit) {
+    public List<RunLease> claimAvailable(String workerId, Duration leaseDuration, int limit) {
       claimCalls++;
       claimLimit = limit;
-      claimLeaseUntil = leaseUntil;
+      claimLeaseDuration = leaseDuration;
       return claims;
     }
 
     @Override
-    public boolean heartbeat(RunLease lease, Instant now, Instant leaseUntil) {
-      heartbeatLeaseUntil = leaseUntil;
+    public boolean heartbeat(RunLease lease, Duration leaseDuration) {
+      heartbeatLeaseDuration = leaseDuration;
       return true;
     }
 
     @Override
-    public boolean succeed(RunLease lease, Instant completedAt) {
+    public boolean succeed(RunLease lease, RunResultSource resultSource) {
       succeeded.add(lease);
+      this.resultSource = resultSource;
       return terminalAccepted;
     }
 
     @Override
-    public boolean retry(RunLease lease, Instant nextAttemptAt, String stableErrorCode) {
-      retriedAt = nextAttemptAt;
+    public boolean retry(RunLease lease, Duration retryDelay, String stableErrorCode) {
+      this.retryDelay = retryDelay;
       errorCode = stableErrorCode;
       return terminalAccepted;
     }
 
     @Override
-    public boolean fail(RunLease lease, Instant completedAt, String stableErrorCode) {
+    public boolean fail(RunLease lease, String stableErrorCode) {
       failed.add(lease);
       errorCode = stableErrorCode;
       return terminalAccepted;
+    }
+  }
+
+  private static final class BlockingClaimRepository extends RecordingRepository {
+    private final CountDownLatch claimEntered = new CountDownLatch(1);
+    private final CountDownLatch releaseClaim = new CountDownLatch(1);
+
+    private BlockingClaimRepository() {
+      super(List.of(new RunLease(RUN_ID, 13, 1)));
+    }
+
+    @Override
+    public List<RunLease> claimAvailable(String workerId, Duration leaseDuration, int limit) {
+      claimEntered.countDown();
+      try {
+        if (!releaseClaim.await(1, TimeUnit.SECONDS)) {
+          throw new AssertionError("claim release timeout");
+        }
+      } catch (InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError(exception);
+      }
+      return super.claimAvailable(workerId, leaseDuration, limit);
     }
   }
 }

@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.asyncrun.RunLease;
+import com.timingjeju.api.application.asyncrun.RunResultSource;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -81,7 +83,7 @@ class JdbcRunLeaseRepositoryIntegrationTest {
         () -> {
           start.await(5, TimeUnit.SECONDS);
           return repository.claimAvailable(
-              "worker-" + Thread.currentThread().threadId(), NOW, NOW.plusSeconds(30), 50);
+              "worker-" + Thread.currentThread().threadId(), Duration.ofSeconds(30), 50);
         };
 
     try (var pool = Executors.newFixedThreadPool(2)) {
@@ -99,31 +101,32 @@ class JdbcRunLeaseRepositoryIntegrationTest {
   @Test
   void lease_직전에는_takeover하지_않고_만료_시점에는_새_token으로_stuck_run을_복구한다() {
     UUID runId = insertQueuedRun("expiry");
-    RunLease first =
-        repository.claimAvailable("worker-old", NOW, NOW.plusSeconds(30), 50).getFirst();
+    RunLease first = repository.claimAvailable("worker-old", Duration.ofSeconds(30), 50).getFirst();
 
-    assertThat(
-            repository.claimAvailable(
-                "worker-new", NOW.plusSeconds(30).minusNanos(1_000), NOW.plusSeconds(60), 50))
-        .isEmpty();
-    assertThat(
-            repository.claimAvailable("worker-new", NOW.plusSeconds(30), NOW.plusSeconds(60), 50))
+    jdbcTemplate.update(
+        "update public.compute_runs set lease_expires_at = statement_timestamp() + interval '1 second' where id = ?",
+        runId);
+    assertThat(repository.claimAvailable("worker-new", Duration.ofSeconds(30), 50)).isEmpty();
+    jdbcTemplate.update(
+        "update public.compute_runs set lease_expires_at = statement_timestamp() where id = ?",
+        runId);
+    assertThat(repository.claimAvailable("worker-new", Duration.ofSeconds(30), 50))
         .containsExactly(new RunLease(runId, first.fencingToken() + 1, 2));
   }
 
   @Test
   void stale_fencing_token은_heartbeat와_terminal_전이를_할_수_없다() {
     UUID runId = insertQueuedRun("fencing");
-    RunLease stale =
-        repository.claimAvailable("worker-old", NOW, NOW.plusSeconds(30), 50).getFirst();
+    RunLease stale = repository.claimAvailable("worker-old", Duration.ofSeconds(30), 50).getFirst();
+    jdbcTemplate.update(
+        "update public.compute_runs set lease_expires_at = statement_timestamp() where id = ?",
+        runId);
     RunLease current =
-        repository
-            .claimAvailable("worker-new", NOW.plusSeconds(30), NOW.plusSeconds(60), 50)
-            .getFirst();
+        repository.claimAvailable("worker-new", Duration.ofSeconds(30), 50).getFirst();
 
-    assertThat(repository.heartbeat(stale, NOW.plusSeconds(31), NOW.plusSeconds(61))).isFalse();
-    assertThat(repository.succeed(stale, NOW.plusSeconds(32))).isFalse();
-    assertThat(repository.succeed(current, NOW.plusSeconds(32))).isTrue();
+    assertThat(repository.heartbeat(stale, Duration.ofSeconds(30))).isFalse();
+    assertThat(repository.succeed(stale, RunResultSource.COMPUTED)).isFalse();
+    assertThat(repository.succeed(current, RunResultSource.COMPUTED)).isTrue();
     assertThat(status(runId)).isEqualTo("succeeded");
   }
 
@@ -131,27 +134,28 @@ class JdbcRunLeaseRepositoryIntegrationTest {
   void retry는_예약시각까지_claim되지_않고_재시작_worker가_같은_run을_resume한다() {
     UUID runId = insertQueuedRun("restart");
     RunLease failedAttempt =
-        repository.claimAvailable("worker-old", NOW, NOW.plusSeconds(30), 50).getFirst();
-    assertThat(repository.retry(failedAttempt, NOW.plusSeconds(4), "MCP_TEMPORARY")).isTrue();
+        repository.claimAvailable("worker-old", Duration.ofSeconds(30), 50).getFirst();
+    assertThat(repository.retry(failedAttempt, Duration.ofSeconds(4), "MCP_TEMPORARY")).isTrue();
 
-    assertThat(
-            repository.claimAvailable(
-                "worker-restarted", NOW.plusSeconds(3), NOW.plusSeconds(33), 50))
-        .isEmpty();
-    assertThat(
-            repository.claimAvailable(
-                "worker-restarted", NOW.plusSeconds(4), NOW.plusSeconds(34), 50))
+    assertThat(repository.claimAvailable("worker-restarted", Duration.ofSeconds(30), 50)).isEmpty();
+    jdbcTemplate.update(
+        "update public.compute_runs set next_attempt_at = statement_timestamp() where id = ?",
+        runId);
+    assertThat(repository.claimAvailable("worker-restarted", Duration.ofSeconds(30), 50))
         .containsExactly(new RunLease(runId, 2, 2));
   }
 
   @Test
   void heartbeat은_현재_token과_만료되지_않은_lease에서만_30초를_연장한다() {
     insertQueuedRun("heartbeat");
-    RunLease lease = repository.claimAvailable("worker", NOW, NOW.plusSeconds(30), 50).getFirst();
+    RunLease lease = repository.claimAvailable("worker", Duration.ofSeconds(30), 50).getFirst();
 
-    assertThat(repository.heartbeat(lease, NOW.plusSeconds(10), NOW.plusSeconds(40))).isTrue();
-    assertThat(repository.heartbeat(lease, NOW.plusSeconds(40), NOW.plusSeconds(70))).isFalse();
-    assertThatThrownBy(() -> repository.heartbeat(lease, NOW.plusSeconds(41), NOW.plusSeconds(41)))
+    assertThat(repository.heartbeat(lease, Duration.ofSeconds(30))).isTrue();
+    jdbcTemplate.update(
+        "update public.compute_runs set lease_expires_at = statement_timestamp() where id = ?",
+        lease.runId());
+    assertThat(repository.heartbeat(lease, Duration.ofSeconds(30))).isFalse();
+    assertThatThrownBy(() -> repository.heartbeat(lease, Duration.ZERO))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -159,13 +163,13 @@ class JdbcRunLeaseRepositoryIntegrationTest {
   void 다섯번째_attempt의_lease가_만료되면_재claim하지_않고_terminal_failed로_복구한다() {
     UUID runId = insertQueuedRun("exhausted");
     jdbcTemplate.update("update public.compute_runs set attempt_count = 4 where id = ?", runId);
-    assertThat(repository.claimAvailable("worker-old", NOW, NOW.plusSeconds(30), 50))
+    assertThat(repository.claimAvailable("worker-old", Duration.ofSeconds(30), 50))
         .containsExactly(new RunLease(runId, 1, 5));
 
-    assertThat(
-            repository.claimAvailable(
-                "worker-recovery", NOW.plusSeconds(30), NOW.plusSeconds(60), 50))
-        .isEmpty();
+    jdbcTemplate.update(
+        "update public.compute_runs set lease_expires_at = statement_timestamp() where id = ?",
+        runId);
+    assertThat(repository.claimAvailable("worker-recovery", Duration.ofSeconds(30), 50)).isEmpty();
     assertThat(status(runId)).isEqualTo("failed");
     assertThat(
             jdbcTemplate.queryForObject(
@@ -176,15 +180,78 @@ class JdbcRunLeaseRepositoryIntegrationTest {
   @Test
   void 현재_fencing_token만_안정적인_error_code로_terminal_failed를_기록한다() {
     UUID runId = insertQueuedRun("terminal-failure");
-    RunLease lease = repository.claimAvailable("worker", NOW, NOW.plusSeconds(30), 50).getFirst();
+    RunLease lease = repository.claimAvailable("worker", Duration.ofSeconds(30), 50).getFirst();
 
-    assertThat(repository.fail(lease, NOW.plusSeconds(1), "ASYNC_RUN_EXECUTION_FAILED")).isTrue();
+    assertThat(repository.fail(lease, "ASYNC_RUN_EXECUTION_FAILED")).isTrue();
     assertThat(status(runId)).isEqualTo("failed");
     assertThat(
             jdbcTemplate.queryForObject(
                 "select error_code from public.compute_runs where id = ?", String.class, runId))
         .isEqualTo("ASYNC_RUN_EXECUTION_FAILED");
-    assertThat(repository.fail(lease, NOW.plusSeconds(2), "STALE_WRITE")).isFalse();
+    assertThat(repository.fail(lease, "STALE_WRITE")).isFalse();
+  }
+
+  @Test
+  void claim은_DB시각으로_started와_provenance를_원자적으로_확정한다() {
+    UUID runId = insertQueuedRun("provenance");
+
+    repository.claimAvailable("worker", Duration.ofSeconds(30), 50);
+
+    var phase =
+        jdbcTemplate.queryForMap(
+            "select status, started_at, facts_snapshot_at, source_data_version from public.compute_runs where id = ?",
+            runId);
+    assertThat(phase.get("status")).isEqualTo("running");
+    assertThat(phase.get("started_at")).isNotNull();
+    assertThat(phase.get("facts_snapshot_at")).isNotNull();
+    assertThat(phase.get("source_data_version")).isEqualTo("async-run-v1");
+  }
+
+  @Test
+  void DB_phase_CHECK는_queued와_running_succeeded의_provenance_불변조건을_거부한다() {
+    UUID runId = insertQueuedRun("phase-check");
+
+    assertThatThrownBy(
+            () ->
+                jdbcTemplate.update(
+                    "update public.compute_runs set started_at = statement_timestamp() where id = ?",
+                    runId))
+        .hasRootCauseInstanceOf(java.sql.SQLException.class);
+    assertThatThrownBy(
+            () ->
+                jdbcTemplate.update(
+                    "update public.compute_runs set status = 'running', lease_owner = 'worker', heartbeat_at = statement_timestamp(), lease_expires_at = statement_timestamp() + interval '30 seconds' where id = ?",
+                    runId))
+        .hasRootCauseInstanceOf(java.sql.SQLException.class);
+  }
+
+  @Test
+  void computed와_fallback_성공을_fencing_transaction에서_구분해_기록한다() {
+    UUID computed = insertQueuedRun("computed-result");
+    RunLease computedLease =
+        repository.claimAvailable("worker-computed", Duration.ofSeconds(30), 1).getFirst();
+    assertThat(repository.succeed(computedLease, RunResultSource.COMPUTED)).isTrue();
+    assertThat(resultSource(computed)).isEqualTo("computed");
+
+    UUID fallback = insertQueuedRun("fallback-result");
+    RunLease fallbackLease =
+        repository.claimAvailable("worker-fallback", Duration.ofSeconds(30), 1).getFirst();
+    assertThat(repository.succeed(fallbackLease, RunResultSource.FALLBACK)).isTrue();
+    assertThat(resultSource(fallback)).isEqualTo("fallback");
+  }
+
+  @Test
+  void DB에서_lease가_만료되면_현재_token이어도_success_retry_fail을_거부한다() {
+    UUID runId = insertQueuedRun("expired-terminal");
+    RunLease lease = repository.claimAvailable("worker", Duration.ofSeconds(30), 50).getFirst();
+    jdbcTemplate.update(
+        "update public.compute_runs set lease_expires_at = statement_timestamp() where id = ?",
+        runId);
+
+    assertThat(repository.succeed(lease, RunResultSource.COMPUTED)).isFalse();
+    assertThat(repository.retry(lease, Duration.ofSeconds(1), "TEMPORARY")).isFalse();
+    assertThat(repository.fail(lease, "TERMINAL")).isFalse();
+    assertThat(status(runId)).isEqualTo("running");
   }
 
   @Test
@@ -236,5 +303,10 @@ class JdbcRunLeaseRepositoryIntegrationTest {
   private String status(UUID runId) {
     return jdbcTemplate.queryForObject(
         "select status from public.compute_runs where id = ?", String.class, runId);
+  }
+
+  private String resultSource(UUID runId) {
+    return jdbcTemplate.queryForObject(
+        "select result_source from public.compute_runs where id = ?", String.class, runId);
   }
 }

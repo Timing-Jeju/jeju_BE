@@ -26,6 +26,34 @@ update public.compute_runs
 set next_attempt_at = created_at
 where status = 'queued';
 
+-- queued는 아직 실행 provenance를 갖지 않으며 claim transaction에서만 확정한다.
+update public.compute_runs
+set started_at = null,
+    facts_snapshot_at = null,
+    source_data_version = null
+where status = 'queued';
+
+-- legacy running/succeeded의 phase bundle을 보정한다.
+update public.compute_runs run
+set started_at = coalesce(run.started_at, run.created_at),
+    facts_snapshot_at = coalesce(run.facts_snapshot_at, run.started_at, run.created_at),
+    source_data_version = coalesce(run.source_data_version, plan.data_version)
+from public.trip_plans plan
+where plan.id = run.trip_plan_id
+  and run.status in ('running', 'succeeded');
+
+-- provenance가 불완전한 legacy terminal은 pre-start terminal로 정규화한다.
+update public.compute_runs
+set started_at = null,
+    facts_snapshot_at = null,
+    source_data_version = null
+where status in ('failed', 'cancelled')
+  and not (
+    started_at is not null
+    and facts_snapshot_at is not null
+    and source_data_version is not null
+  );
+
 -- 배포 중 발견되는 legacy running은 즉시 만료 lease로 표시해 새 worker가 복구한다.
 update public.compute_runs
 set lease_owner = 'migration-recovery',
@@ -58,6 +86,29 @@ alter table public.compute_runs
     check (
       (status = 'succeeded' and result_source in ('computed', 'fallback'))
       or (status <> 'succeeded' and result_source is null)
+    ),
+  add constraint chk_compute_runs_execution_phase
+    check (
+      (status = 'queued'
+        and started_at is null
+        and facts_snapshot_at is null
+        and source_data_version is null)
+      or
+      (status in ('running', 'succeeded')
+        and started_at is not null
+        and facts_snapshot_at is not null
+        and source_data_version is not null)
+      or
+      (status in ('failed', 'cancelled')
+        and (
+          (started_at is null
+            and facts_snapshot_at is null
+            and source_data_version is null)
+          or
+          (started_at is not null
+            and facts_snapshot_at is not null
+            and source_data_version is not null)
+        ))
     ),
   add constraint chk_compute_runs_retry_schedule
     check (status = 'queued' or next_attempt_at is null),

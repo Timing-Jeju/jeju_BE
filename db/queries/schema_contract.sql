@@ -1071,6 +1071,17 @@ begin
   end if;
 
   if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.compute_runs'::regclass
+      and constraint_row.conname = 'chk_compute_runs_execution_phase'
+      and pg_get_constraintdef(constraint_row.oid) ilike '%facts_snapshot_at%'
+      and pg_get_constraintdef(constraint_row.oid) ilike '%source_data_version%'
+  ) then
+    raise exception 'async run execution phase constraint is missing';
+  end if;
+
+  if not exists (
     select 1 from pg_catalog.pg_indexes
     where schemaname = 'public'
       and tablename = 'compute_runs'

@@ -5,5 +5,5 @@ import java.time.Instant;
 @FunctionalInterface
 public interface AsyncRunExecutor {
 
-  void execute(RunLease lease, Instant deadline);
+  RunResultSource execute(RunLease lease, Instant deadline);
 }

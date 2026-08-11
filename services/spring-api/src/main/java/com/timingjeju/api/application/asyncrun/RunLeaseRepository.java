@@ -1,17 +1,17 @@
 package com.timingjeju.api.application.asyncrun;
 
-import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 
 public interface RunLeaseRepository {
 
-  List<RunLease> claimAvailable(String workerId, Instant now, Instant leaseUntil, int limit);
+  List<RunLease> claimAvailable(String workerId, Duration leaseDuration, int limit);
 
-  boolean heartbeat(RunLease lease, Instant now, Instant leaseUntil);
+  boolean heartbeat(RunLease lease, Duration leaseDuration);
 
-  boolean succeed(RunLease lease, Instant completedAt);
+  boolean succeed(RunLease lease, RunResultSource resultSource);
 
-  boolean retry(RunLease lease, Instant nextAttemptAt, String stableErrorCode);
+  boolean retry(RunLease lease, Duration retryDelay, String stableErrorCode);
 
-  boolean fail(RunLease lease, Instant completedAt, String stableErrorCode);
+  boolean fail(RunLease lease, String stableErrorCode);
 }

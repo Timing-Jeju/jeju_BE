@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.DoubleSupplier;
 
 public final class AsyncRunWorker {
@@ -19,7 +18,8 @@ public final class AsyncRunWorker {
   private final RunExecutionPolicy policy;
   private final Clock clock;
   private final DoubleSupplier jitter;
-  private final AtomicBoolean acceptingClaims = new AtomicBoolean(true);
+  private final Object lifecycleMonitor = new Object();
+  private boolean acceptingClaims = true;
 
   public AsyncRunWorker(
       String workerId,
@@ -42,20 +42,25 @@ public final class AsyncRunWorker {
   }
 
   public void pollOnce() {
-    if (!acceptingClaims.get()) {
-      return;
-    }
-    Instant claimedAt = clock.instant();
-    List<RunLease> claims =
-        repository.claimAvailable(
-            workerId, claimedAt, claimedAt.plus(policy.leaseDuration()), policy.claimBatchSize());
-    for (RunLease lease : claims) {
-      submit(lease, claimedAt);
+    synchronized (lifecycleMonitor) {
+      if (!acceptingClaims) {
+        return;
+      }
+      Instant claimedAt = clock.instant();
+      List<RunLease> claims =
+          repository.claimAvailable(workerId, policy.leaseDuration(), policy.claimBatchSize());
+      for (RunLease lease : claims) {
+        submit(lease, claimedAt);
+      }
     }
   }
 
   public void shutdown() {
-    if (acceptingClaims.compareAndSet(true, false)) {
+    synchronized (lifecycleMonitor) {
+      if (!acceptingClaims) {
+        return;
+      }
+      acceptingClaims = false;
       supervisor.shutdown(policy.executionDeadline());
     }
   }
@@ -69,22 +74,26 @@ public final class AsyncRunWorker {
               policy.heartbeatInterval(),
               executor,
               () -> heartbeat(lease))
-          .whenComplete((ignored, failure) -> complete(lease, failure));
+          .whenComplete((resultSource, failure) -> complete(lease, resultSource, failure));
     } catch (RuntimeException exception) {
-      complete(lease, exception);
+      complete(lease, null, exception);
     }
   }
 
-  private void complete(RunLease lease, Throwable failure) {
+  private void complete(RunLease lease, RunResultSource resultSource, Throwable failure) {
     Throwable cause = unwrap(failure);
     if (cause == null) {
-      repository.succeed(lease, clock.instant());
+      if (resultSource == null) {
+        repository.fail(lease, UNEXPECTED_ERROR_CODE);
+      } else {
+        repository.succeed(lease, resultSource);
+      }
     } else if (cause instanceof RunLeaseLostException) {
       // A newer fencing token owns the run. This worker must not write any terminal state.
     } else if (cause instanceof RetryableRunException exception) {
       handleRetryableFailure(lease, exception);
     } else {
-      repository.fail(lease, clock.instant(), UNEXPECTED_ERROR_CODE);
+      repository.fail(lease, UNEXPECTED_ERROR_CODE);
     }
   }
 
@@ -97,19 +106,15 @@ public final class AsyncRunWorker {
   }
 
   private boolean heartbeat(RunLease lease) {
-    Instant now = clock.instant();
-    return repository.heartbeat(lease, now, now.plus(policy.leaseDuration()));
+    return repository.heartbeat(lease, policy.leaseDuration());
   }
 
   private void handleRetryableFailure(RunLease lease, RetryableRunException exception) {
-    Instant failedAt = clock.instant();
     if (lease.attempt() >= policy.maxAttempts()) {
-      repository.fail(lease, failedAt, exception.stableErrorCode());
+      repository.fail(lease, exception.stableErrorCode());
       return;
     }
     repository.retry(
-        lease,
-        failedAt.plus(policy.retryDelay(lease.attempt(), jitter)),
-        exception.stableErrorCode());
+        lease, policy.retryDelay(lease.attempt(), jitter), exception.stableErrorCode());
   }
 }

@@ -42,6 +42,7 @@ class ThreadedRunExecutionSupervisorTest {
                               interrupted.countDown();
                               Thread.currentThread().interrupt();
                             }
+                            return RunResultSource.COMPUTED;
                           },
                           () -> {
                             heartbeats.incrementAndGet();
@@ -81,6 +82,7 @@ class ThreadedRunExecutionSupervisorTest {
                             } catch (InterruptedException exception) {
                               Thread.currentThread().interrupt();
                             }
+                            return RunResultSource.COMPUTED;
                           },
                           () -> false)
                       .join())

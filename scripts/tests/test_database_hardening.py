@@ -131,6 +131,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "idx_compute_runs_worker_claim",
             "idx_compute_runs_worker_recovery",
             "result_source in ('computed', 'fallback')",
+            "chk_compute_runs_execution_phase",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, migration)

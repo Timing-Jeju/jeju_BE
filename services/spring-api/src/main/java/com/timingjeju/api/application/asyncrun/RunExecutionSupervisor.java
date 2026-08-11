@@ -7,7 +7,7 @@ import java.util.function.BooleanSupplier;
 
 public interface RunExecutionSupervisor {
 
-  CompletableFuture<Void> supervise(
+  CompletableFuture<RunResultSource> supervise(
       RunLease lease,
       Instant deadline,
       Duration heartbeatInterval,

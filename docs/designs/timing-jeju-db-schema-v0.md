@@ -220,7 +220,7 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | `recovery_options` | base/proposed 버전 연결 | FastAPI |
 | `recovery_option_changes` | 화면 비교용 정규화 diff | FastAPI |
 
-모든 완료 결과는 `schedule_version_id`, `contract_version`, `algorithm_version`, `facts_snapshot_at`로 재현할 수 있다. queued run의 facts/source는 아직 확정되지 않아 NULL일 수 있다. 공통 worker는 30초 lease, 10초 heartbeat, 증가하는 fencing token, 최대 5회 attempt와 다음 retry 시각을 `compute_runs`에 보존한다. 만료된 running run은 새 token으로 재개하고 이전 token의 heartbeat·terminal 쓰기는 거부한다. 성공 상태는 `succeeded` 하나이며 `result_source`로 `computed`와 `fallback`을 구분한다.
+모든 완료 결과는 `schedule_version_id`, `contract_version`, `algorithm_version`, `facts_snapshot_at`로 재현할 수 있다. queued run의 started/facts/source는 모두 NULL이며, claim transaction이 DB 시각과 계획의 source data version으로 세 값을 채우면서 running으로 전이한다. 공통 worker는 30초 lease, 10초 heartbeat, 증가하는 fencing token, 최대 5회 attempt와 다음 retry 시각을 `compute_runs`에 보존한다. claim·heartbeat·retry·terminal 권한은 worker JVM 시각이 아니라 PostgreSQL `statement_timestamp()`와 active lease로 판정한다. 만료된 running run은 새 token으로 재개하고 이전 token 또는 만료 token의 heartbeat·terminal 쓰기는 거부한다. 성공 상태는 `succeeded` 하나이며 executor가 전달한 `result_source`로 `computed`와 `fallback`을 구분한다.
 
 `trip_weather_impacts`와 `recommendation_candidates.trip_day_id`는 v1의 NULL을 보존하되 신규 INSERT에는 필수이고, 한 번 채운 값을 NULL로 되돌릴 수 없다. non-null 행은 compute run과 item/leg를 4열 복합 identity로 참조해 서로 다른 Day의 계산 결과가 섞이지 않는다. legacy NULL-Day 행은 결과의 compute/item/leg 계보와 해당 부모의 Day를 함께 동결한다. 결과 Day와 같은 Day의 부모 참조를 한 번에 지정하는 명시적 repair만 허용한다.
 
