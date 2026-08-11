@@ -33,6 +33,31 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  external-api:
+    tour-api:
+      enabled: ${TOUR_API_ENABLED:false}
+      api-key: ${TOUR_API_API_KEY:}
+      base-url: ${TOUR_API_BASE_URL:}
+      connect-timeout: ${TOUR_API_CONNECT_TIMEOUT:2s}
+      read-timeout: ${TOUR_API_READ_TIMEOUT:5s}
+    tago:
+      enabled: ${TAGO_ENABLED:false}
+      api-key: ${TAGO_API_KEY:}
+      base-url: ${TAGO_BASE_URL:}
+      connect-timeout: ${TAGO_CONNECT_TIMEOUT:2s}
+      read-timeout: ${TAGO_READ_TIMEOUT:5s}
+    tmap:
+      enabled: ${TMAP_ENABLED:false}
+      api-key: ${TMAP_API_KEY:}
+      base-url: ${TMAP_BASE_URL:}
+      connect-timeout: ${TMAP_CONNECT_TIMEOUT:2s}
+      read-timeout: ${TMAP_READ_TIMEOUT:5s}
+    kma:
+      enabled: ${KMA_ENABLED:false}
+      api-key: ${KMA_API_KEY:}
+      base-url: ${KMA_BASE_URL:}
+      connect-timeout: ${KMA_CONNECT_TIMEOUT:2s}
+      read-timeout: ${KMA_READ_TIMEOUT:5s}
   social-login:
     provider-ids: ${APP_SOCIAL_LOGIN_PROVIDER_IDS:google,kakao,custom:naver}
   security:
