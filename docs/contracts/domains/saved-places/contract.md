@@ -8,7 +8,7 @@ Issue #84가 확정하는 Spring 공개 API 계약입니다. machine 기준은 �
 - 권한 principal은 canonical JWT `sub`만 사용합니다. `user_metadata`, 이메일, provider payload, raw token을 권한 판단·응답·로그에 사용하지 않습니다.
 - FastAPI는 이 API를 공개하거나 DB에 접근하지 않습니다. 이 Issue에 Python source·dependency·MCP tool을 추가하지 않습니다.
 - 로컬 canonical contract version은 `1.0.0`, 현재 Notion source spec은 `v1.1`입니다. 서로 다른 버전 체계이므로 같은 증거로 간주하지 않습니다.
-- Notion 4개 행은 아직 `/api/v1/saved-places`와 `Spec Status=Ready`를 사용하고, Figma는 API contract version과 loading/empty/error 상태를 명시하지 않았습니다. 따라서 Notion·Figma는 `not-linked`, metadata/example/implementation은 모두 `not-ready`입니다.
+- Notion 4개 행은 `/api/v1/me/saved-places` canonical 경로와 `Spec Status=Draft`로 보정됐고, `Contract Version` 속성은 source spec `v1.1`을 보존하면서 본문에 canonical `1.0.0`과 구현 owner Issue #34를 명시한 상태를 재조회했습니다. 아직 Issue #34 구현·실제 example이 없고 Figma는 API contract version과 loading/empty/error 상태를 명시하지 않았으므로 Notion·Figma는 `not-linked`, metadata/example/implementation은 모두 `not-ready`입니다.
 
 ## endpoint 요약
 
@@ -128,16 +128,16 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 - `329:4975`: 관심 장소 보관함. 목록, filter, Day 일정 입력 선택 action을 확인했습니다.
 - API contract version과 loading/empty/error frame은 확인되지 않았습니다. 확인 전 `not-linked/not-ready`입니다.
 
-## Notion 정렬 patch
+## Notion 정렬 결과
 
-다음 4개 페이지는 로컬 계약 병합 전 `Spec Status=Draft`로 낮추고 legacy `/api/v1/saved-places`를 `/api/v1/me/saved-places`로 정정해야 합니다.
+다음 4개 페이지는 `Spec Status=Draft`와 canonical `/api/v1/me/saved-places` 계열 경로로 보정됐습니다.
 
 - GET: `3a40a87c-7ce5-816e-8462-c2fcbf087f2e`
 - POST: `3a40a87c-7ce5-8190-af66-ecffaebb8fad`
 - PATCH: `3a40a87c-7ce5-8167-a0d6-e296da1170de`
 - DELETE: `3a40a87c-7ce5-81c2-a950-f026488e013c`
 
-각 페이지의 최신 섹션에는 이 문서의 endpoint별 query/header/body/presence/status/problem/owner/concurrency 계약, `canonical contractVersion=1.0.0`, `sourceSpecVersion=v1.1`, 구현 owner `#34`를 반영해야 합니다. 적용·재조회·Figma 상태 근거가 모두 끝나기 전 catalog version은 `not-linked`입니다.
+각 페이지의 최신 섹션에 이 문서의 endpoint별 query/header/body/presence/status/problem/owner/concurrency 계약, `canonical contractVersion=1.0.0`, `sourceSpecVersion=v1.1`, 구현 owner `#34`가 반영된 것을 재조회했습니다. Notion의 `Contract Version` 속성은 데이터베이스 선택지 제약에 따라 source spec `v1.1`을 유지합니다. 다만 Issue #34 구현과 실제 example 검증, Figma 상태 근거가 끝나기 전 catalog version은 `not-linked`이고 readiness는 `not-ready`입니다.
 
 ## 검증
 

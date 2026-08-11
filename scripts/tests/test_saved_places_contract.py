@@ -110,6 +110,17 @@ class SavedPlacesContractTest(unittest.TestCase):
 
         self.assertEqual("not-linked", external["notion"]["contractVersion"])
         self.assertEqual("not-ready", external["notion"]["status"])
+        self.assertEqual("v1.1", external["notion"]["observedSourceSpecVersion"])
+        self.assertEqual("Draft", external["notion"]["observedStatus"])
+        self.assertEqual("1.0.0", external["notion"]["canonicalSectionVersion"])
+        self.assertEqual(
+            [
+                "/api/v1/me/saved-places",
+                "/api/v1/me/saved-places/{placeId}",
+            ],
+            external["notion"]["observedCanonicalPaths"],
+        )
+        self.assertEqual(34, external["notion"]["implementationOwnerIssue"])
         self.assertEqual("not-linked", external["figma"]["contractVersion"])
         self.assertEqual("not-ready", external["figma"]["status"])
         self.assertEqual(

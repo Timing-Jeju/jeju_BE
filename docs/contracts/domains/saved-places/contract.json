@@ -876,10 +876,12 @@
       "status": "not-ready",
       "contractVersion": "not-linked",
       "observedSourceSpecVersion": "v1.1",
-      "observedStatus": "Ready",
-      "observedLegacyPaths": [
-        "/api/v1/saved-places",
-        "/api/v1/saved-places/{placeId}"
+      "observedStatus": "Draft",
+      "canonicalSectionVersion": "1.0.0",
+      "implementationOwnerIssue": 34,
+      "observedCanonicalPaths": [
+        "/api/v1/me/saved-places",
+        "/api/v1/me/saved-places/{placeId}"
       ],
       "pages": [
         {
@@ -903,7 +905,8 @@
           "url": "https://www.notion.so/3a40a87c7ce581c2a950f026488e013c"
         }
       ],
-      "requiredPatch": "path를 /api/v1/me/saved-places로 정정하고 Spec Status를 Draft로 낮춘 뒤 canonical v1.0.0 계약 전문을 반영"
+      "alignment": "4개 페이지의 canonical path, Draft status, canonical v1.0.0 section과 Issue #34 구현 owner를 재조회 검증",
+      "remainingGate": "Issue #34 구현과 실제 example 검증 전에는 not-linked/not-ready 유지"
     },
     "figma": {
       "status": "not-ready",
@@ -931,6 +934,6 @@
     "metadata": "not-ready",
     "example": "not-ready",
     "implementation": "not-ready",
-    "reason": "Notion path/version/status drift and Figma contract version/state evidence missing"
+    "reason": "Notion canonical section은 정렬됐지만 Issue #34 구현/example이 없고 Figma contract version/state evidence가 없음"
   }
 }

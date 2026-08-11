@@ -39,7 +39,7 @@ CONTRACT_FIELDS = {
     "externalTraceability",
     "readiness",
 }
-CANONICAL_CONTRACT_SHA256 = "b8356d704a1f0bde3ed76369c7668307272d6164d7dae097a6aa577cbd8527fa"
+CANONICAL_CONTRACT_SHA256 = "e442d2f04670d5977ea67c12d74befcffeeb471ff1bc8a3c8780ed5dca1e7fb8"
 CANONICAL_CATALOG_SHA256 = "ba79e708b1efc0ef504fa11b213f59d20ce831abe994719f227b82946c7b9fd5"
 EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/me/saved-places"),
@@ -399,7 +399,7 @@ def _validate_external_readiness(contract: dict[str, Any], errors: list[str]) ->
         "metadata": "not-ready",
         "example": "not-ready",
         "implementation": "not-ready",
-        "reason": "Notion path/version/status drift and Figma contract version/state evidence missing",
+        "reason": "Notion canonical section은 정렬됐지만 Issue #34 구현/example이 없고 Figma contract version/state evidence가 없음",
     }:
         errors.append("external readiness semantic: readiness prerequisite가 정확하지 않습니다.")
 
