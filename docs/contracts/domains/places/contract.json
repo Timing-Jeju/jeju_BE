@@ -5,11 +5,204 @@
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 83,
   "implementationIssue": 66,
+  "schemas": {
+    "PlacesListRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "query": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100},
+        "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
+        "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
+        "lat": {"type": "number", "nullable": false, "minimum": -90, "maximum": 90},
+        "lng": {"type": "number", "nullable": false, "minimum": -180, "maximum": 180},
+        "radiusMeters": {"type": "integer", "nullable": false, "minimum": 100, "maximum": 50000},
+        "cursor": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 2048},
+        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100}
+      },
+      "dependentRequired": {"lat": ["lng"], "lng": ["lat"], "radiusMeters": ["lat", "lng"]}
+    },
+    "PlaceDetailPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placeId"],
+      "properties": {"placeId": {"type": "string", "nullable": false, "format": "uuid"}}
+    },
+    "Location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lat", "lng"],
+      "properties": {
+        "lat": {"type": "number", "nullable": false, "minimum": -90, "maximum": 90},
+        "lng": {"type": "number", "nullable": false, "minimum": -180, "maximum": 180}
+      }
+    },
+    "DataFreshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "observedAt", "expiresAt", "stale"],
+      "properties": {
+        "provider": {"type": "string", "nullable": false, "enum": ["TOUR_API", "TIMING_JEJU"]},
+        "observedAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "expiresAt": {"type": "string", "nullable": true, "format": "date-time"},
+        "stale": {"type": "boolean", "nullable": false}
+      }
+    },
+    "PlaceListItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "operationsSummary", "distanceMeters", "dataFreshness", "saved", "memo", "tags"],
+      "properties": {
+        "placeId": {"type": "string", "nullable": false, "format": "uuid"},
+        "contentId": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100},
+        "name": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200},
+        "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
+        "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
+        "regionLabel": {"type": "string", "nullable": true, "maxLength": 100},
+        "address": {"type": "string", "nullable": true, "maxLength": 500},
+        "location": {"$ref": "Location", "nullable": false},
+        "thumbnailUrl": {"type": "string", "nullable": true, "format": "uri"},
+        "recommendedStayMinutes": {"type": "integer", "nullable": true, "minimum": 1, "maximum": 1440},
+        "operationsSummary": {"type": "string", "nullable": true, "maxLength": 500},
+        "distanceMeters": {"type": "integer", "nullable": true, "minimum": 0},
+        "dataFreshness": {"$ref": "DataFreshness", "nullable": false},
+        "saved": {"type": "boolean", "nullable": false},
+        "memo": {"type": "string", "nullable": true, "maxLength": 2000},
+        "tags": {"type": "array", "nullable": false, "maxItems": 50, "uniqueItems": true, "items": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 50}}
+      }
+    },
+    "CursorPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "hasNext", "nextCursor"],
+      "properties": {
+        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100},
+        "hasNext": {"type": "boolean", "nullable": false},
+        "nextCursor": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "PlacesListResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "page"],
+      "properties": {
+        "items": {"type": "array", "nullable": false, "items": {"$ref": "PlaceListItem", "nullable": false}},
+        "page": {"$ref": "CursorPage", "nullable": false}
+      }
+    },
+    "SavedPlaceState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "memo", "tags"],
+      "properties": {
+        "value": {"type": "boolean", "nullable": false},
+        "memo": {"type": "string", "nullable": true, "maxLength": 2000},
+        "tags": {"type": "array", "nullable": false, "maxItems": 50, "uniqueItems": true, "items": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 50}}
+      }
+    },
+    "Contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phone", "homepageUrl"],
+      "properties": {
+        "phone": {"type": "string", "nullable": true, "maxLength": 50},
+        "homepageUrl": {"type": "string", "nullable": true, "format": "uri"}
+      }
+    },
+    "Operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operatingHoursText", "closedDaysText"],
+      "properties": {
+        "operatingHoursText": {"type": "string", "nullable": true, "maxLength": 2000},
+        "closedDaysText": {"type": "string", "nullable": true, "maxLength": 2000}
+      }
+    },
+    "PlaceImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "thumbnailUrl", "provider", "observedAt", "expiresAt", "stale"],
+      "properties": {
+        "url": {"type": "string", "nullable": false, "format": "uri"},
+        "thumbnailUrl": {"type": "string", "nullable": true, "format": "uri"},
+        "provider": {"type": "string", "nullable": false, "enum": ["TOUR_API", "TIMING_JEJU"]},
+        "observedAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "expiresAt": {"type": "string", "nullable": true, "format": "date-time"},
+        "stale": {"type": "boolean", "nullable": false}
+      }
+    },
+    "NearbyStop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stopId", "stopName", "distanceMeters", "walkMinutes", "linkMethod", "provider", "observedAt", "expiresAt", "stale"],
+      "properties": {
+        "stopId": {"type": "string", "nullable": false, "format": "uuid"},
+        "stopName": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200},
+        "distanceMeters": {"type": "integer", "nullable": false, "minimum": 0},
+        "walkMinutes": {"type": "integer", "nullable": true, "minimum": 0},
+        "linkMethod": {"type": "string", "nullable": false, "enum": ["spatial_radius", "manual", "provider_mapping"]},
+        "provider": {"type": "string", "nullable": false, "enum": ["TAGO", "TIMING_JEJU"]},
+        "observedAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "expiresAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "stale": {"type": "boolean", "nullable": false}
+      }
+    },
+    "PlaceDetailResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "operationsSummary", "saved", "overview", "contact", "operations", "images", "nearbyStops"],
+      "properties": {
+        "placeId": {"type": "string", "nullable": false, "format": "uuid"},
+        "contentId": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100},
+        "name": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200},
+        "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
+        "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
+        "regionLabel": {"type": "string", "nullable": true, "maxLength": 100},
+        "address": {"type": "string", "nullable": true, "maxLength": 500},
+        "location": {"$ref": "Location", "nullable": false},
+        "thumbnailUrl": {"type": "string", "nullable": true, "format": "uri"},
+        "recommendedStayMinutes": {"type": "integer", "nullable": true, "minimum": 1, "maximum": 1440},
+        "operationsSummary": {"type": "string", "nullable": true, "maxLength": 500},
+        "saved": {"$ref": "SavedPlaceState", "nullable": false},
+        "overview": {"type": "string", "nullable": true, "maxLength": 10000},
+        "contact": {"$ref": "Contact", "nullable": false},
+        "operations": {"$ref": "Operations", "nullable": false},
+        "images": {"type": "array", "nullable": false, "items": {"$ref": "PlaceImage", "nullable": false}},
+        "nearbyStops": {"type": "array", "nullable": false, "maxItems": 5, "uniqueBy": "stopId", "items": {"$ref": "NearbyStop", "nullable": false}}
+      }
+    },
+    "FieldError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "reason"],
+      "properties": {
+        "field": {"type": "string", "nullable": false, "minLength": 1},
+        "reason": {"type": "string", "nullable": false, "minLength": 1}
+      }
+    },
+    "ProblemDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"],
+      "properties": {
+        "type": {"type": "string", "nullable": false, "format": "uri"},
+        "title": {"type": "string", "nullable": false, "minLength": 1},
+        "status": {"type": "integer", "nullable": false, "enum": [400, 401, 404, 422, 429, 503]},
+        "detail": {"type": "string", "nullable": false, "minLength": 1},
+        "instance": {"type": "string", "nullable": false, "format": "urn"},
+        "code": {"type": "string", "nullable": false, "pattern": "^[A-Z][A-Z0-9_]+$"},
+        "traceId": {"type": "string", "nullable": false, "format": "trace-id"},
+        "fieldErrors": {"type": "array", "nullable": false, "items": {"$ref": "FieldError", "nullable": false}}
+      }
+    }
+  },
   "endpoints": [
     {
       "method": "GET",
       "path": "/api/v1/places",
       "operation": "list",
+      "requestSchema": "PlacesListRequest",
+      "successSchema": "PlacesListResponse",
       "auth": {
         "mode": "optional",
         "missingToken": "anonymous",
@@ -106,12 +299,24 @@
         ],
         "filterChange": "reject CURSOR_CONTEXT_MISMATCH"
       },
-      "successStatus": 200
+      "successStatus": 200,
+      "problems": [
+        {"condition": "query parameter type/range/pattern invalid", "status": 400, "code": "INVALID_QUERY_PARAMETER", "type": "https://api.timing-jeju.com/problems/invalid-query-parameter"},
+        {"condition": "lat/lng pair missing or radius without coordinates", "status": 400, "code": "INVALID_GEO_FILTER", "type": "https://api.timing-jeju.com/problems/invalid-geo-filter"},
+        {"condition": "cursor filter scope differs", "status": 400, "code": "CURSOR_CONTEXT_MISMATCH", "type": "https://api.timing-jeju.com/problems/cursor-context-mismatch"},
+        {"condition": "cursor malformed or unverifiable", "status": 400, "code": "INVALID_CURSOR", "type": "https://api.timing-jeju.com/problems/invalid-cursor"},
+        {"condition": "optional bearer token supplied but invalid", "status": 401, "code": "INVALID_ACCESS_TOKEN", "type": "https://api.timing-jeju.com/problems/invalid-access-token"},
+        {"condition": "valid query combination cannot be processed", "status": 422, "code": "PLACE_QUERY_CONSTRAINT_VIOLATION", "type": "https://api.timing-jeju.com/problems/place-query-constraint-violation"},
+        {"condition": "normalized upstream refresh rate limited", "status": 429, "code": "UPSTREAM_RATE_LIMITED", "type": "https://api.timing-jeju.com/problems/upstream-rate-limited"},
+        {"condition": "safe normalized place data unavailable", "status": 503, "code": "PLACE_DATA_UNAVAILABLE", "type": "https://api.timing-jeju.com/problems/place-data-unavailable"}
+      ]
     },
     {
       "method": "GET",
       "path": "/api/v1/places/{placeId}",
       "operation": "read",
+      "requestSchema": "PlaceDetailPath",
+      "successSchema": "PlaceDetailResponse",
       "auth": {
         "mode": "optional",
         "missingToken": "anonymous",
@@ -124,7 +329,13 @@
           "type": "canonical UUID"
         }
       },
-      "successStatus": 200
+      "successStatus": 200,
+      "problems": [
+        {"condition": "placeId is not canonical UUID", "status": 400, "code": "INVALID_QUERY_PARAMETER", "type": "https://api.timing-jeju.com/problems/invalid-query-parameter"},
+        {"condition": "optional bearer token supplied but invalid", "status": 401, "code": "INVALID_ACCESS_TOKEN", "type": "https://api.timing-jeju.com/problems/invalid-access-token"},
+        {"condition": "place does not exist or is not publicly readable", "status": 404, "code": "PLACE_NOT_FOUND", "type": "https://api.timing-jeju.com/problems/place-not-found"},
+        {"condition": "safe normalized place detail unavailable", "status": 503, "code": "PLACE_DATA_UNAVAILABLE", "type": "https://api.timing-jeju.com/problems/place-data-unavailable"}
+      ]
     }
   ],
   "anonymousPersonalization": {
@@ -155,6 +366,7 @@
       "recommendedStayMinutes",
       "operationsSummary",
       "distanceMeters",
+      "dataFreshness",
       "saved",
       "memo",
       "tags"
@@ -181,7 +393,8 @@
     "rules": {
       "recommendedStayMinutes": "목록과 상세에서 같은 curated 값 또는 null",
       "thumbnailUrl": "상세 images의 displayOrder 최우선 thumbnail과 동일하거나 null",
-      "operationsSummary": "상세 operations에서 파생한 동일 시점 요약 또는 null"
+      "operationsSummary": "상세 operations에서 파생한 동일 시점 요약 또는 null",
+      "dataFreshness": "목록 item마다 provider/observedAt/expiresAt/stale required; Notion latest list와 동일"
     }
   },
   "fieldOwnership": {
@@ -286,29 +499,6 @@
     },
     "compatibility": "additive; 기존 consumer는 알 수 없는 필드를 무시"
   },
-  "errors": {
-    "400": [
-      "INVALID_QUERY_PARAMETER",
-      "INVALID_GEO_FILTER",
-      "CURSOR_CONTEXT_MISMATCH",
-      "INVALID_CURSOR"
-    ],
-    "401": [
-      "INVALID_ACCESS_TOKEN"
-    ],
-    "404": [
-      "PLACE_NOT_FOUND"
-    ],
-    "422": [
-      "PLACE_QUERY_CONSTRAINT_VIOLATION"
-    ],
-    "429": [
-      "UPSTREAM_RATE_LIMITED"
-    ],
-    "503": [
-      "PLACE_DATA_UNAVAILABLE"
-    ]
-  },
   "problemExample": {
     "type": "https://api.timing-jeju.com/problems/invalid-geo-filter",
     "title": "요청 위치 조건이 올바르지 않습니다",
@@ -334,12 +524,15 @@
         {
           "method": "GET",
           "path": "/api/v1/places",
+          "specStatus": "Draft",
+          "canonicalListItemFields": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "operationsSummary", "distanceMeters", "dataFreshness", "saved", "memo", "tags"],
           "pageId": "3a40a87c-7ce5-8107-98bf-fdb79281852b",
           "url": "https://app.notion.com/p/3a40a87c7ce5810798bffdb79281852b?pvs=204"
         },
         {
           "method": "GET",
           "path": "/api/v1/places/{placeId}",
+          "specStatus": "Draft",
           "pageId": "3a40a87c-7ce5-81c4-9339-cb8d061b602d",
           "url": "https://app.notion.com/p/3a40a87c7ce581c49339cb8d061b602d?pvs=204"
         }

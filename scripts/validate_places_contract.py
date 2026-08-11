@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
+import re
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
+from urllib.parse import urlparse
+from uuid import UUID
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,12 +34,14 @@ EXPECTED_LIST_FIELDS = {
     "recommendedStayMinutes",
     "operationsSummary",
     "distanceMeters",
+    "dataFreshness",
     "saved",
     "memo",
     "tags",
 }
 EXPECTED_DETAIL_SHARED_FIELDS = EXPECTED_LIST_FIELDS - {
     "distanceMeters",
+    "dataFreshness",
     "memo",
     "tags",
 }
@@ -73,6 +79,52 @@ PROBLEM_FIELDS = {
     "code",
     "traceId",
     "fieldErrors",
+}
+EXPECTED_SCHEMA_REQUIRED = {
+    "PlacesListRequest": set(),
+    "PlaceDetailPath": {"placeId"},
+    "Location": {"lat", "lng"},
+    "DataFreshness": {"provider", "observedAt", "expiresAt", "stale"},
+    "PlaceListItem": EXPECTED_LIST_FIELDS,
+    "CursorPage": {"size", "hasNext", "nextCursor"},
+    "PlacesListResponse": {"items", "page"},
+    "SavedPlaceState": {"value", "memo", "tags"},
+    "Contact": {"phone", "homepageUrl"},
+    "Operations": {"operatingHoursText", "closedDaysText"},
+    "PlaceImage": {"url", "thumbnailUrl", "provider", "observedAt", "expiresAt", "stale"},
+    "NearbyStop": set(EXPECTED_NEARBY_FIELDS),
+    "PlaceDetailResponse": {
+        "placeId", "contentId", "name", "category", "regionCode", "regionLabel",
+        "address", "location", "thumbnailUrl", "recommendedStayMinutes",
+        "operationsSummary", "saved", "overview", "contact", "operations", "images",
+        "nearbyStops",
+    },
+    "FieldError": {"field", "reason"},
+    "ProblemDetails": PROBLEM_FIELDS,
+}
+EXPECTED_SCHEMA_PROPERTIES = {
+    **EXPECTED_SCHEMA_REQUIRED,
+    "PlacesListRequest": {
+        "query", "category", "regionCode", "lat", "lng", "radiusMeters", "cursor", "size"
+    },
+}
+EXPECTED_ENDPOINT_PROBLEMS = {
+    "/api/v1/places": {
+        (400, "INVALID_QUERY_PARAMETER", "https://api.timing-jeju.com/problems/invalid-query-parameter"),
+        (400, "INVALID_GEO_FILTER", "https://api.timing-jeju.com/problems/invalid-geo-filter"),
+        (400, "CURSOR_CONTEXT_MISMATCH", "https://api.timing-jeju.com/problems/cursor-context-mismatch"),
+        (400, "INVALID_CURSOR", "https://api.timing-jeju.com/problems/invalid-cursor"),
+        (401, "INVALID_ACCESS_TOKEN", "https://api.timing-jeju.com/problems/invalid-access-token"),
+        (422, "PLACE_QUERY_CONSTRAINT_VIOLATION", "https://api.timing-jeju.com/problems/place-query-constraint-violation"),
+        (429, "UPSTREAM_RATE_LIMITED", "https://api.timing-jeju.com/problems/upstream-rate-limited"),
+        (503, "PLACE_DATA_UNAVAILABLE", "https://api.timing-jeju.com/problems/place-data-unavailable"),
+    },
+    "/api/v1/places/{placeId}": {
+        (400, "INVALID_QUERY_PARAMETER", "https://api.timing-jeju.com/problems/invalid-query-parameter"),
+        (401, "INVALID_ACCESS_TOKEN", "https://api.timing-jeju.com/problems/invalid-access-token"),
+        (404, "PLACE_NOT_FOUND", "https://api.timing-jeju.com/problems/place-not-found"),
+        (503, "PLACE_DATA_UNAVAILABLE", "https://api.timing-jeju.com/problems/place-data-unavailable"),
+    },
 }
 FORBIDDEN_KEYS = {
     "rawtoken",
@@ -112,6 +164,179 @@ def _walk_keys(value: Any):
     elif isinstance(value, list):
         for child in value:
             yield from _walk_keys(child)
+
+
+def _is_type(value: Any, expected: str) -> bool:
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return False
+
+
+def _valid_format(value: str, format_name: str) -> bool:
+    if format_name == "uuid":
+        try:
+            return str(UUID(value)) == value
+        except (ValueError, AttributeError):
+            return False
+    if format_name == "date-time":
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed.tzinfo is not None
+        except (ValueError, AttributeError):
+            return False
+    if format_name == "uri":
+        parsed = urlparse(value)
+        return bool(parsed.scheme and (parsed.netloc or parsed.scheme == "urn"))
+    if format_name == "urn":
+        return value.startswith("urn:") and len(value) > 4
+    if format_name == "trace-id":
+        return re.fullmatch(r"[0-9a-f]{32}", value) is not None
+    return False
+
+
+def _validate_value(
+    value: Any,
+    schema: Any,
+    schemas: dict[str, Any],
+    path: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(schema, dict):
+        errors.append(f"{path}: schema가 객체가 아닙니다.")
+        return
+    if value is None:
+        if schema.get("nullable") is not True:
+            errors.append(f"{path}: null을 허용하지 않습니다.")
+        return
+    reference = schema.get("$ref")
+    if reference is not None:
+        referenced = schemas.get(reference)
+        if not isinstance(referenced, dict):
+            errors.append(f"{path}: 알 수 없는 schema reference {reference!r}입니다.")
+            return
+        _validate_value(value, referenced, schemas, path, errors)
+        return
+    expected_type = schema.get("type")
+    if not isinstance(expected_type, str) or not _is_type(value, expected_type):
+        errors.append(f"{path}: {expected_type} 타입이어야 합니다.")
+        return
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"{path}: 허용 enum {schema['enum']!r}에 포함되지 않습니다.")
+    if expected_type in {"integer", "number"}:
+        if "minimum" in schema and value < schema["minimum"]:
+            errors.append(f"{path}: minimum {schema['minimum']}보다 작습니다.")
+        if "maximum" in schema and value > schema["maximum"]:
+            errors.append(f"{path}: maximum {schema['maximum']}보다 큽니다.")
+    if expected_type == "string":
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            errors.append(f"{path}: minLength {schema['minLength']}를 충족하지 않습니다.")
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            errors.append(f"{path}: maxLength {schema['maxLength']}를 초과합니다.")
+        if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
+            errors.append(f"{path}: pattern {schema['pattern']!r}과 일치하지 않습니다.")
+        if "format" in schema and not _valid_format(value, schema["format"]):
+            errors.append(f"{path}: {schema['format']} format이 아닙니다.")
+    if expected_type == "object":
+        properties = schema.get("properties")
+        required = schema.get("required")
+        if not isinstance(properties, dict) or not isinstance(required, list):
+            errors.append(f"{path}: object properties/required 계약이 없습니다.")
+            return
+        missing = sorted(set(required) - set(value))
+        if missing:
+            errors.append(f"{path}: 필수 필드 {', '.join(missing)}가 없습니다.")
+        if schema.get("additionalProperties") is False:
+            extras = sorted(set(value) - set(properties))
+            if extras:
+                errors.append(f"{path}: 정의되지 않은 필드 {', '.join(extras)}가 있습니다.")
+        for key, child in value.items():
+            if key in properties:
+                _validate_value(child, properties[key], schemas, f"{path}.{key}", errors)
+        dependencies = schema.get("dependentRequired", {})
+        if isinstance(dependencies, dict):
+            for key, dependent_keys in dependencies.items():
+                if key in value:
+                    missing_dependencies = [item for item in dependent_keys if item not in value]
+                    if missing_dependencies:
+                        dependency_label = (
+                            "lat/lng 조합"
+                            if key in {"lat", "lng", "radiusMeters"}
+                            else key
+                        )
+                        errors.append(
+                            f"{path}: {dependency_label}에는 {', '.join(missing_dependencies)}가 함께 필요합니다."
+                        )
+    if expected_type == "array":
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            errors.append(f"{path}: minItems {schema['minItems']}를 충족하지 않습니다.")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            errors.append(f"{path}: maxItems {schema['maxItems']}를 초과합니다.")
+        if schema.get("uniqueItems") is True:
+            serialized = [json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value]
+            if len(serialized) != len(set(serialized)):
+                errors.append(f"{path}: 배열 값이 중복됩니다.")
+        unique_by = schema.get("uniqueBy")
+        if isinstance(unique_by, str):
+            keys = [item.get(unique_by) for item in value if isinstance(item, dict)]
+            if len(keys) != len(value) or len(keys) != len(set(keys)):
+                errors.append(f"{path}: {unique_by} 값이 누락되거나 중복됩니다.")
+        item_schema = schema.get("items")
+        if not isinstance(item_schema, dict):
+            errors.append(f"{path}: array items schema가 없습니다.")
+            return
+        for index, item in enumerate(value):
+            _validate_value(item, item_schema, schemas, f"{path}[{index}]", errors)
+
+
+def _validate_schemas(contract: dict[str, Any], errors: list[str]) -> None:
+    schemas = contract.get("schemas")
+    if not isinstance(schemas, dict) or set(schemas) != set(EXPECTED_SCHEMA_REQUIRED):
+        errors.append("request/success/problem의 닫힌 schema 목록이 다릅니다.")
+        return
+    for name, expected_required in EXPECTED_SCHEMA_REQUIRED.items():
+        schema = schemas.get(name)
+        if not isinstance(schema, dict):
+            errors.append(f"{name}: schema가 없습니다.")
+            continue
+        properties = schema.get("properties")
+        _expect(
+            schema.get("type") == "object"
+            and schema.get("additionalProperties") is False
+            and isinstance(properties, dict)
+            and set(schema.get("required", [])) == expected_required
+            and set(properties or {}) == EXPECTED_SCHEMA_PROPERTIES[name],
+            f"{name}: required/optional/additionalProperties 닫힌 구조가 다릅니다.",
+            errors,
+        )
+        for property_name, property_schema in (properties or {}).items():
+            _expect(
+                isinstance(property_schema, dict)
+                and property_schema.get("nullable") in {True, False}
+                and ("type" in property_schema or "$ref" in property_schema),
+                f"{name}.{property_name}: type/ref와 nullability가 명시돼야 합니다.",
+                errors,
+            )
+
+
+def _endpoint_problem_tuples(endpoint: dict[str, Any]) -> set[tuple[int, str, str]]:
+    problems = endpoint.get("problems")
+    if not isinstance(problems, list):
+        return set()
+    return {
+        (problem.get("status"), problem.get("code"), problem.get("type"))
+        for problem in problems
+        if isinstance(problem, dict) and problem.get("condition")
+    }
 
 
 def _validate_identity(contract: dict[str, Any], errors: list[str]) -> None:
@@ -167,6 +392,29 @@ def _validate_identity(contract: dict[str, Any], errors: list[str]) -> None:
         _expect(
             endpoint.get("successStatus") == 200,
             "장소 조회 성공 status는 200이어야 합니다.",
+            errors,
+        )
+        expected_schemas = (
+            ("PlacesListRequest", "PlacesListResponse")
+            if endpoint.get("path") == "/api/v1/places"
+            else ("PlaceDetailPath", "PlaceDetailResponse")
+        )
+        _expect(
+            (endpoint.get("requestSchema"), endpoint.get("successSchema"))
+            == expected_schemas,
+            "endpoint별 request/success schema 연결이 다릅니다.",
+            errors,
+        )
+        _expect(
+            _endpoint_problem_tuples(endpoint)
+            == EXPECTED_ENDPOINT_PROBLEMS.get(endpoint.get("path"), set())
+            and all(
+                isinstance(problem, dict)
+                and set(problem) == {"condition", "status", "code", "type"}
+                and bool(problem.get("condition"))
+                for problem in endpoint.get("problems", [])
+            ),
+            "endpoint별 오류 condition/status/code/type matrix가 다릅니다.",
             errors,
         )
 
@@ -250,7 +498,7 @@ def _validate_response(contract: dict[str, Any], errors: list[str]) -> None:
         and EXPECTED_DETAIL_SHARED_FIELDS.issubset(set(detail_fields))
         and {"images", "operations", "nearbyStops"}.issubset(set(detail_fields))
         and set(response.get("rules", {}))
-        == {"recommendedStayMinutes", "thumbnailUrl", "operationsSummary"},
+        == {"recommendedStayMinutes", "thumbnailUrl", "operationsSummary", "dataFreshness"},
         "recommendedStayMinutes·이미지·운영정보의 목록/상세 일관성 계약이 다릅니다.",
         errors,
     )
@@ -354,17 +602,28 @@ def _validate_nearby_stops(contract: dict[str, Any], errors: list[str]) -> None:
 
 
 def _validate_errors(contract: dict[str, Any], errors: list[str]) -> None:
-    matrix = contract.get("errors")
+    endpoints = contract.get("endpoints", [])
+    matrix = {
+        str(status): sorted(
+            {
+                code
+                for endpoint in endpoints
+                if isinstance(endpoint, dict)
+                for status_value, code, _ in _endpoint_problem_tuples(endpoint)
+                if status_value == status
+            }
+        )
+        for status in (400, 401, 404, 422, 429, 503)
+    }
     _expect(
-        isinstance(matrix, dict)
-        and set(matrix) == EXPECTED_ERROR_STATUSES
+        set(matrix) == EXPECTED_ERROR_STATUSES
         and all(
             isinstance(codes, list)
             and codes
             and all(isinstance(code, str) and code for code in codes)
             for codes in matrix.values()
         ),
-        "endpoint별 오류 matrix가 완전하지 않습니다.",
+        "endpoint별 오류 condition/status/code/type matrix가 완전하지 않습니다.",
         errors,
     )
     example = contract.get("problemExample")
@@ -404,13 +663,23 @@ def _validate_traceability(
         and notion.get("declaredVersion") == contract.get("sourceSpecVersion")
         and len(notion_endpoints) == 2
         and notion_identities == EXPECTED_ENDPOINTS
+        and all(entry.get("specStatus") == "Draft" for entry in notion_endpoints)
+        and next(
+            (
+                set(entry.get("canonicalListItemFields", []))
+                for entry in notion_endpoints
+                if entry.get("path") == "/api/v1/places"
+            ),
+            set(),
+        )
+        == EXPECTED_LIST_FIELDS
         and all(
             str(entry.get("url", "")).startswith("https://app.notion.com/p/")
             and str(entry.get("pageId", "")).replace("-", "")
             in str(entry.get("url", ""))
             for entry in notion_endpoints
         ),
-        "Notion 두 endpoint page/version 추적성이 다릅니다.",
+        "Notion 두 endpoint Draft 상태와 local canonical field/version 추적성이 다릅니다.",
         errors,
     )
     figma = traceability.get("figma", {})
@@ -428,6 +697,55 @@ def _validate_traceability(
             if isinstance(entry, dict)
         ),
         "Figma node/action/loading/empty/error 추적성이 다릅니다.",
+        errors,
+    )
+
+
+def _validate_catalog_alignment(errors: list[str], repo_root: Path) -> None:
+    catalog_path = repo_root / "docs/contracts/rest/catalog.json"
+    try:
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        errors.append("REST catalog를 읽을 수 없어 local/Notion readiness를 비교할 수 없습니다.")
+        return
+    endpoints = catalog.get("endpoints", []) if isinstance(catalog, dict) else []
+    places_endpoints = {
+        entry.get("path"): entry
+        for entry in endpoints
+        if isinstance(entry, dict) and entry.get("path") in {path for _, path in EXPECTED_ENDPOINTS}
+    }
+    list_entry = places_endpoints.get("/api/v1/places", {})
+    detail_entry = places_endpoints.get("/api/v1/places/{placeId}", {})
+    _expect(
+        set(places_endpoints) == {path for _, path in EXPECTED_ENDPOINTS}
+        and list_entry.get("schemas", {}).get("query") == "PlacesListRequest"
+        and detail_entry.get("schemas", {}).get("path") == "PlaceDetailPath"
+        and "dataFreshness={provider,observedAt,expiresAt,stale} required"
+        in str(list_entry.get("presence", "")),
+        "REST catalog와 places request/dataFreshness schema가 다릅니다.",
+        errors,
+    )
+    domain_contracts = catalog.get("domainContracts", []) if isinstance(catalog, dict) else []
+    places_domain = next(
+        (
+            entry
+            for entry in domain_contracts
+            if isinstance(entry, dict) and entry.get("issue") == 83
+        ),
+        {},
+    )
+    readiness = places_domain.get("readiness", {})
+    metadata = readiness.get("metadata", {})
+    evidence = metadata.get("evidence", {})
+    _expect(
+        places_domain.get("versions")
+        == {"local": "1.0.0", "notion": "1.0.0", "figma": "1.0.0"}
+        and metadata.get("status") == "ready"
+        and evidence.get("notionPage", {}).get("pageId")
+        == "3a40a87c-7ce5-8107-98bf-fdb79281852b"
+        and readiness.get("example", {}).get("status") == "ready"
+        and readiness.get("implementation") == {"status": "not-ready", "evidence": None},
+        "local metadata/example ready·#66 implementation not-ready가 catalog와 다릅니다.",
         errors,
     )
 
@@ -456,28 +774,108 @@ def _validate_fixtures(
             errors.append(f"{kind} fixture가 없거나 올바른 JSON이 아닙니다.")
     if set(loaded) != {"request", "success", "problem"}:
         return
+    schemas = contract.get("schemas")
+    if not isinstance(schemas, dict):
+        errors.append("fixture를 검사할 닫힌 schema가 없습니다.")
+        return
+    request = loaded["request"]
+    request_endpoints = request.get("endpoints", {}) if isinstance(request, dict) else {}
     _expect(
-        set(loaded["request"].get("endpoints", {})) == {"list", "detail"},
-        "request fixture는 목록/상세 두 endpoint를 포함해야 합니다.",
+        isinstance(request, dict)
+        and set(request) == {"contractVersion", "sourceSpecVersion", "endpoints"}
+        and request.get("contractVersion") == contract.get("contractVersion")
+        and request.get("sourceSpecVersion") == contract.get("sourceSpecVersion")
+        and isinstance(request_endpoints, dict)
+        and set(request_endpoints) == {"list", "detail"},
+        "request fixture는 버전과 목록/상세 두 endpoint의 닫힌 구조를 포함해야 합니다.",
+        errors,
+    )
+    list_request = request_endpoints.get("list", {})
+    detail_request = request_endpoints.get("detail", {})
+    _expect(
+        isinstance(list_request, dict)
+        and set(list_request) == {"method", "path", "query"}
+        and list_request.get("method") == "GET"
+        and list_request.get("path") == "/api/v1/places",
+        "목록 request fixture method/path/query 구조가 다릅니다.",
+        errors,
+    )
+    _validate_value(
+        list_request.get("query"),
+        schemas.get("PlacesListRequest"),
+        schemas,
+        "request.list.query",
+        errors,
+    )
+    _expect(
+        isinstance(detail_request, dict)
+        and set(detail_request) == {"method", "path", "pathParameters"}
+        and detail_request.get("method") == "GET"
+        and detail_request.get("path")
+        == "/api/v1/places/20000000-0000-0000-0000-000000000002",
+        "상세 request fixture method/path/pathParameters 구조가 다릅니다.",
+        errors,
+    )
+    _validate_value(
+        detail_request.get("pathParameters"),
+        schemas.get("PlaceDetailPath"),
+        schemas,
+        "request.detail.pathParameters",
         errors,
     )
     success = loaded["success"]
-    detail = success.get("detail", {})
     _expect(
-        set(success) == {"list", "detail"}
-        and isinstance(success.get("list", {}).get("items"), list)
-        and isinstance(detail.get("nearbyStops"), list)
-        and detail.get("nearbyStops")
-        and set(detail["nearbyStops"][0]) == set(EXPECTED_NEARBY_FIELDS),
-        "success fixture의 목록/상세/nearbyStops shape가 다릅니다.",
+        isinstance(success, dict) and set(success) == {"list", "detail"},
+        "success fixture는 목록/상세 응답만 가져야 합니다.",
         errors,
     )
+    _validate_value(
+        success.get("list"),
+        schemas.get("PlacesListResponse"),
+        schemas,
+        "success.list",
+        errors,
+    )
+    _validate_value(
+        success.get("detail"),
+        schemas.get("PlaceDetailResponse"),
+        schemas,
+        "success.detail",
+        errors,
+    )
+    problem_fixture = loaded["problem"]
     _expect(
-        set(loaded["problem"]) == EXPECTED_ERROR_STATUSES
-        and all(set(value) == PROBLEM_FIELDS for value in loaded["problem"].values()),
+        isinstance(problem_fixture, dict)
+        and set(problem_fixture) == EXPECTED_ERROR_STATUSES,
         "problem fixture가 오류 matrix와 Problem Details shape를 모두 포함해야 합니다.",
         errors,
     )
+    allowed_problems = {
+        problem
+        for endpoint_problems in EXPECTED_ENDPOINT_PROBLEMS.values()
+        for problem in endpoint_problems
+    }
+    for status_key, problem in (
+        problem_fixture.items() if isinstance(problem_fixture, dict) else []
+    ):
+        _validate_value(
+            problem,
+            schemas.get("ProblemDetails"),
+            schemas,
+            f"problem.{status_key}",
+            errors,
+        )
+        if not isinstance(problem, dict):
+            continue
+        actual = (problem.get("status"), problem.get("code"), problem.get("type"))
+        allowed_for_status = sorted(
+            code for status, code, _ in allowed_problems if str(status) == status_key
+        )
+        _expect(
+            str(problem.get("status")) == status_key and actual in allowed_problems,
+            f"problem.{status_key}: endpoint matrix의 {allowed_for_status} status/code/type 대응이어야 합니다.",
+            errors,
+        )
 
 
 def validate_contract(contract: Any, repo_root: Path = ROOT) -> list[str]:
@@ -489,12 +887,14 @@ def validate_contract(contract: Any, repo_root: Path = ROOT) -> list[str]:
     )
     if forbidden:
         errors.append(f"민감정보 또는 금지 필드가 계약에 있습니다: {', '.join(forbidden)}")
+    _validate_schemas(contract, errors)
     _validate_identity(contract, errors)
     _validate_list_query(contract, errors)
     _validate_response(contract, errors)
     _validate_nearby_stops(contract, errors)
     _validate_errors(contract, errors)
     _validate_traceability(contract, errors, repo_root)
+    _validate_catalog_alignment(errors, repo_root)
     _validate_fixtures(contract, errors, repo_root)
     return errors
 

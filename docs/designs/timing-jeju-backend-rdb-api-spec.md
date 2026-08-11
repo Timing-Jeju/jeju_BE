@@ -419,6 +419,12 @@ Response `200`:
       "recommendedStayMinutes": 70,
       "operationsSummary": "07:30~20:00",
       "distanceMeters": 120,
+      "dataFreshness": {
+        "provider": "TOUR_API",
+        "observedAt": "2026-08-03T08:55:00+09:00",
+        "expiresAt": "2026-08-04T08:55:00+09:00",
+        "stale": false
+      },
       "saved": true,
       "memo": "오전에 방문",
       "tags": ["필수", "동쪽"]
@@ -428,11 +434,6 @@ Response `200`:
     "size": 20,
     "hasNext": false,
     "nextCursor": null
-  },
-  "dataFreshness": {
-    "source": "tour_api_cache",
-    "fetchedAt": "2026-08-03T08:55:00+09:00",
-    "stale": false
   }
 }
 ```

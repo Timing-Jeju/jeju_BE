@@ -15,7 +15,7 @@ Controller·Service·Repository·OpenAPI 구현 소유자는 #66이고 이 문�
 
 Figma의 지도 검색·카테고리·내 근처 화면은 목록 API를 소비합니다. 장소 카드 loading은 skeleton, 결과 없음은 “조건에 맞는 장소가 없습니다”, 오류는 재시도 가능한 한국어 Problem Details 안내로 처리합니다. 상세·이미지·이용정보·주변 정류장 화면은 상세 API를 소비합니다. 정류장이 없어도 장소 상세을 유지하고 `nearbyStops: []`만 표시합니다.
 
-Notion은 이 작업에서 읽기만 했습니다. 두 행의 기존 `v1.1`, Optional, Spring Boot, Sync metadata를 로컬에 추적했으며 외부 페이지를 변경하지 않았습니다.
+PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 정정했습니다. Developer는 수정 후 두 페이지를 읽기 전용으로 다시 조회해 `Draft`를 확인했습니다. 로컬 catalog는 문서·예시만 ready이고 #66 구현 증거 전까지 implementation은 `not-ready`입니다.
 
 ## 공통 인증과 개인화 shape
 
@@ -45,7 +45,20 @@ Notion은 이 작업에서 읽기만 했습니다. 두 행의 기존 `v1.1`, Opt
 
 ### 목록 shape
 
-목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `operationsSummary`, 개인화 `saved/memo/tags`를 포함합니다. `recommendedStayMinutes`, 대표 이미지와 운영 요약은 상세과 같은 read snapshot을 사용합니다. 값이 없으면 `recommendedStayMinutes`, `thumbnailUrl`, `operationsSummary`, `memo`는 null이며 임의 기본값을 만들지 않습니다.
+목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `operationsSummary`, `dataFreshness`, 개인화 `saved/memo/tags`를 포함합니다. `recommendedStayMinutes`, 대표 이미지와 운영 요약은 상세과 같은 read snapshot을 사용합니다. 값이 없으면 `recommendedStayMinutes`, `thumbnailUrl`, `operationsSummary`, `memo`는 null이며 임의 기본값을 만들지 않습니다. 이 필드들은 응답에서 생략하지 않습니다.
+
+`dataFreshness`는 목록 item마다 반드시 존재하는 닫힌 객체입니다.
+
+```json
+{
+  "provider": "TOUR_API",
+  "observedAt": "2026-08-03T08:55:00+09:00",
+  "expiresAt": "2026-08-04T08:55:00+09:00",
+  "stale": false
+}
+```
+
+`provider`, `observedAt`, `expiresAt`, `stale`는 모두 required입니다. `expiresAt`만 null일 수 있으며 나머지는 null이나 생략을 허용하지 않습니다. Notion의 최신 목록 필드와 로컬 `PlaceListItem` schema·fixture·catalog가 이 이름으로 일치합니다.
 
 ## `GET /api/v1/places/{placeId}`
 
@@ -55,6 +68,24 @@ Notion은 이 작업에서 읽기만 했습니다. 두 행의 기존 `v1.1`, Opt
 - `thumbnailUrl`: `images`의 가장 앞선 display order thumbnail과 같거나 둘 다 null입니다.
 - `operationsSummary`: 같은 snapshot의 `operations`에서 파생하며 source가 없으면 null입니다.
 - `images`, `operations`는 TourAPI 정규화 read model만 사용합니다.
+
+## 닫힌 request·success·problem schema
+
+machine contract의 모든 object schema는 `additionalProperties=false`입니다. required 필드는 생략할 수 없고 nullable로 명시한 필드만 JSON null을 허용합니다.
+
+| schema | 용도 | 핵심 required/optional 계약 |
+| --- | --- | --- |
+| `PlacesListRequest` | 목록 query | 모든 query는 optional/non-null, lat·lng pair와 radius 의존성 강제 |
+| `PlaceDetailPath` | 상세 path | canonical UUID `placeId` required/non-null |
+| `PlacesListResponse` | 목록 성공 | `items`, `page` required/non-null |
+| `PlaceListItem` | 목록 item | 목록 16개 필드와 `dataFreshness` required, 값별 nullable만 허용 |
+| `CursorPage` | page | `size`, `hasNext`, `nextCursor` required; `nextCursor`만 nullable |
+| `PlaceDetailResponse` | 상세 성공 | 공통·saved·overview·contact·operations·images·nearbyStops required |
+| `Location`, `Contact`, `Operations` | 중첩 값 | 각 properties/required/nullability 고정 |
+| `PlaceImage`, `NearbyStop` | 중첩 배열 item | 닫힌 item, 타입·시각 format·enum·범위 고정 |
+| `ProblemDetails`, `FieldError` | 오류 | RFC 9457 필드와 code/type/status 대응을 고정 |
+
+목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다.
 
 ## 필드 소유권과 freshness
 
@@ -103,19 +134,20 @@ eligible 행은 `expiresAt > now()`이면 fresh, `expiresAt <= now()`이면 stal
 
 #37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. #66 evidence가 없으므로 현재 기본 계약은 Metadata/Example Ready이고 extension Implementation Ready는 아닙니다.
 
-## 오류 matrix
+## endpoint별 오류 matrix
 
-| status | code | 조건 |
-| --- | --- | --- |
-| 400 | `INVALID_QUERY_PARAMETER` | 형식·타입·길이 오류 |
-| 400 | `INVALID_GEO_FILTER` | lat/lng pair 또는 radius 범위 오류 |
-| 400 | `CURSOR_CONTEXT_MISMATCH` | cursor 발급 필터와 현재 필터 불일치 |
-| 400 | `INVALID_CURSOR` | 위변조·만료·decode 실패 cursor |
-| 401 | `INVALID_ACCESS_TOKEN` | Optional endpoint에 잘못된 token 제공 |
-| 404 | `PLACE_NOT_FOUND` | 상세 대상 UUID가 없음 |
-| 422 | `PLACE_QUERY_CONSTRAINT_VIOLATION` | 형식은 맞지만 도메인 검색 제약 위반 |
-| 429 | `UPSTREAM_RATE_LIMITED` | 저장된 fallback도 없고 후속 수집 quota가 소진됨 |
-| 503 | `PLACE_DATA_UNAVAILABLE` | 정규화 read model을 안전하게 제공할 수 없음 |
+| endpoint | status | code | 조건 |
+| --- | --- | --- | --- |
+| 목록 | 400 | `INVALID_QUERY_PARAMETER` | query 형식·타입·길이 오류 |
+| 목록 | 400 | `INVALID_GEO_FILTER` | lat/lng pair 또는 radius 범위 오류 |
+| 목록 | 400 | `CURSOR_CONTEXT_MISMATCH` | cursor 발급 필터와 현재 필터 불일치 |
+| 목록 | 400 | `INVALID_CURSOR` | 위변조·만료·decode 실패 cursor |
+| 목록·상세 | 401 | `INVALID_ACCESS_TOKEN` | Optional endpoint에 잘못된 token 제공 |
+| 목록 | 422 | `PLACE_QUERY_CONSTRAINT_VIOLATION` | 형식은 맞지만 도메인 검색 제약 위반 |
+| 목록 | 429 | `UPSTREAM_RATE_LIMITED` | 저장된 fallback도 없고 후속 수집 quota가 소진됨 |
+| 목록·상세 | 503 | `PLACE_DATA_UNAVAILABLE` | 정규화 read model을 안전하게 제공할 수 없음 |
+| 상세 | 400 | `INVALID_QUERY_PARAMETER` | placeId가 canonical UUID가 아님 |
+| 상세 | 404 | `PLACE_NOT_FOUND` | 상세 대상 UUID가 없음 또는 공개 조회 불가 |
 
 eligible 주변 정류장이 없는 상태는 오류가 아닙니다. request-time 외부 호출을 하지 않으므로 단순 stale link 존재만으로 429/503을 반환하지 않습니다.
 

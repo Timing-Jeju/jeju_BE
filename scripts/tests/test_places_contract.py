@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -33,8 +35,163 @@ class PlacesContractTest(unittest.TestCase):
             f"expected={expected!r}, errors={errors!r}",
         )
 
+    def assert_fixture_rejected(self, fixture_name, mutate, expected):
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            fixture_directory = temporary_root / "fixtures/contracts/places"
+            document_directory = temporary_root / "docs/contracts/domains/places"
+            catalog_directory = temporary_root / "docs/contracts/rest"
+            fixture_directory.mkdir(parents=True)
+            document_directory.mkdir(parents=True)
+            catalog_directory.mkdir(parents=True)
+            for source in (ROOT / "fixtures/contracts/places").glob("*.json"):
+                shutil.copy2(source, fixture_directory / source.name)
+            shutil.copy2(
+                ROOT / "docs/contracts/domains/places/contract.md",
+                document_directory / "contract.md",
+            )
+            shutil.copy2(
+                ROOT / "docs/contracts/rest/catalog.json",
+                catalog_directory / "catalog.json",
+            )
+            fixture_path = fixture_directory / f"{fixture_name}.json"
+            fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+            mutate(fixture)
+            fixture_path.write_text(
+                json.dumps(fixture, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            errors = validator.validate_contract(self.contract(), temporary_root)
+
+            self.assertTrue(
+                any(expected in error for error in errors),
+                f"expected={expected!r}, errors={errors!r}",
+            )
+
     def test_repository_places_contract_is_valid(self):
         self.assertEqual([], validator.validate_contract(self.contract(), ROOT))
+
+    def test_rejects_required_list_success_field_omission(self):
+        self.assert_fixture_rejected(
+            "success",
+            lambda fixture: fixture["list"]["items"][0].pop("operationsSummary"),
+            "operationsSummary",
+        )
+
+    def test_rejects_unpaired_fixture_coordinates(self):
+        self.assert_fixture_rejected(
+            "request",
+            lambda fixture: fixture["endpoints"]["list"]["query"].pop("lng"),
+            "lat/lng",
+        )
+
+    def test_rejects_problem_code_outside_endpoint_condition_matrix(self):
+        self.assert_fixture_rejected(
+            "problem",
+            lambda fixture: fixture["401"].update(code="ARBITRARY_CODE"),
+            "INVALID_ACCESS_TOKEN",
+        )
+
+    def test_list_contract_and_fixture_include_data_freshness(self):
+        contract = self.contract()
+        success = json.loads(
+            (ROOT / "fixtures/contracts/places/success.json").read_text(encoding="utf-8")
+        )
+
+        self.assertIn("schemas", contract)
+        self.assertIn(
+            "dataFreshness",
+            contract["schemas"]["PlaceListItem"]["properties"],
+        )
+        self.assertIn("dataFreshness", success["list"]["items"][0])
+
+    def test_rejects_nested_success_type_nullability_and_closed_shape_drift(self):
+        mutations = (
+            (
+                lambda fixture: fixture["list"]["items"][0]["location"].update(
+                    lat="33.458111"
+                ),
+                "location.lat",
+            ),
+            (
+                lambda fixture: fixture["list"]["page"].update(offset=0),
+                "정의되지 않은 필드 offset",
+            ),
+            (
+                lambda fixture: fixture["list"]["items"][0]["dataFreshness"].pop(
+                    "expiresAt"
+                ),
+                "dataFreshness",
+            ),
+            (
+                lambda fixture: fixture["detail"]["contact"].pop("phone"),
+                "contact",
+            ),
+            (
+                lambda fixture: fixture["detail"]["operations"].update(
+                    operatingHoursText=7
+                ),
+                "operations.operatingHoursText",
+            ),
+            (
+                lambda fixture: fixture["detail"]["images"][0].update(stale=None),
+                "images[0].stale",
+            ),
+            (
+                lambda fixture: fixture["detail"]["nearbyStops"][0].update(
+                    walkMinutes="4"
+                ),
+                "nearbyStops[0].walkMinutes",
+            ),
+        )
+        for mutate, expected in mutations:
+            with self.subTest(expected=expected):
+                self.assert_fixture_rejected("success", mutate, expected)
+
+    def test_rejects_contract_schema_required_or_nullability_drift(self):
+        mutations = (
+            (
+                lambda contract: contract["schemas"]["PlaceListItem"]["required"].remove(
+                    "operationsSummary"
+                ),
+                "PlaceListItem",
+            ),
+            (
+                lambda contract: contract["schemas"]["PlaceDetailResponse"].update(
+                    additionalProperties=True
+                ),
+                "PlaceDetailResponse",
+            ),
+            (
+                lambda contract: contract["schemas"]["NearbyStop"]["properties"][
+                    "walkMinutes"
+                ].pop("nullable"),
+                "NearbyStop.walkMinutes",
+            ),
+        )
+        for mutate, expected in mutations:
+            with self.subTest(expected=expected):
+                self.assert_rejected(mutate, expected)
+
+    def test_rejects_notion_draft_or_canonical_list_field_drift(self):
+        mutations = (
+            (
+                lambda contract: contract["traceability"]["notion"]["endpoints"][0].update(
+                    specStatus="Ready"
+                ),
+                "Notion",
+            ),
+            (
+                lambda contract: contract["traceability"]["notion"]["endpoints"][0][
+                    "canonicalListItemFields"
+                ].remove("dataFreshness"),
+                "Notion",
+            ),
+        )
+        for mutate, expected in mutations:
+            with self.subTest(expected=expected):
+                self.assert_rejected(mutate, expected)
 
     def test_rejects_endpoint_identity_or_common_contract_drift(self):
         mutations = (
@@ -183,8 +340,8 @@ class PlacesContractTest(unittest.TestCase):
     def test_rejects_error_matrix_problem_details_or_traceability_drift(self):
         mutations = (
             (
-                lambda c: c["errors"].pop("503"),
-                "오류 matrix",
+                lambda c: c["endpoints"][0]["problems"].pop(),
+                "condition/status/code/type matrix",
             ),
             (
                 lambda c: c["problemExample"].update(detail="failed"),
