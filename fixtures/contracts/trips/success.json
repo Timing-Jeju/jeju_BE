@@ -1,0 +1,217 @@
+{
+  "list": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json"},
+    "responseTime": "2026-08-03T09:30:00+09:00",
+    "body": {
+      "items": [
+        {
+          "tripId": "50000000-0000-0000-0000-000000000002",
+          "title": "제주 서쪽 하루",
+          "status": "planned",
+          "startDate": "2026-08-10",
+          "endDate": "2026-08-10",
+          "timezone": "Asia/Seoul",
+        "activeScheduleVersionId": "60000000-0000-0000-0000-000000000002",
+          "totalScore": null,
+          "scoreProvenance": null,
+          "createdAt": "2026-08-02T09:00:00+09:00",
+          "updatedAt": "2026-08-03T09:20:00+09:00"
+        },
+        {
+          "tripId": "50000000-0000-0000-0000-000000000001",
+          "title": "제주 동쪽 2박 3일",
+          "status": "planned",
+          "startDate": "2026-08-03",
+          "endDate": "2026-08-05",
+          "timezone": "Asia/Seoul",
+          "activeScheduleVersionId": "60000000-0000-0000-0000-000000000001",
+          "totalScore": 81,
+          "scoreProvenance": {
+            "source": "feasibility_run",
+            "runId": "65000000-0000-0000-0000-000000000001",
+            "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
+            "calculatedAt": "2026-08-03T09:10:00+09:00",
+            "observedAt": "2026-08-03T09:00:00+09:00",
+            "expiresAt": "2026-08-03T10:00:00+09:00",
+            "stale": false
+          },
+          "createdAt": "2026-08-01T09:00:00+09:00",
+          "updatedAt": "2026-08-03T09:10:00+09:00"
+        }
+      ],
+      "page": {"size": 20, "hasNext": false, "nextCursor": null}
+    }
+  },
+  "create": {
+    "status": 201,
+    "headers": {
+      "Content-Type": "application/json",
+      "Location": "/api/v1/trips/50000000-0000-0000-0000-000000000001",
+      "ETag": "\"trip-fixture-r1\"",
+      "Idempotency-Replayed": "false"
+    },
+    "body": {
+      "tripId": "50000000-0000-0000-0000-000000000001",
+      "title": "제주 동쪽 2박 3일",
+      "status": "draft",
+      "startDate": "2026-08-03",
+      "endDate": "2026-08-05",
+      "timezone": "Asia/Seoul",
+      "userPace": "normal",
+      "transportModes": [
+        {"mode": "public_transit", "priority": 1, "primary": true},
+        {"mode": "taxi", "priority": 2, "primary": false}
+      ],
+      "days": [
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+      ],
+      "activeScheduleVersionId": null,
+      "totalScore": null,
+      "scoreProvenance": null,
+      "scheduleEffect": "none",
+      "regenerationRequired": false,
+      "createdAt": "2026-08-03T09:05:00+09:00",
+      "updatedAt": "2026-08-03T09:05:00+09:00"
+    }
+  },
+  "createReplay": {
+    "status": 201,
+    "headers": {
+      "Content-Type": "application/json",
+      "Location": "/api/v1/trips/50000000-0000-0000-0000-000000000001",
+      "ETag": "\"trip-fixture-r1\"",
+      "Idempotency-Replayed": "true"
+    },
+    "bodyRef": "create.body"
+  },
+  "detail": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json", "ETag": "\"trip-fixture-r7\""},
+    "responseTime": "2026-08-03T09:30:00+09:00",
+    "body": {
+      "tripId": "50000000-0000-0000-0000-000000000001",
+      "title": "제주 동쪽 2박 3일",
+      "status": "planned",
+      "startDate": "2026-08-03",
+      "endDate": "2026-08-05",
+      "timezone": "Asia/Seoul",
+      "userPace": "normal",
+      "transportModes": [
+        {"mode": "public_transit", "priority": 1, "primary": true},
+        {"mode": "taxi", "priority": 2, "primary": false}
+      ],
+      "days": [
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+      ],
+      "activeScheduleVersionId": "60000000-0000-0000-0000-000000000001",
+      "totalScore": 81,
+      "scoreProvenance": {
+        "source": "feasibility_run",
+        "runId": "65000000-0000-0000-0000-000000000001",
+        "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
+        "calculatedAt": "2026-08-03T09:10:00+09:00",
+        "observedAt": "2026-08-03T09:00:00+09:00",
+        "expiresAt": "2026-08-03T10:00:00+09:00",
+        "stale": false
+      },
+      "scheduleEffect": "none",
+      "regenerationRequired": false,
+      "createdAt": "2026-08-01T09:00:00+09:00",
+      "updatedAt": "2026-08-03T09:10:00+09:00"
+    }
+  },
+  "patchMaintain": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json", "ETag": "\"trip-fixture-r8\""},
+    "body": {
+      "tripId": "50000000-0000-0000-0000-000000000001",
+      "title": "성산 중심 2박 3일",
+      "status": "planned",
+      "startDate": "2026-08-03",
+      "endDate": "2026-08-05",
+      "timezone": "Asia/Seoul",
+      "userPace": "normal",
+      "transportModes": [
+        {"mode": "public_transit", "priority": 1, "primary": true},
+        {"mode": "taxi", "priority": 2, "primary": false}
+      ],
+      "days": [
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+      ],
+      "activeScheduleVersionId": "60000000-0000-0000-0000-000000000001",
+      "totalScore": 81,
+      "scoreProvenance": {
+        "source": "feasibility_run",
+        "runId": "65000000-0000-0000-0000-000000000001",
+        "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
+        "calculatedAt": "2026-08-03T09:10:00+09:00",
+        "observedAt": "2026-08-03T09:00:00+09:00",
+        "expiresAt": "2026-08-03T10:00:00+09:00",
+        "stale": false
+      },
+      "scheduleEffect": "maintained",
+      "regenerationRequired": false,
+      "createdAt": "2026-08-01T09:00:00+09:00",
+      "updatedAt": "2026-08-03T09:11:00+09:00"
+    }
+  },
+  "patchInvalidate": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json", "ETag": "\"trip-fixture-r9\""},
+    "body": {
+      "tripId": "50000000-0000-0000-0000-000000000001",
+      "title": "성산 중심 2박 3일",
+      "status": "draft",
+      "startDate": "2026-08-03",
+      "endDate": "2026-08-05",
+      "timezone": "Asia/Seoul",
+      "userPace": "slow",
+      "transportModes": [{"mode": "rental_car", "priority": 1, "primary": true}],
+      "days": [
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+      ],
+      "activeScheduleVersionId": null,
+      "totalScore": null,
+      "scoreProvenance": null,
+      "scheduleEffect": "invalidated",
+      "regenerationRequired": true,
+      "createdAt": "2026-08-01T09:00:00+09:00",
+      "updatedAt": "2026-08-03T09:12:00+09:00"
+    }
+  },
+  "patchDatesWithoutSchedule": {
+    "status": 200,
+    "headers": {"Content-Type": "application/json", "ETag": "\"trip-fixture-r2\""},
+    "body": {
+      "tripId": "50000000-0000-0000-0000-000000000002",
+      "title": "제주 서쪽 하루",
+      "status": "draft",
+      "startDate": "2026-09-01",
+      "endDate": "2026-09-02",
+      "timezone": "Asia/Seoul",
+      "userPace": "normal",
+      "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}],
+      "days": [
+        {"dayId": "52000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-09-01"},
+        {"dayId": "52000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-09-02"}
+      ],
+      "activeScheduleVersionId": null,
+      "totalScore": null,
+      "scoreProvenance": null,
+      "scheduleEffect": "none",
+      "regenerationRequired": false,
+      "createdAt": "2026-08-02T09:00:00+09:00",
+      "updatedAt": "2026-08-03T09:13:00+09:00"
+    }
+  },
+  "delete": {"status": 204, "headers": {}, "body": null}
+}

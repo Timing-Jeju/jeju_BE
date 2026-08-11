@@ -1,0 +1,422 @@
+{
+  "schemaVersion": "timing-jeju-trips-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "v1.1",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 85,
+  "implementationIssues": [44, 45],
+  "schemas": {
+    "TripId": {"type": "string", "nullable": false, "format": "uuid"},
+    "TripTitle": {"type": "string", "nullable": false, "normalization": "trim+nfc", "minLength": 1, "maxLength": 100},
+    "TripDate": {"type": "string", "nullable": false, "format": "date"},
+    "TripTimezone": {"type": "string", "nullable": false, "format": "iana-timezone", "enum": ["Asia/Seoul"]},
+    "TripStatus": {"type": "string", "nullable": false, "enum": ["draft", "generating", "planned", "live", "completed", "cancelled", "failed"]},
+    "UserPace": {"type": "string", "nullable": false, "enum": ["slow", "normal", "fast"]},
+    "TransportModeName": {"type": "string", "nullable": false, "enum": ["public_transit", "rental_car", "taxi"]},
+    "TransportMode": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["mode", "priority", "primary"],
+      "properties": {
+        "mode": {"$ref": "TransportModeName", "nullable": false},
+        "priority": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 3},
+        "primary": {"type": "boolean", "nullable": false}
+      }
+    },
+    "TransportModes": {
+      "type": "array",
+      "nullable": false,
+      "minItems": 1,
+      "maxItems": 3,
+      "uniqueBy": ["mode", "priority"],
+      "semantic": "priority는 1부터 연속이고 primary는 정확히 한 건이며 priority=1이다",
+      "items": {"$ref": "TransportMode", "nullable": false}
+    },
+    "TripPath": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["tripId"],
+      "properties": {"tripId": {"$ref": "TripId", "nullable": false}}
+    },
+    "TripsListQuery": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "status": {"$ref": "TripStatus", "nullable": false},
+        "sort": {"type": "string", "nullable": false, "enum": ["updated_at_desc"]},
+        "cursor": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 2048},
+        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100}
+      }
+    },
+    "CreateTripHeaders": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["Idempotency-Key"],
+      "properties": {
+        "Idempotency-Key": {"type": "string", "nullable": false, "pattern": "^[A-Za-z0-9._:-]{1,128}$"}
+      }
+    },
+    "PatchTripHeaders": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["If-Match"],
+      "properties": {
+        "If-Match": {"type": "string", "nullable": false, "pattern": "^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"}
+      }
+    },
+    "CreateTripRequest": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["title", "startDate", "endDate"],
+      "properties": {
+        "title": {"$ref": "TripTitle", "nullable": false},
+        "startDate": {"$ref": "TripDate", "nullable": false},
+        "endDate": {"$ref": "TripDate", "nullable": false},
+        "timezone": {"$ref": "TripTimezone", "nullable": false, "default": "Asia/Seoul"},
+        "userPace": {"$ref": "UserPace", "nullable": false, "default": "normal"},
+        "transportModes": {
+          "$ref": "TransportModes",
+          "nullable": false,
+          "default": [{"mode": "public_transit", "priority": 1, "primary": true}]
+        }
+      }
+    },
+    "PatchTripRequest": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [],
+      "minProperties": 1,
+      "properties": {
+        "title": {"$ref": "TripTitle", "nullable": false},
+        "startDate": {"$ref": "TripDate", "nullable": false},
+        "endDate": {"$ref": "TripDate", "nullable": false},
+        "timezone": {"$ref": "TripTimezone", "nullable": false},
+        "userPace": {"$ref": "UserPace", "nullable": false},
+        "transportModes": {"$ref": "TransportModes", "nullable": false}
+      }
+    },
+    "TripDay": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["dayId", "dayNo", "date"],
+      "properties": {
+        "dayId": {"type": "string", "nullable": false, "format": "uuid"},
+        "dayNo": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 30},
+        "date": {"$ref": "TripDate", "nullable": false}
+      }
+    },
+    "ScoreProvenance": {
+      "type": "object",
+      "nullable": true,
+      "additionalProperties": false,
+      "required": ["source", "runId", "scheduleVersionId", "calculatedAt", "observedAt", "expiresAt", "stale"],
+      "properties": {
+        "source": {"type": "string", "nullable": false, "enum": ["feasibility_run"]},
+        "runId": {"type": "string", "nullable": false, "format": "uuid"},
+        "scheduleVersionId": {"type": "string", "nullable": false, "format": "uuid"},
+        "calculatedAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "observedAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "expiresAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "stale": {"type": "boolean", "nullable": false}
+      }
+    },
+    "TripSummary": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["tripId", "title", "status", "startDate", "endDate", "timezone", "activeScheduleVersionId", "totalScore", "scoreProvenance", "createdAt", "updatedAt"],
+      "properties": {
+        "tripId": {"$ref": "TripId", "nullable": false},
+        "title": {"$ref": "TripTitle", "nullable": false},
+        "status": {"$ref": "TripStatus", "nullable": false},
+        "startDate": {"$ref": "TripDate", "nullable": false},
+        "endDate": {"$ref": "TripDate", "nullable": false},
+        "timezone": {"$ref": "TripTimezone", "nullable": false},
+        "activeScheduleVersionId": {"type": "string", "nullable": true, "format": "uuid"},
+        "totalScore": {"type": "integer", "nullable": true, "minimum": 0, "maximum": 100},
+        "scoreProvenance": {"$ref": "ScoreProvenance", "nullable": true},
+        "createdAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "updatedAt": {"type": "string", "nullable": false, "format": "date-time"}
+      }
+    },
+    "TripDetail": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["tripId", "title", "status", "startDate", "endDate", "timezone", "userPace", "transportModes", "days", "activeScheduleVersionId", "totalScore", "scoreProvenance", "scheduleEffect", "regenerationRequired", "createdAt", "updatedAt"],
+      "properties": {
+        "tripId": {"$ref": "TripId", "nullable": false},
+        "title": {"$ref": "TripTitle", "nullable": false},
+        "status": {"$ref": "TripStatus", "nullable": false},
+        "startDate": {"$ref": "TripDate", "nullable": false},
+        "endDate": {"$ref": "TripDate", "nullable": false},
+        "timezone": {"$ref": "TripTimezone", "nullable": false},
+        "userPace": {"$ref": "UserPace", "nullable": false},
+        "transportModes": {"$ref": "TransportModes", "nullable": false},
+        "days": {"type": "array", "nullable": false, "minItems": 1, "maxItems": 30, "items": {"$ref": "TripDay", "nullable": false}},
+        "activeScheduleVersionId": {"type": "string", "nullable": true, "format": "uuid"},
+        "totalScore": {"type": "integer", "nullable": true, "minimum": 0, "maximum": 100},
+        "scoreProvenance": {"$ref": "ScoreProvenance", "nullable": true},
+        "scheduleEffect": {"type": "string", "nullable": false, "enum": ["none", "maintained", "invalidated"]},
+        "regenerationRequired": {"type": "boolean", "nullable": false},
+        "createdAt": {"type": "string", "nullable": false, "format": "date-time"},
+        "updatedAt": {"type": "string", "nullable": false, "format": "date-time"}
+      }
+    },
+    "CursorPage": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["size", "hasNext", "nextCursor"],
+      "properties": {
+        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100},
+        "hasNext": {"type": "boolean", "nullable": false},
+        "nextCursor": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "TripsListResponse": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["items", "page"],
+      "properties": {
+        "items": {"type": "array", "nullable": false, "items": {"$ref": "TripSummary", "nullable": false}},
+        "page": {"$ref": "CursorPage", "nullable": false}
+      }
+    },
+    "FieldError": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["field", "reason"],
+      "properties": {
+        "field": {"type": "string", "nullable": false, "minLength": 1},
+        "reason": {"type": "string", "nullable": false, "minLength": 1}
+      }
+    },
+    "ProblemDetails": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"],
+      "properties": {
+        "type": {"type": "string", "nullable": false, "format": "uri"},
+        "title": {"type": "string", "nullable": false, "minLength": 1},
+        "status": {"type": "integer", "nullable": false, "enum": [400, 401, 404, 409, 422]},
+        "detail": {"type": "string", "nullable": false, "minLength": 1},
+        "instance": {"type": "string", "nullable": false, "format": "urn"},
+        "code": {"type": "string", "nullable": false, "pattern": "^[A-Z][A-Z0-9_]+$"},
+        "traceId": {"type": "string", "nullable": false, "format": "trace-id"},
+        "fieldErrors": {"type": "array", "nullable": false, "items": {"$ref": "FieldError", "nullable": false}}
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/trips",
+      "operation": "list",
+      "requestSchema": "TripsListQuery",
+      "headersSchema": "CommonHeaders",
+      "successSchema": "TripsListResponse",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub",
+      "responses": {"success": [200], "errors": [400, 401]},
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "cursor", "defaultSize": 20, "maxSize": 100},
+      "figma": {"node": "182:3248", "action": "여행 기본 조건에서 생성된 본인 여행 목록 진입", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips",
+      "operation": "create",
+      "requestSchema": "CreateTripRequest",
+      "headersSchema": "CreateTripHeaders",
+      "successSchema": "TripDetail",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub",
+      "responses": {"success": [201], "errors": [400, 401, 409, 422]},
+      "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonicalSub + POST + /api/v1/trips", "ttl": "24h", "replay": "same key+canonical payload returns original status, Location, ETag and body with Idempotency-Replayed=true", "payloadConflict": "409 IDEMPOTENCY_PAYLOAD_CONFLICT", "concurrentRequest": "single writer; wait then replay or 409 IDEMPOTENCY_REQUEST_IN_PROGRESS"},
+      "pagination": {"type": "none"},
+      "figma": {"node": "182:3248", "action": "여행 기본 조건 저장", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}",
+      "operation": "read",
+      "requestSchema": "TripPath",
+      "headersSchema": "CommonHeaders",
+      "successSchema": "TripDetail",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner 404",
+      "responses": {"success": [200], "errors": [400, 401, 404]},
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "none"},
+      "figma": {"node": "182:3248", "action": "여행 기본 조건·상태 확인", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/trips/{tripId}",
+      "operation": "update",
+      "requestSchema": "PatchTripRequest",
+      "headersSchema": "PatchTripHeaders",
+      "successSchema": "TripDetail",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner 404",
+      "responses": {"success": [200], "errors": [400, 401, 404, 409, 422]},
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "none"},
+      "figma": {"node": "182:3248", "action": "여행 기본 조건 수정", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/trips/{tripId}",
+      "operation": "delete",
+      "requestSchema": "TripPath",
+      "headersSchema": "CommonHeaders",
+      "successSchema": "none",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; repeat and cross-owner 404",
+      "responses": {"success": [204], "errors": [400, 401, 404, 409]},
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "none"},
+      "figma": {"node": "none", "action": "여행 삭제 UI 직접 증거 없음", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}
+    }
+  ],
+  "pagination": {
+    "cursor": "opaque and integrity protected",
+    "scope": ["canonicalSub", "status", "sort"],
+    "defaultSort": "updated_at_desc",
+    "stableSort": ["updatedAt DESC", "tripId DESC"],
+    "tieBreaker": "tripId DESC",
+    "invalid": "400 INVALID_CURSOR",
+    "scopeMismatch": "400 CURSOR_CONTEXT_MISMATCH"
+  },
+  "tripPolicy": {
+    "minimumDays": 1,
+    "maximumDays": 30,
+    "timezone": "Asia/Seoul",
+    "timezoneFormat": "IANA",
+    "statusEnum": ["draft", "generating", "planned", "live", "completed", "cancelled", "failed"],
+    "activeScheduleVersionId": "required property; UUID or null",
+    "terminalStatuses": ["completed", "cancelled", "failed"],
+    "terminalMutation": "PATCH and DELETE reject with 409 TRIP_TERMINAL_STATE_CONFLICT except explicit retention cleanup outside this API"
+  },
+  "scorePolicy": {
+    "totalScore": "required property; integer 0..100 or null",
+    "nullRule": "scoreProvenance must be null",
+    "nonNullRule": "scoreProvenance is required and references the latest succeeded feasibility run for activeScheduleVersionId",
+    "source": "feasibility_run",
+    "freshness": "observedAt <= calculatedAt <= expiresAt; stale is derived at response time and is true iff responseTime >= expiresAt",
+    "fallback": "no successful active-schedule score returns totalScore=null and scoreProvenance=null"
+  },
+  "createSemantics": {
+    "transaction": "trip_plans, default transport mode and one trip_days row per inclusive local date are atomic",
+    "defaults": {
+      "timezone": "Asia/Seoul",
+      "userPace": "normal",
+      "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}],
+      "status": "draft",
+      "activeScheduleVersionId": null,
+      "totalScore": null,
+      "scoreProvenance": null
+    },
+    "idempotency": {"header": "Idempotency-Key", "ttl": "24h", "samePayload": "replay exact original response", "differentPayload": "409 IDEMPOTENCY_PAYLOAD_CONFLICT"}
+  },
+  "patchSemantics": {
+    "concurrency": "required strong If-Match generated from persisted monotonically increasing revision",
+    "missingIfMatch": "400 IF_MATCH_REQUIRED",
+    "malformedIfMatch": "400 INVALID_IF_MATCH",
+    "staleIfMatch": "409 TRIP_VERSION_CONFLICT",
+    "omitted": "preserve",
+    "null": "reject",
+    "collections": "replace",
+    "scheduleEffectMatrix": {
+      "title": "maintain",
+      "userPace": "invalidate-and-require-regeneration",
+      "transportModes": "invalidate-and-require-regeneration",
+      "startDate": "reject-with-regeneration-required-when-any-schedule-version-exists",
+      "endDate": "reject-with-regeneration-required-when-any-schedule-version-exists",
+      "timezone": "reject-with-regeneration-required-when-any-schedule-version-exists"
+    },
+    "maintain": "title-only keeps status and activeScheduleVersionId; scheduleEffect=maintained, regenerationRequired=false",
+    "invalidate": "userPace or transportModes supersedes active version, clears activeScheduleVersionId, sets status=draft, scheduleEffect=invalidated and regenerationRequired=true in one transaction",
+    "regenerationRequired": "date/timezone change with any schedule version is rejected 409 without mutation; without schedule versions dates and trip_days are rebuilt atomically",
+    "datePair": "when either startDate or endDate is omitted validation uses the persisted counterpart",
+    "terminal": "completed/cancelled/failed reject all PATCH operations"
+  },
+  "deleteSemantics": {
+    "success": "204 with no body",
+    "repeat": "404 TRIP_NOT_FOUND",
+    "crossOwner": "404 TRIP_NOT_FOUND",
+    "terminalOrRunning": "409 TRIP_DELETE_CONFLICT while an async run is running or trip status is live",
+    "tripAggregate": "cascade",
+    "aggregateTables": ["trip_preferences", "trip_transport_modes", "trip_place_preferences", "trip_transport_events", "trip_accommodations", "trip_days", "trip_schedule_versions", "trip_items", "trip_legs", "itinerary_generation_runs", "itinerary_generation_candidates", "compute_runs", "risk_events", "trip_weather_impacts", "recommendation_candidates", "recovery_options", "recovery_option_changes", "trip_item_progress", "trip_execution_events", "live_state_snapshots", "ai_conversations", "ai_messages", "mcp_compute_call_logs"],
+    "locationAndExecutionHistory": "delete-with-aggregate",
+    "externalImportLineage": "preserve",
+    "userAndAuthIdentity": "preserve",
+    "externalNormalizedFacts": "preserve; trip deletion never deletes tour_places, transport/weather normalized rows, snapshots or data_import_runs"
+  },
+  "ownership": {
+    "source": "canonical JWT sub",
+    "lookup": "query by tripId and userId together",
+    "crossOwnerConcealment": 404,
+    "forbiddenInputs": ["email", "user_metadata", "provider profile", "raw JWT", "session_id", "public_token"]
+  },
+  "storage": {
+    "aggregateRoot": "trip_plans",
+    "ownerColumn": "trip_plans.user_id",
+    "implementationIssues": [44, 45],
+    "migrationSourceOfTruth": "supabase/migrations",
+    "flywayAllowed": false,
+    "schemaChangesInIssue85": false,
+    "schemaDrift": [
+      {"id": "timezone", "ownerIssue": 44, "required": "trip_plans.timezone IANA identifier with Asia/Seoul default/check is absent"},
+      {"id": "revision", "ownerIssue": 45, "required": "monotonic revision for strong If-Match/ETag is absent"},
+      {"id": "owner-write-rls", "ownerIssue": 44, "required": "trip_plans and owned aggregate INSERT/UPDATE/DELETE RLS policies are absent; #45 extends update/delete verification"}
+    ],
+    "existingConstraints": ["trip date order", "trip_days calendar", "active schedule deferred consistency", "sealed schedule mutation protection", "aggregate foreign-key cascade"],
+    "requestTimeExternalCall": "none"
+  },
+  "externalTraceability": {
+    "notion": {
+      "status": "not-ready",
+      "sourceSpecVersion": "v1.1",
+      "canonicalVersion": "1.0.0",
+      "reason": "five source rows existed as Ready examples but did not contain the closed canonical contract before Issue #85; they remain Draft until implementation evidence",
+      "pages": [
+        {"method": "GET", "path": "/api/v1/trips", "pageId": "3a40a87c-7ce5-812b-9e4f-f628df07b2c9", "url": "https://app.notion.com/p/3a40a87c7ce5812b9e4ff628df07b2c9?pvs=204"},
+        {"method": "POST", "path": "/api/v1/trips", "pageId": "3a40a87c-7ce5-8118-80db-cae6d90ce2f1", "url": "https://app.notion.com/p/3a40a87c7ce5811880dbcae6d90ce2f1?pvs=204"},
+        {"method": "GET", "path": "/api/v1/trips/{tripId}", "pageId": "3a40a87c-7ce5-8181-91c3-c5bd79c237a7", "url": "https://app.notion.com/p/3a40a87c7ce5818191c3c5bd79c237a7?pvs=204"},
+        {"method": "PATCH", "path": "/api/v1/trips/{tripId}", "pageId": "3a40a87c-7ce5-81b2-ad28-ca73ff4bdb1c", "url": "https://app.notion.com/p/3a40a87c7ce581b2ad28ca73ff4bdb1c?pvs=204"},
+        {"method": "DELETE", "path": "/api/v1/trips/{tripId}", "pageId": "3a40a87c-7ce5-8178-86ad-c7b8b9d920a5", "url": "https://app.notion.com/p/3a40a87c7ce5817886adc7b8b9d920a5?pvs=204"}
+      ]
+    },
+    "figma": {
+      "status": "not-ready",
+      "fileKey": "4mKep38zm17iupVSQVsSJW",
+      "pageNodeId": "251:4347",
+      "observedNodes": [
+        {"nodeId": "182:3248", "name": "홈 - 01. 여행 기본 조건", "evidence": "여행 기본 조건 입력·저장 동작"}
+      ],
+      "reason": "list/detail/delete CRUD와 contract version, loading/empty/error 상태를 직접 입증하는 연결이 없다",
+      "loading": "not-observed",
+      "empty": "not-observed",
+      "error": "not-observed"
+    }
+  },
+  "readiness": {
+    "metadata": {"status": "not-ready", "evidence": null},
+    "example": {"status": "not-ready", "evidence": null},
+    "implementation": {"status": "not-ready", "evidence": null}
+  }
+}

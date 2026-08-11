@@ -1,0 +1,73 @@
+{
+  "contractVersion": "1.0.0",
+  "list": {
+    "method": "GET",
+    "path": "/api/v1/trips",
+    "headers": {"Authorization": "Bearer <fixture-access-token>"},
+    "query": {"status": "planned", "sort": "updated_at_desc", "size": 20}
+  },
+  "create": {
+    "method": "POST",
+    "path": "/api/v1/trips",
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>",
+      "Idempotency-Key": "fixture-trip-create-001"
+    },
+    "body": {
+      "title": "제주 동쪽 2박 3일",
+      "startDate": "2026-08-03",
+      "endDate": "2026-08-05",
+      "timezone": "Asia/Seoul",
+      "userPace": "normal",
+      "transportModes": [
+        {"mode": "public_transit", "priority": 1, "primary": true},
+        {"mode": "taxi", "priority": 2, "primary": false}
+      ]
+    }
+  },
+  "detail": {
+    "method": "GET",
+    "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001",
+    "pathParameters": {"tripId": "50000000-0000-0000-0000-000000000001"},
+    "headers": {"Authorization": "Bearer <fixture-access-token>"}
+  },
+  "patchMaintain": {
+    "method": "PATCH",
+    "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001",
+    "pathParameters": {"tripId": "50000000-0000-0000-0000-000000000001"},
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>",
+      "If-Match": "\"trip-fixture-r7\""
+    },
+    "body": {"title": "성산 중심 2박 3일"}
+  },
+  "patchInvalidate": {
+    "method": "PATCH",
+    "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001",
+    "pathParameters": {"tripId": "50000000-0000-0000-0000-000000000001"},
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>",
+      "If-Match": "\"trip-fixture-r8\""
+    },
+    "body": {
+      "userPace": "slow",
+      "transportModes": [{"mode": "rental_car", "priority": 1, "primary": true}]
+    }
+  },
+  "patchDatesWithoutSchedule": {
+    "method": "PATCH",
+    "path": "/api/v1/trips/50000000-0000-0000-0000-000000000002",
+    "pathParameters": {"tripId": "50000000-0000-0000-0000-000000000002"},
+    "headers": {
+      "Authorization": "Bearer <fixture-access-token>",
+      "If-Match": "\"trip-fixture-r1\""
+    },
+    "body": {"startDate": "2026-09-01", "endDate": "2026-09-02", "timezone": "Asia/Seoul"}
+  },
+  "delete": {
+    "method": "DELETE",
+    "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001",
+    "pathParameters": {"tripId": "50000000-0000-0000-0000-000000000001"},
+    "headers": {"Authorization": "Bearer <fixture-access-token>"}
+  }
+}
