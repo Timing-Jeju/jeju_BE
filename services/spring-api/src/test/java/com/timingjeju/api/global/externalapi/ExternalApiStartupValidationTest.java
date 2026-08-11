@@ -66,6 +66,40 @@ class ExternalApiStartupValidationTest {
   }
 
   @Test
+  void 공공데이터_provider는_percent_encoded_service_key를_입력으로_받지_않는다() {
+    for (String[] provider :
+        new String[][] {
+          {"tour-api", "TOUR_API", "https://apis.data.go.kr/B551011/KorService2"},
+          {"tago", "TAGO", "https://apis.data.go.kr/1613000"},
+          {"kma", "KMA", "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0"}
+        }) {
+      contextRunner
+          .withPropertyValues(
+              "app.external-api." + provider[0] + ".enabled=true",
+              "app.external-api." + provider[0] + ".api-key=" + encodedServiceKey(),
+              "app.external-api." + provider[0] + ".base-url=" + provider[2])
+          .run(
+              context -> {
+                assertThat(context).as(provider[0]).hasFailed();
+                assertThat(context.getStartupFailure())
+                    .hasRootCauseMessage(
+                        provider[1]
+                            + "_API_KEY는 decoded 원문 key여야 하며 percent-encoded 값을 허용하지 않습니다.");
+              });
+    }
+  }
+
+  @Test
+  void TMAP_header_key는_query_percent_encoding_정책을_적용하지_않는다() {
+    contextRunner
+        .withPropertyValues(
+            "app.external-api.tmap.enabled=true",
+            "app.external-api.tmap.api-key=header%2Bvalue",
+            "app.external-api.tmap.base-url=https://apis.openapi.sk.com")
+        .run(context -> assertThat(context).hasNotFailed());
+  }
+
+  @Test
   void 잘못된_feature_flag는_묵시적으로_활성화하거나_비활성화하지_않는다() {
     contextRunner
         .withPropertyValues("app.external-api.kma.enabled=sometimes")
@@ -168,6 +202,8 @@ class ExternalApiStartupValidationTest {
               ExternalApiClientSettings settings =
                   context.getBean("tourApiClientSettings", ExternalApiClientSettings.class);
               assertThat(settings.provider()).isEqualTo(ExternalApiProvider.TOUR_API);
+              assertThat(settings.credential().placement())
+                  .isEqualTo(ExternalApiCredentialPlacement.QUERY_SERVICE_KEY);
               assertThat(settings.connectTimeout()).isEqualTo(Duration.ofSeconds(2));
               assertThat(settings.readTimeout()).isEqualTo(Duration.ofSeconds(5));
               assertThat(settings.toString()).doesNotContain(safeTestKey()).contains("[REDACTED]");
@@ -231,5 +267,9 @@ class ExternalApiStartupValidationTest {
 
   private static String safeTestKey() {
     return "test-" + "only-provider-value";
+  }
+
+  private static String encodedServiceKey() {
+    return "decoded%" + "2Bkey%2Fvalue%3D";
   }
 }

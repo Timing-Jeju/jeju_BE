@@ -19,6 +19,8 @@ Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 type
 
 - 기본 활성값은 모두 `false`입니다. 비활성 provider는 key 없이 시작하고 client 설정 bean을 만들지 않습니다.
 - provider를 활성화하면 API key와 정확한 provider Base URL이 필수입니다. 공백, `changeme`, `replace-me`, `your-*`, `<...>`, `${...}` placeholder는 실제 key로 인정하지 않습니다.
+- TourAPI·TAGO·KMA의 `*_API_KEY`에는 공공데이터포털에서 제공하는 **decoded 원문 key**만 넣습니다. `%2B`, `%2F`, `%3D`처럼 이미 percent-encoded된 입력은 시작 시 거부합니다. 후속 query adapter는 typed credential 경계의 UTF-8 encoder를 사용해 `+`, `/`, `=`를 각각 `%2B`, `%2F`, `%3D`로 **정확히 한 번 percent-encoding**한 값을 `serviceKey` query에 조립해야 하며, 반환된 값을 다시 인코딩하면 안 됩니다.
+- `TMAP_API_KEY`는 URL query 값이 아니라 TMAP 인증 header 원문입니다. typed credential은 TMAP 값을 `headerValue()`로만 제공하고 query encoder 사용을 거부합니다. TMAP header 값에는 공공데이터 `serviceKey` percent-encoding 정책을 적용하지 않습니다.
 - 연결 timeout은 100ms 이상 10초 이하, 응답 timeout은 100ms 이상 30초 이하입니다. 기본값은 각각 2초와 5초입니다.
 - `local` 또는 `local-hs256` profile을 단독으로 사용할 때만 공식 allowlist URL의 HTTP를 허용합니다. 기본·`prod`·`production`·CI를 포함한 나머지 환경은 HTTPS만 허용합니다. local profile과 다른 profile을 함께 활성화하면 시작에 실패합니다.
 - Base URL은 user info, query, fragment, 임의 port와 provider 경계를 벗어난 host/path를 허용하지 않습니다.
@@ -35,7 +37,7 @@ Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 type
 ## 로컬 사용 순서
 
 1. 추적되지 않는 `.env`에 사용할 provider의 `*_ENABLED=true`를 설정합니다.
-2. 같은 provider의 `*_API_KEY`에 실제 발급값을 넣고, Base URL과 timeout은 `.env.example` 값을 복사합니다.
+2. 같은 provider의 `*_API_KEY`에 실제 발급값을 넣습니다. TourAPI·TAGO·KMA는 decoded 원문 key, TMAP은 header 원문을 사용하고 Base URL과 timeout은 `.env.example` 값을 복사합니다.
 3. `SPRING_PROFILES_ACTIVE=local`로 실행합니다.
 4. `/actuator/info`의 `externalApis`에서 활성 여부만 확인합니다. 이 응답에는 key, Base URL, timeout이 포함되지 않습니다.
 

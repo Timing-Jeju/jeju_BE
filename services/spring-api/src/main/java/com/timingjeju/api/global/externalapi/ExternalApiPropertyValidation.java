@@ -41,6 +41,7 @@ final class ExternalApiPropertyValidation {
       throw new IllegalArgumentException(
           provider.environmentName("API_KEY") + "는 실제 발급값으로 설정해야 합니다.");
     }
+    ExternalApiCredential.validateInput(provider, normalized);
   }
 
   private static boolean isPlaceholder(String value) {

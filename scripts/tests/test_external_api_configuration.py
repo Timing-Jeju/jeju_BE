@@ -27,6 +27,26 @@ class ExternalApiConfigurationTest(unittest.TestCase):
         self.assertNotIn("serviceKey", compose)
         self.assertNotIn("Authorization", compose)
 
+    def test_docs_fix_decoded_service_key_and_tmap_header_contract(self):
+        configuration = (ROOT / "docs" / "EXTERNAL_API_CONFIGURATION.md").read_text(
+            encoding="utf-8"
+        )
+        mapping = (ROOT / "docs" / "designs" / "timing-jeju-external-api-mapping.md").read_text(
+            encoding="utf-8"
+        )
+        env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+        for phrase in (
+            "decoded 원문 key",
+            "정확히 한 번 percent-encoding",
+            "TMAP_API_KEY",
+            "header 원문",
+        ):
+            self.assertIn(phrase, configuration)
+        self.assertIn("decoded 원문", env_example)
+        self.assertNotIn("<encoded-key>", mapping)
+        self.assertIn("<percent-encoded-decoded-service-key>", mapping)
+
 
 if __name__ == "__main__":
     unittest.main()

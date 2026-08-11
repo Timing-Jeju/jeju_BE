@@ -3,22 +3,43 @@ package com.timingjeju.api.global.externalapi;
 import java.net.URI;
 
 public enum ExternalApiProvider {
-  TOUR_API("TOUR_API", "tourApi", "apis.data.go.kr", "/B551011/KorService2"),
-  TAGO("TAGO", "tago", "apis.data.go.kr", "/1613000"),
-  TMAP("TMAP", "tmap", "apis.openapi.sk.com", ""),
-  KMA("KMA", "kma", "apis.data.go.kr", "/1360000/VilageFcstInfoService_2.0");
+  TOUR_API(
+      "TOUR_API",
+      "tourApi",
+      "apis.data.go.kr",
+      "/B551011/KorService2",
+      ExternalApiCredentialPlacement.QUERY_SERVICE_KEY),
+  TAGO(
+      "TAGO",
+      "tago",
+      "apis.data.go.kr",
+      "/1613000",
+      ExternalApiCredentialPlacement.QUERY_SERVICE_KEY),
+  TMAP("TMAP", "tmap", "apis.openapi.sk.com", "", ExternalApiCredentialPlacement.HEADER_API_KEY),
+  KMA(
+      "KMA",
+      "kma",
+      "apis.data.go.kr",
+      "/1360000/VilageFcstInfoService_2.0",
+      ExternalApiCredentialPlacement.QUERY_SERVICE_KEY);
 
   private final String environmentPrefix;
   private final String actuatorName;
   private final String allowedHost;
   private final String allowedBasePath;
+  private final ExternalApiCredentialPlacement credentialPlacement;
 
   ExternalApiProvider(
-      String environmentPrefix, String actuatorName, String allowedHost, String allowedBasePath) {
+      String environmentPrefix,
+      String actuatorName,
+      String allowedHost,
+      String allowedBasePath,
+      ExternalApiCredentialPlacement credentialPlacement) {
     this.environmentPrefix = environmentPrefix;
     this.actuatorName = actuatorName;
     this.allowedHost = allowedHost;
     this.allowedBasePath = allowedBasePath;
+    this.credentialPlacement = credentialPlacement;
   }
 
   String environmentName(String suffix) {
@@ -27,6 +48,10 @@ public enum ExternalApiProvider {
 
   String actuatorName() {
     return actuatorName;
+  }
+
+  public ExternalApiCredentialPlacement credentialPlacement() {
+    return credentialPlacement;
   }
 
   boolean allows(URI uri) {

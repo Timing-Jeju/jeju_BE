@@ -5,7 +5,7 @@ import java.time.Duration;
 
 public record ExternalApiClientSettings(
     ExternalApiProvider provider,
-    String apiKey,
+    ExternalApiCredential credential,
     URI baseUrl,
     Duration connectTimeout,
     Duration readTimeout) {
@@ -13,7 +13,7 @@ public record ExternalApiClientSettings(
   static ExternalApiClientSettings from(ExternalApiProviderProperties properties) {
     return new ExternalApiClientSettings(
         properties.provider(),
-        properties.apiKey(),
+        ExternalApiCredential.from(properties.provider(), properties.apiKey()),
         properties.baseUrl(),
         properties.connectTimeout(),
         properties.readTimeout());
@@ -23,7 +23,7 @@ public record ExternalApiClientSettings(
   public String toString() {
     return "ExternalApiClientSettings[provider="
         + provider
-        + ", apiKey=[REDACTED], baseUrl="
+        + ", credential=[REDACTED], baseUrl="
         + baseUrl
         + ", connectTimeout="
         + connectTimeout
