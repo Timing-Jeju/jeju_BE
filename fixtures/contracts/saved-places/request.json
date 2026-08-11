@@ -8,6 +8,8 @@
     },
     "query": {
       "tag": "동쪽",
+      "category": "tourist_attraction",
+      "regionCode": "seongsan",
       "sort": "saved_at_desc",
       "size": 20
     }

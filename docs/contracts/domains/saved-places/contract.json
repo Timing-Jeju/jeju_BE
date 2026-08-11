@@ -25,6 +25,17 @@
       "minLength": 1,
       "maxLength": 50
     },
+    "Category": {
+      "type": "string",
+      "nullable": false,
+      "pattern": "^[a-z][a-z0-9_]{0,49}$"
+    },
+    "RegionCode": {
+      "type": "string",
+      "nullable": false,
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "maxLength": 50
+    },
     "Tags": {
       "type": "array",
       "nullable": true,
@@ -55,6 +66,14 @@
       "properties": {
         "tag": {
           "$ref": "Tag",
+          "nullable": false
+        },
+        "category": {
+          "$ref": "Category",
+          "nullable": false
+        },
+        "regionCode": {
+          "$ref": "RegionCode",
           "nullable": false
         },
         "sort": {
@@ -183,6 +202,7 @@
         "category",
         "regionLabel",
         "thumbnailUrl",
+        "recommendedStayMinutes",
         "memo",
         "tags",
         "priority",
@@ -202,9 +222,8 @@
           "maxLength": 200
         },
         "category": {
-          "type": "string",
-          "nullable": false,
-          "pattern": "^[a-z][a-z0-9_]{0,49}$"
+          "$ref": "Category",
+          "nullable": false
         },
         "regionLabel": {
           "type": "string",
@@ -215,6 +234,11 @@
           "type": "string",
           "nullable": true,
           "format": "uri"
+        },
+        "recommendedStayMinutes": {
+          "type": "integer",
+          "nullable": true,
+          "minimum": 0
         },
         "memo": {
           "$ref": "Memo",
@@ -416,6 +440,18 @@
           "normalization": "trim+nfc",
           "match": "exact element membership"
         },
+        "category": {
+          "required": false,
+          "nullable": false,
+          "omitted": "all categories",
+          "match": "tour_places.category exact match"
+        },
+        "regionCode": {
+          "required": false,
+          "nullable": false,
+          "omitted": "all regions",
+          "match": "tour_places.region_code exact match"
+        },
         "sort": {
           "required": false,
           "nullable": false,
@@ -464,7 +500,7 @@
           "type": "https://api.timing-jeju.com/problems/invalid-cursor"
         },
         {
-          "condition": "cursor owner, tag, sort or size scope differs",
+          "condition": "cursor owner, tag, category, regionCode, sort or size scope differs",
           "status": 400,
           "code": "CURSOR_CONTEXT_MISMATCH",
           "type": "https://api.timing-jeju.com/problems/cursor-context-mismatch"
@@ -540,7 +576,7 @@
         "header": "Idempotency-Key",
         "scope": "canonicalSub + POST + /api/v1/me/saved-places",
         "ttl": "24h after terminal response",
-        "replay": "same key and canonical payload returns exact original status, headers and body",
+        "replay": "same key and canonical payload reuses original status, Location, ETag and body; only current Idempotency-Replayed is overridden to true",
         "payloadConflict": "same key and different canonical payload returns 409 IDEMPOTENCY_PAYLOAD_CONFLICT",
         "concurrentRequest": "same key and payload waits then replays; same owner/place with different keys resolves unique race deterministically"
       },
@@ -785,6 +821,8 @@
     "cursorScope": [
       "canonicalSub",
       "tag",
+      "category",
+      "regionCode",
       "sort",
       "size"
     ],
@@ -798,7 +836,7 @@
     "sameKeySamePayload": {
       "status": 201,
       "replayed": true,
-      "result": "exact original headers and body"
+      "result": "원본 status, Location, ETag, body를 재사용하고 현재 응답의 Idempotency-Replayed만 true로 덮음"
     },
     "sameKeyDifferentPayload": {
       "status": 409,

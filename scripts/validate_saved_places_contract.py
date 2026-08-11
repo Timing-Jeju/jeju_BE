@@ -39,8 +39,8 @@ CONTRACT_FIELDS = {
     "externalTraceability",
     "readiness",
 }
-CANONICAL_CONTRACT_SHA256 = "e442d2f04670d5977ea67c12d74befcffeeb471ff1bc8a3c8780ed5dca1e7fb8"
-CANONICAL_CATALOG_SHA256 = "ba79e708b1efc0ef504fa11b213f59d20ce831abe994719f227b82946c7b9fd5"
+CANONICAL_CONTRACT_SHA256 = "4eb04c872ee232cfc55fa1cf3096df0d2e9906012c457487ec7b701f7c546353"
+CANONICAL_CATALOG_SHA256 = "1282a8a890aacb8f7738f65e5b1044b1ca4c49791bb5fe2faf07e3c649369147"
 EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/me/saved-places"),
     ("POST", "/api/v1/me/saved-places"),
@@ -48,6 +48,21 @@ EXPECTED_ENDPOINT_IDENTITIES = [
     ("DELETE", "/api/v1/me/saved-places/{placeId}"),
 ]
 EXPECTED_PROBLEMS = {
+    "400_invalid_query_parameter": (
+        400,
+        "INVALID_QUERY_PARAMETER",
+        "https://api.timing-jeju.com/problems/invalid-query-parameter",
+    ),
+    "400_invalid_cursor": (
+        400,
+        "INVALID_CURSOR",
+        "https://api.timing-jeju.com/problems/invalid-cursor",
+    ),
+    "400_cursor_context_mismatch": (
+        400,
+        "CURSOR_CONTEXT_MISMATCH",
+        "https://api.timing-jeju.com/problems/cursor-context-mismatch",
+    ),
     "400_invalid_request": (
         400,
         "INVALID_REQUEST",
@@ -238,10 +253,28 @@ def _validate_request_fixture(
         if request.get("method") != method or request.get("path") != path:
             errors.append(f"{label}.{name} method/path가 canonical 계약과 다릅니다.")
         headers = request.get("headers")
-        if not isinstance(headers, dict) or headers.get("Authorization") != "Bearer <fixture-access-token>":
+        if (
+            not isinstance(headers, dict)
+            or headers.get("Authorization") != "Bearer <fixture-access-token>"
+        ):
             errors.append(f"{label}.{name} Authorization fixture가 정확하지 않습니다.")
 
+    expected_envelopes = {
+        "list": {"method", "path", "headers", "query"},
+        "create": {"method", "path", "headers", "body"},
+        "patch": {"method", "path", "pathParameters", "headers", "body"},
+        "delete": {"method", "path", "pathParameters", "headers"},
+    }
+    for name, expected_fields in expected_envelopes.items():
+        value = fixture.get(name)
+        if isinstance(value, dict) and set(value) != expected_fields:
+            errors.append(f"{label}.{name} HTTP envelope 필드가 정확하지 않습니다.")
+
     list_request = fixture.get("list", {})
+    if isinstance(list_request.get("headers"), dict) and set(
+        list_request["headers"]
+    ) != {"Authorization"}:
+        errors.append(f"{label}.list headers는 Authorization만 가져야 합니다.")
     _validate_value(
         list_request.get("query"), schemas.get("SavedPlacesListQuery"), schemas, f"{label}.list.query", errors
     )
@@ -278,6 +311,10 @@ def _validate_request_fixture(
     _validate_concrete_path_request(delete, schemas, f"{label}.delete", errors)
     if "body" in delete:
         errors.append(f"{label}.delete는 body를 가질 수 없습니다.")
+    if isinstance(delete.get("headers"), dict) and set(delete["headers"]) != {
+        "Authorization"
+    }:
+        errors.append(f"{label}.delete headers는 Authorization만 가져야 합니다.")
 
 
 def _validate_concrete_path_request(
@@ -307,12 +344,26 @@ def _validate_success_fixture(
     }:
         errors.append(f"{label} 최상위 구조가 정확하지 않습니다.")
         return
-    _validate_value(fixture.get("list"), schemas.get("SavedPlacesListResponse"), schemas, f"{label}.list", errors)
+    list_response = fixture.get("list")
+    if not isinstance(list_response, dict) or set(list_response) != {
+        "status",
+        "headers",
+        "body",
+    }:
+        errors.append(f"{label}.list HTTP envelope 필드가 정확하지 않습니다.")
+    else:
+        if list_response.get("status") != 200 or list_response.get("headers") != {
+            "Content-Type": "application/json"
+        }:
+            errors.append(f"{label}.list status/headers가 canonical 계약과 다릅니다.")
+        _validate_value(list_response.get("body"), schemas.get("SavedPlacesListResponse"), schemas, f"{label}.list.body", errors)
     for name in ("create", "patch"):
         response = fixture.get(name)
         if not isinstance(response, dict):
             errors.append(f"{label}.{name}은 object여야 합니다.")
             continue
+        if set(response) != {"status", "headers", "body"}:
+            errors.append(f"{label}.{name} HTTP envelope 필드가 정확하지 않습니다.")
         _validate_value(response.get("body"), schemas.get("SavedPlace"), schemas, f"{label}.{name}.body", errors)
     create = fixture.get("create", {})
     if create.get("status") != 201 or create.get("headers") != {
@@ -330,13 +381,29 @@ def _validate_success_fixture(
         }
         if response != {"status": status, "headers": expected_headers, "bodyRef": "create.body"}:
             errors.append(f"{label}.{name} replay 계약이 정확하지 않습니다.")
+    replay = fixture.get("createReplay", {})
+    if isinstance(create, dict) and isinstance(replay, dict):
+        original_headers = create.get("headers")
+        replay_headers = replay.get("headers")
+        if isinstance(original_headers, dict) and isinstance(replay_headers, dict):
+            expected_replay_headers = dict(original_headers)
+            expected_replay_headers["Idempotency-Replayed"] = "true"
+            if (
+                replay.get("status") != create.get("status")
+                or replay_headers != expected_replay_headers
+                or replay.get("bodyRef") != "create.body"
+            ):
+                errors.append(
+                    f"{label}.createReplay는 원본 status/Location/ETag/body를 "
+                    "재사용하고 replay header만 바꿔야 합니다."
+                )
     patch = fixture.get("patch", {})
     if patch.get("status") != 200 or patch.get("headers") != {"ETag": '"saved-place-fixture-v2"'}:
         errors.append(f"{label}.patch status/ETag가 정확하지 않습니다.")
-    if fixture.get("delete") != {"status": 204, "body": None}:
-        errors.append(f"{label}.delete는 204와 null body여야 합니다.")
+    if fixture.get("delete") != {"status": 204, "headers": {}, "body": None}:
+        errors.append(f"{label}.delete는 빈 headers, 204와 null body여야 합니다.")
 
-    list_value = fixture.get("list")
+    list_value = list_response.get("body") if isinstance(list_response, dict) else None
     if isinstance(list_value, dict):
         _validate_cursor_semantic(list_value.get("page"), errors)
         for index, item in enumerate(list_value.get("items", [])):
@@ -537,7 +604,12 @@ def _validate_string_format(
 def _parse_datetime(value: Any) -> datetime:
     if not isinstance(value, str):
         raise ValueError("string 아님")
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})",
+        value,
+    ) is None:
+        raise ValueError("RFC 3339 lexical profile 아님")
+    parsed = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("timezone 없음")
     return parsed

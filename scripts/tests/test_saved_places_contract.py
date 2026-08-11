@@ -96,12 +96,42 @@ class SavedPlacesContractTest(unittest.TestCase):
         self.assertEqual(20, pagination["size"]["default"])
         self.assertEqual(100, pagination["size"]["maximum"])
         self.assertEqual(
-            ["canonicalSub", "tag", "sort", "size"], pagination["cursorScope"]
+            ["canonicalSub", "tag", "category", "regionCode", "sort", "size"],
+            pagination["cursorScope"],
         )
         self.assertEqual("placeId ASC", pagination["tieBreaker"])
         self.assertEqual(
             ["saved_at DESC", "place_id ASC"],
             pagination["sorts"]["saved_at_desc"],
+        )
+
+    def test_contract_fixates_projection_category_and_region_code_filters(self) -> None:
+        contract = self._load_json(CONTRACT)
+        schemas = contract["schemas"]
+        saved_place = schemas["SavedPlace"]
+        query = schemas["SavedPlacesListQuery"]
+        list_endpoint = contract["endpoints"][0]
+
+        self.assertIn("recommendedStayMinutes", saved_place["required"])
+        self.assertEqual(
+            {
+                "type": "integer",
+                "nullable": True,
+                "minimum": 0,
+            },
+            saved_place["properties"]["recommendedStayMinutes"],
+        )
+        self.assertEqual(
+            {"$ref": "Category", "nullable": False},
+            query["properties"]["category"],
+        )
+        self.assertEqual(
+            {"$ref": "RegionCode", "nullable": False},
+            query["properties"]["regionCode"],
+        )
+        self.assertEqual(
+            "tour_places.region_code exact match",
+            list_endpoint["query"]["regionCode"]["match"],
         )
 
     def test_contract_fixates_notion_and_figma_drift_without_false_readiness(self) -> None:
@@ -165,6 +195,18 @@ class SavedPlacesContractTest(unittest.TestCase):
             "response required field": lambda value: value["schemas"]["SavedPlace"][
                 "required"
             ].remove("updatedAt"),
+            "recommended stay required field": lambda value: value["schemas"][
+                "SavedPlace"
+            ]["required"].remove("recommendedStayMinutes"),
+            "category list filter": lambda value: value["schemas"][
+                "SavedPlacesListQuery"
+            ]["properties"].pop("category"),
+            "region code list filter": lambda value: value["schemas"][
+                "SavedPlacesListQuery"
+            ]["properties"].pop("regionCode"),
+            "region cursor scope": lambda value: value["pagination"][
+                "cursorScope"
+            ].remove("regionCode"),
             "object additionalProperties": lambda value: value["schemas"][
                 "SavedPlace"
             ].update({"additionalProperties": True}),
@@ -261,19 +303,22 @@ class SavedPlacesContractTest(unittest.TestCase):
 
     def test_success_fixture_is_recursively_validated(self) -> None:
         mutations = {
-            "unknown property": lambda value: value["list"]["items"][0].update(
+            "unknown property": lambda value: value["list"]["body"]["items"][0].update(
                 {"token": "secret"}
             ),
-            "invalid uri": lambda value: value["list"]["items"][0].update(
+            "missing recommended stay": lambda value: value["list"]["body"][
+                "items"
+            ][0].pop("recommendedStayMinutes"),
+            "invalid uri": lambda value: value["list"]["body"]["items"][0].update(
                 {"thumbnailUrl": "https://example.com/%ZZ"}
             ),
-            "invalid date-time": lambda value: value["list"]["items"][0].update(
+            "invalid date-time": lambda value: value["list"]["body"]["items"][0].update(
                 {"updatedAt": "2026-08-11T12:00:00"}
             ),
-            "wrong integer type": lambda value: value["list"]["items"][0].update(
+            "wrong integer type": lambda value: value["list"]["body"]["items"][0].update(
                 {"priority": True}
             ),
-            "duplicate tag": lambda value: value["list"]["items"][0].update(
+            "duplicate tag": lambda value: value["list"]["body"]["items"][0].update(
                 {"tags": ["동쪽", "동쪽"]}
             ),
         }
@@ -291,13 +336,13 @@ class SavedPlacesContractTest(unittest.TestCase):
 
     def test_success_fixture_enforces_time_and_cursor_cross_field_invariants(self) -> None:
         mutations = {
-            "updated before saved": lambda value: value["list"]["items"][0].update(
+            "updated before saved": lambda value: value["list"]["body"]["items"][0].update(
                 {"updatedAt": "2026-08-03T08:39:59+09:00"}
             ),
-            "hasNext without cursor": lambda value: value["list"]["page"].update(
+            "hasNext without cursor": lambda value: value["list"]["body"]["page"].update(
                 {"hasNext": True, "nextCursor": None}
             ),
-            "terminal page with cursor": lambda value: value["list"]["page"].update(
+            "terminal page with cursor": lambda value: value["list"]["body"]["page"].update(
                 {"hasNext": False, "nextCursor": "opaque-next"}
             ),
         }
@@ -312,6 +357,40 @@ class SavedPlacesContractTest(unittest.TestCase):
 
             self.assertNotEqual(0, result.returncode)
             self.assertIn("semantic", result.stdout)
+
+    def test_datetime_requires_the_rfc3339_lexical_profile(self) -> None:
+        invalid_values = (
+            "2026-08-03 08:40:00+09:00",
+            "20260803T084000+0900",
+            "2026-08-03T08:40:00+09:00:30",
+            "2026-08-03T08:40:00",
+            "2026-02-30T08:40:00+09:00",
+        )
+        for invalid in invalid_values:
+            with self.subTest(value=invalid), self._temporary_repository() as root:
+                fixture = root / "fixtures" / "contracts" / "saved-places" / "success.json"
+                value = self._load_json(fixture)
+                value["list"]["body"]["items"][0]["updatedAt"] = invalid
+                self._write_json(fixture, value)
+
+                result = self._run_validator(root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("date-time", result.stdout)
+
+    def test_datetime_accepts_rfc3339_z_and_minute_offset(self) -> None:
+        for valid in ("2026-08-03T00:00:00Z", "2026-08-03T09:00:00+09:00"):
+            with self.subTest(value=valid), self._temporary_repository() as root:
+                fixture = root / "fixtures" / "contracts" / "saved-places" / "success.json"
+                value = self._load_json(fixture)
+                item = value["list"]["body"]["items"][0]
+                item["savedAt"] = valid
+                item["updatedAt"] = valid
+                self._write_json(fixture, value)
+
+                result = self._run_validator(root)
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_problem_fixture_status_code_and_type_are_exact(self) -> None:
         mutations = {
@@ -359,6 +438,70 @@ class SavedPlacesContractTest(unittest.TestCase):
 
             self.assertNotEqual(0, result.returncode)
             self.assertIn("request fixture", result.stdout)
+
+    def test_request_http_envelopes_are_closed_per_endpoint(self) -> None:
+        mutations = {
+            "GET body": lambda value: value["list"].update({"body": {}}),
+            "GET path parameters": lambda value: value["list"].update(
+                {"pathParameters": {}}
+            ),
+            "POST query": lambda value: value["create"].update({"query": {}}),
+            "POST unknown header": lambda value: value["create"]["headers"].update(
+                {"X-Debug": "true"}
+            ),
+            "PATCH query": lambda value: value["patch"].update({"query": {}}),
+            "DELETE query": lambda value: value["delete"].update({"query": {}}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), self._temporary_repository() as root:
+                fixture = root / "fixtures" / "contracts" / "saved-places" / "request.json"
+                value = self._load_json(fixture)
+                mutate(value)
+                self._write_json(fixture, value)
+
+                result = self._run_validator(root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("request fixture", result.stdout)
+
+    def test_success_http_envelopes_are_closed_per_endpoint(self) -> None:
+        mutations = {
+            "GET token": lambda value: value["list"].update({"token": "secret"}),
+            "create token": lambda value: value["create"].update({"token": "secret"}),
+            "patch token": lambda value: value["patch"].update({"token": "secret"}),
+            "delete header": lambda value: value["delete"]["headers"].update(
+                {"X-Debug": "true"}
+            ),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), self._temporary_repository() as root:
+                fixture = root / "fixtures" / "contracts" / "saved-places" / "success.json"
+                value = self._load_json(fixture)
+                mutate(value)
+                self._write_json(fixture, value)
+
+                result = self._run_validator(root)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("success fixture", result.stdout)
+
+    def test_idempotency_replay_reuses_original_response_except_replay_header(self) -> None:
+        contract = self._load_json(CONTRACT)
+        fixture = self._load_json(FIXTURE_ROOT / "success.json")
+        semantics = contract["createSemantics"]["sameKeySamePayload"]
+        original = fixture["create"]
+        replay = fixture["createReplay"]
+
+        self.assertEqual(
+            "원본 status, Location, ETag, body를 재사용하고 현재 응답의 Idempotency-Replayed만 true로 덮음",
+            semantics["result"],
+        )
+        self.assertEqual(original["status"], replay["status"])
+        self.assertEqual(original["headers"]["Location"], replay["headers"]["Location"])
+        self.assertEqual(original["headers"]["ETag"], replay["headers"]["ETag"])
+        self.assertEqual("false", original["headers"]["Idempotency-Replayed"])
+        self.assertEqual("true", replay["headers"]["Idempotency-Replayed"])
+        self.assertEqual("create.body", replay["bodyRef"])
 
     def test_korean_contract_documents_the_schema_drift_without_migration(self) -> None:
         document = (

@@ -14,18 +14,20 @@ Issue #84가 확정하는 Spring 공개 API 계약입니다. machine 기준은 �
 
 | Method | Path | 성공 | 인증 | 핵심 |
 | --- | --- | --- | --- | --- |
-| GET | `/api/v1/me/saved-places` | 200 | Required | owner 목록, tag/sort/cursor/size |
+| GET | `/api/v1/me/saved-places` | 200 | Required | owner 목록, tag/category/regionCode/sort/cursor/size |
 | POST | `/api/v1/me/saved-places` | 201 또는 중복 동일 상태 200 | Required | `Idempotency-Key` 필수 |
 | PATCH | `/api/v1/me/saved-places/{placeId}` | 200 | Required | `If-Match` 필수, 부분 변경 |
 | DELETE | `/api/v1/me/saved-places/{placeId}` | 204 | Required | 반복·타 사용자 모두 404 |
 
 `placeId`는 소문자 canonical UUID입니다. 목록 외 endpoint는 query를 받지 않습니다. DELETE는 request·response body가 없습니다.
 
-## 목록 cursor·정렬·tag
+## 목록 cursor·정렬·필터
 
-`tag`, `sort`, `cursor`, `size`는 optional이지만 입력하면 null일 수 없습니다.
+`tag`, `category`, `regionCode`, `sort`, `cursor`, `size`는 optional이지만 입력하면 null일 수 없습니다.
 
 - `tag`: trim+Unicode NFC 후 1~50자이며 배열 원소 exact membership으로 필터합니다.
+- `category`: 소문자 snake case이며 `tour_places.category`와 exact match합니다.
+- `regionCode`: 소문자 kebab case의 안정 식별자이며 `tour_places.region_code`와 exact match합니다. 화면 표시용 `regionLabel`을 식별자로 사용하지 않습니다.
 - `sort`: `saved_at_desc`(기본), `priority_desc`, `target_day_asc`만 허용합니다.
 - `cursor`: 1~2048자의 opaque 값입니다. 내부 구현·offset을 노출하지 않습니다.
 - `size`: 기본 20, 1~100입니다.
@@ -36,7 +38,7 @@ Issue #84가 확정하는 Spring 공개 API 계약입니다. machine 기준은 �
 2. `priority_desc`: `priority DESC, saved_at DESC, place_id ASC`
 3. `target_day_asc`: `target_day ASC NULLS LAST, saved_at DESC, place_id ASC`
 
-cursor scope는 canonical `sub`, 정규화한 `tag`, `sort`, `size`입니다. 발급 뒤 하나라도 바뀌면 `400 CURSOR_CONTEXT_MISMATCH`, decode·서명·형식이 잘못되면 `400 INVALID_CURSOR`입니다. `hasNext=true`일 때만 `nextCursor`가 non-null이고 `hasNext=false`이면 반드시 null입니다.
+cursor scope는 canonical `sub`, 정규화한 `tag`, `category`, `regionCode`, `sort`, `size`입니다. 발급 뒤 하나라도 바뀌면 `400 CURSOR_CONTEXT_MISMATCH`, decode·서명·형식이 잘못되면 `400 INVALID_CURSOR`입니다. `hasNext=true`일 때만 `nextCursor`가 non-null이고 `hasNext=false`이면 반드시 null입니다.
 
 ## 저장 생성과 멱등성
 
@@ -54,7 +56,7 @@ POST body에서 `placeId`만 required/non-null입니다.
 `Idempotency-Key`는 `[A-Za-z0-9._:-]{1,128}`이고 scope는 `canonicalSub + POST + canonical path`, terminal TTL은 24시간입니다.
 
 - 최초 생성: 201, `Idempotency-Replayed: false`, `Location`, strong `ETag`.
-- 같은 key+canonical payload: 최초의 status/header/body를 정확히 replay합니다. 이 계약에서는 201과 `Idempotency-Replayed: true`입니다.
+- 같은 key+canonical payload: 원본 status, `Location`, `ETag`, body를 그대로 재사용하고 현재 응답의 `Idempotency-Replayed`만 `true`로 덮습니다.
 - 같은 key+다른 payload: `409 IDEMPOTENCY_PAYLOAD_CONFLICT`.
 - 다른 key지만 같은 owner/place와 현재 payload까지 동일: 200 current resource, replay=true.
 - 다른 key와 다른 payload: `409 SAVED_PLACE_ALREADY_EXISTS`; 현재 ETag를 읽고 PATCH해야 합니다.
@@ -81,12 +83,13 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 
 ## 성공 응답
 
-`SavedPlace`는 아래 11개 필드를 항상 포함하는 closed object입니다.
+`SavedPlace`는 아래 12개 필드를 항상 포함하는 closed object입니다.
 
 - required/non-null: `placeId`, `name`, `category`, `tags`, `priority`, `savedAt`, `updatedAt`
-- required/nullable: `regionLabel`, `thumbnailUrl`, `memo`, `targetDay`
+- required/nullable: `recommendedStayMinutes`, `regionLabel`, `thumbnailUrl`, `memo`, `targetDay`
+- `recommendedStayMinutes`는 `tour_places.recommended_stay_minutes`의 nullable 정수 projection이며 값이 있으면 0 이상입니다.
 - `thumbnailUrl`은 값이 있으면 absolute HTTPS URI입니다.
-- 시각은 timezone을 포함한 RFC 3339 date-time입니다.
+- 시각은 `T` 구분자와 `Z` 또는 `±HH:MM` timezone을 포함한 엄격한 RFC 3339 date-time입니다. 공백 구분, compact 표기, offset 초, timezone 생략은 허용하지 않습니다.
 
 목록은 `items`와 `page={size,hasNext,nextCursor}`를 반환합니다. 알 수 없는 property, JSON duplicate key, `NaN`/`Infinity`, boolean을 integer로 사용한 값, 잘못된 URI/date-time/UUID는 계약 검사에서 거부합니다.
 
@@ -138,6 +141,8 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 - DELETE: `3a40a87c-7ce5-81c2-a950-f026488e013c`
 
 각 페이지의 최신 섹션에 이 문서의 endpoint별 query/header/body/presence/status/problem/owner/concurrency 계약, `canonical contractVersion=1.0.0`, `sourceSpecVersion=v1.1`, 구현 owner `#34`가 반영된 것을 재조회했습니다. Notion의 `Contract Version` 속성은 데이터베이스 선택지 제약에 따라 source spec `v1.1`을 유지합니다. 다만 Issue #34 구현과 실제 example 검증, Figma 상태 근거가 끝나기 전 catalog version은 `not-linked`이고 readiness는 `not-ready`입니다.
+
+Reviewer 보완에서 `recommendedStayMinutes`, `category`·`regionCode` 필터, cursor scope와 replay 예외를 canonical 섹션에 추가했습니다. PM이 Issue #34의 구현 범위를 같은 계약으로 동기화했으며 Developer는 다른 Issue를 수정하지 않았습니다.
 
 ## 검증
 

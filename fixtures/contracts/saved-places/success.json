@@ -1,10 +1,16 @@
 {
   "list": {
-    "items": [
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "items": [
       {
         "placeId": "20000000-0000-0000-0000-000000000003",
         "name": "성산일출봉",
         "category": "tourist_attraction",
+        "recommendedStayMinutes": 60,
         "regionLabel": "성산",
         "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
         "memo": "오전에 방문",
@@ -17,11 +23,12 @@
         "savedAt": "2026-08-03T08:40:00+09:00",
         "updatedAt": "2026-08-03T08:40:00+09:00"
       }
-    ],
-    "page": {
-      "size": 20,
-      "hasNext": false,
-      "nextCursor": null
+      ],
+      "page": {
+        "size": 20,
+        "hasNext": false,
+        "nextCursor": null
+      }
     }
   },
   "create": {
@@ -35,6 +42,7 @@
       "placeId": "20000000-0000-0000-0000-000000000003",
       "name": "성산일출봉",
       "category": "tourist_attraction",
+      "recommendedStayMinutes": 60,
       "regionLabel": "성산",
       "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
       "memo": "날씨가 좋으면 방문",
@@ -75,6 +83,7 @@
       "placeId": "20000000-0000-0000-0000-000000000003",
       "name": "성산일출봉",
       "category": "tourist_attraction",
+      "recommendedStayMinutes": 60,
       "regionLabel": "성산",
       "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
       "memo": null,
@@ -89,6 +98,7 @@
   },
   "delete": {
     "status": 204,
+    "headers": {},
     "body": null
   }
 }
