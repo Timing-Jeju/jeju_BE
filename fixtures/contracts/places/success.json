@@ -61,7 +61,9 @@
     },
     "operations": {
       "operatingHoursText": "07:30~20:00",
-      "closedDaysText": "기상 악화 시 통제"
+      "closedDaysText": "기상 악화 시 통제",
+      "parkingText": "주차 가능",
+      "admissionFeeText": "성인 5,000원"
     },
     "images": [
       {

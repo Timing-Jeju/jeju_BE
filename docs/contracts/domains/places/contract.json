@@ -112,10 +112,12 @@
     "Operations": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["operatingHoursText", "closedDaysText"],
+      "required": ["operatingHoursText", "closedDaysText", "parkingText", "admissionFeeText"],
       "properties": {
         "operatingHoursText": {"type": "string", "nullable": true, "maxLength": 2000},
-        "closedDaysText": {"type": "string", "nullable": true, "maxLength": 2000}
+        "closedDaysText": {"type": "string", "nullable": true, "maxLength": 2000},
+        "parkingText": {"type": "string", "nullable": true, "maxLength": 2000},
+        "admissionFeeText": {"type": "string", "nullable": true, "maxLength": 2000}
       }
     },
     "PlaceImage": {

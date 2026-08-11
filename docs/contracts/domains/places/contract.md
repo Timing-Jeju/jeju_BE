@@ -15,7 +15,7 @@ Controller·Service·Repository·OpenAPI 구현 소유자는 #66이고 이 문�
 
 Figma의 지도 검색·카테고리·내 근처 화면은 목록 API를 소비합니다. 장소 카드 loading은 skeleton, 결과 없음은 “조건에 맞는 장소가 없습니다”, 오류는 재시도 가능한 한국어 Problem Details 안내로 처리합니다. 상세·이미지·이용정보·주변 정류장 화면은 상세 API를 소비합니다. 정류장이 없어도 장소 상세을 유지하고 `nearbyStops: []`만 표시합니다.
 
-PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 정정했습니다. Developer는 수정 후 두 페이지를 읽기 전용으로 다시 조회해 `Draft`를 확인했습니다. 로컬 catalog는 문서·예시만 ready이고 #66 구현 증거 전까지 implementation은 `not-ready`입니다.
+PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 정정했습니다. Developer는 수정 후 두 페이지를 읽기 전용으로 다시 조회해 `Draft`를 확인했습니다. 로컬 canonical contract version은 `1.0.0`이고 Notion 문서의 source spec revision은 `v1.1`이므로 동일한 버전 증거로 간주하지 않습니다. Figma에도 정확한 API contract version 표기가 없습니다. 따라서 catalog의 Notion·Figma version은 `not-linked`이며, 외부 정렬 증거를 확보하기 전 metadata·example·implementation readiness는 모두 `not-ready`입니다.
 
 ## 공통 인증과 개인화 shape
 
@@ -67,6 +67,7 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 - `recommendedStayMinutes`: TourAPI 원천이 아니라 Timing Jeju curated 값입니다.
 - `thumbnailUrl`: `images`의 가장 앞선 display order thumbnail과 같거나 둘 다 null입니다.
 - `operationsSummary`: 같은 snapshot의 `operations`에서 파생하며 source가 없으면 null입니다.
+- `operations`: `operatingHoursText`, `closedDaysText`, `parkingText`, `admissionFeeText` 네 필드를 모두 포함하는 닫힌 객체입니다. 각 필드는 required이지만 원천 값이 없으면 null입니다.
 - `images`, `operations`는 TourAPI 정규화 read model만 사용합니다.
 
 ## 닫힌 request·success·problem schema
@@ -81,11 +82,11 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
 | `PlaceListItem` | 목록 item | 목록 16개 필드와 `dataFreshness` required, 값별 nullable만 허용 |
 | `CursorPage` | page | `size`, `hasNext`, `nextCursor` required; `nextCursor`만 nullable |
 | `PlaceDetailResponse` | 상세 성공 | 공통·saved·overview·contact·operations·images·nearbyStops required |
-| `Location`, `Contact`, `Operations` | 중첩 값 | 각 properties/required/nullability 고정 |
+| `Location`, `Contact`, `Operations` | 중첩 값 | 각 properties/required/nullability 고정. Operations는 운영시간·휴무일·주차·입장료 4개 required/nullable 문자열 |
 | `PlaceImage`, `NearbyStop` | 중첩 배열 item | 닫힌 item, 타입·시각 format·enum·범위 고정 |
 | `ProblemDetails`, `FieldError` | 오류 | RFC 9457 필드와 code/type/status 대응을 고정 |
 
-목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다.
+목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다. canonical schema 전체 제약을 고정하고, freshness 객체의 `expiresAt`이 null이 아니면 `observedAt`보다 빠르지 않은지도 검사합니다.
 
 ## 필드 소유권과 freshness
 

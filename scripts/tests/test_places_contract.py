@@ -193,6 +193,90 @@ class PlacesContractTest(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assert_rejected(mutate, expected)
 
+    def test_rejects_canonical_schema_constraint_weakening(self):
+        mutations = (
+            (
+                lambda contract: contract["schemas"]["PlacesListRequest"]["properties"][
+                    "lat"
+                ].update(maximum=900),
+                "PlacesListRequest",
+            ),
+            (
+                lambda contract: contract["schemas"]["PlacesListRequest"]["properties"][
+                    "size"
+                ].update(minimum=-100),
+                "PlacesListRequest",
+            ),
+            (
+                lambda contract: contract["schemas"]["DataFreshness"]["properties"][
+                    "provider"
+                ]["enum"].append("ARBITRARY"),
+                "DataFreshness",
+            ),
+            (
+                lambda contract: contract["schemas"]["NearbyStop"]["properties"][
+                    "distanceMeters"
+                ].pop("minimum"),
+                "NearbyStop",
+            ),
+            (
+                lambda contract: contract["schemas"]["ProblemDetails"]["properties"][
+                    "status"
+                ]["enum"].append(500),
+                "ProblemDetails",
+            ),
+            (
+                lambda contract: contract["schemas"]["NearbyStop"]["properties"][
+                    "expiresAt"
+                ].update(format="uri"),
+                "NearbyStop",
+            ),
+        )
+        for mutate, expected in mutations:
+            with self.subTest(expected=expected):
+                self.assert_rejected(mutate, expected)
+
+    def test_rejects_expires_at_before_observed_at(self):
+        self.assert_fixture_rejected(
+            "success",
+            lambda fixture: fixture["detail"]["nearbyStops"][0].update(
+                expiresAt="2026-08-02T09:00:00+09:00"
+            ),
+            "observedAt",
+        )
+
+    def test_operations_schema_fixture_and_api_spec_have_four_required_fields(self):
+        expected = {
+            "operatingHoursText",
+            "closedDaysText",
+            "parkingText",
+            "admissionFeeText",
+        }
+        contract = self.contract()
+        success = json.loads(
+            (ROOT / "fixtures/contracts/places/success.json").read_text(encoding="utf-8")
+        )
+        api_spec = (
+            ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(expected, set(contract["schemas"]["Operations"]["required"]))
+        self.assertEqual(expected, set(success["detail"]["operations"]))
+        self.assertTrue(all(f'"{field}"' in api_spec for field in expected))
+
+    def test_external_version_drift_keeps_catalog_metadata_and_example_not_ready(self):
+        catalog = json.loads(
+            (ROOT / "docs/contracts/rest/catalog.json").read_text(encoding="utf-8")
+        )
+        places = next(item for item in catalog["domainContracts"] if item["issue"] == 83)
+
+        self.assertEqual("1.0.0", places["versions"]["local"])
+        self.assertEqual("not-linked", places["versions"]["notion"])
+        self.assertEqual("not-linked", places["versions"]["figma"])
+        self.assertEqual("not-ready", places["readiness"]["metadata"]["status"])
+        self.assertEqual("not-ready", places["readiness"]["example"]["status"])
+        self.assertEqual("not-ready", places["readiness"]["implementation"]["status"])
+
     def test_rejects_endpoint_identity_or_common_contract_drift(self):
         mutations = (
             (lambda c: c["endpoints"].pop(), "두 endpoint"),

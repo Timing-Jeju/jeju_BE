@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+import hashlib
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -90,7 +91,9 @@ EXPECTED_SCHEMA_REQUIRED = {
     "PlacesListResponse": {"items", "page"},
     "SavedPlaceState": {"value", "memo", "tags"},
     "Contact": {"phone", "homepageUrl"},
-    "Operations": {"operatingHoursText", "closedDaysText"},
+    "Operations": {
+        "operatingHoursText", "closedDaysText", "parkingText", "admissionFeeText"
+    },
     "PlaceImage": {"url", "thumbnailUrl", "provider", "observedAt", "expiresAt", "stale"},
     "NearbyStop": set(EXPECTED_NEARBY_FIELDS),
     "PlaceDetailResponse": {
@@ -107,6 +110,23 @@ EXPECTED_SCHEMA_PROPERTIES = {
     "PlacesListRequest": {
         "query", "category", "regionCode", "lat", "lng", "radiusMeters", "cursor", "size"
     },
+}
+EXPECTED_SCHEMA_DIGESTS = {
+    "PlacesListRequest": "6c0282cd1982e4abba7154c49bd5f43b1076a697afcf7ad812b3f5d30aba868a",
+    "PlaceDetailPath": "2c80be1c2604a34033256df7c54f900caf2e8d11bc80a67827bf8dc4ce44aa22",
+    "Location": "5d545fbf900382f1c8259038886baf3925845243a8ac6de18165a25afaabc38a",
+    "DataFreshness": "132bfa40d554d4cd63bc3e5ad57af66881f61946c97f4505af5bf022d7832321",
+    "PlaceListItem": "656662a870917f1c5a938a6ae834d2fbbc1e690353f9d77178fde6c04085ea45",
+    "CursorPage": "86db2725e30ba15baae804f4844b8e3aea6650ba0f029a03c5151e20f2b91efb",
+    "PlacesListResponse": "a26ed8eb8b7fd70d23df5be2357cbbcfd3d5318342e7714f9854eed20b0a55b7",
+    "SavedPlaceState": "fa15ccc8bd4177995c3525ed02a6d08914ac810f984ec57e686bd467874d116b",
+    "Contact": "2d104f8a15a51760ce2477b044d96deffbf9fb9e0a23aa2fc8a2b5178abc7735",
+    "Operations": "4f32334aba9cd22586cfad076e7fef6005bbae089436dbb286523a6c0d844960",
+    "PlaceImage": "f414a74fac5626c9c8f68e6a4629c6c97980be973e3f017c09c2b69cd25c102e",
+    "NearbyStop": "e25fbd42367a7feca16d141112df511633190aebcff900b5a95631b441e71049",
+    "PlaceDetailResponse": "07bef1fee73f8052b7a4818f78888152283f272e0c92c9e02ae210f71ff16e39",
+    "FieldError": "5fb09356a2a56dfab89fa6a47fa5eb2498bfb4faa42f567810b4430cd301fddc",
+    "ProblemDetails": "c25c20be66d088f93b5b196c0e4a4dd16c3f90593b9045d425a24240a86903ac",
 }
 EXPECTED_ENDPOINT_PROBLEMS = {
     "/api/v1/places": {
@@ -326,6 +346,34 @@ def _validate_schemas(contract: dict[str, Any], errors: list[str]) -> None:
                 f"{name}.{property_name}: type/ref와 nullability가 명시돼야 합니다.",
                 errors,
             )
+        digest = hashlib.sha256(
+            json.dumps(schema, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        _expect(
+            digest == EXPECTED_SCHEMA_DIGESTS[name],
+            f"{name}: canonical type/ref/nullability/format/range/pattern/enum/array/dependency 제약이 다릅니다.",
+            errors,
+        )
+
+
+def _validate_temporal_order(value: Any, path: str, errors: list[str]) -> None:
+    if isinstance(value, dict):
+        observed_at = value.get("observedAt")
+        expires_at = value.get("expiresAt")
+        if isinstance(observed_at, str) and isinstance(expires_at, str):
+            try:
+                observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+                expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+            else:
+                if observed.tzinfo is not None and expires.tzinfo is not None and observed > expires:
+                    errors.append(f"{path}: observedAt은 expiresAt보다 늦을 수 없습니다.")
+        for key, child in value.items():
+            _validate_temporal_order(child, f"{path}.{key}", errors)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _validate_temporal_order(child, f"{path}[{index}]", errors)
 
 
 def _endpoint_problem_tuples(endpoint: dict[str, Any]) -> set[tuple[int, str, str]]:
@@ -736,16 +784,38 @@ def _validate_catalog_alignment(errors: list[str], repo_root: Path) -> None:
     )
     readiness = places_domain.get("readiness", {})
     metadata = readiness.get("metadata", {})
-    evidence = metadata.get("evidence", {})
     _expect(
         places_domain.get("versions")
-        == {"local": "1.0.0", "notion": "1.0.0", "figma": "1.0.0"}
-        and metadata.get("status") == "ready"
-        and evidence.get("notionPage", {}).get("pageId")
-        == "3a40a87c-7ce5-8107-98bf-fdb79281852b"
-        and readiness.get("example", {}).get("status") == "ready"
+        == {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}
+        and metadata == {"status": "not-ready", "evidence": None}
+        and readiness.get("example") == {"status": "not-ready", "evidence": None}
         and readiness.get("implementation") == {"status": "not-ready", "evidence": None},
-        "local metadata/example ready·#66 implementation not-ready가 catalog와 다릅니다.",
+        "external version 미정렬 시 metadata/example/implementation은 모두 not-ready여야 합니다.",
+        errors,
+    )
+
+
+def _validate_api_spec_alignment(errors: list[str], repo_root: Path) -> None:
+    api_spec_path = repo_root / "docs/designs/timing-jeju-backend-rdb-api-spec.md"
+    try:
+        api_spec = api_spec_path.read_text(encoding="utf-8")
+    except OSError:
+        errors.append("장소 상세 operations를 비교할 Spring REST API 명세가 없습니다.")
+        return
+    operations_match = re.search(
+        r'"operations"\s*:\s*\{(?P<body>.*?)\n\s*\},\s*\n\s*"images"',
+        api_spec,
+        re.DOTALL,
+    )
+    operation_fields = (
+        set(re.findall(r'^\s*"([^"]+)"\s*:', operations_match.group("body"), re.MULTILINE))
+        if operations_match is not None
+        else set()
+    )
+    _expect(
+        operation_fields
+        == {"operatingHoursText", "closedDaysText", "parkingText", "admissionFeeText"},
+        "Spring REST API 명세의 operations 4개 필드가 canonical schema와 다릅니다.",
         errors,
     )
 
@@ -843,6 +913,7 @@ def _validate_fixtures(
         "success.detail",
         errors,
     )
+    _validate_temporal_order(success, "success", errors)
     problem_fixture = loaded["problem"]
     _expect(
         isinstance(problem_fixture, dict)
@@ -895,6 +966,7 @@ def validate_contract(contract: Any, repo_root: Path = ROOT) -> list[str]:
     _validate_errors(contract, errors)
     _validate_traceability(contract, errors, repo_root)
     _validate_catalog_alignment(errors, repo_root)
+    _validate_api_spec_alignment(errors, repo_root)
     _validate_fixtures(contract, errors, repo_root)
     return errors
 
