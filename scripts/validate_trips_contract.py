@@ -34,7 +34,7 @@ STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
 CANONICAL_CONTRACT_SHA256 = "e958d80ad916110cf00ed0619af1afc38a3a59ec2b15227ce405fe3daecffcb0"
-CANONICAL_CATALOG_SHA256 = "5566971d9898ba7abbc1aebb858468a558878781a88dde251e42b7441b71885b"
+CANONICAL_CATALOG_SHA256 = "2a92dc1a3b554557c107bb9885d7a336ec9003fb60f3c048da6e67c06e5e1bcc"
 CONTRACT_FIELDS = {
     "schemaVersion",
     "contractVersion",
@@ -171,6 +171,7 @@ def validate(root: Path) -> list[str]:
     if not isinstance(schemas, dict):
         return errors + ["여행 schemas는 object여야 합니다."]
     _validate_canonical_semantics(contract, errors)
+    _validate_catalog_idempotency_semantics(contract, catalog, errors)
     _validate_request_fixture(request, schemas, errors)
     _validate_success_fixture(success, schemas, errors)
     _validate_problem_fixture(problems, schemas, errors)
@@ -260,6 +261,39 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
         or deletion.get("userAndAuthIdentity") != "preserve"
     ):
         errors.append("여행 DELETE semantic canonical 계약이 다릅니다.")
+
+
+def _validate_catalog_idempotency_semantics(
+    contract: dict[str, Any], catalog: Any, errors: list[str]
+) -> None:
+    contract_endpoints = contract.get("endpoints")
+    catalog_endpoints = catalog.get("endpoints") if isinstance(catalog, dict) else None
+    if not isinstance(contract_endpoints, list) or not isinstance(catalog_endpoints, list):
+        return
+    contract_create = next(
+        (
+            item
+            for item in contract_endpoints
+            if isinstance(item, dict)
+            and item.get("method") == "POST"
+            and item.get("path") == "/api/v1/trips"
+        ),
+        None,
+    )
+    catalog_create = next(
+        (
+            item
+            for item in catalog_endpoints
+            if isinstance(item, dict)
+            and item.get("method") == "POST"
+            and item.get("path") == "/api/v1/trips"
+        ),
+        None,
+    )
+    expected = contract_create.get("idempotency") if isinstance(contract_create, dict) else None
+    actual = catalog_create.get("idempotency") if isinstance(catalog_create, dict) else None
+    if actual != expected:
+        errors.append("catalog idempotency semantic: 여행 POST가 canonical 계약과 다릅니다.")
 
 
 def _validate_request_fixture(fixture: Any, schemas: dict[str, Any], errors: list[str]) -> None:

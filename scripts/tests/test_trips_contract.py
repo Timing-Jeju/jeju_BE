@@ -145,6 +145,58 @@ class TripsContractTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("catalog canonical", result.stdout)
 
+    def test_catalog_trip_create_idempotency_matches_common_contract_semantically(self) -> None:
+        contract = self._load(CONTRACT)
+        catalog = self._load(CATALOG)
+        contract_create = contract["endpoints"][1]["idempotency"]
+        catalog_create = next(
+            endpoint
+            for endpoint in catalog["endpoints"]
+            if endpoint["method"] == "POST" and endpoint["path"] == "/api/v1/trips"
+        )["idempotency"]
+        self.assertEqual(contract_create, catalog_create)
+        self.assertEqual("409 IDEMPOTENCY_KEY_REUSED", catalog_create["payloadConflict"])
+        self.assertEqual(
+            "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED",
+            catalog_create["concurrentRequest"],
+        )
+
+    def test_catalog_trip_create_rejects_legacy_idempotency_codes_independent_of_digest(self) -> None:
+        mutations = (
+            ("payloadConflict", "409 IDEMPOTENCY_PAYLOAD_CONFLICT"),
+            ("concurrentRequest", "single writer then replay or 409 IDEMPOTENCY_REQUEST_IN_PROGRESS"),
+        )
+        for field, legacy_value in mutations:
+            with self.subTest(field=field), self._temporary_repository() as root:
+                path = root / CATALOG.relative_to(ROOT)
+                catalog = self._load(path)
+                endpoint = next(
+                    item
+                    for item in catalog["endpoints"]
+                    if item["method"] == "POST" and item["path"] == "/api/v1/trips"
+                )
+                endpoint["idempotency"][field] = legacy_value
+                self._write(path, catalog)
+                validator = root / VALIDATOR.relative_to(ROOT)
+                source = validator.read_text(encoding="utf-8")
+                projection = {
+                    "domainContracts": [
+                        item for item in catalog["domainContracts"] if item["domain"] == "trips"
+                    ],
+                    "endpoints": [
+                        item
+                        for item in catalog["endpoints"]
+                        if item["path"] in {"/api/v1/trips", "/api/v1/trips/{tripId}"}
+                    ],
+                }
+                old_digest = source.split('CANONICAL_CATALOG_SHA256 = "', 1)[1].split('"', 1)[0]
+                validator.write_text(
+                    source.replace(old_digest, self._digest(projection), 1), encoding="utf-8"
+                )
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("catalog idempotency semantic", result.stdout)
+
     def test_strict_json_rejects_duplicate_and_non_finite_values(self) -> None:
         raw_values = (
             '{"contractVersion":"1.0.0","list":{"method":"GET","method":"POST"}}',

@@ -142,7 +142,7 @@
       "dataLineage": "authenticated user input; no external provider or MCP input",
       "figma": {"node": "182-3248", "action": "여행 기본 조건 저장", "loading": "근거 미확정; not-ready", "empty": "not-applicable", "error": "근거 미확정; not-ready"},
       "contractVersion": "1.0.0",
-      "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonicalSub + POST + /api/v1/trips", "ttl": "24h", "replay": "same key+payload exact original status/Location/ETag/body", "payloadConflict": "409 IDEMPOTENCY_PAYLOAD_CONFLICT", "concurrentRequest": "single writer then replay or 409 IDEMPOTENCY_REQUEST_IN_PROGRESS"},
+      "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonicalSub + POST + /api/v1/trips", "ttl": "24h", "replay": "same key+canonical payload returns original status, Location, ETag and body with Idempotency-Replayed=true", "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED", "concurrentRequest": "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED"},
       "pagination": {"type": "none"}
     },
     {
