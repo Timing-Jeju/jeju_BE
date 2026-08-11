@@ -15,6 +15,7 @@ RUN_RETENTION_MIGRATION = (
     MIGRATIONS / "20260730040000_import_run_lineage_retention.sql"
 )
 IDEMPOTENCY_MIGRATION = MIGRATIONS / "20260810000000_api_idempotency_registry.sql"
+ASYNC_RUN_MIGRATION = MIGRATIONS / "20260811000000_async_run_worker_runtime.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -70,6 +71,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260730030000_schedule_consistency_hardening.sql",
                 "20260730040000_import_run_lineage_retention.sql",
                 "20260810000000_api_idempotency_registry.sql",
+                "20260811000000_async_run_worker_runtime.sql",
             ],
             migration_names,
         )
@@ -84,6 +86,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260730030000_schedule_consistency_hardening.sql",
             "./supabase/migrations/20260730040000_import_run_lineage_retention.sql",
             "./supabase/migrations/20260810000000_api_idempotency_registry.sql",
+            "./supabase/migrations/20260811000000_async_run_worker_runtime.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -117,6 +120,24 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertNotIn("request_body", migration)
         self.assertNotIn("authorization", migration)
         self.assertNotIn("bearer_token", migration)
+
+    def test_async_run_worker_migration_has_lease_fencing_retry_and_no_payload(self):
+        migration = self.read_migration(ASYNC_RUN_MIGRATION)
+
+        for fragment in (
+            "status in ('queued', 'running', 'succeeded', 'failed', 'cancelled')",
+            "attempt_count between 0 and 5",
+            "fencing_token >= 0",
+            "idx_compute_runs_worker_claim",
+            "idx_compute_runs_worker_recovery",
+            "result_source in ('computed', 'fallback')",
+            "chk_compute_runs_execution_phase",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
+
+        self.assertNotIn("compute_run_inputs", migration)
+        self.assertNotIn("location_", migration)
 
     def test_both_database_smokes_execute_seed_free_schema_and_negative_contracts(self):
         docker_smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(

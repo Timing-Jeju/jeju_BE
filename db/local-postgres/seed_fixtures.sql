@@ -723,7 +723,7 @@ insert into itinerary_generation_candidates (
 insert into compute_runs (
   id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
   input_hash, contract_version, algorithm_version, facts_snapshot_at,
-  source_data_version, result_summary, started_at, completed_at
+  source_data_version, result_source, result_summary, started_at, completed_at
 ) values
 (
   '63000000-0000-0000-0000-000000000001',
@@ -731,7 +731,7 @@ insert into compute_runs (
   '51000000-0000-0000-0000-000000000001',
   '60000000-0000-0000-0000-000000000001',
   'feasibility', 'succeeded', 'fixture-feasibility-v1',
-  'feasibility.v1', 'risk-engine-2026-07', now(), 'fixture-v1.1',
+  'feasibility.v1', 'risk-engine-2026-07', now(), 'fixture-v1.1', 'computed',
   '{"overallStatus":"caution","score":81}'::jsonb,
   now() - interval '2 seconds', now()
 ),
@@ -741,7 +741,7 @@ insert into compute_runs (
   '51000000-0000-0000-0000-000000000001',
   '60000000-0000-0000-0000-000000000001',
   'recovery', 'succeeded', 'fixture-recovery-v1',
-  'recovery.v1', 'recovery-engine-2026-07', now(), 'fixture-v1.1',
+  'recovery.v1', 'recovery-engine-2026-07', now(), 'fixture-v1.1', 'computed',
   '{"optionCount":1,"bestScore":90}'::jsonb,
   now() - interval '2 seconds', now()
 );

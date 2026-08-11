@@ -88,7 +88,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 → `20260810000000` 변경 API 멱등성 registry 순서로 누적 적용합니다.
+- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 → `20260810000000` 변경 API 멱등성 registry → `20260811000000` async run worker runtime 순서로 누적 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -97,6 +97,12 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 ## 변경 API 멱등성 경계
 
 후속 생성·계산·적용 API는 [멱등성 application 계약](IDEMPOTENCY.md)의 `IdempotencyUseCase`를 통해서만 업무 변경을 실행합니다. application port는 Spring/JDBC에 의존하지 않고 `global.idempotency` adapter가 PostgreSQL registry와 트랜잭션을 연결합니다. 이 공통 기반 자체는 공개 endpoint를 추가하지 않습니다.
+
+## 공통 비동기 run 경계
+
+`application.asyncrun`은 도메인 payload를 모르는 worker lifecycle 계약을 소유합니다. `AsyncRunWorker`는 claim과 terminal/retry 상태 조정만 담당하고, `RunExecutionPolicy`는 30초 lease·10초 heartbeat·50개 claim·최대 5회·1초 기반 60초 상한 full jitter·60초 deadline을 고정합니다. `ThreadedRunExecutionSupervisor`는 deadline, 주기 heartbeat와 graceful drain을 담당하며 lease/fencing 권한을 잃은 실행을 interrupt한 뒤 terminal 상태를 쓰지 않습니다.
+
+`global.asyncrun`의 JDBC adapter는 `FOR UPDATE SKIP LOCKED`로 queued 또는 lease가 만료된 running run을 경쟁 없이 claim합니다. 모든 heartbeat, retry와 terminal 갱신은 증가하는 fencing token을 조건으로 수행합니다. durable command input과 위치 정리는 이 경계에 포함하지 않으며 각각 별도 Issue가 소유합니다.
 
 ## 외부 데이터 적재 경계
 

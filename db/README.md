@@ -33,6 +33,7 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260730030000_schedule_consistency_hardening.sql`: 확정 일정 일자·시간·계산 결과와 버전 계보 불변성 강화
 - `supabase/migrations/20260730040000_import_run_lineage_retention.sql`: origin과 무관한 정규화 provenance import run 삭제 차단
 - `supabase/migrations/20260810000000_api_idempotency_registry.sql`: 변경 API 멱등성 scope·lease·TTL·최소 응답 저장 계약
+- `supabase/migrations/20260811000000_async_run_worker_runtime.sql`: compute run lease·heartbeat·fencing·retry·stuck recovery 상태 계약
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터

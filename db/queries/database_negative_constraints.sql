@@ -2402,14 +2402,52 @@ select pg_temp.expect_rejected(
 insert into compute_runs (
   id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
   input_hash, contract_version, algorithm_version, facts_snapshot_at,
-  source_data_version
+  source_data_version, started_at, result_source
 ) values (
   'f5500000-0000-0000-0000-000000000001',
   'f5100000-0000-0000-0000-000000000001',
   'f5200000-0000-0000-0000-000000000001',
   'f5300000-0000-0000-0000-000000000001',
   'feasibility', 'succeeded', 'negative-contract-day-1',
-  'contract-v1', 'algorithm-v1', now(), 'source-v1'
+  'contract-v1', 'algorithm-v1', now(), 'source-v1', now(), 'computed'
+);
+
+select pg_temp.expect_rejected(
+  'queued compute run cannot have execution provenance',
+  $statement$
+    insert into compute_runs (
+      id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+      input_hash, contract_version, algorithm_version, started_at,
+      facts_snapshot_at, source_data_version
+    ) values (
+      'f5500000-0000-0000-0000-000000000011',
+      'f5100000-0000-0000-0000-000000000001',
+      'f5200000-0000-0000-0000-000000000001',
+      'f5300000-0000-0000-0000-000000000001',
+      'feasibility', 'queued', 'invalid-queued-provenance',
+      'contract-v1', 'algorithm-v1', now(), now(), 'source-v1'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'running compute run requires atomic execution provenance',
+  $statement$
+    insert into compute_runs (
+      id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+      input_hash, contract_version, algorithm_version,
+      lease_owner, heartbeat_at, lease_expires_at
+    ) values (
+      'f5500000-0000-0000-0000-000000000012',
+      'f5100000-0000-0000-0000-000000000001',
+      'f5200000-0000-0000-0000-000000000001',
+      'f5300000-0000-0000-0000-000000000001',
+      'feasibility', 'running', 'invalid-running-provenance',
+      'contract-v1', 'algorithm-v1', 'negative-worker', now(), now() + interval '30 seconds'
+    )
+  $statement$,
+  array['23514']
 );
 
 select pg_temp.expect_rejected(

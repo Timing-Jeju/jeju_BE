@@ -16,7 +16,8 @@ services:
       - ./supabase/migrations/20260730030000_schedule_consistency_hardening.sql:/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql:ro
       - ./supabase/migrations/20260730040000_import_run_lineage_retention.sql:/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql:ro
       - ./supabase/migrations/20260810000000_api_idempotency_registry.sql:/docker-entrypoint-initdb.d/008_api_idempotency_registry.sql:ro
-      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/009_seed_fixtures.sql:ro
+      - ./supabase/migrations/20260811000000_async_run_worker_runtime.sql:/docker-entrypoint-initdb.d/009_async_run_worker_runtime.sql:ro
+      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/010_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U timing_jeju_test -d timing_jeju_test"]

@@ -1056,6 +1056,44 @@ begin
      or function_definition not ilike '%SET updated_at = updated_at%' then
     raise exception 'operating-hours cross-day overlap guard is missing';
   end if;
+
+  select count(*) into invalid_count
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'compute_runs'
+    and column_name in (
+      'attempt_count', 'fencing_token', 'lease_owner', 'lease_expires_at',
+      'heartbeat_at', 'next_attempt_at', 'result_source'
+    );
+
+  if invalid_count <> 7 then
+    raise exception 'async run lease/fencing columns are incomplete';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.compute_runs'::regclass
+      and constraint_row.conname = 'chk_compute_runs_execution_phase'
+      and pg_get_constraintdef(constraint_row.oid) ilike '%facts_snapshot_at%'
+      and pg_get_constraintdef(constraint_row.oid) ilike '%source_data_version%'
+  ) then
+    raise exception 'async run execution phase constraint is missing';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_indexes
+    where schemaname = 'public'
+      and tablename = 'compute_runs'
+      and indexname = 'idx_compute_runs_worker_claim'
+  ) or not exists (
+    select 1 from pg_catalog.pg_indexes
+    where schemaname = 'public'
+      and tablename = 'compute_runs'
+      and indexname = 'idx_compute_runs_worker_recovery'
+  ) then
+    raise exception 'async run claim/recovery indexes are missing';
+  end if;
 end;
 $$;
 
