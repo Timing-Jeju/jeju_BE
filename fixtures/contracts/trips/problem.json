@@ -1,0 +1,172 @@
+{
+  "400_invalid_query_parameter": {
+    "type": "https://api.timing-jeju.com/problems/invalid-query-parameter",
+    "title": "조회 조건이 올바르지 않습니다",
+    "status": 400,
+    "detail": "여행 목록 조회 조건을 확인해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000000850400",
+    "code": "INVALID_QUERY_PARAMETER",
+    "traceId": "00000000000000000000000000850400",
+    "fieldErrors": []
+  },
+  "400_invalid_cursor": {
+    "type": "https://api.timing-jeju.com/problems/invalid-cursor",
+    "title": "커서가 올바르지 않습니다",
+    "status": 400,
+    "detail": "처음부터 다시 조회해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000001850400",
+    "code": "INVALID_CURSOR",
+    "traceId": "00000000000000000000000001850400",
+    "fieldErrors": []
+  },
+  "400_cursor_context_mismatch": {
+    "type": "https://api.timing-jeju.com/problems/cursor-context-mismatch",
+    "title": "커서의 조회 조건이 현재 요청과 다릅니다",
+    "status": 400,
+    "detail": "변경한 조건으로 처음부터 다시 조회해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000002850400",
+    "code": "CURSOR_CONTEXT_MISMATCH",
+    "traceId": "00000000000000000000000002850400",
+    "fieldErrors": []
+  },
+  "400_invalid_request": {
+    "type": "https://api.timing-jeju.com/problems/invalid-request",
+    "title": "요청 값이 올바르지 않습니다",
+    "status": 400,
+    "detail": "여행 제목, 날짜, timezone과 교통 우선순위를 확인해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000003850400",
+    "code": "INVALID_REQUEST",
+    "traceId": "00000000000000000000000003850400",
+    "fieldErrors": []
+  },
+  "400_if_match_required": {
+    "type": "https://api.timing-jeju.com/problems/if-match-required",
+    "title": "변경 전 버전이 필요합니다",
+    "status": 400,
+    "detail": "최신 여행의 ETag를 If-Match로 보내 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000004850400",
+    "code": "IF_MATCH_REQUIRED",
+    "traceId": "00000000000000000000000004850400",
+    "fieldErrors": []
+  },
+  "400_invalid_if_match": {
+    "type": "https://api.timing-jeju.com/problems/invalid-if-match",
+    "title": "If-Match 형식이 올바르지 않습니다",
+    "status": 400,
+    "detail": "응답에서 받은 강한 ETag를 그대로 보내 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000005850400",
+    "code": "INVALID_IF_MATCH",
+    "traceId": "00000000000000000000000005850400",
+    "fieldErrors": []
+  },
+  "401_authentication_required": {
+    "type": "https://api.timing-jeju.com/problems/authentication-required",
+    "title": "인증이 필요합니다",
+    "status": 401,
+    "detail": "로그인 후 다시 요청해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000000850401",
+    "code": "AUTHENTICATION_REQUIRED",
+    "traceId": "00000000000000000000000000850401",
+    "fieldErrors": []
+  },
+  "401_invalid_access_token": {
+    "type": "https://api.timing-jeju.com/problems/invalid-access-token",
+    "title": "인증 정보가 올바르지 않습니다",
+    "status": 401,
+    "detail": "유효한 인증 정보로 다시 요청해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000001850401",
+    "code": "INVALID_ACCESS_TOKEN",
+    "traceId": "00000000000000000000000001850401",
+    "fieldErrors": []
+  },
+  "404_trip_not_found": {
+    "type": "https://api.timing-jeju.com/problems/trip-not-found",
+    "title": "여행을 찾을 수 없습니다",
+    "status": 404,
+    "detail": "요청한 여행이 없거나 접근할 수 없습니다.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000000850404",
+    "code": "TRIP_NOT_FOUND",
+    "traceId": "00000000000000000000000000850404",
+    "fieldErrors": []
+  },
+  "400_idempotency_key_required": {
+    "type": "https://api.timing-jeju.com/problems/idempotency-key-required",
+    "title": "멱등성 키가 필요합니다",
+    "status": 400,
+    "detail": "Idempotency-Key 헤더를 입력해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000006850400",
+    "code": "IDEMPOTENCY_KEY_REQUIRED",
+    "traceId": "00000000000000000000000006850400",
+    "fieldErrors": []
+  },
+  "400_idempotency_key_invalid": {
+    "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
+    "title": "멱등성 키가 유효하지 않습니다",
+    "status": 400,
+    "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000007850400",
+    "code": "IDEMPOTENCY_KEY_INVALID",
+    "traceId": "00000000000000000000000007850400",
+    "fieldErrors": []
+  },
+  "409_idempotency_key_reused": {
+    "type": "https://api.timing-jeju.com/problems/idempotency-key-reused",
+    "title": "멱등성 키를 재사용할 수 없습니다",
+    "status": 409,
+    "detail": "새 Idempotency-Key로 다시 요청해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000000850409",
+    "code": "IDEMPOTENCY_KEY_REUSED",
+    "traceId": "00000000000000000000000000850409",
+    "fieldErrors": []
+  },
+  "409_trip_version_conflict": {
+    "type": "https://api.timing-jeju.com/problems/trip-version-conflict",
+    "title": "여행이 이미 변경되었습니다",
+    "status": 409,
+    "detail": "최신 여행과 ETag를 조회한 뒤 다시 수정해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000002850409",
+    "code": "TRIP_VERSION_CONFLICT",
+    "traceId": "00000000000000000000000002850409",
+    "fieldErrors": []
+  },
+  "409_trip_regeneration_required": {
+    "type": "https://api.timing-jeju.com/problems/trip-regeneration-required",
+    "title": "일정 재생성이 필요한 변경입니다",
+    "status": 409,
+    "detail": "기존 일정 버전이 있어 여행 날짜 또는 timezone을 변경할 수 없습니다.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000003850409",
+    "code": "TRIP_REGENERATION_REQUIRED",
+    "traceId": "00000000000000000000000003850409",
+    "fieldErrors": []
+  },
+  "409_trip_terminal_state_conflict": {
+    "type": "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+    "title": "종료된 여행은 변경할 수 없습니다",
+    "status": 409,
+    "detail": "완료, 취소 또는 실패한 여행은 이 API로 변경할 수 없습니다.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000004850409",
+    "code": "TRIP_TERMINAL_STATE_CONFLICT",
+    "traceId": "00000000000000000000000004850409",
+    "fieldErrors": []
+  },
+  "409_trip_delete_conflict": {
+    "type": "https://api.timing-jeju.com/problems/trip-delete-conflict",
+    "title": "현재 여행을 삭제할 수 없습니다",
+    "status": 409,
+    "detail": "진행 중인 여행 또는 비동기 작업이 끝난 뒤 다시 시도해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000005850409",
+    "code": "TRIP_DELETE_CONFLICT",
+    "traceId": "00000000000000000000000005850409",
+    "fieldErrors": []
+  },
+  "422_trip_constraint_violation": {
+    "type": "https://api.timing-jeju.com/problems/trip-constraint-violation",
+    "title": "여행 조건을 처리할 수 없습니다",
+    "status": 422,
+    "detail": "여행은 1일부터 30일까지이며 날짜와 교통 우선순위가 일관되어야 합니다.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000000850422",
+    "code": "TRIP_CONSTRAINT_VIOLATION",
+    "traceId": "00000000000000000000000000850422",
+    "fieldErrors": []
+  }
+}
