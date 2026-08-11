@@ -58,7 +58,7 @@
       "additionalProperties": false,
       "required": ["Idempotency-Key"],
       "properties": {
-        "Idempotency-Key": {"type": "string", "nullable": false, "pattern": "^[A-Za-z0-9._:-]{1,128}$"}
+        "Idempotency-Key": {"type": "string", "nullable": false, "format": "uuid"}
       }
     },
     "PatchTripHeaders": {
@@ -245,7 +245,7 @@
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub",
       "responses": {"success": [201], "errors": [400, 401, 409, 422]},
-      "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonicalSub + POST + /api/v1/trips", "ttl": "24h", "replay": "same key+canonical payload returns original status, Location, ETag and body with Idempotency-Replayed=true", "payloadConflict": "409 IDEMPOTENCY_PAYLOAD_CONFLICT", "concurrentRequest": "single writer; wait then replay or 409 IDEMPOTENCY_REQUEST_IN_PROGRESS"},
+      "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonicalSub + POST + /api/v1/trips", "ttl": "24h", "replay": "same key+canonical payload returns original status, Location, ETag and body with Idempotency-Replayed=true", "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED", "concurrentRequest": "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED"},
       "pagination": {"type": "none"},
       "figma": {"node": "182:3248", "action": "여행 기본 조건 저장", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}
     },
@@ -330,7 +330,7 @@
       "totalScore": null,
       "scoreProvenance": null
     },
-    "idempotency": {"header": "Idempotency-Key", "ttl": "24h", "samePayload": "replay exact original response", "differentPayload": "409 IDEMPOTENCY_PAYLOAD_CONFLICT"}
+    "idempotency": {"header": "Idempotency-Key", "format": "canonical UUID", "ttl": "24h", "missing": "400 IDEMPOTENCY_KEY_REQUIRED", "invalid": "400 IDEMPOTENCY_KEY_INVALID", "samePayload": "replay exact original response", "differentPayload": "409 IDEMPOTENCY_KEY_REUSED", "inProgressOrReused": "409 IDEMPOTENCY_KEY_REUSED"}
   },
   "patchSemantics": {
     "concurrency": "required strong If-Match generated from persisted monotonically increasing revision",

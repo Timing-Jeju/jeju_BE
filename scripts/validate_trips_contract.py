@@ -24,7 +24,16 @@ FIXTURE_ROOT_RELATIVE = Path("fixtures/contracts/trips")
 INITIAL_MIGRATION_RELATIVE = Path(
     "supabase/migrations/20260728000000_initial_public_schema.sql"
 )
-CANONICAL_CONTRACT_SHA256 = "9ff86a1a626123d7687632079568136917a3c330e94847326b479ded3fb2525a"
+IDEMPOTENCY_MIGRATION_RELATIVE = Path(
+    "supabase/migrations/20260810000000_api_idempotency_registry.sql"
+)
+IDEMPOTENCY_REQUEST_RELATIVE = Path(
+    "services/spring-api/src/main/java/com/timingjeju/api/application/idempotency/IdempotencyRequest.java"
+)
+STANDARD_PROBLEM_CODE_RELATIVE = Path(
+    "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
+)
+CANONICAL_CONTRACT_SHA256 = "e958d80ad916110cf00ed0619af1afc38a3a59ec2b15227ce405fe3daecffcb0"
 CANONICAL_CATALOG_SHA256 = "5566971d9898ba7abbc1aebb858468a558878781a88dde251e42b7441b71885b"
 CONTRACT_FIELDS = {
     "schemaVersion",
@@ -63,8 +72,9 @@ EXPECTED_PROBLEMS = {
     "401_authentication_required": (401, "AUTHENTICATION_REQUIRED", "authentication-required"),
     "401_invalid_access_token": (401, "INVALID_ACCESS_TOKEN", "invalid-access-token"),
     "404_trip_not_found": (404, "TRIP_NOT_FOUND", "trip-not-found"),
-    "409_idempotency_payload_conflict": (409, "IDEMPOTENCY_PAYLOAD_CONFLICT", "idempotency-payload-conflict"),
-    "409_idempotency_request_in_progress": (409, "IDEMPOTENCY_REQUEST_IN_PROGRESS", "idempotency-request-in-progress"),
+    "400_idempotency_key_required": (400, "IDEMPOTENCY_KEY_REQUIRED", "idempotency-key-required"),
+    "400_idempotency_key_invalid": (400, "IDEMPOTENCY_KEY_INVALID", "idempotency-key-invalid"),
+    "409_idempotency_key_reused": (409, "IDEMPOTENCY_KEY_REUSED", "idempotency-key-reused"),
     "409_trip_version_conflict": (409, "TRIP_VERSION_CONFLICT", "trip-version-conflict"),
     "409_trip_regeneration_required": (409, "TRIP_REGENERATION_REQUIRED", "trip-regeneration-required"),
     "409_trip_terminal_state_conflict": (409, "TRIP_TERMINAL_STATE_CONFLICT", "trip-terminal-state-conflict"),
@@ -166,6 +176,7 @@ def validate(root: Path) -> list[str]:
     _validate_problem_fixture(problems, schemas, errors)
     _validate_external_readiness(contract, errors)
     _validate_schema_drift(root, contract, errors)
+    _validate_common_idempotency(root, contract, errors)
     return errors
 
 
@@ -197,6 +208,8 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
             create_idempotency.get("required") is not True
             or create_idempotency.get("header") != "Idempotency-Key"
             or create_idempotency.get("ttl") != "24h"
+            or create_idempotency.get("payloadConflict") != "409 IDEMPOTENCY_KEY_REUSED"
+            or create_idempotency.get("concurrentRequest") != "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED"
         ):
             errors.append("여행 POST idempotency canonical 계약이 다릅니다.")
         if endpoints[3].get("headersSchema") != "PatchTripHeaders":
@@ -329,8 +342,8 @@ def _validate_request_fixture(fixture: Any, schemas: dict[str, Any], errors: lis
 
     _validate_trip_request_semantic(fixture["create"].get("body"), f"{label}.create.body", errors)
     _validate_trip_request_semantic(fixture["patchDatesWithoutSchedule"].get("body"), f"{label}.patchDatesWithoutSchedule.body", errors)
-    for name in ("create", "patchInvalidate"):
-        body = fixture[name].get("body")
+    for name, request in fixture.items():
+        body = request.get("body") if isinstance(request, dict) else None
         if isinstance(body, dict) and "transportModes" in body:
             _validate_transport_modes(body.get("transportModes"), f"{label}.{name}.body.transportModes", errors)
 
@@ -366,7 +379,7 @@ def _validate_success_fixture(fixture: Any, schemas: dict[str, Any], errors: lis
         "ETag": '"trip-fixture-r1"',
         "Idempotency-Replayed": "false",
     }
-    if not isinstance(create, dict) or set(create) != {"status", "headers", "body"}:
+    if not isinstance(create, dict) or set(create) not in ({"status", "headers", "body"}, {"status", "headers", "responseTime", "body"}):
         errors.append(f"{label}.create HTTP envelope 필드가 정확하지 않습니다.")
     else:
         if create.get("status") != 201 or create.get("headers") != expected_create_headers:
@@ -394,7 +407,7 @@ def _validate_success_fixture(fixture: Any, schemas: dict[str, Any], errors: lis
     }
     for name, etag in expected_patch_etags.items():
         response = fixture.get(name)
-        if not isinstance(response, dict) or set(response) != {"status", "headers", "body"}:
+        if not isinstance(response, dict) or set(response) not in ({"status", "headers", "body"}, {"status", "headers", "responseTime", "body"}):
             errors.append(f"{label}.{name} HTTP envelope 필드가 정확하지 않습니다.")
             continue
         if response.get("status") != 200 or response.get("headers") != {"Content-Type": "application/json", "ETag": etag}:
@@ -407,6 +420,9 @@ def _validate_success_fixture(fixture: Any, schemas: dict[str, Any], errors: lis
         response = fixture.get(name)
         if isinstance(response, dict):
             _validate_trip_detail_semantic(response.get("body"), f"{label}.{name}.body", errors)
+            _validate_score_semantic(
+                response.get("body"), response.get("responseTime"), f"{label}.{name}.body", errors
+            )
 
     if isinstance(list_response, dict):
         body = list_response.get("body")
@@ -416,16 +432,16 @@ def _validate_success_fixture(fixture: Any, schemas: dict[str, Any], errors: lis
             if isinstance(items, list):
                 for index, item in enumerate(items):
                     _validate_trip_summary_semantic(item, list_response.get("responseTime"), f"{label}.list.items[{index}]", errors)
-                sortable = [
-                    (item.get("updatedAt"), item.get("tripId"))
-                    for item in items
-                    if isinstance(item, dict)
-                ]
-                if sortable != sorted(sortable, reverse=True):
+                try:
+                    sortable = [
+                        (_parse_datetime(item.get("updatedAt")), item.get("tripId"))
+                        for item in items
+                        if isinstance(item, dict)
+                    ]
+                except ValueError:
+                    sortable = []
+                if len(sortable) != len(items) or sortable != sorted(sortable, reverse=True):
                     errors.append("pagination semantic: list items가 updatedAt DESC, tripId DESC가 아닙니다.")
-
-    if isinstance(detail, dict):
-        _validate_score_semantic(detail.get("body"), detail.get("responseTime"), f"{label}.detail.body", errors)
     if isinstance(fixture.get("patchMaintain"), dict):
         body = fixture["patchMaintain"].get("body")
         if not isinstance(body, dict) or body.get("scheduleEffect") != "maintained" or body.get("regenerationRequired") is not False or body.get("activeScheduleVersionId") is None:
@@ -477,7 +493,15 @@ def _validate_transport_modes(value: Any, label: str, errors: list[str]) -> None
     modes = [item.get("mode") for item in value if isinstance(item, dict)]
     priorities = [item.get("priority") for item in value if isinstance(item, dict)]
     primary = [item for item in value if isinstance(item, dict) and item.get("primary") is True]
-    if len(modes) != len(set(modes)) or priorities != list(range(1, len(value) + 1)) or len(primary) != 1 or primary[0].get("priority") != 1:
+    allowed = {"public_transit", "rental_car", "taxi"}
+    if (
+        len(modes) != len(value)
+        or any(mode not in allowed for mode in modes)
+        or len(modes) != len(set(modes))
+        or priorities != list(range(1, len(value) + 1))
+        or len(primary) != 1
+        or primary[0].get("priority") != 1
+    ):
         errors.append(f"request fixture semantic: {label} mode/priority/primary가 일관되지 않습니다.")
 
 
@@ -498,7 +522,6 @@ def _validate_trip_detail_semantic(value: Any, label: str, errors: list[str]) ->
     status = value.get("status")
     if status in {"planned", "live", "completed"} and active is None:
         errors.append(f"success fixture semantic: {label} status={status}이면 active schedule이 필요합니다.")
-    _validate_score_semantic(value, None, label, errors)
 
 
 def _validate_trip_summary_semantic(value: Any, response_time: Any, label: str, errors: list[str]) -> None:
@@ -524,19 +547,52 @@ def _validate_score_semantic(value: Any, response_time: Any, label: str, errors:
         return
     if provenance is None or not isinstance(provenance, dict):
         return
+    if response_time is None:
+        errors.append(f"score semantic: {label} 점수 응답에는 responseTime이 필요합니다.")
+        return
     if provenance.get("source") != "feasibility_run" or provenance.get("scheduleVersionId") != value.get("activeScheduleVersionId"):
         errors.append(f"score semantic: {label} source/active schedule provenance가 다릅니다.")
     try:
         observed = _parse_datetime(provenance.get("observedAt"))
         calculated = _parse_datetime(provenance.get("calculatedAt"))
         expires = _parse_datetime(provenance.get("expiresAt"))
-        response = _parse_datetime(response_time) if response_time is not None else None
+        response = _parse_datetime(response_time)
     except ValueError:
         return
     if not observed <= calculated <= expires:
         errors.append(f"score semantic: {label} freshness 시각 순서가 잘못되었습니다.")
-    if response is not None and provenance.get("stale") is not (response >= expires):
+    if provenance.get("stale") is not (response >= expires):
         errors.append(f"score semantic: {label} stale 값이 responseTime/expiresAt과 다릅니다.")
+
+
+def _validate_common_idempotency(root: Path, contract: dict[str, Any], errors: list[str]) -> None:
+    try:
+        request_source = (root / IDEMPOTENCY_REQUEST_RELATIVE).read_text(encoding="utf-8")
+        migration = (root / IDEMPOTENCY_MIGRATION_RELATIVE).read_text(encoding="utf-8")
+        problem_codes = (root / STANDARD_PROBLEM_CODE_RELATIVE).read_text(encoding="utf-8")
+    except OSError as exc:
+        errors.append(f"idempotency common: 공통 기준을 읽을 수 없습니다: {exc}")
+        return
+    required_source_fragments = (
+        "UUID.fromString(value)",
+        'IdempotencyException.required()',
+        'IdempotencyException.invalid()',
+    )
+    if any(fragment not in request_source for fragment in required_source_fragments):
+        errors.append("idempotency common: IdempotencyRequest UUID/누락/형식 계약이 다릅니다.")
+    if "idempotency_key uuid not null" not in migration:
+        errors.append("idempotency common: registry idempotency_key가 uuid not null이 아닙니다.")
+    for code, status in (
+        ("IDEMPOTENCY_KEY_REQUIRED", 400),
+        ("IDEMPOTENCY_KEY_INVALID", 400),
+        ("IDEMPOTENCY_KEY_REUSED", 409),
+    ):
+        if f"{code}({status}" not in problem_codes:
+            errors.append(f"idempotency common: {code}/{status} Problem Details 계약이 다릅니다.")
+    header_schema = contract.get("schemas", {}).get("CreateTripHeaders", {})
+    key_schema = header_schema.get("properties", {}).get("Idempotency-Key", {})
+    if key_schema != {"type": "string", "nullable": False, "format": "uuid"}:
+        errors.append("idempotency common: CreateTripHeaders는 canonical UUID여야 합니다.")
 
 
 def _validate_page_semantic(value: Any, errors: list[str]) -> None:

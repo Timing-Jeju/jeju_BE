@@ -128,6 +128,7 @@
   "patchMaintain": {
     "status": 200,
     "headers": {"Content-Type": "application/json", "ETag": "\"trip-fixture-r8\""},
+    "responseTime": "2026-08-03T09:30:00+09:00",
     "body": {
       "tripId": "50000000-0000-0000-0000-000000000001",
       "title": "성산 중심 2박 3일",

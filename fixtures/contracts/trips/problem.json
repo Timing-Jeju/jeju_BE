@@ -89,24 +89,34 @@
     "traceId": "00000000000000000000000000850404",
     "fieldErrors": []
   },
-  "409_idempotency_payload_conflict": {
-    "type": "https://api.timing-jeju.com/problems/idempotency-payload-conflict",
-    "title": "같은 멱등성 키의 요청 내용이 다릅니다",
+  "400_idempotency_key_required": {
+    "type": "https://api.timing-jeju.com/problems/idempotency-key-required",
+    "title": "멱등성 키가 필요합니다",
+    "status": 400,
+    "detail": "Idempotency-Key 헤더를 입력해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000006850400",
+    "code": "IDEMPOTENCY_KEY_REQUIRED",
+    "traceId": "00000000000000000000000006850400",
+    "fieldErrors": []
+  },
+  "400_idempotency_key_invalid": {
+    "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
+    "title": "멱등성 키가 유효하지 않습니다",
+    "status": 400,
+    "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000007850400",
+    "code": "IDEMPOTENCY_KEY_INVALID",
+    "traceId": "00000000000000000000000007850400",
+    "fieldErrors": []
+  },
+  "409_idempotency_key_reused": {
+    "type": "https://api.timing-jeju.com/problems/idempotency-key-reused",
+    "title": "멱등성 키를 재사용할 수 없습니다",
     "status": 409,
     "detail": "새 Idempotency-Key로 다시 요청해 주세요.",
     "instance": "urn:timing-jeju:problem:00000000000000000000000000850409",
-    "code": "IDEMPOTENCY_PAYLOAD_CONFLICT",
+    "code": "IDEMPOTENCY_KEY_REUSED",
     "traceId": "00000000000000000000000000850409",
-    "fieldErrors": []
-  },
-  "409_idempotency_request_in_progress": {
-    "type": "https://api.timing-jeju.com/problems/idempotency-request-in-progress",
-    "title": "같은 여행 생성 요청을 처리 중입니다",
-    "status": 409,
-    "detail": "잠시 후 같은 Idempotency-Key로 다시 요청해 주세요.",
-    "instance": "urn:timing-jeju:problem:00000000000000000000000001850409",
-    "code": "IDEMPOTENCY_REQUEST_IN_PROGRESS",
-    "traceId": "00000000000000000000000001850409",
     "fieldErrors": []
   },
   "409_trip_version_conflict": {

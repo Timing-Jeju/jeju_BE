@@ -11,7 +11,7 @@
     "path": "/api/v1/trips",
     "headers": {
       "Authorization": "Bearer <fixture-access-token>",
-      "Idempotency-Key": "fixture-trip-create-001"
+      "Idempotency-Key": "550e8400-e29b-41d4-a716-446655440000"
     },
     "body": {
       "title": "제주 동쪽 2박 3일",

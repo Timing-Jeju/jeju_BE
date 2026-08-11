@@ -33,6 +33,9 @@ class TripsContractTest(unittest.TestCase):
                 FIXTURES / "problem.json",
                 ROOT / "docs" / "contracts" / "domains" / "trips" / "contract.md",
                 ROOT / "supabase" / "migrations" / "20260728000000_initial_public_schema.sql",
+                ROOT / "supabase" / "migrations" / "20260810000000_api_idempotency_registry.sql",
+                ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "application" / "idempotency" / "IdempotencyRequest.java",
+                ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "global" / "error" / "StandardProblemCode.java",
             ):
                 target = root / source.relative_to(ROOT)
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +176,44 @@ class TripsContractTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("request fixture", result.stdout)
 
+    def test_create_idempotency_inherits_the_common_uuid_and_problem_contract(self) -> None:
+        with self._temporary_repository() as root:
+            contract_path = root / CONTRACT.relative_to(ROOT)
+            contract = self._load(contract_path)
+            contract["schemas"]["CreateTripHeaders"]["properties"]["Idempotency-Key"] = {
+                "type": "string", "nullable": False, "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
+            self._write(contract_path, contract)
+            result = self._run(root)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("idempotency common", result.stdout)
+
+        for key in (None, "fixture-trip-create-001", "550E8400-E29B-41D4-A716-446655440000"):
+            with self.subTest(key=key), self._temporary_repository() as root:
+                path = root / FIXTURES.relative_to(ROOT) / "request.json"
+                value = self._load(path)
+                if key is None:
+                    value["create"]["headers"].pop("Idempotency-Key")
+                else:
+                    value["create"]["headers"]["Idempotency-Key"] = key
+                self._write(path, value)
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+
+    def test_common_idempotency_sources_cannot_drift_silently(self) -> None:
+        mutations = (
+            (Path("supabase/migrations/20260810000000_api_idempotency_registry.sql"), "idempotency_key uuid not null", "idempotency_key text not null"),
+            (Path("services/spring-api/src/main/java/com/timingjeju/api/application/idempotency/IdempotencyRequest.java"), "UUID.fromString(value)", "UUID.randomUUID()"),
+            (Path("services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"), "IDEMPOTENCY_KEY_REUSED(409", "IDEMPOTENCY_KEY_REUSED(422"),
+        )
+        for path, before, after in mutations:
+            with self.subTest(path=path), self._temporary_repository() as root:
+                target = root / path
+                target.write_text(target.read_text(encoding="utf-8").replace(before, after), encoding="utf-8")
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("idempotency common", result.stdout)
+
     def test_date_timezone_and_transport_boundaries_are_validated(self) -> None:
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "invalid date": lambda v: v["create"]["body"].update({"startDate": "2026-02-30"}),
@@ -193,6 +234,22 @@ class TripsContractTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("semantic", result.stdout)
 
+    def test_every_request_transport_modes_collection_is_validated(self) -> None:
+        for mutation in (
+            lambda modes: modes[1].update({"priority": 3}),
+            lambda modes: modes[1].update({"mode": modes[0]["mode"]}),
+            lambda modes: modes[0].update({"mode": "spaceship"}),
+        ):
+            with self._temporary_repository() as root:
+                path = root / FIXTURES.relative_to(ROOT) / "request.json"
+                value = self._load(path)
+                value["patchMaintain"]["body"] = copy.deepcopy(value["create"]["body"])
+                mutation(value["patchMaintain"]["body"]["transportModes"])
+                self._write(path, value)
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("transportModes", result.stdout)
+
     def test_success_fixture_validates_total_score_provenance_and_freshness(self) -> None:
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "score without provenance": lambda v: v["list"]["body"]["items"][1].update({"scoreProvenance": None}),
@@ -211,6 +268,17 @@ class TripsContractTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("score semantic", result.stdout)
 
+    def test_every_scored_response_requires_response_time_for_stale_derivation(self) -> None:
+        for name in ("detail", "patchMaintain"):
+            with self.subTest(name=name), self._temporary_repository() as root:
+                path = root / FIXTURES.relative_to(ROOT) / "success.json"
+                value = self._load(path)
+                value[name].pop("responseTime", None)
+                self._write(path, value)
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("responseTime", result.stdout)
+
     def test_cursor_and_list_order_invariants_are_validated(self) -> None:
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "cursor missing": lambda v: v["list"]["body"]["page"].update({"hasNext": True, "nextCursor": None}),
@@ -226,6 +294,26 @@ class TripsContractTest(unittest.TestCase):
                 result = self._run(root)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("pagination semantic", result.stdout)
+
+    def test_list_order_uses_actual_instants_not_timestamp_text(self) -> None:
+        with self._temporary_repository() as root:
+            path = root / FIXTURES.relative_to(ROOT) / "success.json"
+            value = self._load(path)
+            value["list"]["body"]["items"][0]["updatedAt"] = "2026-08-03T00:30:00Z"
+            value["list"]["body"]["items"][1]["updatedAt"] = "2026-08-03T09:20:00+09:00"
+            self._write(path, value)
+            result = self._run(root)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+        with self._temporary_repository() as root:
+            path = root / FIXTURES.relative_to(ROOT) / "success.json"
+            value = self._load(path)
+            value["list"]["body"]["items"][0]["updatedAt"] = "2026-08-03T09:10:00+09:00"
+            value["list"]["body"]["items"][1]["updatedAt"] = "2026-08-03T00:20:00Z"
+            self._write(path, value)
+            result = self._run(root)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("pagination semantic", result.stdout)
 
     def test_patch_presence_and_schedule_effect_matrix_are_closed(self) -> None:
         contract = self._load(CONTRACT)

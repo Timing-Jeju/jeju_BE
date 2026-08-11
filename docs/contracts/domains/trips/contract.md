@@ -29,16 +29,17 @@
 - 여행 기간은 양 끝 날짜를 포함해 1일 이상 30일 이하다.
 - 교통수단 우선순위는 1부터 빈틈없이 이어지고 mode는 중복되지 않으며 primary는 정확히 하나다.
 - `trip_plans`, 기본 교통수단, 날짜별 `trip_days`는 한 트랜잭션으로 생성한다.
-- `Idempotency-Key`의 범위는 canonical sub + method + path이며 보존 시간은 24시간이다. 같은 payload는 최초의 status, `Location`, `ETag`, body를 그대로 재생하고 다른 payload는 `409 IDEMPOTENCY_PAYLOAD_CONFLICT`다.
+- `Idempotency-Key`는 공통 Issue #17 계약과 같은 canonical UUID다. 누락은 `400 IDEMPOTENCY_KEY_REQUIRED`, UUID 형식 오류는 `400 IDEMPOTENCY_KEY_INVALID`다.
+- 키 범위는 canonical sub + method + path이며 보존 시간은 24시간이다. 같은 payload는 최초의 status, `Location`, `ETag`, body를 그대로 재생하고, 다른 payload 또는 처리 중·재사용 상태는 `409 IDEMPOTENCY_KEY_REUSED`다.
 
 ## 목록과 점수 계약
 
 - 기본 크기는 20, 최대 크기는 100이다.
-- 정렬은 `updatedAt DESC, tripId DESC`이며 cursor는 canonical sub, status, sort 문맥에 묶인 불투명 값이다.
+- 정렬은 RFC3339 문자열 사전순이 아니라 실제 instant 기준 `updatedAt DESC`이며, 같은 instant에서만 `tripId DESC`를 적용한다. cursor는 canonical sub, status, sort 문맥에 묶인 불투명 값이다.
 - 다음 페이지가 있으면 `nextCursor`가 반드시 있고, 마지막 페이지에는 없어야 한다.
 - `totalScore`는 항상 존재하되 값은 0..100 정수 또는 `null`이다.
 - 점수가 `null`이면 `scoreProvenance`도 `null`이다. 점수가 있으면 활성 일정 버전의 최신 성공 `feasibility_run` 출처가 필요하다.
-- freshness는 `observedAt <= calculatedAt <= expiresAt`이며 응답 시각이 만료 시각 이상일 때만 `stale=true`다.
+- 점수를 포함하는 모든 응답은 명시적 `responseTime`을 제공한다. freshness는 `observedAt <= calculatedAt <= expiresAt`이며 `stale == (responseTime >= expiresAt)`를 만족해야 한다.
 
 ## 수정 계약
 
