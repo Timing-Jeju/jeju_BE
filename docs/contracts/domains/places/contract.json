@@ -11,7 +11,7 @@
       "additionalProperties": false,
       "required": [],
       "properties": {
-        "query": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100},
+        "query": {"type": "string", "nullable": false, "normalization": "trim", "minLength": 1, "maxLength": 100},
         "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
         "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
         "lat": {"type": "number", "nullable": false, "minimum": -90, "maximum": 90},

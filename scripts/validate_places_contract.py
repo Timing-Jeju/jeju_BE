@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 from uuid import UUID
 
 
@@ -112,7 +113,7 @@ EXPECTED_SCHEMA_PROPERTIES = {
     },
 }
 EXPECTED_SCHEMA_DIGESTS = {
-    "PlacesListRequest": "6c0282cd1982e4abba7154c49bd5f43b1076a697afcf7ad812b3f5d30aba868a",
+    "PlacesListRequest": "4db973e821257e484c5e11716a5c0f34253ee7603947b67a08e4f34f757213a8",
     "PlaceDetailPath": "2c80be1c2604a34033256df7c54f900caf2e8d11bc80a67827bf8dc4ce44aa22",
     "Location": "5d545fbf900382f1c8259038886baf3925845243a8ac6de18165a25afaabc38a",
     "DataFreshness": "132bfa40d554d4cd63bc3e5ad57af66881f61946c97f4505af5bf022d7832321",
@@ -155,6 +156,21 @@ FORBIDDEN_KEYS = {
     "jwtsecret",
     "freshnessreason",
 }
+RFC3339_DATE_TIME = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
+RFC3986_URI = re.compile(
+    r"^[A-Za-z][A-Za-z0-9+.-]*:[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*$"
+)
+INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+
+
+class _InvalidJsonConstant:
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def __repr__(self) -> str:
+        return f"invalid JSON constant {self.token}"
 
 
 def _expect(condition: bool, message: str, errors: list[str]) -> None:
@@ -198,8 +214,29 @@ def _is_type(value: Any, expected: str) -> bool:
     if expected == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
     if expected == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and (not isinstance(value, float) or math.isfinite(value))
+        )
     return False
+
+
+def _valid_uri(value: str) -> bool:
+    if RFC3986_URI.fullmatch(value) is None or INVALID_PERCENT_ESCAPE.search(value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+    except ValueError:
+        return False
+    if parsed.scheme.lower() in {"http", "https"}:
+        return bool(parsed.netloc and parsed.hostname)
+    return bool(parsed.path)
+
+
+def _strict_json_loads(text: str) -> Any:
+    return json.loads(text, parse_constant=_InvalidJsonConstant)
 
 
 def _valid_format(value: str, format_name: str) -> bool:
@@ -209,16 +246,20 @@ def _valid_format(value: str, format_name: str) -> bool:
         except (ValueError, AttributeError):
             return False
     if format_name == "date-time":
+        if RFC3339_DATE_TIME.fullmatch(value) is None:
+            return False
         try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            normalized = value.replace("t", "T")
+            if normalized[-1] in {"Z", "z"}:
+                normalized = normalized[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(normalized)
             return parsed.tzinfo is not None
         except (ValueError, AttributeError):
             return False
     if format_name == "uri":
-        parsed = urlparse(value)
-        return bool(parsed.scheme and (parsed.netloc or parsed.scheme == "urn"))
+        return _valid_uri(value)
     if format_name == "urn":
-        return value.startswith("urn:") and len(value) > 4
+        return value.lower().startswith("urn:") and _valid_uri(value)
     if format_name == "trace-id":
         return re.fullmatch(r"[0-9a-f]{32}", value) is not None
     return False
@@ -258,13 +299,14 @@ def _validate_value(
         if "maximum" in schema and value > schema["maximum"]:
             errors.append(f"{path}: maximum {schema['maximum']}보다 큽니다.")
     if expected_type == "string":
-        if "minLength" in schema and len(value) < schema["minLength"]:
+        normalized_value = value.strip() if schema.get("normalization") == "trim" else value
+        if "minLength" in schema and len(normalized_value) < schema["minLength"]:
             errors.append(f"{path}: minLength {schema['minLength']}를 충족하지 않습니다.")
-        if "maxLength" in schema and len(value) > schema["maxLength"]:
+        if "maxLength" in schema and len(normalized_value) > schema["maxLength"]:
             errors.append(f"{path}: maxLength {schema['maxLength']}를 초과합니다.")
-        if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
+        if "pattern" in schema and re.fullmatch(schema["pattern"], normalized_value) is None:
             errors.append(f"{path}: pattern {schema['pattern']!r}과 일치하지 않습니다.")
-        if "format" in schema and not _valid_format(value, schema["format"]):
+        if "format" in schema and not _valid_format(normalized_value, schema["format"]):
             errors.append(f"{path}: {schema['format']} format이 아닙니다.")
     if expected_type == "object":
         properties = schema.get("properties")
@@ -302,7 +344,10 @@ def _validate_value(
         if "maxItems" in schema and len(value) > schema["maxItems"]:
             errors.append(f"{path}: maxItems {schema['maxItems']}를 초과합니다.")
         if schema.get("uniqueItems") is True:
-            serialized = [json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value]
+            serialized = [
+                json.dumps(item, ensure_ascii=False, sort_keys=True, default=repr)
+                for item in value
+            ]
             if len(serialized) != len(set(serialized)):
                 errors.append(f"{path}: 배열 값이 중복됩니다.")
         unique_by = schema.get("uniqueBy")
@@ -470,6 +515,19 @@ def _validate_identity(contract: dict[str, Any], errors: list[str]) -> None:
 def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
     endpoint = _find_endpoint(contract, "/api/v1/places")
     query = endpoint.get("query", {})
+    _expect(
+        query.get("query")
+        == {
+            "required": False,
+            "nullable": False,
+            "omitted": "전체 이름/별칭",
+            "type": "trimmed string",
+            "minimumLength": 1,
+            "maximumLength": 100,
+        },
+        "query는 trim 후 1~100자인 문자열이어야 합니다.",
+        errors,
+    )
     geo = (
         query.get("lat", {}),
         query.get("lng", {}),
@@ -752,7 +810,7 @@ def _validate_traceability(
 def _validate_catalog_alignment(errors: list[str], repo_root: Path) -> None:
     catalog_path = repo_root / "docs/contracts/rest/catalog.json"
     try:
-        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+        catalog = _strict_json_loads(catalog_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         errors.append("REST catalog를 읽을 수 없어 local/Notion readiness를 비교할 수 없습니다.")
         return
@@ -839,7 +897,9 @@ def _validate_fixtures(
             errors.append(f"{kind} fixture는 places 범위의 JSON이어야 합니다.")
             continue
         try:
-            loaded[kind] = json.loads((repo_root / relative).read_text(encoding="utf-8"))
+            loaded[kind] = _strict_json_loads(
+                (repo_root / relative).read_text(encoding="utf-8")
+            )
         except (OSError, json.JSONDecodeError):
             errors.append(f"{kind} fixture가 없거나 올바른 JSON이 아닙니다.")
     if set(loaded) != {"request", "success", "problem"}:
@@ -972,7 +1032,7 @@ def validate_contract(contract: Any, repo_root: Path = ROOT) -> list[str]:
 
 
 def load_contract(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _strict_json_loads(path.read_text(encoding="utf-8"))
 
 
 def main() -> int:

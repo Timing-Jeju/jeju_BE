@@ -6,7 +6,7 @@
       "method": "GET",
       "path": "/api/v1/places",
       "query": {
-        "query": "성산",
+        "query": "  성산  ",
         "category": "tourist_attraction",
         "regionCode": "seongsan",
         "lat": 33.458111,

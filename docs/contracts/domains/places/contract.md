@@ -32,7 +32,7 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 
 | 필드 | 필수 | null | 생략 | 계약 |
 | --- | --- | --- | --- | --- |
-| `query` | 아니오 | 불가 | 전체 이름·별칭 | trim 후 1~100자 |
+| `query` | 아니오 | 불가 | 전체 이름·별칭 | 앞뒤 공백 허용, trim 후 1~100자 |
 | `category` | 아니오 | 불가 | 모든 카테고리 | `^[a-z][a-z0-9_]{0,49}$` |
 | `regionCode` | 아니오 | 불가 | 모든 제주 지역 | `^[a-z0-9][a-z0-9_-]{0,49}$` |
 | `lat` | 아니오 | 불가 | 거리 정렬 미사용 | -90~90, `lng`와 함께 입력 |
@@ -41,7 +41,9 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 | `cursor` | 아니오 | 불가 | 첫 page | 최대 2048자의 opaque 값 |
 | `size` | 아니오 | 불가 | 20 | 1~100 |
 
-좌표가 있으면 `distanceMeters ASC NULLS LAST, normalizedName ASC, placeId ASC`, 없으면 `normalizedName ASC, placeId ASC`로 정렬합니다. 고유 tie-breaker는 항상 `placeId ASC`입니다. cursor에는 query/category/regionCode/lat/lng/radiusMeters/size/sort profile fingerprint가 귀속됩니다. cursor 발급 뒤 하나라도 바뀌면 재사용하지 않고 `400 CURSOR_CONTEXT_MISMATCH`를 반환합니다.
+`query`는 요청의 앞뒤 공백을 허용하지만 서버가 trim한 값으로 검색하고 길이를 검사합니다. 공백만 있는 값은 거부하며 정규화한 값이 1~100자여야 합니다. cursor fingerprint에도 같은 정규화 값을 사용합니다.
+
+좌표가 있으면 `distanceMeters ASC NULLS LAST, normalizedName ASC, placeId ASC`, 없으면 `normalizedName ASC, placeId ASC`로 정렬합니다. 고유 tie-breaker는 항상 `placeId ASC`입니다. cursor에는 정규화한 query와 category/regionCode/lat/lng/radiusMeters/size/sort profile fingerprint가 귀속됩니다. cursor 발급 뒤 하나라도 바뀌면 재사용하지 않고 `400 CURSOR_CONTEXT_MISMATCH`를 반환합니다.
 
 ### 목록 shape
 
@@ -86,7 +88,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
 | `PlaceImage`, `NearbyStop` | 중첩 배열 item | 닫힌 item, 타입·시각 format·enum·범위 고정 |
 | `ProblemDetails`, `FieldError` | 오류 | RFC 9457 필드와 code/type/status 대응을 고정 |
 
-목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다. canonical schema 전체 제약을 고정하고, freshness 객체의 `expiresAt`이 null이 아니면 `observedAt`보다 빠르지 않은지도 검사합니다.
+목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다. 모든 JSON 숫자는 유한해야 하며 JSON 표준 밖의 `NaN`, `Infinity`, `-Infinity`를 허용하지 않습니다. `date-time`은 timezone을 포함한 RFC 3339 형식만, `uri`는 공백이나 잘못된 percent escape가 없는 RFC 3986 절대 URI만 허용합니다. canonical schema 전체 제약을 고정하고, freshness 객체의 `expiresAt`이 null이 아니면 `observedAt`보다 빠르지 않은지도 검사합니다.
 
 ## 필드 소유권과 freshness
 

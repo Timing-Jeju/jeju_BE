@@ -36,14 +36,24 @@ class PlacesContractTest(unittest.TestCase):
         )
 
     def assert_fixture_rejected(self, fixture_name, mutate, expected):
+        errors = self.fixture_errors(fixture_name, mutate)
+
+        self.assertTrue(
+            any(expected in error for error in errors),
+            f"expected={expected!r}, errors={errors!r}",
+        )
+
+    def fixture_errors(self, fixture_name, mutate):
         with tempfile.TemporaryDirectory() as directory:
             temporary_root = Path(directory)
             fixture_directory = temporary_root / "fixtures/contracts/places"
             document_directory = temporary_root / "docs/contracts/domains/places"
             catalog_directory = temporary_root / "docs/contracts/rest"
+            design_directory = temporary_root / "docs/designs"
             fixture_directory.mkdir(parents=True)
             document_directory.mkdir(parents=True)
             catalog_directory.mkdir(parents=True)
+            design_directory.mkdir(parents=True)
             for source in (ROOT / "fixtures/contracts/places").glob("*.json"):
                 shutil.copy2(source, fixture_directory / source.name)
             shutil.copy2(
@@ -54,6 +64,10 @@ class PlacesContractTest(unittest.TestCase):
                 ROOT / "docs/contracts/rest/catalog.json",
                 catalog_directory / "catalog.json",
             )
+            shutil.copy2(
+                ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md",
+                design_directory / "timing-jeju-backend-rdb-api-spec.md",
+            )
             fixture_path = fixture_directory / f"{fixture_name}.json"
             fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
             mutate(fixture)
@@ -63,11 +77,7 @@ class PlacesContractTest(unittest.TestCase):
             )
 
             errors = validator.validate_contract(self.contract(), temporary_root)
-
-            self.assertTrue(
-                any(expected in error for error in errors),
-                f"expected={expected!r}, errors={errors!r}",
-            )
+        return errors
 
     def test_repository_places_contract_is_valid(self):
         self.assertEqual([], validator.validate_contract(self.contract(), ROOT))
@@ -243,6 +253,77 @@ class PlacesContractTest(unittest.TestCase):
                 expiresAt="2026-08-02T09:00:00+09:00"
             ),
             "observedAt",
+        )
+
+    def test_rejects_non_rfc3339_date_time_with_exact_field_path(self):
+        invalid_values = (
+            "2026-08-03 08:55:00+09:00",
+            "2026-W32-1T08:55:00+09:00",
+            "2026-08-03T08:55:00",
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                self.assert_fixture_rejected(
+                    "success",
+                    lambda fixture, value=value: fixture["detail"]["nearbyStops"][0].update(
+                        observedAt=value
+                    ),
+                    "success.detail.nearbyStops[0].observedAt",
+                )
+
+    def test_rejects_invalid_uri_with_exact_field_path(self):
+        invalid_values = (
+            " https://example.com/image.jpg",
+            "https://example.com/a b",
+            "https://example.com/%ZZ",
+            "https://example.com/%2",
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                self.assert_fixture_rejected(
+                    "success",
+                    lambda fixture, value=value: fixture["detail"]["images"][0].update(
+                        url=value
+                    ),
+                    "success.detail.images[0].url",
+                )
+
+    def test_rejects_non_finite_json_numbers_with_exact_field_path(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                self.assert_fixture_rejected(
+                    "request",
+                    lambda fixture, value=value: fixture["endpoints"]["list"]["query"].update(
+                        lat=value
+                    ),
+                    "request.list.query.lat",
+                )
+
+    def test_query_is_trimmed_before_one_to_one_hundred_character_validation(self):
+        contract = self.contract()
+        query_schema = contract["schemas"]["PlacesListRequest"]["properties"]["query"]
+
+        self.assertEqual("trim", query_schema.get("normalization"))
+        self.assert_fixture_rejected(
+            "request",
+            lambda fixture: fixture["endpoints"]["list"]["query"].update(query="   "),
+            "request.list.query.query",
+        )
+        for value in ("  성산  ", f" {'가' * 100} "):
+            with self.subTest(value=value):
+                errors = self.fixture_errors(
+                    "request",
+                    lambda fixture, value=value: fixture["endpoints"]["list"]["query"].update(
+                        query=value
+                    ),
+                )
+                self.assertEqual([], errors)
+        self.assert_fixture_rejected(
+            "request",
+            lambda fixture: fixture["endpoints"]["list"]["query"].update(
+                query=f" {'가' * 101} "
+            ),
+            "request.list.query.query",
         )
 
     def test_operations_schema_fixture_and_api_spec_have_four_required_fields(self):
