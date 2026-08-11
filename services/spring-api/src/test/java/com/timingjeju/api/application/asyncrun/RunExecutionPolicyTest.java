@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
+import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +46,16 @@ class RunExecutionPolicyTest {
                     Duration.ofSeconds(1),
                     Duration.ofSeconds(60),
                     Duration.ofSeconds(60)))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void lease의_fencing_token과_attempt는_양수여야_한다() {
+    UUID runId = UUID.fromString("74000000-0000-0000-0000-000000000074");
+
+    assertThatThrownBy(() -> new RunLease(runId, 0, 1))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new RunLease(runId, 1, 0))
         .isInstanceOf(IllegalArgumentException.class);
   }
 }
