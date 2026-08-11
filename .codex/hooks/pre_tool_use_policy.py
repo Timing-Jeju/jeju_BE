@@ -24,6 +24,11 @@ DESTRUCTIVE_PATTERNS = (
     r"(?:^|[;&|]\s*)git\s+checkout\s+--\s+\.(?:\s|$)",
     r"(?:^|[;&|]\s*)git\s+restore\s+\.(?:\s|$)",
 )
+REVIEW_STATE_PATH_RE = re.compile(r"\.codex[/\\]state[/\\]reviews(?:[/\\]|$)", re.IGNORECASE)
+REVIEW_STATE_RECORDER_RE = re.compile(
+    r"(?:^|[;&|]\s*)(?:python3|py\s+-3)\s+scripts[/\\]record_review_state\.py(?:\s|$)",
+    re.IGNORECASE,
+)
 
 
 def extract_commit_message(command: str) -> str | None:
@@ -42,6 +47,14 @@ def evaluate_command(
     remote_exists: bool = True,
 ) -> str | None:
     lowered = command.lower()
+    if REVIEW_STATE_PATH_RE.search(command) and not REVIEW_STATE_RECORDER_RE.search(command):
+        mutation_marker = re.search(
+            r"apply_patch|update file|add file|delete file|(?:^|\s)(?:>|>>)(?:\s|$)|\brm\b|\bunlink\b|\bmv\b|\bcp\b|\btee\b|\btouch\b|\btruncate\b|\bdd\b|\bln\b|\bchmod\b|\binstall\b|\bset-content\b|\bremove-item\b|sed\s+-i|(?:python3|py\s+-3|node|ruby|perl)\s+(?:-c|-e)",
+            command,
+            re.IGNORECASE,
+        )
+        if mutation_marker:
+            return "승인 상태 파일은 직접 조작할 수 없습니다. 검증된 Reviewer 기록 명령만 사용하세요."
     for pattern in DESTRUCTIVE_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             return "복구가 어려운 Git 명령은 정책상 차단됩니다. 안전한 대안을 사용하세요."

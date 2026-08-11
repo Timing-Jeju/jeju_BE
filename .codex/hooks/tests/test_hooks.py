@@ -27,6 +27,47 @@ secret_guard = load_module("user_prompt_secret_guard", "user_prompt_secret_guard
 
 
 class PreToolPolicyTest(unittest.TestCase):
+    def test_direct_review_state_write_is_blocked(self):
+        reason = policy.evaluate_command(
+            "apply_patch .codex/state/reviews/feat__12-place-search.json",
+            "feat/12-place-search",
+        )
+
+        self.assertIn("승인 상태", reason)
+
+    def test_direct_review_state_delete_is_blocked(self):
+        reason = policy.evaluate_command(
+            "rm .codex/state/reviews/feat__12-place-search.json",
+            "feat/12-place-search",
+        )
+
+        self.assertIn("승인 상태", reason)
+
+    def test_shell_redirection_to_review_state_is_blocked(self):
+        reason = policy.evaluate_command(
+            "printf payload > .codex/state/reviews/feat__12-place-search.json",
+            "feat/12-place-search",
+        )
+
+        self.assertIn("승인 상태", reason)
+
+    def test_reading_review_state_is_allowed(self):
+        self.assertIsNone(
+            policy.evaluate_command(
+                "sed -n '1,120p' .codex/state/reviews/feat__12-place-search.json",
+                "feat/12-place-search",
+            )
+        )
+
+    def test_official_review_state_recorder_command_is_allowed(self):
+        self.assertIsNone(
+            policy.evaluate_command(
+                "python3 scripts/record_review_state.py --issue 12 --verdict APPROVED "
+                "--findings-count 0 --required-changes-count 0",
+                "feat/12-place-search",
+            )
+        )
+
     def test_main_commit_is_blocked(self):
         self.assertIsNotNone(policy.evaluate_command("git commit -m 'chore: #1 설정'", "main"))
 
@@ -122,18 +163,88 @@ class PreToolPolicyTest(unittest.TestCase):
     def test_latest_gate_and_approval_allow_pr_script(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self._write_state(root, "quality-gates", "feat/12-place-search", {"headSha": "new", "result": "SUCCESS"})
+            self._write_state(
+                root,
+                "quality-gates",
+                "feat/12-place-search",
+                {"branch": "feat/12-place-search", "headSha": "new", "result": "SUCCESS"},
+            )
             self._write_state(
                 root,
                 "reviews",
                 "feat/12-place-search",
-                {"headSha": "new", "verdict": "APPROVED", "issueNumber": 12, "requiredChangesCount": 0},
+                {
+                    "branch": "feat/12-place-search",
+                    "headSha": "new",
+                    "qualityGateSha": "new",
+                    "verdict": "APPROVED",
+                    "issueNumber": 12,
+                    "requiredChangesCount": 0,
+                },
             )
             self.assertIsNone(
                 policy.evaluate_command(
                     "./scripts/create-pr.sh --base develop", "feat/12-place-search", root, "new", False, True
                 )
             )
+
+    def test_review_quality_gate_sha_must_match_current_head(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_state(
+                root,
+                "quality-gates",
+                "feat/12-place-search",
+                {"branch": "feat/12-place-search", "headSha": "new", "result": "SUCCESS"},
+            )
+            self._write_state(
+                root,
+                "reviews",
+                "feat/12-place-search",
+                {
+                    "branch": "feat/12-place-search",
+                    "headSha": "new",
+                    "qualityGateSha": "old",
+                    "verdict": "APPROVED",
+                    "issueNumber": 12,
+                    "requiredChangesCount": 0,
+                },
+            )
+
+            reason = policy.evaluate_command(
+                "./scripts/create-pr.sh --base develop", "feat/12-place-search", root, "new", False, True
+            )
+
+            self.assertIn("품질 게이트 SHA", reason)
+
+    def test_review_branch_must_match_current_branch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_state(
+                root,
+                "quality-gates",
+                "feat/12-place-search",
+                {"branch": "feat/12-place-search", "headSha": "new", "result": "SUCCESS"},
+            )
+            self._write_state(
+                root,
+                "reviews",
+                "feat/12-place-search",
+                {
+                    "branch": "feat/13-other",
+                    "headSha": "new",
+                    "qualityGateSha": "new",
+                    "verdict": "APPROVED",
+                    "issueNumber": 12,
+                    "requiredChangesCount": 0,
+                },
+            )
+
+            reason = policy.evaluate_command(
+                "./scripts/create-pr.sh --base develop", "feat/12-place-search", root, "new", False, True
+            )
+
+            self.assertIn("Reviewer 승인 브랜치", reason)
 
     @staticmethod
     def _write_state(root: Path, kind: str, branch: str, value: dict):
