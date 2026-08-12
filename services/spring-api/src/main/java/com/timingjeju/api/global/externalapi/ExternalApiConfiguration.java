@@ -1,7 +1,12 @@
 package com.timingjeju.api.global.externalapi;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.info.InfoContributor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -17,6 +22,27 @@ import org.springframework.core.env.Environment;
   KmaProperties.class
 })
 public class ExternalApiConfiguration {
+
+  @Bean
+  ExternalApiExecutor externalApiExecutor(
+      List<ExternalApiClientSettings> clientSettings,
+      ObjectProvider<MeterRegistry> meterRegistryProvider) {
+    Map<ExternalApiProvider, ExternalApiClientSettings> byProvider =
+        new EnumMap<>(ExternalApiProvider.class);
+    clientSettings.forEach(
+        settings -> {
+          if (byProvider.putIfAbsent(settings.provider(), settings) != null) {
+            throw new IllegalStateException("외부 API provider 설정 bean이 중복되었습니다.");
+          }
+        });
+    return new ExternalApiExecutor(
+        byProvider,
+        new JdkExternalHttpTransport(),
+        ExternalApiTimeSource.system(),
+        ExternalApiJitter.threadLocal(),
+        meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new),
+        ExternalApiResiliencePolicy.defaults());
+  }
 
   @Bean
   @ConditionalOnProperty(

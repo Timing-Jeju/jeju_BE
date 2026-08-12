@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.externalapi;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -20,6 +21,12 @@ import org.springframework.test.web.servlet.MockMvc;
 class ExternalApiActuatorIntegrationTest {
 
   @Autowired private MockMvc mockMvc;
+  @Autowired private ExternalApiExecutor externalApiExecutor;
+
+  @Test
+  void 공통_external_api_executor가_Spring_bean으로_연결된다() {
+    assertThat(externalApiExecutor).isNotNull();
+  }
 
   @Test
   void actuator_info는_provider_활성_여부만_공개한다() throws Exception {
