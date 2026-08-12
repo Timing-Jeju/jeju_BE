@@ -37,6 +37,8 @@ AGENTS.md, Issue와 `docs/CODE_REVIEW.md`를 읽는다. 이 스킬은 Developer�
 
 승인 상태를 확인할 때는 단일 JSON 파일을 대상으로 하는 정확한 `cat`, `sed -n <행범위>`, `test -f`만 사용한다. 승인 상태 경로가 들어간 다른 명령, 추가 인자·파일, glob, pipe, redirection, shell wrapper는 모두 금지한다.
 
+quote 조각 연결, 변수 대입·확장, command substitution, 역따옴표, escape로 승인 상태 경로를 구성하지 않는다. Hook은 이를 실행하거나 추론하지 않고 불확실한 명령 전체를 차단한다.
+
 ## 출력
 
 ```text

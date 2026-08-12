@@ -92,6 +92,51 @@ class PreToolPolicyTest(unittest.TestCase):
                     policy.evaluate_command(command, "feat/12-place-search"),
                 )
 
+    def test_shell_constructed_review_state_paths_are_blocked(self):
+        unsafe_commands = (
+            "rm .codex/state/rev'iews'/feat__12-place-search.json",
+            'rm .codex/state/rev"iews"/feat__12-place-search.json',
+            "rm .codex/state/re'vi'ews/feat__12-place-search.json",
+            'rm .codex/state/re"vi"ews/feat__12-place-search.json',
+            "rm .codex/state/re'vi'\"ews\"/feat__12-place-search.json",
+            "rm .codex/state/rev$(printf iews)/feat__12-place-search.json",
+            "rm .codex/state/rev`printf iews`/feat__12-place-search.json",
+            "rm .codex/state/rev$(printf $(printf iews))/feat__12-place-search.json",
+            "d=.codex/state/reviews; rm $d/feat__12-place-search.json",
+            "d=.codex/state; rm ${d}/reviews/feat__12-place-search.json",
+            "target='.codex/state/reviews/feat__12-place-search.json'; rm $target",
+            "rm .codex/state/reviews;touch /tmp/x",
+            "rm .codex/state/reviews/feat__12-place-search.json;",
+            "rm .codex/state/rev\"iews\"/feat__12-place-search.json",
+        )
+
+        for command in unsafe_commands:
+            with self.subTest(command=command):
+                self.assertIn(
+                    "승인 상태",
+                    policy.evaluate_command(command, "feat/12-place-search"),
+                )
+
+    def test_exact_review_state_allowlist_rejects_shell_uncertainty(self):
+        path = ".codex/state/reviews/feat__12-place-search.json"
+        unsafe_commands = (
+            f"cat '{path}'",
+            f'cat "{path}"',
+            f"cat ./{path}",
+            f"cat ../repo/{path}",
+            f"cat /tmp/repo/{path}",
+            f"cat ${{PATH_TO_REVIEW}}",
+            f"sed -n '1,120p' {path};",
+            f"test -f {path} # inspect",
+        )
+
+        for command in unsafe_commands:
+            with self.subTest(command=command):
+                self.assertIn(
+                    "승인 상태",
+                    policy.evaluate_command(command, "feat/12-place-search"),
+                )
+
     def test_official_review_state_recorder_command_is_allowed(self):
         self.assertIsNone(
             policy.evaluate_command(

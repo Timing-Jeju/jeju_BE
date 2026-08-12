@@ -42,11 +42,11 @@ REVIEW_STATE_FILE_RE = re.compile(
     r"\.codex/state/reviews/[A-Za-z0-9._-]+\.json",
     re.IGNORECASE,
 )
-SED_PRINT_RANGE_RE = re.compile(r"[1-9][0-9]*(?:,[1-9][0-9]*)?p")
+SHELL_UNCERTAINTY_RE = re.compile(r"[;&|<>\r\n`$(){}*?\\]")
 
 
 def is_standalone_review_state_recorder(command: str) -> bool:
-    if re.search(r"[;&|<>\r\n]", command):
+    if re.search(r"[;&|<>\r\n'\"`$(){}*?\\]", command):
         return False
     try:
         tokens = shlex.split(command, posix=True)
@@ -81,26 +81,50 @@ def is_standalone_review_state_recorder(command: str) -> bool:
 
 
 def is_exact_review_state_read(command: str) -> bool:
-    if re.search(r"[;&|<>\r\n*?{}\[\]]", command):
-        return False
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        return False
+    path = r"\.codex/state/reviews/[A-Za-z0-9._-]+\.json"
+    patterns = (
+        rf"cat {path}",
+        rf"sed -n (?:'[1-9][0-9]*(?:,[1-9][0-9]*)?p'|[1-9][0-9]*(?:,[1-9][0-9]*)?p) {path}",
+        rf"test -f {path}",
+    )
+    return any(re.fullmatch(pattern, command) for pattern in patterns)
 
-    if len(tokens) == 2 and tokens[0] == "cat":
-        path = tokens[1]
-    elif (
-        len(tokens) == 4
-        and tokens[:2] == ["sed", "-n"]
-        and SED_PRINT_RANGE_RE.fullmatch(tokens[2])
+
+def shell_literal_projection(command: str) -> str:
+    """Return adjacent shell literal fragments without executing shell syntax.
+
+    This is deliberately conservative: quotes and escapes are removed only to expose
+    paths assembled by shell word concatenation. Command and variable substitution
+    are never evaluated and remain visible as uncertainty markers.
+    """
+    projected: list[str] = []
+    escaped = False
+    for character in command:
+        if escaped:
+            projected.append(character)
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character not in {"'", '"'}:
+            projected.append(character)
+    if escaped:
+        projected.append("\\")
+    return "".join(projected)
+
+
+def has_review_state_path_risk(command: str) -> bool:
+    projected = shell_literal_projection(command).lower()
+    if ".codex/state" in projected:
+        return True
+    if ".codex" in projected and (
+        "/state" in projected or SHELL_UNCERTAINTY_RE.search(command)
     ):
-        path = tokens[3]
-    elif len(tokens) == 3 and tokens[:2] == ["test", "-f"]:
-        path = tokens[2]
-    else:
-        return False
-    return REVIEW_STATE_FILE_RE.fullmatch(path) is not None
+        return True
+    variable_names = re.findall(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))", command)
+    return any(
+        any(marker in (braced or plain).lower() for marker in ("review", "approval", "state"))
+        for braced, plain in variable_names
+    )
 
 
 def extract_commit_message(command: str) -> str | None:
@@ -123,7 +147,7 @@ def evaluate_command(
         if is_standalone_review_state_recorder(command):
             return None
         return "승인 상태 기록 명령은 추가 명령이나 우회 없이 공식 형식으로 단독 실행해야 합니다."
-    if REVIEW_STATE_PATH_RE.search(command):
+    if REVIEW_STATE_PATH_RE.search(command) or has_review_state_path_risk(command):
         if is_exact_review_state_read(command):
             return None
         return "승인 상태 파일은 직접 조작할 수 없습니다. 검증된 Reviewer 기록 명령만 사용하세요."
