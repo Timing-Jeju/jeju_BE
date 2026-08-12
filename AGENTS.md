@@ -20,6 +20,7 @@
 - Developer와 PM은 승인 상태 파일을 생성·수정·삭제할 수 없다. `scripts/record_review_state.py`도 실행할 수 없다. 승인 상태 파일은 `.codex/state/reviews/{sanitized-branch}.json`이다.
 - 실제 timing-jeju-reviewer만 독립적인 `develop...HEAD` 검토를 완료한 뒤 `scripts/record_review_state.py`를 실행한다. finding 0건으로 APPROVED하면 현재 HEAD의 승인 상태를 기록하고, CHANGES_REQUESTED이면 현재 브랜치의 기존 stale 승인 상태만 삭제한다. 승인 JSON을 `apply_patch`·에디터·임의 셸 명령으로 직접 조작하지 않는다.
 - Reviewer 전용 기록 명령은 브랜치·Issue·로컬/원격 HEAD·동일 SHA 품질 게이트·finding 수를 다시 검증하는 저장소 정규 절차다. Reviewer의 판단을 대신하지 않으며 검토 완료 직후 추가 사용자 확인 없이 실행한다.
+- Hook은 실수와 통상적인 직접 조작을 줄이는 방어층이며 동일 OS 사용자의 임의 인코딩 셸을 완전히 차단하는 OS 보안 경계가 아니다. 승인 신뢰 경계는 독립 Reviewer의 `develop...HEAD` 판정, 공식 recorder의 저장소 상태 검증, create-pr의 동일 HEAD·품질 게이트·승인 상태 재검증을 합친 절차다.
 - 매 개발일 종료 전에 한국어 개발 일지를 Obsidian `04_Projects/timing-jeju`에 남긴다.
 
 ## 완료 조건과 금지사항

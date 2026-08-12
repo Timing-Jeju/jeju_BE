@@ -33,6 +33,8 @@ AGENTS.md, Issue와 `docs/CODE_REVIEW.md`를 읽는다. 이 스킬은 Developer�
 
 이 명령은 호출자가 실제 timing-jeju-reviewer인지 OS 수준에서 증명할 수 없다. 따라서 Reviewer 전용 agent 계약, 독립 검토 절차와 직접 조작 차단 Hook이 권한 경계를 보완한다. 실제 검토 없이 명령을 실행하거나 Reviewer 역할을 가장하지 않는다.
 
+Hook은 실수와 통상적인 직접 조작을 줄이는 방어층일 뿐 OS 보안 경계가 아니다. 승인 신뢰 경계는 독립 Reviewer의 판정, 공식 recorder의 저장소 상태 검증, create-pr의 동일 HEAD·품질 게이트·승인 상태 재검증이다.
+
 두 공식 기록 명령은 shell wrapper, pipe, redirection, 다른 명령과의 연결 없이 단독 실행한다. 승인 상태 JSON 경로를 직접 인자로 넘기거나 파일을 별도 명령으로 조작하지 않는다.
 
 승인 상태를 확인할 때는 단일 JSON 파일을 대상으로 하는 정확한 `cat`, `sed -n <행범위>`, `test -f`만 사용한다. 승인 상태 경로가 들어간 다른 명령, 추가 인자·파일, glob, pipe, redirection, shell wrapper는 모두 금지한다.

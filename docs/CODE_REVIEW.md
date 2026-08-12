@@ -18,7 +18,9 @@ python3 scripts/record_review_state.py --issue <issue> --verdict APPROVED --find
 
 승인 상태 경로가 포함된 셸 명령은 기본적으로 차단합니다. 공식 기록기 단독 실행과 단일 JSON 파일을 대상으로 하는 정확한 `cat`, `sed -n <행범위>`, `test -f`만 허용하며, 파이프·리다이렉션·셸 래퍼·글로브·추가 경로나 명령 결합은 허용하지 않습니다.
 
-Hook은 완전한 셸 인터프리터나 운영체제 권한 경계가 아닙니다. 따라서 승인 상태와 관련된 인접 quote 조각, 변수 대입·확장, command substitution, 역따옴표, escape와 제어 연산자는 의미를 실행해 추측하지 않고 불확실성 자체를 차단합니다. 승인 상태 파일을 다루는 새 명령이 필요하면 denylist를 늘리지 않고 전체 argv 기반의 최소 read-only allowlist를 별도 검토합니다.
+Hook은 실수와 통상적인 직접 조작을 줄이는 방어층이며 완전한 셸 인터프리터나 OS 보안 경계가 아닙니다. 동일 OS 사용자의 임의 인코딩 셸을 모두 증명하거나 차단하는 것은 제외 범위입니다. 승인 신뢰 경계는 독립 Reviewer의 `develop...HEAD` 판정, 공식 recorder의 브랜치·Issue·원격 HEAD·품질 게이트 검증, create-pr의 동일 HEAD·품질 게이트·승인 상태 재검증을 합친 절차입니다.
+
+승인 상태와 관련된 인접 quote 조각, 변수 대입·확장, command substitution, 역따옴표, escape와 제어 연산자는 의미를 실행해 추측하지 않고 통상적인 우회를 막는 범위에서 불확실성 자체를 차단합니다. 승인 상태 파일을 다루는 새 명령이 필요하면 denylist를 늘리지 않고 전체 argv 기반의 최소 read-only allowlist를 별도 검토합니다.
 
 `.codex` 접두부 자체가 동적으로 조립되더라도 원문이나 보수적 projection에 `state/reviews`·`reviews` 경로 suffix가 남고 shell uncertainty가 있으면 차단합니다. ANSI-C escape는 해석하지 않으며 승인 상태 suffix와 결합된 표현 자체를 불확실한 mutation으로 취급합니다.
 
