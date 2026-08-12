@@ -51,13 +51,46 @@ class PreToolPolicyTest(unittest.TestCase):
 
         self.assertIn("승인 상태", reason)
 
-    def test_reading_review_state_is_allowed(self):
-        self.assertIsNone(
-            policy.evaluate_command(
-                "sed -n '1,120p' .codex/state/reviews/feat__12-place-search.json",
-                "feat/12-place-search",
-            )
+    def test_exact_read_only_review_state_commands_are_allowed(self):
+        review_path = ".codex/state/reviews/feat__12-place-search.json"
+        commands = (
+            f"cat {review_path}",
+            f"sed -n '1,120p' {review_path}",
+            f"test -f {review_path}",
         )
+
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIsNone(
+                    policy.evaluate_command(command, "feat/12-place-search")
+                )
+
+    def test_any_other_command_containing_review_state_path_is_blocked(self):
+        review_path = ".codex/state/reviews/feat__12-place-search.json"
+        unsafe_commands = (
+            f"find .codex/state/reviews -delete",
+            f"perl -pi -e 's/x/y/' {review_path}",
+            f"python3 helper.py {review_path}",
+            f"echo x | sponge {review_path}",
+            f"rsync /tmp/x {review_path}",
+            f"unknown-command --target={review_path}",
+            f"cat {review_path} > /tmp/review-copy",
+            f"cat {review_path} && rm {review_path}",
+            f"sed -n '1,120p' {review_path} | tee /tmp/review-copy",
+            f"test -f {review_path}; rm {review_path}",
+            f"cat README.md {review_path}",
+            f"sed -n '1,120p' README.md {review_path}",
+            f"test -f README.md {review_path}",
+            f"cat .codex/state/reviews/*.json",
+            f"bash -c 'cat {review_path}'",
+        )
+
+        for command in unsafe_commands:
+            with self.subTest(command=command):
+                self.assertIn(
+                    "승인 상태",
+                    policy.evaluate_command(command, "feat/12-place-search"),
+                )
 
     def test_official_review_state_recorder_command_is_allowed(self):
         self.assertIsNone(

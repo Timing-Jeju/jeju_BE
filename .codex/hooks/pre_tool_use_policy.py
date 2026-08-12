@@ -25,7 +25,9 @@ DESTRUCTIVE_PATTERNS = (
     r"(?:^|[;&|]\s*)git\s+checkout\s+--\s+\.(?:\s|$)",
     r"(?:^|[;&|]\s*)git\s+restore\s+\.(?:\s|$)",
 )
-REVIEW_STATE_PATH_RE = re.compile(r"\.codex[/\\]state[/\\]reviews(?:[/\\]|$)", re.IGNORECASE)
+REVIEW_STATE_PATH_RE = re.compile(
+    r"\.codex[/\\]state[/\\]reviews(?=[/\\\s'\"]|$)", re.IGNORECASE
+)
 REVIEW_STATE_RECORDER_RE = re.compile(
     r"scripts[/\\]record_review_state\.py",
     re.IGNORECASE,
@@ -36,6 +38,11 @@ REVIEW_STATE_RECORDER_OPTIONS = {
     "--findings-count",
     "--required-changes-count",
 }
+REVIEW_STATE_FILE_RE = re.compile(
+    r"\.codex/state/reviews/[A-Za-z0-9._-]+\.json",
+    re.IGNORECASE,
+)
+SED_PRINT_RANGE_RE = re.compile(r"[1-9][0-9]*(?:,[1-9][0-9]*)?p")
 
 
 def is_standalone_review_state_recorder(command: str) -> bool:
@@ -73,6 +80,29 @@ def is_standalone_review_state_recorder(command: str) -> bool:
     )
 
 
+def is_exact_review_state_read(command: str) -> bool:
+    if re.search(r"[;&|<>\r\n*?{}\[\]]", command):
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+
+    if len(tokens) == 2 and tokens[0] == "cat":
+        path = tokens[1]
+    elif (
+        len(tokens) == 4
+        and tokens[:2] == ["sed", "-n"]
+        and SED_PRINT_RANGE_RE.fullmatch(tokens[2])
+    ):
+        path = tokens[3]
+    elif len(tokens) == 3 and tokens[:2] == ["test", "-f"]:
+        path = tokens[2]
+    else:
+        return False
+    return REVIEW_STATE_FILE_RE.fullmatch(path) is not None
+
+
 def extract_commit_message(command: str) -> str | None:
     match = re.search(r"\bgit\s+commit\b.*?(?:-m|--message)(?:=|\s+)(['\"])(.*?)\1", command, re.DOTALL)
     if match:
@@ -94,13 +124,9 @@ def evaluate_command(
             return None
         return "승인 상태 기록 명령은 추가 명령이나 우회 없이 공식 형식으로 단독 실행해야 합니다."
     if REVIEW_STATE_PATH_RE.search(command):
-        mutation_marker = re.search(
-            r"apply_patch|update file|add file|delete file|[<>]|\brm\b|\bunlink\b|\bmv\b|\bcp\b|\btee\b|\btouch\b|\btruncate\b|\bdd\b|\bln\b|\bchmod\b|\binstall\b|\bset-content\b|\bremove-item\b|sed\s+-i|(?:python3|py\s+-3|node|ruby|perl)\s+(?:-c|-e)",
-            command,
-            re.IGNORECASE,
-        )
-        if mutation_marker:
-            return "승인 상태 파일은 직접 조작할 수 없습니다. 검증된 Reviewer 기록 명령만 사용하세요."
+        if is_exact_review_state_read(command):
+            return None
+        return "승인 상태 파일은 직접 조작할 수 없습니다. 검증된 Reviewer 기록 명령만 사용하세요."
     for pattern in DESTRUCTIVE_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             return "복구가 어려운 Git 명령은 정책상 차단됩니다. 안전한 대안을 사용하세요."

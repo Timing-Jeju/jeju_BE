@@ -35,6 +35,8 @@ AGENTS.md, Issue와 `docs/CODE_REVIEW.md`를 읽는다. 이 스킬은 Developer�
 
 두 공식 기록 명령은 shell wrapper, pipe, redirection, 다른 명령과의 연결 없이 단독 실행한다. 승인 상태 JSON 경로를 직접 인자로 넘기거나 파일을 별도 명령으로 조작하지 않는다.
 
+승인 상태를 확인할 때는 단일 JSON 파일을 대상으로 하는 정확한 `cat`, `sed -n <행범위>`, `test -f`만 사용한다. 승인 상태 경로가 들어간 다른 명령, 추가 인자·파일, glob, pipe, redirection, shell wrapper는 모두 금지한다.
+
 ## 출력
 
 ```text
