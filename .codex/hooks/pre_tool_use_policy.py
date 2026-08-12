@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 
 from hook_common import (
     BRANCH_RE,
@@ -24,6 +25,113 @@ DESTRUCTIVE_PATTERNS = (
     r"(?:^|[;&|]\s*)git\s+checkout\s+--\s+\.(?:\s|$)",
     r"(?:^|[;&|]\s*)git\s+restore\s+\.(?:\s|$)",
 )
+REVIEW_STATE_PATH_RE = re.compile(
+    r"\.codex[/\\]state[/\\]reviews(?=[/\\\s'\"]|$)", re.IGNORECASE
+)
+REVIEW_STATE_RECORDER_RE = re.compile(
+    r"scripts[/\\]record_review_state\.py",
+    re.IGNORECASE,
+)
+REVIEW_STATE_RECORDER_OPTIONS = {
+    "--issue",
+    "--verdict",
+    "--findings-count",
+    "--required-changes-count",
+}
+REVIEW_STATE_FILE_RE = re.compile(
+    r"\.codex/state/reviews/[A-Za-z0-9._-]+\.json",
+    re.IGNORECASE,
+)
+SHELL_UNCERTAINTY_RE = re.compile(r"[;&|<>\r\n`$(){}*?\\]")
+
+
+def is_standalone_review_state_recorder(command: str) -> bool:
+    if re.search(r"[;&|<>\r\n'\"`$(){}*?\\]", command):
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+
+    if len(tokens) >= 2 and tokens[:2] == ["python3", "scripts/record_review_state.py"]:
+        arguments = tokens[2:]
+    elif len(tokens) >= 3 and tokens[:3] == ["py", "-3", "scripts/record_review_state.py"]:
+        arguments = tokens[3:]
+    else:
+        return False
+    if len(arguments) != 8:
+        return False
+
+    values: dict[str, str] = {}
+    for index in range(0, len(arguments), 2):
+        option, value = arguments[index : index + 2]
+        if option not in REVIEW_STATE_RECORDER_OPTIONS or option in values:
+            return False
+        values[option] = value
+    if set(values) != REVIEW_STATE_RECORDER_OPTIONS:
+        return False
+    if values["--verdict"] not in {"APPROVED", "CHANGES_REQUESTED"}:
+        return False
+    if not values["--issue"].isdigit() or int(values["--issue"]) <= 0:
+        return False
+    return all(
+        values[option].isdigit()
+        for option in ("--findings-count", "--required-changes-count")
+    )
+
+
+def is_exact_review_state_read(command: str) -> bool:
+    path = r"\.codex/state/reviews/[A-Za-z0-9._-]+\.json"
+    patterns = (
+        rf"cat {path}",
+        rf"sed -n (?:'[1-9][0-9]*(?:,[1-9][0-9]*)?p'|[1-9][0-9]*(?:,[1-9][0-9]*)?p) {path}",
+        rf"test -f {path}",
+    )
+    return any(re.fullmatch(pattern, command) for pattern in patterns)
+
+
+def shell_literal_projection(command: str) -> str:
+    """Return adjacent shell literal fragments without executing shell syntax.
+
+    This is deliberately conservative: quotes and escapes are removed only to expose
+    paths assembled by shell word concatenation. Command and variable substitution
+    are never evaluated and remain visible as uncertainty markers.
+    """
+    projected: list[str] = []
+    escaped = False
+    for character in command:
+        if escaped:
+            projected.append(character)
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character not in {"'", '"'}:
+            projected.append(character)
+    if escaped:
+        projected.append("\\")
+    return "".join(projected)
+
+
+def has_review_state_path_risk(command: str) -> bool:
+    projected = shell_literal_projection(command).lower()
+    uncertain = SHELL_UNCERTAINTY_RE.search(command) is not None
+    if ".codex/state" in projected:
+        return True
+    if ".codex" in projected and (
+        "/state" in projected or uncertain
+    ):
+        return True
+    if uncertain and (
+        "/state/reviews" in projected
+        or "state/reviews" in projected
+        or "/reviews/" in projected
+    ):
+        return True
+    variable_names = re.findall(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))", command)
+    return any(
+        any(marker in (braced or plain).lower() for marker in ("review", "approval", "state"))
+        for braced, plain in variable_names
+    )
 
 
 def extract_commit_message(command: str) -> str | None:
@@ -42,6 +150,14 @@ def evaluate_command(
     remote_exists: bool = True,
 ) -> str | None:
     lowered = command.lower()
+    if REVIEW_STATE_RECORDER_RE.search(command):
+        if is_standalone_review_state_recorder(command):
+            return None
+        return "승인 상태 기록 명령은 추가 명령이나 우회 없이 공식 형식으로 단독 실행해야 합니다."
+    if REVIEW_STATE_PATH_RE.search(command) or has_review_state_path_risk(command):
+        if is_exact_review_state_read(command):
+            return None
+        return "승인 상태 파일은 직접 조작할 수 없습니다. 검증된 Reviewer 기록 명령만 사용하세요."
     for pattern in DESTRUCTIVE_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
             return "복구가 어려운 Git 명령은 정책상 차단됩니다. 안전한 대안을 사용하세요."

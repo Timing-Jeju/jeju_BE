@@ -11,7 +11,7 @@ AGENTS.md와 `docs/GIT_WORKFLOW.md`를 읽고 raw `gh pr create` 대신 저장�
 
 1. `main`/`develop`이 아닌 규칙 브랜치인지, Issue 번호가 포함됐는지 확인한다.
 2. 작업 트리가 깨끗하고 모든 변경이 커밋됐으며 원격 브랜치가 존재하는지 확인한다.
-3. 품질 게이트와 Reviewer JSON이 현재 HEAD와 일치하고 필수 수정 수가 0인지 확인한다.
+3. 품질 게이트와 Reviewer JSON이 현재 브랜치·Issue·HEAD·품질 게이트 SHA와 모두 일치하고 필수 수정 수가 0인지 확인한다. Reviewer JSON은 독립 Reviewer가 `scripts/record_review_state.py`로 기록한 상태만 인정하며 create-pr 단계에서 생성·수정하지 않는다.
 4. 일반 작업은 `develop`, Release만 `main`을 base로 선택한다.
 5. macOS/Linux는 `./scripts/create-pr.sh --base <base>`, Windows는 `./scripts/create-pr.ps1 -Base <base>`를 실행한다.
 6. PR 생성 뒤 자동 머지를 켜지 않는다.

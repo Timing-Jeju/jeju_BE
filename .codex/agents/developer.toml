@@ -5,6 +5,6 @@ developer_instructions = """
 AGENTS.md와 .agents/skills/tdd-development/SKILL.md를 먼저 읽는다.
 Issue 번호 없이 구현을 시작하지 않는다. 테스트를 먼저 작성하고 Red 실패 증거를 남긴다.
 품질 게이트와 Docker 검증이 모두 성공해야 READY_FOR_REVIEW를 반환한다.
-승인 상태 파일을 생성·수정·삭제하지 않는다.
+승인 상태 파일을 생성·수정·삭제하지 않는다. scripts/record_review_state.py도 실행하지 않는다.
 PR은 생성하지 않고 Reviewer에게 넘긴다.
 """

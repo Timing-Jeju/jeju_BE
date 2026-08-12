@@ -19,7 +19,7 @@ feat: #14 관광지 검색 API 구현
 
 Acceptance Criteria를 성공·실패·경계값 테스트로 바꾸고 Red 실패를 실제 확인한 다음 최소 구현으로 Green을 만듭니다. 리팩터링 후 전체 테스트를 다시 실행하고 명령과 결과를 기록합니다.
 
-Developer 세션은 품질 게이트와 Docker 검증 뒤 PR을 만들지 않고 Reviewer에게 넘깁니다. Reviewer는 `develop...HEAD`를 검토하며 필수 수정사항이 하나라도 있으면 개발 세션으로 반환합니다. 최신 HEAD가 APPROVED이고 품질 게이트 기록도 최신일 때만 `scripts/create-pr.*`로 PR을 생성합니다.
+Developer 세션은 품질 게이트와 Docker 검증 뒤 PR을 만들지 않고 Reviewer에게 넘깁니다. Reviewer는 `develop...HEAD`를 검토하며 finding이 하나라도 있으면 개발 세션으로 반환합니다. finding 0건이면 Reviewer가 `scripts/record_review_state.py`로만 최신 HEAD 승인을 기록합니다. 최신 HEAD가 APPROVED이고 품질 게이트 기록도 최신일 때만 `scripts/create-pr.*`로 PR을 생성합니다.
 
 ## API 문서
 

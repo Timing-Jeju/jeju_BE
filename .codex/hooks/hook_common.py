@@ -178,12 +178,18 @@ def validate_pr_state(
     gate = load_json(state_path(root, "quality-gates", branch))
     if not gate or gate.get("headSha") != sha or gate.get("result") != "SUCCESS":
         errors.append("현재 HEAD에 대한 품질 게이트 성공 기록이 없습니다. quality-gate를 다시 실행하세요.")
+    elif gate.get("branch") != branch:
+        errors.append("품질 게이트 기록의 브랜치가 현재 브랜치와 다릅니다.")
 
     review = load_json(state_path(root, "reviews", branch))
     if not review or review.get("headSha") != sha or review.get("verdict") != "APPROVED":
         errors.append("현재 HEAD에 대한 Reviewer APPROVED 기록이 없습니다. pre-pr-review를 다시 실행하세요.")
     elif review.get("requiredChangesCount") != 0:
         errors.append("Reviewer 필수 수정사항이 남아 있습니다.")
+    if review and review.get("branch") != branch:
+        errors.append("Reviewer 승인 브랜치가 현재 브랜치와 다릅니다.")
+    if review and review.get("qualityGateSha") != sha:
+        errors.append("Reviewer 승인 품질 게이트 SHA가 현재 HEAD와 다릅니다.")
     if review and str(review.get("issueNumber")) != issue:
         errors.append("Reviewer 승인 Issue 번호와 브랜치 Issue 번호가 다릅니다.")
     return errors
