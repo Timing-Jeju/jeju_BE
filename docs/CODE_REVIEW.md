@@ -12,6 +12,8 @@ Developer와 PM은 승인 상태 파일을 생성·수정·삭제할 수 없습�
 python3 scripts/record_review_state.py --issue <issue> --verdict APPROVED --findings-count 0 --required-changes-count 0
 ```
 
+공식 기록 명령은 `bash -c`/`sh -c` 같은 wrapper, pipe, redirection, `;`/`&&`/`||` 추가 명령 없이 단독으로 실행합니다. 기록기는 승인 상태를 일반 파일·권한 `0600`으로 유지하며 동일 HEAD 재실행에서도 JSON 내용과 `reviewedAt`을 바꾸지 않고 잘못된 파일 권한만 복구합니다.
+
 명령은 현재 작업 브랜치와 Issue, 깨끗한 작업 트리, 로컬·원격 HEAD, 동일 SHA 품질 게이트 SUCCESS를 다시 확인한 뒤 `.codex/state/reviews/{sanitized-branch}.json`에 `issueNumber`, `branch`, `headSha`, `verdict`, `reviewedAt`, `qualityGateSha`, `requiredChangesCount`를 원자적으로 기록합니다. 같은 HEAD의 유효 승인은 멱등으로 유지합니다. `headSha`와 `qualityGateSha`는 현재 HEAD와 같고 `requiredChangesCount`는 0이어야 합니다. 커밋이나 코드가 바뀌면 승인은 즉시 stale 상태가 되어 무효입니다.
 
 `CHANGES_REQUESTED`이면 실제 `timing-jeju-reviewer`만 실제 finding 수를 두 count에 입력해 같은 명령을 실행하고 현재 브랜치의 기존 stale 승인 상태 파일만 제거합니다. 다른 브랜치 상태는 건드리지 않습니다. 승인 상태 파일은 로컬 ignored 산출물이며 커밋하지 않습니다. 승인 JSON의 직접 편집과 임의 경로·`--force` 우회는 금지합니다.

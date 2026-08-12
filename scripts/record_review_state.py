@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -180,6 +181,11 @@ def _load_existing_review(path: Path) -> dict[str, Any] | None:
         raise RecorderError("승인 상태 파일에 심볼릭 링크를 사용할 수 없습니다.")
     if not path.exists():
         return None
+    try:
+        if not stat.S_ISREG(path.stat(follow_symlinks=False).st_mode):
+            raise RecorderError("승인 상태는 일반 파일이어야 합니다.")
+    except OSError as exc:
+        raise RecorderError("기존 승인 상태 파일 정보를 확인할 수 없습니다.") from exc
     review = _load_object(path, "기존 승인 상태")
     if not _is_valid_approval(review):
         raise RecorderError("기존 승인 상태 JSON schema가 올바르지 않습니다.")
@@ -248,6 +254,14 @@ def _write_atomically(root: Path, path: Path, payload: dict[str, Any]) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
+def _ensure_private_mode(path: Path) -> None:
+    try:
+        if stat.S_IMODE(path.stat(follow_symlinks=False).st_mode) != 0o600:
+            os.chmod(path, 0o600, follow_symlinks=False)
+    except OSError as exc:
+        raise RecorderError("승인 상태 파일 권한을 0600으로 복구하지 못했습니다.") from exc
+
+
 def record_review_state(
     *,
     root: Path,
@@ -302,6 +316,7 @@ def record_review_state(
         "requiredChangesCount": 0,
     }
     if existing == payload:
+        _ensure_private_mode(path)
         return path
     if (
         existing is not None
@@ -312,6 +327,7 @@ def record_review_state(
         and existing.get("verdict") == "APPROVED"
         and existing.get("requiredChangesCount") == 0
     ):
+        _ensure_private_mode(path)
         return path
 
     _write_atomically(root, path, payload)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 
 from hook_common import (
     BRANCH_RE,
@@ -26,9 +27,50 @@ DESTRUCTIVE_PATTERNS = (
 )
 REVIEW_STATE_PATH_RE = re.compile(r"\.codex[/\\]state[/\\]reviews(?:[/\\]|$)", re.IGNORECASE)
 REVIEW_STATE_RECORDER_RE = re.compile(
-    r"(?:^|[;&|]\s*)(?:python3|py\s+-3)\s+scripts[/\\]record_review_state\.py(?:\s|$)",
+    r"scripts[/\\]record_review_state\.py",
     re.IGNORECASE,
 )
+REVIEW_STATE_RECORDER_OPTIONS = {
+    "--issue",
+    "--verdict",
+    "--findings-count",
+    "--required-changes-count",
+}
+
+
+def is_standalone_review_state_recorder(command: str) -> bool:
+    if re.search(r"[;&|<>\r\n]", command):
+        return False
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False
+
+    if len(tokens) >= 2 and tokens[:2] == ["python3", "scripts/record_review_state.py"]:
+        arguments = tokens[2:]
+    elif len(tokens) >= 3 and tokens[:3] == ["py", "-3", "scripts/record_review_state.py"]:
+        arguments = tokens[3:]
+    else:
+        return False
+    if len(arguments) != 8:
+        return False
+
+    values: dict[str, str] = {}
+    for index in range(0, len(arguments), 2):
+        option, value = arguments[index : index + 2]
+        if option not in REVIEW_STATE_RECORDER_OPTIONS or option in values:
+            return False
+        values[option] = value
+    if set(values) != REVIEW_STATE_RECORDER_OPTIONS:
+        return False
+    if values["--verdict"] not in {"APPROVED", "CHANGES_REQUESTED"}:
+        return False
+    if not values["--issue"].isdigit() or int(values["--issue"]) <= 0:
+        return False
+    return all(
+        values[option].isdigit()
+        for option in ("--findings-count", "--required-changes-count")
+    )
 
 
 def extract_commit_message(command: str) -> str | None:
@@ -47,9 +89,13 @@ def evaluate_command(
     remote_exists: bool = True,
 ) -> str | None:
     lowered = command.lower()
-    if REVIEW_STATE_PATH_RE.search(command) and not REVIEW_STATE_RECORDER_RE.search(command):
+    if REVIEW_STATE_RECORDER_RE.search(command):
+        if is_standalone_review_state_recorder(command):
+            return None
+        return "승인 상태 기록 명령은 추가 명령이나 우회 없이 공식 형식으로 단독 실행해야 합니다."
+    if REVIEW_STATE_PATH_RE.search(command):
         mutation_marker = re.search(
-            r"apply_patch|update file|add file|delete file|(?:^|\s)(?:>|>>)(?:\s|$)|\brm\b|\bunlink\b|\bmv\b|\bcp\b|\btee\b|\btouch\b|\btruncate\b|\bdd\b|\bln\b|\bchmod\b|\binstall\b|\bset-content\b|\bremove-item\b|sed\s+-i|(?:python3|py\s+-3|node|ruby|perl)\s+(?:-c|-e)",
+            r"apply_patch|update file|add file|delete file|[<>]|\brm\b|\bunlink\b|\bmv\b|\bcp\b|\btee\b|\btouch\b|\btruncate\b|\bdd\b|\bln\b|\bchmod\b|\binstall\b|\bset-content\b|\bremove-item\b|sed\s+-i|(?:python3|py\s+-3|node|ruby|perl)\s+(?:-c|-e)",
             command,
             re.IGNORECASE,
         )

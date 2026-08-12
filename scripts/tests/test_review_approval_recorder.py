@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -87,7 +88,37 @@ class ReviewApprovalRecorderTest(unittest.TestCase):
 
         self.assertEqual(first_content, path.read_bytes())
 
+    def test_same_head_approval_repairs_file_mode_without_changing_content(self):
+        path = self._record_approved()
+        first_content = path.read_bytes()
+        path.chmod(0o644)
+
+        recorder.record_review_state(
+            root=self.root,
+            issue=self.ISSUE,
+            verdict="APPROVED",
+            findings_count=0,
+            required_changes_count=0,
+            reviewed_at=datetime(2026, 8, 12, 6, 7, 8, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(first_content, path.read_bytes())
+        self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+
+    def test_existing_review_state_must_be_a_regular_file(self):
+        path = self._review_path()
+        path.mkdir(parents=True)
+
+        with self.assertRaisesRegex(recorder.RecorderError, "일반 파일"):
+            self._record_approved()
+
     def test_parent_git_hook_environment_cannot_redirect_repository_checks(self):
+        common_directory = self._repository_common_directory(ROOT)
+        config_path = common_directory / "config"
+        config_before = config_path.read_bytes()
+        config_hash_before = hashlib.sha256(config_before).hexdigest()
+        config_values_before = self._repository_config_values(ROOT)
+
         with mock.patch.dict(
             os.environ,
             {
@@ -100,6 +131,10 @@ class ReviewApprovalRecorderTest(unittest.TestCase):
             path = self._record_approved()
 
         self.assertEqual(self.sha, json.loads(path.read_text(encoding="utf-8"))["headSha"])
+        config_after = config_path.read_bytes()
+        self.assertEqual(config_before, config_after)
+        self.assertEqual(config_hash_before, hashlib.sha256(config_after).hexdigest())
+        self.assertEqual(config_values_before, self._repository_config_values(ROOT))
 
     def test_stale_valid_approval_is_replaced_for_current_reviewed_head(self):
         self._write_review(
@@ -409,6 +444,39 @@ class ReviewApprovalRecorderTest(unittest.TestCase):
 
     def _set_remote_head(self, sha: str):
         self._git("update-ref", f"refs/remotes/origin/{self.BRANCH}", sha)
+
+    @staticmethod
+    def _repository_common_directory(root: Path) -> Path:
+        environment = {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }
+        completed = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=root,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        common_directory = Path(completed.stdout.strip())
+        if not common_directory.is_absolute():
+            common_directory = root / common_directory
+        return common_directory.resolve()
+
+    @classmethod
+    def _repository_config_values(cls, root: Path) -> tuple[str, str, str]:
+        common_directory = cls._repository_common_directory(root)
+
+        def config_value(key: str) -> str:
+            completed = subprocess.run(
+                ["git", f"--git-dir={common_directory}", "config", "--local", "--get", key],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            return completed.stdout.strip()
+
+        return config_value("core.bare"), config_value("user.name"), config_value("user.email")
 
     def _quality_path(self) -> Path:
         return self.root / ".codex" / "state" / "quality-gates" / "fix__126-review-approval-recorder.json"

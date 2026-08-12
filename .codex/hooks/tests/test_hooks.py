@@ -68,6 +68,42 @@ class PreToolPolicyTest(unittest.TestCase):
             )
         )
 
+    def test_official_changes_requested_recorder_command_is_allowed(self):
+        self.assertIsNone(
+            policy.evaluate_command(
+                "python3 scripts/record_review_state.py --issue 12 "
+                "--verdict CHANGES_REQUESTED --findings-count 2 "
+                "--required-changes-count 2",
+                "feat/12-place-search",
+            )
+        )
+
+    def test_recorder_must_be_a_standalone_exact_command(self):
+        recorder = (
+            "python3 scripts/record_review_state.py --issue 12 --verdict APPROVED "
+            "--findings-count 0 --required-changes-count 0"
+        )
+        review_path = ".codex/state/reviews/feat__12-place-search.json"
+        unsafe_commands = (
+            f"{recorder}; rm {review_path}",
+            f"{recorder} && cp payload {review_path}",
+            f"{recorder} | tee {review_path}",
+            f"{recorder} || printf payload > {review_path}",
+            f"{recorder} >> {review_path}",
+            f"{recorder}>{review_path}",
+            f"python3 scripts/record_review_state.py --issue invalid; printf payload >{review_path}",
+            f"bash -c '{recorder}'",
+            f"sh -c '{recorder}'",
+            f"{recorder} --output {review_path}",
+        )
+
+        for command in unsafe_commands:
+            with self.subTest(command=command):
+                self.assertIn(
+                    "승인 상태",
+                    policy.evaluate_command(command, "feat/12-place-search"),
+                )
+
     def test_main_commit_is_blocked(self):
         self.assertIsNotNone(policy.evaluate_command("git commit -m 'chore: #1 설정'", "main"))
 

@@ -33,6 +33,8 @@ AGENTS.md, Issue와 `docs/CODE_REVIEW.md`를 읽는다. 이 스킬은 Developer�
 
 이 명령은 호출자가 실제 timing-jeju-reviewer인지 OS 수준에서 증명할 수 없다. 따라서 Reviewer 전용 agent 계약, 독립 검토 절차와 직접 조작 차단 Hook이 권한 경계를 보완한다. 실제 검토 없이 명령을 실행하거나 Reviewer 역할을 가장하지 않는다.
 
+두 공식 기록 명령은 shell wrapper, pipe, redirection, 다른 명령과의 연결 없이 단독 실행한다. 승인 상태 JSON 경로를 직접 인자로 넘기거나 파일을 별도 명령으로 조작하지 않는다.
+
 ## 출력
 
 ```text
