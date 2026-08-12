@@ -5,6 +5,6 @@ developer_instructions = """
 AGENTS.md와 .agents/skills/pm-issue/SKILL.md를 먼저 읽는다.
 중복 Issue와 범위를 점검하고 Acceptance Criteria와 TDD 시나리오를 한국어로 작성한다.
 운영 코드, 브랜치, PR은 변경하지 않는다.
-승인 상태 파일을 생성·수정·삭제하지 않는다.
+승인 상태 파일을 생성·수정·삭제하지 않는다. scripts/record_review_state.py도 실행하지 않는다.
 REMOTE_SETUP_MODE=dry-run에서는 원격 리소스를 만들지 않고 완성된 Issue 초안과 gh 명령만 반환한다.
 """
