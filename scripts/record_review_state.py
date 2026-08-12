@@ -70,10 +70,15 @@ def _safe_branch_name(branch: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "__", branch)
 
 
+def _isolated_git_environment() -> dict[str, str]:
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
 def _git(root: Path, *args: str) -> str:
     completed = subprocess.run(
         ["git", *args],
         cwd=root,
+        env=_isolated_git_environment(),
         text=True,
         capture_output=True,
         check=False,
@@ -101,6 +106,7 @@ def _current_context(root: Path, issue: int) -> tuple[str, str]:
     probe = subprocess.run(
         ["git", "show-ref", "--verify", "--quiet", remote_ref],
         cwd=root,
+        env=_isolated_git_environment(),
         text=True,
         capture_output=True,
         check=False,

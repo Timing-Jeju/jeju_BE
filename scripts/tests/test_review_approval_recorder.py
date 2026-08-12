@@ -87,6 +87,20 @@ class ReviewApprovalRecorderTest(unittest.TestCase):
 
         self.assertEqual(first_content, path.read_bytes())
 
+    def test_parent_git_hook_environment_cannot_redirect_repository_checks(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "GIT_DIR": str(ROOT / ".git"),
+                "GIT_WORK_TREE": str(ROOT),
+                "GIT_INDEX_FILE": str(ROOT / ".git" / "index"),
+            },
+            clear=False,
+        ):
+            path = self._record_approved()
+
+        self.assertEqual(self.sha, json.loads(path.read_text(encoding="utf-8"))["headSha"])
+
     def test_stale_valid_approval_is_replaced_for_current_reviewed_head(self):
         self._write_review(
             {
@@ -380,9 +394,13 @@ class ReviewApprovalRecorderTest(unittest.TestCase):
         )
 
     def _git(self, *args: str) -> str:
+        environment = {
+            key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+        }
         completed = subprocess.run(
             ["git", *args],
             cwd=self.root,
+            env=environment,
             text=True,
             capture_output=True,
             check=True,
