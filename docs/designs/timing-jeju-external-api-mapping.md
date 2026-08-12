@@ -119,6 +119,8 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
 
 ## 4. TAGO 버스
 
+이 문서의 `<percent-encoded-decoded-service-key>`는 환경변수에 percent-encoded 값을 넣으라는 뜻이 아니다. `TOUR_API_API_KEY`, `TAGO_API_KEY`, `KMA_API_KEY`에는 decoded 원문을 주입하고 Spring의 typed credential 경계에서 요청마다 UTF-8 percent-encoding을 정확히 한 번 수행한다. TMAP key는 query가 아닌 인증 header 원문으로 전달한다.
+
 ### 4.1 공식 서비스
 
 - [버스정류소정보](https://www.data.go.kr/data/15098534/openapi.do)
@@ -130,7 +132,7 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
 
 ```http
 GET http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnList
-  ?serviceKey=<encoded-key>
+  ?serviceKey=<percent-encoded-decoded-service-key>
   &_type=json
   &gpsLati=33.458111
   &gpsLong=126.941516
@@ -152,7 +154,7 @@ GET http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnLis
 
 ```http
 GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteInfoIem
-  ?serviceKey=<encoded-key>
+  ?serviceKey=<percent-encoded-decoded-service-key>
   &_type=json
   &cityCode=<discovered-city-code>
   &routeId=<route-id>
@@ -175,7 +177,7 @@ GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteInfoIem
 
 ```http
 GET http://apis.data.go.kr/1613000/ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList
-  ?serviceKey=<encoded-key>
+  ?serviceKey=<percent-encoded-decoded-service-key>
   &_type=json
   &cityCode=<discovered-city-code>
   &nodeId=<node-id>
@@ -280,7 +282,7 @@ Example:
 
 ```http
 GET http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst
-  ?ServiceKey=<encoded-key>
+  ?ServiceKey=<percent-encoded-decoded-service-key>
   &dataType=JSON
   &pageNo=1
   &numOfRows=1000
