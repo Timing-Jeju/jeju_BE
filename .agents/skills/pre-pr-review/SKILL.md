@@ -39,6 +39,8 @@ AGENTS.md, Issue와 `docs/CODE_REVIEW.md`를 읽는다. 이 스킬은 Developer�
 
 quote 조각 연결, 변수 대입·확장, command substitution, 역따옴표, escape로 승인 상태 경로를 구성하지 않는다. Hook은 이를 실행하거나 추론하지 않고 불확실한 명령 전체를 차단한다.
 
+`.codex` 접두부를 동적으로 조립하거나 ANSI-C escape와 `state/reviews` suffix를 결합하는 명령도 동일하게 차단한다.
+
 ## 출력
 
 ```text

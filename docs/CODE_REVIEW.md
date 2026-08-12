@@ -20,6 +20,8 @@ python3 scripts/record_review_state.py --issue <issue> --verdict APPROVED --find
 
 Hook은 완전한 셸 인터프리터나 운영체제 권한 경계가 아닙니다. 따라서 승인 상태와 관련된 인접 quote 조각, 변수 대입·확장, command substitution, 역따옴표, escape와 제어 연산자는 의미를 실행해 추측하지 않고 불확실성 자체를 차단합니다. 승인 상태 파일을 다루는 새 명령이 필요하면 denylist를 늘리지 않고 전체 argv 기반의 최소 read-only allowlist를 별도 검토합니다.
 
+`.codex` 접두부 자체가 동적으로 조립되더라도 원문이나 보수적 projection에 `state/reviews`·`reviews` 경로 suffix가 남고 shell uncertainty가 있으면 차단합니다. ANSI-C escape는 해석하지 않으며 승인 상태 suffix와 결합된 표현 자체를 불확실한 mutation으로 취급합니다.
+
 `CHANGES_REQUESTED`이면 실제 `timing-jeju-reviewer`만 실제 finding 수를 두 count에 입력해 같은 명령을 실행하고 현재 브랜치의 기존 stale 승인 상태 파일만 제거합니다. 다른 브랜치 상태는 건드리지 않습니다. 승인 상태 파일은 로컬 ignored 산출물이며 커밋하지 않습니다. 승인 JSON의 직접 편집과 임의 경로·`--force` 우회는 금지합니다.
 
 프로세스가 호출자 역할을 OS 수준에서 증명할 수는 없습니다. 이 기술적 한계를 Reviewer 전용 agent·스킬 계약, 독립 검토 증거와 직접 파일 조작 차단 Hook으로 보완합니다. 기록 명령은 Reviewer의 판단을 만들거나 대체하지 않으며, 실제 독립 검토 없이 실행하거나 역할을 가장하는 것은 승인 게이트 우회입니다.

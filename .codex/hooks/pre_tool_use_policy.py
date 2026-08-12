@@ -114,10 +114,17 @@ def shell_literal_projection(command: str) -> str:
 
 def has_review_state_path_risk(command: str) -> bool:
     projected = shell_literal_projection(command).lower()
+    uncertain = SHELL_UNCERTAINTY_RE.search(command) is not None
     if ".codex/state" in projected:
         return True
     if ".codex" in projected and (
-        "/state" in projected or SHELL_UNCERTAINTY_RE.search(command)
+        "/state" in projected or uncertain
+    ):
+        return True
+    if uncertain and (
+        "/state/reviews" in projected
+        or "state/reviews" in projected
+        or "/reviews/" in projected
     ):
         return True
     variable_names = re.findall(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))", command)

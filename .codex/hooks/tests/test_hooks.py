@@ -117,6 +117,23 @@ class PreToolPolicyTest(unittest.TestCase):
                     policy.evaluate_command(command, "feat/12-place-search"),
                 )
 
+    def test_dynamic_codex_prefix_with_review_state_suffix_is_blocked(self):
+        unsafe_commands = (
+            "rm .co$(printf dex)/state/reviews/feat__12-place-search.json",
+            "rm .co$(printf $(printf dex))/state/reviews/feat__12-place-search.json",
+            "rm .co`printf dex`/state/reviews/feat__12-place-search.json",
+            "rm $'\\x2e'codex/state/reviews/feat__12-place-search.json",
+            "prefix=.co; rm ${prefix}dex/state/reviews/feat__12-place-search.json",
+            "rm .co${suffix:-dex}/state/reviews/feat__12-place-search.json",
+        )
+
+        for command in unsafe_commands:
+            with self.subTest(command=command):
+                self.assertIn(
+                    "승인 상태",
+                    policy.evaluate_command(command, "feat/12-place-search"),
+                )
+
     def test_exact_review_state_allowlist_rejects_shell_uncertainty(self):
         path = ".codex/state/reviews/feat__12-place-search.json"
         unsafe_commands = (
