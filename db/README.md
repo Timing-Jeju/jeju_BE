@@ -32,6 +32,7 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260730020000_ingestion_consistency_hardening.sql`: 최신 TourAPI 코드, 수집 lineage, TAGO 범위 키와 유효기간 충돌 차단
 - `supabase/migrations/20260730030000_schedule_consistency_hardening.sql`: 확정 일정 일자·시간·계산 결과와 버전 계보 불변성 강화
 - `supabase/migrations/20260730040000_import_run_lineage_retention.sql`: origin과 무관한 정규화 provenance import run 삭제 차단
+- `supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql`: import run 내부 쓰기 owner/fencing 불변 계약
 - `supabase/migrations/20260810000000_api_idempotency_registry.sql`: 변경 API 멱등성 scope·lease·TTL·최소 응답 저장 계약
 - `supabase/migrations/20260811000000_async_run_worker_runtime.sql`: compute run lease·heartbeat·fencing·retry·stuck recovery 상태 계약
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
@@ -60,6 +61,8 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 한 `data_import_runs` 실행의 `source_kind`·provider·service·operation·scope는 생성 후 불변이고, 연결된 모든 snapshot은 정확히 그 범위를 공유해야 합니다. legacy 다중 범위 실행이 발견되면 자동으로 범위를 선택하지 않고 `import_run_id`와 충돌 범위를 출력하며 마이그레이션을 중단합니다. 운영자는 원본 의미에 따라 snapshot을 범위별 별도 run으로 분리하거나 격리한 뒤 마이그레이션을 다시 적용해야 합니다.
 
 `data_import_runs.idempotency_enforced`와 `running_scope_enforced`는 legacy 중복을 삭제하지 않고 신규 멱등·동시 실행 계약을 활성화하는 marker입니다. 정상 신규 행은 두 marker가 항상 `true`이며 애플리케이션이 `false`로 삽입하거나 내릴 수 없습니다. 멱등 중복 그룹은 `(started_at, id)` 기준 가장 오래된 한 행만 `idempotency_enforced=true`인 canonical arbiter로 남고 후속 중복을 `false`로 격리합니다. 이 canonical 행은 같은 키의 grandfathered 행이 남아 있는 동안 먼저 삭제할 수 없고, marker 조건 partial unique index가 신규 importer의 `ON CONFLICT` 기준입니다. 실행 중 범위 중복도 가장 오래된 한 행만 `running_scope_enforced=true`로 두지만, 후속 `false` 행이 남아 있는 범위에 새 run을 삽입하거나 재시작하면 BEFORE trigger가 직접 `23505`로 거부합니다. running marker는 `ON CONFLICT` arbiter나 canonical 삭제 보호를 의미하지 않습니다. 두 종류의 `false` 행은 충돌과 길이를 해소한 뒤에만 marker를 `true`로 올려 복구합니다.
+
+Spring 생명주기 adapter가 만든 모든 run은 임의 UUID `owner_token`과 양수 `fencing_token`을 갖습니다. 두 값은 생성 후 DB trigger로 불변이며, count 누적과 terminal 전이는 run ID·owner·fencing·`running` 상태가 모두 일치할 때만 허용됩니다. owner token은 외부 API key나 사용자 token이 아니라 내부 쓰기 권한이지만 로그와 공개 응답에는 노출하지 않습니다. count overflow와 상태 전이 실패는 단일 SQL 문장 전체를 취소해 부분 count나 terminal marker를 남기지 않습니다.
 
 provider·service·operation·scope와 source key/payload hash를 포함한 unique 계약은 같은 응답을 재수집해도 upsert 가능한 멱등 경계를 제공합니다. 기준 코드, 시간표, 같은 요일 open/closed 영업시간의 legacy 유효기간 충돌은 exclusion constraint를 설치하기 전에 pair audit로 검사합니다. 충돌을 자동 삭제·병합하지 않고 정확한 `left_id`/`right_id`를 출력해 중단하므로 운영자가 원천 기준으로 기간을 정리하거나 행을 격리한 뒤 재적용해야 합니다. `data_import_checkpoints`는 같은 범위의 `succeeded` 실행만 마지막 성공 지점으로 참조하며 source scope와 version이 불변입니다. checkpoint와 run 양쪽 write guard를 먼저 설치한 뒤 기존 status/scope 참조도 감사하므로 설치 중 상태 전이 race를 허용하지 않습니다. 서버는 `advance_data_import_checkpoint(...)`에 기대 version을 전달해 원자적으로 한 단계만 전진하고 stale writer는 `40001`로 실패합니다. 직접 UPDATE·DELETE·TRUNCATE와 이전 run으로의 역행은 금지하며 `anon`·`authenticated`는 이 함수를 실행할 수 없습니다. `service_role`도 테이블을 직접 갱신하지 않고 함수만 실행합니다.
 
