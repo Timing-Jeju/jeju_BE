@@ -211,10 +211,17 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql",
             "/docker-entrypoint-initdb.d/008_api_idempotency_registry.sql",
+            "/docker-entrypoint-initdb.d/009_async_run_worker_runtime.sql",
+            "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
         ):
             with self.subTest(path=path):
                 self.assertIn(path, docker_smoke)
+
+        self.assertLess(
+            docker_smoke.index("/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql"),
+            docker_smoke.index("/queries/legacy_v1_upgrade_contract.sql"),
+        )
 
         self.assertIn("/queries/legacy_v1_cross_day_conflict_fixture.sql", docker_smoke)
         self.assertIn("/queries/legacy_v1_result_day_conflict_fixture.sql", docker_smoke)
