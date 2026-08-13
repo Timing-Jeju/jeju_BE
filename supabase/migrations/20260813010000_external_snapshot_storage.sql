@@ -53,6 +53,13 @@ begin
     raise exception using errcode = '23514', message = 'external snapshot audit payload is immutable';
   end if;
 
+  if old.parse_status in ('parsed', 'tombstoned')
+     and new.parse_status not in ('parsed', 'tombstoned') then
+    raise exception using
+      errcode = '23514',
+      message = 'a normalized-capable snapshot cannot return to an unparsed status';
+  end if;
+
   if old.parse_status <> 'received' and old.parse_status is distinct from new.parse_status then
     raise exception using errcode = '23514', message = 'external snapshot terminal status is immutable';
   end if;
