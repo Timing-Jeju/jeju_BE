@@ -16,6 +16,9 @@ RUN_RETENTION_MIGRATION = (
 )
 IDEMPOTENCY_MIGRATION = MIGRATIONS / "20260810000000_api_idempotency_registry.sql"
 ASYNC_RUN_MIGRATION = MIGRATIONS / "20260811000000_async_run_worker_runtime.sql"
+IMPORT_RUN_LIFECYCLE_MIGRATION = (
+    MIGRATIONS / "20260813000000_import_run_lifecycle_fencing.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -72,6 +75,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260730040000_import_run_lineage_retention.sql",
                 "20260810000000_api_idempotency_registry.sql",
                 "20260811000000_async_run_worker_runtime.sql",
+                "20260813000000_import_run_lifecycle_fencing.sql",
             ],
             migration_names,
         )
@@ -87,6 +91,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260730040000_import_run_lineage_retention.sql",
             "./supabase/migrations/20260810000000_api_idempotency_registry.sql",
             "./supabase/migrations/20260811000000_async_run_worker_runtime.sql",
+            "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -139,6 +144,27 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertNotIn("compute_run_inputs", migration)
         self.assertNotIn("location_", migration)
 
+    def test_import_run_lifecycle_migration_has_immutable_owner_fencing_and_no_secret(self):
+        migration = self.read_migration(IMPORT_RUN_LIFECYCLE_MIGRATION)
+
+        for fragment in (
+            "add column owner_token uuid default gen_random_uuid() not null",
+            "add column fencing_token bigint default 1 not null",
+            "check (fencing_token > 0)",
+            "create function public.protect_import_run_write_lease()",
+            "old.owner_token is distinct from new.owner_token",
+            "old.fencing_token is distinct from new.fencing_token",
+            "before update of owner_token, fencing_token",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
+
+        self.assertNotIn("update public.data_import_runs", migration)
+
+        for forbidden in ("api_key", "authorization", "provider_token", "raw_payload", "email"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, migration)
+
     def test_both_database_smokes_execute_seed_free_schema_and_negative_contracts(self):
         docker_smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
             encoding="utf-8"
@@ -185,10 +211,17 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql",
             "/docker-entrypoint-initdb.d/008_api_idempotency_registry.sql",
+            "/docker-entrypoint-initdb.d/009_async_run_worker_runtime.sql",
+            "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
         ):
             with self.subTest(path=path):
                 self.assertIn(path, docker_smoke)
+
+        self.assertLess(
+            docker_smoke.index("/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql"),
+            docker_smoke.index("/queries/legacy_v1_upgrade_contract.sql"),
+        )
 
         self.assertIn("/queries/legacy_v1_cross_day_conflict_fixture.sql", docker_smoke)
         self.assertIn("/queries/legacy_v1_result_day_conflict_fixture.sql", docker_smoke)

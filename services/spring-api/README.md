@@ -31,6 +31,12 @@ Repository 통합 테스트는 `PostgreSqlRepositoryIntegrationTestSupport`를 �
 
 Docker daemon을 사용할 수 없으면 테스트는 원인을 한국어로 안내합니다. PostgreSQL 17과 실제 Supabase 호환성은 일반 PostgreSQL Testcontainer로 대체하지 않고 저장소 루트의 `./scripts/supabase-smoke-test.sh`에서 두 번의 `supabase db reset`과 함께 검증합니다.
 
+## 외부 데이터 import 실행
+
+`application.importing`의 생명주기 서비스와 port가 import run 시작, count 누적, 성공·부분 성공·실패·취소 전이를 정의하고 `global.importing`의 PostgreSQL adapter가 `data_import_runs`에 원자적으로 반영합니다. provider/service/operation/scope, idempotency key와 요청 fingerprint, parent/retry, parser/schema version을 보존하며, 내부 owner/fencing 값이 일치하지 않는 stale 쓰기를 거부합니다.
+
+이 경계에는 공개 Controller, 실제 외부 API 호출, 개별 importer, raw snapshot 저장, checkpoint 갱신과 scheduler가 포함되지 않습니다. 실패 기록은 고정 분류와 한국어 설명만 사용하고 provider 예외 원문, URL query, key, token과 PII를 저장하거나 출력하지 않습니다.
+
 ## 인증·인가
 
 `/api/v1/**`는 Supabase Auth access token이 필요한 stateless Resource Server입니다. 운영과 최신 로컬 CLI는 비대칭 signing key와 JWKS를 사용하며, 기본·운영 issuer/JWKS는 HTTPS만 허용합니다. 정확한 `local` profile은 로컬 JWKS, 정확한 `local-hs256` profile은 legacy HS256만 허용하며 다른 profile과 조합할 수 없습니다. 검증된 현재 사용자는 Spring 비의존 `application.security` 계약으로 제공됩니다. 환경변수와 검증 계약은 저장소의 [인증·인가 설정](../../docs/AUTHENTICATION.md)을 따릅니다.

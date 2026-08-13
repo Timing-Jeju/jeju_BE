@@ -49,6 +49,26 @@ insert into data_import_runs (
 );
 
 select pg_temp.expect_rejected(
+  'import run owner token is immutable',
+  $statement$
+    update data_import_runs
+    set owner_token = gen_random_uuid()
+    where id = 'f1000000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'import run fencing token is immutable',
+  $statement$
+    update data_import_runs
+    set fencing_token = fencing_token + 1
+    where id = 'f1000000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
   'oversized import source key',
   $statement$
     insert into data_import_runs (

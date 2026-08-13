@@ -47,6 +47,8 @@ begin
       ('data_import_runs', 'staled_count'),
       ('data_import_runs', 'source_provider'),
       ('data_import_runs', 'source_service'),
+      ('data_import_runs', 'owner_token'),
+      ('data_import_runs', 'fencing_token'),
       ('api_idempotency_records', 'owner_sub'),
       ('api_idempotency_records', 'http_method'),
       ('api_idempotency_records', 'normalized_path'),
@@ -573,6 +575,7 @@ begin
      or to_regprocedure('public.protect_grandfathered_idempotency_arbiter()') is null
      or to_regprocedure('public.protect_import_run_running_scope()') is null
      or to_regprocedure('public.protect_import_run_source_scope()') is null
+     or to_regprocedure('public.protect_import_run_write_lease()') is null
      or to_regprocedure('public.validate_external_snapshot_import_scope()') is null then
     raise exception 'exact import-run source-scope guards are missing';
   end if;
@@ -630,6 +633,12 @@ begin
     from pg_catalog.pg_trigger trigger_row
     where trigger_row.tgrelid = 'public.data_import_runs'::regclass
       and trigger_row.tgname = 'trg_data_import_runs_source_key_update'
+      and not trigger_row.tgisinternal
+  ) or not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.data_import_runs'::regclass
+      and trigger_row.tgname = 'trg_data_import_runs_write_lease_immutable'
       and not trigger_row.tgisinternal
   ) then
     raise exception 'import-run source-key transition guards are missing';

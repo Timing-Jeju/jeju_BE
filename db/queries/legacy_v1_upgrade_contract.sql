@@ -708,4 +708,51 @@ begin
 end;
 $$;
 
+do $$
+declare
+  legacy_owner uuid;
+  legacy_fence bigint;
+begin
+  select owner_token, fencing_token
+    into legacy_owner, legacy_fence
+  from public.data_import_runs
+  where id = 'e1000000-0000-0000-0000-000000000001';
+
+  if legacy_owner is null or legacy_fence <> 1 then
+    raise exception 'legacy import run lease backfill is invalid';
+  end if;
+
+  begin
+    update public.data_import_runs
+    set owner_token = gen_random_uuid()
+    where id = 'e1000000-0000-0000-0000-000000000001';
+    raise exception 'legacy import run owner token unexpectedly changed';
+  exception when check_violation then
+    null;
+  end;
+end;
+$$;
+
+do $$
+declare
+  owner_default text;
+  fence_default text;
+begin
+  select column_default into owner_default
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'data_import_runs'
+    and column_name = 'owner_token' and is_nullable = 'NO';
+
+  select column_default into fence_default
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'data_import_runs'
+    and column_name = 'fencing_token' and is_nullable = 'NO';
+
+  if owner_default is null or owner_default not ilike '%gen_random_uuid%'
+     or fence_default is null or fence_default not like '1%' then
+    raise exception 'import run lease defaults are invalid';
+  end if;
+end;
+$$;
+
 select 'legacy_v1_upgrade_contract' as check_name, 'PASS' as result;
