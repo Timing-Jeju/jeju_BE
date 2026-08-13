@@ -5,7 +5,7 @@ public final class ExternalApiException extends RuntimeException {
   private final ExternalApiFailureCode code;
 
   ExternalApiException(ExternalApiFailureCode code) {
-    super(message(code));
+    super(message(code), null, false, false);
     this.code = code;
   }
 

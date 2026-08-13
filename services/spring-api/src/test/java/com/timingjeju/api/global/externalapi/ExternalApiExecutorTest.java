@@ -311,6 +311,94 @@ class ExternalApiExecutorTest {
   }
 
   @Test
+  void primary_분류_오류뒤_close_실패는_suppressed와_stack_trace에_남지_않는다() {
+    String closeSensitiveText =
+        "serviceKey=close-fixture Authorization: Bearer close-fixture raw-payload";
+
+    Fixture status = new Fixture();
+    status.transport.respond(
+        responseWithBody(
+            400, Map.of(), new SensitiveCloseInputStream("ignored", closeSensitiveText)));
+    assertSanitizedFailure(
+        () ->
+            status.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text),
+        ExternalApiFailureCode.HTTP_STATUS,
+        closeSensitiveText);
+
+    Fixture contentType = new Fixture();
+    contentType.transport.respond(
+        responseWithBody(
+            200,
+            Map.of("Content-Type", List.of("text/html")),
+            new SensitiveCloseInputStream("raw payload", closeSensitiveText)));
+    assertSanitizedFailure(
+        () ->
+            contentType.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text),
+        ExternalApiFailureCode.UNSUPPORTED_CONTENT_TYPE,
+        closeSensitiveText);
+
+    Fixture malformed = new Fixture();
+    malformed.transport.respond(
+        responseWithBody(
+            200,
+            Map.of("Content-Type", List.of("application/json")),
+            new SensitiveCloseInputStream("raw payload", closeSensitiveText)));
+    assertSanitizedFailure(
+        () ->
+            malformed.executor.execute(
+                request(ExternalApiHttpMethod.GET),
+                body -> {
+                  throw new IllegalArgumentException("malformed fixture");
+                }),
+        ExternalApiFailureCode.MALFORMED_RESPONSE,
+        closeSensitiveText);
+  }
+
+  @Test
+  void close_only와_body_read_close_실패는_안전하게_분류하고_정상_response는_close한다() {
+    String closeSensitiveText = "query=private-close raw-payload";
+    Fixture closeOnly = new Fixture();
+    closeOnly.transport.respond(
+        responseWithBody(
+            200,
+            Map.of("Content-Type", List.of("application/json")),
+            new SensitiveCloseInputStream("{}", closeSensitiveText)));
+    assertSanitizedFailure(
+        () ->
+            closeOnly.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text),
+        ExternalApiFailureCode.TRANSPORT_ERROR,
+        closeSensitiveText);
+
+    String readSensitiveText = "Authorization: Bearer read-fixture raw-payload";
+    Fixture readAndClose = new Fixture();
+    readAndClose.transport.respond(
+        responseWithBody(
+            200,
+            Map.of("Content-Type", List.of("application/json")),
+            new SensitiveReadAndCloseInputStream(readSensitiveText, closeSensitiveText)));
+    assertSanitizedFailure(
+        () ->
+            readAndClose.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text),
+        ExternalApiFailureCode.TRANSPORT_ERROR,
+        readSensitiveText,
+        closeSensitiveText);
+
+    Fixture normal = new Fixture();
+    TrackingInputStream tracking = new TrackingInputStream("{}");
+    normal.transport.respond(
+        responseWithBody(200, Map.of("Content-Type", List.of("application/json")), tracking));
+    assertThat(
+            normal.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text))
+        .isEqualTo("{}");
+    assertThat(tracking.closed).isTrue();
+  }
+
+  @Test
   void 공공데이터_key와_query는_UTF8로_정확히_한번_encoding한다() {
     Fixture fixture = new Fixture(Duration.ofSeconds(5), "fixture+/=");
     fixture.transport.respond(json("{}"));
@@ -391,7 +479,7 @@ class ExternalApiExecutorTest {
   private static void assertSanitizedFailure(
       org.assertj.core.api.ThrowableAssert.ThrowingCallable invocation,
       ExternalApiFailureCode code,
-      String sensitiveValue) {
+      String... sensitiveValues) {
     assertThatThrownBy(invocation)
         .isInstanceOfSatisfying(
             ExternalApiException.class,
@@ -402,9 +490,9 @@ class ExternalApiExecutorTest {
               assertThat(failure.code()).isEqualTo(code);
               assertThat(failure.getCause()).isNull();
               assertThat(failure.getSuppressed()).isEmpty();
-              assertThat(failure.getMessage()).doesNotContain(sensitiveValue);
-              assertThat(failure.toString()).doesNotContain(sensitiveValue);
-              assertThat(stackTrace.toString()).doesNotContain(sensitiveValue);
+              assertThat(failure.getMessage()).doesNotContain(sensitiveValues);
+              assertThat(failure.toString()).doesNotContain(sensitiveValues);
+              assertThat(stackTrace.toString()).doesNotContain(sensitiveValues);
             });
   }
 
@@ -422,8 +510,13 @@ class ExternalApiExecutorTest {
 
   private static ExternalHttpResponse response(
       int status, Map<String, List<String>> headers, String body) {
-    return new ExternalHttpResponse(
+    return responseWithBody(
         status, headers, new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
+  }
+
+  private static ExternalHttpResponse responseWithBody(
+      int status, Map<String, List<String>> headers, InputStream body) {
+    return new ExternalHttpResponse(status, headers, body);
   }
 
   private static byte[] gzip(byte[] body) throws IOException {
@@ -533,6 +626,58 @@ class ExternalApiExecutorTest {
     @Override
     public int read() throws IOException {
       throw new IOException(sensitiveValue);
+    }
+  }
+
+  private static final class SensitiveCloseInputStream extends ByteArrayInputStream {
+
+    private final String sensitiveValue;
+
+    private SensitiveCloseInputStream(String body, String sensitiveValue) {
+      super(body.getBytes(StandardCharsets.UTF_8));
+      this.sensitiveValue = sensitiveValue;
+    }
+
+    @Override
+    public void close() throws IOException {
+      throw new IOException(sensitiveValue);
+    }
+  }
+
+  private static final class SensitiveReadAndCloseInputStream extends InputStream {
+
+    private final String readSensitiveValue;
+    private final String closeSensitiveValue;
+
+    private SensitiveReadAndCloseInputStream(
+        String readSensitiveValue, String closeSensitiveValue) {
+      this.readSensitiveValue = readSensitiveValue;
+      this.closeSensitiveValue = closeSensitiveValue;
+    }
+
+    @Override
+    public int read() throws IOException {
+      throw new IOException(readSensitiveValue);
+    }
+
+    @Override
+    public void close() throws IOException {
+      throw new IOException(closeSensitiveValue);
+    }
+  }
+
+  private static final class TrackingInputStream extends ByteArrayInputStream {
+
+    private boolean closed;
+
+    private TrackingInputStream(String body) {
+      super(body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Override
+    public void close() throws IOException {
+      closed = true;
+      super.close();
     }
   }
 
