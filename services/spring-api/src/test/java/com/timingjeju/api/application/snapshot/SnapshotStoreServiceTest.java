@@ -61,7 +61,7 @@ class SnapshotStoreServiceTest {
     assertThat(result.replayed()).isFalse();
     assertThat(result.payloadHash()).hasSize(64).matches("[0-9a-f]{64}");
     assertThat(result.requestFingerprint()).hasSize(64).matches("[0-9a-f]{64}");
-    assertThat(saved.redactionVersion()).isEqualTo("snapshot-redaction-v1");
+    assertThat(saved.redactionVersion()).isEqualTo("snapshot-redaction-v2");
     assertThat(saved.payloadSizeBytes()).isEqualTo(payload.length);
     assertThat(saved.rawPayloadJson())
         .contains("\"safe\":\"kept\"")
@@ -77,6 +77,60 @@ class SnapshotStoreServiceTest {
     service.save(command(SnapshotPayloadFormat.JSON, payload, metadata));
     assertThat(store.saved.get(1).requestHash()).isEqualTo(saved.requestHash());
     assertThat(store.saved.get(1).rawPayloadJson()).isEqualTo(saved.rawPayloadJson());
+  }
+
+  @Test
+  void JSON_payload와_metadata는_PII_alias와_정밀좌표를_같은_registry로_제거하고_안전한_유사키는_보존한다() {
+    Map<String, Object> metadata =
+        Map.of(
+            "first-name", "메타 이름",
+            "USER_EMAIL", "meta@example.test",
+            "account.id", "account-secret",
+            "home_latitude", 33.5001,
+            "placeName", "성산일출봉",
+            "categoryName", "관광지",
+            "contactless", true);
+    byte[] payload =
+        """
+        {
+          "profile": {
+            "firstName": "길동",
+            "last_name": "홍",
+            "FULL.NAME": "홍길동",
+            "userEmail": "user@example.test",
+            "homePhone": "010-1234-5678",
+            "postalAddress": "제주시 비밀 주소",
+            "userId": "user-secret",
+            "accountId": "account-secret",
+            "deviceId": "device-secret"
+          },
+          "route": {"homeLatitude": 33.1, "pickupLongitude": 126.2},
+          "placeName": "성산일출봉",
+          "categoryName": "관광지",
+          "contactless": true
+        }
+        """
+            .getBytes(StandardCharsets.UTF_8);
+
+    service.save(command(SnapshotPayloadFormat.JSON, payload, metadata));
+
+    StoredSnapshot saved = store.saved.getFirst();
+    assertThat(saved.rawPayloadJson())
+        .contains("성산일출봉", "관광지", "contactless")
+        .doesNotContain(
+            "길동",
+            "홍",
+            "user@example.test",
+            "010-1234-5678",
+            "제주시 비밀 주소",
+            "user-secret",
+            "account-secret",
+            "device-secret",
+            "33.1",
+            "126.2");
+    assertThat(saved.requestMetadataRedactedJson())
+        .contains("성산일출봉", "관광지", "contactless")
+        .doesNotContain("메타 이름", "meta@example.test", "account-secret", "33.5001");
   }
 
   @Test
@@ -127,6 +181,44 @@ class SnapshotStoreServiceTest {
     assertThat(store.saved.get(1).rawPayloadJson())
         .contains("safe=kept", "[REDACTED]")
         .doesNotContain("text-secret", "text-token", "user@example.test");
+  }
+
+  @Test
+  void XML_namespace의_localName으로_element와_attribute를_제거하고_안전한_namespace는_보존한다() {
+    byte[] xml =
+        """
+        <response xmlns="urn:safe" xmlns:sec="urn:secret" xmlns:user="urn:user" xmlns:catalog="https://schemas.example.test/safe">
+          <sec:serviceKey>namespace-service-key</sec:serviceKey>
+          <token>namespace-token</token>
+          <item user:userEmail="namespace@example.test" user:deviceId="device-secret">
+            <user:fullName>홍길동</user:fullName>
+            <homeLatitude>33.5001</homeLatitude>
+            <sec:pickupLongitude>126.5002</sec:pickupLongitude>
+            <placeName>성산일출봉</placeName>
+            <catalog:categoryName>관광지</catalog:categoryName>
+          </item>
+        </response>
+        """
+            .getBytes(StandardCharsets.UTF_8);
+
+    service.save(command(SnapshotPayloadFormat.XML, xml, Map.of()));
+
+    assertThat(store.saved.getFirst().rawPayloadJson())
+        .contains(
+            "urn:safe",
+            "urn:secret",
+            "urn:user",
+            "https://schemas.example.test/safe",
+            "성산일출봉",
+            "관광지")
+        .doesNotContain(
+            "namespace-service-key",
+            "namespace-token",
+            "namespace@example.test",
+            "device-secret",
+            "홍길동",
+            "33.5001",
+            "126.5002");
   }
 
   @Test

@@ -73,7 +73,7 @@ class JdbcSnapshotStoreIntegrationTest {
     assertThat(row(first.snapshotId()))
         .containsEntry("parse_status", "received")
         .containsEntry("payload_size_bytes", 10L)
-        .containsEntry("redaction_version", "snapshot-redaction-v1");
+        .containsEntry("redaction_version", "snapshot-redaction-v2");
   }
 
   @Test

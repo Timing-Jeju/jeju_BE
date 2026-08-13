@@ -47,7 +47,7 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
 
   @Override
   public String version() {
-    return "snapshot-redaction-v1";
+    return "snapshot-redaction-v2";
   }
 
   @Override
@@ -132,6 +132,7 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
   private String redactXml(byte[] payload) {
     try {
       DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+      factory.setNamespaceAware(true);
       factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
       factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
       factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
@@ -157,12 +158,16 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
     var attributes = element.getAttributes();
     for (int index = 0; index < attributes.getLength(); index++) {
       Node attribute = attributes.item(index);
+      String attributeName =
+          attribute.getLocalName() == null ? attribute.getNodeName() : attribute.getLocalName();
       attribute.setNodeValue(
-          SnapshotSensitiveFieldRegistry.isSensitive(attribute.getNodeName())
+          SnapshotSensitiveFieldRegistry.isSensitive(attributeName)
               ? REDACTED
               : redactText(attribute.getNodeValue()));
     }
-    if (SnapshotSensitiveFieldRegistry.isSensitive(element.getTagName())) {
+    String elementName =
+        element.getLocalName() == null ? element.getTagName() : element.getLocalName();
+    if (SnapshotSensitiveFieldRegistry.isSensitive(elementName)) {
       element.setTextContent(REDACTED);
       return;
     }

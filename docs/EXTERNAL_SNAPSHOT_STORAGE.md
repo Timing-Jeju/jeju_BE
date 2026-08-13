@@ -14,14 +14,14 @@
 
 ## redaction
 
-단일 registry `snapshot-redaction-v1`은 대소문자와 `_`·`-` 차이를 정규화하여 다음 계열을 재귀적으로 제거합니다.
+단일 registry `snapshot-redaction-v2`는 대소문자와 `_`·`-`·`.` 차이를 정규화하여 다음 계열을 재귀적으로 제거합니다.
 
 - `serviceKey`, API key, Authorization, cookie, token, secret, password
-- email, 전화번호, 사용자 ID·이름·닉네임, 주소
-- latitude/longitude, lat/lng, 좌표·GPS·map 좌표
+- email, 전화번호, 사용자·계정·기기 ID, 이름·닉네임, 주소
+- latitude/longitude, lat/lng, 좌표·GPS·map 좌표와 사용자 위치 접두사가 붙은 정밀 좌표
 - 요청 URL/URI 및 자유 문자열의 HTTP(S) URL, Bearer, email
 
-JSON은 key 정렬 후 JSONB로 저장합니다. XML은 DTD·외부 entity를 비활성화하고 element/attribute를 정제합니다. text는 key/value, query string, header 형태를 정제합니다. malformed JSON/XML/UTF-8은 `rejected`, binary는 `ignored`로 기록하고 `raw_payload`를 NULL로 둡니다. 정제 전후 payload와 metadata를 로그나 예외에 넣지 않습니다.
+JSON은 key 정렬 후 JSONB로 저장합니다. XML은 namespace-aware parser의 element·attribute `localName`을 같은 registry로 검사하고 DTD·외부 entity를 비활성화합니다. namespace 선언과 안전한 namespace 값은 보존합니다. `placeName`, `categoryName`, `contactless`처럼 민감 alias와 일부 문자열만 겹치는 안전한 유사키는 보존합니다. text는 key/value, query string, header 형태를 정제합니다. malformed JSON/XML/UTF-8은 `rejected`, binary는 `ignored`로 기록하고 `raw_payload`를 NULL로 둡니다. 정제 전후 payload와 metadata를 로그나 예외에 넣지 않습니다.
 
 ## 상태·멱등성·보존
 
@@ -36,3 +36,5 @@ JSON은 key 정렬 후 JSONB로 저장합니다. XML은 DTD·외부 entity를 �
 ## DB와 권한
 
 운영 변경은 `supabase/migrations/20260813010000_external_snapshot_storage.sql`만 사용하며 Flyway를 도입하지 않습니다. snapshot scope는 `data_import_runs`의 provider/service/operation/scope와 일치해야 합니다. RLS를 유지하고 `anon`·`authenticated`에는 직접 권한을 주지 않습니다.
+
+Docker v1→latest 검증은 010 적용 뒤 legacy snapshot을 만든 다음 011을 적용합니다. 기존 행의 payload·identity를 보존하면서 nullable payload, payload byte size backfill, `legacy-unversioned`, `purged_at`, trigger와 직접 권한 차단이 모두 유효한지 검사합니다.
