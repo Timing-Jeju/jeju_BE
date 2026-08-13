@@ -155,10 +155,41 @@ class JdbcImportRunStoreIntegrationTest {
               legacyRunId);
         });
 
-    assertThatThrownBy(() -> service.start(command("new-run", null, "legacy-running")))
-        .isInstanceOf(ImportRunLifecycleException.class)
-        .extracting("code")
-        .isEqualTo(ImportRunLifecycleError.SCOPE_ALREADY_RUNNING);
+    transactionTemplate.executeWithoutResult(
+        status ->
+            assertThatThrownBy(() -> service.start(command("new-run", null, "legacy-running")))
+                .isInstanceOf(ImportRunLifecycleException.class)
+                .extracting("code")
+                .isEqualTo(ImportRunLifecycleError.SCOPE_ALREADY_RUNNING));
+  }
+
+  @Test
+  void caller_transaction에서도_idempotent_replay와_mismatch를_구분한다() {
+    transactionTemplate.executeWithoutResult(
+        status -> {
+          ImportRunStartResult first = service.start(command("transaction-replay", null, "tx"));
+          ImportRunStartResult replay = service.start(command("transaction-replay", null, "tx"));
+
+          assertThat(replay.replayed()).isTrue();
+          assertThat(replay.lease()).isEqualTo(first.lease());
+          assertThatThrownBy(
+                  () ->
+                      service.start(
+                          new ImportRunStartCommand(
+                              ImportSourceKind.TOUR_API,
+                              "한국관광공사",
+                              new ImportRunScope("tour-api", "KorService2", "areaBasedList2", "tx"),
+                              "2026-08-13",
+                              "parser-v3",
+                              "tour-api-2026-01",
+                              ImportSyncMode.INCREMENTAL,
+                              "sha256:different-request",
+                              "transaction-replay",
+                              null)))
+              .isInstanceOf(ImportRunLifecycleException.class)
+              .extracting("code")
+              .isEqualTo(ImportRunLifecycleError.INVALID_REQUEST);
+        });
   }
 
   @Test

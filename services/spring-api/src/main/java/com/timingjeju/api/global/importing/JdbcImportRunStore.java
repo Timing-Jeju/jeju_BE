@@ -40,6 +40,13 @@ public class JdbcImportRunStore implements ImportRunStore {
     Objects.requireNonNull(runId, "runId는 필수입니다.");
     Objects.requireNonNull(ownerToken, "ownerToken은 필수입니다.");
     Objects.requireNonNull(startedAt, "startedAt은 필수입니다.");
+    Optional<StoredStart> existing = findIdempotent(command);
+    if (existing.isPresent()) {
+      return replay(command, existing.orElseThrow());
+    }
+    if (hasRunningScope(command)) {
+      throw ImportRunLifecycleException.of(ImportRunLifecycleError.SCOPE_ALREADY_RUNNING);
+    }
     try {
       Optional<ImportRunLease> inserted = insert(command, runId, ownerToken, startedAt);
       if (inserted.isPresent()) {
@@ -48,11 +55,7 @@ public class JdbcImportRunStore implements ImportRunStore {
 
       Optional<StoredStart> replay = findIdempotent(command);
       if (replay.isPresent()) {
-        StoredStart stored = replay.orElseThrow();
-        if (!stored.matches(command)) {
-          throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_REQUEST);
-        }
-        return new ImportRunStartResult(stored.lease(), true);
+        return replay(command, replay.orElseThrow());
       }
       if (command.parentRunId().isPresent() && !hasValidParent(command)) {
         throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_PARENT);
@@ -62,11 +65,30 @@ public class JdbcImportRunStore implements ImportRunStore {
       }
       throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_REQUEST);
     } catch (DataIntegrityViolationException failure) {
-      if (hasRunningScope(command)) {
+      if (hasSqlState(failure, "23505")) {
         throw ImportRunLifecycleException.of(ImportRunLifecycleError.SCOPE_ALREADY_RUNNING);
       }
       throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_REQUEST);
     }
+  }
+
+  private static ImportRunStartResult replay(ImportRunStartCommand command, StoredStart stored) {
+    if (!stored.matches(command)) {
+      throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_REQUEST);
+    }
+    return new ImportRunStartResult(stored.lease(), true);
+  }
+
+  private static boolean hasSqlState(Throwable failure, String expectedSqlState) {
+    Throwable current = failure;
+    while (current != null) {
+      if (current instanceof SQLException sqlException
+          && expectedSqlState.equals(sqlException.getSQLState())) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 
   private Optional<ImportRunLease> insert(
