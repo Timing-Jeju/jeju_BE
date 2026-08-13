@@ -134,6 +134,84 @@ class SnapshotStoreServiceTest {
   }
 
   @Test
+  void JSON_payload와_metadata의_확장_PII_alias는_제거하고_관광지_좌표와_안전한_유사키는_보존한다() {
+    Map<String, Object> metadata =
+        Map.of(
+            "profile",
+            Map.of(
+                "GIVEN_NAME", "메타 이름",
+                "family-name", "메타 성",
+                "display.name", "메타 표시명",
+                "USER_NAME", "meta-user",
+                "contact-number", "010-1111-2222",
+                "telephone", "064-111-2222",
+                "street_address", "제주시 비밀 도로",
+                "originLatitude", 33.1,
+                "destination-longitude", 126.1),
+            "placeLatitude",
+            33.499,
+            "tourismLongitude",
+            126.531,
+            "placeName",
+            "성산일출봉",
+            "categoryName",
+            "관광지",
+            "contactless",
+            true);
+    byte[] payload =
+        """
+        {
+          "traveler": {
+            "given_name": "길동", "FAMILY-NAME": "홍", "display.Name": "홍길동",
+            "user_name": "traveler-1", "contact_number": "010-3333-4444",
+            "TELEPHONE": "064-333-4444", "streetAddress": "서귀포 비밀 도로",
+            "home-address": "제주 비밀 집", "postal_address": "우편 비밀 주소"
+          },
+          "route": {
+            "origin_latitude": 33.2, "ORIGIN-LONGITUDE": 126.2,
+            "destinationLatitude": 33.3, "destination_longitude": 126.3,
+            "dropoff.latitude": 33.4, "dropoff-longitude": 126.4
+          },
+          "placeLatitude": 33.499, "tourismLongitude": 126.531,
+          "placeName": "성산일출봉", "categoryName": "관광지", "contactless": true
+        }
+        """
+            .getBytes(StandardCharsets.UTF_8);
+
+    service.save(command(SnapshotPayloadFormat.JSON, payload, metadata));
+
+    StoredSnapshot saved = store.saved.getFirst();
+    assertThat(saved.rawPayloadJson())
+        .contains("33.499", "126.531", "성산일출봉", "관광지", "contactless")
+        .doesNotContain(
+            "길동",
+            "홍길동",
+            "traveler-1",
+            "010-3333-4444",
+            "064-333-4444",
+            "서귀포 비밀 도로",
+            "제주 비밀 집",
+            "우편 비밀 주소",
+            "33.2",
+            "126.2",
+            "33.3",
+            "126.3",
+            "126.4");
+    assertThat(saved.requestMetadataRedactedJson())
+        .contains("33.499", "126.531", "성산일출봉", "관광지", "contactless")
+        .doesNotContain(
+            "메타 이름",
+            "메타 성",
+            "메타 표시명",
+            "meta-user",
+            "010-1111-2222",
+            "064-111-2222",
+            "제주시 비밀 도로",
+            "33.1",
+            "126.1");
+  }
+
+  @Test
   void secret과_원문URL이_달라도_sanitized_request_fingerprint는_같다() {
     byte[] payload = "{\"safe\":1}".getBytes(StandardCharsets.UTF_8);
     SnapshotSaveResult first =
@@ -219,6 +297,49 @@ class SnapshotStoreServiceTest {
             "홍길동",
             "33.5001",
             "126.5002");
+  }
+
+  @Test
+  void XML_namespace_선언은_prefix가_민감해도_보존하고_확장_PII_localName만_제거한다() {
+    byte[] xml =
+        """
+        <root xmlns="urn:default-safe" xmlns:token="urn:token-safe" xmlns:serviceKey="urn:key-safe" xmlns:password="urn:pwd-safe">
+          <token:given_name>길동</token:given_name>
+          <serviceKey:item password:family-name="홍" token:contact_number="010-5555-6666">
+            <displayName>홍길동</displayName><userName>traveler</userName>
+            <telephone>064-555-6666</telephone><street_address>비밀 도로</street_address>
+            <originLatitude>33.1</originLatitude><destination-longitude>126.1</destination-longitude>
+            <dropoff_longitude>126.2</dropoff_longitude>
+            <placeLatitude>33.499</placeLatitude><tourismLongitude>126.531</tourismLongitude>
+            <placeName>성산일출봉</placeName><categoryName>관광지</categoryName><contactless>true</contactless>
+          </serviceKey:item>
+        </root>
+        """
+            .getBytes(StandardCharsets.UTF_8);
+
+    service.save(command(SnapshotPayloadFormat.XML, xml, Map.of()));
+
+    assertThat(store.saved.getFirst().rawPayloadJson())
+        .contains(
+            "urn:default-safe",
+            "urn:token-safe",
+            "urn:key-safe",
+            "urn:pwd-safe",
+            "33.499",
+            "126.531",
+            "성산일출봉",
+            "관광지",
+            "contactless")
+        .doesNotContain(
+            "길동",
+            "홍길동",
+            "traveler",
+            "010-5555-6666",
+            "064-555-6666",
+            "비밀 도로",
+            "33.1",
+            "126.1",
+            "126.2");
   }
 
   @Test

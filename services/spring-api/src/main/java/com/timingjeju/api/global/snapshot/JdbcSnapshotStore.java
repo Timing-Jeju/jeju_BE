@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.snapshot;
 
 import com.timingjeju.api.application.snapshot.SnapshotMutationOutcome;
+import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.snapshot.SnapshotSaveResult;
 import com.timingjeju.api.application.snapshot.SnapshotScope;
 import com.timingjeju.api.application.snapshot.SnapshotStateMutation;
@@ -42,10 +43,11 @@ public class JdbcSnapshotStore implements SnapshotStore {
               insert into public.external_api_snapshots (
                 id, import_run_id, source_provider, source_service, source_operation, scope_key,
                 external_record_id, request_hash, page_key, http_status, provider_result_code,
-                fetched_at, source_modified_at, expires_at, parser_version, payload_hash,
+                fetched_at, source_modified_at, expires_at, parser_version, payload_hash, payload_format,
+                initial_parse_status, initial_error_code,
                 parse_status, error_code, error_message, request_metadata_redacted, raw_payload,
                 payload_size_bytes, redaction_version, purge_after
-              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         cast(? as jsonb), cast(? as jsonb), ?, ?, ?)
               on conflict (import_run_id, source_operation, request_hash, page_key, payload_hash)
               do nothing
@@ -105,6 +107,9 @@ public class JdbcSnapshotStore implements SnapshotStore {
       timestamp(snapshot.expiresAt()),
       snapshot.parserVersion(),
       snapshot.payloadHash(),
+      snapshot.payloadFormat().name(),
+      snapshot.initialStatus().databaseValue(),
+      snapshot.initialErrorCode(),
       snapshot.status().databaseValue(),
       snapshot.errorCode(),
       snapshot.errorMessage(),
@@ -197,6 +202,10 @@ public class JdbcSnapshotStore implements SnapshotStore {
         instant(resultSet.getTimestamp("expires_at")),
         resultSet.getString("parser_version"),
         resultSet.getString("payload_hash"),
+        SnapshotPayloadFormat.valueOf(resultSet.getString("payload_format")),
+        SnapshotStatus.valueOf(
+            resultSet.getString("initial_parse_status").toUpperCase(java.util.Locale.ROOT)),
+        resultSet.getString("initial_error_code"),
         SnapshotStatus.valueOf(
             resultSet.getString("parse_status").toUpperCase(java.util.Locale.ROOT)),
         resultSet.getString("error_code"),
@@ -210,6 +219,9 @@ public class JdbcSnapshotStore implements SnapshotStore {
 
   private boolean sameAuditPayload(StoredSnapshot first, StoredSnapshot second) {
     return java.util.Objects.equals(first.parserVersion(), second.parserVersion())
+        && first.payloadFormat() == second.payloadFormat()
+        && first.initialStatus() == second.initialStatus()
+        && java.util.Objects.equals(first.initialErrorCode(), second.initialErrorCode())
         && sameJson(first.requestMetadataRedactedJson(), second.requestMetadataRedactedJson())
         && sameJson(first.rawPayloadJson(), second.rawPayloadJson())
         && first.payloadSizeBytes() == second.payloadSizeBytes()

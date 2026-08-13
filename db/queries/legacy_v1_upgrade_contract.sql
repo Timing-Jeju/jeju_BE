@@ -9,6 +9,9 @@ begin
   where id = 'e1230000-0000-0000-0000-000000000023'
     and raw_payload = '{"safe":"legacy-preserved"}'::jsonb
     and redaction_version = 'legacy-unversioned'
+    and payload_format = 'LEGACY_UNKNOWN'
+    and initial_parse_status = parse_status
+    and initial_error_code is not distinct from error_code
     and purged_at is null
     and purge_after is not null;
 

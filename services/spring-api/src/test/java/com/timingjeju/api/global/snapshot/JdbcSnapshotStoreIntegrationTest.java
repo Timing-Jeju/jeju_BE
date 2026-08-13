@@ -104,6 +104,19 @@ class JdbcSnapshotStoreIntegrationTest {
   }
 
   @Test
+  void 저장후_terminal_전환되어도_동일한_초기분류의_진짜_duplicate는_replay한다() {
+    SnapshotSaveCommand original = command(RUN_ID, "terminal-replay", "{\"safe\":1}");
+    SnapshotSaveResult first = service.save(original);
+    service.transition(
+        new SnapshotTransitionCommand(first.snapshotId(), SnapshotStatus.PARSED, null));
+
+    SnapshotSaveResult replay = service.save(original);
+
+    assertThat(replay.replayed()).isTrue();
+    assertThat(replay.snapshotId()).isEqualTo(first.snapshotId());
+  }
+
+  @Test
   void run_scope가_다르면_전체_insert가_rollback되고_안전한_code만_반환한다() {
     SnapshotSaveCommand mismatch =
         new SnapshotSaveCommand(
@@ -208,6 +221,113 @@ class JdbcSnapshotStoreIntegrationTest {
             jdbcTemplate.queryForObject(
                 "select count(*) from public.external_api_snapshots", Integer.class))
         .isEqualTo(1);
+  }
+
+  @Test
+  void 동일_byte라도_payload_format과_초기분류가_다르면_collision으로_거부한다() {
+    byte[] malformed = "{".getBytes(StandardCharsets.UTF_8);
+    SnapshotSaveCommand json = command(RUN_ID, "format-collision", "{");
+    SnapshotSaveResult first = service.save(json);
+    SnapshotSaveCommand binary =
+        new SnapshotSaveCommand(
+            json.importRunId(),
+            json.scope(),
+            json.externalRecordId(),
+            json.pageKey(),
+            json.httpStatus(),
+            json.providerResultCode(),
+            json.fetchedAt(),
+            json.sourceModifiedAt(),
+            json.expiresAt(),
+            json.parserVersion(),
+            SnapshotPayloadFormat.BINARY,
+            "UTF-8",
+            malformed,
+            json.requestMetadata());
+
+    assertThatThrownBy(() -> service.save(binary))
+        .isInstanceOf(SnapshotStoreException.class)
+        .extracting("code")
+        .isEqualTo(SnapshotStoreError.HASH_COLLISION);
+    assertThat(row(first.snapshotId()))
+        .containsEntry("payload_format", "JSON")
+        .containsEntry("parse_status", "rejected")
+        .containsEntry("error_code", "SNAPSHOT_MALFORMED_PAYLOAD");
+  }
+
+  @Test
+  void invalid_UTF8과_binary_및_status_error_audit_mismatch는_replay하지_않는다() {
+    byte[] invalidUtf8 = {(byte) 0xC3, (byte) 0x28};
+    SnapshotSaveCommand json = command(RUN_ID, "invalid-encoding", "{}");
+    json =
+        new SnapshotSaveCommand(
+            json.importRunId(),
+            json.scope(),
+            json.externalRecordId(),
+            json.pageKey(),
+            json.httpStatus(),
+            json.providerResultCode(),
+            json.fetchedAt(),
+            json.sourceModifiedAt(),
+            json.expiresAt(),
+            json.parserVersion(),
+            SnapshotPayloadFormat.JSON,
+            "UTF-8",
+            invalidUtf8,
+            json.requestMetadata());
+    SnapshotSaveResult first = service.save(json);
+    SnapshotSaveCommand binary =
+        new SnapshotSaveCommand(
+            json.importRunId(),
+            json.scope(),
+            json.externalRecordId(),
+            json.pageKey(),
+            json.httpStatus(),
+            json.providerResultCode(),
+            json.fetchedAt(),
+            json.sourceModifiedAt(),
+            json.expiresAt(),
+            json.parserVersion(),
+            SnapshotPayloadFormat.BINARY,
+            "UTF-8",
+            invalidUtf8,
+            json.requestMetadata());
+    assertThatThrownBy(() -> service.save(binary))
+        .isInstanceOf(SnapshotStoreException.class)
+        .extracting("code")
+        .isEqualTo(SnapshotStoreError.HASH_COLLISION);
+
+    StoredSnapshot original = store.findForTest(first.snapshotId());
+    StoredSnapshot mismatched =
+        new StoredSnapshot(
+            UUID.randomUUID(),
+            original.importRunId(),
+            original.scope(),
+            original.externalRecordId(),
+            original.requestHash(),
+            original.pageKey(),
+            original.httpStatus(),
+            original.providerResultCode(),
+            original.fetchedAt(),
+            original.sourceModifiedAt(),
+            original.expiresAt(),
+            original.parserVersion(),
+            original.payloadHash(),
+            original.payloadFormat(),
+            SnapshotStatus.IGNORED,
+            "SNAPSHOT_BINARY_PAYLOAD",
+            SnapshotStatus.IGNORED,
+            "SNAPSHOT_BINARY_PAYLOAD",
+            null,
+            original.requestMetadataRedactedJson(),
+            original.rawPayloadJson(),
+            original.payloadSizeBytes(),
+            original.redactionVersion(),
+            original.purgeAfter());
+    assertThatThrownBy(() -> store.save(mismatched))
+        .isInstanceOf(SnapshotStoreException.class)
+        .extracting("code")
+        .isEqualTo(SnapshotStoreError.HASH_COLLISION);
   }
 
   @Test

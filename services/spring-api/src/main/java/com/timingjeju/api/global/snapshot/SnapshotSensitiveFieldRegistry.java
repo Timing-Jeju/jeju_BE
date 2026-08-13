@@ -45,9 +45,17 @@ final class SnapshotSensitiveFieldRegistry {
           "requesturl",
           "url",
           "uri");
-  private static final Set<String> PERSONAL_NAME_KEYS = Set.of("firstname", "lastname", "fullname");
+  private static final Set<String> PERSONAL_NAME_KEYS =
+      Set.of("firstname", "lastname", "fullname", "givenname", "familyname", "displayname");
   private static final Set<String> PERSONAL_CONTACT_KEYS =
-      Set.of("useremail", "homephone", "postaladdress");
+      Set.of(
+          "useremail",
+          "homephone",
+          "postaladdress",
+          "contactnumber",
+          "telephone",
+          "streetaddress",
+          "homeaddress");
   private static final Set<String> PERSONAL_IDENTIFIER_KEYS =
       Set.of("userid", "accountid", "deviceid");
   private static final Set<String> PRECISE_LOCATION_SUFFIXES =
@@ -76,6 +84,9 @@ final class SnapshotSensitiveFieldRegistry {
                     && normalized.length() > suffix.length()
                     && (normalized.startsWith("home")
                         || normalized.startsWith("pickup")
+                        || normalized.startsWith("origin")
+                        || normalized.startsWith("destination")
+                        || normalized.startsWith("dropoff")
                         || normalized.startsWith("user")
                         || normalized.startsWith("device")
                         || normalized.startsWith("current")

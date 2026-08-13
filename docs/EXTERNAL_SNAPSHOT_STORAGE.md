@@ -31,10 +31,12 @@ JSON은 key 정렬 후 JSONB로 저장합니다. XML은 namespace-aware parser�
 - 저장과 전환은 각각 한 SQL statement로 처리하여 부분 행이나 중간 marker를 남기지 않습니다.
 - parsed/tombstoned payload는 전환 시점부터 30일, rejected/ignored/received payload는 7일 보존 metadata를 가집니다.
 - 후속 retention 작업은 `purge_after` 이후에만 `raw_payload=NULL`, `purged_at`을 같은 statement로 기록합니다. scope, hash, parser/redaction version, payload size와 상태 감사 정보는 유지합니다.
-- migration 이전 legacy 행의 `payload_size_bytes`는 당시 JSONB text 표현의 UTF-8 크기로 backfill하고 `redaction_version=legacy-unversioned`로 구분합니다. 신규 행만 transport의 decompressed byte-exact 크기를 보장합니다.
+- migration 이전 legacy 행의 `payload_size_bytes`는 당시 JSONB text 표현의 UTF-8 크기로 backfill하고 `redaction_version=legacy-unversioned`, `payload_format=LEGACY_UNKNOWN`으로 구분합니다. 현재 상태·오류는 `initial_parse_status`·`initial_error_code`로 보수적으로 backfill합니다. 신규 행만 transport의 decompressed byte-exact 크기와 최초 분류를 보장합니다.
 
 ## DB와 권한
 
 운영 변경은 `supabase/migrations/20260813010000_external_snapshot_storage.sql`만 사용하며 Flyway를 도입하지 않습니다. snapshot scope는 `data_import_runs`의 provider/service/operation/scope와 일치해야 합니다. RLS를 유지하고 `anon`·`authenticated`에는 직접 권한을 주지 않습니다.
 
-Docker v1→latest 검증은 010 적용 뒤 legacy snapshot을 만든 다음 011을 적용합니다. 기존 행의 payload·identity를 보존하면서 nullable payload, payload byte size backfill, `legacy-unversioned`, `purged_at`, trigger와 직접 권한 차단이 모두 유효한지 검사합니다.
+Docker v1→latest 검증은 010 적용 뒤 legacy snapshot을 만든 다음 011을 적용합니다. 기존 행의 payload·identity를 보존하면서 nullable payload, payload byte size·format·최초 분류 backfill, `legacy-unversioned`, `purged_at`, trigger와 직접 권한 차단이 모두 유효한지 검사합니다.
+
+멱등 replay는 동일 byte hash만으로 결정하지 않습니다. payload format, 최초 분류 상태·오류 코드, redaction 결과와 version까지 같아야 하며 malformed JSON과 binary처럼 byte가 같아도 의미가 다르면 hash collision으로 거부합니다. 저장 후 현재 상태가 parsed 등 terminal로 전환되어도 최초 분류가 같으면 진짜 duplicate는 같은 snapshot id로 replay합니다.

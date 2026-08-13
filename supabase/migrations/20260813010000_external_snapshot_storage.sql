@@ -4,18 +4,33 @@ alter table public.external_api_snapshots
   alter column raw_payload drop not null,
   add column payload_size_bytes bigint,
   add column redaction_version text not null default 'legacy-unversioned',
+  add column payload_format text not null default 'LEGACY_UNKNOWN',
+  add column initial_parse_status text,
+  add column initial_error_code text,
   add column purged_at timestamptz;
 
 update public.external_api_snapshots
 set payload_size_bytes = octet_length(convert_to(raw_payload::text, 'UTF8'));
 
+update public.external_api_snapshots
+set initial_parse_status = parse_status,
+    initial_error_code = error_code;
+
 alter table public.external_api_snapshots
   alter column payload_size_bytes set default 0,
   alter column payload_size_bytes set not null,
+  alter column initial_parse_status set not null,
   add constraint ck_external_snapshots_payload_size
     check (payload_size_bytes between 0 and 2097152),
   add constraint ck_external_snapshots_redaction_version
     check (btrim(redaction_version) <> '' and octet_length(redaction_version) <= 128),
+  add constraint ck_external_snapshots_payload_format
+    check (payload_format in ('JSON', 'XML', 'TEXT', 'BINARY', 'LEGACY_UNKNOWN')),
+  add constraint ck_external_snapshots_initial_classification
+    check (
+      initial_parse_status in ('received', 'parsed', 'rejected', 'ignored', 'tombstoned')
+      and (initial_parse_status <> 'rejected' or initial_error_code is not null)
+    ),
   add constraint ck_external_snapshots_purge_state
     check (
       purged_at is null
@@ -47,6 +62,9 @@ begin
      or old.expires_at is distinct from new.expires_at
      or old.parser_version is distinct from new.parser_version
      or old.payload_hash is distinct from new.payload_hash
+     or old.payload_format is distinct from new.payload_format
+     or old.initial_parse_status is distinct from new.initial_parse_status
+     or old.initial_error_code is distinct from new.initial_error_code
      or old.request_metadata_redacted is distinct from new.request_metadata_redacted
      or old.payload_size_bytes is distinct from new.payload_size_bytes
      or old.redaction_version is distinct from new.redaction_version then
@@ -92,7 +110,8 @@ create trigger trg_external_snapshots_immutable_identity
 before update of
   import_run_id, source_provider, source_service, source_operation, scope_key,
   external_record_id, request_hash, page_key, http_status, provider_result_code,
-  fetched_at, source_modified_at, expires_at, parser_version, payload_hash,
+  fetched_at, source_modified_at, expires_at, parser_version, payload_hash, payload_format,
+  initial_parse_status, initial_error_code,
   request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version,
   purged_at, parse_status, parsed_at, error_code, error_message, purge_after
 on public.external_api_snapshots

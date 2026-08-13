@@ -158,6 +158,9 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
     var attributes = element.getAttributes();
     for (int index = 0; index < attributes.getLength(); index++) {
       Node attribute = attributes.item(index);
+      if (XMLConstants.XMLNS_ATTRIBUTE_NS_URI.equals(attribute.getNamespaceURI())) {
+        continue;
+      }
       String attributeName =
           attribute.getLocalName() == null ? attribute.getNodeName() : attribute.getLocalName();
       attribute.setNodeValue(
