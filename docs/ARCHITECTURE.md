@@ -106,6 +106,8 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 ## 외부 데이터 적재 경계
 
+`global.externalapi`는 provider 설정과 공통 HTTP 실행 경계를 소유합니다. `ExternalApiExecutor`는 allowlist Base URL에서만 target을 조립하고 timeout·제한적 GET retry·circuit breaker·압축 해제 후 body 상한·content type·redirect 정책을 한 곳에서 적용합니다. provider별 adapter는 고정된 `ExternalApiOperation`과 parser만 제공하며 자체 retry client를 만들지 않습니다. metric tag는 enum 기반 provider/service/operation/result로 제한하고 외부 query·header 비밀값과 raw payload를 기록하지 않습니다.
+
 ```text
 TourAPI · TAGO · KMA 원천 응답
               │
