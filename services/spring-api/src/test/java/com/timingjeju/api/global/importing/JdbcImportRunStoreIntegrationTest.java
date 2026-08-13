@@ -261,6 +261,23 @@ class JdbcImportRunStoreIntegrationTest {
   }
 
   @Test
+  void 기존_fixture_insert는_DB_default로_유효한_owner와_fencing을_받는다() {
+    UUID runId = UUID.randomUUID();
+    jdbcTemplate.update(
+        """
+        insert into public.data_import_runs (
+          id, source_kind, source_name, source_operation, data_version, status, finished_at,
+          source_provider, source_service, scope_key
+        ) values (?, 'fixture', 'legacy fixture', 'seed', 'v1', 'succeeded', now(),
+                  'fixture', 'legacy', 'fixture:legacy')
+        """,
+        runId);
+
+    assertThat(row(runId).get("owner_token")).isInstanceOf(UUID.class);
+    assertThat(row(runId)).containsEntry("fencing_token", 1L);
+  }
+
+  @Test
   void DB도_owner와_fencing_token_변경을_거부한다() {
     ImportRunLease lease =
         service.start(command("immutable-lease", null, "immutable-lease")).lease();

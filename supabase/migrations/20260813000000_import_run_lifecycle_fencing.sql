@@ -9,7 +9,9 @@ set owner_token = gen_random_uuid(),
     fencing_token = 1;
 
 alter table public.data_import_runs
+  alter column owner_token set default gen_random_uuid(),
   alter column owner_token set not null,
+  alter column fencing_token set default 1,
   alter column fencing_token set not null,
   add constraint chk_data_import_runs_fencing_token
     check (fencing_token > 0);

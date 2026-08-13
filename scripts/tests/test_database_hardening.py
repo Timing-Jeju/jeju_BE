@@ -150,6 +150,8 @@ class DatabaseHardeningTest(unittest.TestCase):
         for fragment in (
             "add column owner_token uuid",
             "add column fencing_token bigint",
+            "alter column owner_token set default gen_random_uuid()",
+            "alter column fencing_token set default 1",
             "check (fencing_token > 0)",
             "create function public.protect_import_run_write_lease()",
             "old.owner_token is distinct from new.owner_token",
