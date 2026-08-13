@@ -19,6 +19,9 @@ ASYNC_RUN_MIGRATION = MIGRATIONS / "20260811000000_async_run_worker_runtime.sql"
 IMPORT_RUN_LIFECYCLE_MIGRATION = (
     MIGRATIONS / "20260813000000_import_run_lifecycle_fencing.sql"
 )
+SNAPSHOT_STORAGE_MIGRATION = (
+    MIGRATIONS / "20260813010000_external_snapshot_storage.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -76,6 +79,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260810000000_api_idempotency_registry.sql",
                 "20260811000000_async_run_worker_runtime.sql",
                 "20260813000000_import_run_lifecycle_fencing.sql",
+                "20260813010000_external_snapshot_storage.sql",
             ],
             migration_names,
         )
@@ -92,6 +96,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260810000000_api_idempotency_registry.sql",
             "./supabase/migrations/20260811000000_async_run_worker_runtime.sql",
             "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
+            "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -104,6 +109,29 @@ class DatabaseHardeningTest(unittest.TestCase):
                     f"{compose_name}에 migration 또는 fixture mount가 누락됐습니다",
                 )
                 self.assertEqual(sorted(positions), positions)
+
+    def test_external_snapshot_storage_has_redaction_size_retention_and_security_guards(self):
+        migration = self.read_migration(SNAPSHOT_STORAGE_MIGRATION)
+
+        for fragment in (
+            "alter column raw_payload drop not null",
+            "add column payload_size_bytes bigint",
+            "set payload_size_bytes = octet_length(convert_to(raw_payload::text, 'utf8'))",
+            "alter column payload_size_bytes set default 0",
+            "alter column payload_size_bytes set not null",
+            "payload_size_bytes between 0 and 2097152",
+            "add column redaction_version text not null default 'legacy-unversioned'",
+            "add column purged_at timestamptz",
+            "purged_at >= purge_after",
+            "purge_after is not null",
+            "external snapshot terminal status is immutable",
+            "external snapshot state audit is immutable",
+            "revoke all on public.external_api_snapshots from anon, authenticated",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
+
+        self.assertNotIn("flyway", migration)
 
     def test_api_idempotency_registry_has_scope_timing_payload_and_security_guards(self):
         migration = self.read_migration(IDEMPOTENCY_MIGRATION)
