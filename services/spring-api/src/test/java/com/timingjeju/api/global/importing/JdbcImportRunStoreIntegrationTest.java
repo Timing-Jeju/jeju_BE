@@ -31,6 +31,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Tag("integration")
 @SpringBootTest
@@ -42,6 +43,7 @@ class JdbcImportRunStoreIntegrationTest {
 
   @Autowired private JdbcImportRunStore store;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private TransactionTemplate transactionTemplate;
 
   private ImportRunLifecycleService service;
 
@@ -132,6 +134,31 @@ class JdbcImportRunStoreIntegrationTest {
                 "select count(*) from public.data_import_runs where status='running'",
                 Integer.class))
         .isEqualTo(1);
+  }
+
+  @Test
+  void grandfathered_running_scope도_새_run의_scope를_점유한다() {
+    UUID legacyRunId = UUID.randomUUID();
+    transactionTemplate.executeWithoutResult(
+        status -> {
+          jdbcTemplate.execute("set local session_replication_role = replica");
+          jdbcTemplate.update(
+              """
+              insert into public.data_import_runs (
+                id, source_kind, source_name, source_operation, data_version, status,
+                parser_version, schema_version, sync_mode, scope_key, idempotency_key,
+                source_provider, source_service, running_scope_enforced
+              ) values (?, 'tour_api', 'legacy', 'areaBasedList2', 'legacy-v1', 'running',
+                        'legacy-parser', 'legacy-schema', 'incremental', 'legacy-running',
+                        'legacy-running-key', 'tour-api', 'KorService2', false)
+              """,
+              legacyRunId);
+        });
+
+    assertThatThrownBy(() -> service.start(command("new-run", null, "legacy-running")))
+        .isInstanceOf(ImportRunLifecycleException.class)
+        .extracting("code")
+        .isEqualTo(ImportRunLifecycleError.SCOPE_ALREADY_RUNNING);
   }
 
   @Test

@@ -62,6 +62,9 @@ public class JdbcImportRunStore implements ImportRunStore {
       }
       throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_REQUEST);
     } catch (DataIntegrityViolationException failure) {
+      if (hasRunningScope(command)) {
+        throw ImportRunLifecycleException.of(ImportRunLifecycleError.SCOPE_ALREADY_RUNNING);
+      }
       throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_REQUEST);
     }
   }
@@ -299,7 +302,7 @@ public class JdbcImportRunStore implements ImportRunStore {
             select exists(
               select 1 from public.data_import_runs
               where source_provider = ? and source_service = ? and source_operation = ?
-                and scope_key = ? and status = 'running' and running_scope_enforced
+                and scope_key = ? and status = 'running'
             )
             """,
             Boolean.class,
