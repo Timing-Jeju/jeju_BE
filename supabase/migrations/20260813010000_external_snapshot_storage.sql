@@ -19,6 +19,7 @@ set initial_parse_status = parse_status,
 alter table public.external_api_snapshots
   alter column payload_size_bytes set default 0,
   alter column payload_size_bytes set not null,
+  alter column initial_parse_status set default 'received',
   alter column initial_parse_status set not null,
   add constraint ck_external_snapshots_payload_size
     check (payload_size_bytes between 0 and 2097152),

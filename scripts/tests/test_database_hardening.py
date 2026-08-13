@@ -125,6 +125,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "add column initial_parse_status text",
             "add column initial_error_code text",
             "set initial_parse_status = parse_status",
+            "alter column initial_parse_status set default 'received'",
             "alter column initial_parse_status set not null",
             "ck_external_snapshots_initial_classification",
             "add column purged_at timestamptz",
