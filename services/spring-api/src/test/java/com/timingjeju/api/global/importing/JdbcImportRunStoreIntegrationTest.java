@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,11 @@ class JdbcImportRunStoreIntegrationTest {
     service =
         new ImportRunLifecycleService(
             store, Clock.fixed(NOW, ZoneOffset.UTC), new UuidImportRunIdentityGenerator());
+  }
+
+  @AfterEach
+  void cleanUp() {
+    jdbcTemplate.update("delete from public.data_import_runs");
   }
 
   @Test
