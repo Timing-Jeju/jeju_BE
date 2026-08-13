@@ -9,11 +9,6 @@ public final class ExternalApiException extends RuntimeException {
     this.code = code;
   }
 
-  ExternalApiException(ExternalApiFailureCode code, Throwable cause) {
-    super(message(code), cause, false, false);
-    this.code = code;
-  }
-
   public ExternalApiFailureCode code() {
     return code;
   }

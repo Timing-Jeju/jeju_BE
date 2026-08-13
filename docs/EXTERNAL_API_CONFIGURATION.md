@@ -52,6 +52,7 @@ Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 type
 - redirect를 따라가지 않습니다. 요청 path는 안전한 상대 경로만 받고 target은 시작 시 검증한 Base URL의 동일 scheme·host·port와 하위 path에서만 조립합니다.
 - 성공 응답은 operation이 선언한 JSON 또는 XML content type만 허용합니다. `gzip`은 압축을 해제하면서 읽고 **압축 해제 후 2 MiB**를 넘으면 stream을 즉시 닫고 실패합니다. body 전체가 timeout·전체 budget 안에 완료된 후에만 parser로 전달합니다.
 - provider 응답 파싱 실패, 허용하지 않은 content type/encoding, body 초과, redirect, timeout, 회로 open과 전송 실패는 안정적인 `ExternalApiFailureCode`로 분류합니다. provider 원문과 parser 원인 message는 예외에 포함하지 않습니다.
+- 분류된 `ExternalApiException`은 원본 transport·body·runtime 예외를 `cause`나 `suppressed`에 보존하지 않습니다. 원본 예외는 timeout·connection reset 등 로컬 분류에만 사용하며 message·`toString()`·전체 stack trace나 별도 로그로 전달하지 않습니다.
 - metric `timingjeju.external.api.requests`는 논리 호출 횟수와 latency를 기록합니다. tag는 enum으로 고정된 `provider`, `service`, `operation`, 제한된 `result`만 사용하며 URL, query, status 원문, key, payload와 사용자 값은 넣지 않습니다.
 
 이 공통 모듈은 공개 Controller, DB, schema, provider DTO를 추가하지 않습니다. 후속 adapter는 `ExternalApiOperation`에 등록된 고정 operation과 `ExternalApiRequest`만 사용하고 raw HTTP client를 별도로 만들지 않습니다.

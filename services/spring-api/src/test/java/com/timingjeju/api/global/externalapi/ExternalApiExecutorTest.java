@@ -7,6 +7,8 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
@@ -269,6 +271,46 @@ class ExternalApiExecutorTest {
   }
 
   @Test
+  void 외부_분류_예외는_transport_body_runtime_원인을_보존하거나_노출하지_않는다() {
+    String transportSensitiveText = "serviceKey=redacted-fixture&query=private";
+    Fixture transport = new Fixture();
+    transport.transport.fail(new IOException(transportSensitiveText));
+
+    assertSanitizedFailure(
+        () ->
+            transport.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text),
+        ExternalApiFailureCode.TRANSPORT_ERROR,
+        transportSensitiveText);
+
+    String bodySensitiveText = "Authorization: Bearer redacted-fixture raw-payload";
+    Fixture body = new Fixture();
+    body.transport.respond(
+        new ExternalHttpResponse(
+            200,
+            Map.of("Content-Type", List.of("application/json")),
+            new SensitiveFailingInputStream(bodySensitiveText)));
+
+    assertSanitizedFailure(
+        () ->
+            body.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text),
+        ExternalApiFailureCode.TRANSPORT_ERROR,
+        bodySensitiveText);
+
+    String runtimeSensitiveText = "runtime credential query=private-token";
+    Fixture runtime = new Fixture();
+    runtime.transport.runtimeFailure(new IllegalStateException(runtimeSensitiveText));
+
+    assertSanitizedFailure(
+        () ->
+            runtime.executor.execute(
+                request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text),
+        ExternalApiFailureCode.TRANSPORT_ERROR,
+        runtimeSensitiveText);
+  }
+
+  @Test
   void 공공데이터_key와_query는_UTF8로_정확히_한번_encoding한다() {
     Fixture fixture = new Fixture(Duration.ofSeconds(5), "fixture+/=");
     fixture.transport.respond(json("{}"));
@@ -344,6 +386,26 @@ class ExternalApiExecutorTest {
     assertThatThrownBy(() -> fixture.executor.execute(request, ExternalApiExecutorTest::text))
         .isInstanceOfSatisfying(
             ExternalApiException.class, failure -> assertThat(failure.code()).isEqualTo(code));
+  }
+
+  private static void assertSanitizedFailure(
+      org.assertj.core.api.ThrowableAssert.ThrowingCallable invocation,
+      ExternalApiFailureCode code,
+      String sensitiveValue) {
+    assertThatThrownBy(invocation)
+        .isInstanceOfSatisfying(
+            ExternalApiException.class,
+            failure -> {
+              StringWriter stackTrace = new StringWriter();
+              failure.printStackTrace(new PrintWriter(stackTrace));
+
+              assertThat(failure.code()).isEqualTo(code);
+              assertThat(failure.getCause()).isNull();
+              assertThat(failure.getSuppressed()).isEmpty();
+              assertThat(failure.getMessage()).doesNotContain(sensitiveValue);
+              assertThat(failure.toString()).doesNotContain(sensitiveValue);
+              assertThat(stackTrace.toString()).doesNotContain(sensitiveValue);
+            });
   }
 
   private static ExternalHttpResponse json(String body) {
@@ -443,6 +505,13 @@ class ExternalApiExecutorTest {
       actions.add(action);
     }
 
+    private void runtimeFailure(RuntimeException failure) {
+      actions.add(
+          request -> {
+            throw failure;
+          });
+    }
+
     @Override
     public ExternalHttpResponse exchange(
         ExternalHttpRequest request, Duration connectTimeout, Duration responseTimeout)
@@ -450,6 +519,20 @@ class ExternalApiExecutorTest {
       calls++;
       lastRequest = request;
       return actions.removeFirst().run(request);
+    }
+  }
+
+  private static final class SensitiveFailingInputStream extends InputStream {
+
+    private final String sensitiveValue;
+
+    private SensitiveFailingInputStream(String sensitiveValue) {
+      this.sensitiveValue = sensitiveValue;
+    }
+
+    @Override
+    public int read() throws IOException {
+      throw new IOException(sensitiveValue);
     }
   }
 

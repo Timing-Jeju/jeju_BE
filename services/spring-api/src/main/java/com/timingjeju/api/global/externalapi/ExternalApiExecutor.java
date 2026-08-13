@@ -88,10 +88,10 @@ public final class ExternalApiExecutor implements AutoCloseable {
       circuit.record(permit, true);
       record(request.operation(), failure.code().metricResult(), started);
       throw failure;
-    } catch (RuntimeException failure) {
+    } catch (RuntimeException ignored) {
       circuit.record(permit, true);
       record(request.operation(), ExternalApiFailureCode.TRANSPORT_ERROR.metricResult(), started);
-      throw new ExternalApiException(ExternalApiFailureCode.TRANSPORT_ERROR, failure);
+      throw new ExternalApiException(ExternalApiFailureCode.TRANSPORT_ERROR);
     }
   }
 
@@ -137,7 +137,7 @@ public final class ExternalApiExecutor implements AutoCloseable {
         throw failure;
       } catch (InterruptedException interrupted) {
         Thread.currentThread().interrupt();
-        throw new ExternalApiException(ExternalApiFailureCode.TRANSPORT_ERROR, interrupted);
+        throw new ExternalApiException(ExternalApiFailureCode.TRANSPORT_ERROR);
       } catch (IOException failure) {
         ExternalApiFailureCode code = classifyIo(failure);
         if (request.method() == ExternalApiHttpMethod.GET
@@ -148,7 +148,7 @@ public final class ExternalApiExecutor implements AutoCloseable {
           sleepWithinDeadline(policy.retryDelay(attempt, jitter), started);
           continue;
         }
-        throw new ExternalApiException(code, failure);
+        throw new ExternalApiException(code);
       }
     }
     throw new ExternalApiException(ExternalApiFailureCode.RETRY_EXHAUSTED);
@@ -299,7 +299,7 @@ public final class ExternalApiExecutor implements AutoCloseable {
                 try {
                   input = new GZIPInputStream(input);
                 } catch (ZipException malformed) {
-                  throw new MalformedBodyIOException(malformed);
+                  throw new MalformedBodyIOException();
                 }
               } else if (!(contentEncoding.isEmpty() || "identity".equals(contentEncoding))) {
                 throw new UnsupportedEncodingIOException();
@@ -307,7 +307,7 @@ public final class ExternalApiExecutor implements AutoCloseable {
               try {
                 return readLimited(input, policy.maximumDecompressedBodyBytes());
               } catch (ZipException malformed) {
-                throw new MalformedBodyIOException(malformed);
+                throw new MalformedBodyIOException();
               }
             });
     try {
@@ -318,23 +318,22 @@ public final class ExternalApiExecutor implements AutoCloseable {
     } catch (InterruptedException interrupted) {
       future.cancel(true);
       Thread.currentThread().interrupt();
-      throw new IOException("external API body read interrupted", interrupted);
+      throw new IOException("external API body read interrupted");
     } catch (ExecutionException failure) {
       Throwable cause = failure.getCause();
-      if (cause instanceof BodyTooLargeIOException bodyTooLarge) {
-        throw new ExternalApiException(ExternalApiFailureCode.RESPONSE_TOO_LARGE, bodyTooLarge);
+      if (cause instanceof BodyTooLargeIOException) {
+        throw new ExternalApiException(ExternalApiFailureCode.RESPONSE_TOO_LARGE);
       }
-      if (cause instanceof UnsupportedEncodingIOException unsupported) {
-        throw new ExternalApiException(
-            ExternalApiFailureCode.UNSUPPORTED_CONTENT_ENCODING, unsupported);
+      if (cause instanceof UnsupportedEncodingIOException) {
+        throw new ExternalApiException(ExternalApiFailureCode.UNSUPPORTED_CONTENT_ENCODING);
       }
-      if (cause instanceof MalformedBodyIOException malformed) {
-        throw new ExternalApiException(ExternalApiFailureCode.MALFORMED_RESPONSE, malformed);
+      if (cause instanceof MalformedBodyIOException) {
+        throw new ExternalApiException(ExternalApiFailureCode.MALFORMED_RESPONSE);
       }
       if (cause instanceof IOException io) {
         throw io;
       }
-      throw new IOException("external API body read failed", cause);
+      throw new IOException("external API body read failed");
     }
   }
 
@@ -402,7 +401,7 @@ public final class ExternalApiExecutor implements AutoCloseable {
       timeSource.sleep(delay);
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
-      throw new ExternalApiException(ExternalApiFailureCode.TRANSPORT_ERROR, interrupted);
+      throw new ExternalApiException(ExternalApiFailureCode.TRANSPORT_ERROR);
     }
   }
 
@@ -449,9 +448,5 @@ public final class ExternalApiExecutor implements AutoCloseable {
 
   private static final class UnsupportedEncodingIOException extends IOException {}
 
-  private static final class MalformedBodyIOException extends IOException {
-    private MalformedBodyIOException(Throwable cause) {
-      super(cause);
-    }
-  }
+  private static final class MalformedBodyIOException extends IOException {}
 }
