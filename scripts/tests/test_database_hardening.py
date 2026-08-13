@@ -133,6 +133,37 @@ class DatabaseHardeningTest(unittest.TestCase):
 
         self.assertNotIn("flyway", migration)
 
+    def test_docker_v1_upgrade_applies_snapshot_storage_to_existing_snapshot(self):
+        docker_smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+        legacy_fixture = (
+            ROOT / "db" / "queries" / "legacy_snapshot_storage_upgrade_fixture.sql"
+        )
+        contract = LEGACY_UPGRADE_CONTRACT.read_text(encoding="utf-8")
+
+        self.assertTrue(legacy_fixture.is_file())
+        ordered_steps = (
+            "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
+            "/queries/legacy_snapshot_storage_upgrade_fixture.sql",
+            "/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql",
+            "/queries/legacy_v1_upgrade_contract.sql",
+        )
+        positions = [docker_smoke.find(step) for step in ordered_steps]
+        self.assertTrue(all(position >= 0 for position in positions))
+        self.assertEqual(sorted(positions), positions)
+        for fragment in (
+            "legacy snapshot storage upgrade was not preserved",
+            "payload_size_bytes",
+            "legacy-unversioned",
+            "purged_at",
+            "is_nullable = 'yes'",
+            "has_table_privilege('anon', 'public.external_api_snapshots', 'select')",
+            "protect_external_snapshot_identity()",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, contract.lower())
+
     def test_api_idempotency_registry_has_scope_timing_payload_and_security_guards(self):
         migration = self.read_migration(IDEMPOTENCY_MIGRATION)
 

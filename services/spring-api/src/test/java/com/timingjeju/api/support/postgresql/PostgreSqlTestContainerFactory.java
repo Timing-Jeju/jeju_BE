@@ -3,6 +3,7 @@ package com.timingjeju.api.support.postgresql;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -32,7 +33,8 @@ final class PostgreSqlTestContainerFactory {
         new PostgreSQLContainer(POSTGIS_IMAGE)
             .withDatabaseName("timing_jeju_repository_test")
             .withUsername("timing_jeju_repository_test")
-            .withPassword(UUID.randomUUID().toString());
+            .withPassword(UUID.randomUUID().toString())
+            .withStartupTimeout(Duration.ofMinutes(3));
 
     List<Path> initScripts = canonicalInitScripts(locateRepositoryRoot());
     for (int index = 0; index < initScripts.size(); index++) {
