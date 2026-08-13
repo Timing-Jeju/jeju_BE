@@ -148,10 +148,8 @@ class DatabaseHardeningTest(unittest.TestCase):
         migration = self.read_migration(IMPORT_RUN_LIFECYCLE_MIGRATION)
 
         for fragment in (
-            "add column owner_token uuid",
-            "add column fencing_token bigint",
-            "alter column owner_token set default gen_random_uuid()",
-            "alter column fencing_token set default 1",
+            "add column owner_token uuid default gen_random_uuid() not null",
+            "add column fencing_token bigint default 1 not null",
             "check (fencing_token > 0)",
             "create function public.protect_import_run_write_lease()",
             "old.owner_token is distinct from new.owner_token",
@@ -160,6 +158,8 @@ class DatabaseHardeningTest(unittest.TestCase):
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, migration)
+
+        self.assertNotIn("update public.data_import_runs", migration)
 
         for forbidden in ("api_key", "authorization", "provider_token", "raw_payload", "email"):
             with self.subTest(forbidden=forbidden):

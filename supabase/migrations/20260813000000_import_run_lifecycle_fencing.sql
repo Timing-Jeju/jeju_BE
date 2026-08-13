@@ -1,18 +1,8 @@
 -- Issue #22의 Spring import 생명주기가 stale writer를 거부하도록 실행 소유권과
 -- fencing token을 data_import_runs provenance ledger에 추가한다.
 alter table public.data_import_runs
-  add column owner_token uuid,
-  add column fencing_token bigint;
-
-update public.data_import_runs
-set owner_token = gen_random_uuid(),
-    fencing_token = 1;
-
-alter table public.data_import_runs
-  alter column owner_token set default gen_random_uuid(),
-  alter column owner_token set not null,
-  alter column fencing_token set default 1,
-  alter column fencing_token set not null,
+  add column owner_token uuid default gen_random_uuid() not null,
+  add column fencing_token bigint default 1 not null,
   add constraint chk_data_import_runs_fencing_token
     check (fencing_token > 0);
 
