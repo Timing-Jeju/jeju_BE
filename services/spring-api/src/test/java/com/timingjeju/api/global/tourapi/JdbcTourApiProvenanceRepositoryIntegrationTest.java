@@ -2,6 +2,7 @@ package com.timingjeju.api.global.tourapi;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.snapshot.SnapshotSaveCommand;
@@ -17,6 +18,7 @@ import com.timingjeju.api.application.tourapi.TourApiProvenanceReader;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceWriter;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.nio.charset.StandardCharsets;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -31,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -44,6 +47,8 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   private static final UUID RUN = UUID.fromString("40000000-0000-0000-0000-000000000107");
   private static final UUID SNAPSHOT = UUID.fromString("41000000-0000-0000-0000-000000000107");
   private static final UUID TARGET = UUID.fromString("42000000-0000-0000-0000-000000000107");
+  private static final UUID PARENT = UUID.fromString("4d000000-0000-0000-0000-000000000107");
+  private static final UUID MISSING = UUID.fromString("4e000000-0000-0000-0000-000000000107");
   private static final String HASH =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -247,6 +252,112 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   @Test
+  void allowlist_7개_entity는_실제_target만_허용하고_missing_UUID는_23503으로_거부한다() {
+    jdbcTemplate.update("insert into public.tour_places " + manualPlaceValues(PARENT));
+    List<TargetFixture> targets =
+        List.of(
+            new TargetFixture(
+                "external_reference_codes",
+                UUID.fromString("51000000-0000-0000-0000-000000000107"),
+                () ->
+                    jdbcTemplate.update(
+                        """
+                        insert into public.external_reference_codes (
+                          id, source_provider, source_service, code_type, external_code, code_name
+                        ) values (?, 'admin_upload', 'contract', 'area', '50', '제주')
+                        """,
+                        UUID.fromString("51000000-0000-0000-0000-000000000107"))),
+            new TargetFixture(
+                "tour_places",
+                UUID.fromString("52000000-0000-0000-0000-000000000107"),
+                () ->
+                    jdbcTemplate.update(
+                        "insert into public.tour_places "
+                            + manualPlaceValues(
+                                UUID.fromString("52000000-0000-0000-0000-000000000107")))),
+            new TargetFixture(
+                "tour_place_sources",
+                UUID.fromString("53000000-0000-0000-0000-000000000107"),
+                () ->
+                    jdbcTemplate.update(
+                        """
+                        insert into public.tour_place_sources (
+                          id, place_id, source_provider, source_service, external_id
+                        ) values (?, ?, 'admin_upload', 'contract', 'source-107')
+                        """,
+                        UUID.fromString("53000000-0000-0000-0000-000000000107"),
+                        PARENT)),
+            new TargetFixture(
+                "place_aliases",
+                UUID.fromString("54000000-0000-0000-0000-000000000107"),
+                () ->
+                    jdbcTemplate.update(
+                        """
+                        insert into public.place_aliases (
+                          id, place_id, alias, normalized_alias, alias_type,
+                          source_snapshot_id, import_run_id
+                        ) values (?, ?, '계약 별칭', '계약별칭', 'official', ?, ?)
+                        """,
+                        UUID.fromString("54000000-0000-0000-0000-000000000107"),
+                        PARENT,
+                        SNAPSHOT,
+                        RUN)),
+            new TargetFixture(
+                "place_details",
+                PARENT,
+                () ->
+                    jdbcTemplate.update(
+                        """
+                        insert into public.place_details (place_id, source_provider, source_service)
+                        values (?, 'admin_upload', 'contract')
+                        """,
+                        PARENT)),
+            new TargetFixture(
+                "place_detail_items",
+                UUID.fromString("56000000-0000-0000-0000-000000000107"),
+                () ->
+                    jdbcTemplate.update(
+                        """
+                        insert into public.place_detail_items (
+                          id, place_id, source_provider, source_service, item_type,
+                          source_item_key, payload_hash
+                        ) values (?, ?, 'admin_upload', 'contract', 'overview', 'item-107', ?)
+                        """,
+                        UUID.fromString("56000000-0000-0000-0000-000000000107"),
+                        PARENT,
+                        HASH)),
+            new TargetFixture(
+                "place_images",
+                UUID.fromString("57000000-0000-0000-0000-000000000107"),
+                () ->
+                    jdbcTemplate.update(
+                        """
+                        insert into public.place_images (
+                          id, place_id, image_url, source_provider, source_service
+                        ) values (?, ?, 'https://example.test/contract.jpg', 'admin_upload', 'contract')
+                        """,
+                        UUID.fromString("57000000-0000-0000-0000-000000000107"),
+                        PARENT)));
+
+    for (TargetFixture target : targets) {
+      target.insertTarget().run();
+      TourApiProvenance saved;
+      try {
+        saved = writer.write(command(target.entityType(), target.rowId()), () -> {});
+      } catch (RuntimeException failure) {
+        throw new AssertionError(target.entityType() + " 실제 target provenance 저장 실패", failure);
+      }
+      assertThat(saved.normalizedEntityType()).isEqualTo(target.entityType());
+      assertThat(saved.normalizedRowId()).isEqualTo(target.rowId());
+
+      Throwable failure =
+          catchThrowable(() -> insertProvenanceDirectly(target.entityType(), MISSING));
+      assertThat(failure).isInstanceOf(DataIntegrityViolationException.class);
+      assertThat(rootSqlException(failure).getSQLState()).isEqualTo("23503");
+    }
+  }
+
+  @Test
   void migration은_8개_registry와_nullable_content_type_및_서버전용_보안계약을_고정한다() {
     assertThat(
             jdbcTemplate.queryForList(
@@ -288,6 +399,35 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
       String operation, UUID snapshot, UUID run, String contentTypeId) {
     return new TourApiProvenanceCommand(
         "tour_places", TARGET, operation, contentTypeId, HASH, snapshot, run);
+  }
+
+  private TourApiProvenanceCommand command(String entityType, UUID rowId) {
+    return new TourApiProvenanceCommand(
+        entityType, rowId, "areaBasedList2", null, HASH, SNAPSHOT, RUN);
+  }
+
+  private void insertProvenanceDirectly(String entityType, UUID rowId) {
+    jdbcTemplate.update(
+        """
+        insert into public.tour_api_operation_provenance (
+          normalized_entity_type, normalized_row_id, operation_key, request_fingerprint,
+          source_snapshot_id, import_run_id
+        ) values (?, ?, 'areaBasedList2', ?, ?, ?)
+        """,
+        entityType,
+        rowId,
+        HASH,
+        SNAPSHOT,
+        RUN);
+  }
+
+  private SQLException rootSqlException(Throwable failure) {
+    Throwable current = failure;
+    while (current.getCause() != null) {
+      current = current.getCause();
+    }
+    assertThat(current).isInstanceOf(SQLException.class);
+    return (SQLException) current;
   }
 
   private void insertRunAndSnapshot(UUID run, UUID snapshot, String provider, String operation) {
@@ -381,6 +521,12 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
         + "')";
   }
 
+  private String manualPlaceValues(UUID targetId) {
+    return "(id, name, normalized_name, category, location, source_provider) values ('"
+        + targetId
+        + "', 'contract', 'contract', 'test', ST_GeogFromText('SRID=4326;POINT(126.5 33.5)'), 'admin_upload')";
+  }
+
   private int count(String table) {
     return jdbcTemplate.queryForObject("select count(*) from public." + table, Integer.class);
   }
@@ -392,4 +538,6 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
     jdbcTemplate.update("delete from public.data_import_runs");
     jdbcTemplate.update("update public.tour_api_operations set active=true");
   }
+
+  private record TargetFixture(String entityType, UUID rowId, Runnable insertTarget) {}
 }

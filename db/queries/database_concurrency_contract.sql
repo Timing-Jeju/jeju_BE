@@ -897,4 +897,147 @@ $$;
 select public.dblink_disconnect('hours_rr_a');
 select public.dblink_disconnect('hours_rr_b');
 
+-- provenance INSERT가 참조 대상을 잠근 동안 별도 세션의 DELETE는 대기해야 한다.
+-- INSERT 커밋 뒤 DELETE는 커밋된 provenance를 보고 23503으로 거부된다.
+insert into public.data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status, started_at,
+  parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
+  idempotency_key, source_provider, source_service
+) values (
+  'fc500000-0000-0000-0000-000000000001', 'tour_api', 'concurrency-provenance',
+  'areaBasedList2', 'contract-v1', 'running', '2026-08-14 00:00:00+00',
+  'parser-v1', 'schema-v1', 'incremental', 'jeju', 'sha256:fixture',
+  'concurrency-provenance', 'tour-api', 'KorService2'
+);
+
+insert into public.external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation, scope_key,
+  request_hash, page_key, fetched_at, parser_version, payload_hash,
+  request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version,
+  payload_format, initial_parse_status, parse_status, parsed_at
+) values (
+  'fc510000-0000-0000-0000-000000000001',
+  'fc500000-0000-0000-0000-000000000001',
+  'tour-api', 'KorService2', 'areaBasedList2', 'jeju',
+  repeat('a', 64), '', '2026-08-14 00:00:00+00', 'parser-v1', repeat('b', 64),
+  '{}'::jsonb, '{}'::jsonb, 2, 'contract-v1', 'JSON', 'parsed', 'parsed',
+  '2026-08-14 00:00:00+00'
+);
+
+insert into public.tour_places
+  (id, name, normalized_name, category, location, source_provider)
+values
+  ('fc520000-0000-0000-0000-000000000001', 'provenance', 'provenance', 'contract',
+   public.st_geogfromtext('SRID=4326;POINT(126.5 33.5)'), 'admin_upload');
+insert into public.external_reference_codes
+  (id, source_provider, source_service, code_type, external_code, code_name)
+values ('fc530000-0000-0000-0000-000000000001', 'admin_upload', 'contract', 'area', '50', '제주');
+insert into public.tour_place_sources
+  (id, place_id, source_provider, source_service, external_id)
+values ('fc540000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
+        'admin_upload', 'contract', 'source-107');
+insert into public.place_aliases
+  (id, place_id, alias, normalized_alias, alias_type, source_snapshot_id, import_run_id)
+values ('fc550000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
+        '계약 별칭', '계약별칭', 'official', 'fc510000-0000-0000-0000-000000000001',
+        'fc500000-0000-0000-0000-000000000001');
+insert into public.place_details (place_id, source_provider, source_service)
+values ('fc520000-0000-0000-0000-000000000001', 'admin_upload', 'contract');
+insert into public.place_detail_items
+  (id, place_id, source_provider, source_service, item_type, source_item_key, payload_hash)
+values ('fc560000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
+        'admin_upload', 'contract', 'overview', 'item-107', repeat('c', 64));
+insert into public.place_images
+  (id, place_id, image_url, source_provider, source_service)
+values ('fc570000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
+        'https://example.test/contract.jpg', 'admin_upload', 'contract');
+
+create function concurrency_contract.try_delete_provenance_target(
+  entity_type text,
+  target_id uuid
+)
+returns text
+language plpgsql
+as $$
+begin
+  case entity_type
+    when 'external_reference_codes' then delete from public.external_reference_codes where id = target_id;
+    when 'tour_place_sources' then delete from public.tour_place_sources where id = target_id;
+    when 'place_aliases' then delete from public.place_aliases where id = target_id;
+    when 'place_details' then delete from public.place_details where place_id = target_id;
+    when 'place_detail_items' then delete from public.place_detail_items where id = target_id;
+    when 'place_images' then delete from public.place_images where id = target_id;
+    when 'tour_places' then delete from public.tour_places where id = target_id;
+    else raise exception 'unsupported provenance target type';
+  end case;
+  return 'OK';
+exception when others then
+  return sqlstate;
+end;
+$$;
+
+select public.dblink_connect('provenance_a', pg_catalog.format(
+  'dbname=%L user=%L application_name=%L', current_database(), current_user,
+  'timing-jeju-provenance-a'));
+select public.dblink_connect('provenance_b', pg_catalog.format(
+  'dbname=%L user=%L application_name=%L', current_database(), current_user,
+  'timing-jeju-provenance-b'));
+insert into concurrency_contract.connection_pids
+select 'provenance', 'a', remote.backend_pid
+from public.dblink('provenance_a', 'select pg_backend_pid()') as remote(backend_pid integer);
+insert into concurrency_contract.connection_pids
+select 'provenance', 'b', remote.backend_pid
+from public.dblink('provenance_b', 'select pg_backend_pid()') as remote(backend_pid integer);
+
+do $$
+declare
+  entity_types text[] := array[
+    'external_reference_codes', 'tour_place_sources', 'place_aliases', 'place_details',
+    'place_detail_items', 'place_images', 'tour_places'
+  ];
+  target_ids uuid[] := array[
+    'fc530000-0000-0000-0000-000000000001', 'fc540000-0000-0000-0000-000000000001',
+    'fc550000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
+    'fc560000-0000-0000-0000-000000000001', 'fc570000-0000-0000-0000-000000000001',
+    'fc520000-0000-0000-0000-000000000001'
+  ]::uuid[];
+  result_code text;
+  index integer;
+begin
+  for index in 1..array_length(entity_types, 1) loop
+    perform public.dblink_exec('provenance_a', 'begin');
+    perform public.dblink_exec('provenance_a', pg_catalog.format(
+      $query$
+        insert into public.tour_api_operation_provenance (
+          normalized_entity_type, normalized_row_id, operation_key, request_fingerprint,
+          source_snapshot_id, import_run_id
+        ) values (%L, %L::uuid, 'areaBasedList2', %L,
+          'fc510000-0000-0000-0000-000000000001',
+          'fc500000-0000-0000-0000-000000000001')
+      $query$, entity_types[index], target_ids[index], repeat('a', 64)));
+
+    if public.dblink_send_query('provenance_b', pg_catalog.format(
+         'select concurrency_contract.try_delete_provenance_target(%L, %L::uuid)',
+         entity_types[index], target_ids[index])) <> 1 then
+      raise exception 'provenance delete query was not dispatched';
+    end if;
+
+    perform concurrency_contract.assert_connection_is_blocked(
+      'provenance', 'a', 'b', 'provenance_b');
+    perform public.dblink_exec('provenance_a', 'commit');
+
+    select remote.result_code into result_code
+    from public.dblink_get_result('provenance_b') as remote(result_code text);
+    if result_code <> '23503' then
+      raise exception 'provenance target delete must return 23503, got % for %',
+        result_code, entity_types[index];
+    end if;
+    perform concurrency_contract.drain_async_result('provenance_b');
+  end loop;
+end;
+$$;
+
+select public.dblink_disconnect('provenance_a');
+select public.dblink_disconnect('provenance_b');
+
 select 'database_concurrency_contract PASS' as result;

@@ -808,14 +808,21 @@ begin
     'from public.tour_place_sources target',
     'from public.place_aliases target',
     'from public.place_details target',
+    'where target.place_id = new.normalized_row_id',
     'from public.place_detail_items target',
     'from public.place_images target',
-    'tourapi operation provenance target does not exist'
+    'tourapi operation provenance target does not exist',
+    'for key share'
   ]) as required_fragment
   where strpos(function_definition, required_fragment) = 0;
 
   if missing_objects is not null then
     raise exception 'legacy TourAPI provenance target guard is incomplete: %', missing_objects;
+  end if;
+
+  if (select count(*) from pg_catalog.pg_trigger
+      where tgname like 'trg_%_provenance_delete' and not tgisinternal) <> 7 then
+    raise exception 'legacy TourAPI provenance target delete guards are incomplete';
   end if;
 end;
 $$;

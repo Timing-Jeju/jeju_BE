@@ -1153,14 +1153,24 @@ begin
     'from public.tour_place_sources target',
     'from public.place_aliases target',
     'from public.place_details target',
+    'where target.place_id = new.normalized_row_id',
     'from public.place_detail_items target',
     'from public.place_images target',
-    'tourapi operation provenance target does not exist'
+    'tourapi operation provenance target does not exist',
+    'for key share'
   ]) as required_fragment
   where strpos(function_definition, required_fragment) = 0;
 
   if missing_objects is not null then
     raise exception 'TourAPI operation provenance target guard is incomplete: %', missing_objects;
+  end if;
+
+  if (select count(*) from pg_catalog.pg_trigger
+      where tgname like 'trg_%_provenance_delete' and not tgisinternal) <> 7
+     or strpos(pg_catalog.lower(pg_get_functiondef(
+          'public.protect_tour_api_provenance_target_delete()'::regprocedure
+        )), 'tourapi operation provenance target is still referenced') = 0 then
+    raise exception 'TourAPI provenance target removal guards are incomplete';
   end if;
 
   if not exists (

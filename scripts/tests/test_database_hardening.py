@@ -176,15 +176,29 @@ class DatabaseHardeningTest(unittest.TestCase):
             "from public.place_aliases target",
             "when 'place_details' then",
             "from public.place_details target",
+            "where target.place_id = new.normalized_row_id",
             "when 'place_detail_items' then",
             "from public.place_detail_items target",
             "when 'place_images' then",
             "from public.place_images target",
+            "for key share",
+            "create function public.protect_tour_api_provenance_target_delete()",
+            "tourapi operation provenance target is still referenced",
             "tourapi operation provenance target does not exist",
             "alter table public.tour_api_operation_provenance enable row level security",
             "revoke all on public.tour_api_operation_provenance from anon, authenticated",
         ):
             self.assertIn(fragment, migration)
+        for entity in (
+            "external_reference_codes",
+            "tour_places",
+            "tour_place_sources",
+            "place_aliases",
+            "place_details",
+            "place_detail_items",
+            "place_images",
+        ):
+            self.assertIn(f"trg_{entity}_provenance_delete", migration)
         for forbidden in (
             "service_key",
             "api_key",
@@ -337,6 +351,9 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/006_schedule_consistency_hardening.sql",
             "/docker-entrypoint-initdb.d/007_import_run_lineage_retention.sql",
             "/docker-entrypoint-initdb.d/008_api_idempotency_registry.sql",
+            "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
+            "/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql",
+            "/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql",
             "/docker-entrypoint-initdb.d/009_async_run_worker_runtime.sql",
             "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
@@ -691,6 +708,8 @@ class DatabaseHardeningTest(unittest.TestCase):
         )
         self.assertIn("40001", concurrency_contract)
         self.assertIn("p0001", concurrency_contract)
+        self.assertIn("try_delete_provenance_target", concurrency_contract)
+        self.assertIn("provenance target delete must return 23503", concurrency_contract)
         self.assertIn("database_concurrency_contract", concurrency_contract)
 
         for migration in MIGRATIONS.glob("*.sql"):

@@ -2542,6 +2542,57 @@ select pg_temp.expect_rejected(
   array['23503']
 );
 
+insert into public.data_import_runs (
+  id, source_kind, source_name, source_operation, data_version, status, started_at,
+  parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
+  idempotency_key, source_provider, source_service
+) values (
+  'fe700000-0000-0000-0000-000000000001', 'tour_api', 'negative-provenance',
+  'areaBasedList2', 'contract-v1', 'running', now(), 'parser-v1', 'schema-v1',
+  'incremental', 'jeju', 'sha256:fixture', 'negative-provenance',
+  'tour-api', 'KorService2'
+);
+
+insert into public.external_api_snapshots (
+  id, import_run_id, source_provider, source_service, source_operation, scope_key,
+  request_hash, page_key, fetched_at, parser_version, payload_hash,
+  request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version,
+  payload_format, initial_parse_status, parse_status, parsed_at
+) values (
+  'fe710000-0000-0000-0000-000000000001',
+  'fe700000-0000-0000-0000-000000000001', 'tour-api', 'KorService2',
+  'areaBasedList2', 'jeju', repeat('a', 64), '', now(), 'parser-v1', repeat('b', 64),
+  '{}'::jsonb, '{}'::jsonb, 2, 'contract-v1', 'JSON', 'parsed', 'parsed', now()
+);
+
+do $$
+declare
+  entity_type text;
+begin
+  foreach entity_type in array array[
+    'external_reference_codes', 'tour_places', 'tour_place_sources', 'place_aliases',
+    'place_details', 'place_detail_items', 'place_images'
+  ] loop
+    perform pg_temp.expect_rejected(
+      entity_type || ' missing provenance target',
+      pg_catalog.format(
+        $statement$
+          insert into public.tour_api_operation_provenance (
+            normalized_entity_type, normalized_row_id, operation_key, request_fingerprint,
+            source_snapshot_id, import_run_id
+          ) values (%L, 'fe720000-0000-0000-0000-000000000001',
+            'areaBasedList2', %L, 'fe710000-0000-0000-0000-000000000001',
+            'fe700000-0000-0000-0000-000000000001')
+        $statement$,
+        entity_type,
+        repeat('a', 64)
+      ),
+      array['23503']
+    );
+  end loop;
+end;
+$$;
+
 -- 실제 SHA-256 collision을 만들 수 없으므로 transaction 안에서 함수만 고정값으로
 -- 바꿔 exact 원문 collision guard를 강제로 실행하고 ROLLBACK으로 원복한다.
 create or replace function public.source_identity_digest(variadic components text[])

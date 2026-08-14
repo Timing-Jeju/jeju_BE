@@ -68,7 +68,7 @@ security invoker
 set search_path = ''
 as $$
 declare
-  target_exists boolean;
+  target_exists boolean := false;
 begin
   if not exists (
     select 1
@@ -96,40 +96,40 @@ begin
 
   case new.normalized_entity_type
     when 'external_reference_codes' then
-      select exists (
-        select 1 from public.external_reference_codes target
-        where target.id = new.normalized_row_id
-      ) into target_exists;
+      perform 1 from public.external_reference_codes target
+      where target.id = new.normalized_row_id
+      for key share;
+      target_exists := found;
     when 'tour_places' then
-      select exists (
-        select 1 from public.tour_places target
-        where target.id = new.normalized_row_id
-      ) into target_exists;
+      perform 1 from public.tour_places target
+      where target.id = new.normalized_row_id
+      for key share;
+      target_exists := found;
     when 'tour_place_sources' then
-      select exists (
-        select 1 from public.tour_place_sources target
-        where target.id = new.normalized_row_id
-      ) into target_exists;
+      perform 1 from public.tour_place_sources target
+      where target.id = new.normalized_row_id
+      for key share;
+      target_exists := found;
     when 'place_aliases' then
-      select exists (
-        select 1 from public.place_aliases target
-        where target.id = new.normalized_row_id
-      ) into target_exists;
+      perform 1 from public.place_aliases target
+      where target.id = new.normalized_row_id
+      for key share;
+      target_exists := found;
     when 'place_details' then
-      select exists (
-        select 1 from public.place_details target
-        where target.id = new.normalized_row_id
-      ) into target_exists;
+      perform 1 from public.place_details target
+      where target.place_id = new.normalized_row_id
+      for key share;
+      target_exists := found;
     when 'place_detail_items' then
-      select exists (
-        select 1 from public.place_detail_items target
-        where target.id = new.normalized_row_id
-      ) into target_exists;
+      perform 1 from public.place_detail_items target
+      where target.id = new.normalized_row_id
+      for key share;
+      target_exists := found;
     when 'place_images' then
-      select exists (
-        select 1 from public.place_images target
-        where target.id = new.normalized_row_id
-      ) into target_exists;
+      perform 1 from public.place_images target
+      where target.id = new.normalized_row_id
+      for key share;
+      target_exists := found;
     else
       target_exists := false;
   end case;
@@ -144,9 +144,65 @@ begin
 end;
 $$;
 
+-- provenance INSERT가 잡은 대상 행의 KEY SHARE 잠금과 DELETE의 행 잠금을
+-- 직렬화한다. DELETE가 먼저 잠그면 INSERT는 대상 부재로 거부되고, INSERT가
+-- 먼저 잠그면 DELETE는 커밋된 provenance를 확인한 뒤 FK 위반으로 거부된다.
+create function public.protect_tour_api_provenance_target_delete()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  target_id uuid;
+begin
+  target_id := (
+    pg_catalog.to_jsonb(old) ->> case
+      when tg_argv[0] = 'place_details' then 'place_id'
+      else 'id'
+    end
+  )::uuid;
+
+  if exists (
+    select 1
+    from public.tour_api_operation_provenance provenance
+    where provenance.normalized_entity_type = tg_argv[0]
+      and provenance.normalized_row_id = target_id
+  ) then
+    raise exception using
+      errcode = '23503',
+      message = 'TourAPI operation provenance target is still referenced';
+  end if;
+
+  return old;
+end;
+$$;
+
 create trigger trg_tour_api_operation_provenance_validate
 before insert or update on public.tour_api_operation_provenance
 for each row execute function public.validate_tour_api_operation_provenance();
+
+create trigger trg_external_reference_codes_provenance_delete
+before delete on public.external_reference_codes
+for each row execute function public.protect_tour_api_provenance_target_delete('external_reference_codes');
+create trigger trg_tour_places_provenance_delete
+before delete on public.tour_places
+for each row execute function public.protect_tour_api_provenance_target_delete('tour_places');
+create trigger trg_tour_place_sources_provenance_delete
+before delete on public.tour_place_sources
+for each row execute function public.protect_tour_api_provenance_target_delete('tour_place_sources');
+create trigger trg_place_aliases_provenance_delete
+before delete on public.place_aliases
+for each row execute function public.protect_tour_api_provenance_target_delete('place_aliases');
+create trigger trg_place_details_provenance_delete
+before delete on public.place_details
+for each row execute function public.protect_tour_api_provenance_target_delete('place_details');
+create trigger trg_place_detail_items_provenance_delete
+before delete on public.place_detail_items
+for each row execute function public.protect_tour_api_provenance_target_delete('place_detail_items');
+create trigger trg_place_images_provenance_delete
+before delete on public.place_images
+for each row execute function public.protect_tour_api_provenance_target_delete('place_images');
 
 alter table public.tour_api_operations enable row level security;
 alter table public.tour_api_operation_provenance enable row level security;
