@@ -22,6 +22,9 @@ IMPORT_RUN_LIFECYCLE_MIGRATION = (
 SNAPSHOT_STORAGE_MIGRATION = (
     MIGRATIONS / "20260813010000_external_snapshot_storage.sql"
 )
+TOUR_API_PROVENANCE_MIGRATION = (
+    MIGRATIONS / "20260814000000_tour_api_operation_provenance.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -80,6 +83,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260811000000_async_run_worker_runtime.sql",
                 "20260813000000_import_run_lifecycle_fencing.sql",
                 "20260813010000_external_snapshot_storage.sql",
+                "20260814000000_tour_api_operation_provenance.sql",
             ],
             migration_names,
         )
@@ -97,6 +101,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260811000000_async_run_worker_runtime.sql",
             "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
             "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
+            "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -140,6 +145,42 @@ class DatabaseHardeningTest(unittest.TestCase):
 
         self.assertNotIn("flyway", migration)
 
+    def test_tour_api_provenance_has_registry_lineage_dedup_and_security_guards(self):
+        migration = self.read_migration(TOUR_API_PROVENANCE_MIGRATION)
+
+        for operation in (
+            "areacode2",
+            "categorycode2",
+            "areabasedlist2",
+            "locationbasedlist2",
+            "searchkeyword2",
+            "searchstay2",
+            "detailcommon2",
+            "detailintro2",
+        ):
+            self.assertIn(f"('{operation}')", migration)
+        for fragment in (
+            "references public.external_api_snapshots(id) on delete restrict",
+            "references public.data_import_runs(id) on delete restrict",
+            "unique (normalized_entity_type, normalized_row_id, operation_key, source_snapshot_id)",
+            "snapshot.import_run_id = new.import_run_id",
+            "snapshot.request_hash = new.request_fingerprint",
+            "snapshot.parse_status in ('parsed', 'tombstoned')",
+            "alter table public.tour_api_operation_provenance enable row level security",
+            "revoke all on public.tour_api_operation_provenance from anon, authenticated",
+        ):
+            self.assertIn(fragment, migration)
+        for forbidden in (
+            "service_key",
+            "api_key",
+            "raw_query",
+            "request_url",
+            "latitude",
+            "longitude",
+            "flyway",
+        ):
+            self.assertNotIn(forbidden, migration)
+
     def test_docker_v1_upgrade_applies_snapshot_storage_to_existing_snapshot(self):
         docker_smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
             encoding="utf-8"
@@ -154,6 +195,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/queries/legacy_snapshot_storage_upgrade_fixture.sql",
             "/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql",
+            "/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
         )
         positions = [docker_smoke.find(step) for step in ordered_steps]

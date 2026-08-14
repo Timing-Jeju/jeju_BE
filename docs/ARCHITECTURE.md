@@ -88,7 +88,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 → `20260810000000` 변경 API 멱등성 registry → `20260811000000` async run worker runtime → `20260813000000` import run owner/fencing → `20260813010000` 외부 snapshot 저장 감사 순서로 누적 적용합니다.
+- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 → `20260810000000` 변경 API 멱등성 registry → `20260811000000` async run worker runtime → `20260813000000` import run owner/fencing → `20260813010000` 외부 snapshot 저장 감사 → `20260814000000` TourAPI operation 계보 순서로 누적 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -125,6 +125,7 @@ Spring 공개 API · 일정 계산용 facts
 ```
 
 - import run은 parser/schema 버전을, raw snapshot은 parser version과 payload hash를 보존해 재처리와 감사가 가능하도록 합니다. 공개 API는 raw payload가 아니라 정규화 read model만 읽습니다.
+- TourAPI importer는 공통 `tour_api_operations` registry와 `tour_api_operation_provenance`를 재사용합니다. 정규화 쓰기와 provenance 쓰기는 하나의 transaction이며, operation·provider·snapshot/run·request fingerprint가 모두 일치해야 합니다. 같은 정규화 행은 여러 operation 계보를 가질 수 있지만 같은 operation/snapshot 계보는 한 번만 기록합니다. canonical fingerprint에는 secret과 원문 URL을 넣지 않고 정밀 위치를 포함한 안전한 parameter 값은 원문 없이 SHA-256만 보존합니다.
 - importer는 `application.snapshot.SnapshotStoreService`만 사용합니다. decompression이 끝난 원문 바이트는 2 MiB 이하만 받고 SHA-256은 해당 byte sequence에 적용합니다. request fingerprint는 원문 URL 없이 scope·page와 결정적으로 redaction된 metadata로 계산합니다. JSON/XML/UTF-8 text는 저장 전에 `snapshot-redaction-v2` registry로 secret·사용자 PII·정밀 위치를 제거하고 XML namespace는 localName 기준으로 같은 정책을 적용하되 namespace 선언 URI는 보존합니다. malformed·binary payload는 `raw_payload=NULL`인 rejected/ignored 감사 행만 남깁니다. 동일 byte라도 payload format·최초 상태·오류 의미가 다르면 replay하지 않고 collision으로 거부합니다. `received`는 terminal 상태로 한 번만 전환하고 성공 payload는 30일, 실패·미파싱 payload는 7일 보존합니다. 실제 삭제는 별도 retention 작업이 `purge_after` 이후 payload만 비우고 `purged_at`을 기록합니다.
 - `application.importing`은 Spring 비의존 생명주기 service·port·불변 값만 소유하고 `global.importing`의 JDBC adapter가 `data_import_runs`에 접근합니다. 공개 Controller는 없습니다. 같은 idempotency key의 동일 요청만 기존 run과 쓰기 lease를 재사용하고, 요청 fingerprint나 버전이 다르면 거부합니다. 다른 idempotency key의 동일 provider/service/operation/scope 동시 `running`은 DB unique 경계로 차단합니다.
 - count 누적과 terminal 전이는 하나의 조건부 UPDATE로 수행합니다. run ID, owner token, fencing token과 `running` 상태가 모두 일치해야 하며 정수 overflow 또는 stale writer이면 어떤 count와 상태도 부분 반영하지 않습니다. `partial`은 마지막 count와 고정 오류 분류를 같은 문장에서 기록하고 raw DB/provider 예외, URL query, key, token, PII는 저장·노출하지 않습니다.

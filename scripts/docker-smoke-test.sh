@@ -189,6 +189,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql \
   /queries/legacy_snapshot_storage_upgrade_fixture.sql \
   /docker-entrypoint-initdb.d/011_external_snapshot_storage.sql \
+  /docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

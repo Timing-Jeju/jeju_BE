@@ -1,0 +1,114 @@
+-- Issue #107: TourAPI operation registry와 normalized row의 다중 원천 계보.
+
+create table public.tour_api_operations (
+  operation_key text primary key,
+  source_provider text not null default 'tour-api',
+  source_service text not null default 'KorService2',
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  constraint ck_tour_api_operations_key
+    check (btrim(operation_key) <> '' and octet_length(operation_key) <= 128),
+  constraint ck_tour_api_operations_provider
+    check (source_provider = 'tour-api'),
+  constraint ck_tour_api_operations_service
+    check (source_service = 'KorService2'),
+  unique (source_provider, source_service, operation_key)
+);
+
+insert into public.tour_api_operations (operation_key) values
+  ('areaCode2'),
+  ('categoryCode2'),
+  ('areaBasedList2'),
+  ('locationBasedList2'),
+  ('searchKeyword2'),
+  ('searchStay2'),
+  ('detailCommon2'),
+  ('detailIntro2');
+
+create table public.tour_api_operation_provenance (
+  id uuid primary key default gen_random_uuid(),
+  normalized_entity_type text not null,
+  normalized_row_id uuid not null,
+  operation_key text not null references public.tour_api_operations(operation_key),
+  content_type_id text,
+  request_fingerprint text not null,
+  source_snapshot_id uuid not null references public.external_api_snapshots(id) on delete restrict,
+  import_run_id uuid not null references public.data_import_runs(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  constraint ck_tour_api_provenance_entity_type
+    check (
+      normalized_entity_type in (
+        'external_reference_codes', 'tour_places', 'tour_place_sources', 'place_aliases',
+        'place_details', 'place_detail_items', 'place_images'
+      )
+    ),
+  constraint ck_tour_api_provenance_content_type
+    check (
+      content_type_id is null
+      or (btrim(content_type_id) <> '' and octet_length(content_type_id) <= 128)
+    ),
+  constraint ck_tour_api_provenance_fingerprint
+    check (request_fingerprint ~ '^[0-9a-f]{64}$'),
+  unique (normalized_entity_type, normalized_row_id, operation_key, source_snapshot_id)
+);
+
+create index idx_tour_api_provenance_snapshot
+  on public.tour_api_operation_provenance (source_snapshot_id);
+create index idx_tour_api_provenance_import_run
+  on public.tour_api_operation_provenance (import_run_id);
+create index idx_tour_api_provenance_operation_request
+  on public.tour_api_operation_provenance (operation_key, request_fingerprint);
+create index idx_tour_api_provenance_normalized_row
+  on public.tour_api_operation_provenance (normalized_entity_type, normalized_row_id);
+
+create function public.validate_tour_api_operation_provenance()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if not exists (
+    select 1
+    from public.tour_api_operations operation
+    join public.external_api_snapshots snapshot
+      on snapshot.id = new.source_snapshot_id
+     and snapshot.source_provider = operation.source_provider
+     and snapshot.source_service = operation.source_service
+     and snapshot.source_operation = operation.operation_key
+     and snapshot.import_run_id = new.import_run_id
+     and snapshot.request_hash = new.request_fingerprint
+     and snapshot.parse_status in ('parsed', 'tombstoned')
+    join public.data_import_runs import_run
+      on import_run.id = new.import_run_id
+     and import_run.source_provider = operation.source_provider
+     and import_run.source_service = operation.source_service
+     and import_run.source_operation = operation.operation_key
+    where operation.operation_key = new.operation_key
+      and operation.active
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'TourAPI operation provenance lineage mismatch';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_tour_api_operation_provenance_validate
+before insert or update on public.tour_api_operation_provenance
+for each row execute function public.validate_tour_api_operation_provenance();
+
+alter table public.tour_api_operations enable row level security;
+alter table public.tour_api_operation_provenance enable row level security;
+revoke all on public.tour_api_operations from anon, authenticated;
+revoke all on public.tour_api_operation_provenance from anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant select on public.tour_api_operations to service_role;
+    grant select, insert on public.tour_api_operation_provenance to service_role;
+  end if;
+end;
+$$;
