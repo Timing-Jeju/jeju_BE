@@ -320,6 +320,8 @@ GET http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst
 
 KMA 원문은 먼저 `external_api_snapshots`에 저장하고, category 파싱을 통과한 날씨 행이 해당 snapshot과 같은 import run을 함께 가리킨다. parser version을 남기므로 해석 규칙이 바뀌어도 같은 원문을 재처리할 수 있다.
 
+원문 저장 구현 계약은 [외부 API snapshot 저장](../EXTERNAL_SNAPSHOT_STORAGE.md)을 따른다. 공급자별 parser는 redaction을 우회해 DB에 직접 쓰지 않는다.
+
 ## 7. Source of Truth 표
 
 | API 응답 필드 | Source 유형 | 원천/계산 주체 |

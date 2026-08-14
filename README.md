@@ -106,6 +106,7 @@ PM 세션 → Issue → 최신 `develop` 기반 작업 브랜치 → TDD → 로
 - [데이터베이스 개발 환경](db/README.md)
 - [API 문서화 규칙](docs/API_DOCUMENTATION.md)
 - [소셜 로그인 설정](docs/SOCIAL_LOGIN.md)
+- [외부 API snapshot 저장](docs/EXTERNAL_SNAPSHOT_STORAGE.md)
 - [Spring-FastAPI 내부 연동 명세](docs/designs/timing-jeju-spring-fastapi-integration-contract.md)
 - [FastAPI MCP 구현 계약](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)
 - [Git 및 출시 흐름](docs/GIT_WORKFLOW.md)

@@ -1,5 +1,42 @@
 \set ON_ERROR_STOP on
 
+do $$
+declare
+  snapshot_size bigint;
+begin
+  select payload_size_bytes into snapshot_size
+  from public.external_api_snapshots
+  where id = 'e1230000-0000-0000-0000-000000000023'
+    and raw_payload = '{"safe":"legacy-preserved"}'::jsonb
+    and redaction_version = 'legacy-unversioned'
+    and payload_format = 'LEGACY_UNKNOWN'
+    and initial_parse_status = parse_status
+    and initial_error_code is not distinct from error_code
+    and purged_at is null
+    and purge_after is not null;
+
+  if snapshot_size is null or snapshot_size <= 0 then
+    raise exception 'legacy snapshot storage upgrade was not preserved';
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'external_api_snapshots'
+      and column_name = 'raw_payload'
+      and is_nullable = 'YES'
+  ) then
+    raise exception 'legacy snapshot raw payload did not become nullable';
+  end if;
+
+  if has_table_privilege('anon', 'public.external_api_snapshots', 'SELECT')
+     or has_table_privilege('authenticated', 'public.external_api_snapshots', 'SELECT')
+     or to_regprocedure('public.protect_external_snapshot_identity()') is null then
+    raise exception 'legacy snapshot storage permissions or trigger are unsafe';
+  end if;
+end;
+$$;
+
 insert into public.data_import_runs (
   id, source_kind, source_name, source_operation, data_version,
   status, finished_at, source_provider, source_service, scope_key
