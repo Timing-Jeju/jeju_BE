@@ -19,6 +19,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
 
 @Repository
@@ -115,7 +116,10 @@ public class JdbcImportCheckpointRepository implements ImportCheckpointRepositor
 
   private Map<String, Object> readCheckpoint(String checkpoint) {
     try {
-      return objectMapper.readValue(checkpoint, CHECKPOINT_TYPE);
+      return objectMapper
+          .readerFor(CHECKPOINT_TYPE)
+          .with(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+          .readValue(checkpoint);
     } catch (RuntimeException failure) {
       throw ImportCheckpointException.of(ImportCheckpointError.STORAGE_FAILURE);
     }

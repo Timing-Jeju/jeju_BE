@@ -3,7 +3,12 @@ package com.timingjeju.api.application.importing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -95,9 +100,135 @@ class ImportCheckpointServiceTest {
         .isInstanceOf(NullPointerException.class);
   }
 
+  @Test
+  void checkpoint는_원본과_반환된_nested_tree의_변경을_허용하지_않는다() {
+    List<Object> mutableItems = new ArrayList<>(List.of("first"));
+    Map<String, Object> mutableNested = new LinkedHashMap<>();
+    mutableNested.put("items", mutableItems);
+    Map<String, Object> mutableRoot = new LinkedHashMap<>();
+    mutableRoot.put("nested", mutableNested);
+
+    ImportCheckpointAdvanceCommand command =
+        new ImportCheckpointAdvanceCommand(
+            SCOPE, 0, mutableRoot, null, RUN_ID, ImportRunStatus.SUCCEEDED);
+    ImportCheckpoint checkpoint =
+        new ImportCheckpoint(
+            SCOPE, mutableRoot, null, RUN_ID, 1, Instant.parse("2026-08-14T00:00:01Z"));
+    mutableItems.add("mutated");
+    mutableNested.put("late", true);
+    mutableRoot.put("late", true);
+
+    assertThat(command.checkpoint()).doesNotContainKey("late");
+    assertThat(checkpoint.checkpoint()).doesNotContainKey("late");
+    assertThat(nestedItems(command.checkpoint())).containsExactly("first");
+    assertThat(nestedItems(checkpoint.checkpoint())).containsExactly("first");
+    assertThatThrownBy(() -> nestedMap(checkpoint.checkpoint()).put("blocked", true))
+        .isInstanceOf(UnsupportedOperationException.class);
+    assertThatThrownBy(() -> nestedItems(checkpoint.checkpoint()).add("blocked"))
+        .isInstanceOf(UnsupportedOperationException.class);
+  }
+
+  @Test
+  void checkpoint는_JSON과_jsonb가_공통으로_지원하는_tree만_허용한다() {
+    Map<String, Object> valid = new LinkedHashMap<>();
+    valid.put("null", null);
+    valid.put("boolean", true);
+    valid.put("string", "제주");
+    valid.put("integer", 3);
+    valid.put("long", Long.MAX_VALUE);
+    valid.put("bigInteger", new BigInteger("123456789012345678901234567890"));
+    valid.put("decimal", new BigDecimal("123.4500"));
+    valid.put("float", 0.25F);
+    valid.put("double", 0.125D);
+    valid.put("array", List.of(Map.of("page", 2), false));
+
+    ImportCheckpointAdvanceCommand command =
+        new ImportCheckpointAdvanceCommand(
+            SCOPE, 0, valid, null, RUN_ID, ImportRunStatus.SUCCEEDED);
+
+    assertThat(command.checkpoint())
+        .containsEntry("decimal", new BigDecimal("123.4500"))
+        .containsEntry("float", new BigDecimal("0.25"))
+        .containsEntry("double", new BigDecimal("0.125"));
+  }
+
+  @Test
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  void checkpoint는_비문자열_key와_비JSON_값_및_지원범위밖_number를_도메인오류로_거부한다() {
+    Map nonStringOuterKey = new LinkedHashMap();
+    nonStringOuterKey.put(1, "value");
+    Map nonStringNestedKey = Map.of("nested", nonStringOuterKey);
+    Number arbitraryNumber =
+        new Number() {
+          @Override
+          public int intValue() {
+            return 1;
+          }
+
+          @Override
+          public long longValue() {
+            return 1;
+          }
+
+          @Override
+          public float floatValue() {
+            return 1;
+          }
+
+          @Override
+          public double doubleValue() {
+            return 1;
+          }
+        };
+    BigInteger tooWideInteger = BigInteger.TEN.pow(131_072);
+    BigDecimal tooPreciseDecimal = new BigDecimal("1e-16384");
+
+    for (Map<String, Object> invalid :
+        List.of(
+            (Map<String, Object>) nonStringOuterKey,
+            nonStringNestedKey,
+            Map.of("value", UUID.randomUUID()),
+            Map.of("value", Instant.EPOCH),
+            Map.of("value", new Object()),
+            Map.of("value", Double.NaN),
+            Map.of("value", Double.POSITIVE_INFINITY),
+            Map.of("value", Double.NEGATIVE_INFINITY),
+            Map.of("value", Float.NaN),
+            Map.of("value", Float.POSITIVE_INFINITY),
+            Map.of("value", Float.NEGATIVE_INFINITY),
+            Map.of("value", arbitraryNumber),
+            Map.of("value", tooWideInteger),
+            Map.of("value", tooPreciseDecimal))) {
+      assertThatThrownBy(
+              () ->
+                  new ImportCheckpointAdvanceCommand(
+                      SCOPE, 0, invalid, null, RUN_ID, ImportRunStatus.SUCCEEDED))
+          .isInstanceOf(ImportCheckpointException.class)
+          .extracting("code")
+          .isEqualTo(ImportCheckpointError.INVALID_CHECKPOINT);
+      assertThatThrownBy(
+              () ->
+                  new ImportCheckpoint(
+                      SCOPE, invalid, null, RUN_ID, 0, Instant.parse("2026-08-14T00:00:01Z")))
+          .isInstanceOf(ImportCheckpointException.class)
+          .extracting("code")
+          .isEqualTo(ImportCheckpointError.INVALID_CHECKPOINT);
+    }
+  }
+
   private static ImportCheckpointAdvanceCommand command(ImportRunStatus status) {
     return new ImportCheckpointAdvanceCommand(
         SCOPE, 7, Map.of("page", 3), Instant.parse("2026-08-14T00:00:00Z"), RUN_ID, status);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> nestedMap(Map<String, Object> checkpoint) {
+    return (Map<String, Object>) checkpoint.get("nested");
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<Object> nestedItems(Map<String, Object> checkpoint) {
+    return (List<Object>) nestedMap(checkpoint).get("items");
   }
 
   private static final class RecordingRepository implements ImportCheckpointRepository {

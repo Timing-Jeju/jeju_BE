@@ -1,8 +1,6 @@
 package com.timingjeju.api.application.importing;
 
 import java.time.Instant;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -25,7 +23,6 @@ public record ImportCheckpoint(
   }
 
   static Map<String, Object> immutableCheckpoint(Map<String, Object> checkpoint) {
-    Objects.requireNonNull(checkpoint, "checkpoint는 필수입니다.");
-    return Collections.unmodifiableMap(new LinkedHashMap<>(checkpoint));
+    return CheckpointJsonTree.copy(checkpoint);
   }
 }

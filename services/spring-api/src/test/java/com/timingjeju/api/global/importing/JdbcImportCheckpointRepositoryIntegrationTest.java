@@ -12,7 +12,11 @@ import com.timingjeju.api.application.importing.ImportCheckpointService;
 import com.timingjeju.api.application.importing.ImportRunScope;
 import com.timingjeju.api.application.importing.ImportRunStatus;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -80,6 +84,45 @@ class JdbcImportCheckpointRepositoryIntegrationTest {
     assertThat(advanced.version()).isEqualTo(1);
     assertThat(advanced.checkpoint()).containsEntry("page", 2);
     assertThat(advanced.lastSucceededRunId()).isEqualTo(runId);
+  }
+
+  @Test
+  void nested_JSON_tree를_jsonb로_round_trip하고_read_value를_재귀적으로_불변화한다() {
+    ImportRunScope scope = scope("json-tree");
+    UUID runId = insertRun(scope, "succeeded", Instant.parse("2026-08-14T00:01:30Z"));
+    insertCheckpoint(scope);
+    Map<String, Object> nested = new LinkedHashMap<>();
+    nested.put("null", null);
+    nested.put("boolean", true);
+    nested.put("string", "제주");
+    nested.put("integer", 3);
+    nested.put("bigInteger", new BigInteger("123456789012345678901234567890"));
+    nested.put("decimal", new BigDecimal("123.4500"));
+    nested.put("array", List.of(Map.of("page", 2), false));
+
+    service.advance(
+        command(
+            scope,
+            0,
+            runId,
+            ImportRunStatus.SUCCEEDED,
+            new LinkedHashMap<>(Map.of("nested", nested))));
+    ImportCheckpoint read = repository.find(scope).orElseThrow();
+
+    Map<String, Object> expectedNested = new LinkedHashMap<>();
+    expectedNested.put("null", null);
+    expectedNested.put("boolean", true);
+    expectedNested.put("string", "제주");
+    expectedNested.put("integer", 3);
+    expectedNested.put("bigInteger", new BigInteger("123456789012345678901234567890"));
+    expectedNested.put("decimal", new BigDecimal("123.4500"));
+    expectedNested.put("array", List.of(Map.of("page", 2), false));
+
+    assertThat(read.checkpoint().get("nested")).isEqualTo(expectedNested);
+    assertThatThrownBy(() -> nestedMap(read).put("blocked", true))
+        .isInstanceOf(UnsupportedOperationException.class);
+    assertThatThrownBy(() -> nestedArray(read).add("blocked"))
+        .isInstanceOf(UnsupportedOperationException.class);
   }
 
   @Test
@@ -270,6 +313,16 @@ class JdbcImportCheckpointRepositoryIntegrationTest {
       Map<String, Object> checkpoint) {
     return new ImportCheckpointAdvanceCommand(
         scope, expectedVersion, checkpoint, Instant.parse("2026-08-14T00:00:00Z"), runId, status);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> nestedMap(ImportCheckpoint checkpoint) {
+    return (Map<String, Object>) checkpoint.checkpoint().get("nested");
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<Object> nestedArray(ImportCheckpoint checkpoint) {
+    return (List<Object>) nestedMap(checkpoint).get("array");
   }
 
   private static final class RollbackProbeException extends RuntimeException {}
