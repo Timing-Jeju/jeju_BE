@@ -3,15 +3,25 @@ package com.timingjeju.api.global.tourapi;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
+import com.timingjeju.api.application.snapshot.SnapshotSaveCommand;
+import com.timingjeju.api.application.snapshot.SnapshotSaveResult;
+import com.timingjeju.api.application.snapshot.SnapshotScope;
+import com.timingjeju.api.application.snapshot.SnapshotStatus;
+import com.timingjeju.api.application.snapshot.SnapshotStoreService;
+import com.timingjeju.api.application.snapshot.SnapshotTransitionCommand;
 import com.timingjeju.api.application.tourapi.TourApiProvenance;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceCommand;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceException;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceReader;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceWriter;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +48,7 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
 
   @Autowired private TourApiProvenanceWriter writer;
   @Autowired private TourApiProvenanceReader reader;
+  @Autowired private SnapshotStoreService snapshotStoreService;
   @Autowired private JdbcTemplate jdbcTemplate;
 
   @BeforeEach
@@ -74,6 +85,57 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
 
     assertThat(replay.id()).isEqualTo(first.id());
     assertThat(reader.findByNormalizedRow("tour_places", TARGET)).hasSize(1);
+  }
+
+  @Test
+  void snapshot과_provenance는_동일한_canonical_request_fingerprint로_정상_저장된다() {
+    Map<String, Object> metadata = new LinkedHashMap<>();
+    metadata.put("pageNo", "1");
+    metadata.put("contentTypeId", "12");
+    metadata.put("serviceKey", "fixture-secret");
+    metadata.put("requestUrl", "https://provider.test/path?serviceKey=fixture-secret");
+
+    SnapshotSaveCommand snapshotCommand = snapshotCommand(RUN, metadata);
+    SnapshotSaveResult snapshot = snapshotStoreService.save(snapshotCommand);
+    snapshotStoreService.transition(
+        new SnapshotTransitionCommand(snapshot.snapshotId(), SnapshotStatus.PARSED, null));
+    TourApiProvenance provenance =
+        writer.write(
+            TourApiProvenanceCommand.fromSnapshot(
+                "tour_places", TARGET, "12", snapshotCommand, snapshot),
+            () ->
+                jdbcTemplate.update(
+                    "insert into public.tour_places " + placeValues(snapshot.snapshotId(), RUN)));
+
+    assertThat(provenance.requestFingerprint()).isEqualTo(snapshot.requestFingerprint());
+  }
+
+  @Test
+  void snapshot과_다른_request_fingerprint면_normalized_write까지_rollback한다() {
+    Map<String, Object> metadata = Map.of("pageNo", "1", "contentTypeId", "12");
+    SnapshotSaveResult snapshot = snapshotStoreService.save(snapshotCommand(RUN, metadata));
+    snapshotStoreService.transition(
+        new SnapshotTransitionCommand(snapshot.snapshotId(), SnapshotStatus.PARSED, null));
+
+    assertThatThrownBy(
+            () ->
+                writer.write(
+                    new TourApiProvenanceCommand(
+                        "tour_places",
+                        TARGET,
+                        "areaBasedList2",
+                        "12",
+                        HASH,
+                        snapshot.snapshotId(),
+                        RUN),
+                    () ->
+                        jdbcTemplate.update(
+                            "insert into public.tour_places "
+                                + placeValues(snapshot.snapshotId(), RUN))))
+        .isInstanceOf(TourApiProvenanceException.class);
+
+    assertThat(count("tour_places")).isZero();
+    assertThat(count("tour_api_operation_provenance")).isZero();
   }
 
   @Test
@@ -157,21 +219,7 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   private void insertRunAndSnapshot(UUID run, UUID snapshot, String provider, String operation) {
-    jdbcTemplate.update(
-        """
-        insert into public.data_import_runs (
-          id, source_kind, source_name, source_operation, data_version, status, started_at,
-          parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
-          idempotency_key, source_provider, source_service
-        ) values (?, ?, 'fixture', ?, 'v1', 'running', ?, 'parser-v1', 'schema-v1',
-                  'incremental', 'jeju', 'sha256:fixture', ?, ?, 'KorService2')
-        """,
-        run,
-        provider.equals("tour-api") ? "tour_api" : "tago",
-        operation,
-        Timestamp.from(NOW),
-        "provenance-" + run,
-        provider);
+    insertRun(run, provider, operation);
     jdbcTemplate.update(
         """
         insert into public.external_api_snapshots (
@@ -192,10 +240,56 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
         Timestamp.from(NOW));
   }
 
+  private void insertRun(UUID run, String provider, String operation) {
+    jdbcTemplate.update(
+        """
+        insert into public.data_import_runs (
+          id, source_kind, source_name, source_operation, data_version, status, started_at,
+          parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
+          idempotency_key, source_provider, source_service
+        ) values (?, ?, 'fixture', ?, 'v1', 'running', ?, 'parser-v1', 'schema-v1',
+                  'incremental', 'jeju', 'sha256:fixture', ?, ?, 'KorService2')
+        """,
+        run,
+        provider.equals("tour-api") ? "tour_api" : "tago",
+        operation,
+        Timestamp.from(NOW),
+        "provenance-" + run,
+        provider);
+  }
+
+  private SnapshotSaveCommand snapshotCommand(UUID run, Map<String, Object> metadata) {
+    return new SnapshotSaveCommand(
+        run,
+        new SnapshotScope("tour-api", "KorService2", "areaBasedList2", "jeju"),
+        "content-1",
+        "page-1",
+        200,
+        "00",
+        NOW,
+        null,
+        null,
+        "parser-v1",
+        SnapshotPayloadFormat.JSON,
+        "UTF-8",
+        "{\"item\":1}".getBytes(StandardCharsets.UTF_8),
+        metadata);
+  }
+
   private String placeValues() {
     return "(id, name, normalized_name, category, location, source_provider) values ('"
         + TARGET
         + "', 'test', 'test', 'test', ST_GeogFromText('SRID=4326;POINT(126.5 33.5)'), 'tour-api')";
+  }
+
+  private String placeValues(UUID snapshotId, UUID runId) {
+    return "(id, name, normalized_name, category, location, source_provider, source_service, source_snapshot_id, import_run_id) values ('"
+        + TARGET
+        + "', 'test', 'test', 'test', ST_GeogFromText('SRID=4326;POINT(126.5 33.5)'), 'tour-api', 'KorService2', '"
+        + snapshotId
+        + "', '"
+        + runId
+        + "')";
   }
 
   private int count(String table) {

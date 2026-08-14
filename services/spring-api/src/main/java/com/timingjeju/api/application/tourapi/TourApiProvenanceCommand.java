@@ -1,5 +1,7 @@
 package com.timingjeju.api.application.tourapi;
 
+import com.timingjeju.api.application.snapshot.SnapshotSaveCommand;
+import com.timingjeju.api.application.snapshot.SnapshotSaveResult;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -34,5 +36,23 @@ public record TourApiProvenanceCommand(
 
   private static String nullableNonBlank(String value, String field) {
     return value == null ? null : nonBlank(value, field);
+  }
+
+  public static TourApiProvenanceCommand fromSnapshot(
+      String normalizedEntityType,
+      UUID normalizedRowId,
+      String contentTypeId,
+      SnapshotSaveCommand snapshotCommand,
+      SnapshotSaveResult snapshotResult) {
+    Objects.requireNonNull(snapshotCommand, "snapshotCommand는 필수입니다.");
+    Objects.requireNonNull(snapshotResult, "snapshotResult는 필수입니다.");
+    return new TourApiProvenanceCommand(
+        normalizedEntityType,
+        normalizedRowId,
+        snapshotCommand.scope().operation(),
+        contentTypeId,
+        snapshotResult.requestFingerprint(),
+        snapshotResult.snapshotId(),
+        snapshotCommand.importRunId());
   }
 }
