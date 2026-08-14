@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -64,7 +65,9 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
 
   @Test
   void 하나의_normalized_row에_복수_operation_snapshot_계보를_보존한다() {
-    writer.write(command("areaBasedList2", SNAPSHOT, RUN, "12"), () -> {});
+    writer.write(
+        command("areaBasedList2", SNAPSHOT, RUN, "12"),
+        () -> jdbcTemplate.update("insert into public.tour_places " + placeValues(SNAPSHOT, RUN)));
     UUID detailRun = UUID.fromString("43000000-0000-0000-0000-000000000107");
     UUID detailSnapshot = UUID.fromString("44000000-0000-0000-0000-000000000107");
     insertRunAndSnapshot(detailRun, detailSnapshot, "tour-api", "detailCommon2");
@@ -79,7 +82,11 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   @Test
   void 같은_row_operation_snapshot의_중복_계보는_한행만_남긴다() {
     TourApiProvenance first =
-        writer.write(command("areaBasedList2", SNAPSHOT, RUN, null), () -> {});
+        writer.write(
+            command("areaBasedList2", SNAPSHOT, RUN, null),
+            () ->
+                jdbcTemplate.update(
+                    "insert into public.tour_places " + placeValues(SNAPSHOT, RUN)));
     TourApiProvenance replay =
         writer.write(command("areaBasedList2", SNAPSHOT, RUN, null), () -> {});
 
@@ -99,15 +106,19 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
     SnapshotSaveResult snapshot = snapshotStoreService.save(snapshotCommand);
     snapshotStoreService.transition(
         new SnapshotTransitionCommand(snapshot.snapshotId(), SnapshotStatus.PARSED, null));
+    AtomicInteger callbackCalls = new AtomicInteger();
     TourApiProvenance provenance =
         writer.write(
             TourApiProvenanceCommand.fromSnapshot(
                 "tour_places", TARGET, "12", snapshotCommand, snapshot),
-            () ->
-                jdbcTemplate.update(
-                    "insert into public.tour_places " + placeValues(snapshot.snapshotId(), RUN)));
+            () -> {
+              callbackCalls.incrementAndGet();
+              jdbcTemplate.update(
+                  "insert into public.tour_places " + placeValues(snapshot.snapshotId(), RUN));
+            });
 
     assertThat(provenance.requestFingerprint()).isEqualTo(snapshot.requestFingerprint());
+    assertThat(callbackCalls).hasValue(1);
   }
 
   @Test
@@ -117,6 +128,7 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
     snapshotStoreService.transition(
         new SnapshotTransitionCommand(snapshot.snapshotId(), SnapshotStatus.PARSED, null));
 
+    AtomicInteger callbackCalls = new AtomicInteger();
     assertThatThrownBy(
             () ->
                 writer.write(
@@ -128,47 +140,107 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
                         HASH,
                         snapshot.snapshotId(),
                         RUN),
-                    () ->
-                        jdbcTemplate.update(
-                            "insert into public.tour_places "
-                                + placeValues(snapshot.snapshotId(), RUN))))
+                    () -> {
+                      callbackCalls.incrementAndGet();
+                      jdbcTemplate.update(
+                          "insert into public.tour_places "
+                              + placeValues(snapshot.snapshotId(), RUN));
+                    }))
         .isInstanceOf(TourApiProvenanceException.class);
 
+    assertThat(callbackCalls).hasValue(0);
     assertThat(count("tour_places")).isZero();
     assertThat(count("tour_api_operation_provenance")).isZero();
   }
 
   @Test
   void 미등록_operation은_normalized_write와_provenance를_모두_rollback한다() {
+    AtomicInteger callbackCalls = new AtomicInteger();
     assertThatThrownBy(
             () ->
                 writer.write(
                     command("unknownOperation", SNAPSHOT, RUN, null),
-                    () -> jdbcTemplate.update("insert into public.tour_places " + placeValues())))
+                    () -> {
+                      callbackCalls.incrementAndGet();
+                      jdbcTemplate.update("insert into public.tour_places " + placeValues());
+                    }))
         .isInstanceOf(TourApiProvenanceException.class)
         .hasMessageNotContaining("unknownOperation");
+
+    assertThat(callbackCalls).hasValue(0);
+    assertThat(count("tour_places")).isZero();
+    assertThat(count("tour_api_operation_provenance")).isZero();
+  }
+
+  @Test
+  void 비활성_operation도_normalized_callback_전에_거부한다() {
+    jdbcTemplate.update(
+        "update public.tour_api_operations set active=false where operation_key='areaBasedList2'");
+    AtomicInteger callbackCalls = new AtomicInteger();
+
+    assertThatThrownBy(
+            () ->
+                writer.write(
+                    command("areaBasedList2", SNAPSHOT, RUN, null), callbackCalls::incrementAndGet))
+        .isInstanceOf(TourApiProvenanceException.class);
+
+    assertThat(callbackCalls).hasValue(0);
+    assertThat(count("tour_api_operation_provenance")).isZero();
+  }
+
+  @Test
+  void registry와_lineage_불일치는_각각_normalized_callback_전에_거부한다() {
+    UUID providerRun = UUID.fromString("45000000-0000-0000-0000-000000000107");
+    UUID providerSnapshot = UUID.fromString("46000000-0000-0000-0000-000000000107");
+    insertRunAndSnapshot(providerRun, providerSnapshot, "tago", "KorService2", "areaBasedList2");
+    UUID serviceRun = UUID.fromString("47000000-0000-0000-0000-000000000107");
+    UUID serviceSnapshot = UUID.fromString("48000000-0000-0000-0000-000000000107");
+    insertRunAndSnapshot(serviceRun, serviceSnapshot, "tour-api", "OtherService", "areaBasedList2");
+    UUID operationRun = UUID.fromString("49000000-0000-0000-0000-000000000107");
+    UUID operationSnapshot = UUID.fromString("4a000000-0000-0000-0000-000000000107");
+    insertRunAndSnapshot(
+        operationRun, operationSnapshot, "tour-api", "KorService2", "detailCommon2");
+    UUID unmatchedRun = UUID.fromString("4b000000-0000-0000-0000-000000000107");
+    insertRun(unmatchedRun, "tour-api", "KorService2", "areaBasedList2", "seogwipo");
+
+    List<TourApiProvenanceCommand> invalidCommands =
+        List.of(
+            command("areaBasedList2", providerSnapshot, providerRun, null),
+            command("areaBasedList2", serviceSnapshot, serviceRun, null),
+            command("areaBasedList2", operationSnapshot, operationRun, null),
+            command("areaBasedList2", SNAPSHOT, unmatchedRun, null));
+
+    for (TourApiProvenanceCommand invalid : invalidCommands) {
+      AtomicInteger callbackCalls = new AtomicInteger();
+      assertThatThrownBy(
+              () ->
+                  writer.write(
+                      invalid,
+                      () -> {
+                        callbackCalls.incrementAndGet();
+                        jdbcTemplate.update("insert into public.tour_places " + placeValues());
+                      }))
+          .isInstanceOf(TourApiProvenanceException.class);
+      assertThat(callbackCalls).hasValue(0);
+    }
 
     assertThat(count("tour_places")).isZero();
     assertThat(count("tour_api_operation_provenance")).isZero();
   }
 
   @Test
-  void snapshot_provider_불일치와_snapshot_run_불일치는_전체_transaction을_rollback한다() {
-    UUID otherRun = UUID.fromString("45000000-0000-0000-0000-000000000107");
-    UUID otherSnapshot = UUID.fromString("46000000-0000-0000-0000-000000000107");
-    insertRunAndSnapshot(otherRun, otherSnapshot, "tago", "areaBasedList2");
+  void 존재하지_않는_normalized_target은_provenance와_callback_DB_write를_모두_rollback한다() {
+    UUID otherTarget = UUID.fromString("4c000000-0000-0000-0000-000000000107");
 
-    for (TourApiProvenanceCommand invalid :
-        List.of(
-            command("areaBasedList2", otherSnapshot, otherRun, null),
-            command("areaBasedList2", SNAPSHOT, otherRun, null))) {
-      assertThatThrownBy(
-              () ->
-                  writer.write(
-                      invalid,
-                      () -> jdbcTemplate.update("insert into public.tour_places " + placeValues())))
-          .isInstanceOf(TourApiProvenanceException.class);
-    }
+    assertThatThrownBy(
+            () ->
+                writer.write(
+                    command("areaBasedList2", SNAPSHOT, RUN, null),
+                    () ->
+                        jdbcTemplate.update(
+                            "insert into public.tour_places "
+                                + placeValues(otherTarget, SNAPSHOT, RUN))))
+        .isInstanceOf(TourApiProvenanceException.class);
 
     assertThat(count("tour_places")).isZero();
     assertThat(count("tour_api_operation_provenance")).isZero();
@@ -219,7 +291,12 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   private void insertRunAndSnapshot(UUID run, UUID snapshot, String provider, String operation) {
-    insertRun(run, provider, operation);
+    insertRunAndSnapshot(run, snapshot, provider, "KorService2", operation);
+  }
+
+  private void insertRunAndSnapshot(
+      UUID run, UUID snapshot, String provider, String service, String operation) {
+    insertRun(run, provider, service, operation, "jeju");
     jdbcTemplate.update(
         """
         insert into public.external_api_snapshots (
@@ -227,12 +304,13 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
           request_hash, page_key, fetched_at, parser_version, payload_hash,
           request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version,
           payload_format, initial_parse_status, parse_status, parsed_at
-        ) values (?, ?, ?, 'KorService2', ?, 'jeju', ?, '', ?, 'parser-v1', ?,
+        ) values (?, ?, ?, ?, ?, 'jeju', ?, '', ?, 'parser-v1', ?,
                   '{}'::jsonb, '{}'::jsonb, 2, 'test-v1', 'JSON', 'parsed', 'parsed', ?)
         """,
         snapshot,
         run,
         provider,
+        service,
         operation,
         HASH,
         Timestamp.from(NOW),
@@ -241,6 +319,11 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   private void insertRun(UUID run, String provider, String operation) {
+    insertRun(run, provider, "KorService2", operation, "jeju");
+  }
+
+  private void insertRun(
+      UUID run, String provider, String service, String operation, String scope) {
     jdbcTemplate.update(
         """
         insert into public.data_import_runs (
@@ -248,14 +331,16 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
           parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
           idempotency_key, source_provider, source_service
         ) values (?, ?, 'fixture', ?, 'v1', 'running', ?, 'parser-v1', 'schema-v1',
-                  'incremental', 'jeju', 'sha256:fixture', ?, ?, 'KorService2')
+                  'incremental', ?, 'sha256:fixture', ?, ?, ?)
         """,
         run,
         provider.equals("tour-api") ? "tour_api" : "tago",
         operation,
         Timestamp.from(NOW),
+        scope,
         "provenance-" + run,
-        provider);
+        provider,
+        service);
   }
 
   private SnapshotSaveCommand snapshotCommand(UUID run, Map<String, Object> metadata) {
@@ -283,8 +368,12 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   private String placeValues(UUID snapshotId, UUID runId) {
+    return placeValues(TARGET, snapshotId, runId);
+  }
+
+  private String placeValues(UUID targetId, UUID snapshotId, UUID runId) {
     return "(id, name, normalized_name, category, location, source_provider, source_service, source_snapshot_id, import_run_id) values ('"
-        + TARGET
+        + targetId
         + "', 'test', 'test', 'test', ST_GeogFromText('SRID=4326;POINT(126.5 33.5)'), 'tour-api', 'KorService2', '"
         + snapshotId
         + "', '"
@@ -301,5 +390,6 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
     jdbcTemplate.update("delete from public.tour_places");
     jdbcTemplate.update("delete from public.external_api_snapshots");
     jdbcTemplate.update("delete from public.data_import_runs");
+    jdbcTemplate.update("update public.tour_api_operations set active=true");
   }
 }

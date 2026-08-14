@@ -67,6 +67,8 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
+declare
+  target_exists boolean;
 begin
   if not exists (
     select 1
@@ -91,6 +93,53 @@ begin
       errcode = '23514',
       message = 'TourAPI operation provenance lineage mismatch';
   end if;
+
+  case new.normalized_entity_type
+    when 'external_reference_codes' then
+      select exists (
+        select 1 from public.external_reference_codes target
+        where target.id = new.normalized_row_id
+      ) into target_exists;
+    when 'tour_places' then
+      select exists (
+        select 1 from public.tour_places target
+        where target.id = new.normalized_row_id
+      ) into target_exists;
+    when 'tour_place_sources' then
+      select exists (
+        select 1 from public.tour_place_sources target
+        where target.id = new.normalized_row_id
+      ) into target_exists;
+    when 'place_aliases' then
+      select exists (
+        select 1 from public.place_aliases target
+        where target.id = new.normalized_row_id
+      ) into target_exists;
+    when 'place_details' then
+      select exists (
+        select 1 from public.place_details target
+        where target.id = new.normalized_row_id
+      ) into target_exists;
+    when 'place_detail_items' then
+      select exists (
+        select 1 from public.place_detail_items target
+        where target.id = new.normalized_row_id
+      ) into target_exists;
+    when 'place_images' then
+      select exists (
+        select 1 from public.place_images target
+        where target.id = new.normalized_row_id
+      ) into target_exists;
+    else
+      target_exists := false;
+  end case;
+
+  if not target_exists then
+    raise exception using
+      errcode = '23503',
+      message = 'TourAPI operation provenance target does not exist';
+  end if;
+
   return new;
 end;
 $$;

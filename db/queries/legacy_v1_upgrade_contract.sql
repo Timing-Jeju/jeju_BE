@@ -792,4 +792,32 @@ begin
 end;
 $$;
 
+do $$
+declare
+  function_definition text;
+  missing_objects text;
+begin
+  select pg_catalog.lower(pg_get_functiondef('public.validate_tour_api_operation_provenance()'::regprocedure))
+    into function_definition;
+
+  select string_agg(required_fragment, ', ' order by required_fragment)
+    into missing_objects
+  from unnest(array[
+    'from public.external_reference_codes target',
+    'from public.tour_places target',
+    'from public.tour_place_sources target',
+    'from public.place_aliases target',
+    'from public.place_details target',
+    'from public.place_detail_items target',
+    'from public.place_images target',
+    'tourapi operation provenance target does not exist'
+  ]) as required_fragment
+  where strpos(function_definition, required_fragment) = 0;
+
+  if missing_objects is not null then
+    raise exception 'legacy TourAPI provenance target guard is incomplete: %', missing_objects;
+  end if;
+end;
+$$;
+
 select 'legacy_v1_upgrade_contract' as check_name, 'PASS' as result;

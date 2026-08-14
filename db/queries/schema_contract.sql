@@ -1142,6 +1142,27 @@ begin
     raise exception 'TourAPI operation provenance lineage trigger is missing';
   end if;
 
+  select pg_catalog.lower(pg_get_functiondef('public.validate_tour_api_operation_provenance()'::regprocedure))
+    into function_definition;
+
+  select string_agg(required_fragment, ', ' order by required_fragment)
+    into missing_objects
+  from unnest(array[
+    'from public.external_reference_codes target',
+    'from public.tour_places target',
+    'from public.tour_place_sources target',
+    'from public.place_aliases target',
+    'from public.place_details target',
+    'from public.place_detail_items target',
+    'from public.place_images target',
+    'tourapi operation provenance target does not exist'
+  ]) as required_fragment
+  where strpos(function_definition, required_fragment) = 0;
+
+  if missing_objects is not null then
+    raise exception 'TourAPI operation provenance target guard is incomplete: %', missing_objects;
+  end if;
+
   if not exists (
     select 1 from pg_catalog.pg_constraint
     where conrelid = 'public.tour_api_operation_provenance'::regclass

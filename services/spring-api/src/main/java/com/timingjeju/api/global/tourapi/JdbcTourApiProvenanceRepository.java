@@ -31,6 +31,7 @@ public class JdbcTourApiProvenanceRepository
     Objects.requireNonNull(command, "command는 필수입니다.");
     Objects.requireNonNull(normalizedWrite, "normalizedWrite는 필수입니다.");
     try {
+      validateLineage(command);
       normalizedWrite.run();
       List<TourApiProvenance> inserted =
           jdbcTemplate.query(
@@ -53,6 +54,41 @@ public class JdbcTourApiProvenanceRepository
               command.importRunId());
       return inserted.isEmpty() ? findDuplicate(command) : inserted.getFirst();
     } catch (DataIntegrityViolationException failure) {
+      throw new TourApiProvenanceException();
+    }
+  }
+
+  private void validateLineage(TourApiProvenanceCommand command) {
+    Boolean valid =
+        jdbcTemplate.queryForObject(
+            """
+            select exists (
+              select 1
+              from public.tour_api_operations operation
+              join public.external_api_snapshots snapshot
+                on snapshot.id = ?
+               and snapshot.source_provider = operation.source_provider
+               and snapshot.source_service = operation.source_service
+               and snapshot.source_operation = operation.operation_key
+               and snapshot.import_run_id = ?
+               and snapshot.request_hash = ?
+               and snapshot.parse_status in ('parsed', 'tombstoned')
+              join public.data_import_runs import_run
+                on import_run.id = ?
+               and import_run.source_provider = operation.source_provider
+               and import_run.source_service = operation.source_service
+               and import_run.source_operation = operation.operation_key
+              where operation.operation_key = ?
+                and operation.active
+            )
+            """,
+            Boolean.class,
+            command.sourceSnapshotId(),
+            command.importRunId(),
+            command.requestFingerprint(),
+            command.importRunId(),
+            command.operationKey());
+    if (!Boolean.TRUE.equals(valid)) {
       throw new TourApiProvenanceException();
     }
   }
