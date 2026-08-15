@@ -25,6 +25,9 @@ SNAPSHOT_STORAGE_MIGRATION = (
 TOUR_API_PROVENANCE_MIGRATION = (
     MIGRATIONS / "20260814000000_tour_api_operation_provenance.sql"
 )
+TOUR_API_DETAIL_INFO_MIGRATION = (
+    MIGRATIONS / "20260816000000_tour_api_detail_info_operation.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -84,6 +87,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260813000000_import_run_lifecycle_fencing.sql",
                 "20260813010000_external_snapshot_storage.sql",
                 "20260814000000_tour_api_operation_provenance.sql",
+                "20260816000000_tour_api_detail_info_operation.sql",
             ],
             migration_names,
         )
@@ -102,6 +106,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
             "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
             "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
+            "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -213,6 +218,14 @@ class DatabaseHardeningTest(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, migration)
 
+    def test_detail_info_operation_extends_the_canonical_registry_only(self):
+        migration = self.read_migration(TOUR_API_DETAIL_INFO_MIGRATION)
+
+        self.assertIn("insert into public.tour_api_operations (operation_key)", migration)
+        self.assertIn("values ('detailinfo2')", migration)
+        for forbidden in ("create table", "alter table", "flyway", "servicekey"):
+            self.assertNotIn(forbidden, migration)
+
     def test_docker_v1_upgrade_applies_snapshot_storage_to_existing_snapshot(self):
         docker_smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
             encoding="utf-8"
@@ -228,6 +241,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/queries/legacy_snapshot_storage_upgrade_fixture.sql",
             "/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql",
             "/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql",
+            "/docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
         )
         positions = [docker_smoke.find(step) for step in ordered_steps]
@@ -357,6 +371,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql",
             "/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql",
+            "/docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql",
             "/docker-entrypoint-initdb.d/009_async_run_worker_runtime.sql",
             "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/queries/legacy_v1_upgrade_contract.sql",

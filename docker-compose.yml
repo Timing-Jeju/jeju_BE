@@ -22,7 +22,8 @@ services:
       - ./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql:/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql:ro
       - ./supabase/migrations/20260813010000_external_snapshot_storage.sql:/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql:ro
       - ./supabase/migrations/20260814000000_tour_api_operation_provenance.sql:/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql:ro
-      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/013_seed_fixtures.sql:ro
+      - ./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql:/docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql:ro
+      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/014_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U timing_jeju -d timing_jeju"]

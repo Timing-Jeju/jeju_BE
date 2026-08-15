@@ -1126,10 +1126,10 @@ begin
   from public.tour_api_operations
   where operation_key in (
     'areaCode2', 'categoryCode2', 'areaBasedList2', 'locationBasedList2',
-    'searchKeyword2', 'searchStay2', 'detailCommon2', 'detailIntro2'
+    'searchKeyword2', 'searchStay2', 'detailCommon2', 'detailIntro2', 'detailInfo2'
   ) and source_provider = 'tour-api' and source_service = 'KorService2' and active;
 
-  if invalid_count <> 8 then
+  if invalid_count <> 9 then
     raise exception 'TourAPI operation registry is incomplete';
   end if;
 

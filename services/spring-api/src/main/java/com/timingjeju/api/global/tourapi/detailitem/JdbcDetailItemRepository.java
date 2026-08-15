@@ -1,0 +1,391 @@
+package com.timingjeju.api.global.tourapi.detailitem;
+
+import com.timingjeju.api.application.tourapi.TourApiProvenanceCommand;
+import com.timingjeju.api.application.tourapi.TourApiProvenanceException;
+import com.timingjeju.api.application.tourapi.TourApiProvenanceWriter;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItem;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportException;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemLineage;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemRepository;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemSyncCommand;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemSyncResult;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+
+@Repository
+public class JdbcDetailItemRepository implements DetailItemRepository {
+  private static final String PROVIDER = "tour-api";
+  private static final String SERVICE = "KorService2";
+
+  private final JdbcTemplate jdbc;
+  private final TourApiProvenanceWriter provenanceWriter;
+  private final ObjectMapper objectMapper;
+
+  public JdbcDetailItemRepository(
+      JdbcTemplate jdbc, TourApiProvenanceWriter provenanceWriter, ObjectMapper objectMapper) {
+    this.jdbc = Objects.requireNonNull(jdbc);
+    this.provenanceWriter = Objects.requireNonNull(provenanceWriter);
+    this.objectMapper = Objects.requireNonNull(objectMapper);
+  }
+
+  @Override
+  @Transactional
+  public DetailItemSyncResult sync(DetailItemSyncCommand command) {
+    Objects.requireNonNull(command, "command는 필수입니다.");
+    try {
+      lock(command.contentId());
+      SourcePlace source = findSource(command.contentId());
+      if (!command.contentTypeId().equals(source.contentTypeId())) {
+        throw DetailItemImportException.storageFailure();
+      }
+      validateLineage(command.contentId(), command.lineage());
+      Map<String, ExistingItem> existing = findItems(source.placeId(), command.contentTypeId());
+      Counts counts = new Counts();
+      Set<String> incomingKeys =
+          command.batch().items().stream()
+              .map(JdbcDetailItemRepository::scopedKey)
+              .collect(Collectors.toSet());
+
+      for (DetailItem item : command.batch().items()) {
+        String key = scopedKey(item);
+        ExistingItem stored = existing.get(key);
+        ItemDocument document = document(item);
+        if (stored == null) {
+          insert(source, item, document, command);
+          counts.inserted++;
+        } else if (stored.same(document, item)
+            && Objects.equals(stored.snapshotId(), command.lineage().snapshotId())
+            && stored.staleAt() == null
+            && stored.tombstonedAt() == null) {
+          writeProvenance(stored.id(), source.contentTypeId(), command.lineage(), () -> {});
+          counts.skipped++;
+        } else {
+          update(source, stored.id(), item, document, command);
+          counts.updated++;
+        }
+      }
+
+      for (ExistingItem stored : existing.values()) {
+        if (incomingKeys.contains(stored.scopedKey()) || stored.tombstonedAt() != null) continue;
+        if (Objects.equals(stored.snapshotId(), command.lineage().snapshotId())) continue;
+        if (stored.staleAt() == null) {
+          markStale(source, stored.id(), command);
+          counts.staled++;
+        } else {
+          markTombstoned(source, stored.id(), command);
+          counts.tombstoned++;
+        }
+      }
+      return counts.result();
+    } catch (DataAccessException | TourApiProvenanceException | JacksonException failure) {
+      throw DetailItemImportException.storageFailure();
+    }
+  }
+
+  private void lock(String contentId) {
+    jdbc.query(
+        "select pg_advisory_xact_lock(hashtextextended(?, 28))",
+        resultSet -> null,
+        PROVIDER + ':' + SERVICE + ':' + contentId);
+  }
+
+  private SourcePlace findSource(String contentId) {
+    List<SourcePlace> rows =
+        jdbc.query(
+            """
+            select s.place_id, s.content_type_id from public.tour_place_sources s
+            join public.tour_places p on p.id=s.place_id
+            where s.source_provider=? and s.source_service=? and s.external_id=?
+            for update of p, s
+            """,
+            (rs, row) ->
+                new SourcePlace(
+                    rs.getObject("place_id", UUID.class), rs.getString("content_type_id")),
+            PROVIDER,
+            SERVICE,
+            contentId);
+    if (rows.size() != 1 || rows.getFirst().contentTypeId() == null) {
+      throw DetailItemImportException.storageFailure();
+    }
+    return rows.getFirst();
+  }
+
+  private void validateLineage(String contentId, DetailItemLineage lineage) {
+    Boolean valid =
+        jdbc.queryForObject(
+            """
+            select exists (
+              select 1 from public.external_api_snapshots snapshot
+              join public.data_import_runs run on run.id=snapshot.import_run_id
+              join public.tour_api_operations operation on operation.operation_key=snapshot.source_operation
+              where snapshot.id=? and snapshot.import_run_id=? and snapshot.request_hash=?
+                and snapshot.source_operation='detailInfo2'
+                and snapshot.source_provider=? and snapshot.source_service=? and snapshot.scope_key=?
+                and snapshot.parse_status in ('parsed','tombstoned')
+                and run.source_operation='detailInfo2' and run.source_provider=? and run.source_service=?
+                and operation.active
+            )
+            """,
+            Boolean.class,
+            lineage.snapshotId(),
+            lineage.importRunId(),
+            lineage.requestFingerprint(),
+            PROVIDER,
+            SERVICE,
+            "content:" + contentId,
+            PROVIDER,
+            SERVICE);
+    if (!Boolean.TRUE.equals(valid)) throw DetailItemImportException.storageFailure();
+  }
+
+  private Map<String, ExistingItem> findItems(UUID placeId, String contentTypeId) {
+    List<ExistingItem> rows =
+        jdbc.query(
+            """
+            select id, item_type, source_item_key, title, sequence_no, attributes::text,
+              payload_hash, source_snapshot_id, stale_at, tombstoned_at
+            from public.place_detail_items
+            where place_id=? and source_provider=? and source_service=? and content_type_id=?
+            for update
+            """,
+            (rs, row) ->
+                new ExistingItem(
+                    rs.getObject("id", UUID.class),
+                    rs.getString("item_type"),
+                    rs.getString("source_item_key"),
+                    rs.getString("title"),
+                    rs.getInt("sequence_no"),
+                    rs.getString("attributes"),
+                    rs.getString("payload_hash"),
+                    rs.getObject("source_snapshot_id", UUID.class),
+                    instant(rs.getTimestamp("stale_at")),
+                    instant(rs.getTimestamp("tombstoned_at"))),
+            placeId,
+            PROVIDER,
+            SERVICE,
+            contentTypeId);
+    return rows.stream().collect(Collectors.toMap(ExistingItem::scopedKey, row -> row));
+  }
+
+  private void insert(
+      SourcePlace source, DetailItem item, ItemDocument document, DetailItemSyncCommand command) {
+    UUID id = deterministicId(source.placeId(), item);
+    writeProvenance(
+        id,
+        source.contentTypeId(),
+        command.lineage(),
+        () -> {
+          int changed =
+              jdbc.update(
+                  """
+                  insert into public.place_detail_items
+                    (id, place_id, source_provider, source_service, content_type_id, item_type,
+                     source_item_key, title, sequence_no, attributes, payload_hash,
+                     source_snapshot_id, import_run_id, last_seen_at, created_at, updated_at)
+                  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?)
+                  """,
+                  id,
+                  source.placeId(),
+                  PROVIDER,
+                  SERVICE,
+                  source.contentTypeId(),
+                  item.itemType(),
+                  item.sourceItemKey(),
+                  item.title(),
+                  item.sequenceNo(),
+                  document.attributesJson(),
+                  document.payloadHash(),
+                  command.lineage().snapshotId(),
+                  command.lineage().importRunId(),
+                  timestamp(command.observedAt()),
+                  timestamp(command.observedAt()),
+                  timestamp(command.observedAt()));
+          requireOne(changed);
+        });
+  }
+
+  private void update(
+      SourcePlace source,
+      UUID id,
+      DetailItem item,
+      ItemDocument document,
+      DetailItemSyncCommand command) {
+    writeProvenance(
+        id,
+        source.contentTypeId(),
+        command.lineage(),
+        () ->
+            requireOne(
+                jdbc.update(
+                    """
+                    update public.place_detail_items set title=?, sequence_no=?, attributes=?::jsonb,
+                      payload_hash=?, source_snapshot_id=?, import_run_id=?, last_seen_at=?,
+                      stale_at=null, tombstoned_at=null, updated_at=? where id=?
+                    """,
+                    item.title(),
+                    item.sequenceNo(),
+                    document.attributesJson(),
+                    document.payloadHash(),
+                    command.lineage().snapshotId(),
+                    command.lineage().importRunId(),
+                    timestamp(command.observedAt()),
+                    timestamp(command.observedAt()),
+                    id)));
+  }
+
+  private void markStale(SourcePlace source, UUID id, DetailItemSyncCommand command) {
+    lifecycleUpdate(source, id, command, false);
+  }
+
+  private void markTombstoned(SourcePlace source, UUID id, DetailItemSyncCommand command) {
+    lifecycleUpdate(source, id, command, true);
+  }
+
+  private void lifecycleUpdate(
+      SourcePlace source, UUID id, DetailItemSyncCommand command, boolean tombstone) {
+    writeProvenance(
+        id,
+        source.contentTypeId(),
+        command.lineage(),
+        () -> {
+          String sql =
+              tombstone
+                  ? "update public.place_detail_items set tombstoned_at=?, source_snapshot_id=?, import_run_id=?, updated_at=? where id=? and tombstoned_at is null"
+                  : "update public.place_detail_items set stale_at=?, source_snapshot_id=?, import_run_id=?, updated_at=? where id=? and stale_at is null";
+          requireOne(
+              jdbc.update(
+                  sql,
+                  timestamp(command.observedAt()),
+                  command.lineage().snapshotId(),
+                  command.lineage().importRunId(),
+                  timestamp(command.observedAt()),
+                  id));
+        });
+  }
+
+  private void writeProvenance(
+      UUID id, String contentTypeId, DetailItemLineage lineage, Runnable write) {
+    provenanceWriter.write(
+        new TourApiProvenanceCommand(
+            "place_detail_items",
+            id,
+            lineage.operationKey(),
+            contentTypeId,
+            lineage.requestFingerprint(),
+            lineage.snapshotId(),
+            lineage.importRunId()),
+        write);
+  }
+
+  private ItemDocument document(DetailItem item) throws JacksonException {
+    Map<String, Object> attributes = new LinkedHashMap<>();
+    attributes.put("schema", item.attributes().schema());
+    attributes.put("version", item.attributes().version());
+    attributes.put("fields", item.attributes().fields());
+    String attributesJson = objectMapper.writeValueAsString(attributes);
+    List<Object> canonical = new ArrayList<>();
+    canonical.add(item.itemType());
+    canonical.add(item.sourceItemKey());
+    canonical.add(item.title());
+    canonical.add(item.sequenceNo());
+    canonical.add(attributes);
+    return new ItemDocument(attributesJson, sha256(objectMapper.writeValueAsString(canonical)));
+  }
+
+  private static UUID deterministicId(UUID placeId, DetailItem item) {
+    String hex =
+        sha256(placeId + "\u001f" + PROVIDER + "\u001f" + SERVICE + "\u001f" + scopedKey(item));
+    return UUID.fromString(
+        hex.substring(0, 8)
+            + '-'
+            + hex.substring(8, 12)
+            + "-5"
+            + hex.substring(13, 16)
+            + "-a"
+            + hex.substring(17, 20)
+            + '-'
+            + hex.substring(20, 32));
+  }
+
+  private static String sha256(String value) {
+    try {
+      return HexFormat.of()
+          .formatHex(
+              MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException impossible) {
+      throw new IllegalStateException("SHA-256을 사용할 수 없습니다.");
+    }
+  }
+
+  private static String scopedKey(DetailItem item) {
+    return item.itemType() + '\u0000' + item.sourceItemKey();
+  }
+
+  private static Timestamp timestamp(Instant value) {
+    return Timestamp.from(value);
+  }
+
+  private static Instant instant(Timestamp value) {
+    return value == null ? null : value.toInstant();
+  }
+
+  private static void requireOne(int changed) {
+    if (changed != 1) throw DetailItemImportException.storageFailure();
+  }
+
+  private record SourcePlace(UUID placeId, String contentTypeId) {}
+
+  private record ExistingItem(
+      UUID id,
+      String itemType,
+      String sourceItemKey,
+      String title,
+      int sequenceNo,
+      String attributesJson,
+      String payloadHash,
+      UUID snapshotId,
+      Instant staleAt,
+      Instant tombstonedAt) {
+    String scopedKey() {
+      return itemType + '\u0000' + sourceItemKey;
+    }
+
+    boolean same(ItemDocument document, DetailItem item) {
+      return payloadHash.equals(document.payloadHash())
+          && Objects.equals(title, item.title())
+          && sequenceNo == item.sequenceNo();
+    }
+  }
+
+  private record ItemDocument(String attributesJson, String payloadHash) {}
+
+  private static final class Counts {
+    private int inserted;
+    private int updated;
+    private int skipped;
+    private int staled;
+    private int tombstoned;
+
+    DetailItemSyncResult result() {
+      return new DetailItemSyncResult(inserted, updated, skipped, staled, tombstoned);
+    }
+  }
+}

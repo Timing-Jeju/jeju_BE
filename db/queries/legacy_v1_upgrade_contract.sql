@@ -797,6 +797,16 @@ declare
   function_definition text;
   missing_objects text;
 begin
+  if not exists (
+    select 1 from public.tour_api_operations
+    where operation_key = 'detailInfo2'
+      and source_provider = 'tour-api'
+      and source_service = 'KorService2'
+      and active
+  ) then
+    raise exception 'legacy detailInfo2 operation registry upgrade is missing';
+  end if;
+
   select pg_catalog.lower(pg_get_functiondef('public.validate_tour_api_operation_provenance()'::regprocedure))
     into function_definition;
 

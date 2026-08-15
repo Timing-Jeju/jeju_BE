@@ -100,6 +100,10 @@ Spring에는 공개 Controller가 없는 import run 생명주기 application por
 
 두 operation은 #107의 `tour_api_operation_provenance`를 재사용해 같은 `place_details.place_id`에 operation별 snapshot, import run, request fingerprint를 독립 보존한다. 상세 normalized write는 기존 `tour_place_sources`의 content ID와 content type이 일치할 때만 수행하며 lineage 불일치는 transaction 전체를 rollback한다. 이 batch importer는 자체 lazy TTL을 두지 않는다. snapshot payload freshness와 정리는 #23의 `purge_after` 및 #62 retention 계약을 따른다.
 
+`detailInfo2`는 공급자 식별자인 `serialnum`, `subcontentid`, `roomcode`를 우선 `source_item_key`로 사용하고 음식 메뉴처럼 serial number가 없는 유형은 `foodmenu`를 natural key로 사용한다. 응답 배열 순서는 1부터 시작하는 `sequence_no`로 보존한다. `attributes`는 `{schema, version, fields}` 객체이며 현재 schema는 `tour-api.detailInfo2.{info|course|room|menu}`, version은 `1`, UTF-8 전체 크기 상한은 64 KiB다. HTML text는 실행 요소를 제거한 plain text만, URL은 user info가 없는 HTTP(S) 절대 URL만 fields에 저장하며 원문은 snapshot 경계 밖으로 노출하지 않는다.
+
+완전 응답에서 기존 item이 처음 누락되면 해당 새 snapshot/run을 연결하고 `stale_at`을 기록한다. 같은 snapshot replay는 상태를 전진시키지 않으며, 그 다음 새 완전 snapshot에서도 계속 누락된 경우에만 `tombstoned_at`을 기록한다. 재등장한 item은 같은 natural key row를 갱신해 stale/tombstone을 해제하고 즉시 hard delete하지 않는다.
+
 ### 3.4 TourAPI에서 직접 오지 않는 값
 
 | 값 | 실제 Source |
