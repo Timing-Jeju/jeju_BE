@@ -30,6 +30,7 @@ if ($Scope -in @("all", "common")) {
   py -3 scripts/validate_places_contract.py
   py -3 scripts/validate_saved_places_contract.py
   py -3 scripts/validate_trips_contract.py
+  py -3 scripts/validate_preferences_transport_contract.py
   py -3 -m unittest discover -s .codex/hooks/tests -p test_*.py
   py -3 -m unittest discover -s scripts/git-hooks/tests -p test_*.py
   py -3 -m unittest discover -s scripts/tests -p test_*.py
