@@ -11,7 +11,7 @@ public interface DetailInfoSnapshotGateway {
       int pageNo,
       DetailSourceResponse response);
 
-  void markParsed(UUID snapshotId);
+  void markParsed(SavedDetailInfoPage page);
 
-  void markRejected(UUID snapshotId);
+  void markRejected(SavedDetailInfoPage page);
 }

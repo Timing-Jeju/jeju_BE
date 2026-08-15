@@ -1,5 +1,6 @@
 package com.timingjeju.api.application.tourapi.detailitem;
 
+import com.timingjeju.api.application.snapshot.SnapshotStatus;
 import com.timingjeju.api.application.tourapi.detail.DetailSourceResponse;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -45,6 +46,13 @@ public final class DetailItemImportService {
                 command.contentTypeId(),
                 pageNo,
                 response);
+        if (saved.status() == SnapshotStatus.REJECTED) {
+          throw DetailItemImportException.invalidResponse();
+        }
+        if (saved.status() != SnapshotStatus.RECEIVED
+            && !(saved.replayed() && saved.status() == SnapshotStatus.PARSED)) {
+          throw DetailItemImportException.invalidResponse();
+        }
         DetailItemPage page;
         try {
           page =
@@ -55,10 +63,10 @@ public final class DetailItemImportService {
                   command.contentTypeId());
           expectedTotal = validatePage(command, page, pageNo, expectedTotal, fetched);
         } catch (RuntimeException failure) {
-          snapshots.markRejected(saved.lineage().snapshotId());
+          snapshots.markRejected(saved);
           throw failure;
         }
-        snapshots.markParsed(saved.lineage().snapshotId());
+        snapshots.markParsed(saved);
         DetailItemPageLineage pageLineage =
             new DetailItemPageLineage(
                 pageNo,

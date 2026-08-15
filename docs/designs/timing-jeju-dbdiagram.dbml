@@ -152,7 +152,13 @@ Table tour_api_detail_item_sweeps {
   expected_total integer [not null]
   page_count integer [not null]
   accepted_at timestamptz [not null]
+
+  indexes {
+    (place_id, source_provider, source_service, content_type_id, import_run_id) [unique]
+  }
 }
+
+Ref: place_detail_items.(source_sweep_id, source_snapshot_id) > tour_api_detail_item_sweep_pages.(sweep_id, source_snapshot_id)
 
 Table tour_api_detail_item_sweep_pages {
   sweep_id uuid [not null, ref: > tour_api_detail_item_sweeps.id]

@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.snapshot;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.snapshot.SnapshotFailure;
@@ -14,14 +15,19 @@ import com.timingjeju.api.application.snapshot.SnapshotStoreException;
 import com.timingjeju.api.application.snapshot.SnapshotStoreService;
 import com.timingjeju.api.application.snapshot.SnapshotTransitionCommand;
 import com.timingjeju.api.application.snapshot.StoredSnapshot;
+import com.timingjeju.api.application.tourapi.detail.DetailSourceResponse;
+import com.timingjeju.api.global.tourapi.detailitem.SnapshottingDetailInfoPageGateway;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -114,6 +120,99 @@ class JdbcSnapshotStoreIntegrationTest {
 
     assertThat(replay.replayed()).isTrue();
     assertThat(replay.snapshotId()).isEqualTo(first.snapshotId());
+  }
+
+  @Test
+  void detailInfo_gateway의_시간이_진행된_terminal_replay는_DB의_최초_fetchedAt과_status를_사용한다() {
+    UUID detailRun = UUID.fromString("30000000-0000-0000-0000-000000000028");
+    insertRun(detailRun, "tour-api", "KorService2", "detailInfo2", "content:100");
+    byte[] raw = "{\"response\":{\"body\":{\"pageNo\":1}}}".getBytes(StandardCharsets.UTF_8);
+    DetailSourceResponse response = new DetailSourceResponse(raw, SnapshotPayloadFormat.JSON);
+    var firstGateway =
+        new SnapshottingDetailInfoPageGateway(service, Clock.fixed(FETCHED_AT, ZoneOffset.UTC));
+    var retryGateway =
+        new SnapshottingDetailInfoPageGateway(
+            service, Clock.fixed(FETCHED_AT.plusSeconds(30), ZoneOffset.UTC));
+
+    var first = firstGateway.save(detailRun, "100", "12", 1, response);
+    firstGateway.markParsed(first);
+    var replay = retryGateway.save(detailRun, "100", "12", 1, response);
+
+    assertThat(replay.replayed()).isTrue();
+    assertThat(replay.lineage()).isEqualTo(first.lineage());
+    assertThat(replay.fetchedAt()).isEqualTo(FETCHED_AT);
+    assertThat(replay.status()).isEqualTo(SnapshotStatus.PARSED);
+    assertThatCode(() -> retryGateway.markParsed(replay)).doesNotThrowAnyException();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.external_api_snapshots where import_run_id=? and page_key='1'",
+                Integer.class,
+                detailRun))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void detailInfo_multi_page_terminal_replay는_page별_최초_snapshot_identity를_유지한다() {
+    UUID detailRun = UUID.fromString("30000000-0000-0000-0000-000000000029");
+    insertRun(detailRun, "tour-api", "KorService2", "detailInfo2", "content:100");
+    var firstGateway =
+        new SnapshottingDetailInfoPageGateway(service, Clock.fixed(FETCHED_AT, ZoneOffset.UTC));
+    var retryGateway =
+        new SnapshottingDetailInfoPageGateway(
+            service, Clock.fixed(FETCHED_AT.plusSeconds(30), ZoneOffset.UTC));
+    DetailSourceResponse firstResponse =
+        new DetailSourceResponse(
+            "{\"page\":1}".getBytes(StandardCharsets.UTF_8), SnapshotPayloadFormat.JSON);
+    DetailSourceResponse secondResponse =
+        new DetailSourceResponse(
+            "{\"page\":2}".getBytes(StandardCharsets.UTF_8), SnapshotPayloadFormat.JSON);
+
+    var page1 = firstGateway.save(detailRun, "100", "12", 1, firstResponse);
+    var page2 = firstGateway.save(detailRun, "100", "12", 2, secondResponse);
+    firstGateway.markParsed(page1);
+    firstGateway.markParsed(page2);
+    var replay1 = retryGateway.save(detailRun, "100", "12", 1, firstResponse);
+    var replay2 = retryGateway.save(detailRun, "100", "12", 2, secondResponse);
+
+    assertThat(List.of(replay1.replayed(), replay2.replayed())).containsOnly(true);
+    assertThat(List.of(replay1.lineage().snapshotId(), replay2.lineage().snapshotId()))
+        .containsExactly(page1.lineage().snapshotId(), page2.lineage().snapshotId());
+    assertThat(List.of(replay1.fetchedAt(), replay2.fetchedAt()))
+        .containsExactly(FETCHED_AT, FETCHED_AT);
+    assertThat(List.of(replay1.status(), replay2.status())).containsOnly(SnapshotStatus.PARSED);
+  }
+
+  @Test
+  void detailInfo_동시_true_replay의_same_target_transition은_한_snapshot을_PARSED로_수렴한다()
+      throws Exception {
+    UUID detailRun = UUID.fromString("30000000-0000-0000-0000-000000000030");
+    insertRun(detailRun, "tour-api", "KorService2", "detailInfo2", "content:100");
+    var gateway =
+        new SnapshottingDetailInfoPageGateway(service, Clock.fixed(FETCHED_AT, ZoneOffset.UTC));
+    DetailSourceResponse response =
+        new DetailSourceResponse(
+            "{\"page\":1}".getBytes(StandardCharsets.UTF_8), SnapshotPayloadFormat.JSON);
+    CountDownLatch start = new CountDownLatch(1);
+
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      Future<com.timingjeju.api.application.tourapi.detailitem.SavedDetailInfoPage> first =
+          executor.submit(() -> saveAndParse(gateway, detailRun, response, start));
+      Future<com.timingjeju.api.application.tourapi.detailitem.SavedDetailInfoPage> second =
+          executor.submit(() -> saveAndParse(gateway, detailRun, response, start));
+      start.countDown();
+      var firstResult = first.get(15, TimeUnit.SECONDS);
+      var secondResult = second.get(15, TimeUnit.SECONDS);
+
+      assertThat(firstResult.lineage().snapshotId()).isEqualTo(secondResult.lineage().snapshotId());
+      assertThat(List.of(firstResult.replayed(), secondResult.replayed()))
+          .containsExactlyInAnyOrder(false, true);
+      assertThat(
+              jdbcTemplate.queryForMap(
+                  "select parse_status, count(*) over () as snapshot_count from public.external_api_snapshots where import_run_id=?",
+                  detailRun))
+          .containsEntry("parse_status", "parsed")
+          .containsEntry("snapshot_count", 1L);
+    }
   }
 
   @Test
@@ -402,6 +501,18 @@ class JdbcSnapshotStoreIntegrationTest {
   private SnapshotSaveResult saveAfter(CountDownLatch start) throws Exception {
     start.await(5, TimeUnit.SECONDS);
     return service.save(command(RUN_ID, "concurrent", "{\"safe\":1}"));
+  }
+
+  private com.timingjeju.api.application.tourapi.detailitem.SavedDetailInfoPage saveAndParse(
+      SnapshottingDetailInfoPageGateway gateway,
+      UUID runId,
+      DetailSourceResponse response,
+      CountDownLatch start)
+      throws Exception {
+    start.await(5, TimeUnit.SECONDS);
+    var saved = gateway.save(runId, "100", "12", 1, response);
+    gateway.markParsed(saved);
+    return saved;
   }
 
   private SnapshotSaveCommand command(UUID runId, String page, String json) {

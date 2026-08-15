@@ -857,6 +857,17 @@ begin
     raise exception 'legacy place_detail_items sweep lineage is missing';
   end if;
 
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.place_detail_items'::regclass
+      and constraint_row.conname = 'fk_place_detail_items_sweep_page'
+      and constraint_row.contype = 'f'
+      and constraint_row.condeferrable
+  ) then
+    raise exception 'legacy place_detail_items sweep page membership is missing';
+  end if;
+
   if not (select relrowsecurity from pg_class where oid = 'public.tour_api_detail_item_sweeps'::regclass)
      or not (select relrowsecurity from pg_class where oid = 'public.tour_api_detail_item_sweep_pages'::regclass) then
     raise exception 'detailInfo2 sweep RLS is disabled';

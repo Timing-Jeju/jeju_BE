@@ -24,6 +24,9 @@ create table public.tour_api_detail_item_sweeps (
   constraint ck_detail_item_sweeps_counts check (expected_total >= 0 and page_count > 0),
   constraint uq_detail_item_sweeps_scope_manifest unique (
     place_id, source_provider, source_service, content_type_id, manifest_hash
+  ),
+  constraint uq_detail_item_sweeps_scope_run unique (
+    place_id, source_provider, source_service, content_type_id, import_run_id
   )
 );
 
@@ -54,7 +57,11 @@ create index idx_detail_item_sweep_pages_source_snapshot
   on public.tour_api_detail_item_sweep_pages(source_snapshot_id);
 
 alter table public.place_detail_items
-  add column source_sweep_id uuid references public.tour_api_detail_item_sweeps(id);
+  add column source_sweep_id uuid references public.tour_api_detail_item_sweeps(id),
+  add constraint fk_place_detail_items_sweep_page
+    foreign key (source_sweep_id, source_snapshot_id)
+    references public.tour_api_detail_item_sweep_pages(sweep_id, source_snapshot_id)
+    deferrable initially immediate;
 
 create index idx_place_detail_items_source_sweep
   on public.place_detail_items(source_sweep_id)

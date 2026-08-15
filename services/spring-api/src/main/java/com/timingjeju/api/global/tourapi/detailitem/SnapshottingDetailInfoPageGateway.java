@@ -77,19 +77,28 @@ public class SnapshottingDetailInfoPageGateway implements DetailInfoSnapshotGate
         new DetailSourceResponse(storedBytes, response.format()),
         pageNo,
         saved.payloadHash(),
-        fetchedAt,
-        lineage);
+        saved.fetchedAt(),
+        lineage,
+        saved.replayed(),
+        saved.status());
   }
 
   @Override
-  public void markParsed(UUID snapshotId) {
-    snapshots.transition(new SnapshotTransitionCommand(snapshotId, SnapshotStatus.PARSED, null));
+  public void markParsed(SavedDetailInfoPage page) {
+    if (page.status() == SnapshotStatus.PARSED && page.replayed()) return;
+    if (page.status() != SnapshotStatus.RECEIVED) {
+      throw com.timingjeju.api.application.tourapi.detailitem.DetailItemImportException
+          .invalidResponse();
+    }
+    snapshots.transition(
+        new SnapshotTransitionCommand(page.lineage().snapshotId(), SnapshotStatus.PARSED, null));
   }
 
   @Override
-  public void markRejected(UUID snapshotId) {
+  public void markRejected(SavedDetailInfoPage page) {
+    if (page.status() != SnapshotStatus.RECEIVED) return;
     snapshots.transition(
         new SnapshotTransitionCommand(
-            snapshotId, SnapshotStatus.REJECTED, SnapshotFailure.PARSE_REJECTED));
+            page.lineage().snapshotId(), SnapshotStatus.REJECTED, SnapshotFailure.PARSE_REJECTED));
   }
 }

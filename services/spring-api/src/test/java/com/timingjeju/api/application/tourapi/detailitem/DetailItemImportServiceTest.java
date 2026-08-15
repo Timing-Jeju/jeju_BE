@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
+import com.timingjeju.api.application.snapshot.SnapshotStatus;
 import com.timingjeju.api.application.tourapi.detail.DetailSourceResponse;
 import com.timingjeju.api.global.tourapi.detailitem.DetailItemContentSanitizer;
 import com.timingjeju.api.global.tourapi.detailitem.TourApiDetailInfoParser;
@@ -163,6 +164,54 @@ class DetailItemImportServiceTest {
         false);
   }
 
+  @Test
+  void rejected_terminal_snapshot_replay는_parse와_repository_write없이_거부한다() {
+    RecordingRepository repository = new RecordingRepository();
+    DetailInfoSnapshotGateway rejectedGateway =
+        new DetailInfoSnapshotGateway() {
+          @Override
+          public SavedDetailInfoPage save(
+              UUID importRunId,
+              String contentId,
+              String contentTypeId,
+              int pageNo,
+              DetailSourceResponse response) {
+            return new SavedDetailInfoPage(
+                response,
+                pageNo,
+                "e".repeat(64),
+                NOW,
+                new DetailItemLineage(
+                    "detailInfo2", "a".repeat(64), UUID.randomUUID(), importRunId),
+                true,
+                SnapshotStatus.REJECTED);
+          }
+
+          @Override
+          public void markParsed(SavedDetailInfoPage page) {
+            throw new AssertionError("rejected replay를 parsed로 전이하면 안 됩니다.");
+          }
+
+          @Override
+          public void markRejected(SavedDetailInfoPage page) {
+            throw new AssertionError("terminal rejected replay를 다시 전이하면 안 됩니다.");
+          }
+        };
+    var service =
+        new DetailItemImportService(
+            (id, type, pageNo) -> response(),
+            rejectedGateway,
+            (format, payload, id, type) -> {
+              throw new AssertionError("rejected replay를 parse하면 안 됩니다.");
+            },
+            repository,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+
+    assertThatThrownBy(() -> service.importItems(new DetailItemImportCommand("100", "12", RUN)))
+        .isInstanceOf(DetailItemImportException.class);
+    assertThat(repository.command).isNull();
+  }
+
   private static DetailItemPage page(
       String id, String type, int pageNo, int numOfRows, int totalCount, List<DetailItem> items) {
     return new DetailItemPage(id, type, pageNo, numOfRows, totalCount, items.size(), items);
@@ -255,13 +304,15 @@ class DetailItemImportServiceTest {
           pageNo,
           "e".repeat(64),
           NOW.plusSeconds(pageNo),
-          lineage);
+          lineage,
+          false,
+          com.timingjeju.api.application.snapshot.SnapshotStatus.RECEIVED);
     }
 
     @Override
-    public void markParsed(UUID snapshotId) {}
+    public void markParsed(SavedDetailInfoPage page) {}
 
     @Override
-    public void markRejected(UUID snapshotId) {}
+    public void markRejected(SavedDetailInfoPage page) {}
   }
 }

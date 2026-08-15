@@ -146,8 +146,9 @@ public class JdbcSnapshotStore implements SnapshotStore {
             "select parse_status from public.external_api_snapshots where id=?",
             resultSet -> resultSet.next() ? resultSet.getString(1) : null,
             mutation.snapshotId());
-    return status == null
-        ? SnapshotMutationOutcome.NOT_FOUND
+    if (status == null) return SnapshotMutationOutcome.NOT_FOUND;
+    return status.equals(mutation.status().databaseValue())
+        ? SnapshotMutationOutcome.ALREADY_AT_TARGET
         : SnapshotMutationOutcome.INVALID_TRANSITION;
   }
 

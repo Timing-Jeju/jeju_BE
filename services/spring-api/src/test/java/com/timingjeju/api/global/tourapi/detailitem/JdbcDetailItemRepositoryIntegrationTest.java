@@ -3,6 +3,9 @@ package com.timingjeju.api.global.tourapi.detailitem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.tourapi.TourApiProvenanceCommand;
+import com.timingjeju.api.application.tourapi.TourApiProvenanceException;
+import com.timingjeju.api.application.tourapi.TourApiProvenanceWriter;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItem;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemAttributes;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemBatch;
@@ -45,6 +48,7 @@ class JdbcDetailItemRepositoryIntegrationTest {
   private static final Instant NOW = Instant.parse("2026-08-16T08:00:00Z");
 
   @Autowired DetailItemRepository repository;
+  @Autowired TourApiProvenanceWriter provenanceWriter;
   @Autowired JdbcTemplate jdbc;
 
   @BeforeEach
@@ -241,6 +245,44 @@ class JdbcDetailItemRepositoryIntegrationTest {
   }
 
   @Test
+  void 같은_run_scope의_다른_payload_manifest는_기존_sweep과_normalized_row를_변경하지_못한다() {
+    LineageFixture first = lineage(25, NOW.plusSeconds(10));
+    repository.sync(command(first, List.of(item("stable", 1))));
+    UUID changedSnapshot = UUID.fromString("28000000-0000-0000-0001-000000000026");
+    insertSnapshot(
+        first.run(),
+        changedSnapshot,
+        "detailInfo2",
+        first.fingerprint(),
+        "1",
+        "d".repeat(64),
+        NOW.plusSeconds(20));
+    DetailItemLineage changedLineage =
+        new DetailItemLineage("detailInfo2", first.fingerprint(), changedSnapshot, first.run());
+    DetailItemPageLineage changedPage =
+        new DetailItemPageLineage(1, 1, "d".repeat(64), NOW.plusSeconds(20), changedLineage);
+    DetailItemSweep changedSweep = new DetailItemSweep(first.run(), 1, List.of(changedPage));
+    DetailItemSyncCommand changed =
+        new DetailItemSyncCommand(
+            "100",
+            "12",
+            batch("12", List.of(item("changed", 1)), changedPage),
+            changedSweep,
+            NOW.plusSeconds(20));
+
+    assertThatThrownBy(() -> repository.sync(changed))
+        .isInstanceOf(DetailItemImportException.class);
+    assertThat(
+            jdbc.queryForList(
+                "select source_item_key from public.place_detail_items", String.class))
+        .containsExactly("stable");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_detail_item_sweeps", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
   void 동일_content_snapshot을_두_transaction이_동시에_sync해도_한_row와_한_provenance만_남긴다() throws Exception {
     LineageFixture lineage = lineage(9, NOW.plusSeconds(10));
     DetailItemSyncCommand command = command(lineage, List.of(item("1", 1)));
@@ -402,6 +444,104 @@ class JdbcDetailItemRepositoryIntegrationTest {
         .isEqualTo(2);
   }
 
+  @Test
+  void normalized_item의_sweep과_snapshot은_같은_sweep_page_pair여야_한다() {
+    LineageFixture first = lineage(23, NOW.plusSeconds(10));
+    DetailItemSweep firstSweep = sweep(first, 1);
+    repository.sync(
+        new DetailItemSyncCommand(
+            "100",
+            "12",
+            batch("12", List.of(item("pair", 1)), pageLineage(first, 1)),
+            firstSweep,
+            NOW.plusSeconds(10)));
+    finishRun(first.run());
+
+    LineageFixture second = lineage(24, NOW.plusSeconds(20));
+    DetailItemSweep secondSweep = sweep(second, 1);
+    repository.sync(
+        new DetailItemSyncCommand(
+            "100",
+            "12",
+            batch("12", List.of(item("second", 1)), pageLineage(second, 1)),
+            secondSweep,
+            NOW.plusSeconds(20)));
+    UUID invalidRow = UUID.fromString("28000000-0000-0000-0002-000000000024");
+
+    assertThatThrownBy(
+            () ->
+                provenanceWriter.write(
+                    new TourApiProvenanceCommand(
+                        "place_detail_items",
+                        invalidRow,
+                        "detailInfo2",
+                        "12",
+                        second.fingerprint(),
+                        second.snapshot(),
+                        second.run()),
+                    () ->
+                        jdbc.update(
+                            """
+                            insert into public.place_detail_items
+                              (id, place_id, source_provider, source_service, content_type_id,
+                               item_type, source_item_key, title, sequence_no, attributes, payload_hash,
+                               source_snapshot_id, source_sweep_id, import_run_id,
+                               last_seen_at, created_at, updated_at)
+                            values (?, ?, 'tour-api', 'KorService2', '12', 'info', 'cross-pair',
+                                    '잘못된 pair', 2, '{}'::jsonb, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            invalidRow,
+                            PLACE,
+                            "f".repeat(64),
+                            second.snapshot(),
+                            firstSweep.sweepId(),
+                            second.run(),
+                            Timestamp.from(NOW.plusSeconds(20)),
+                            Timestamp.from(NOW.plusSeconds(20)),
+                            Timestamp.from(NOW.plusSeconds(20)))))
+        .isInstanceOf(TourApiProvenanceException.class);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.place_detail_items where id=?",
+                Integer.class,
+                invalidRow))
+        .isZero();
+  }
+
+  @Test
+  void update_stale_tombstone도_sweep에_속하지_않은_snapshot이면_각_transaction을_rollback한다() {
+    LineageFixture first = lineage(27, NOW.plusSeconds(10));
+    DetailItemSweep firstSweep = sweep(first, 3);
+    repository.sync(
+        new DetailItemSyncCommand(
+            "100",
+            "12",
+            batch(
+                "12",
+                List.of(item("update-pair", 1), item("stale-pair", 2), item("tombstone-pair", 3)),
+                pageLineage(first, 3)),
+            firstSweep,
+            NOW.plusSeconds(10)));
+    finishRun(first.run());
+    LineageFixture next = lineage(28, NOW.plusSeconds(20));
+
+    assertMismatchedLifecycleRejected("update-pair", "title='cross-pair update'", firstSweep, next);
+    assertMismatchedLifecycleRejected("stale-pair", "stale_at=?", firstSweep, next);
+    assertMismatchedLifecycleRejected("tombstone-pair", "tombstoned_at=?", firstSweep, next);
+
+    assertThat(
+            jdbc.queryForMap(
+                "select title, stale_at, tombstoned_at from public.place_detail_items where source_item_key='update-pair'"))
+        .containsEntry("title", "안내 update-pair")
+        .containsEntry("stale_at", null)
+        .containsEntry("tombstoned_at", null);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.place_detail_items where stale_at is not null or tombstoned_at is not null",
+                Integer.class))
+        .isZero();
+  }
+
   private DetailItemSyncCommand command(LineageFixture fixture, List<DetailItem> items) {
     DetailItemPageLineage page = pageLineage(fixture, items.size());
     return new DetailItemSyncCommand(
@@ -527,6 +667,49 @@ class JdbcDetailItemRepositoryIntegrationTest {
       Thread.currentThread().interrupt();
       throw new AssertionError(interrupted);
     }
+  }
+
+  private void assertMismatchedLifecycleRejected(
+      String key, String mutation, DetailItemSweep oldSweep, LineageFixture next) {
+    UUID rowId =
+        jdbc.queryForObject(
+            "select id from public.place_detail_items where source_item_key=?", UUID.class, key);
+    assertThatThrownBy(
+            () ->
+                provenanceWriter.write(
+                    new TourApiProvenanceCommand(
+                        "place_detail_items",
+                        rowId,
+                        "detailInfo2",
+                        "12",
+                        next.fingerprint(),
+                        next.snapshot(),
+                        next.run()),
+                    () -> {
+                      String sql =
+                          "update public.place_detail_items set source_snapshot_id=?, source_sweep_id=?, import_run_id=?, "
+                              + mutation
+                              + ", updated_at=? where id=?";
+                      if (mutation.contains("=?")) {
+                        jdbc.update(
+                            sql,
+                            next.snapshot(),
+                            oldSweep.sweepId(),
+                            next.run(),
+                            Timestamp.from(NOW.plusSeconds(20)),
+                            Timestamp.from(NOW.plusSeconds(20)),
+                            rowId);
+                      } else {
+                        jdbc.update(
+                            sql,
+                            next.snapshot(),
+                            oldSweep.sweepId(),
+                            next.run(),
+                            Timestamp.from(NOW.plusSeconds(20)),
+                            rowId);
+                      }
+                    }))
+        .isInstanceOf(TourApiProvenanceException.class);
   }
 
   private boolean concurrentSyncOutcome(
