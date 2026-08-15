@@ -96,6 +96,10 @@ Spring에는 공개 Controller가 없는 import run 생명주기 application por
 
 `detailIntro2`의 운영시간 원문 text는 `place_details`에 보존하고 파싱·검수된 반복 영업시간은 요일별 `interval_no`로 저장한다. 자정을 넘는 구간은 익일 첫 구간·휴무와 겹칠 수 없고 정확히 `00:00` 종료는 다음 날을 점유하지 않는다. 장소 행 MVCC 쓰기 펜스가 교차 요일 검사를 직렬화하며 오래된 `REPEATABLE READ` writer는 `40001`로 실패한다. `detailInfo2`와 `detailImage2` 정규화 행은 원문과 같은 snapshot·run lineage를 모두 갖는다.
 
+`detailCommon2`와 `detailIntro2`는 별도 client/parser로 호출한다. 관광지(12), 숙박(32), 음식점(39)의 유형별 원문 필드를 `place_details`의 text 컬럼과 `intro_attributes.detailIntro2`에 함께 보존한다. `overview` 원문은 외부 공개 read model에 직접 노출하지 않고 `intro_attributes.detailCommon2.overviewRaw`에 감사·재처리 경계로 보존한다. `tour_places.overview`에는 script, style, event attribute, 위험 URL과 비허용 요소를 제거한 plain text만 저장한다.
+
+두 operation은 #107의 `tour_api_operation_provenance`를 재사용해 같은 `place_details.place_id`에 operation별 snapshot, import run, request fingerprint를 독립 보존한다. 상세 normalized write는 기존 `tour_place_sources`의 content ID와 content type이 일치할 때만 수행하며 lineage 불일치는 transaction 전체를 rollback한다. 이 batch importer는 자체 lazy TTL을 두지 않는다. snapshot payload freshness와 정리는 #23의 `purge_after` 및 #62 retention 계약을 따른다.
+
 ### 3.4 TourAPI에서 직접 오지 않는 값
 
 | 값 | 실제 Source |
@@ -114,7 +118,7 @@ Spring에는 공개 Controller가 없는 import run 생명주기 application por
 아래 항목은 향후 Spring importer가 구현할 운영 정책이다.
 
 - 제주 전체 기본 목록: 1일 1회 증분 동기화.
-- 상세/이미지: 조회 시 lazy fetch 후 24시간 캐시.
+- 상세/이미지: importer별 TTL을 중복 구현하지 않고 snapshot freshness와 retention 계약을 따른다.
 - 삭제/변경: 동기화 목록 결과를 기반으로 stale 처리 후 검증 삭제.
 - 검색 요청 중 TourAPI timeout 시 DB cache를 반환하고 `dataFreshness.stale`을 표시한다.
 
