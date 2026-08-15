@@ -1,0 +1,23 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": {
+    "create": {
+      "status": 201,
+      "body": {
+        "tripId": "50000000-0000-0000-0000-000000000001",
+        "accommodationId": "50200000-0000-0000-0000-000000000001",
+        "accommodation": {"accommodationId": "50200000-0000-0000-0000-000000000001", "placeId": "20000000-0000-0000-0000-000000000004", "customName": null, "name": "성산 숙소 A", "checkInDate": "2026-08-03", "checkOutDate": "2026-08-04", "checkInTime": "15:00", "checkOutTime": "11:00", "sequenceNo": 1},
+        "scheduleEffect": "none", "regenerationRequired": false, "activeScheduleVersionId": null, "tripStatus": "draft", "etag": "\"trip-8\"", "createdAt": "2026-08-03T09:15:00+09:00", "updatedAt": "2026-08-03T09:15:00+09:00"
+      }
+    },
+    "patch": {
+      "status": 200,
+      "body": {
+        "tripId": "50000000-0000-0000-0000-000000000001",
+        "accommodationId": "50200000-0000-0000-0000-000000000001",
+        "accommodation": {"accommodationId": "50200000-0000-0000-0000-000000000001", "placeId": "20000000-0000-0000-0000-000000000004", "customName": null, "name": "성산 숙소 A", "checkInDate": "2026-08-03", "checkOutDate": "2026-08-04", "checkInTime": "16:00", "checkOutTime": "11:00", "sequenceNo": 1},
+        "scheduleEffect": "invalidated", "regenerationRequired": true, "activeScheduleVersionId": null, "tripStatus": "draft", "etag": "\"trip-9\"", "createdAt": "2026-08-03T09:15:00+09:00", "updatedAt": "2026-08-03T09:16:00+09:00"
+      }
+    }
+  }
+}

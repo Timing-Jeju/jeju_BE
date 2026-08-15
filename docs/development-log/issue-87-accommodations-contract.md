@@ -1,0 +1,79 @@
+# Issue #87 복수 숙소 CRUD API 계약 개발 기록
+
+## 범위와 기준
+
+- 기준: `origin/develop` `0dc4e6bf70e3d947e8dbcc416393317c845849bb`
+- 브랜치: `docs/87-c06-api-contract`
+- 포함: accommodations POST/PATCH/DELETE 계약, fixture, validator, catalog, 설계 문서와 Notion 세 행
+- 제외 확인: Spring Controller/Service/Repository, schema/migration/Flyway, FastAPI 소스는 변경하지 않았다.
+
+## Red → Green
+
+운영 계약보다 `scripts/tests/test_accommodations_contract.py`와 통합 suite 기대값을 먼저 추가했다.
+
+```text
+python3 -m unittest scripts.tests.test_accommodations_contract scripts.tests.test_contract_suite_integration -v
+```
+
+최초 실행은 `scripts/validate_accommodations_contract.py`가 없어 `FileNotFoundError`, exit 1이었다. XOR·시간대·기간·복수 순서, POST 멱등성, PATCH omitted/null, 삭제/active 일정, owner/404/동시성/Problem과 strict schema·재귀 fixture·mutation 검사 대상이 아직 구현되지 않은 의도한 Red였다.
+
+Green에서는 canonical JSON/Markdown, request/success/problem 합성 fixture, 전용 fail-closed validator, catalog endpoint 3건과 shell/PowerShell gate를 추가했다. REST 공통 validator와 전용 validator, 관련 테스트 12건이 성공했고 scripts 전체 테스트와 py_compile, 비밀정보, diff 검사도 성공했다.
+
+## 확정한 경계
+
+- POST는 `placeId/customName` exact XOR, 6개 property와 `Idempotency-Key`, 강한 `If-Match`를 요구한다.
+- Idempotency scope는 canonical sub + method + path + tripId, TTL 24시간이며 replay/payload conflict/동시 요청 의미를 #72 exact 구조로 상속한다.
+- PATCH omitted는 유지, null은 반대 identity를 같은 요청에서 설정할 때 losing identity를 지우는 용도로만 허용하며 결과 XOR를 재검증한다.
+- 날짜는 `[checkInDate,checkOutDate)`, 시간은 `Asia/Seoul` local `HH:mm`이다. 각 구간은 여행 범위 안에 있고 저장된 숙소 사이는 내부 gap/overlap 없이 인접한다.
+- 첫·마지막 edge는 draft 입력 중 비어 있을 수 있어 숙소를 순차 추가할 수 있고, 전체 숙박 coverage는 일정 생성 시 재검증한다.
+- client는 sequence를 보내지 않고 서버가 날짜·UUID로 정렬해 같은 transaction에서 `1..N`으로 재번호한다.
+- deterministic gap/overlap은 422, 사전 검증 뒤 concurrent exclusion/sequence 충돌은 409다.
+- POST/PATCH 실제 변경은 active 일정을 원자적으로 무효화한다. DELETE는 active 일정 또는 중간 gap이면 422이고 성공은 body 없는 204다.
+- 타 owner와 다른 여행의 숙소는 canonical sub 기준 404로 숨긴다.
+
+## 외부 추적성과 발견 사항
+
+Notion 기존 세 page ID를 유지하면서 속성과 본문을 `1.0.0`, `Implementation Ready`, exact header/body/status/error matrix에 맞췄고 SQL 및 페이지 재조회로 확인했다.
+
+Figma file `4mKep38zm17iupVSQVsSJW`, page `251:4347`의 `329:5165`, `182:3248`, `653:11512`에서 숙소/복귀 위치 action을 확인했다. 복수 CRUD loading/empty/error와 API contractVersion 연결은 없으므로 `figma=not-linked`, readiness는 모두 `not-ready`로 유지했다.
+
+현재 DB CHECK는 `place_id/custom_name` 둘 다 non-null을 허용하고 exclusion은 overlap만 막는다. XOR migration과 gap/sequence/active 삭제 transaction은 #68의 명시적 후속 범위다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.
+
+## 최종 검증
+
+- 원본 계약 커밋 `5bd4bed`을 보존한 채 `origin/develop` `5200e8f`를 정상 merge해 통합 HEAD `4060add`를 만들었다.
+- 최신 HEAD에서 REST와 #83~#87 domain validator, accommodations/통합 12건이 성공했다.
+- Spring `clean check`가 성공했다. 기본 test 492건과 integrationTest 145건이 실패 0이었고 로컬 Supabase Auth 각 1건만 환경 조건에 따라 skip됐다.
+- JaCoCo line은 covered 3994, missed 369로 약 91.54%이며 90% 하한을 통과했다.
+- 전체 quality gate에서 저장소 자동화 36+7+277건, 포맷, 컴파일, unit/slice/integration, OpenAPI, Architecture, 커버리지, bootJar와 Docker 검증이 모두 성공했다.
+- 별도 Docker smoke도 health, v1→latest, legacy audit, 실제 2-session concurrency, schema/negative/fixture/PostGIS 계약을 모두 통과했다.
+- 각 Docker 실행 뒤 `timing-jeju-smoke` container, network, volume, image 잔여가 모두 0건임을 확인했다.
+- 최신 develop 통합분은 Issue #25의 운영 구현이며 Issue #87 자체 변경에는 Spring Controller/Service/Repository, schema/Flyway, FastAPI가 없다.
+
+## 다음
+
+- 최종 기록 커밋을 일반 push하고 pre-push 전체 게이트 성공과 원격 HEAD 일치를 확인한다.
+- 독립 Reviewer에게 `origin/develop...HEAD` 검토를 요청한다. Developer는 PR과 승인 상태 파일을 만들지 않는다.
+
+## Reviewer MAJOR 보완 — schema fail-closed와 DELETE Figma 근거
+
+### Red
+
+- POST success schema를 존재하지 않는 이름으로 바꾸거나 required header를 비워도 validator가 exit 0으로 통과했다.
+- nullable UUID field format을 `date`로 바꾸고 `schemaGap`을 비워도 같은 우회를 재현했다.
+- Figma `653:11512`에는 숙소 입력 field만 있고 삭제 UI/action은 없지만 DELETE endpoint가 제거 action으로 연결돼 있었다.
+- focused 2개 테스트에서 위 네 validator 우회와 Figma 불일치가 실패 5건으로 재현됐다.
+
+### Green과 Refactor
+
+- POST/PATCH/DELETE 각각의 request/header/success schema ref, required header와 success status를 canonical map으로 검증한다.
+- 여덟 schema의 exact field set과 모든 property type, nullable, format, pattern, enum, length, normalization, offset, ref를 비교한다.
+- `schemaGap` 세 항목을 canonical exact 목록으로 고정하고 endpoint별 12개 schema/header mutation과 nullable UUID format/schemaGap mutation을 추가했다.
+- DELETE Figma는 `node=not-observed`, `action=숙소 삭제 UI/action not-linked`로 contract/Markdown/catalog에 동기화했다.
+- Notion DELETE 행에는 API readiness를 유지하면서 삭제 UI/action 직접 근거가 없다는 Figma 추적성을 추가하고 재조회했다.
+
+### 현재 검증
+
+- accommodations validator와 전용/통합 focused 14건, py_compile, diff 검사가 성공했다.
+- 운영 Spring/DB/FastAPI 변경은 없다.
+- #26 직렬 검증 종료 전까지 clean check, full quality gate, Docker와 push는 대기한다.

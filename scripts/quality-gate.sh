@@ -78,6 +78,9 @@ run_common_checks() {
   stage "여행 선호·교통 이벤트 계약 검사"
   python3 scripts/validate_preferences_transport_contract.py
 
+  stage "복수 숙소 CRUD 계약 검사"
+  python3 scripts/validate_accommodations_contract.py
+
   stage "저장소 자동화 테스트"
   python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
   python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'
