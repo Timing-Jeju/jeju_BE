@@ -240,6 +240,127 @@ class SnapshotStoreServiceTest {
   }
 
   @Test
+  void request_parameter_순서만_다르면_fingerprint가_같고_실질값이_다르면_구분한다() {
+    byte[] payload = "{\"safe\":1}".getBytes(StandardCharsets.UTF_8);
+    Map<String, Object> first = new LinkedHashMap<>();
+    first.put("pageNo", "1");
+    first.put("contentTypeId", "12");
+    Map<String, Object> reordered = new LinkedHashMap<>();
+    reordered.put("contentTypeId", "12");
+    reordered.put("pageNo", "1");
+
+    SnapshotSaveResult firstResult =
+        service.save(command(SnapshotPayloadFormat.JSON, payload, first));
+    SnapshotSaveResult reorderedResult =
+        service.save(command(SnapshotPayloadFormat.JSON, payload, reordered));
+    SnapshotSaveResult changedResult =
+        service.save(
+            command(
+                SnapshotPayloadFormat.JSON, payload, Map.of("contentTypeId", "39", "pageNo", "1")));
+
+    assertThat(reorderedResult.requestFingerprint()).isEqualTo(firstResult.requestFingerprint());
+    assertThat(changedResult.requestFingerprint()).isNotEqualTo(firstResult.requestFingerprint());
+  }
+
+  @Test
+  void 정밀_위치는_저장하지_않지만_요청_fingerprint에서는_서로_구분한다() {
+    byte[] payload = "{\"safe\":1}".getBytes(StandardCharsets.UTF_8);
+    SnapshotSaveResult first =
+        service.save(
+            command(
+                SnapshotPayloadFormat.JSON,
+                payload,
+                Map.of("mapX", "126.5311884", "mapY", "33.4996213")));
+    SnapshotSaveResult changed =
+        service.save(
+            command(
+                SnapshotPayloadFormat.JSON,
+                payload,
+                Map.of("mapX", "126.5311885", "mapY", "33.4996213")));
+
+    assertThat(changed.requestFingerprint()).isNotEqualTo(first.requestFingerprint());
+    assertThat(store.saved)
+        .allSatisfy(
+            snapshot ->
+                assertThat(snapshot.requestMetadataRedactedJson())
+                    .doesNotContain("126.5311884", "126.5311885", "33.4996213"));
+  }
+
+  @Test
+  void 중첩_정밀위치는_재귀적으로_canonicalize하고_민감값은_제외하되_좌표는_구분한다() {
+    byte[] payload = "{\"safe\":1}".getBytes(StandardCharsets.UTF_8);
+    Map<String, Object> firstLocation = new LinkedHashMap<>();
+    firstLocation.put("longitude", "126.5311884");
+    firstLocation.put("latitude", "33.4996213");
+    firstLocation.put("profile", Map.of("email", "first@example.test"));
+    firstLocation.put(
+        "samples", List.of(Map.of("authorization", "Bearer first"), Map.of("safe", "fixed")));
+    firstLocation.put("requestUrl", "https://first.example.test/path?serviceKey=first");
+    Map<String, Object> reorderedLocation = new LinkedHashMap<>();
+    reorderedLocation.put("requestUrl", "https://second.example.test/path?serviceKey=second");
+    reorderedLocation.put("profile", Map.of("email", "second@example.test"));
+    reorderedLocation.put(
+        "samples", List.of(Map.of("authorization", "Bearer second"), Map.of("safe", "fixed")));
+    reorderedLocation.put("latitude", "33.4996213");
+    reorderedLocation.put("longitude", "126.5311884");
+
+    SnapshotSaveResult first =
+        service.save(
+            command(SnapshotPayloadFormat.JSON, payload, Map.of("location", firstLocation)));
+    SnapshotSaveResult reorderedAndSensitiveChanged =
+        service.save(
+            command(SnapshotPayloadFormat.JSON, payload, Map.of("location", reorderedLocation)));
+    SnapshotSaveResult coordinateChanged =
+        service.save(
+            command(
+                SnapshotPayloadFormat.JSON,
+                payload,
+                Map.of(
+                    "location",
+                    Map.of(
+                        "longitude", "126.5311885",
+                        "latitude", "33.4996213",
+                        "profile", Map.of("email", "third@example.test"),
+                        "samples",
+                            List.of(
+                                Map.of("authorization", "Bearer third"), Map.of("safe", "fixed")),
+                        "requestUrl", "https://third.example.test/raw"))));
+
+    assertThat(reorderedAndSensitiveChanged.requestFingerprint())
+        .isEqualTo(first.requestFingerprint());
+    assertThat(coordinateChanged.requestFingerprint()).isNotEqualTo(first.requestFingerprint());
+    assertThat(store.saved)
+        .allSatisfy(
+            snapshot ->
+                assertThat(snapshot.requestMetadataRedactedJson())
+                    .doesNotContain("example.test", "serviceKey", "33.4996213", "126.531188"));
+  }
+
+  @Test
+  void fingerprint_schema는_provider_service_operation_scope_page를_모두_구분한다() {
+    byte[] payload = "{\"safe\":1}".getBytes(StandardCharsets.UTF_8);
+    Map<String, Object> metadata = Map.of("contentTypeId", "12");
+    SnapshotSaveCommand base = command(SnapshotPayloadFormat.JSON, payload, metadata);
+    String baseFingerprint = service.save(base).requestFingerprint();
+
+    List<SnapshotSaveCommand> changedIdentity =
+        List.of(
+            withScope(base, new SnapshotScope("other", "KorService2", "areaBasedList2", "jeju")),
+            withScope(
+                base, new SnapshotScope("tour-api", "OtherService", "areaBasedList2", "jeju")),
+            withScope(base, new SnapshotScope("tour-api", "KorService2", "detailCommon2", "jeju")),
+            withScope(
+                base, new SnapshotScope("tour-api", "KorService2", "areaBasedList2", "seogwipo")),
+            withPage(base, "page-2"));
+
+    assertThat(changedIdentity)
+        .allSatisfy(
+            changed ->
+                assertThat(service.save(changed).requestFingerprint())
+                    .isNotEqualTo(baseFingerprint));
+  }
+
+  @Test
   void XML_attribute_element와_text_query의_secret_PII를_제거한다() {
     byte[] xml =
         """
@@ -472,6 +593,33 @@ class SnapshotStoreServiceTest {
         "UTF-8",
         payload,
         metadata);
+  }
+
+  private SnapshotSaveCommand withScope(SnapshotSaveCommand command, SnapshotScope scope) {
+    return copy(command, scope, command.pageKey());
+  }
+
+  private SnapshotSaveCommand withPage(SnapshotSaveCommand command, String pageKey) {
+    return copy(command, command.scope(), pageKey);
+  }
+
+  private SnapshotSaveCommand copy(
+      SnapshotSaveCommand command, SnapshotScope scope, String pageKey) {
+    return new SnapshotSaveCommand(
+        command.importRunId(),
+        scope,
+        command.externalRecordId(),
+        pageKey,
+        command.httpStatus(),
+        command.providerResultCode(),
+        command.fetchedAt(),
+        command.sourceModifiedAt(),
+        command.expiresAt(),
+        command.parserVersion(),
+        command.payloadFormat(),
+        command.charset(),
+        command.decompressedPayload(),
+        command.requestMetadata());
   }
 
   private static SnapshotScope scope() {
