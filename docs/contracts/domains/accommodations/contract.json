@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "timing-jeju-accommodations-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "v1.1",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 87,
+  "implementationIssues": [68],
+  "schemas": {
+    "TripPath": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["tripId"], "properties": {"tripId": {"type": "string", "nullable": false, "format": "uuid"}}},
+    "AccommodationPath": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["tripId", "accommodationId"], "properties": {"tripId": {"type": "string", "nullable": false, "format": "uuid"}, "accommodationId": {"type": "string", "nullable": false, "format": "uuid"}}},
+    "CreateHeaders": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["Authorization", "Idempotency-Key", "If-Match"], "properties": {"Authorization": {"type": "string", "nullable": false, "pattern": "^Bearer [^\\s]{1,2048}$"}, "Idempotency-Key": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 128, "pattern": "^[!-~]+$"}, "If-Match": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9]+\\\"$"}}},
+    "MutationHeaders": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["Authorization", "If-Match"], "properties": {"Authorization": {"type": "string", "nullable": false, "pattern": "^Bearer [^\\s]{1,2048}$"}, "If-Match": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9]+\\\"$"}}},
+    "CreateAccommodationRequest": {
+      "type": "object", "nullable": false, "additionalProperties": false,
+      "required": ["placeId", "customName", "checkInDate", "checkOutDate", "checkInTime", "checkOutTime"],
+      "properties": {
+        "placeId": {"type": "string", "nullable": true, "format": "uuid"},
+        "customName": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 100, "normalization": "trim+nfc"},
+        "checkInDate": {"type": "string", "nullable": false, "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "checkOutDate": {"type": "string", "nullable": false, "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "checkInTime": {"type": "string", "nullable": false, "format": "time", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"},
+        "checkOutTime": {"type": "string", "nullable": false, "format": "time", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"}
+      },
+      "oneOf": [
+        {"requiredNonNull": ["placeId"], "requiredNull": ["customName"]},
+        {"requiredNonNull": ["customName"], "requiredNull": ["placeId"]}
+      ]
+    },
+    "PatchAccommodationRequest": {
+      "type": "object", "nullable": false, "additionalProperties": false, "required": [], "minProperties": 1,
+      "properties": {
+        "placeId": {"type": "string", "nullable": true, "format": "uuid"},
+        "customName": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 100, "normalization": "trim+nfc"},
+        "checkInDate": {"type": "string", "nullable": false, "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "checkOutDate": {"type": "string", "nullable": false, "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "checkInTime": {"type": "string", "nullable": false, "format": "time", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"},
+        "checkOutTime": {"type": "string", "nullable": false, "format": "time", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"}
+      }
+    },
+    "Accommodation": {
+      "type": "object", "nullable": false, "additionalProperties": false,
+      "required": ["accommodationId", "placeId", "customName", "name", "checkInDate", "checkOutDate", "checkInTime", "checkOutTime", "sequenceNo"],
+      "properties": {
+        "accommodationId": {"type": "string", "nullable": false, "format": "uuid"},
+        "placeId": {"type": "string", "nullable": true, "format": "uuid"},
+        "customName": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 100, "normalization": "trim+nfc"},
+        "name": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100},
+        "checkInDate": {"type": "string", "nullable": false, "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "checkOutDate": {"type": "string", "nullable": false, "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+        "checkInTime": {"type": "string", "nullable": false, "format": "time", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"},
+        "checkOutTime": {"type": "string", "nullable": false, "format": "time", "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$"},
+        "sequenceNo": {"type": "integer", "nullable": false, "minimum": 1}
+      }
+    },
+    "AccommodationMutationResponse": {
+      "type": "object", "nullable": false, "additionalProperties": false,
+      "required": ["tripId", "accommodationId", "accommodation", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId", "tripStatus", "etag", "createdAt", "updatedAt"],
+      "properties": {
+        "tripId": {"type": "string", "nullable": false, "format": "uuid"},
+        "accommodationId": {"type": "string", "nullable": false, "format": "uuid"},
+        "accommodation": {"$ref": "Accommodation"},
+        "scheduleEffect": {"type": "string", "nullable": false, "enum": ["none", "invalidated"]},
+        "regenerationRequired": {"type": "boolean", "nullable": false},
+        "activeScheduleVersionId": {"type": "string", "nullable": true, "format": "uuid"},
+        "tripStatus": {"type": "string", "nullable": false, "enum": ["draft", "planned"]},
+        "etag": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9]+\\\"$"},
+        "createdAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"},
+        "updatedAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"}
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "method": "POST", "path": "/api/v1/trips/{tripId}/accommodations", "operation": "create",
+      "requestSchema": "TripPath + CreateAccommodationRequest", "headersSchema": {"schema": "CreateHeaders", "required": ["Authorization", "Idempotency-Key", "If-Match"]}, "successSchema": "AccommodationMutationResponse",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401}, "owner": "canonical JWT sub; cross-owner 404",
+      "presence": "all six body properties required; placeId/customName exact XOR with one explicit null; no sequenceNo input",
+      "responses": {"success": [201], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND"], "409": ["IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACCOMMODATION_CONCURRENT_CONFLICT"], "422": ["ACCOMMODATION_DATE_GAP_OR_OVERLAP"]},
+      "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonical sub + method + path + tripId", "ttl": "24 hours", "replay": "same payload returns original 201 status, body and ETag", "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED", "concurrentRequest": "wait for first transaction then replay"}, "pagination": {"type": "none"}, "concurrency": "strong trip aggregate ETag",
+      "dbOwner": "Spring transaction inserts trip_accommodations and compacts sequence; implementation #68", "requestTimeCall": "none", "dataLineage": "canonical-sub owner input plus optional normalized tour_place identity",
+      "figma": {"node": "329-5165", "action": "숙소/복귀 위치 검색·지도 선택 후 여행 기본 조건 저장", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}, "contractVersion": "1.0.0"
+    },
+    {
+      "method": "PATCH", "path": "/api/v1/trips/{tripId}/accommodations/{accommodationId}", "operation": "update",
+      "requestSchema": "AccommodationPath + PatchAccommodationRequest", "headersSchema": {"schema": "MutationHeaders", "required": ["Authorization", "If-Match"]}, "successSchema": "AccommodationMutationResponse",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401}, "owner": "canonical JWT sub; cross-owner 404",
+      "presence": "at least one body property; omitted unchanged; null only clears losing XOR identity; resulting identity exact XOR",
+      "responses": {"success": [200], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "PLACE_NOT_FOUND"], "409": ["TRIP_VERSION_CONFLICT", "ACCOMMODATION_CONCURRENT_CONFLICT"], "422": ["ACCOMMODATION_DATE_GAP_OR_OVERLAP"]},
+      "idempotency": {"required": false, "header": "none"}, "pagination": {"type": "none"}, "concurrency": "strong trip aggregate ETag",
+      "dbOwner": "Spring transaction updates trip_accommodations and compacts sequence; implementation #68", "requestTimeCall": "none", "dataLineage": "canonical-sub owner input plus optional normalized tour_place identity",
+      "figma": {"node": "182-3248", "action": "숙소/복귀 위치를 검색 또는 지도 선택으로 변경", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}, "contractVersion": "1.0.0"
+    },
+    {
+      "method": "DELETE", "path": "/api/v1/trips/{tripId}/accommodations/{accommodationId}", "operation": "delete",
+      "requestSchema": "AccommodationPath", "headersSchema": {"schema": "MutationHeaders", "required": ["Authorization", "If-Match"]}, "successSchema": "none",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401}, "owner": "canonical JWT sub; cross-owner 404",
+      "presence": "tripId/accommodationId and strong If-Match required; request body forbidden; success 204 body forbidden",
+      "responses": {"success": [204], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND"], "409": ["TRIP_VERSION_CONFLICT", "ACCOMMODATION_CONCURRENT_CONFLICT"], "422": ["ACCOMMODATION_DATE_GAP_OR_OVERLAP", "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE"]},
+      "idempotency": {"required": false, "header": "none"}, "pagination": {"type": "none"}, "concurrency": "strong trip aggregate ETag",
+      "dbOwner": "Spring transaction deletes trip_accommodations and compacts sequence; implementation #68", "requestTimeCall": "none", "dataLineage": "canonical-sub owner input; no external data",
+      "figma": {"node": "653-11512", "action": "설정 전 숙소/복귀 위치에서 기존 숙소 제거", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}, "contractVersion": "1.0.0"
+    }
+  ],
+  "accommodationPolicy": {
+    "identityXor": "exactly one of placeId/customName",
+    "timezone": "Asia/Seoul",
+    "checkInOutTime": "HH:mm local wall-clock in Asia/Seoul",
+    "dateInterval": "[checkInDate, checkOutDate)",
+    "dateOrder": "checkInDate < checkOutDate",
+    "tripCoverage": "within [trip.startDate, trip.endDate]",
+    "gapOrOverlap": "reject-422",
+    "canonicalOrder": "checkInDate ASC, checkOutDate ASC, accommodationId ASC",
+    "sequencePolicy": "renumber contiguous 1..N in the same transaction"
+  },
+  "patchPolicy": {"presence": "omitted=unchanged; explicit null allowed only for the losing identity field", "identityResult": "result must preserve placeId/customName exact XOR", "canonicalNoOp": "return 200 with unchanged ETag and no schedule mutation"},
+  "activeSchedulePolicy": {"postPatch": "actual change invalidates active schedule atomically", "delete": "reject-422 while an active schedule exists", "canonicalNoOp": "no-op preserves active schedule and ETag"},
+  "errorConditions": [
+    {"status": 400, "code": "INVALID_REQUEST", "type": "https://api.timing-jeju.com/problems/invalid-request", "title": "요청 값이 올바르지 않습니다", "detail": "필수값, 형식, XOR, Idempotency-Key와 If-Match를 확인해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "malformed path/header/body, POST XOR failure, empty PATCH, forbidden DELETE body", "fixture": "400_invalid_request"},
+    {"status": 401, "code": "AUTHENTICATION_REQUIRED", "type": "https://api.timing-jeju.com/problems/authentication-required", "title": "인증이 필요합니다", "detail": "로그인 후 다시 요청해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "Authorization header missing", "fixture": "401_authentication_required"},
+    {"status": 401, "code": "INVALID_ACCESS_TOKEN", "type": "https://api.timing-jeju.com/problems/invalid-access-token", "title": "인증 정보가 올바르지 않습니다", "detail": "유효한 인증 정보로 다시 요청해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "Supabase JWT invalid or expired", "fixture": "401_invalid_access_token"},
+    {"status": 404, "code": "TRIP_NOT_FOUND", "type": "https://api.timing-jeju.com/problems/trip-not-found", "title": "여행을 찾을 수 없습니다", "detail": "요청한 여행이 없거나 접근할 수 없습니다.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "trip absent or canonical sub is not owner", "fixture": "404_trip_not_found"},
+    {"status": 404, "code": "ACCOMMODATION_NOT_FOUND", "type": "https://api.timing-jeju.com/problems/accommodation-not-found", "title": "숙소를 찾을 수 없습니다", "detail": "요청한 숙소가 없거나 해당 여행에 속하지 않습니다.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "accommodation absent, wrong trip, or hidden cross-owner resource", "fixture": "404_accommodation_not_found"},
+    {"status": 404, "code": "PLACE_NOT_FOUND", "type": "https://api.timing-jeju.com/problems/place-not-found", "title": "장소를 찾을 수 없습니다", "detail": "요청한 숙소 장소가 없거나 사용할 수 없습니다.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "non-null placeId does not identify an available normalized place", "fixture": "404_place_not_found"},
+    {"status": 409, "code": "IDEMPOTENCY_KEY_REUSED", "type": "https://api.timing-jeju.com/problems/idempotency-key-reused", "title": "멱등성 키가 다른 요청에 사용되었습니다", "detail": "새 Idempotency-Key로 다시 요청해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "same scoped key with different canonical payload; simultaneous identical request waits then replays", "fixture": "409_idempotency_key_reused"},
+    {"status": 409, "code": "TRIP_VERSION_CONFLICT", "type": "https://api.timing-jeju.com/problems/trip-version-conflict", "title": "여행 조건이 이미 변경되었습니다", "detail": "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "strong If-Match does not equal current trip aggregate ETag", "fixture": "409_trip_version_conflict"},
+    {"status": 409, "code": "ACCOMMODATION_CONCURRENT_CONFLICT", "type": "https://api.timing-jeju.com/problems/accommodation-concurrent-conflict", "title": "숙소가 동시에 변경되었습니다", "detail": "최신 숙소 순서와 기간을 조회한 뒤 다시 요청해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "concurrent exclusion or sequence conflict after pre-validation", "fixture": "409_accommodation_concurrent_conflict"},
+    {"status": 422, "code": "ACCOMMODATION_DATE_GAP_OR_OVERLAP", "type": "https://api.timing-jeju.com/problems/accommodation-date-gap-or-overlap", "title": "숙소 날짜를 적용할 수 없습니다", "detail": "여행 기간 안에서 숙소 날짜의 공백과 중복 없이 순서를 확인해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "invalid interval, outside trip, deterministic gap/overlap, or non-contiguous canonical sequence", "fixture": "422_date_gap_or_overlap"},
+    {"status": 422, "code": "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE", "type": "https://api.timing-jeju.com/problems/accommodation-in-use-by-active-schedule", "title": "활성 일정에서 사용하는 숙소는 삭제할 수 없습니다", "detail": "일정을 재생성하거나 활성 일정을 해제한 뒤 숙소를 삭제해 주세요.", "instance": "urn:timing-jeju:problem:{traceId}", "condition": "DELETE attempted while trip has active schedule", "fixture": "422_active_schedule"}
+  ],
+  "externalTraceability": {
+    "notion": {"databaseId": "40914d1e-551f-4cfc-9604-0190ecda7b6c", "dataSourceId": "d020c382-bb92-466e-8dcb-d6f95b486348", "contractVersion": "1.0.0", "specStatus": "Implementation Ready", "rows": [
+      {"method": "POST", "path": "/api/v1/trips/{tripId}/accommodations", "pageId": "3a40a87c-7ce5-814f-b75f-e679f990786d", "url": "https://app.notion.com/p/3a40a87c7ce5814fb75fe679f990786d"},
+      {"method": "PATCH", "path": "/api/v1/trips/{tripId}/accommodations/{accommodationId}", "pageId": "3a40a87c-7ce5-8185-b511-c4e7669a3ada", "url": "https://app.notion.com/p/3a40a87c7ce58185b511c4e7669a3ada"},
+      {"method": "DELETE", "path": "/api/v1/trips/{tripId}/accommodations/{accommodationId}", "pageId": "3a40a87c-7ce5-81ba-88f1-f6acd7e8b9b9", "url": "https://app.notion.com/p/3a40a87c7ce581ba88f1f6acd7e8b9b9"}
+    ]},
+    "figma": {"status": "not-ready", "contractVersion": "not-linked", "fileKey": "4mKep38zm17iupVSQVsSJW", "pageNodeId": "251:4347", "observedNodes": [
+      {"nodeId": "329:5165", "name": "PAGE / 01. 여행 기본 조건", "action": "숙소/복귀 위치와 여행 기간을 입력하고 Day별 일정 입력으로 이동"},
+      {"nodeId": "182:3248", "name": "홈 - 01. 여행 기본 조건", "action": "숙소/복귀 위치를 검색 또는 지도에서 선택"},
+      {"nodeId": "653:11512", "name": "홈 - 01. 여행 기본 조건 설정 전", "action": "날짜 입력 후 숙소/복귀 위치를 설정"}
+    ], "observedStates": ["여행 기본 조건", "기본 조건 설정 전", "날짜 입력 후"], "missingStateEvidence": ["loading", "empty", "error"], "reason": "숙소 입력 action은 관찰됐지만 복수 CRUD 상태, API contractVersion과 loading/empty/error response 연결은 관찰되지 않았다"}
+  },
+  "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}},
+  "schemaGap": ["trip_accommodations CHECK는 place_id/custom_name 둘 다 non-null을 허용하므로 XOR migration이 #68에 필요하다", "DB exclusion은 overlap만 막고 전체 gap/sequence compaction/active delete policy는 #68 application transaction이 소유한다", "public schema 단일 기준은 supabase/migrations이며 Flyway를 도입하지 않는다"]
+}

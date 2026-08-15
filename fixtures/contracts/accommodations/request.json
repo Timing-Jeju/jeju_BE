@@ -1,0 +1,24 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": {
+    "create": {
+      "method": "POST",
+      "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001/accommodations",
+      "headers": {"Authorization": "Bearer fixture.invalid.token", "Idempotency-Key": "018f6f2a-60a0-7f5b-8c61-8f548f34bc31", "If-Match": "\"trip-7\""},
+      "body": {"placeId": "20000000-0000-0000-0000-000000000004", "customName": null, "checkInDate": "2026-08-03", "checkOutDate": "2026-08-04", "checkInTime": "15:00", "checkOutTime": "11:00"}
+    },
+    "patch": {
+      "method": "PATCH",
+      "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001/accommodations/50200000-0000-0000-0000-000000000001",
+      "headers": {"Authorization": "Bearer fixture.invalid.token", "If-Match": "\"trip-8\""},
+      "existingIdentity": {"placeId": "20000000-0000-0000-0000-000000000004", "customName": null},
+      "body": {"checkInTime": "16:00"}
+    },
+    "delete": {
+      "method": "DELETE",
+      "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001/accommodations/50200000-0000-0000-0000-000000000001",
+      "headers": {"Authorization": "Bearer fixture.invalid.token", "If-Match": "\"trip-9\""},
+      "body": null
+    }
+  }
+}

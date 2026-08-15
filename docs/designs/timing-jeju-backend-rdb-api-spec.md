@@ -875,35 +875,20 @@ closed-world 계약이며 추가/누락 response field를 허용하지 않는다
 
 ### 11.9 `POST /api/v1/trips/{tripId}/accommodations`
 
-Request:
+POST/PATCH/DELETE의 exact schema, `placeId/customName` XOR, `Asia/Seoul` 시간,
+강한 `If-Match`, POST `Idempotency-Key`, 기간 coverage와 복수 숙소 정렬,
+PATCH omitted/null, active 일정 및 canonical Problem 계약은
+[`accommodations/contract.json`](../contracts/domains/accommodations/contract.json)을 따른다.
 
-```json
-{
-  "placeId": "20000000-0000-0000-0000-000000000004",
-  "customName": null,
-  "checkInDate": "2026-08-03",
-  "checkOutDate": "2026-08-04",
-  "checkInTime": "15:00",
-  "checkOutTime": "11:00",
-  "sequenceNo": 1
-}
-```
+숙소는 `[checkInDate, checkOutDate)`이며 각 구간은 여행 날짜 범위 안에 있어야 한다.
+저장된 숙소 사이에는 내부 gap/overlap이 없고 client가 `sequenceNo`를 입력하지 않는다.
+서버가 날짜와 UUID tie-breaker로 정렬한 뒤 같은 transaction에서 `1..N`을 부여한다.
+draft 입력 중 첫·마지막 edge가 비어 있는 것은 허용하고 일정 생성 시 전체 숙박 coverage를
+재검증한다. deterministic gap/overlap은 `422`, concurrent exclusion/sequence 충돌은 `409`다.
 
-Response `201`:
-
-```json
-{
-  "accommodationId": "50200000-0000-0000-0000-000000000001",
-  "placeId": "20000000-0000-0000-0000-000000000004",
-  "name": "성산 숙소 A",
-  "checkInDate": "2026-08-03",
-  "checkOutDate": "2026-08-04",
-  "sequenceNo": 1,
-  "createdAt": "2026-08-03T09:15:00+09:00"
-}
-```
-
-PATCH는 같은 필드를 부분 수정하고 `200`, DELETE는 body 없이 `204`를 반환한다. 숙박 날짜 중복 또는 공백은 `422 ACCOMMODATION_DATE_GAP_OR_OVERLAP`이다.
+POST/PATCH의 실제 변경은 active 일정을 원자적으로 무효화하고 재생성 신호를 반환한다.
+DELETE는 body 없는 `204`지만 active 일정이 있거나 중간 gap이 생기면 `422`로 거부한다.
+다른 owner, 다른 여행의 숙소와 존재하지 않는 숙소는 canonical sub 기준 `404`로 숨긴다.
 
 ## 12. 상세 계약: Schedule Versioning
 
