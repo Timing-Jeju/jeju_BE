@@ -9,16 +9,19 @@ import java.util.Objects;
 public final class DetailItemImportService {
   private static final int MAX_PAGES = 10_000;
   private final DetailInfoSource source;
+  private final DetailInfoSnapshotGateway snapshots;
   private final DetailInfoParser parser;
   private final DetailItemRepository repository;
   private final Clock clock;
 
   public DetailItemImportService(
       DetailInfoSource source,
+      DetailInfoSnapshotGateway snapshots,
       DetailInfoParser parser,
       DetailItemRepository repository,
       Clock clock) {
     this.source = Objects.requireNonNull(source);
+    this.snapshots = Objects.requireNonNull(snapshots);
     this.parser = Objects.requireNonNull(parser);
     this.repository = Objects.requireNonNull(repository);
     this.clock = Objects.requireNonNull(clock);
@@ -27,40 +30,63 @@ public final class DetailItemImportService {
   public DetailItemSyncResult importItems(DetailItemImportCommand command) {
     Objects.requireNonNull(command, "command는 필수입니다.");
     try {
-      List<DetailItem> items = new ArrayList<>();
+      List<DetailItemWrite> writes = new ArrayList<>();
+      List<DetailItemPageLineage> pageLineages = new ArrayList<>();
       int expectedTotal = -1;
       int fetched = 0;
       int pageNo = 1;
       while (pageNo <= MAX_PAGES) {
         DetailSourceResponse response =
             source.fetch(command.contentId(), command.contentTypeId(), pageNo);
-        DetailItemPage page =
-            parser.parse(
-                response.format(),
-                response.payload(),
+        SavedDetailInfoPage saved =
+            snapshots.save(
+                command.importRunId(),
                 command.contentId(),
-                command.contentTypeId());
-        expectedTotal = validatePage(command, page, pageNo, expectedTotal, fetched);
+                command.contentTypeId(),
+                pageNo,
+                response);
+        DetailItemPage page;
+        try {
+          page =
+              parser.parse(
+                  saved.storedResponse().format(),
+                  saved.storedResponse().payload(),
+                  command.contentId(),
+                  command.contentTypeId());
+          expectedTotal = validatePage(command, page, pageNo, expectedTotal, fetched);
+        } catch (RuntimeException failure) {
+          snapshots.markRejected(saved.lineage().snapshotId());
+          throw failure;
+        }
+        snapshots.markParsed(saved.lineage().snapshotId());
+        DetailItemPageLineage pageLineage =
+            new DetailItemPageLineage(
+                pageNo,
+                page.rawItemCount(),
+                saved.payloadHash(),
+                saved.fetchedAt(),
+                saved.lineage());
+        pageLineages.add(pageLineage);
         for (DetailItem item : page.items()) {
-          items.add(
-              new DetailItem(
-                  item.itemType(),
-                  item.sourceItemKey(),
-                  item.title(),
-                  items.size() + 1,
-                  item.attributes()));
+          writes.add(
+              new DetailItemWrite(
+                  new DetailItem(
+                      item.itemType(),
+                      item.sourceItemKey(),
+                      item.title(),
+                      writes.size() + 1,
+                      item.attributes()),
+                  pageLineage));
         }
         fetched += page.rawItemCount();
         if (fetched == expectedTotal) {
           DetailItemBatch batch =
-              new DetailItemBatch(command.contentId(), command.contentTypeId(), items);
+              new DetailItemBatch(command.contentId(), command.contentTypeId(), writes);
+          DetailItemSweep sweep =
+              new DetailItemSweep(command.importRunId(), expectedTotal, pageLineages);
           return repository.sync(
               new DetailItemSyncCommand(
-                  command.contentId(),
-                  command.contentTypeId(),
-                  batch,
-                  command.lineage(),
-                  clock.instant()));
+                  command.contentId(), command.contentTypeId(), batch, sweep, clock.instant()));
         }
         pageNo++;
       }

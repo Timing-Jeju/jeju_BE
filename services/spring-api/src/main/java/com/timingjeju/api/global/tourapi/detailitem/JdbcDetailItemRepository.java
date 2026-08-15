@@ -7,9 +7,12 @@ import com.timingjeju.api.application.tourapi.detailitem.DetailItem;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemBatch;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportException;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemLineage;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemPageLineage;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemRepository;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemSweep;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemSyncCommand;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemSyncResult;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemWrite;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -57,40 +60,47 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
       if (!command.contentTypeId().equals(source.contentTypeId())) {
         throw DetailItemImportException.storageFailure();
       }
-      SourceSnapshot incoming = validateLineage(command.contentId(), command.lineage());
+      validateSweep(command.contentId(), command.sweep());
       Map<String, ExistingItem> existing = findItems(source.placeId(), command.contentTypeId());
-      LatestSnapshot latest = findLatestSnapshot(source.placeId(), command.contentTypeId());
-      validateFreshness(incoming, latest, existing, command.batch());
+      LatestSweep latest = findLatestSweep(source.placeId(), command.contentTypeId());
+      validateFreshness(command.sweep(), latest, existing, command.batch());
+      if (latest == null || !latest.manifestHash().equals(command.sweep().manifestHash())) {
+        insertSweep(source, command.sweep(), command.observedAt());
+      }
       Counts counts = new Counts();
       Set<String> incomingKeys =
           command.batch().items().stream()
               .map(JdbcDetailItemRepository::scopedKey)
               .collect(Collectors.toSet());
 
-      for (DetailItem item : command.batch().items()) {
+      for (DetailItemWrite write : command.batch().writes()) {
+        DetailItem item = write.item();
         String key = scopedKey(item);
         ExistingItem stored = existing.get(key);
         ItemDocument document = document(item);
         if (stored == null) {
-          insert(source, item, document, command);
+          insert(source, write, document, command);
           counts.inserted++;
-        } else if (Objects.equals(stored.snapshotId(), command.lineage().snapshotId())) {
+        } else if (Objects.equals(
+            stored.snapshotId(), write.pageLineage().lineage().snapshotId())) {
           if (!stored.same(document, item)
+              || !Objects.equals(stored.sweepId(), command.sweep().sweepId())
               || stored.staleAt() != null
               || stored.tombstonedAt() != null) {
             throw DetailItemImportException.storageFailure();
           }
-          writeProvenance(stored.id(), source.contentTypeId(), command.lineage(), () -> {});
+          writeProvenance(
+              stored.id(), source.contentTypeId(), write.pageLineage().lineage(), () -> {});
           counts.skipped++;
         } else {
-          update(source, stored.id(), item, document, command);
+          update(source, stored.id(), write, document, command);
           counts.updated++;
         }
       }
 
       for (ExistingItem stored : existing.values()) {
         if (incomingKeys.contains(stored.scopedKey()) || stored.tombstonedAt() != null) continue;
-        if (Objects.equals(stored.snapshotId(), command.lineage().snapshotId())) continue;
+        if (Objects.equals(stored.sweepId(), command.sweep().sweepId())) continue;
         if (stored.staleAt() == null) {
           markStale(source, stored.id(), command);
           counts.staled++;
@@ -116,14 +126,16 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
     List<SourcePlace> rows =
         jdbc.query(
             """
-            select s.place_id, s.content_type_id from public.tour_place_sources s
+            select s.place_id, s.content_type_id, s.external_id from public.tour_place_sources s
             join public.tour_places p on p.id=s.place_id
             where s.source_provider=? and s.source_service=? and s.external_id=?
             for update of p, s
             """,
             (rs, row) ->
                 new SourcePlace(
-                    rs.getObject("place_id", UUID.class), rs.getString("content_type_id")),
+                    rs.getObject("place_id", UUID.class),
+                    rs.getString("content_type_id"),
+                    rs.getString("external_id")),
             PROVIDER,
             SERVICE,
             contentId);
@@ -133,57 +145,62 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
     return rows.getFirst();
   }
 
-  private SourceSnapshot validateLineage(String contentId, DetailItemLineage lineage) {
-    List<SourceSnapshot> snapshots =
-        jdbc.query(
-            """
-              select snapshot.id, snapshot.fetched_at
+  private void validateSweep(String contentId, DetailItemSweep sweep) {
+    for (DetailItemPageLineage page : sweep.pages()) {
+      DetailItemLineage lineage = page.lineage();
+      List<SourceSnapshot> snapshots =
+          jdbc.query(
+              """
+              select snapshot.id, snapshot.fetched_at, snapshot.payload_hash
               from public.external_api_snapshots snapshot
               join public.data_import_runs run on run.id=snapshot.import_run_id
               join public.tour_api_operations operation on operation.operation_key=snapshot.source_operation
               where snapshot.id=? and snapshot.import_run_id=? and snapshot.request_hash=?
                 and snapshot.source_operation='detailInfo2'
                 and snapshot.source_provider=? and snapshot.source_service=? and snapshot.scope_key=?
+                and snapshot.page_key=? and snapshot.payload_hash=?
                 and snapshot.parse_status in ('parsed','tombstoned')
                 and run.source_operation='detailInfo2' and run.source_provider=? and run.source_service=?
                 and operation.active
             """,
-            (rs, row) ->
-                new SourceSnapshot(
-                    rs.getObject("id", UUID.class),
-                    Objects.requireNonNull(instant(rs.getTimestamp("fetched_at")))),
-            lineage.snapshotId(),
-            lineage.importRunId(),
-            lineage.requestFingerprint(),
-            PROVIDER,
-            SERVICE,
-            "content:" + contentId,
-            PROVIDER,
-            SERVICE);
-    if (snapshots.size() != 1) throw DetailItemImportException.storageFailure();
-    return snapshots.getFirst();
+              (rs, row) ->
+                  new SourceSnapshot(
+                      rs.getObject("id", UUID.class),
+                      Objects.requireNonNull(instant(rs.getTimestamp("fetched_at"))),
+                      rs.getString("payload_hash")),
+              lineage.snapshotId(),
+              lineage.importRunId(),
+              lineage.requestFingerprint(),
+              PROVIDER,
+              SERVICE,
+              "content:" + contentId,
+              Integer.toString(page.pageNo()),
+              page.payloadHash(),
+              PROVIDER,
+              SERVICE);
+      if (snapshots.size() != 1
+          || !snapshots.getFirst().fetchedAt().equals(page.fetchedAt())
+          || !snapshots.getFirst().payloadHash().equals(page.payloadHash())) {
+        throw DetailItemImportException.storageFailure();
+      }
+    }
   }
 
-  private LatestSnapshot findLatestSnapshot(UUID placeId, String contentTypeId) {
-    List<LatestSnapshot> rows =
+  private LatestSweep findLatestSweep(UUID placeId, String contentTypeId) {
+    List<LatestSweep> rows =
         jdbc.query(
             """
-            select snapshot.id, snapshot.fetched_at
-            from public.tour_api_operation_provenance provenance
-            join public.place_detail_items item
-              on item.id=provenance.normalized_row_id
-             and provenance.normalized_entity_type='place_detail_items'
-            join public.external_api_snapshots snapshot
-              on snapshot.id=provenance.source_snapshot_id
-            where item.place_id=? and item.content_type_id=?
-              and item.source_provider=? and item.source_service=?
-              and provenance.operation_key='detailInfo2'
-            order by snapshot.fetched_at desc, snapshot.id desc
+            select id, manifest_hash, fetched_at
+            from public.tour_api_detail_item_sweeps
+            where place_id=? and content_type_id=?
+              and source_provider=? and source_service=?
+            order by fetched_at desc, id desc
             limit 1
             """,
             (rs, row) ->
-                new LatestSnapshot(
+                new LatestSweep(
                     rs.getObject("id", UUID.class),
+                    rs.getString("manifest_hash"),
                     Objects.requireNonNull(instant(rs.getTimestamp("fetched_at")))),
             placeId,
             contentTypeId,
@@ -193,16 +210,17 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
   }
 
   private static void validateFreshness(
-      SourceSnapshot incoming,
-      LatestSnapshot latest,
+      DetailItemSweep incoming,
+      LatestSweep latest,
       Map<String, ExistingItem> existing,
       DetailItemBatch batch) {
     if (latest == null) return;
     int freshness = incoming.fetchedAt().compareTo(latest.fetchedAt());
-    if (freshness < 0 || (freshness == 0 && !incoming.id().equals(latest.id()))) {
+    if (freshness < 0
+        || (freshness == 0 && !incoming.manifestHash().equals(latest.manifestHash()))) {
       throw DetailItemImportException.storageFailure();
     }
-    if (incoming.id().equals(latest.id())) {
+    if (incoming.manifestHash().equals(latest.manifestHash())) {
       Set<String> incomingKeys =
           batch.items().stream()
               .map(JdbcDetailItemRepository::scopedKey)
@@ -217,12 +235,51 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
     }
   }
 
+  private void insertSweep(SourcePlace source, DetailItemSweep sweep, Instant observedAt) {
+    requireOne(
+        jdbc.update(
+            """
+            insert into public.tour_api_detail_item_sweeps
+              (id, place_id, source_provider, source_service, content_id, content_type_id,
+               import_run_id, manifest_hash, fetched_at, expected_total, page_count, accepted_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            sweep.sweepId(),
+            source.placeId(),
+            PROVIDER,
+            SERVICE,
+            source.contentId(),
+            source.contentTypeId(),
+            sweep.importRunId(),
+            sweep.manifestHash(),
+            timestamp(sweep.fetchedAt()),
+            sweep.expectedTotal(),
+            sweep.pages().size(),
+            timestamp(observedAt)));
+    for (DetailItemPageLineage page : sweep.pages()) {
+      requireOne(
+          jdbc.update(
+              """
+              insert into public.tour_api_detail_item_sweep_pages
+                (sweep_id, page_no, source_snapshot_id, request_fingerprint,
+                 payload_hash, raw_item_count)
+              values (?, ?, ?, ?, ?, ?)
+              """,
+              sweep.sweepId(),
+              page.pageNo(),
+              page.lineage().snapshotId(),
+              page.lineage().requestFingerprint(),
+              page.payloadHash(),
+              page.rawItemCount()));
+    }
+  }
+
   private Map<String, ExistingItem> findItems(UUID placeId, String contentTypeId) {
     List<ExistingItem> rows =
         jdbc.query(
             """
             select id, item_type, source_item_key, title, sequence_no, attributes::text,
-              payload_hash, source_snapshot_id, stale_at, tombstoned_at
+              payload_hash, source_snapshot_id, source_sweep_id, stale_at, tombstoned_at
             from public.place_detail_items
             where place_id=? and source_provider=? and source_service=? and content_type_id=?
             for update
@@ -237,6 +294,7 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
                     rs.getString("attributes"),
                     rs.getString("payload_hash"),
                     rs.getObject("source_snapshot_id", UUID.class),
+                    rs.getObject("source_sweep_id", UUID.class),
                     instant(rs.getTimestamp("stale_at")),
                     instant(rs.getTimestamp("tombstoned_at"))),
             placeId,
@@ -247,12 +305,17 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
   }
 
   private void insert(
-      SourcePlace source, DetailItem item, ItemDocument document, DetailItemSyncCommand command) {
+      SourcePlace source,
+      DetailItemWrite write,
+      ItemDocument document,
+      DetailItemSyncCommand command) {
+    DetailItem item = write.item();
+    DetailItemLineage lineage = write.pageLineage().lineage();
     UUID id = deterministicId(source.placeId(), item);
     writeProvenance(
         id,
         source.contentTypeId(),
-        command.lineage(),
+        lineage,
         () -> {
           int changed =
               jdbc.update(
@@ -260,8 +323,8 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
                   insert into public.place_detail_items
                     (id, place_id, source_provider, source_service, content_type_id, item_type,
                      source_item_key, title, sequence_no, attributes, payload_hash,
-                     source_snapshot_id, import_run_id, last_seen_at, created_at, updated_at)
-                  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?)
+                     source_snapshot_id, source_sweep_id, import_run_id, last_seen_at, created_at, updated_at)
+                  values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?)
                   """,
                   id,
                   source.placeId(),
@@ -274,8 +337,9 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
                   item.sequenceNo(),
                   document.attributesJson(),
                   document.payloadHash(),
-                  command.lineage().snapshotId(),
-                  command.lineage().importRunId(),
+                  lineage.snapshotId(),
+                  command.sweep().sweepId(),
+                  lineage.importRunId(),
                   timestamp(command.observedAt()),
                   timestamp(command.observedAt()),
                   timestamp(command.observedAt()));
@@ -286,27 +350,30 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
   private void update(
       SourcePlace source,
       UUID id,
-      DetailItem item,
+      DetailItemWrite write,
       ItemDocument document,
       DetailItemSyncCommand command) {
+    DetailItem item = write.item();
+    DetailItemLineage lineage = write.pageLineage().lineage();
     writeProvenance(
         id,
         source.contentTypeId(),
-        command.lineage(),
+        lineage,
         () ->
             requireOne(
                 jdbc.update(
                     """
                     update public.place_detail_items set title=?, sequence_no=?, attributes=?::jsonb,
-                      payload_hash=?, source_snapshot_id=?, import_run_id=?, last_seen_at=?,
+                      payload_hash=?, source_snapshot_id=?, source_sweep_id=?, import_run_id=?, last_seen_at=?,
                       stale_at=null, tombstoned_at=null, updated_at=? where id=?
                     """,
                     item.title(),
                     item.sequenceNo(),
                     document.attributesJson(),
                     document.payloadHash(),
-                    command.lineage().snapshotId(),
-                    command.lineage().importRunId(),
+                    lineage.snapshotId(),
+                    command.sweep().sweepId(),
+                    lineage.importRunId(),
                     timestamp(command.observedAt()),
                     timestamp(command.observedAt()),
                     id)));
@@ -322,21 +389,23 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
 
   private void lifecycleUpdate(
       SourcePlace source, UUID id, DetailItemSyncCommand command, boolean tombstone) {
+    DetailItemLineage lineage = command.sweep().pages().getLast().lineage();
     writeProvenance(
         id,
         source.contentTypeId(),
-        command.lineage(),
+        lineage,
         () -> {
           String sql =
               tombstone
-                  ? "update public.place_detail_items set tombstoned_at=?, source_snapshot_id=?, import_run_id=?, updated_at=? where id=? and tombstoned_at is null"
-                  : "update public.place_detail_items set stale_at=?, source_snapshot_id=?, import_run_id=?, updated_at=? where id=? and stale_at is null";
+                  ? "update public.place_detail_items set tombstoned_at=?, source_snapshot_id=?, source_sweep_id=?, import_run_id=?, updated_at=? where id=? and tombstoned_at is null"
+                  : "update public.place_detail_items set stale_at=?, source_snapshot_id=?, source_sweep_id=?, import_run_id=?, updated_at=? where id=? and stale_at is null";
           requireOne(
               jdbc.update(
                   sql,
                   timestamp(command.observedAt()),
-                  command.lineage().snapshotId(),
-                  command.lineage().importRunId(),
+                  lineage.snapshotId(),
+                  command.sweep().sweepId(),
+                  lineage.importRunId(),
                   timestamp(command.observedAt()),
                   id));
         });
@@ -412,11 +481,11 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
     if (changed != 1) throw DetailItemImportException.storageFailure();
   }
 
-  private record SourcePlace(UUID placeId, String contentTypeId) {}
+  private record SourcePlace(UUID placeId, String contentTypeId, String contentId) {}
 
-  private record SourceSnapshot(UUID id, Instant fetchedAt) {}
+  private record SourceSnapshot(UUID id, Instant fetchedAt, String payloadHash) {}
 
-  private record LatestSnapshot(UUID id, Instant fetchedAt) {}
+  private record LatestSweep(UUID id, String manifestHash, Instant fetchedAt) {}
 
   private record ExistingItem(
       UUID id,
@@ -427,6 +496,7 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
       String attributesJson,
       String payloadHash,
       UUID snapshotId,
+      UUID sweepId,
       Instant staleAt,
       Instant tombstonedAt) {
     String scopedKey() {

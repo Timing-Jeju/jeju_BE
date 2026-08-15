@@ -218,12 +218,29 @@ class DatabaseHardeningTest(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, migration)
 
-    def test_detail_info_operation_extends_the_canonical_registry_only(self):
+    def test_detail_info_operation_declares_complete_sweep_watermark_and_page_lineage(self):
         migration = self.read_migration(TOUR_API_DETAIL_INFO_MIGRATION)
 
-        self.assertIn("insert into public.tour_api_operations (operation_key)", migration)
-        self.assertIn("values ('detailinfo2')", migration)
-        for forbidden in ("create table", "alter table", "flyway", "servicekey"):
+        for fragment in (
+            "insert into public.tour_api_operations (operation_key)",
+            "values ('detailinfo2')",
+            "create table public.tour_api_detail_item_sweeps",
+            "create table public.tour_api_detail_item_sweep_pages",
+            "manifest_hash",
+            "source_sweep_id",
+            "validate_detail_item_sweep_lineage()",
+            "snapshot.page_key = new.page_no::text",
+            "snapshot.request_hash = new.request_fingerprint",
+            "snapshot.payload_hash = new.payload_hash",
+            "alter table public.tour_api_detail_item_sweeps enable row level security",
+            "alter table public.tour_api_detail_item_sweep_pages enable row level security",
+            "revoke all on public.tour_api_detail_item_sweeps from anon",
+            "revoke all on public.tour_api_detail_item_sweep_pages from authenticated",
+            "grant select, insert on public.tour_api_detail_item_sweeps to service_role",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
+        for forbidden in ("flyway", "servicekey"):
             self.assertNotIn(forbidden, migration)
 
     def test_docker_v1_upgrade_applies_snapshot_storage_to_existing_snapshot(self):

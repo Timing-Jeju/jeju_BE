@@ -1,9 +1,9 @@
 package com.timingjeju.api.application.tourapi.detailitem;
 
 import java.util.Objects;
+import java.util.UUID;
 
-public record DetailItemImportCommand(
-    String contentId, String contentTypeId, DetailItemLineage lineage) {
+public record DetailItemImportCommand(String contentId, String contentTypeId, UUID importRunId) {
   public DetailItemImportCommand {
     if (contentId == null
         || contentId.isBlank()
@@ -13,6 +13,6 @@ public record DetailItemImportCommand(
     }
     contentId = contentId.strip();
     contentTypeId = contentTypeId.strip();
-    lineage = Objects.requireNonNull(lineage, "lineage는 필수입니다.");
+    importRunId = Objects.requireNonNull(importRunId, "importRunId는 필수입니다.");
   }
 }

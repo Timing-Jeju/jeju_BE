@@ -26,6 +26,7 @@ class DetailItemImportServiceTest {
   private static final Instant NOW = Instant.parse("2026-08-16T08:00:00Z");
   private static final DetailItemLineage LINEAGE =
       new DetailItemLineage("detailInfo2", "a".repeat(64), UUID.randomUUID(), UUID.randomUUID());
+  private static final UUID RUN = LINEAGE.importRunId();
 
   @Test
   void detailInfo를_한번_호출하고_검증된_batch와_lineage를_repository에_전달한다() {
@@ -33,15 +34,16 @@ class DetailItemImportServiceTest {
     var service =
         new DetailItemImportService(
             (id, type, pageNo) -> response(),
+            new RecordingSnapshotGateway(),
             (format, payload, id, type) -> page("100", "12", 1, 100, 1, items("1")),
             repository,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
-    var result = service.importItems(new DetailItemImportCommand("100", "12", LINEAGE));
+    var result = service.importItems(new DetailItemImportCommand("100", "12", RUN));
 
     assertThat(result.insertedCount()).isEqualTo(1);
     assertThat(repository.command.contentId()).isEqualTo("100");
-    assertThat(repository.command.lineage()).isEqualTo(LINEAGE);
+    assertThat(repository.command.sweep().importRunId()).isEqualTo(RUN);
     assertThat(repository.command.observedAt()).isEqualTo(NOW);
   }
 
@@ -51,11 +53,12 @@ class DetailItemImportServiceTest {
     var service =
         new DetailItemImportService(
             (id, type, pageNo) -> response(),
+            new RecordingSnapshotGateway(),
             (format, payload, id, type) -> page("other", "12", 1, 100, 1, items("1")),
             repository,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
-    assertThatThrownBy(() -> service.importItems(new DetailItemImportCommand("100", "12", LINEAGE)))
+    assertThatThrownBy(() -> service.importItems(new DetailItemImportCommand("100", "12", RUN)))
         .isInstanceOf(DetailItemImportException.class);
     assertThat(repository.command).isNull();
   }
@@ -73,11 +76,12 @@ class DetailItemImportServiceTest {
         new DetailItemImportService(
             (id, type, pageNo) ->
                 new DetailSourceResponse(truncatedPage, SnapshotPayloadFormat.JSON),
+            new RecordingSnapshotGateway(),
             new TourApiDetailInfoParser(new ObjectMapper(), new DetailItemContentSanitizer()),
             repository,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
-    assertThatThrownBy(() -> service.importItems(new DetailItemImportCommand("100", "12", LINEAGE)))
+    assertThatThrownBy(() -> service.importItems(new DetailItemImportCommand("100", "12", RUN)))
         .isInstanceOf(DetailItemImportException.class);
     assertThat(repository.command).isNull();
   }
@@ -99,17 +103,44 @@ class DetailItemImportServiceTest {
               requestedPages.add(pageNo);
               return response();
             },
+            new RecordingSnapshotGateway(),
             (format, payload, id, type) -> pages.remove(),
             repository,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
-    service.importItems(new DetailItemImportCommand("100", "12", LINEAGE));
+    service.importItems(new DetailItemImportCommand("100", "12", RUN));
 
     assertThat(requestedPages).containsExactly(1, 2);
     assertThat(repository.command.batch().items()).hasSize(101);
     assertThat(repository.command.batch().items())
         .extracting(DetailItem::sequenceNo)
         .containsExactlyElementsOf(java.util.stream.IntStream.rangeClosed(1, 101).boxed().toList());
+  }
+
+  @Test
+  void parser는_network_response가_아니라_snapshot_gateway가_보존한_exact_bytes만_소비한다() {
+    RecordingRepository repository = new RecordingRepository();
+    byte[] networkPayload = "network raw page".getBytes(StandardCharsets.UTF_8);
+    byte[] storedPayload = "stored raw page".getBytes(StandardCharsets.UTF_8);
+    RecordingSnapshotGateway snapshots = new RecordingSnapshotGateway(storedPayload);
+    List<byte[]> parsedPayloads = new ArrayList<>();
+    var service =
+        new DetailItemImportService(
+            (id, type, pageNo) ->
+                new DetailSourceResponse(networkPayload, SnapshotPayloadFormat.JSON),
+            snapshots,
+            (format, payload, id, type) -> {
+              parsedPayloads.add(payload);
+              return page("100", "12", 1, 100, 1, items("1"));
+            },
+            repository,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+
+    service.importItems(new DetailItemImportCommand("100", "12", RUN));
+
+    assertThat(snapshots.receivedPayloads).singleElement().isEqualTo(networkPayload);
+    assertThat(parsedPayloads).singleElement().isEqualTo(storedPayload);
+    assertThat(repository.command).isNotNull();
   }
 
   @Test
@@ -167,11 +198,12 @@ class DetailItemImportServiceTest {
               }
               return response();
             },
+            new RecordingSnapshotGateway(),
             (format, payload, id, type) -> pages.remove(),
             repository,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
-    assertThatThrownBy(() -> service.importItems(new DetailItemImportCommand("100", "12", LINEAGE)))
+    assertThatThrownBy(() -> service.importItems(new DetailItemImportCommand("100", "12", RUN)))
         .isInstanceOf(DetailItemImportException.class);
     assertThat(repository.command).isNull();
   }
@@ -188,5 +220,48 @@ class DetailItemImportServiceTest {
       this.command = command;
       return new DetailItemSyncResult(1, 0, 0, 0, 0);
     }
+  }
+
+  private static final class RecordingSnapshotGateway implements DetailInfoSnapshotGateway {
+    private final byte[] storedPayload;
+    private final List<byte[]> receivedPayloads = new ArrayList<>();
+
+    private RecordingSnapshotGateway() {
+      this(null);
+    }
+
+    private RecordingSnapshotGateway(byte[] storedPayload) {
+      this.storedPayload = storedPayload == null ? null : storedPayload.clone();
+    }
+
+    @Override
+    public SavedDetailInfoPage save(
+        UUID importRunId,
+        String contentId,
+        String contentTypeId,
+        int pageNo,
+        DetailSourceResponse response) {
+      receivedPayloads.add(response.payload());
+      byte[] persisted = storedPayload == null ? response.payload() : storedPayload.clone();
+      String suffix = String.format("%012d", pageNo);
+      DetailItemLineage lineage =
+          new DetailItemLineage(
+              "detailInfo2",
+              Integer.toHexString(pageNo).repeat(64),
+              UUID.fromString("28000000-0000-0000-0002-" + suffix),
+              importRunId);
+      return new SavedDetailInfoPage(
+          new DetailSourceResponse(persisted, response.format()),
+          pageNo,
+          "e".repeat(64),
+          NOW.plusSeconds(pageNo),
+          lineage);
+    }
+
+    @Override
+    public void markParsed(UUID snapshotId) {}
+
+    @Override
+    public void markRejected(UUID snapshotId) {}
   }
 }

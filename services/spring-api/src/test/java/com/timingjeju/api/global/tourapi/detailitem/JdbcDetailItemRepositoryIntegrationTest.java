@@ -8,8 +8,12 @@ import com.timingjeju.api.application.tourapi.detailitem.DetailItemAttributes;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemBatch;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportException;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemLineage;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemPageLineage;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemRepository;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemSweep;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemSyncCommand;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemSyncResult;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemWrite;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -119,8 +123,8 @@ class JdbcDetailItemRepositoryIntegrationTest {
                     new DetailItemSyncCommand(
                         "100",
                         "39",
-                        new DetailItemBatch("100", "39", List.of(item("1", 1))),
-                        lineage.lineage(),
+                        batch("39", List.of(item("1", 1)), pageLineage(lineage, 1)),
+                        sweep(lineage, 1),
                         NOW.plusSeconds(10))))
         .isInstanceOf(DetailItemImportException.class);
     assertThat(jdbc.queryForObject("select count(*) from public.place_detail_items", Integer.class))
@@ -128,11 +132,17 @@ class JdbcDetailItemRepositoryIntegrationTest {
 
     DetailItemLineage wrong =
         new DetailItemLineage("detailInfo2", "f".repeat(64), lineage.snapshot(), lineage.run());
+    DetailItemPageLineage wrongPage =
+        new DetailItemPageLineage(1, 1, "e".repeat(64), lineage.fetchedAt(), wrong);
     assertThatThrownBy(
             () ->
                 repository.sync(
                     new DetailItemSyncCommand(
-                        "100", "12", batch(List.of(item("1", 1))), wrong, NOW.plusSeconds(10))))
+                        "100",
+                        "12",
+                        batch("12", List.of(item("1", 1)), wrongPage),
+                        new DetailItemSweep(lineage.run(), 1, List.of(wrongPage)),
+                        NOW.plusSeconds(10))))
         .isInstanceOf(DetailItemImportException.class);
     assertThat(jdbc.queryForObject("select count(*) from public.place_detail_items", Integer.class))
         .isZero();
@@ -168,6 +178,42 @@ class JdbcDetailItemRepositoryIntegrationTest {
                 "select count(*) from public.tour_api_operation_provenance where normalized_entity_type='place_detail_items'",
                 Integer.class))
         .isEqualTo(1);
+  }
+
+  @Test
+  void 최신_complete_empty_snapshot은_row가_없어도_과거_non_empty와_empty를_거부하는_scope_fence가_된다() {
+    LineageFixture newerEmpty = lineage(15, NOW.plusSeconds(20));
+    DetailItemSyncResult accepted = repository.sync(command(newerEmpty, List.of()));
+    finishRun(newerEmpty.run());
+    DetailItemSyncResult replayed = repository.sync(command(newerEmpty, List.of()));
+
+    LineageFixture equalTimeDifferentEmpty = lineage(20, NOW.plusSeconds(20));
+    assertThatThrownBy(() -> repository.sync(command(equalTimeDifferentEmpty, List.of())))
+        .isInstanceOf(DetailItemImportException.class);
+    finishRun(equalTimeDifferentEmpty.run());
+
+    LineageFixture olderNonEmpty = lineage(16, NOW.plusSeconds(10));
+    assertThatThrownBy(() -> repository.sync(command(olderNonEmpty, List.of(item("outdated", 1)))))
+        .isInstanceOf(DetailItemImportException.class);
+    finishRun(olderNonEmpty.run());
+
+    LineageFixture olderEmpty = lineage(17, NOW.plusSeconds(10));
+    assertThatThrownBy(() -> repository.sync(command(olderEmpty, List.of())))
+        .isInstanceOf(DetailItemImportException.class);
+
+    assertThat(accepted).isEqualTo(new DetailItemSyncResult(0, 0, 0, 0, 0));
+    assertThat(replayed).isEqualTo(accepted);
+    assertThat(jdbc.queryForObject("select count(*) from public.place_detail_items", Integer.class))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_detail_item_sweeps", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where normalized_entity_type='place_detail_items'",
+                Integer.class))
+        .isZero();
   }
 
   @Test
@@ -254,6 +300,38 @@ class JdbcDetailItemRepositoryIntegrationTest {
   }
 
   @Test
+  void newer_empty와_older_non_empty_transaction이_겹쳐도_scope_fence는_newer_empty로_결정된다()
+      throws Exception {
+    LineageFixture newerEmpty = lineage(18, NOW.plusSeconds(20));
+    finishRun(newerEmpty.run());
+    LineageFixture olderNonEmpty = lineage(19, NOW.plusSeconds(10));
+    finishRun(olderNonEmpty.run());
+    CountDownLatch start = new CountDownLatch(1);
+
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      Future<Boolean> newerResult =
+          executor.submit(() -> concurrentSyncOutcome(command(newerEmpty, List.of()), start, 0));
+      Future<Boolean> olderResult =
+          executor.submit(
+              () ->
+                  concurrentSyncOutcome(
+                      command(olderNonEmpty, List.of(item("outdated", 1))), start, 75));
+      start.countDown();
+
+      assertThat(newerResult.get(10, TimeUnit.SECONDS)).isTrue();
+      assertThat(olderResult.get(10, TimeUnit.SECONDS)).isFalse();
+    }
+
+    assertThat(jdbc.queryForObject("select count(*) from public.place_detail_items", Integer.class))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where normalized_entity_type='place_detail_items'",
+                Integer.class))
+        .isZero();
+  }
+
+  @Test
   void 저장된_attributes_JSON_UTF8_size는_항상_64KiB_이하다() {
     LineageFixture lineage = lineage(12, NOW.plusSeconds(10));
     String escapedMultibyte = "제주 \"인용\" \\ 경로\n".repeat(2_000);
@@ -275,13 +353,75 @@ class JdbcDetailItemRepositoryIntegrationTest {
         .isLessThanOrEqualTo(DetailItemAttributes.MAX_BYTES);
   }
 
-  private DetailItemSyncCommand command(LineageFixture fixture, List<DetailItem> items) {
-    return new DetailItemSyncCommand(
-        "100", "12", batch(items), fixture.lineage(), fixture.fetchedAt());
+  @Test
+  void multi_page_item은_각자_실제_raw_page_snapshot과_complete_sweep에_연결된다() {
+    LineageFixture first = lineage(21, NOW.plusSeconds(10));
+    UUID secondSnapshot = UUID.fromString("28000000-0000-0000-0001-000000000022");
+    String secondFingerprint = String.format("%064x", 22);
+    insertSnapshot(
+        first.run(),
+        secondSnapshot,
+        "detailInfo2",
+        secondFingerprint,
+        "2",
+        "d".repeat(64),
+        NOW.plusSeconds(11));
+    DetailItemPageLineage page1 = pageLineage(first, 1);
+    DetailItemLineage secondLineage =
+        new DetailItemLineage("detailInfo2", secondFingerprint, secondSnapshot, first.run());
+    DetailItemPageLineage page2 =
+        new DetailItemPageLineage(2, 1, "d".repeat(64), NOW.plusSeconds(11), secondLineage);
+    DetailItemSweep sweep = new DetailItemSweep(first.run(), 2, List.of(page1, page2));
+    DetailItemBatch batch =
+        new DetailItemBatch(
+            "100",
+            "12",
+            List.of(
+                new DetailItemWrite(item("page-1", 1), page1),
+                new DetailItemWrite(item("page-2", 2), page2)));
+
+    repository.sync(new DetailItemSyncCommand("100", "12", batch, sweep, NOW.plusSeconds(11)));
+
+    assertThat(
+            jdbc.queryForList(
+                "select source_snapshot_id from public.place_detail_items order by sequence_no",
+                UUID.class))
+        .containsExactly(first.snapshot(), secondSnapshot);
+    assertThat(
+            jdbc.queryForList(
+                "select source_snapshot_id from public.tour_api_detail_item_sweep_pages where sweep_id=? order by page_no",
+                UUID.class,
+                sweep.sweepId()))
+        .containsExactly(first.snapshot(), secondSnapshot);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where source_snapshot_id in (?, ?)",
+                Integer.class,
+                first.snapshot(),
+                secondSnapshot))
+        .isEqualTo(2);
   }
 
-  private static DetailItemBatch batch(List<DetailItem> items) {
-    return new DetailItemBatch("100", "12", items);
+  private DetailItemSyncCommand command(LineageFixture fixture, List<DetailItem> items) {
+    DetailItemPageLineage page = pageLineage(fixture, items.size());
+    return new DetailItemSyncCommand(
+        "100", "12", batch("12", items, page), sweep(fixture, items.size()), fixture.fetchedAt());
+  }
+
+  private static DetailItemBatch batch(
+      String contentTypeId, List<DetailItem> items, DetailItemPageLineage page) {
+    return new DetailItemBatch(
+        "100", contentTypeId, items.stream().map(item -> new DetailItemWrite(item, page)).toList());
+  }
+
+  private static DetailItemPageLineage pageLineage(LineageFixture fixture, int rawItemCount) {
+    return new DetailItemPageLineage(
+        1, rawItemCount, "e".repeat(64), fixture.fetchedAt(), fixture.lineage());
+  }
+
+  private static DetailItemSweep sweep(LineageFixture fixture, int expectedTotal) {
+    return new DetailItemSweep(
+        fixture.run(), expectedTotal, List.of(pageLineage(fixture, expectedTotal)));
   }
 
   private static DetailItem item(String key, int sequence) {
@@ -296,7 +436,7 @@ class JdbcDetailItemRepositoryIntegrationTest {
   private LineageFixture lineage(int suffix, Instant fetchedAt) {
     UUID run = UUID.fromString("28000000-0000-0000-0000-" + String.format("%012d", suffix));
     UUID snapshot = UUID.fromString("28000000-0000-0000-0001-" + String.format("%012d", suffix));
-    String fingerprint = Integer.toHexString(suffix).repeat(64);
+    String fingerprint = String.format("%064x", suffix);
     insertLineage(run, snapshot, "detailInfo2", fingerprint, fetchedAt);
     return new LineageFixture(
         run,
@@ -334,14 +474,26 @@ class JdbcDetailItemRepositoryIntegrationTest {
         Timestamp.from(fetchedAt),
         fingerprint,
         operation + "-28-" + run);
+    insertSnapshot(run, snapshot, operation, fingerprint, "1", "e".repeat(64), fetchedAt);
+  }
+
+  private void insertSnapshot(
+      UUID run,
+      UUID snapshot,
+      String operation,
+      String fingerprint,
+      String pageKey,
+      String payloadHash,
+      Instant fetchedAt) {
     jdbc.update(
-        "insert into public.external_api_snapshots (id, import_run_id, source_provider, source_service, source_operation, scope_key, request_hash, page_key, fetched_at, parser_version, payload_hash, request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version, payload_format, initial_parse_status, parse_status, parsed_at) values (?, ?, 'tour-api', 'KorService2', ?, 'content:100', ?, '1', ?, 'detail-info-v1', ?, '{}'::jsonb, '{}'::jsonb, 2, 'test-v1', 'JSON', 'parsed', 'parsed', ?)",
+        "insert into public.external_api_snapshots (id, import_run_id, source_provider, source_service, source_operation, scope_key, request_hash, page_key, fetched_at, parser_version, payload_hash, request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version, payload_format, initial_parse_status, parse_status, parsed_at) values (?, ?, 'tour-api', 'KorService2', ?, 'content:100', ?, ?, ?, 'detail-info-v1', ?, '{}'::jsonb, '{}'::jsonb, 2, 'test-v1', 'JSON', 'parsed', 'parsed', ?)",
         snapshot,
         run,
         operation,
         fingerprint,
+        pageKey,
         Timestamp.from(fetchedAt),
-        "e".repeat(64),
+        payloadHash,
         Timestamp.from(fetchedAt));
   }
 
@@ -399,6 +551,8 @@ class JdbcDetailItemRepositoryIntegrationTest {
   private void clean() {
     jdbc.update("delete from public.tour_api_operation_provenance");
     jdbc.update("delete from public.place_detail_items");
+    jdbc.update("delete from public.tour_api_detail_item_sweep_pages");
+    jdbc.update("delete from public.tour_api_detail_item_sweeps");
     jdbc.update("delete from public.tour_place_sources");
     jdbc.update("delete from public.tour_places");
     jdbc.update("delete from public.external_api_snapshots");

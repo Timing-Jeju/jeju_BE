@@ -7,7 +7,7 @@ public record DetailItemSyncCommand(
     String contentId,
     String contentTypeId,
     DetailItemBatch batch,
-    DetailItemLineage lineage,
+    DetailItemSweep sweep,
     Instant observedAt) {
   public DetailItemSyncCommand {
     if (contentId == null
@@ -19,7 +19,7 @@ public record DetailItemSyncCommand(
         || !contentTypeId.equals(batch.contentTypeId())) {
       throw new IllegalArgumentException("반복 상세 command 식별자가 일치하지 않습니다.");
     }
-    lineage = Objects.requireNonNull(lineage, "lineage는 필수입니다.");
+    sweep = Objects.requireNonNull(sweep, "sweep은 필수입니다.");
     observedAt = Objects.requireNonNull(observedAt, "observedAt은 필수입니다.");
   }
 }

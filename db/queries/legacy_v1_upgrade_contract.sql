@@ -842,4 +842,33 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if to_regclass('public.tour_api_detail_item_sweeps') is null
+     or to_regclass('public.tour_api_detail_item_sweep_pages') is null then
+    raise exception 'legacy detailInfo2 complete sweep tables are missing';
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'place_detail_items'
+      and column_name = 'source_sweep_id'
+  ) then
+    raise exception 'legacy place_detail_items sweep lineage is missing';
+  end if;
+
+  if not (select relrowsecurity from pg_class where oid = 'public.tour_api_detail_item_sweeps'::regclass)
+     or not (select relrowsecurity from pg_class where oid = 'public.tour_api_detail_item_sweep_pages'::regclass) then
+    raise exception 'detailInfo2 sweep RLS is disabled';
+  end if;
+
+  if (exists(select 1 from pg_roles where rolname = 'anon') and
+      has_table_privilege('anon', 'public.tour_api_detail_item_sweeps', 'select'))
+     or (exists(select 1 from pg_roles where rolname = 'authenticated') and
+      has_table_privilege('authenticated', 'public.tour_api_detail_item_sweep_pages', 'select')) then
+    raise exception 'detailInfo2 sweep tables leaked to client roles';
+  end if;
+end;
+$$;
+
 select 'legacy_v1_upgrade_contract' as check_name, 'PASS' as result;
