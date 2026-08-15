@@ -287,6 +287,56 @@ class SnapshotStoreServiceTest {
   }
 
   @Test
+  void 중첩_정밀위치는_재귀적으로_canonicalize하고_민감값은_제외하되_좌표는_구분한다() {
+    byte[] payload = "{\"safe\":1}".getBytes(StandardCharsets.UTF_8);
+    Map<String, Object> firstLocation = new LinkedHashMap<>();
+    firstLocation.put("longitude", "126.5311884");
+    firstLocation.put("latitude", "33.4996213");
+    firstLocation.put("profile", Map.of("email", "first@example.test"));
+    firstLocation.put(
+        "samples", List.of(Map.of("authorization", "Bearer first"), Map.of("safe", "fixed")));
+    firstLocation.put("requestUrl", "https://first.example.test/path?serviceKey=first");
+    Map<String, Object> reorderedLocation = new LinkedHashMap<>();
+    reorderedLocation.put("requestUrl", "https://second.example.test/path?serviceKey=second");
+    reorderedLocation.put("profile", Map.of("email", "second@example.test"));
+    reorderedLocation.put(
+        "samples", List.of(Map.of("authorization", "Bearer second"), Map.of("safe", "fixed")));
+    reorderedLocation.put("latitude", "33.4996213");
+    reorderedLocation.put("longitude", "126.5311884");
+
+    SnapshotSaveResult first =
+        service.save(
+            command(SnapshotPayloadFormat.JSON, payload, Map.of("location", firstLocation)));
+    SnapshotSaveResult reorderedAndSensitiveChanged =
+        service.save(
+            command(SnapshotPayloadFormat.JSON, payload, Map.of("location", reorderedLocation)));
+    SnapshotSaveResult coordinateChanged =
+        service.save(
+            command(
+                SnapshotPayloadFormat.JSON,
+                payload,
+                Map.of(
+                    "location",
+                    Map.of(
+                        "longitude", "126.5311885",
+                        "latitude", "33.4996213",
+                        "profile", Map.of("email", "third@example.test"),
+                        "samples",
+                            List.of(
+                                Map.of("authorization", "Bearer third"), Map.of("safe", "fixed")),
+                        "requestUrl", "https://third.example.test/raw"))));
+
+    assertThat(reorderedAndSensitiveChanged.requestFingerprint())
+        .isEqualTo(first.requestFingerprint());
+    assertThat(coordinateChanged.requestFingerprint()).isNotEqualTo(first.requestFingerprint());
+    assertThat(store.saved)
+        .allSatisfy(
+            snapshot ->
+                assertThat(snapshot.requestMetadataRedactedJson())
+                    .doesNotContain("example.test", "serviceKey", "33.4996213", "126.531188"));
+  }
+
+  @Test
   void fingerprint_schema는_provider_service_operation_scope_page를_모두_구분한다() {
     byte[] payload = "{\"safe\":1}".getBytes(StandardCharsets.UTF_8);
     Map<String, Object> metadata = Map.of("contentTypeId", "12");

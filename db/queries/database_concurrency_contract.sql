@@ -928,6 +928,10 @@ insert into public.tour_places
   (id, name, normalized_name, category, location, source_provider)
 values
   ('fc520000-0000-0000-0000-000000000001', 'provenance', 'provenance', 'contract',
+   public.st_geogfromtext('SRID=4326;POINT(126.5 33.5)'), 'admin_upload'),
+  ('fc520000-0000-0000-0000-000000000002', 'provenance target', 'provenancetarget', 'contract',
+   public.st_geogfromtext('SRID=4326;POINT(126.5 33.5)'), 'admin_upload'),
+  ('fc520000-0000-0000-0000-000000000003', 'provenance alternate', 'provenancealternate', 'contract',
    public.st_geogfromtext('SRID=4326;POINT(126.5 33.5)'), 'admin_upload');
 insert into public.external_reference_codes
   (id, source_provider, source_service, code_type, external_code, code_name)
@@ -937,10 +941,9 @@ insert into public.tour_place_sources
 values ('fc540000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
         'admin_upload', 'contract', 'source-107');
 insert into public.place_aliases
-  (id, place_id, alias, normalized_alias, alias_type, source_snapshot_id, import_run_id)
+  (id, place_id, alias, normalized_alias, alias_type)
 values ('fc550000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
-        '계약 별칭', '계약별칭', 'official', 'fc510000-0000-0000-0000-000000000001',
-        'fc500000-0000-0000-0000-000000000001');
+        '계약 별칭', '계약별칭', 'user_query');
 insert into public.place_details (place_id, source_provider, source_service)
 values ('fc520000-0000-0000-0000-000000000001', 'admin_upload', 'contract');
 insert into public.place_detail_items
@@ -976,6 +979,53 @@ exception when others then
 end;
 $$;
 
+create function concurrency_contract.try_update_provenance_target(
+  entity_type text,
+  target_id uuid,
+  updated_id uuid
+)
+returns text
+language plpgsql
+as $$
+begin
+  case entity_type
+    when 'external_reference_codes' then update public.external_reference_codes set id = updated_id where id = target_id;
+    when 'tour_place_sources' then update public.tour_place_sources set id = updated_id where id = target_id;
+    when 'place_aliases' then update public.place_aliases set id = updated_id where id = target_id;
+    when 'place_details' then update public.place_details set place_id = updated_id where place_id = target_id;
+    when 'place_detail_items' then update public.place_detail_items set id = updated_id where id = target_id;
+    when 'place_images' then update public.place_images set id = updated_id where id = target_id;
+    when 'tour_places' then update public.tour_places set id = updated_id where id = target_id;
+    else raise exception 'unsupported provenance target type';
+  end case;
+  return 'OK';
+exception when others then
+  return sqlstate;
+end;
+$$;
+
+create function concurrency_contract.try_insert_provenance(
+  entity_type text,
+  target_id uuid
+)
+returns text
+language plpgsql
+as $$
+begin
+  insert into public.tour_api_operation_provenance (
+    normalized_entity_type, normalized_row_id, operation_key, request_fingerprint,
+    source_snapshot_id, import_run_id
+  ) values (
+    entity_type, target_id, 'areaBasedList2', repeat('a', 64),
+    'fc510000-0000-0000-0000-000000000001',
+    'fc500000-0000-0000-0000-000000000001'
+  );
+  return 'OK';
+exception when others then
+  return sqlstate;
+end;
+$$;
+
 select public.dblink_connect('provenance_a', pg_catalog.format(
   'dbname=%L user=%L application_name=%L', current_database(), current_user,
   'timing-jeju-provenance-a'));
@@ -999,41 +1049,127 @@ declare
     'fc530000-0000-0000-0000-000000000001', 'fc540000-0000-0000-0000-000000000001',
     'fc550000-0000-0000-0000-000000000001', 'fc520000-0000-0000-0000-000000000001',
     'fc560000-0000-0000-0000-000000000001', 'fc570000-0000-0000-0000-000000000001',
-    'fc520000-0000-0000-0000-000000000001'
+    'fc520000-0000-0000-0000-000000000002'
   ]::uuid[];
+  updated_ids uuid[] := array[
+    'fc530000-0000-0000-0000-000000000002', 'fc540000-0000-0000-0000-000000000002',
+    'fc550000-0000-0000-0000-000000000002', 'fc520000-0000-0000-0000-000000000003',
+    'fc560000-0000-0000-0000-000000000002', 'fc570000-0000-0000-0000-000000000002',
+    'fc520000-0000-0000-0000-000000000004'
+  ]::uuid[];
+  mutation text;
   result_code text;
   index integer;
 begin
   for index in 1..array_length(entity_types, 1) loop
-    perform public.dblink_exec('provenance_a', 'begin');
-    perform public.dblink_exec('provenance_a', pg_catalog.format(
-      $query$
-        insert into public.tour_api_operation_provenance (
-          normalized_entity_type, normalized_row_id, operation_key, request_fingerprint,
-          source_snapshot_id, import_run_id
-        ) values (%L, %L::uuid, 'areaBasedList2', %L,
-          'fc510000-0000-0000-0000-000000000001',
-          'fc500000-0000-0000-0000-000000000001')
-      $query$, entity_types[index], target_ids[index], repeat('a', 64)));
+    foreach mutation in array array['update', 'delete'] loop
+      perform public.dblink_exec('provenance_a', pg_catalog.format(
+        'delete from public.tour_api_operation_provenance where normalized_entity_type=%L and normalized_row_id=%L::uuid',
+        entity_types[index], target_ids[index]));
 
-    if public.dblink_send_query('provenance_b', pg_catalog.format(
-         'select concurrency_contract.try_delete_provenance_target(%L, %L::uuid)',
-         entity_types[index], target_ids[index])) <> 1 then
-      raise exception 'provenance delete query was not dispatched';
-    end if;
+      -- INSERT가 먼저 KEY SHARE를 잡으면 UPDATE/DELETE는 대기 후 23503으로 거부된다.
+      perform public.dblink_exec('provenance_a', 'begin');
+      select remote.result_code into result_code
+      from public.dblink('provenance_a', pg_catalog.format(
+        'select concurrency_contract.try_insert_provenance(%L, %L::uuid)',
+        entity_types[index], target_ids[index])) as remote(result_code text);
+      if result_code <> 'OK' then
+        raise exception 'provenance insert setup failed with % for %',
+          result_code, entity_types[index];
+      end if;
+      if mutation = 'update' then
+        perform public.dblink_send_query('provenance_b', pg_catalog.format(
+          'select concurrency_contract.try_update_provenance_target(%L, %L::uuid, %L::uuid)',
+          entity_types[index], target_ids[index], updated_ids[index]));
+      else
+        perform public.dblink_send_query('provenance_b', pg_catalog.format(
+          'select concurrency_contract.try_delete_provenance_target(%L, %L::uuid)',
+          entity_types[index], target_ids[index]));
+      end if;
+      perform concurrency_contract.assert_connection_is_blocked(
+        'provenance', 'a', 'b', 'provenance_b');
+      perform public.dblink_exec('provenance_a', 'commit');
+      select remote.result_code into result_code
+      from public.dblink_get_result('provenance_b') as remote(result_code text);
+      if result_code <> '23503' then
+        raise exception 'provenance target % must return 23503, got % for %',
+          mutation, result_code, entity_types[index];
+      end if;
+      perform concurrency_contract.drain_async_result('provenance_b');
 
-    perform concurrency_contract.assert_connection_is_blocked(
-      'provenance', 'a', 'b', 'provenance_b');
-    perform public.dblink_exec('provenance_a', 'commit');
+      perform public.dblink_exec('provenance_a', pg_catalog.format(
+        'delete from public.tour_api_operation_provenance where normalized_entity_type=%L and normalized_row_id=%L::uuid',
+        entity_types[index], target_ids[index]));
 
-    select remote.result_code into result_code
-    from public.dblink_get_result('provenance_b') as remote(result_code text);
-    if result_code <> '23503' then
-      raise exception 'provenance target delete must return 23503, got % for %',
-        result_code, entity_types[index];
-    end if;
-    perform concurrency_contract.drain_async_result('provenance_b');
+      -- UPDATE/DELETE가 먼저 행 잠금을 잡으면 INSERT는 대기하고, mutation rollback 뒤
+      -- 정상 저장된다. 어느 순서에서도 deadlock이나 orphan은 남지 않는다.
+      perform public.dblink_exec('provenance_a', 'begin');
+      if mutation = 'update' then
+        select remote.result_code into result_code
+        from public.dblink('provenance_a', pg_catalog.format(
+          'select concurrency_contract.try_update_provenance_target(%L, %L::uuid, %L::uuid)',
+          entity_types[index], target_ids[index], updated_ids[index]))
+          as remote(result_code text);
+      else
+        select remote.result_code into result_code
+        from public.dblink('provenance_a', pg_catalog.format(
+          'select concurrency_contract.try_delete_provenance_target(%L, %L::uuid)',
+          entity_types[index], target_ids[index]))
+          as remote(result_code text);
+      end if;
+      if result_code <> 'OK' then
+        raise exception 'unreferenced target % setup failed with % for %',
+          mutation, result_code, entity_types[index];
+      end if;
+      perform public.dblink_send_query('provenance_b', pg_catalog.format(
+        'select concurrency_contract.try_insert_provenance(%L, %L::uuid)',
+        entity_types[index], target_ids[index]));
+      perform concurrency_contract.assert_connection_is_blocked(
+        'provenance', 'a', 'b', 'provenance_b');
+      perform public.dblink_exec('provenance_a', 'rollback');
+      select remote.result_code into result_code
+      from public.dblink_get_result('provenance_b') as remote(result_code text);
+      if result_code <> 'OK' then
+        raise exception 'provenance insert after target % rollback failed with % for %',
+          mutation, result_code, entity_types[index];
+      end if;
+      perform concurrency_contract.drain_async_result('provenance_b');
+
+      if not exists (
+        select 1 from public.tour_api_operation_provenance
+        where normalized_entity_type = entity_types[index]
+          and normalized_row_id = target_ids[index]
+      ) then
+        raise exception 'serialized provenance is missing for % after % rollback',
+          entity_types[index], mutation;
+      end if;
+    end loop;
   end loop;
+end;
+$$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from public.tour_api_operation_provenance provenance
+    where not exists (
+      select 1
+      from (values
+        ('external_reference_codes', 'fc530000-0000-0000-0000-000000000001'::uuid),
+        ('tour_place_sources', 'fc540000-0000-0000-0000-000000000001'::uuid),
+        ('place_aliases', 'fc550000-0000-0000-0000-000000000001'::uuid),
+        ('place_details', 'fc520000-0000-0000-0000-000000000001'::uuid),
+        ('place_detail_items', 'fc560000-0000-0000-0000-000000000001'::uuid),
+        ('place_images', 'fc570000-0000-0000-0000-000000000001'::uuid),
+        ('tour_places', 'fc520000-0000-0000-0000-000000000002'::uuid)
+      ) target(entity_type, target_id)
+      where target.entity_type = provenance.normalized_entity_type
+        and target.target_id = provenance.normalized_row_id
+    )
+  ) then
+    raise exception 'orphan provenance remained after target mutation serialization';
+  end if;
 end;
 $$;
 

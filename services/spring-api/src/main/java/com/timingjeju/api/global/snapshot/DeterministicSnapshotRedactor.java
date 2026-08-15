@@ -153,7 +153,7 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
               result.put(
                   entry.getKey(),
                   SnapshotSensitiveFieldRegistry.isPreciseLocation(entry.getKey())
-                      ? entry.getValue()
+                      ? redactFingerprintValue(entry.getValue())
                       : SnapshotSensitiveFieldRegistry.isSensitive(entry.getKey())
                           ? REDACTED
                           : redactFingerprintValue(entry.getValue())));

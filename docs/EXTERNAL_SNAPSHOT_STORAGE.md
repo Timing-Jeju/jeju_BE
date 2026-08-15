@@ -10,7 +10,7 @@
 - decompressed payload 상한은 정확히 2 MiB(2,097,152 bytes)입니다. 초과 입력은 hash·redaction·DB 호출 전에 거부합니다.
 - `payload_hash`는 canonical JSON이 아니라 decompressed 원문 bytes의 SHA-256 소문자 64자리입니다. 공백이나 byte encoding이 다르면 hash도 다릅니다.
 - 문자 payload는 UTF-8만 허용합니다. 잘못된 UTF-8은 원문을 보존하지 않고 rejected 감사 행으로 분류합니다.
-- `request_hash`는 `SnapshotStoreService`가 호출하는 단일 `snapshot-request-v1` canonical schema로만 생성합니다. provider/service/operation/scope/page/privacy-canonical metadata를 UTF-8 byte length로 구분해 SHA-256을 계산합니다. metadata key 순서는 결과에 영향을 주지 않고 service key·인증값·원문 URL·사용자 PII는 동일 marker로 치환합니다. 정밀 위치는 request metadata와 로그에 저장하지 않지만 서로 다른 요청을 구분하기 위한 hash 입력에만 사용한 뒤 즉시 폐기합니다. 후속 provenance는 hash를 재계산하지 않고 `SnapshotSaveResult.requestFingerprint`를 그대로 사용합니다.
+- `request_hash`는 `SnapshotStoreService`가 호출하는 단일 `snapshot-request-v1` canonical schema로만 생성합니다. provider/service/operation/scope/page/privacy-canonical metadata를 UTF-8 byte length로 구분해 SHA-256을 계산합니다. metadata map key는 중첩 위치 container 안에서도 재귀 정렬하고 list 순서는 보존합니다. service key·인증값·원문 URL·사용자 PII는 위치 container 내부에서도 동일 marker로 치환합니다. 정밀 위치 좌표 값은 request metadata와 로그에 저장하지 않지만 서로 다른 요청을 구분하기 위한 hash 입력에만 사용한 뒤 즉시 폐기합니다. 후속 provenance는 hash를 재계산하지 않고 `SnapshotSaveResult.requestFingerprint`를 그대로 사용합니다.
 
 ## redaction
 

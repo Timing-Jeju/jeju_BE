@@ -144,9 +144,9 @@ begin
 end;
 $$;
 
--- provenance INSERT가 잡은 대상 행의 KEY SHARE 잠금과 DELETE의 행 잠금을
--- 직렬화한다. DELETE가 먼저 잠그면 INSERT는 대상 부재로 거부되고, INSERT가
--- 먼저 잠그면 DELETE는 커밋된 provenance를 확인한 뒤 FK 위반으로 거부된다.
+-- provenance INSERT가 잡은 대상 행의 KEY SHARE 잠금과 식별자 UPDATE/DELETE의 행 잠금을
+-- 직렬화한다. mutation이 먼저 잠그면 INSERT는 대상 부재로 거부되고, INSERT가
+-- 먼저 잠그면 mutation은 커밋된 provenance를 확인한 뒤 FK 위반으로 거부된다.
 create function public.protect_tour_api_provenance_target_delete()
 returns trigger
 language plpgsql
@@ -155,6 +155,7 @@ set search_path = ''
 as $$
 declare
   target_id uuid;
+  next_target_id uuid;
 begin
   target_id := (
     pg_catalog.to_jsonb(old) ->> case
@@ -162,6 +163,18 @@ begin
       else 'id'
     end
   )::uuid;
+
+  if tg_op = 'UPDATE' then
+    next_target_id := (
+      pg_catalog.to_jsonb(new) ->> case
+        when tg_argv[0] = 'place_details' then 'place_id'
+        else 'id'
+      end
+    )::uuid;
+    if next_target_id is not distinct from target_id then
+      return new;
+    end if;
+  end if;
 
   if exists (
     select 1
@@ -174,6 +187,9 @@ begin
       message = 'TourAPI operation provenance target is still referenced';
   end if;
 
+  if tg_op = 'UPDATE' then
+    return new;
+  end if;
   return old;
 end;
 $$;
@@ -185,23 +201,44 @@ for each row execute function public.validate_tour_api_operation_provenance();
 create trigger trg_external_reference_codes_provenance_delete
 before delete on public.external_reference_codes
 for each row execute function public.protect_tour_api_provenance_target_delete('external_reference_codes');
+create trigger trg_external_reference_codes_provenance_identifier_update
+before update of id on public.external_reference_codes
+for each row execute function public.protect_tour_api_provenance_target_delete('external_reference_codes');
 create trigger trg_tour_places_provenance_delete
 before delete on public.tour_places
+for each row execute function public.protect_tour_api_provenance_target_delete('tour_places');
+create trigger trg_tour_places_provenance_identifier_update
+before update of id on public.tour_places
 for each row execute function public.protect_tour_api_provenance_target_delete('tour_places');
 create trigger trg_tour_place_sources_provenance_delete
 before delete on public.tour_place_sources
 for each row execute function public.protect_tour_api_provenance_target_delete('tour_place_sources');
+create trigger trg_tour_place_sources_provenance_identifier_update
+before update of id on public.tour_place_sources
+for each row execute function public.protect_tour_api_provenance_target_delete('tour_place_sources');
 create trigger trg_place_aliases_provenance_delete
 before delete on public.place_aliases
+for each row execute function public.protect_tour_api_provenance_target_delete('place_aliases');
+create trigger trg_place_aliases_provenance_identifier_update
+before update of id on public.place_aliases
 for each row execute function public.protect_tour_api_provenance_target_delete('place_aliases');
 create trigger trg_place_details_provenance_delete
 before delete on public.place_details
 for each row execute function public.protect_tour_api_provenance_target_delete('place_details');
+create trigger trg_place_details_provenance_identifier_update
+before update of place_id on public.place_details
+for each row execute function public.protect_tour_api_provenance_target_delete('place_details');
 create trigger trg_place_detail_items_provenance_delete
 before delete on public.place_detail_items
 for each row execute function public.protect_tour_api_provenance_target_delete('place_detail_items');
+create trigger trg_place_detail_items_provenance_identifier_update
+before update of id on public.place_detail_items
+for each row execute function public.protect_tour_api_provenance_target_delete('place_detail_items');
 create trigger trg_place_images_provenance_delete
 before delete on public.place_images
+for each row execute function public.protect_tour_api_provenance_target_delete('place_images');
+create trigger trg_place_images_provenance_identifier_update
+before update of id on public.place_images
 for each row execute function public.protect_tour_api_provenance_target_delete('place_images');
 
 alter table public.tour_api_operations enable row level security;

@@ -358,6 +358,57 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   @Test
+  void allowlist_7개_entity의_identifier_UPDATE는_23503으로_거부하고_계보를_보존한다() {
+    UUID alternateParent = UUID.fromString("4f000000-0000-0000-0000-000000000107");
+    jdbcTemplate.update("insert into public.tour_places " + manualPlaceValues(PARENT));
+    jdbcTemplate.update("insert into public.tour_places " + manualPlaceValues(alternateParent));
+    List<TargetIdentity> targets =
+        List.of(
+            new TargetIdentity(
+                "external_reference_codes",
+                UUID.fromString("61000000-0000-0000-0000-000000000107")),
+            new TargetIdentity(
+                "tour_places", UUID.fromString("62000000-0000-0000-0000-000000000107")),
+            new TargetIdentity(
+                "tour_place_sources", UUID.fromString("63000000-0000-0000-0000-000000000107")),
+            new TargetIdentity(
+                "place_aliases", UUID.fromString("64000000-0000-0000-0000-000000000107")),
+            new TargetIdentity("place_details", PARENT),
+            new TargetIdentity(
+                "place_detail_items", UUID.fromString("66000000-0000-0000-0000-000000000107")),
+            new TargetIdentity(
+                "place_images", UUID.fromString("67000000-0000-0000-0000-000000000107")));
+
+    for (TargetIdentity target : targets) {
+      insertTargetFixture(target);
+      writer.write(command(target.entityType(), target.rowId()), () -> {});
+
+      Throwable failure = catchThrowable(() -> updateTargetIdentifier(target, alternateParent));
+
+      assertThat(failure)
+          .as(target.entityType())
+          .isInstanceOf(DataIntegrityViolationException.class);
+      assertThat(rootSqlException(failure).getSQLState())
+          .as(target.entityType())
+          .isEqualTo("23503");
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select count(*) from public.tour_api_operation_provenance where normalized_entity_type=? and normalized_row_id=?",
+                  Integer.class,
+                  target.entityType(),
+                  target.rowId()))
+          .as(target.entityType())
+          .isOne();
+
+      jdbcTemplate.update(
+          "delete from public.tour_api_operation_provenance where normalized_entity_type=? and normalized_row_id=?",
+          target.entityType(),
+          target.rowId());
+      deleteTargetFixture(target);
+    }
+  }
+
+  @Test
   void migration은_8개_registry와_nullable_content_type_및_서버전용_보안계약을_고정한다() {
     assertThat(
             jdbcTemplate.queryForList(
@@ -419,6 +470,71 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
         HASH,
         SNAPSHOT,
         RUN);
+  }
+
+  private void insertTargetFixture(TargetIdentity target) {
+    switch (target.entityType()) {
+      case "external_reference_codes" ->
+          jdbcTemplate.update(
+              "insert into public.external_reference_codes (id, source_provider, source_service, code_type, external_code, code_name) values (?, 'admin_upload', 'contract', 'area', '60', '부산')",
+              target.rowId());
+      case "tour_places" ->
+          jdbcTemplate.update(
+              "insert into public.tour_places " + manualPlaceValues(target.rowId()));
+      case "tour_place_sources" ->
+          jdbcTemplate.update(
+              "insert into public.tour_place_sources (id, place_id, source_provider, source_service, external_id) values (?, ?, 'admin_upload', 'contract', 'update-107')",
+              target.rowId(),
+              PARENT);
+      case "place_aliases" ->
+          jdbcTemplate.update(
+              "insert into public.place_aliases (id, place_id, alias, normalized_alias, alias_type, source_snapshot_id, import_run_id) values (?, ?, '변경 별칭', '변경별칭', 'official', ?, ?)",
+              target.rowId(),
+              PARENT,
+              SNAPSHOT,
+              RUN);
+      case "place_details" ->
+          jdbcTemplate.update(
+              "insert into public.place_details (place_id, source_provider, source_service) values (?, 'admin_upload', 'contract')",
+              target.rowId());
+      case "place_detail_items" ->
+          jdbcTemplate.update(
+              "insert into public.place_detail_items (id, place_id, source_provider, source_service, item_type, source_item_key, payload_hash) values (?, ?, 'admin_upload', 'contract', 'overview', 'update-107', ?)",
+              target.rowId(),
+              PARENT,
+              HASH);
+      case "place_images" ->
+          jdbcTemplate.update(
+              "insert into public.place_images (id, place_id, image_url, source_provider, source_service) values (?, ?, 'https://example.test/update.jpg', 'admin_upload', 'contract')",
+              target.rowId(),
+              PARENT);
+      default -> throw new IllegalArgumentException(target.entityType());
+    }
+  }
+
+  private void updateTargetIdentifier(TargetIdentity target, UUID alternateParent) {
+    String identifier = target.entityType().equals("place_details") ? "place_id" : "id";
+    UUID updatedId =
+        target.entityType().equals("place_details")
+            ? alternateParent
+            : UUID.fromString("6f000000-0000-0000-0000-000000000107");
+    jdbcTemplate.update(
+        "update public."
+            + target.entityType()
+            + " set "
+            + identifier
+            + "=? where "
+            + identifier
+            + "=?",
+        updatedId,
+        target.rowId());
+  }
+
+  private void deleteTargetFixture(TargetIdentity target) {
+    String identifier = target.entityType().equals("place_details") ? "place_id" : "id";
+    jdbcTemplate.update(
+        "delete from public." + target.entityType() + " where " + identifier + "=?",
+        target.rowId());
   }
 
   private SQLException rootSqlException(Throwable failure) {
@@ -540,4 +656,6 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   private record TargetFixture(String entityType, UUID rowId, Runnable insertTarget) {}
+
+  private record TargetIdentity(String entityType, UUID rowId) {}
 }

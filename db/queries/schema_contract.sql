@@ -1167,10 +1167,15 @@ begin
 
   if (select count(*) from pg_catalog.pg_trigger
       where tgname like 'trg_%_provenance_delete' and not tgisinternal) <> 7
+     or (select count(*) from pg_catalog.pg_trigger
+      where tgname like 'trg_%_provenance_identifier_update' and not tgisinternal) <> 7
+     or strpos(pg_catalog.lower(pg_get_functiondef(
+          'public.protect_tour_api_provenance_target_delete()'::regprocedure
+        )), 'next_target_id is not distinct from target_id') = 0
      or strpos(pg_catalog.lower(pg_get_functiondef(
           'public.protect_tour_api_provenance_target_delete()'::regprocedure
         )), 'tourapi operation provenance target is still referenced') = 0 then
-    raise exception 'TourAPI provenance target removal guards are incomplete';
+    raise exception 'TourAPI provenance target identifier mutation guards are incomplete';
   end if;
 
   if not exists (

@@ -199,6 +199,9 @@ class DatabaseHardeningTest(unittest.TestCase):
             "place_images",
         ):
             self.assertIn(f"trg_{entity}_provenance_delete", migration)
+            self.assertIn(f"trg_{entity}_provenance_identifier_update", migration)
+        self.assertIn("if tg_op = 'update' then", migration)
+        self.assertIn("next_target_id is not distinct from target_id", migration)
         for forbidden in (
             "service_key",
             "api_key",
@@ -709,7 +712,10 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("40001", concurrency_contract)
         self.assertIn("p0001", concurrency_contract)
         self.assertIn("try_delete_provenance_target", concurrency_contract)
-        self.assertIn("provenance target delete must return 23503", concurrency_contract)
+        self.assertIn("try_update_provenance_target", concurrency_contract)
+        self.assertIn("provenance target % must return 23503", concurrency_contract)
+        self.assertIn("provenance insert after target % rollback failed", concurrency_contract)
+        self.assertIn("orphan provenance remained", concurrency_contract)
         self.assertIn("database_concurrency_contract", concurrency_contract)
 
         for migration in MIGRATIONS.glob("*.sql"):

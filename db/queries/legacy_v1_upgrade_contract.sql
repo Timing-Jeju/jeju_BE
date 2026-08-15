@@ -824,6 +824,11 @@ begin
       where tgname like 'trg_%_provenance_delete' and not tgisinternal) <> 7 then
     raise exception 'legacy TourAPI provenance target delete guards are incomplete';
   end if;
+
+  if (select count(*) from pg_catalog.pg_trigger
+      where tgname like 'trg_%_provenance_identifier_update' and not tgisinternal) <> 7 then
+    raise exception 'legacy TourAPI provenance target identifier update guards are incomplete';
+  end if;
 end;
 $$;
 
