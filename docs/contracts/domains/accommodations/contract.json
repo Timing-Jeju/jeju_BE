@@ -101,7 +101,7 @@
       "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND"], "409": ["TRIP_VERSION_CONFLICT", "ACCOMMODATION_CONCURRENT_CONFLICT"], "422": ["ACCOMMODATION_DATE_GAP_OR_OVERLAP", "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE"]},
       "idempotency": {"required": false, "header": "none"}, "pagination": {"type": "none"}, "concurrency": "strong trip aggregate ETag",
       "dbOwner": "Spring transaction deletes trip_accommodations and compacts sequence; implementation #68", "requestTimeCall": "none", "dataLineage": "canonical-sub owner input; no external data",
-      "figma": {"node": "653-11512", "action": "설정 전 숙소/복귀 위치에서 기존 숙소 제거", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}, "contractVersion": "1.0.0"
+      "figma": {"node": "not-observed", "action": "숙소 삭제 UI/action not-linked", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}, "contractVersion": "1.0.0"
     }
   ],
   "accommodationPolicy": {
@@ -140,7 +140,7 @@
       {"nodeId": "329:5165", "name": "PAGE / 01. 여행 기본 조건", "action": "숙소/복귀 위치와 여행 기간을 입력하고 Day별 일정 입력으로 이동"},
       {"nodeId": "182:3248", "name": "홈 - 01. 여행 기본 조건", "action": "숙소/복귀 위치를 검색 또는 지도에서 선택"},
       {"nodeId": "653:11512", "name": "홈 - 01. 여행 기본 조건 설정 전", "action": "날짜 입력 후 숙소/복귀 위치를 설정"}
-    ], "observedStates": ["여행 기본 조건", "기본 조건 설정 전", "날짜 입력 후"], "missingStateEvidence": ["loading", "empty", "error"], "reason": "숙소 입력 action은 관찰됐지만 복수 CRUD 상태, API contractVersion과 loading/empty/error response 연결은 관찰되지 않았다"}
+    ], "observedStates": ["여행 기본 조건", "기본 조건 설정 전", "날짜 입력 후"], "missingStateEvidence": ["loading", "empty", "error"], "reason": "숙소 입력 action은 관찰됐지만 삭제 UI/action, 복수 CRUD 상태, API contractVersion과 loading/empty/error response 연결은 관찰되지 않았다"}
   },
   "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}},
   "schemaGap": ["trip_accommodations CHECK는 place_id/custom_name 둘 다 non-null을 허용하므로 XOR migration이 #68에 필요하다", "DB exclusion은 overlap만 막고 전체 gap/sequence compaction/active delete policy는 #68 application transaction이 소유한다", "public schema 단일 기준은 supabase/migrations이며 Flyway를 도입하지 않는다"]

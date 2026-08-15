@@ -54,3 +54,26 @@ Figma file `4mKep38zm17iupVSQVsSJW`, page `251:4347`의 `329:5165`, `182:3248`, 
 
 - 최종 기록 커밋을 일반 push하고 pre-push 전체 게이트 성공과 원격 HEAD 일치를 확인한다.
 - 독립 Reviewer에게 `origin/develop...HEAD` 검토를 요청한다. Developer는 PR과 승인 상태 파일을 만들지 않는다.
+
+## Reviewer MAJOR 보완 — schema fail-closed와 DELETE Figma 근거
+
+### Red
+
+- POST success schema를 존재하지 않는 이름으로 바꾸거나 required header를 비워도 validator가 exit 0으로 통과했다.
+- nullable UUID field format을 `date`로 바꾸고 `schemaGap`을 비워도 같은 우회를 재현했다.
+- Figma `653:11512`에는 숙소 입력 field만 있고 삭제 UI/action은 없지만 DELETE endpoint가 제거 action으로 연결돼 있었다.
+- focused 2개 테스트에서 위 네 validator 우회와 Figma 불일치가 실패 5건으로 재현됐다.
+
+### Green과 Refactor
+
+- POST/PATCH/DELETE 각각의 request/header/success schema ref, required header와 success status를 canonical map으로 검증한다.
+- 여덟 schema의 exact field set과 모든 property type, nullable, format, pattern, enum, length, normalization, offset, ref를 비교한다.
+- `schemaGap` 세 항목을 canonical exact 목록으로 고정하고 endpoint별 12개 schema/header mutation과 nullable UUID format/schemaGap mutation을 추가했다.
+- DELETE Figma는 `node=not-observed`, `action=숙소 삭제 UI/action not-linked`로 contract/Markdown/catalog에 동기화했다.
+- Notion DELETE 행에는 API readiness를 유지하면서 삭제 UI/action 직접 근거가 없다는 Figma 추적성을 추가하고 재조회했다.
+
+### 현재 검증
+
+- accommodations validator와 전용/통합 focused 14건, py_compile, diff 검사가 성공했다.
+- 운영 Spring/DB/FastAPI 변경은 없다.
+- #26 직렬 검증 종료 전까지 clean check, full quality gate, Docker와 push는 대기한다.

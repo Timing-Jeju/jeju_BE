@@ -40,6 +40,99 @@ SCHEMA_NAMES = {
     "CreateAccommodationRequest", "PatchAccommodationRequest", "Accommodation",
     "AccommodationMutationResponse",
 }
+EXPECTED_SCHEMA_PROPERTIES = {
+    "TripPath": {
+        "tripId": {"type": "string", "nullable": False, "format": "uuid"},
+    },
+    "AccommodationPath": {
+        "tripId": {"type": "string", "nullable": False, "format": "uuid"},
+        "accommodationId": {"type": "string", "nullable": False, "format": "uuid"},
+    },
+    "CreateHeaders": {
+        "Authorization": {"type": "string", "nullable": False, "pattern": r"^Bearer [^\s]{1,2048}$"},
+        "Idempotency-Key": {"type": "string", "nullable": False, "minLength": 1, "maxLength": 128, "pattern": "^[!-~]+$"},
+        "If-Match": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9]+\"$'},
+    },
+    "MutationHeaders": {
+        "Authorization": {"type": "string", "nullable": False, "pattern": r"^Bearer [^\s]{1,2048}$"},
+        "If-Match": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9]+\"$'},
+    },
+    "CreateAccommodationRequest": {
+        "placeId": {"type": "string", "nullable": True, "format": "uuid"},
+        "customName": {"type": "string", "nullable": True, "minLength": 1, "maxLength": 100, "normalization": "trim+nfc"},
+        "checkInDate": {"type": "string", "nullable": False, "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "checkOutDate": {"type": "string", "nullable": False, "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "checkInTime": {"type": "string", "nullable": False, "format": "time", "pattern": r"^(?:[01]\d|2[0-3]):[0-5]\d$"},
+        "checkOutTime": {"type": "string", "nullable": False, "format": "time", "pattern": r"^(?:[01]\d|2[0-3]):[0-5]\d$"},
+    },
+    "PatchAccommodationRequest": {
+        "placeId": {"type": "string", "nullable": True, "format": "uuid"},
+        "customName": {"type": "string", "nullable": True, "minLength": 1, "maxLength": 100, "normalization": "trim+nfc"},
+        "checkInDate": {"type": "string", "nullable": False, "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "checkOutDate": {"type": "string", "nullable": False, "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "checkInTime": {"type": "string", "nullable": False, "format": "time", "pattern": r"^(?:[01]\d|2[0-3]):[0-5]\d$"},
+        "checkOutTime": {"type": "string", "nullable": False, "format": "time", "pattern": r"^(?:[01]\d|2[0-3]):[0-5]\d$"},
+    },
+    "Accommodation": {
+        "accommodationId": {"type": "string", "nullable": False, "format": "uuid"},
+        "placeId": {"type": "string", "nullable": True, "format": "uuid"},
+        "customName": {"type": "string", "nullable": True, "minLength": 1, "maxLength": 100, "normalization": "trim+nfc"},
+        "name": {"type": "string", "nullable": False, "minLength": 1, "maxLength": 100},
+        "checkInDate": {"type": "string", "nullable": False, "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "checkOutDate": {"type": "string", "nullable": False, "format": "date", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "checkInTime": {"type": "string", "nullable": False, "format": "time", "pattern": r"^(?:[01]\d|2[0-3]):[0-5]\d$"},
+        "checkOutTime": {"type": "string", "nullable": False, "format": "time", "pattern": r"^(?:[01]\d|2[0-3]):[0-5]\d$"},
+        "sequenceNo": {"type": "integer", "nullable": False, "minimum": 1},
+    },
+    "AccommodationMutationResponse": {
+        "tripId": {"type": "string", "nullable": False, "format": "uuid"},
+        "accommodationId": {"type": "string", "nullable": False, "format": "uuid"},
+        "accommodation": {"$ref": "Accommodation"},
+        "scheduleEffect": {"type": "string", "nullable": False, "enum": ["none", "invalidated"]},
+        "regenerationRequired": {"type": "boolean", "nullable": False},
+        "activeScheduleVersionId": {"type": "string", "nullable": True, "format": "uuid"},
+        "tripStatus": {"type": "string", "nullable": False, "enum": ["draft", "planned"]},
+        "etag": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9]+\"$'},
+        "createdAt": {"type": "string", "nullable": False, "format": "date-time", "offset": "+09:00"},
+        "updatedAt": {"type": "string", "nullable": False, "format": "date-time", "offset": "+09:00"},
+    },
+}
+EXPECTED_ENDPOINT_SCHEMAS = {
+    ("POST", "/api/v1/trips/{tripId}/accommodations"): {
+        "operation": "create", "requestSchema": "TripPath + CreateAccommodationRequest",
+        "headersSchema": {"schema": "CreateHeaders", "required": ["Authorization", "Idempotency-Key", "If-Match"]},
+        "successSchema": "AccommodationMutationResponse", "successStatuses": [201],
+    },
+    ("PATCH", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "operation": "update", "requestSchema": "AccommodationPath + PatchAccommodationRequest",
+        "headersSchema": {"schema": "MutationHeaders", "required": ["Authorization", "If-Match"]},
+        "successSchema": "AccommodationMutationResponse", "successStatuses": [200],
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "operation": "delete", "requestSchema": "AccommodationPath",
+        "headersSchema": {"schema": "MutationHeaders", "required": ["Authorization", "If-Match"]},
+        "successSchema": "none", "successStatuses": [204],
+    },
+}
+EXPECTED_SCHEMA_GAP = [
+    "trip_accommodations CHECK는 place_id/custom_name 둘 다 non-null을 허용하므로 XOR migration이 #68에 필요하다",
+    "DB exclusion은 overlap만 막고 전체 gap/sequence compaction/active delete policy는 #68 application transaction이 소유한다",
+    "public schema 단일 기준은 supabase/migrations이며 Flyway를 도입하지 않는다",
+]
+EXPECTED_ENDPOINT_FIGMA = {
+    ("POST", "/api/v1/trips/{tripId}/accommodations"): {
+        "node": "329-5165", "action": "숙소/복귀 위치 검색·지도 선택 후 여행 기본 조건 저장",
+        "loading": "not-observed", "empty": "not-observed", "error": "not-observed",
+    },
+    ("PATCH", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "node": "182-3248", "action": "숙소/복귀 위치를 검색 또는 지도 선택으로 변경",
+        "loading": "not-observed", "empty": "not-observed", "error": "not-observed",
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "node": "not-observed", "action": "숙소 삭제 UI/action not-linked",
+        "loading": "not-observed", "empty": "not-observed", "error": "not-observed",
+    },
+}
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
 EXPECTED_PROBLEMS = {
     "INVALID_REQUEST": (400, "https://api.timing-jeju.com/problems/invalid-request", "요청 값이 올바르지 않습니다", "필수값, 형식, XOR, Idempotency-Key와 If-Match를 확인해 주세요.", "400_invalid_request"),
@@ -105,10 +198,21 @@ def _validate_schemas(contract: dict[str, Any], errors: list[str]) -> None:
     if not isinstance(schemas, dict) or set(schemas) != SCHEMA_NAMES:
         errors.append("required schema exact 집합이 다릅니다.")
         return
+    if any(not isinstance(schemas[name], dict) for name in SCHEMA_NAMES):
+        errors.append("required schema object semantics가 다릅니다.")
+        return
     for name in SCHEMA_NAMES:
         schema = schemas[name]
         if not isinstance(schema, dict) or schema.get("type") != "object" or schema.get("nullable") is not False or schema.get("additionalProperties") is not False:
             errors.append(f"{name} object/nullable/closed schema가 다릅니다.")
+            continue
+        expected_fields = {"type", "nullable", "additionalProperties", "required", "properties"}
+        if name == "CreateAccommodationRequest":
+            expected_fields.add("oneOf")
+        elif name == "PatchAccommodationRequest":
+            expected_fields.add("minProperties")
+        if set(schema) != expected_fields or schema.get("properties") != EXPECTED_SCHEMA_PROPERTIES[name]:
+            errors.append(f"{name} schema semantics가 canonical 값과 다릅니다.")
     expected_fields = {
         "TripPath": {"tripId"},
         "AccommodationPath": {"tripId", "accommodationId"},
@@ -173,6 +277,14 @@ def _validate_endpoints(contract: dict[str, Any], errors: list[str]) -> None:
             errors.append("endpoint field required/unknown exact 집합이 다릅니다.")
         identity = (endpoint.get("method"), endpoint.get("path"))
         identities.append(identity)
+        expected_schema = EXPECTED_ENDPOINT_SCHEMAS.get(identity)
+        if expected_schema is None or any(
+            endpoint.get(field) != expected_schema[field]
+            for field in ("operation", "requestSchema", "successSchema")
+        ) or endpoint.get("responses", {}).get("success") != expected_schema.get("successStatuses"):
+            errors.append(f"{identity} endpoint schema refs/success status가 다릅니다.")
+        if expected_schema is None or endpoint.get("headersSchema") != expected_schema.get("headersSchema"):
+            errors.append(f"{identity} endpoint required headers가 다릅니다.")
         if endpoint.get("operation") not in {"create", "update", "delete"}:
             errors.append(f"{identity} operation이 다릅니다.")
         if endpoint.get("auth") != {"mode": "required", "missingToken": 401, "invalidToken": 401}:
@@ -197,6 +309,8 @@ def _validate_endpoints(contract: dict[str, Any], errors: list[str]) -> None:
         figma = endpoint.get("figma")
         if not isinstance(figma, dict) or set(figma) != {"node", "action", "loading", "empty", "error"} or not all(_non_empty(v) for v in figma.values()):
             errors.append(f"{identity} Figma linkage가 다릅니다.")
+        elif figma != EXPECTED_ENDPOINT_FIGMA.get(identity):
+            errors.append(f"{identity} Figma observed/not-linked evidence가 다릅니다.")
     if set(identities) != EXPECTED_ENDPOINTS or len(identities) != 3:
         errors.append("endpoint method/path duplicate 또는 exact 집합이 다릅니다.")
     post = next((e for e in endpoints if isinstance(e, dict) and e.get("method") == "POST"), {})
@@ -225,6 +339,8 @@ def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
     active = contract.get("activeSchedulePolicy")
     if active != {"postPatch": "actual change invalidates active schedule atomically", "delete": "reject-422 while an active schedule exists", "canonicalNoOp": "no-op preserves active schedule and ETag"}:
         errors.append("active schedule mutation/delete 정책이 다릅니다.")
+    if contract.get("schemaGap") != EXPECTED_SCHEMA_GAP:
+        errors.append("schemaGap canonical 값이 다릅니다.")
 
 
 def _validate_errors(contract: dict[str, Any], errors: list[str]) -> None:
@@ -277,7 +393,7 @@ def _validate_external(contract: dict[str, Any], errors: list[str]) -> None:
         ],
         "observedStates": ["여행 기본 조건", "기본 조건 설정 전", "날짜 입력 후"],
         "missingStateEvidence": ["loading", "empty", "error"],
-        "reason": "숙소 입력 action은 관찰됐지만 복수 CRUD 상태, API contractVersion과 loading/empty/error response 연결은 관찰되지 않았다",
+        "reason": "숙소 입력 action은 관찰됐지만 삭제 UI/action, 복수 CRUD 상태, API contractVersion과 loading/empty/error response 연결은 관찰되지 않았다",
     }
     if figma != expected_figma:
         errors.append("Figma page/node/action/not-linked state exact linkage가 다릅니다.")

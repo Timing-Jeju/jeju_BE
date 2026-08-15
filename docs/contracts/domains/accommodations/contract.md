@@ -30,6 +30,6 @@ DELETE는 중간 숙소 제거로 내부 gap이 생기면 `422`다. edge 숙소�
 
 ## 외부 추적성과 schema gap
 
-Notion 세 행은 기존 page ID를 유지하고 계약 `1.0.0`, `Implementation Ready`와 endpoint별 body/header/status/error 계약으로 맞춘다. Figma에서 `329:5165`, `182:3248`, `653:11512`의 숙소/복귀 위치 action은 직접 관찰했다. 복수 CRUD의 loading/empty/error 및 API contract version 연결은 관찰되지 않아 Figma는 `not-linked`, catalog readiness 세 단계는 모두 `not-ready`다.
+Notion 세 행은 기존 page ID를 유지하고 계약 `1.0.0`, `Implementation Ready`와 endpoint별 body/header/status/error 계약으로 맞춘다. Figma `329:5165`, `182:3248`, `653:11512`에서 숙소 입력 field와 검색·지도 선택 action은 직접 관찰했지만 숙소 삭제 UI/action은 관찰되지 않았다. 따라서 DELETE endpoint의 Figma node는 `not-observed`, action은 `not-linked`로 기록한다. 복수 CRUD의 loading/empty/error 및 API contract version 연결도 관찰되지 않아 Figma는 `not-linked`, catalog readiness 세 단계는 모두 `not-ready`다.
 
 현재 DB CHECK는 `place_id/custom_name` 둘 다 non-null을 허용해 XOR가 아니고, exclusion은 overlap만 막는다. XOR migration과 gap/sequence/active 삭제 application transaction은 #68에서 구현한다. 운영 public schema의 단일 기준은 `supabase/migrations`이고 Flyway를 도입하지 않는다.

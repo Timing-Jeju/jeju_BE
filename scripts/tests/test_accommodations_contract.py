@@ -117,6 +117,57 @@ class AccommodationsContractTest(unittest.TestCase):
                 self.assertTrue(codes)
                 self.assertTrue(all(conditions[code]["status"] == int(status) for code in codes))
 
+    def test_endpoint_schema_refs_schema_semantics_and_schema_gap_are_fail_closed(self) -> None:
+        schema_mutations = (
+            ("schema semantics", lambda c: c["schemas"]["Accommodation"]["properties"]["placeId"].update(format="date")),
+            ("schemaGap", lambda c: c.update(schemaGap=[])),
+        )
+        for expected, mutate in schema_mutations:
+            with self.subTest(expected=expected):
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate)
+                result = self._run_contract(candidate)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(expected, result.stdout + result.stderr)
+        endpoint_mutations = (
+            ("POST", "requestSchema", "BogusRequest", "endpoint schema refs"),
+            ("POST", "headersSchema.schema", "BogusHeaders", "endpoint required headers"),
+            ("POST", "headersSchema.required", [], "endpoint required headers"),
+            ("POST", "successSchema", "BogusResponse", "endpoint schema refs"),
+            ("PATCH", "requestSchema", "BogusRequest", "endpoint schema refs"),
+            ("PATCH", "headersSchema.schema", "BogusHeaders", "endpoint required headers"),
+            ("PATCH", "headersSchema.required", [], "endpoint required headers"),
+            ("PATCH", "successSchema", "BogusResponse", "endpoint schema refs"),
+            ("DELETE", "requestSchema", "BogusRequest", "endpoint schema refs"),
+            ("DELETE", "headersSchema.schema", "BogusHeaders", "endpoint required headers"),
+            ("DELETE", "headersSchema.required", [], "endpoint required headers"),
+            ("DELETE", "successSchema", "BogusResponse", "endpoint schema refs"),
+        )
+        for method, field, value, expected in endpoint_mutations:
+            with self.subTest(method=method, field=field):
+                candidate = copy.deepcopy(self.contract)
+                endpoint = next(item for item in candidate["endpoints"] if item["method"] == method)
+                if field.startswith("headersSchema."):
+                    endpoint["headersSchema"][field.removeprefix("headersSchema.")] = value
+                else:
+                    endpoint[field] = value
+                result = self._run_contract(candidate)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(expected, result.stdout + result.stderr)
+
+    def test_delete_figma_has_no_invented_ui_linkage(self) -> None:
+        delete = next(endpoint for endpoint in self.contract["endpoints"] if endpoint["method"] == "DELETE")
+        self.assertEqual(
+            {
+                "node": "not-observed",
+                "action": "숙소 삭제 UI/action not-linked",
+                "loading": "not-observed",
+                "empty": "not-observed",
+                "error": "not-observed",
+            },
+            delete["figma"],
+        )
+
     def test_request_fixture_semantics_reject_xor_empty_patch_and_bodies(self) -> None:
         mutations = (
             ("POST identity XOR", lambda f: f["examples"]["create"]["body"].update(customName="성산 숙소")),
