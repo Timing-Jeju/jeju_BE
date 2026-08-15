@@ -235,6 +235,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "foreign key (source_sweep_id, source_snapshot_id)",
             "references public.tour_api_detail_item_sweep_pages(sweep_id, source_snapshot_id)",
             "deferrable initially immediate",
+            "create index idx_place_detail_items_sweep_page on public.place_detail_items(source_sweep_id, source_snapshot_id)",
             "validate_detail_item_sweep_lineage()",
             "snapshot.page_key = new.page_no::text",
             "snapshot.request_hash = new.request_fingerprint",

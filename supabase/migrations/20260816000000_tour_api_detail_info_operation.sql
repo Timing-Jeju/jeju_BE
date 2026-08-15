@@ -63,9 +63,8 @@ alter table public.place_detail_items
     references public.tour_api_detail_item_sweep_pages(sweep_id, source_snapshot_id)
     deferrable initially immediate;
 
-create index idx_place_detail_items_source_sweep
-  on public.place_detail_items(source_sweep_id)
-  where source_sweep_id is not null;
+create index idx_place_detail_items_sweep_page
+  on public.place_detail_items(source_sweep_id, source_snapshot_id);
 
 create or replace function public.validate_detail_item_sweep_lineage()
 returns trigger
