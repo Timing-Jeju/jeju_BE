@@ -126,6 +126,68 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
   }
 
   @Test
+  void 첫_detail_insert도_더_오래된_common이면_최신_place_source와_lineage를_덮어쓰지_않는다() {
+    replacePlace("최신 개요", NOW);
+    PlaceState before = placeState();
+
+    assertThatThrownBy(() -> repository.upsert(command(COMMON_HASH)))
+        .isInstanceOf(PlaceDetailImportException.class)
+        .hasMessage("최신 장소 상세보다 오래된 원천 응답입니다.");
+
+    assertThat(placeState()).isEqualTo(before);
+    assertThat(jdbc.queryForObject("select count(*) from public.place_details", Integer.class))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where operation_key in ('detailCommon2','detailIntro2')",
+                Integer.class))
+        .isZero();
+  }
+
+  @Test
+  void 첫_detail_insert의_common이_place와_동일한_freshness와_값이면_수용한다() {
+    replacePlace("안전한 개요", NOW.minusSeconds(30));
+    PlaceState before = placeState();
+
+    assertThat(repository.upsert(command(COMMON_HASH)).inserted()).isTrue();
+    assertThat(placeState()).isEqualTo(before);
+    assertThat(jdbc.queryForObject("select count(*) from public.place_details", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void 첫_detail_insert의_common이_place보다_새로우면_place와_lineage를_갱신한다() {
+    replacePlace("기존 개요", NOW.minusSeconds(60));
+
+    assertThat(repository.upsert(command(COMMON_HASH)).inserted()).isTrue();
+    assertThat(placeState())
+        .extracting(
+            PlaceState::overview,
+            PlaceState::sourceModifiedAt,
+            PlaceState::sourceSnapshotId,
+            PlaceState::importRunId)
+        .containsExactly("안전한 개요", NOW.minusSeconds(30), COMMON_SNAPSHOT, COMMON_RUN);
+  }
+
+  @Test
+  void provider_modified_time과_common_overview가_없는_intro_중심_첫_insert도_수용한다() {
+    replacePlace(null, null);
+    PlaceDetailUpsertCommand introOnly =
+        command(
+            null,
+            null,
+            null,
+            new DetailLineage("detailCommon2", COMMON_HASH, COMMON_SNAPSHOT, COMMON_RUN),
+            intro("갈치조림"),
+            new DetailLineage("detailIntro2", INTRO_HASH, INTRO_SNAPSHOT, INTRO_RUN),
+            NOW);
+
+    assertThat(repository.upsert(introOnly).inserted()).isTrue();
+    assertThat(jdbc.queryForObject("select count(*) from public.place_details", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
   void 더_오래된_detailCommon_sourceModifiedAt은_새_snapshot이어도_최신_row와_provenance를_덮어쓰지_않는다() {
     repository.upsert(command(COMMON_HASH));
     DetailState before = state();
@@ -233,11 +295,25 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
   }
 
   private void insertPlace() {
+    insertPlace(null, null);
+  }
+
+  private void replacePlace(String overview, Instant sourceModifiedAt) {
+    jdbc.update("delete from public.tour_place_sources");
+    jdbc.update("delete from public.tour_places");
+    insertPlace(overview, sourceModifiedAt);
+  }
+
+  private void insertPlace(String overview, Instant sourceModifiedAt) {
     jdbc.update(
-        "insert into public.tour_places (id, external_place_id, content_id, content_type_id, name, normalized_name, category, region_code, address, location, source_provider, source_service, import_run_id, source_snapshot_id) values (?, '100', '100', '39', '맛집', '맛집', 'food', 'jeju', '제주', ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography, 'tour-api', 'KorService2', ?, ?)",
+        "insert into public.tour_places (id, external_place_id, content_id, content_type_id, name, normalized_name, category, region_code, address, location, overview, source_provider, source_service, source_modified_at, import_run_id, source_snapshot_id, last_seen_at, updated_at) values (?, '100', '100', '39', '맛집', '맛집', 'food', 'jeju', '제주', ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography, ?, 'tour-api', 'KorService2', ?, ?, ?, ?, ?)",
         PLACE,
+        overview,
+        sourceModifiedAt == null ? null : Timestamp.from(sourceModifiedAt),
         LIST_RUN,
-        LIST_SNAPSHOT);
+        LIST_SNAPSHOT,
+        Timestamp.from(NOW),
+        Timestamp.from(NOW));
     jdbc.update(
         "insert into public.tour_place_sources (id, place_id, source_provider, source_service, external_id, content_type_id, source_snapshot_id, last_import_run_id) values (?, ?, 'tour-api', 'KorService2', '100', '39', ?, ?)",
         UUID.randomUUID(),
@@ -299,6 +375,23 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
         PLACE);
   }
 
+  private PlaceState placeState() {
+    return jdbc.queryForObject(
+        """
+        select overview, source_modified_at, source_snapshot_id, import_run_id, last_seen_at, updated_at
+        from public.tour_places where id=?
+        """,
+        (resultSet, rowNumber) ->
+            new PlaceState(
+                resultSet.getString("overview"),
+                resultSet.getTimestamp("source_modified_at").toInstant(),
+                resultSet.getObject("source_snapshot_id", UUID.class),
+                resultSet.getObject("import_run_id", UUID.class),
+                resultSet.getTimestamp("last_seen_at").toInstant(),
+                resultSet.getTimestamp("updated_at").toInstant()),
+        PLACE);
+  }
+
   private void clean() {
     jdbc.update("delete from public.tour_api_operation_provenance");
     jdbc.update("delete from public.place_details");
@@ -315,4 +408,12 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
       Instant updatedAt,
       String attributes,
       int provenanceCount) {}
+
+  private record PlaceState(
+      String overview,
+      Instant sourceModifiedAt,
+      UUID sourceSnapshotId,
+      UUID importRunId,
+      Instant lastSeenAt,
+      Instant updatedAt) {}
 }

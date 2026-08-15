@@ -49,7 +49,7 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
       validateSource(source, command);
       String attributes = attributes(command);
       ExistingDetail existing = findDetail(source.placeId(), attributes, command);
-      validateFreshness(source.placeId(), existing, command);
+      validateFreshness(source, existing, command);
       AtomicReference<PlaceDetailUpsertResult> outcome = new AtomicReference<>();
       provenanceWriter.write(
           provenance(
@@ -65,7 +65,7 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
       provenanceWriter.write(
           provenance(
               "tour_places", source.placeId(), command.commonLineage(), source.contentTypeId()),
-          () -> writeOverview(source.placeId(), command, existing));
+          () -> writeOverview(source, command, existing));
       return Objects.requireNonNull(outcome.get());
     } catch (DataAccessException | TourApiProvenanceException | JacksonException failure) {
       throw PlaceDetailImportException.storageFailure();
@@ -83,13 +83,17 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
     List<SourcePlace> rows =
         jdbc.query(
             """
-            select p.id, s.content_type_id
+            select p.id, s.content_type_id, p.overview, p.source_modified_at
             from public.tour_place_sources s join public.tour_places p on p.id=s.place_id
             where s.source_provider=? and s.source_service=? and s.external_id=?
             for update of p, s
             """,
             (rs, row) ->
-                new SourcePlace(rs.getObject("id", UUID.class), rs.getString("content_type_id")),
+                new SourcePlace(
+                    rs.getObject("id", UUID.class),
+                    rs.getString("content_type_id"),
+                    rs.getString("overview"),
+                    instant(rs.getTimestamp("source_modified_at"))),
             PROVIDER,
             SERVICE,
             contentId);
@@ -241,8 +245,9 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
   }
 
   private void writeOverview(
-      UUID placeId, PlaceDetailUpsertCommand command, ExistingDetail existing) {
-    if (existing != null && existing.sameCommon()) return;
+      SourcePlace source, PlaceDetailUpsertCommand command, ExistingDetail existing) {
+    if ((existing != null && existing.sameCommon())
+        || (existing == null && samePlaceCommon(source, command))) return;
     int changed =
         jdbc.update(
             """
@@ -255,7 +260,7 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
             command.commonLineage().importRunId(),
             timestamp(command.fetchedAt()),
             timestamp(command.fetchedAt()),
-            placeId);
+            source.placeId());
     requireOne(changed);
   }
 
@@ -272,15 +277,36 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
   }
 
   private void validateFreshness(
-      UUID placeId, ExistingDetail existing, PlaceDetailUpsertCommand command) {
+      SourcePlace source, ExistingDetail existing, PlaceDetailUpsertCommand command) {
     Instant incomingCommonFetchedAt = snapshotFetchedAt(command.commonLineage());
     Instant incomingIntroFetchedAt = snapshotFetchedAt(command.introLineage());
     if (existing == null) {
+      validateFirstCommonFreshness(source, command);
       return;
     }
     validateCommonFreshness(
-        placeId, existing, command.common().sourceModifiedAt(), incomingCommonFetchedAt);
-    validateIntroFreshness(placeId, existing, incomingIntroFetchedAt);
+        source.placeId(), existing, command.common().sourceModifiedAt(), incomingCommonFetchedAt);
+    validateIntroFreshness(source.placeId(), existing, incomingIntroFetchedAt);
+  }
+
+  private static void validateFirstCommonFreshness(
+      SourcePlace source, PlaceDetailUpsertCommand command) {
+    Instant storedSourceModifiedAt = source.sourceModifiedAt();
+    Instant incomingSourceModifiedAt = command.common().sourceModifiedAt();
+    if (storedSourceModifiedAt == null) {
+      return;
+    }
+    if (incomingSourceModifiedAt == null
+        || incomingSourceModifiedAt.isBefore(storedSourceModifiedAt)
+        || (incomingSourceModifiedAt.equals(storedSourceModifiedAt)
+            && !Objects.equals(source.overview(), command.common().overviewPlainText()))) {
+      throw PlaceDetailImportException.staleSource();
+    }
+  }
+
+  private static boolean samePlaceCommon(SourcePlace source, PlaceDetailUpsertCommand command) {
+    return Objects.equals(source.sourceModifiedAt(), command.common().sourceModifiedAt())
+        && Objects.equals(source.overview(), command.common().overviewPlainText());
   }
 
   private void validateCommonFreshness(
@@ -389,7 +415,8 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
     if (changed != 1) throw PlaceDetailImportException.storageFailure();
   }
 
-  private record SourcePlace(UUID placeId, String contentTypeId) {}
+  private record SourcePlace(
+      UUID placeId, String contentTypeId, String overview, Instant sourceModifiedAt) {}
 
   private record ExistingDetail(
       boolean sameValues, boolean sameCommon, boolean sameIntro, Instant sourceUpdatedAt) {}
