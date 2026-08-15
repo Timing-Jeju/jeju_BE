@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -106,6 +107,71 @@ class ReferenceCodeSyncServiceTest {
     assertThat(runs.failure).isEqualTo(ImportRunFailure.INVALID_PROVIDER_RESPONSE);
   }
 
+  @Test
+  void 완료된_idempotency_key를_재호출하면_외부와_snapshot과_저장을_재실행하지_않는다() {
+    FakeRunStore runs = new FakeRunStore();
+    FakeSnapshotStore snapshots = new FakeSnapshotStore();
+    AtomicInteger sourceCalls = new AtomicInteger();
+    AtomicInteger parserCalls = new AtomicInteger();
+    AtomicInteger repositoryCalls = new AtomicInteger();
+    Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+    ReferenceCodeSyncService service =
+        new ReferenceCodeSyncService(
+            operation -> {
+              sourceCalls.incrementAndGet();
+              return new ReferenceCodeSourceResponse("{}".getBytes(), SnapshotPayloadFormat.JSON);
+            },
+            (operation, format, payload) -> {
+              parserCalls.incrementAndGet();
+              return List.of(
+                  new ReferenceCode("ldong-region", "50", null, "제주특별자치도", "제주특별자치도", Map.of()));
+            },
+            command -> {
+              repositoryCalls.incrementAndGet();
+              return new ReferenceCodeUpsertResult(1, 0, 0);
+            },
+            new ImportRunLifecycleService(runs, clock, new FixedRunIdentityGenerator()),
+            new SnapshotStoreService(
+                snapshots,
+                new SnapshotRedactor() {
+                  @Override
+                  public String version() {
+                    return "test-v1";
+                  }
+
+                  @Override
+                  public SnapshotRedactionResult redact(
+                      SnapshotPayloadFormat format,
+                      String charset,
+                      byte[] payload,
+                      Map<String, Object> metadata) {
+                    return new SnapshotRedactionResult(
+                        "{}", "{}", "{}", SnapshotStatus.RECEIVED, null);
+                  }
+                },
+                clock,
+                () -> SNAPSHOT),
+            clock);
+    ReferenceCodeSyncCommand command =
+        new ReferenceCodeSyncCommand(
+            ReferenceCodeOperation.LDONG,
+            LocalDate.of(2026, 1, 12),
+            null,
+            "reference-20260815-replay");
+
+    ReferenceCodeSyncResult first = service.sync(command);
+    ReferenceCodeSyncResult replay = service.sync(command);
+
+    assertThat(first.runId()).isEqualTo(RUN);
+    assertThat(replay.runId()).isEqualTo(RUN);
+    assertThat(sourceCalls).hasValue(1);
+    assertThat(parserCalls).hasValue(1);
+    assertThat(repositoryCalls).hasValue(1);
+    assertThat(snapshots.saveCalls).isEqualTo(1);
+    assertThat(snapshots.transitionCalls).isEqualTo(1);
+    assertThat(runs.finishCalls).isEqualTo(1);
+  }
+
   private ReferenceCodeSyncService service(
       FakeRunStore runs,
       FakeSnapshotStore snapshots,
@@ -160,11 +226,13 @@ class ReferenceCodeSyncServiceTest {
     private final ImportRunLease lease = new ImportRunLease(RUN, OWNER, 1);
     private ImportRunStatus status;
     private ImportRunFailure failure;
+    private int startCalls;
+    private int finishCalls;
 
     @Override
     public ImportRunStartResult start(
         ImportRunStartCommand command, UUID runId, UUID ownerToken, Instant startedAt) {
-      return new ImportRunStartResult(lease, false);
+      return new ImportRunStartResult(lease, startCalls++ > 0);
     }
 
     @Override
@@ -180,6 +248,10 @@ class ReferenceCodeSyncServiceTest {
         com.timingjeju.api.application.importing.ImportRunCounts delta,
         ImportRunFailure failure,
         Instant finishedAt) {
+      finishCalls++;
+      if (this.status != null) {
+        return ImportRunMutationOutcome.INVALID_TRANSITION;
+      }
       this.status = status;
       this.failure = failure;
       return ImportRunMutationOutcome.UPDATED;
@@ -188,10 +260,13 @@ class ReferenceCodeSyncServiceTest {
 
   private static final class FakeSnapshotStore implements SnapshotStore {
     private SnapshotStatus status;
+    private int saveCalls;
+    private int transitionCalls;
 
     @Override
     public com.timingjeju.api.application.snapshot.SnapshotSaveResult save(
         StoredSnapshot snapshot) {
+      saveCalls++;
       status = snapshot.status();
       return new com.timingjeju.api.application.snapshot.SnapshotSaveResult(
           SNAPSHOT, snapshot.requestHash(), snapshot.payloadHash(), false);
@@ -199,6 +274,7 @@ class ReferenceCodeSyncServiceTest {
 
     @Override
     public SnapshotMutationOutcome transition(SnapshotStateMutation mutation) {
+      transitionCalls++;
       status = mutation.status();
       return SnapshotMutationOutcome.UPDATED;
     }

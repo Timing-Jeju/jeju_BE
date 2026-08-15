@@ -10,6 +10,8 @@ import com.timingjeju.api.application.tourapi.reference.ReferenceCodeSyncExcepti
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.ObjectMapper;
 
 @Tag("unit")
@@ -136,6 +138,62 @@ class TourApiReferenceCodeParserTest {
                     SnapshotPayloadFormat.JSON,
                     bytes(
                         "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":[{\"lclsSystm2\":\"AC01\",\"lclsSystm2Nm\":\"육상 레포츠\"}]}}}}")))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "<root><header><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></root>",
+        "<response><resultCode>0000</resultCode><header/><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>",
+        "<response><header><resultCode>0000</resultCode><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>",
+        "<response><header><wrapper><resultCode>0000</resultCode></wrapper></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>",
+        "<response><header><resultCode>0000</resultCode></header><body><wrapper><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></wrapper></body></response>",
+        "<response><header><resultCode>0000</resultCode></header><body><items><wrapper><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></wrapper></items></body></response>",
+        "<response><header><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item><wrapper><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>변조</lDongRegnNm></item></wrapper></items></body></response>",
+        "<response><resultCode>30</resultCode><header><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>",
+        "<response xmlns=\"urn:spoof\"><header><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>"
+      })
+  void XML은_namespace없는_exact_envelope가_아니면_거부한다(String payload) {
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.XML, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"root\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"}}}}}",
+        "{\"response\":{\"resultCode\":\"0000\",\"header\":{},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"}}}}}",
+        "{\"response\":{\"header\":{\"wrapper\":{\"resultCode\":\"0000\"}},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"}}}}}",
+        "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"wrapper\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"}}}}}}",
+        "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"},\"wrapper\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"변조\"}}}}}}"
+      })
+  void JSON도_XML과_같이_exact_envelope가_아니면_거부한다(String payload) {
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.JSON, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @Test
+  void XML_DTD와_외부_entity는_파싱전에_거부한다() {
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG,
+                    SnapshotPayloadFormat.XML,
+                    bytes(
+                        """
+                        <!DOCTYPE response [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+                        <response><header><resultCode>0000</resultCode></header>
+                          <body><items><item><lDongRegnCd>50</lDongRegnCd>
+                            <lDongRegnNm>&xxe;</lDongRegnNm></item></items></body>
+                        </response>
+                        """)))
         .isInstanceOf(ReferenceCodeSyncException.class);
   }
 

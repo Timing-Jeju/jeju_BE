@@ -6,6 +6,7 @@ import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleService;
 import com.timingjeju.api.application.importing.ImportRunScope;
 import com.timingjeju.api.application.importing.ImportRunStartCommand;
+import com.timingjeju.api.application.importing.ImportRunStartResult;
 import com.timingjeju.api.application.importing.ImportSourceKind;
 import com.timingjeju.api.application.importing.ImportSyncMode;
 import com.timingjeju.api.application.snapshot.SnapshotFailure;
@@ -56,21 +57,23 @@ public final class ReferenceCodeSyncService {
   public ReferenceCodeSyncResult sync(ReferenceCodeSyncCommand command) {
     Objects.requireNonNull(command, "command는 필수입니다.");
     String operation = command.operation().provenanceOperation();
-    ImportRunLease lease =
-        runService
-            .start(
-                new ImportRunStartCommand(
-                    ImportSourceKind.TOUR_API,
-                    "TourAPI KorService2 기준 코드",
-                    new ImportRunScope(PROVIDER, SERVICE, operation, SCOPE),
-                    "2026",
-                    PARSER_VERSION,
-                    "reference-code-v1",
-                    ImportSyncMode.FULL,
-                    requestFingerprint(command),
-                    command.idempotencyKey(),
-                    null))
-            .lease();
+    ImportRunStartResult start =
+        runService.start(
+            new ImportRunStartCommand(
+                ImportSourceKind.TOUR_API,
+                "TourAPI KorService2 기준 코드",
+                new ImportRunScope(PROVIDER, SERVICE, operation, SCOPE),
+                "2026",
+                PARSER_VERSION,
+                "reference-code-v1",
+                ImportSyncMode.FULL,
+                requestFingerprint(command),
+                command.idempotencyKey(),
+                null));
+    ImportRunLease lease = start.lease();
+    if (start.replayed()) {
+      return ReferenceCodeSyncResult.replayed(lease.runId());
+    }
 
     ImportRunFailure terminalFailure = ImportRunFailure.PROVIDER_UNAVAILABLE;
     try {
@@ -124,7 +127,7 @@ public final class ReferenceCodeSyncService {
           lease,
           new ImportRunCounts(
               codes.size(), 1, stored.inserted(), stored.updated(), stored.skipped(), 0, 0, 0));
-      return new ReferenceCodeSyncResult(
+      return ReferenceCodeSyncResult.completed(
           lease.runId(),
           snapshot.snapshotId(),
           stored.inserted(),

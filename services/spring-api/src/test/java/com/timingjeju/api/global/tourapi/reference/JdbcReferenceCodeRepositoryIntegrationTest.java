@@ -15,8 +15,12 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -108,6 +112,101 @@ class JdbcReferenceCodeRepositoryIntegrationTest {
         .isEqualTo(1);
   }
 
+  @RepeatedTest(5)
+  void 두_transaction이_같은_snapshot을_동시에_저장해도_실제_insert는_한번뿐이다() throws Exception {
+    ReferenceCodeUpsertCommand command = command(SNAPSHOT, RUN, HASH, "제주특별자치도");
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    var executor = Executors.newFixedThreadPool(2);
+    try {
+      var first =
+          executor.submit(
+              () -> {
+                ready.countDown();
+                start.await(10, TimeUnit.SECONDS);
+                return repository.upsert(command);
+              });
+      var second =
+          executor.submit(
+              () -> {
+                ready.countDown();
+                start.await(10, TimeUnit.SECONDS);
+                return repository.upsert(command);
+              });
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+
+      var results = List.of(first.get(30, TimeUnit.SECONDS), second.get(30, TimeUnit.SECONDS));
+      assertThat(results).extracting(result -> result.inserted()).containsExactlyInAnyOrder(1, 0);
+      assertThat(results).extracting(result -> result.skipped()).containsExactlyInAnyOrder(0, 1);
+    } finally {
+      executor.shutdownNow();
+    }
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.external_reference_codes", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select code_name from public.external_reference_codes", String.class))
+        .isEqualTo("제주특별자치도");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select last_seen_at from public.external_reference_codes", Timestamp.class))
+        .isEqualTo(Timestamp.from(NOW));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select updated_at = created_at from public.external_reference_codes",
+                Boolean.class))
+        .isTrue();
+  }
+
+  @Test
+  void 새_snapshot의_변경은_같은_UUID_행을_update하고_새_provenance를_남긴다() {
+    repository.upsert(command(SNAPSHOT, RUN, HASH, "제주특별자치도"));
+    UUID rowId =
+        jdbcTemplate.queryForObject(
+            "select id from public.external_reference_codes where external_code='50'", UUID.class);
+    jdbcTemplate.update(
+        "update public.data_import_runs set status='succeeded', finished_at=? where id=?",
+        Timestamp.from(NOW.plusSeconds(1)),
+        RUN);
+    UUID nextRun = UUID.fromString("25000000-0000-0000-0000-000000000005");
+    UUID nextSnapshot = UUID.fromString("25000000-0000-0000-0000-000000000006");
+    String nextHash = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+    insertRunAndSnapshot(nextRun, nextSnapshot, "areaCode2", nextHash);
+    var updated =
+        repository.upsert(command(nextSnapshot, nextRun, nextHash, "제주도", NOW.plusSeconds(2)));
+
+    assertThat(updated.updated()).isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select id from public.external_reference_codes where external_code='50'",
+                UUID.class))
+        .isEqualTo(rowId);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select code_name from public.external_reference_codes where id=?",
+                String.class,
+                rowId))
+        .isEqualTo("제주도");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select last_seen_at from public.external_reference_codes where id=?",
+                Timestamp.class,
+                rowId))
+        .isEqualTo(Timestamp.from(NOW.plusSeconds(2)));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance", Integer.class))
+        .isEqualTo(2);
+  }
+
   @Test
   void 겹치는_유효기간은_저장하지_않는다() {
     repository.upsert(command(SNAPSHOT, RUN, HASH, "제주특별자치도"));
@@ -137,11 +236,16 @@ class JdbcReferenceCodeRepositoryIntegrationTest {
 
   private ReferenceCodeUpsertCommand command(
       UUID snapshot, UUID run, String fingerprint, String name) {
+    return command(snapshot, run, fingerprint, name, NOW);
+  }
+
+  private ReferenceCodeUpsertCommand command(
+      UUID snapshot, UUID run, String fingerprint, String name, Instant seenAt) {
     return new ReferenceCodeUpsertCommand(
         List.of(code(name)),
         LocalDate.of(2026, 1, 12),
         null,
-        NOW,
+        seenAt,
         new ReferenceCodeLineage("areaCode2", fingerprint, snapshot, run));
   }
 

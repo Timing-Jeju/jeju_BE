@@ -62,7 +62,9 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
   }
 
   private List<Map<String, String>> jsonItems(byte[] payload) {
-    JsonNode response = objectMapper.readTree(payload).path("response");
+    JsonNode root = objectMapper.readTree(payload);
+    validateJsonStructure(root, "");
+    JsonNode response = root.path("response");
     requireSuccess(response.path("header").path("resultCode").asString());
     JsonNode itemNode = response.path("body").path("items").path("item");
     List<Map<String, String>> result = new ArrayList<>();
@@ -82,6 +84,7 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
 
   private List<Map<String, String>> xmlItems(byte[] payload) throws Exception {
     DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+    factory.setNamespaceAware(true);
     factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
     factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
     factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
@@ -89,16 +92,23 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
     factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
     Element root =
         factory.newDocumentBuilder().parse(new ByteArrayInputStream(payload)).getDocumentElement();
-    requireSuccess(text(root, "resultCode"));
-    NodeList itemNodes = root.getElementsByTagName("item");
+    requireNoNamespace(root);
+    if (!"response".equals(root.getTagName())) {
+      throw ReferenceCodeSyncException.invalidResponse();
+    }
+    validateXmlStructure(root);
+    Element header = directChild(root, "header");
+    requireSuccess(directChild(header, "resultCode").getTextContent());
+    Element items = directChild(directChild(root, "body"), "items");
+    List<Element> itemNodes = directChildren(items, "item");
     List<Map<String, String>> result = new ArrayList<>();
-    for (int index = 0; index < itemNodes.getLength(); index++) {
-      Element item = (Element) itemNodes.item(index);
+    for (Element item : itemNodes) {
       Map<String, String> fields = new LinkedHashMap<>();
       NodeList children = item.getChildNodes();
       for (int childIndex = 0; childIndex < children.getLength(); childIndex++) {
         Node child = children.item(childIndex);
         if (child instanceof Element element) {
+          requireNoNamespace(element);
           fields.put(element.getTagName(), element.getTextContent());
         }
       }
@@ -113,9 +123,87 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
     }
   }
 
-  private static String text(Element root, String name) {
-    NodeList nodes = root.getElementsByTagName(name);
-    return nodes.getLength() == 0 ? "" : nodes.item(0).getTextContent();
+  private static Element directChild(Element parent, String name) {
+    List<Element> children = directChildren(parent, name);
+    if (children.size() != 1) {
+      throw ReferenceCodeSyncException.invalidResponse();
+    }
+    return children.getFirst();
+  }
+
+  private static List<Element> directChildren(Element parent, String name) {
+    requireNoNamespace(parent);
+    List<Element> matches = new ArrayList<>();
+    NodeList children = parent.getChildNodes();
+    for (int index = 0; index < children.getLength(); index++) {
+      Node child = children.item(index);
+      if (child instanceof Element element) {
+        requireNoNamespace(element);
+        if (name.equals(element.getTagName())) {
+          matches.add(element);
+        }
+      }
+    }
+    return matches;
+  }
+
+  private static void requireNoNamespace(Element element) {
+    if (element.getNamespaceURI() != null || element.getPrefix() != null) {
+      throw ReferenceCodeSyncException.invalidResponse();
+    }
+  }
+
+  private static void validateXmlStructure(Element element) {
+    requireNoNamespace(element);
+    String parentName =
+        element.getParentNode() instanceof Element parent ? parent.getTagName() : null;
+    boolean validLocation =
+        switch (element.getTagName()) {
+          case "response" -> parentName == null;
+          case "header", "body" -> "response".equals(parentName);
+          case "resultCode" -> "header".equals(parentName);
+          case "items" -> "body".equals(parentName);
+          case "item" -> "items".equals(parentName);
+          default -> true;
+        };
+    if (!validLocation) {
+      throw ReferenceCodeSyncException.invalidResponse();
+    }
+    NodeList children = element.getChildNodes();
+    for (int index = 0; index < children.getLength(); index++) {
+      if (children.item(index) instanceof Element child) {
+        validateXmlStructure(child);
+      }
+    }
+  }
+
+  private static void validateJsonStructure(JsonNode node, String path) {
+    if (node.isArray()) {
+      node.forEach(child -> validateJsonStructure(child, path));
+      return;
+    }
+    if (!node.isObject()) {
+      return;
+    }
+    node.properties()
+        .forEach(
+            entry -> {
+              String childPath = path + '/' + entry.getKey();
+              String expected =
+                  switch (entry.getKey()) {
+                    case "response" -> "/response";
+                    case "header" -> "/response/header";
+                    case "resultCode" -> "/response/header/resultCode";
+                    case "body" -> "/response/body";
+                    case "items" -> "/response/body/items";
+                    case "item" -> "/response/body/items/item";
+                    default -> null;
+                  };
+              if (expected != null && !expected.equals(childPath)) {
+                throw ReferenceCodeSyncException.invalidResponse();
+              }
+              validateJsonStructure(entry.getValue(), childPath);
+            });
   }
 
   private static List<ReferenceCode> parseLdong(List<Map<String, String>> items) {

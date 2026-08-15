@@ -16,10 +16,12 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -54,10 +56,17 @@ public class JdbcReferenceCodeRepository implements ReferenceCodeRepository {
     int updated = 0;
     int skipped = 0;
     try {
-      for (ReferenceCode code : command.codes()) {
+      List<ReferenceCode> orderedCodes =
+          command.codes().stream()
+              .sorted(
+                  Comparator.comparing(ReferenceCode::codeType)
+                      .thenComparing(ReferenceCode::externalCode))
+              .toList();
+      for (ReferenceCode code : orderedCodes) {
+        lockNaturalKey(code, command.validFrom());
         StoredCode existing = find(code, command.validFrom());
         UUID rowId = existing == null ? deterministicId(code, command.validFrom()) : existing.id();
-        boolean unchanged = existing != null && existing.sameValue(code, command);
+        AtomicReference<WriteOutcome> outcome = new AtomicReference<>();
         ReferenceCodeLineage lineage = command.lineage();
         provenanceWriter.write(
             new TourApiProvenanceCommand(
@@ -69,22 +78,48 @@ public class JdbcReferenceCodeRepository implements ReferenceCodeRepository {
                 lineage.snapshotId(),
                 lineage.importRunId()),
             () -> {
-              if (!unchanged) {
-                write(rowId, code, command);
-              }
+              outcome.set(writeActual(existing, rowId, code, command));
             });
-        if (existing == null) {
-          inserted++;
-        } else if (unchanged) {
-          skipped++;
-        } else {
-          updated++;
+        switch (outcome.get()) {
+          case INSERTED -> inserted++;
+          case UPDATED -> updated++;
+          case SKIPPED -> skipped++;
         }
       }
       return new ReferenceCodeUpsertResult(inserted, updated, skipped);
     } catch (DataAccessException | TourApiProvenanceException failure) {
       throw ReferenceCodeSyncException.storageFailure();
     }
+  }
+
+  private void lockNaturalKey(ReferenceCode code, LocalDate validFrom) {
+    jdbcTemplate.query(
+        "select pg_advisory_xact_lock(hashtextextended(?, 0))",
+        resultSet -> null,
+        naturalKey(code, validFrom));
+  }
+
+  private WriteOutcome writeActual(
+      StoredCode existing, UUID rowId, ReferenceCode code, ReferenceCodeUpsertCommand command) {
+    if (existing != null) {
+      if (existing.sameValue(code, command)) {
+        return WriteOutcome.SKIPPED;
+      }
+      update(rowId, code, command);
+      return WriteOutcome.UPDATED;
+    }
+    if (insert(rowId, code, command)) {
+      return WriteOutcome.INSERTED;
+    }
+    StoredCode raced = find(code, command.validFrom());
+    if (raced == null) {
+      throw ReferenceCodeSyncException.storageFailure();
+    }
+    if (raced.sameValue(code, command)) {
+      return WriteOutcome.SKIPPED;
+    }
+    update(raced.id(), code, command);
+    return WriteOutcome.UPDATED;
   }
 
   private StoredCode find(ReferenceCode code, LocalDate validFrom) {
@@ -107,39 +142,58 @@ public class JdbcReferenceCodeRepository implements ReferenceCodeRepository {
     return rows.isEmpty() ? null : rows.getFirst();
   }
 
-  private void write(UUID id, ReferenceCode code, ReferenceCodeUpsertCommand command) {
-    jdbcTemplate.update(
-        """
-        insert into public.external_reference_codes (
-          id, source_provider, source_service, code_type, external_code,
-          parent_external_code, code_name, code_path, attributes, valid_from, valid_to,
-          source_snapshot_id, import_run_id, last_seen_at
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)
-        on conflict (source_provider, source_service, code_type, external_code, valid_from)
-        do update set
-          parent_external_code=excluded.parent_external_code,
-          code_name=excluded.code_name,
-          code_path=excluded.code_path,
-          attributes=excluded.attributes,
-          valid_to=excluded.valid_to,
-          source_snapshot_id=excluded.source_snapshot_id,
-          import_run_id=excluded.import_run_id,
-          last_seen_at=excluded.last_seen_at
+  private boolean insert(UUID id, ReferenceCode code, ReferenceCodeUpsertCommand command) {
+    List<UUID> inserted =
+        jdbcTemplate.query(
+            """
+            insert into public.external_reference_codes (
+              id, source_provider, source_service, code_type, external_code,
+              parent_external_code, code_name, code_path, attributes, valid_from, valid_to,
+              source_snapshot_id, import_run_id, last_seen_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?)
+            on conflict (source_provider, source_service, code_type, external_code, valid_from)
+            do nothing
+            returning id
+            """,
+            (resultSet, rowNumber) -> resultSet.getObject("id", UUID.class),
+            id,
+            PROVIDER,
+            SERVICE,
+            code.codeType(),
+            code.externalCode(),
+            code.parentExternalCode(),
+            code.name(),
+            code.path(),
+            json(code),
+            command.validFrom(),
+            command.validTo(),
+            command.lineage().snapshotId(),
+            command.lineage().importRunId(),
+            Timestamp.from(command.seenAt()));
+    return !inserted.isEmpty();
+  }
+
+  private void update(UUID id, ReferenceCode code, ReferenceCodeUpsertCommand command) {
+    int updated =
+        jdbcTemplate.update(
+            """
+        update public.external_reference_codes
+        set parent_external_code=?, code_name=?, code_path=?, attributes=?::jsonb,
+            valid_to=?, source_snapshot_id=?, import_run_id=?, last_seen_at=?
+        where id=?
         """,
-        id,
-        PROVIDER,
-        SERVICE,
-        code.codeType(),
-        code.externalCode(),
-        code.parentExternalCode(),
-        code.name(),
-        code.path(),
-        json(code),
-        command.validFrom(),
-        command.validTo(),
-        command.lineage().snapshotId(),
-        command.lineage().importRunId(),
-        Timestamp.from(command.seenAt()));
+            code.parentExternalCode(),
+            code.name(),
+            code.path(),
+            json(code),
+            command.validTo(),
+            command.lineage().snapshotId(),
+            command.lineage().importRunId(),
+            Timestamp.from(command.seenAt()),
+            id);
+    if (updated != 1) {
+      throw ReferenceCodeSyncException.storageFailure();
+    }
   }
 
   private String json(ReferenceCode code) {
@@ -163,16 +217,28 @@ public class JdbcReferenceCodeRepository implements ReferenceCodeRepository {
   }
 
   private static UUID deterministicId(ReferenceCode code, LocalDate validFrom) {
-    String naturalKey =
-        PROVIDER
-            + '\u001f'
-            + SERVICE
-            + '\u001f'
-            + code.codeType()
-            + '\u001f'
-            + code.externalCode()
-            + '\u001f'
-            + validFrom;
+    return uuidFromNaturalKey(naturalKey(code, validFrom));
+  }
+
+  private static String naturalKey(ReferenceCode code, LocalDate validFrom) {
+    return PROVIDER
+        + '\u001f'
+        + SERVICE
+        + '\u001f'
+        + code.codeType()
+        + '\u001f'
+        + code.externalCode()
+        + '\u001f'
+        + validFrom;
+  }
+
+  private enum WriteOutcome {
+    INSERTED,
+    UPDATED,
+    SKIPPED
+  }
+
+  private static UUID uuidFromNaturalKey(String naturalKey) {
     byte[] hash;
     try {
       hash =
