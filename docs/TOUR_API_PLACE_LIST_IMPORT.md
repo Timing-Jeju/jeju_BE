@@ -8,7 +8,7 @@ Issue #26의 importer는 Spring 내부 application command이며 공개 HTTP Con
 - 요청: `lDongRegnCd=50`, `numOfRows=100`, JSON, 1부터 시작하는 page 번호
 - 필수 행 필드: `contentid`, `contenttypeid`, HTML이 아닌 title, WGS84 제주 좌표
 - 제주 좌표 경계: 경도 `126.0..127.0`, 위도 `33.0..34.0`을 양끝 포함으로 허용한다.
-- page 번호, page 크기, `totalCount`, 실제 전체 item 수가 일치하지 않으면 normalized write 전에 run을 실패시킨다.
+- page 번호, 응답 `numOfRows=100`, `totalCount`, 실제 전체 item 수가 일치하지 않으면 normalized write 전에 run을 실패시킨다.
 
 ## 저장과 계보
 

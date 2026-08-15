@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.tourapi.place;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
+import com.timingjeju.api.application.tourapi.place.PlaceListRequestContract;
 import com.timingjeju.api.application.tourapi.place.PlaceListSource;
 import com.timingjeju.api.application.tourapi.place.PlaceListSourceResponse;
 import com.timingjeju.api.global.externalapi.ExternalApiExecutor;
@@ -16,7 +17,6 @@ import org.springframework.stereotype.Component;
 @Component
 public final class TourApiPlaceListClient implements PlaceListSource {
 
-  private static final int PAGE_SIZE = 100;
   private final PlaceListHttpExecutor executor;
 
   @Autowired
@@ -42,7 +42,7 @@ public final class TourApiPlaceListClient implements PlaceListSource {
       throw new IllegalArgumentException("pageNo는 1 이상이어야 합니다.");
     }
     Map<String, String> query = new LinkedHashMap<>();
-    query.put("numOfRows", Integer.toString(PAGE_SIZE));
+    query.put("numOfRows", Integer.toString(PlaceListRequestContract.PAGE_SIZE));
     query.put("pageNo", Integer.toString(pageNo));
     query.put("MobileOS", "ETC");
     query.put("MobileApp", "TimingJeju");

@@ -33,6 +33,8 @@ import java.util.Queue;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @Tag("unit")
 class PlaceListImportServiceTest {
@@ -49,8 +51,9 @@ class PlaceListImportServiceTest {
     FakeRunStore runStore = new FakeRunStore(false);
     FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
     Queue<PlaceListPage> pages = new ArrayDeque<>();
-    pages.add(page(1, 2, 4, List.of(place("1"), place("2")), Map.of()));
-    pages.add(page(2, 2, 4, List.of(place("1")), Map.of(PlaceRejectReason.INVALID_COORDINATE, 1)));
+    pages.add(page(1, 100, 4, List.of(place("1"), place("2")), Map.of()));
+    pages.add(
+        page(2, 100, 4, List.of(place("1")), Map.of(PlaceRejectReason.INVALID_COORDINATE, 1)));
     FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(2, 0, 1));
     PlaceListImportService service = service(runStore, snapshotStore, pages, repository);
 
@@ -130,6 +133,41 @@ class PlaceListImportServiceTest {
         .isInstanceOf(PlaceListImportException.class);
 
     assertThat(repository.commands).isEmpty();
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.FAILED);
+    assertThat(runStore.failure).isEqualTo(ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {1, 99, 101, Integer.MAX_VALUE})
+  void 응답_numOfRows가_fixed_100과_다르면_첫_page에서_fail_fast한다(int numOfRows) {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(1, 0, 0));
+    int[] sourceCalls = {0};
+    int[] parserCalls = {0};
+    PlaceListImportService service =
+        service(
+            runStore,
+            snapshotStore,
+            pageNo -> {
+              sourceCalls[0]++;
+              return response(pageNo);
+            },
+            (format, payload) -> {
+              parserCalls[0]++;
+              return page(1, numOfRows, 1, List.of(place("1")), Map.of());
+            },
+            repository);
+
+    assertThatThrownBy(() -> service.importPlaces(new PlaceListImportCommand("bad-page-size")))
+        .isInstanceOf(PlaceListImportException.class);
+
+    assertThat(sourceCalls[0]).isOne();
+    assertThat(parserCalls[0]).isOne();
+    assertThat(repository.commands).isEmpty();
+    assertThat(snapshotStore.saved).isOne();
+    assertThat(snapshotStore.statuses).containsExactly(SnapshotStatus.REJECTED);
+    assertThat(runStore.terminalMutations).isOne();
     assertThat(runStore.status).isEqualTo(ImportRunStatus.FAILED);
     assertThat(runStore.failure).isEqualTo(ImportRunFailure.INVALID_PROVIDER_RESPONSE);
   }
@@ -220,6 +258,7 @@ class PlaceListImportServiceTest {
     private ImportRunStatus status;
     private ImportRunFailure failure;
     private ImportRunCounts counts;
+    private int terminalMutations;
 
     private FakeRunStore(boolean replayed) {
       this.replayed = replayed;
@@ -243,6 +282,7 @@ class PlaceListImportServiceTest {
         ImportRunCounts delta,
         ImportRunFailure failure,
         Instant finishedAt) {
+      terminalMutations++;
       this.status = status;
       this.failure = failure;
       this.counts = delta;

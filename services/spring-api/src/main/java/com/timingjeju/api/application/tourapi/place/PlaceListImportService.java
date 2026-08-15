@@ -154,6 +154,9 @@ public final class PlaceListImportService {
     if (page.pageNo() != requestedPage) {
       throw PlaceListImportException.invalidResponse();
     }
+    if (page.numOfRows() != PlaceListRequestContract.PAGE_SIZE) {
+      throw PlaceListImportException.invalidResponse();
+    }
     int total = expectedTotal < 0 ? page.totalCount() : expectedTotal;
     if (page.totalCount() != total || alreadyFetched + page.rawItemCount() > total) {
       throw PlaceListImportException.invalidResponse();
@@ -173,7 +176,7 @@ public final class PlaceListImportService {
         PARSER_VERSION,
         "tour-place-list-v1",
         ImportSyncMode.FULL,
-        sha256(OPERATION + ":lDongRegnCd=50:numOfRows=100"),
+        sha256(OPERATION + ":lDongRegnCd=50:numOfRows=" + PlaceListRequestContract.PAGE_SIZE),
         command.idempotencyKey(),
         null);
   }
@@ -195,10 +198,14 @@ public final class PlaceListImportService {
         "UTF-8",
         response.payload(),
         Map.of(
-            "endpoint", "/areaBasedList2",
-            "pageNo", Integer.toString(pageNo),
-            "numOfRows", "100",
-            "lDongRegnCd", "50"));
+            "endpoint",
+            "/areaBasedList2",
+            "pageNo",
+            Integer.toString(pageNo),
+            "numOfRows",
+            Integer.toString(PlaceListRequestContract.PAGE_SIZE),
+            "lDongRegnCd",
+            "50"));
   }
 
   private static String sha256(String value) {
