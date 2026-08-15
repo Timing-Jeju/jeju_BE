@@ -18,18 +18,23 @@ import org.springframework.stereotype.Component;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectReader;
 
 @Component
 public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
 
   private static final String SUCCESS_CODE = "0000";
   private static final String JEJU_REGION_CODE = "50";
-  private final ObjectMapper objectMapper;
+  private final ObjectReader strictJsonReader;
 
   public TourApiReferenceCodeParser(ObjectMapper objectMapper) {
-    this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.");
+    this.strictJsonReader =
+        Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.")
+            .reader()
+            .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION);
   }
 
   @Override
@@ -62,7 +67,7 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
   }
 
   private List<Map<String, String>> jsonItems(byte[] payload) {
-    JsonNode root = objectMapper.readTree(payload);
+    JsonNode root = strictJsonReader.readTree(payload);
     validateJsonStructure(root, "");
     JsonNode response = root.path("response");
     requireSuccess(response.path("header").path("resultCode").asString());
@@ -98,7 +103,7 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
     }
     validateXmlStructure(root);
     Element header = directChild(root, "header");
-    requireSuccess(directChild(header, "resultCode").getTextContent());
+    requireSuccess(scalarText(directChild(header, "resultCode")));
     Element items = directChild(directChild(root, "body"), "items");
     List<Element> itemNodes = directChildren(items, "item");
     List<Map<String, String>> result = new ArrayList<>();
@@ -109,7 +114,9 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
         Node child = children.item(childIndex);
         if (child instanceof Element element) {
           requireNoNamespace(element);
-          fields.put(element.getTagName(), element.getTextContent());
+          if (fields.putIfAbsent(element.getTagName(), scalarText(element)) != null) {
+            throw ReferenceCodeSyncException.invalidResponse();
+          }
         }
       }
       result.add(fields);
@@ -151,6 +158,20 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
     if (element.getNamespaceURI() != null || element.getPrefix() != null) {
       throw ReferenceCodeSyncException.invalidResponse();
     }
+  }
+
+  private static String scalarText(Element element) {
+    StringBuilder value = new StringBuilder();
+    NodeList children = element.getChildNodes();
+    for (int index = 0; index < children.getLength(); index++) {
+      Node child = children.item(index);
+      if (child.getNodeType() == Node.TEXT_NODE || child.getNodeType() == Node.CDATA_SECTION_NODE) {
+        value.append(child.getNodeValue());
+      } else {
+        throw ReferenceCodeSyncException.invalidResponse();
+      }
+    }
+    return value.toString();
   }
 
   private static void validateXmlStructure(Element element) {

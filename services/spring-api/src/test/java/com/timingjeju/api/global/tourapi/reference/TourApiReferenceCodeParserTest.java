@@ -197,6 +197,51 @@ class TourApiReferenceCodeParserTest {
         .isInstanceOf(ReferenceCodeSyncException.class);
   }
 
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"response\":{\"header\":{\"resultCode\":\"30\",\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"}}}}}",
+        "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"26\",\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"}}}}}"
+      })
+  void JSON은_envelope와_nested_item의_중복_key를_모두_거부한다(String payload) {
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.JSON, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "<response><header><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd>26</lDongRegnCd><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>",
+        "<response><header><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd><value>50</value></lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>"
+      })
+  void XML도_JSON과_같이_중복_field와_nested_scalar를_거부한다(String payload) {
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.XML, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @Test
+  void XML_scalar는_text와_CDATA만_허용한다() {
+    var codes =
+        parser.parse(
+            ReferenceCodeOperation.LDONG,
+            SnapshotPayloadFormat.XML,
+            bytes(
+                """
+                <response><header><resultCode><![CDATA[0000]]></resultCode></header>
+                  <body><items><item><lDongRegnCd><![CDATA[50]]></lDongRegnCd>
+                    <lDongRegnNm>제주<![CDATA[특별자치도]]></lDongRegnNm></item></items></body>
+                </response>
+                """));
+
+    assertThat(codes).singleElement().extracting(ReferenceCode::name).isEqualTo("제주특별자치도");
+  }
+
   private static byte[] bytes(String value) {
     return value.getBytes(StandardCharsets.UTF_8);
   }
