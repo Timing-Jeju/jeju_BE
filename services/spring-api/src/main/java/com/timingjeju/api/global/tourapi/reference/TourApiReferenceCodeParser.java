@@ -30,6 +30,18 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
 
   private static final String SUCCESS_CODE = "0000";
   private static final String JEJU_REGION_CODE = "50";
+  private static final Set<String> KNOWN_CODE_NAME_FIELDS =
+      Set.of(
+          "lDongRegnCd",
+          "lDongRegnNm",
+          "lDongSignguCd",
+          "lDongSignguNm",
+          "lclsSystm1",
+          "lclsSystm1Nm",
+          "lclsSystm2",
+          "lclsSystm2Nm",
+          "lclsSystm3",
+          "lclsSystm3Nm");
   private final ObjectReader strictJsonReader;
 
   public TourApiReferenceCodeParser(ObjectMapper objectMapper) {
@@ -85,7 +97,23 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
 
   private static Map<String, String> jsonFields(JsonNode item) {
     Map<String, String> fields = new LinkedHashMap<>();
-    item.properties().forEach(entry -> fields.put(entry.getKey(), entry.getValue().asString()));
+    item.properties()
+        .forEach(
+            entry -> {
+              JsonNode valueNode = entry.getValue();
+              boolean knownCodeNameField = KNOWN_CODE_NAME_FIELDS.contains(entry.getKey());
+              if (knownCodeNameField && !valueNode.isTextual()) {
+                throw ReferenceCodeSyncException.invalidResponse();
+              }
+              String value = valueNode.asString();
+              if (knownCodeNameField) {
+                value = value.strip();
+                if (value.isBlank()) {
+                  throw ReferenceCodeSyncException.invalidResponse();
+                }
+              }
+              fields.put(entry.getKey(), value);
+            });
     return fields;
   }
 

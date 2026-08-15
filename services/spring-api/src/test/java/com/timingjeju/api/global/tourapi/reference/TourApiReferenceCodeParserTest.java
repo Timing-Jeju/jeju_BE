@@ -9,9 +9,14 @@ import com.timingjeju.api.application.tourapi.reference.ReferenceCode;
 import com.timingjeju.api.application.tourapi.reference.ReferenceCodeOperation;
 import com.timingjeju.api.application.tourapi.reference.ReferenceCodeSyncException;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.ObjectMapper;
 
@@ -283,6 +288,115 @@ class TourApiReferenceCodeParserTest {
                 strictParser.parse(
                     ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.JSON, duplicate))
         .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @ParameterizedTest(name = "{0} {1}={2}")
+  @MethodSource("knownJsonFieldInvalidValues")
+  void JSON_known_code_name_field는_text이면서_nonblank여야_한다(
+      ReferenceCodeOperation operation, String field, String invalidValue, String payload) {
+    assertThatThrownBy(() -> parser.parse(operation, SnapshotPayloadFormat.JSON, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @Test
+  void JSON_unknown_scalar_field는_known_field의_text정책을_적용하지_않는다() {
+    assertThatCode(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG,
+                    SnapshotPayloadFormat.JSON,
+                    bytes(
+                        """
+                        {"response":{"header":{"resultCode":"0000"},"body":{"items":{"item":{
+                          "lDongRegnCd":"50","lDongRegnNm":"제주특별자치도",
+                          "providerNumber":1,"providerBoolean":true,"providerNull":null
+                        }}}}}
+                        """)))
+        .doesNotThrowAnyException();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0", "true", "null", "{}", "[]", "\"\"", "\"   \""})
+  void JSON_resultCode도_text_0000이_아니면_거부한다(String invalidResultCode) {
+    String payload =
+        "{\"response\":{\"header\":{\"resultCode\":"
+            + invalidResultCode
+            + "},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\"}}}}}";
+
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.JSON, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @Test
+  void JSON과_XML의_valid_textual_법정동은_같은_결과를_만든다() {
+    var jsonCodes =
+        parser.parse(
+            ReferenceCodeOperation.LDONG,
+            SnapshotPayloadFormat.JSON,
+            bytes(
+                "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\" 50 \",\"lDongRegnNm\":\" 제주특별자치도 \"}}}}}"));
+    var xmlCodes =
+        parser.parse(
+            ReferenceCodeOperation.LDONG,
+            SnapshotPayloadFormat.XML,
+            bytes(
+                "<response><header><resultCode>0000</resultCode></header><body><items><item><lDongRegnCd> 50 </lDongRegnCd><lDongRegnNm> 제주특별자치도 </lDongRegnNm></item></items></body></response>"));
+
+    assertThat(jsonCodes).isEqualTo(xmlCodes);
+  }
+
+  private static Stream<Arguments> knownJsonFieldInvalidValues() {
+    Map<String, String> ldongFields = new LinkedHashMap<>();
+    ldongFields.put("lDongRegnCd", "50");
+    ldongFields.put("lDongRegnNm", "제주특별자치도");
+    ldongFields.put("lDongSignguCd", "50110");
+    ldongFields.put("lDongSignguNm", "제주시");
+
+    Map<String, String> classificationFields = new LinkedHashMap<>();
+    classificationFields.put("lclsSystm1", "AC");
+    classificationFields.put("lclsSystm1Nm", "레포츠");
+    classificationFields.put("lclsSystm2", "AC01");
+    classificationFields.put("lclsSystm2Nm", "육상 레포츠");
+    classificationFields.put("lclsSystm3", "AC0101");
+    classificationFields.put("lclsSystm3Nm", "트레킹");
+
+    return Stream.concat(
+        invalidFieldCases(
+            ReferenceCodeOperation.LDONG,
+            ldongFields,
+            "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":{\"lDongRegnCd\":\"50\",\"lDongRegnNm\":\"제주특별자치도\",\"lDongSignguCd\":\"50110\",\"lDongSignguNm\":\"제주시\"}}}}}"),
+        invalidFieldCases(
+            ReferenceCodeOperation.CLASSIFICATION,
+            classificationFields,
+            "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":{\"lclsSystm1\":\"AC\",\"lclsSystm1Nm\":\"레포츠\",\"lclsSystm2\":\"AC01\",\"lclsSystm2Nm\":\"육상 레포츠\",\"lclsSystm3\":\"AC0101\",\"lclsSystm3Nm\":\"트레킹\"}}}}}"));
+  }
+
+  private static Stream<Arguments> invalidFieldCases(
+      ReferenceCodeOperation operation, Map<String, String> fields, String validPayload) {
+    Map<String, String> invalidValues = new LinkedHashMap<>();
+    invalidValues.put("number", "50");
+    invalidValues.put("boolean", "true");
+    invalidValues.put("null", "null");
+    invalidValues.put("object", "{}");
+    invalidValues.put("array", "[]");
+    invalidValues.put("blank", "\"\"");
+    invalidValues.put("whitespace", "\"   \"");
+    return fields.entrySet().stream()
+        .flatMap(
+            field ->
+                invalidValues.entrySet().stream()
+                    .map(
+                        invalid ->
+                            Arguments.of(
+                                operation,
+                                field.getKey(),
+                                invalid.getKey(),
+                                validPayload.replace(
+                                    "\"" + field.getKey() + "\":\"" + field.getValue() + "\"",
+                                    "\"" + field.getKey() + "\":" + invalid.getValue()))));
   }
 
   private static byte[] bytes(String value) {
