@@ -54,9 +54,14 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
   public SnapshotRedactionResult redact(
       SnapshotPayloadFormat format, String charset, byte[] payload, Map<String, Object> metadata) {
     String metadataJson = writeJson(redactValue(metadata));
+    String fingerprintMetadataJson = writeJson(redactFingerprintValue(metadata));
     if (format == SnapshotPayloadFormat.BINARY) {
       return new SnapshotRedactionResult(
-          null, metadataJson, SnapshotStatus.IGNORED, "SNAPSHOT_BINARY_PAYLOAD");
+          null,
+          metadataJson,
+          fingerprintMetadataJson,
+          SnapshotStatus.IGNORED,
+          "SNAPSHOT_BINARY_PAYLOAD");
     }
     String decoded = decodeUtf8(charset, payload);
     try {
@@ -70,10 +75,15 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
             case TEXT -> writeJson(Map.of("body", redactText(decoded), "contentType", "text"));
             case BINARY -> throw new IllegalStateException("unreachable");
           };
-      return new SnapshotRedactionResult(payloadJson, metadataJson, SnapshotStatus.RECEIVED, null);
+      return new SnapshotRedactionResult(
+          payloadJson, metadataJson, fingerprintMetadataJson, SnapshotStatus.RECEIVED, null);
     } catch (RuntimeException exception) {
       return new SnapshotRedactionResult(
-          null, metadataJson, SnapshotStatus.REJECTED, "SNAPSHOT_MALFORMED_PAYLOAD");
+          null,
+          metadataJson,
+          fingerprintMetadataJson,
+          SnapshotStatus.REJECTED,
+          "SNAPSHOT_MALFORMED_PAYLOAD");
     }
   }
 
@@ -118,6 +128,40 @@ public final class DeterministicSnapshotRedactor implements SnapshotRedactor {
     if (value instanceof Iterable<?> iterable) {
       List<Object> result = new ArrayList<>();
       iterable.forEach(item -> result.add(redactValue(item)));
+      return result;
+    }
+    if (value instanceof String text) {
+      return redactText(text);
+    }
+    if (value == null || value instanceof Number || value instanceof Boolean) {
+      return value;
+    }
+    return REDACTED;
+  }
+
+  private Object redactFingerprintValue(Object value) {
+    if (value instanceof Map<?, ?> map) {
+      List<Map.Entry<String, Object>> entries = new ArrayList<>();
+      map.forEach(
+          (key, item) ->
+              entries.add(
+                  new java.util.AbstractMap.SimpleImmutableEntry<>(String.valueOf(key), item)));
+      entries.sort(Map.Entry.comparingByKey());
+      Map<String, Object> result = new LinkedHashMap<>();
+      entries.forEach(
+          entry ->
+              result.put(
+                  entry.getKey(),
+                  SnapshotSensitiveFieldRegistry.isPreciseLocation(entry.getKey())
+                      ? redactFingerprintValue(entry.getValue())
+                      : SnapshotSensitiveFieldRegistry.isSensitive(entry.getKey())
+                          ? REDACTED
+                          : redactFingerprintValue(entry.getValue())));
+      return result;
+    }
+    if (value instanceof Iterable<?> iterable) {
+      List<Object> result = new ArrayList<>();
+      iterable.forEach(item -> result.add(redactFingerprintValue(item)));
       return result;
     }
     if (value instanceof String text) {

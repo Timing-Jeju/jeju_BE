@@ -60,6 +60,20 @@ final class SnapshotSensitiveFieldRegistry {
       Set.of("userid", "accountid", "deviceid");
   private static final Set<String> PRECISE_LOCATION_SUFFIXES =
       Set.of("latitude", "longitude", "coordinates", "location");
+  private static final Set<String> PRECISE_LOCATION_KEYS =
+      Set.of(
+          "latitude",
+          "longitude",
+          "lat",
+          "lng",
+          "location",
+          "coordinates",
+          "coordx",
+          "coordy",
+          "mapx",
+          "mapy",
+          "gpsx",
+          "gpsy");
 
   private SnapshotSensitiveFieldRegistry() {}
 
@@ -74,6 +88,11 @@ final class SnapshotSensitiveFieldRegistry {
         || normalized.endsWith("secret")
         || normalized.endsWith("password")
         || normalized.endsWith("apikey");
+  }
+
+  static boolean isPreciseLocation(String key) {
+    String normalized = key.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    return PRECISE_LOCATION_KEYS.contains(normalized) || hasPreciseLocationSuffix(normalized);
   }
 
   private static boolean hasPreciseLocationSuffix(String normalized) {

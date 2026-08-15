@@ -1,6 +1,5 @@
 package com.timingjeju.api.application.snapshot;
 
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -38,19 +37,8 @@ public final class SnapshotStoreService {
             command.payloadFormat(), command.charset(), payload, command.requestMetadata());
     String payloadHash = sha256(payload);
     String requestHash =
-        sha256(
-            (command.scope().provider()
-                    + "\n"
-                    + command.scope().service()
-                    + "\n"
-                    + command.scope().operation()
-                    + "\n"
-                    + command.scope().scopeKey()
-                    + "\n"
-                    + command.pageKey()
-                    + "\n"
-                    + redacted.requestMetadataJson())
-                .getBytes(StandardCharsets.UTF_8));
+        CanonicalSnapshotRequestFingerprinter.fingerprint(
+            command.scope(), command.pageKey(), redacted.requestFingerprintMetadataJson());
     StoredSnapshot snapshot =
         new StoredSnapshot(
             identityGenerator.newSnapshotId(),

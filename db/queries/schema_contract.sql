@@ -10,7 +10,9 @@ declare
     'tour_place_sources',
     'place_detail_items',
     'external_reference_codes',
-    'api_idempotency_records'
+    'api_idempotency_records',
+    'tour_api_operations',
+    'tour_api_operation_provenance'
   ];
   missing_objects text;
   invalid_count integer;
@@ -91,6 +93,16 @@ begin
       ('external_api_snapshots', 'initial_parse_status'),
       ('external_api_snapshots', 'initial_error_code'),
       ('external_api_snapshots', 'purged_at'),
+      ('tour_api_operations', 'operation_key'),
+      ('tour_api_operations', 'source_provider'),
+      ('tour_api_operations', 'source_service'),
+      ('tour_api_operation_provenance', 'normalized_entity_type'),
+      ('tour_api_operation_provenance', 'normalized_row_id'),
+      ('tour_api_operation_provenance', 'operation_key'),
+      ('tour_api_operation_provenance', 'content_type_id'),
+      ('tour_api_operation_provenance', 'request_fingerprint'),
+      ('tour_api_operation_provenance', 'source_snapshot_id'),
+      ('tour_api_operation_provenance', 'import_run_id'),
       ('tour_place_sources', 'source_snapshot_id'),
       ('tour_place_sources', 'last_import_run_id'),
       ('tour_place_sources', 'l_dong_regn_cd'),
@@ -1108,6 +1120,71 @@ begin
       and indexname = 'idx_compute_runs_worker_recovery'
   ) then
     raise exception 'async run claim/recovery indexes are missing';
+  end if;
+
+  select count(*) into invalid_count
+  from public.tour_api_operations
+  where operation_key in (
+    'areaCode2', 'categoryCode2', 'areaBasedList2', 'locationBasedList2',
+    'searchKeyword2', 'searchStay2', 'detailCommon2', 'detailIntro2'
+  ) and source_provider = 'tour-api' and source_service = 'KorService2' and active;
+
+  if invalid_count <> 8 then
+    raise exception 'TourAPI operation registry is incomplete';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_trigger
+    where tgrelid = 'public.tour_api_operation_provenance'::regclass
+      and tgname = 'trg_tour_api_operation_provenance_validate'
+      and not tgisinternal
+  ) then
+    raise exception 'TourAPI operation provenance lineage trigger is missing';
+  end if;
+
+  select pg_catalog.lower(pg_get_functiondef('public.validate_tour_api_operation_provenance()'::regprocedure))
+    into function_definition;
+
+  select string_agg(required_fragment, ', ' order by required_fragment)
+    into missing_objects
+  from unnest(array[
+    'from public.external_reference_codes target',
+    'from public.tour_places target',
+    'from public.tour_place_sources target',
+    'from public.place_aliases target',
+    'from public.place_details target',
+    'where target.place_id = new.normalized_row_id',
+    'from public.place_detail_items target',
+    'from public.place_images target',
+    'tourapi operation provenance target does not exist',
+    'for key share'
+  ]) as required_fragment
+  where strpos(function_definition, required_fragment) = 0;
+
+  if missing_objects is not null then
+    raise exception 'TourAPI operation provenance target guard is incomplete: %', missing_objects;
+  end if;
+
+  if (select count(*) from pg_catalog.pg_trigger
+      where tgname like 'trg_%_provenance_delete' and not tgisinternal) <> 7
+     or (select count(*) from pg_catalog.pg_trigger
+      where tgname like 'trg_%_provenance_identifier_update' and not tgisinternal) <> 7
+     or strpos(pg_catalog.lower(pg_get_functiondef(
+          'public.protect_tour_api_provenance_target_delete()'::regprocedure
+        )), 'next_target_id is not distinct from target_id') = 0
+     or strpos(pg_catalog.lower(pg_get_functiondef(
+          'public.protect_tour_api_provenance_target_delete()'::regprocedure
+        )), 'tourapi operation provenance target is still referenced') = 0 then
+    raise exception 'TourAPI provenance target identifier mutation guards are incomplete';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.tour_api_operation_provenance'::regclass
+      and contype = 'u'
+      and pg_get_constraintdef(oid) ilike '%normalized_entity_type%normalized_row_id%operation_key%source_snapshot_id%'
+  ) then
+    raise exception 'TourAPI operation provenance deduplication constraint is missing';
   end if;
 end;
 $$;
