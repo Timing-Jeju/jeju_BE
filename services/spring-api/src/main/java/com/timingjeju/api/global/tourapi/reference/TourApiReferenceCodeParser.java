@@ -8,10 +8,12 @@ import com.timingjeju.api.application.tourapi.reference.ReferenceCodeSyncExcepti
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.springframework.stereotype.Component;
@@ -103,6 +105,7 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
     }
     validateXmlStructure(root);
     Element header = directChild(root, "header");
+    validateHeader(header);
     requireSuccess(scalarText(directChild(header, "resultCode")));
     Element items = directChild(directChild(root, "body"), "items");
     List<Element> itemNodes = directChildren(items, "item");
@@ -172,6 +175,23 @@ public final class TourApiReferenceCodeParser implements ReferenceCodeParser {
       }
     }
     return value.toString();
+  }
+
+  private static void validateHeader(Element header) {
+    Set<String> fieldNames = new HashSet<>();
+    NodeList children = header.getChildNodes();
+    for (int index = 0; index < children.getLength(); index++) {
+      Node child = children.item(index);
+      if (child instanceof Element field) {
+        requireNoNamespace(field);
+        if (!fieldNames.add(field.getTagName())) {
+          throw ReferenceCodeSyncException.invalidResponse();
+        }
+        scalarText(field);
+      } else if (child.getNodeType() != Node.TEXT_NODE || !child.getNodeValue().isBlank()) {
+        throw ReferenceCodeSyncException.invalidResponse();
+      }
+    }
   }
 
   private static void validateXmlStructure(Element element) {

@@ -11,7 +11,7 @@ Issue #25는 공개 API나 scheduler를 추가하지 않고 내부 `ReferenceCod
 
 법정동 응답은 제주특별자치도 코드 `50`과 그 부모를 공유하는 시군구만 저장합니다. 관광 분류는 1·2·3단계 부모가 같은 batch에 존재해야 합니다. 빈 items, 오류 envelope, 필수 code/name 누락과 끊어진 부모 관계는 원문 provider message를 노출하지 않고 전체 응답을 거부합니다. JSON과 XML parser는 같은 정규화 계약을 사용합니다.
 
-JSON은 envelope를 포함한 모든 object에서 중복 key를 거부합니다. XML은 namespace 없는 exact envelope와 item의 고유한 direct field만 허용합니다. XML scalar는 text와 CDATA node만 이어 붙이며 element, comment, processing instruction 같은 child node가 섞인 mixed content는 거부합니다. 두 형식 모두 duplicate와 nested scalar spoof를 전체 응답 실패로 처리합니다.
+JSON은 envelope를 포함한 모든 object에서 중복 key를 거부합니다. XML은 namespace 없는 exact envelope를 사용하며 header와 item의 모든 known/unknown direct field 이름을 각각 한 번만 허용합니다. XML scalar는 text와 CDATA node만 이어 붙이며 element, comment, processing instruction 같은 child node가 섞인 mixed content는 거부합니다. 두 형식 모두 duplicate와 nested scalar spoof를 전체 응답 실패로 처리합니다.
 
 ## 실행과 계보
 

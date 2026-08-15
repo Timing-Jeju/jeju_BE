@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.tourapi.reference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
@@ -240,6 +241,48 @@ class TourApiReferenceCodeParserTest {
                 """));
 
     assertThat(codes).singleElement().extracting(ReferenceCode::name).isEqualTo("제주특별자치도");
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "<response><header><resultCode>0000</resultCode><resultMsg>OK</resultMsg><resultMsg>중복</resultMsg></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>",
+        "<response><header><resultCode>0000</resultCode><providerField>A</providerField><providerField>B</providerField></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>"
+      })
+  void XML_header의_known_unknown_direct_element는_이름별_한번만_허용한다(String payload) {
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.XML, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "<response><header><resultCode>0000</resultCode><resultMsg>O<!--spoof-->K</resultMsg></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>",
+        "<response><header><resultCode>0000</resultCode><?provider spoof?></header><body><items><item><lDongRegnCd>50</lDongRegnCd><lDongRegnNm>제주특별자치도</lDongRegnNm></item></items></body></response>"
+      })
+  void XML_header_scalar와_header는_comment와_processing_instruction을_거부한다(String payload) {
+    assertThatThrownBy(
+            () ->
+                parser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.XML, bytes(payload)))
+        .isInstanceOf(ReferenceCodeSyncException.class);
+  }
+
+  @Test
+  void parser의_strict_duplicate설정은_주입된_shared_ObjectMapper를_변경하지_않는다() {
+    ObjectMapper sharedMapper = new ObjectMapper();
+    TourApiReferenceCodeParser strictParser = new TourApiReferenceCodeParser(sharedMapper);
+    byte[] duplicate = bytes("{\"value\":1,\"value\":2}");
+
+    assertThatCode(() -> sharedMapper.readTree(duplicate)).doesNotThrowAnyException();
+    assertThatThrownBy(
+            () ->
+                strictParser.parse(
+                    ReferenceCodeOperation.LDONG, SnapshotPayloadFormat.JSON, duplicate))
+        .isInstanceOf(ReferenceCodeSyncException.class);
   }
 
   private static byte[] bytes(String value) {
