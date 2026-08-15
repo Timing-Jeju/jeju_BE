@@ -850,6 +850,7 @@ Response `204`: body 없음.
 중복될 수 없고 priority는 1부터 연속이며 primary는 정확히 하나, priority 1이다.
 강한 `If-Match`와 응답의 일정 무효화 신호를 포함한 exact JSON은
 [`preferences-transport/contract.json`](../contracts/domains/preferences-transport/contract.json)을 따른다.
+non-null `startPlaceId/endPlaceId`가 없으면 `404 PLACE_NOT_FOUND`다.
 
 ### 11.7 `PUT /api/v1/trips/{tripId}/place-preferences`
 
@@ -857,6 +858,7 @@ Response `204`: body 없음.
 `targetDayNo`는 null 또는 `1..tripDayCount`, priority tie는
 `priority DESC, placeId ASC`로 고정한다. 성공 응답은 일정 무효화와 재생성 신호를
 포함한다.
+`items[].placeId`가 없으면 `404 PLACE_NOT_FOUND`다.
 
 ### 11.8 `PUT|DELETE /api/v1/trips/{tripId}/transport-event`
 
@@ -866,6 +868,10 @@ departure이면 endDate여야 한다. `terminalPlaceId/customTerminalName`은 �
 DELETE는 `eventType` query를 필수로 받고 body는 허용하지 않는다. 두 method 모두
 `200 TransportEventMutationResponse`로 `scheduleEffect`와
 `regenerationRequired`를 반환한다.
+PUT의 non-null `terminalPlaceId`가 없으면 `404 PLACE_NOT_FOUND`, DELETE selector에
+해당 event가 없으면 `404 TRANSPORT_EVENT_NOT_FOUND`다. 세 성공 응답 schema는 실제
+`$ref` 기반 `allOf`와 `unevaluatedProperties=false`를 사용해 공통·고유 field를 합성한
+closed-world 계약이며 추가/누락 response field를 허용하지 않는다.
 
 ### 11.9 `POST /api/v1/trips/{tripId}/accommodations`
 

@@ -21,9 +21,11 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 모든 변경은 현재 여행의 강한 ETag를 `If-Match`로 받는다. stale writer는 `409 TRIP_VERSION_CONFLICT`다. canonical 값이 같으면 no-op이며 active 일정은 유지된다. 값이 바뀌고 active 일정이 없으면 `scheduleEffect=none`, `regenerationRequired=false`다. active 일정이 있으면 같은 transaction에서 active version을 `superseded`로 바꾸고 `activeScheduleVersionId`를 비우며 여행 상태를 `draft`로 돌린다. 이때 `scheduleEffect=invalidated`, `regenerationRequired=true`다. DELETE도 body 없는 `204`가 아니라 이 신호를 담은 `200`을 반환한다.
 
+세 성공 응답은 공통 `MutationResponse`를 문자열로 암시하지 않는다. 실제 `allOf`의 `{"$ref":"MutationResponse"}`와 endpoint 고유 child schema를 합성하고 최상위 `unevaluatedProperties=false`로 닫는다. 따라서 공통 필드와 endpoint 고유 필드는 모두 필수이며, fixture에 계약 밖 필드가 추가되거나 어느 필드든 누락되면 거부한다.
+
 ## 오류·외부 추적성
 
-오류는 #72의 `application/problem+json`과 정확한 `type,title,status,detail,instance,code,traceId,fieldErrors`를 상속한다. endpoint별 `400/401/404/409/422` 조건과 한국어 fixture는 JSON 계약에 고정돼 있다. request-time 외부 API 또는 MCP 호출은 없다.
+오류는 #72의 `application/problem+json`과 정확한 `type,title,status,detail,instance,code,traceId,fieldErrors`를 상속한다. endpoint별 matrix는 설명 문자열이 아니라 canonical error code를 직접 참조하며, 각 code는 condition과 한국어 problem fixture에 양방향으로 정확히 한 번 연결된다. 세 PUT에서 non-null 장소 참조가 없으면 `404 PLACE_NOT_FOUND`, DELETE selector에 이벤트가 없으면 `404 TRANSPORT_EVENT_NOT_FOUND`다. 두 오류의 canonical occurrence URI도 `urn:timing-jeju:problem:{traceId}`로 고정한다. request-time 외부 API 또는 MCP 호출은 없다.
 
 Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. 하지만 Figma 자체에 API contract version과 loading/empty/error response 연결이 없으므로 `figma=not-linked`, catalog readiness는 과장하지 않고 모두 `not-ready`다. Controller/OpenAPI/contract test가 없는 문서 Issue이므로 catalog의 Implementation Ready도 승격하지 않는다.
 

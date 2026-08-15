@@ -1,8 +1,12 @@
+import copy
+import importlib.util
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -12,6 +16,13 @@ REQUEST = ROOT / "fixtures/contracts/preferences-transport/request.json"
 SUCCESS = ROOT / "fixtures/contracts/preferences-transport/success.json"
 PROBLEM = ROOT / "fixtures/contracts/preferences-transport/problem.json"
 VALIDATOR = ROOT / "scripts/validate_preferences_transport_contract.py"
+
+VALIDATOR_SPEC = importlib.util.spec_from_file_location(
+    "validate_preferences_transport_contract", VALIDATOR
+)
+assert VALIDATOR_SPEC is not None and VALIDATOR_SPEC.loader is not None
+VALIDATOR_MODULE = importlib.util.module_from_spec(VALIDATOR_SPEC)
+VALIDATOR_SPEC.loader.exec_module(VALIDATOR_MODULE)
 
 EXPECTED_ENDPOINTS = {
     ("PUT", "/api/v1/trips/{tripId}/preferences"),
@@ -76,6 +87,55 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual([200], delete_endpoint["responses"]["success"])
         self.assertEqual("TransportEventMutationResponse", delete_endpoint["successSchema"])
 
+    def test_success_responses_use_ref_composition_and_closed_world(self) -> None:
+        expected_child_required = {
+            "PreferencesResponse": {"preferences"},
+            "PlacePreferencesResponse": {"items"},
+            "TransportEventMutationResponse": {"eventType", "deleted", "event"},
+        }
+        for name, child_required in expected_child_required.items():
+            with self.subTest(schema=name):
+                schema = self.contract["schemas"][name]
+                self.assertEqual(False, schema["unevaluatedProperties"])
+                self.assertEqual(2, len(schema["allOf"]))
+                self.assertEqual({"$ref": "MutationResponse"}, schema["allOf"][0])
+                self.assertEqual(child_required, set(schema["allOf"][1]["required"]))
+
+    def test_validator_rejects_response_composition_required_mutations(self) -> None:
+        mutations = (
+            ("allOf", lambda c: c["schemas"]["PreferencesResponse"].pop("allOf")),
+            ("$ref", lambda c: c["schemas"]["PlacePreferencesResponse"]["allOf"][0].pop("$ref")),
+            ("closed-world", lambda c: c["schemas"]["PreferencesResponse"].pop("unevaluatedProperties")),
+            ("공통 required", lambda c: c["schemas"]["MutationResponse"]["required"].remove("tripId")),
+            ("고유 required", lambda c: c["schemas"]["TransportEventMutationResponse"]["allOf"][1]["required"].remove("event")),
+        )
+        for expected, mutate in mutations:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "contract.json"
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate)
+                path.write_text(json.dumps(candidate, ensure_ascii=False), encoding="utf-8")
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR), "--contract", str(path), "--skip-catalog-fixtures"],
+                    cwd=ROOT, text=True, capture_output=True, check=False,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(expected, result.stdout + result.stderr)
+
+    def test_success_fixtures_match_effective_response_schema_exactly(self) -> None:
+        self.assertEqual([], self._fixture_errors())
+        mutations = (
+            ("추가 response field", lambda f: f["examples"]["preferences"]["body"].update(unexpected=True)),
+            ("누락 response field", lambda f: f["examples"]["placePreferences"]["body"].pop("tripId")),
+            ("누락 response field", lambda f: f["examples"]["putTransportEvent"]["body"].pop("event")),
+        )
+        for expected, mutate in mutations:
+            with self.subTest(expected=expected):
+                self.assertTrue(
+                    any(expected in error for error in self._fixture_errors(mutate)),
+                    f"{expected} mutation을 validator가 거부해야 합니다.",
+                )
+
     def test_endpoint_contract_has_auth_presence_errors_owner_figma_and_version(self) -> None:
         required = {
             "method", "path", "operation", "requestSchema", "headersSchema",
@@ -100,16 +160,63 @@ class PreferencesTransportContractTest(unittest.TestCase):
     def test_error_matrix_covers_every_declared_status_and_condition(self) -> None:
         required_codes = {
             "INVALID_REQUEST", "AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN",
-            "TRIP_NOT_FOUND", "TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT",
+            "TRIP_NOT_FOUND", "PLACE_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND",
+            "TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT",
             "PREFERENCE_CONSTRAINT_VIOLATION", "PLACE_PREFERENCE_CONSTRAINT_VIOLATION",
             "TRANSPORT_EVENT_CONSTRAINT_VIOLATION",
         }
         actual_codes = {entry["code"] for entry in self.contract["errorConditions"]}
         self.assertTrue(required_codes <= actual_codes)
+        conditions = {entry["code"]: entry for entry in self.contract["errorConditions"]}
         for endpoint in self.contract["endpoints"]:
             matrix = endpoint["errorMatrix"]
             self.assertEqual({str(code) for code in endpoint["responses"]["errors"]}, set(matrix))
             self.assertTrue(all(matrix[str(code)] for code in endpoint["responses"]["errors"]))
+            for status, codes in matrix.items():
+                for code in codes:
+                    self.assertEqual(int(status), conditions[code]["status"])
+
+        matrix_by_endpoint = {
+            (item["method"], item["path"]): item["errorMatrix"]
+            for item in self.contract["endpoints"]
+        }
+        for identity in EXPECTED_ENDPOINTS - {("DELETE", "/api/v1/trips/{tripId}/transport-event")}:
+            self.assertIn("PLACE_NOT_FOUND", matrix_by_endpoint[identity]["404"])
+        self.assertIn(
+            "TRANSPORT_EVENT_NOT_FOUND",
+            matrix_by_endpoint[("DELETE", "/api/v1/trips/{tripId}/transport-event")]["404"],
+        )
+
+    def test_validator_rejects_error_condition_fixture_link_mutations(self) -> None:
+        contract_mutations = (
+            ("PLACE_NOT_FOUND", lambda c: c["errorConditions"].remove(next(e for e in c["errorConditions"] if e["code"] == "PLACE_NOT_FOUND"))),
+            ("TRANSPORT_EVENT_NOT_FOUND", lambda c: c["endpoints"][3]["errorMatrix"]["404"].remove("TRANSPORT_EVENT_NOT_FOUND")),
+            ("problem type", lambda c: next(e for e in c["errorConditions"] if e["code"] == "PLACE_NOT_FOUND").update(type="https://invalid.example/problem")),
+            ("problem fixture", lambda c: next(e for e in c["errorConditions"] if e["code"] == "TRANSPORT_EVENT_NOT_FOUND").pop("fixture")),
+        )
+        for expected, mutate in contract_mutations:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "contract.json"
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate)
+                path.write_text(json.dumps(candidate, ensure_ascii=False), encoding="utf-8")
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR), "--contract", str(path), "--skip-catalog-fixtures"],
+                    cwd=ROOT, text=True, capture_output=True, check=False,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(expected, result.stdout + result.stderr)
+
+        problem_mutations = (
+            ("PLACE_NOT_FOUND", lambda f: f["examples"].pop("404_place_not_found")),
+            ("TRANSPORT_EVENT_NOT_FOUND", lambda f: f["examples"]["404_transport_event_not_found"].update(detail="drift")),
+        )
+        for expected, mutate in problem_mutations:
+            with self.subTest(expected=expected):
+                self.assertTrue(
+                    any(expected in error for error in self._fixture_errors(problem_mutator=mutate)),
+                    f"{expected} problem fixture mutation을 validator가 거부해야 합니다.",
+                )
 
     def test_notion_rows_and_figma_observations_are_exact_without_false_readiness(self) -> None:
         notion = self.contract["externalTraceability"]["notion"]
@@ -155,6 +262,28 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 )
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(expected, result.stdout + result.stderr)
+
+    def _fixture_errors(self, success_mutator=None, problem_mutator=None) -> list[str]:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture_dir = Path(temporary)
+            for source in (REQUEST, SUCCESS, PROBLEM):
+                shutil.copy2(source, fixture_dir / source.name)
+            if success_mutator is not None:
+                success = json.loads((fixture_dir / "success.json").read_text(encoding="utf-8"))
+                success_mutator(success)
+                (fixture_dir / "success.json").write_text(
+                    json.dumps(success, ensure_ascii=False), encoding="utf-8"
+                )
+            if problem_mutator is not None:
+                problem = json.loads((fixture_dir / "problem.json").read_text(encoding="utf-8"))
+                problem_mutator(problem)
+                (fixture_dir / "problem.json").write_text(
+                    json.dumps(problem, ensure_ascii=False), encoding="utf-8"
+                )
+            errors: list[str] = []
+            with mock.patch.object(VALIDATOR_MODULE, "FIXTURES", fixture_dir):
+                VALIDATOR_MODULE._validate_fixtures(self.contract, errors)
+            return errors
 
 
 if __name__ == "__main__":

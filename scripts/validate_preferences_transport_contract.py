@@ -21,6 +21,58 @@ EXPECTED_ENDPOINTS = {
     ("PUT", "/api/v1/trips/{tripId}/transport-event"),
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"),
 }
+COMMON_RESPONSE_FIELDS = {
+    "tripId", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId",
+    "tripStatus", "updatedAt",
+}
+RESPONSE_CHILD_FIELDS = {
+    "PreferencesResponse": {"preferences"},
+    "PlacePreferencesResponse": {"items"},
+    "TransportEventMutationResponse": {"eventType", "deleted", "event"},
+}
+EXPECTED_ENDPOINT_ERROR_CODES = {
+    ("PUT", "/api/v1/trips/{tripId}/preferences"): {
+        "400": ["INVALID_REQUEST"],
+        "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+        "404": ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND"],
+        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"],
+        "422": ["PREFERENCE_CONSTRAINT_VIOLATION"],
+    },
+    ("PUT", "/api/v1/trips/{tripId}/place-preferences"): {
+        "400": ["INVALID_REQUEST"],
+        "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+        "404": ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND"],
+        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"],
+        "422": ["PLACE_PREFERENCE_CONSTRAINT_VIOLATION"],
+    },
+    ("PUT", "/api/v1/trips/{tripId}/transport-event"): {
+        "400": ["INVALID_REQUEST"],
+        "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+        "404": ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND"],
+        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"],
+        "422": ["TRANSPORT_EVENT_CONSTRAINT_VIOLATION"],
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/transport-event"): {
+        "400": ["INVALID_REQUEST"],
+        "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+        "404": ["TRIP_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"],
+        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"],
+        "422": ["TRANSPORT_EVENT_CONSTRAINT_VIOLATION"],
+    },
+}
+EXPECTED_PROBLEMS = {
+    "INVALID_REQUEST": (400, "https://api.timing-jeju.com/problems/invalid-request", "요청 값이 올바르지 않습니다", "필수값, 형식과 If-Match를 확인해 주세요.", "400_invalid_request"),
+    "AUTHENTICATION_REQUIRED": (401, "https://api.timing-jeju.com/problems/authentication-required", "인증이 필요합니다", "로그인 후 다시 요청해 주세요.", "401_authentication_required"),
+    "INVALID_ACCESS_TOKEN": (401, "https://api.timing-jeju.com/problems/invalid-access-token", "인증 정보가 올바르지 않습니다", "유효한 인증 정보로 다시 요청해 주세요.", "401_invalid_access_token"),
+    "TRIP_NOT_FOUND": (404, "https://api.timing-jeju.com/problems/trip-not-found", "여행을 찾을 수 없습니다", "요청한 여행이 없거나 접근할 수 없습니다.", "404_trip_not_found"),
+    "PLACE_NOT_FOUND": (404, "https://api.timing-jeju.com/problems/place-not-found", "장소를 찾을 수 없습니다", "요청한 장소가 없거나 사용할 수 없습니다.", "404_place_not_found"),
+    "TRANSPORT_EVENT_NOT_FOUND": (404, "https://api.timing-jeju.com/problems/transport-event-not-found", "교통 이벤트를 찾을 수 없습니다", "삭제할 도착 또는 출발 교통 이벤트가 없습니다.", "404_transport_event_not_found"),
+    "TRIP_VERSION_CONFLICT": (409, "https://api.timing-jeju.com/problems/trip-version-conflict", "여행 조건이 이미 변경되었습니다", "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요.", "409_trip_version_conflict"),
+    "TRIP_TERMINAL_STATE_CONFLICT": (409, "https://api.timing-jeju.com/problems/trip-terminal-state-conflict", "종료된 여행은 변경할 수 없습니다", "완료, 취소 또는 실패한 여행 조건은 변경할 수 없습니다.", "409_trip_terminal_state_conflict"),
+    "PREFERENCE_CONSTRAINT_VIOLATION": (422, "https://api.timing-jeju.com/problems/preference-constraint-violation", "여행 선호 조건을 처리할 수 없습니다", "중복 값과 교통수단 primary·priority를 확인해 주세요.", "422_preference_constraint"),
+    "PLACE_PREFERENCE_CONSTRAINT_VIOLATION": (422, "https://api.timing-jeju.com/problems/place-preference-constraint-violation", "장소 선호 조건을 처리할 수 없습니다", "같은 장소의 희망·회피 중복과 적용 Day를 확인해 주세요.", "422_place_preference_constraint"),
+    "TRANSPORT_EVENT_CONSTRAINT_VIOLATION": (422, "https://api.timing-jeju.com/problems/transport-event-constraint-violation", "교통 이벤트를 처리할 수 없습니다", "날짜, +09:00 시간대와 터미널 입력을 확인해 주세요.", "422_transport_event_constraint"),
+}
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
 ENDPOINT_FIELDS = {
     "method", "path", "operation", "requestSchema", "headersSchema", "successSchema",
@@ -98,6 +150,39 @@ def _validate_schema(contract: dict[str, Any], errors: list[str]) -> None:
     if event.get("properties", {}).get("scheduledAt", {}).get("offset") != "+09:00":
         errors.append("transport event +09:00 timezone 경계가 다릅니다.")
 
+    mutation = schemas["MutationResponse"]
+    if not isinstance(mutation, dict):
+        errors.append("MutationResponse 공통 schema object가 필요합니다.")
+        return
+    if set(mutation) != {"type", "nullable", "required", "properties"}:
+        errors.append("MutationResponse 공통 schema field exact 집합이 다릅니다.")
+    if set(mutation.get("required", [])) != COMMON_RESPONSE_FIELDS:
+        errors.append("MutationResponse 공통 required 필드가 누락됐습니다.")
+    if set(mutation.get("properties", {})) != COMMON_RESPONSE_FIELDS:
+        errors.append("MutationResponse 공통 properties 필드가 누락되거나 추가됐습니다.")
+
+    for name, unique_fields in RESPONSE_CHILD_FIELDS.items():
+        response = schemas[name]
+        if not isinstance(response, dict) or set(response) != {"type", "nullable", "unevaluatedProperties", "allOf"}:
+            errors.append(f"{name} allOf closed-world schema field exact 집합이 다릅니다.")
+            continue
+        if response.get("type") != "object" or response.get("nullable") is not False or response.get("unevaluatedProperties") is not False:
+            errors.append(f"{name} allOf closed-world unevaluatedProperties가 false여야 합니다.")
+        all_of = response.get("allOf")
+        if not isinstance(all_of, list) or len(all_of) != 2:
+            errors.append(f"{name} allOf composition이 누락됐습니다.")
+            continue
+        if all_of[0] != {"$ref": "MutationResponse"}:
+            errors.append(f"{name} $ref MutationResponse composition이 누락됐습니다.")
+        child = all_of[1]
+        if not isinstance(child, dict) or set(child) != {"type", "required", "properties"} or child.get("type") != "object":
+            errors.append(f"{name} 고유 child schema가 다릅니다.")
+            continue
+        if set(child.get("required", [])) != unique_fields:
+            errors.append(f"{name} 고유 required 필드가 누락됐습니다.")
+        if set(child.get("properties", {})) != unique_fields:
+            errors.append(f"{name} 고유 properties 필드가 누락되거나 추가됐습니다.")
+
 
 def _validate_endpoints(contract: dict[str, Any], errors: list[str]) -> None:
     endpoints = contract.get("endpoints")
@@ -129,8 +214,16 @@ def _validate_endpoints(contract: dict[str, Any], errors: list[str]) -> None:
         if responses != {"success": [200], "errors": [400, 401, 404, 409, 422]}:
             errors.append(f"{identity} response status matrix가 다릅니다.")
         matrix = endpoint.get("errorMatrix")
-        if not isinstance(matrix, dict) or set(matrix) != {"400", "401", "404", "409", "422"} or not all(isinstance(v, list) and v and all(_non_empty(x) for x in v) for v in matrix.values()):
-            errors.append(f"{identity} error matrix 조건이 누락됐습니다.")
+        if matrix != EXPECTED_ENDPOINT_ERROR_CODES.get(identity):
+            expected_codes = EXPECTED_ENDPOINT_ERROR_CODES.get(identity, {})
+            missing_codes = {
+                code
+                for status, codes in expected_codes.items()
+                for code in codes
+                if code not in (matrix.get(status, []) if isinstance(matrix, dict) else [])
+            }
+            suffix = f": {', '.join(sorted(missing_codes))}" if missing_codes else ""
+            errors.append(f"{identity} endpoint error matrix canonical code가 다릅니다{suffix}")
         figma = endpoint.get("figma")
         if not isinstance(figma, dict) or set(figma) != {"node", "action", "loading", "empty", "error"} or not all(_non_empty(v) for v in figma.values()):
             errors.append(f"{identity} Figma node/action/state가 누락됐습니다.")
@@ -139,6 +232,67 @@ def _validate_endpoints(contract: dict[str, Any], errors: list[str]) -> None:
                 errors.append(f"{identity} {key}가 비어 있습니다.")
     if set(identities) != EXPECTED_ENDPOINTS or len(identities) != 4:
         errors.append("endpoint method/path duplicate 또는 exact 집합이 다릅니다.")
+
+
+def _validate_error_conditions(contract: dict[str, Any], errors: list[str]) -> None:
+    conditions = contract.get("errorConditions")
+    if not isinstance(conditions, list):
+        errors.append("errorConditions 배열이 필요합니다.")
+        return
+    by_code = {
+        item.get("code"): item
+        for item in conditions
+        if isinstance(item, dict) and _non_empty(item.get("code"))
+    }
+    if len(by_code) != len(conditions):
+        errors.append("errorConditions code duplicate 또는 비정상 entry가 있습니다.")
+    missing = set(EXPECTED_PROBLEMS) - set(by_code)
+    extra = set(by_code) - set(EXPECTED_PROBLEMS)
+    for code in sorted(missing):
+        errors.append(f"{code} canonical errorConditions가 누락됐습니다.")
+    if extra:
+        errors.append(f"errorConditions unknown code가 있습니다: {', '.join(sorted(extra))}")
+    fields = {"status", "code", "type", "title", "detail", "instance", "condition", "fixture"}
+    for code, expected in EXPECTED_PROBLEMS.items():
+        item = by_code.get(code)
+        if not isinstance(item, dict):
+            continue
+        status, problem_type, title, detail, fixture = expected
+        if set(item) != fields:
+            errors.append(f"{code} problem fixture linkage field exact 집합이 다릅니다.")
+        if item.get("status") != status:
+            errors.append(f"{code} problem status가 다릅니다.")
+        if item.get("type") != problem_type:
+            errors.append(f"{code} problem type이 다릅니다.")
+        if item.get("title") != title or item.get("detail") != detail:
+            errors.append(f"{code} problem title/detail이 다릅니다.")
+        if item.get("instance") != "urn:timing-jeju:problem:{traceId}":
+            errors.append(f"{code} problem instance template이 다릅니다.")
+        if item.get("fixture") != fixture:
+            errors.append(f"{code} problem fixture linkage가 다릅니다.")
+        if not _non_empty(item.get("condition")):
+            errors.append(f"{code} canonical condition이 비어 있습니다.")
+
+    referenced: set[str] = set()
+    for endpoint in contract.get("endpoints", []):
+        matrix = endpoint.get("errorMatrix") if isinstance(endpoint, dict) else None
+        if not isinstance(matrix, dict):
+            continue
+        for codes in matrix.values():
+            if isinstance(codes, list):
+                referenced.update(code for code in codes if isinstance(code, str))
+    if referenced != set(EXPECTED_PROBLEMS):
+        missing_references = set(EXPECTED_PROBLEMS) - referenced
+        errors.append(
+            "endpoint matrix→condition 양방향 exact linkage가 다릅니다"
+            + (f": {', '.join(sorted(missing_references))}" if missing_references else "")
+        )
+    for identity, matrix in EXPECTED_ENDPOINT_ERROR_CODES.items():
+        for status, codes in matrix.items():
+            for code in codes:
+                condition = by_code.get(code, {})
+                if condition.get("status") != int(status):
+                    errors.append(f"{identity} {code} endpoint status→condition status가 다릅니다.")
 
 
 def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
@@ -229,7 +383,16 @@ def _validate_fixtures(contract: dict[str, Any], errors: list[str]) -> None:
     example_keys = {"preferences", "placePreferences", "putTransportEvent", "deleteTransportEvent"}
     if set(fixtures["request"].get("examples", {})) != example_keys or set(fixtures["success"].get("examples", {})) != example_keys:
         errors.append("request/success fixture endpoint examples가 다릅니다.")
-    for name, example in fixtures["problem"].get("examples", {}).items():
+    problem_examples = fixtures["problem"].get("examples", {})
+    expected_fixture_names = {value[4] for value in EXPECTED_PROBLEMS.values()}
+    if not isinstance(problem_examples, dict) or set(problem_examples) != expected_fixture_names:
+        missing_names = expected_fixture_names - set(problem_examples if isinstance(problem_examples, dict) else {})
+        missing_codes = [code for code, value in EXPECTED_PROBLEMS.items() if value[4] in missing_names]
+        errors.append(
+            "condition→problem fixture 양방향 exact 집합이 다릅니다"
+            + (f": {', '.join(sorted(missing_codes))}" if missing_codes else "")
+        )
+    for name, example in problem_examples.items() if isinstance(problem_examples, dict) else ():
         if not isinstance(example, dict) or set(example) != PROBLEM_FIELDS:
             errors.append(f"problem fixture {name} field exact 집합이 다릅니다.")
             continue
@@ -237,6 +400,55 @@ def _validate_fixtures(contract: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"problem fixture {name} status/traceId가 다릅니다.")
         if example.get("instance") != f"urn:timing-jeju:problem:{example.get('traceId')}":
             errors.append(f"problem fixture {name} instance가 traceId와 다릅니다.")
+    conditions = {
+        item.get("fixture"): item
+        for item in contract.get("errorConditions", [])
+        if isinstance(item, dict) and _non_empty(item.get("fixture"))
+    }
+    for name in expected_fixture_names:
+        example = problem_examples.get(name) if isinstance(problem_examples, dict) else None
+        condition = conditions.get(name)
+        code = condition.get("code") if isinstance(condition, dict) else next(
+            (candidate for candidate, value in EXPECTED_PROBLEMS.items() if value[4] == name), name
+        )
+        if not isinstance(example, dict) or not isinstance(condition, dict):
+            errors.append(f"{code} problem fixture canonical linkage가 누락됐습니다.")
+            continue
+        for field in ("status", "code", "type", "title", "detail"):
+            if example.get(field) != condition.get(field):
+                errors.append(f"{code} problem fixture {field}가 canonical condition과 다릅니다.")
+        trace_id = example.get("traceId")
+        expected_instance = str(condition.get("instance", "")).replace("{traceId}", str(trace_id))
+        if example.get("instance") != expected_instance:
+            errors.append(f"{code} problem fixture instance가 canonical condition과 다릅니다.")
+
+    schemas = contract.get("schemas", {})
+    success_schema_by_example = {
+        "preferences": "PreferencesResponse",
+        "placePreferences": "PlacePreferencesResponse",
+        "putTransportEvent": "TransportEventMutationResponse",
+        "deleteTransportEvent": "TransportEventMutationResponse",
+    }
+    common = schemas.get("MutationResponse", {})
+    common_required = set(common.get("required", [])) if isinstance(common, dict) else set()
+    common_properties = set(common.get("properties", {})) if isinstance(common, dict) else set()
+    for example_name, schema_name in success_schema_by_example.items():
+        example = fixtures["success"].get("examples", {}).get(example_name, {})
+        body = example.get("body") if isinstance(example, dict) else None
+        response = schemas.get(schema_name, {})
+        all_of = response.get("allOf") if isinstance(response, dict) else None
+        child = all_of[1] if isinstance(all_of, list) and len(all_of) == 2 and isinstance(all_of[1], dict) else {}
+        allowed = common_properties | set(child.get("properties", {}))
+        required = common_required | set(child.get("required", []))
+        if not isinstance(body, dict):
+            errors.append(f"success fixture {example_name} body object가 필요합니다.")
+            continue
+        extra_fields = set(body) - allowed
+        missing_fields = required - set(body)
+        if extra_fields:
+            errors.append(f"success fixture {example_name} 추가 response field가 있습니다: {', '.join(sorted(extra_fields))}")
+        if missing_fields:
+            errors.append(f"success fixture {example_name} 누락 response field가 있습니다: {', '.join(sorted(missing_fields))}")
     success_delete = fixtures["success"].get("examples", {}).get("deleteTransportEvent", {})
     if success_delete.get("status") != 200 or success_delete.get("body", {}).get("regenerationRequired") is not True:
         errors.append("DELETE success fixture regeneration signal이 누락됐습니다.")
@@ -252,6 +464,7 @@ def validate(contract: Any, skip_catalog_fixtures: bool = False) -> list[str]:
         errors.append("계약 identity/version/inheritance가 다릅니다.")
     _validate_schema(contract, errors)
     _validate_endpoints(contract, errors)
+    _validate_error_conditions(contract, errors)
     _validate_policies(contract, errors)
     _validate_external(contract, errors)
     if not skip_catalog_fixtures:

@@ -2,7 +2,8 @@
 
 ## 범위와 기준
 
-- 기준: `origin/develop` `59eb374103bd40b718cab3d7d5b7c57034fe1c4a`
+- 최초 기준: `origin/develop` `59eb374103bd40b718cab3d7d5b7c57034fe1c4a`
+- Reviewer 보완 기준: `origin/develop` `af912f5a93c40dee900914e4a6b5396c0f9631d0`
 - 브랜치: `docs/86-c05-api-contract`
 - 포함: preferences, place-preferences, transport-event PUT/DELETE 네 계약
 - 제외 확인: Spring Controller/Service/Repository, schema/migration/Flyway, FastAPI 소스는 변경하지 않았다.
@@ -47,3 +48,11 @@ Figma file `4mKep38zm17iupVSQVsSJW`, page `251:4347`에서 `329:5165`, `182:3248
 ## 보안과 데이터
 
 fixture의 UUID, transport number, traceId는 모두 합성값이다. 실제 token, 이메일, 사용자 metadata, 외부 API key, provider payload는 문서·fixture·로그에 넣지 않았다.
+
+## Reviewer 보완 Red → Green
+
+Reviewer가 성공 응답 합성과 404 오류 추적성 두 건을 지적한 뒤 운영 계약보다 mutation 테스트를 먼저 추가했다. 최초 실행은 14개 관련 테스트에서 6 failures와 11 errors였으며 문자열 `allOf`, closed-world 부재, 공통·고유 required 삭제 미탐지, 추가·누락 response field 미탐지, `PLACE_NOT_FOUND`와 `TRANSPORT_EVENT_NOT_FOUND` fixture 부재를 각각 재현했다.
+
+Green에서는 세 성공 응답을 실제 `$ref` `allOf`와 `unevaluatedProperties=false`로 닫고, validator가 composition·공통 required·child required 및 success fixture의 exact field 집합을 검증하도록 했다. endpoint error matrix는 canonical code 배열로 바꾸고 matrix → condition → 한국어 problem fixture를 양방향 exact 검증한다. 관련 17개 테스트가 성공했다.
+
+Notion 네 행도 endpoint별 error code/status/type/detail/instance를 local canonical 계약과 맞춘 뒤 재조회했다. preferences, place-preferences, transport PUT에는 `PLACE_NOT_FOUND`, transport DELETE에는 `TRANSPORT_EVENT_NOT_FOUND`가 exact occurrence URI template과 함께 존재함을 확인했다.
