@@ -1,0 +1,9 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": {
+    "preferences": {"path": {"tripId": "50000000-0000-0000-0000-000000000086"}, "headers": {"If-Match": "\"trip-86-v3\""}, "body": {"preferredCategories": ["tourist_attraction", "cafe"], "arrivalRegionCode": "jeju-si", "departureRegionCode": "jeju-si", "preferredRegionCodes": ["seongsan"], "startPlaceId": "20000000-0000-0000-0000-000000000086", "endPlaceId": null, "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}, {"mode": "taxi", "priority": 2, "primary": false}]}},
+    "placePreferences": {"path": {"tripId": "50000000-0000-0000-0000-000000000086"}, "headers": {"If-Match": "\"trip-86-v4\""}, "body": {"items": [{"placeId": "20000000-0000-0000-0000-000000000087", "type": "must_visit", "targetDayNo": 1, "priority": 10}, {"placeId": "20000000-0000-0000-0000-000000000088", "type": "avoid", "targetDayNo": null, "priority": 10}]}},
+    "putTransportEvent": {"path": {"tripId": "50000000-0000-0000-0000-000000000086"}, "headers": {"If-Match": "\"trip-86-v5\""}, "body": {"eventType": "arrival", "transportType": "flight", "terminalPlaceId": "20000000-0000-0000-0000-000000000089", "customTerminalName": null, "scheduledAt": "2026-08-17T13:30:00+09:00", "transportNumber": "KJ8601", "note": "합성 예시 수하물 시간 반영"}},
+    "deleteTransportEvent": {"path": {"tripId": "50000000-0000-0000-0000-000000000086"}, "query": {"eventType": "arrival"}, "headers": {"If-Match": "\"trip-86-v6\""}, "body": null}
+  }
+}

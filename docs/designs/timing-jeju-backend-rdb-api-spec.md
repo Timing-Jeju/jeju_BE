@@ -151,7 +151,7 @@ Response:
 | 장소 상세 | `GET /places/{placeId}` | `place_details`, `place_operating_hours`, `place_stop_links` | - |
 | 관심 장소 | `GET/POST/PATCH/DELETE /saved-places` | `saved_places` | - |
 | 일정 기본 입력 | `POST /trips`, `PUT /preferences` | `trip_plans`, `trip_preferences`, `trip_transport_modes` | - |
-| 항공/선박 도착·출발 | `PUT /transport-events/{eventType}` | `trip_transport_events` | 일정 생성 facts |
+| 항공/선박 도착·출발 | `PUT /transport-event` | `trip_transport_events` | 일정 생성 facts |
 | 복수 숙소 | `POST/PATCH/DELETE /accommodations` | `trip_accommodations` | 일정 생성 facts |
 | 희망 장소 확정 | `PUT /place-preferences` | `trip_place_preferences` | 일정 생성 facts |
 | Day 일정 한 번에 생성 | `POST /generation-runs` | `itinerary_generation_runs`, `trip_schedule_versions` | `generate_day_itinerary` |
@@ -222,8 +222,8 @@ MCP wire envelope, 내부 JWT, 실제 `calculate_feasibility` 송수신 JSON과 
 | Trips | DELETE | `/api/v1/trips/{tripId}` | 필수 | 미호출 | - | `204` | trip aggregate |
 | Trips | PUT | `/api/v1/trips/{tripId}/preferences` | 필수 | 미호출 | - | `200` | preferences/modes |
 | Trips | PUT | `/api/v1/trips/{tripId}/place-preferences` | 필수 | 미호출 | - | `200` | place preferences |
-| Trips | PUT | `/api/v1/trips/{tripId}/transport-events/{eventType}` | 필수 | 미호출 | - | `200` | arrival/departure |
-| Trips | DELETE | `/api/v1/trips/{tripId}/transport-events/{eventType}` | 필수 | 미호출 | - | `204` | arrival/departure |
+| Trips | PUT | `/api/v1/trips/{tripId}/transport-event` | 필수 | 미호출 | - | `200` | arrival/departure + regeneration signal |
+| Trips | DELETE | `/api/v1/trips/{tripId}/transport-event` | 필수 | 미호출 | - | `200` | query eventType + regeneration signal |
 | Stay | POST | `/api/v1/trips/{tripId}/accommodations` | 필수 | 미호출 | - | `201` | accommodations |
 | Stay | PATCH | `/api/v1/trips/{tripId}/accommodations/{accommodationId}` | 필수 | 미호출 | - | `200` | accommodations |
 | Stay | DELETE | `/api/v1/trips/{tripId}/accommodations/{accommodationId}` | 필수 | 미호출 | - | `204` | accommodations |
@@ -845,123 +845,27 @@ Response `204`: body 없음.
 
 ### 11.6 `PUT /api/v1/trips/{tripId}/preferences`
 
-Request:
-
-```json
-{
-  "preferredCategories": [
-    "tourist_attraction",
-    "cafe"
-  ],
-  "arrivalRegionCode": "jeju-si",
-  "departureRegionCode": "jeju-si",
-  "preferredRegionCodes": [
-    "seongsan"
-  ],
-  "startPlaceId": "20000000-0000-0000-0000-000000000001",
-  "endPlaceId": "20000000-0000-0000-0000-000000000001",
-  "transportModes": [
-    {
-      "mode": "public_transit",
-      "priority": 1,
-      "primary": true
-    },
-    {
-      "mode": "taxi",
-      "priority": 2,
-      "primary": false
-    }
-  ]
-}
-```
-
-Response `200`:
-
-```json
-{
-  "tripId": "50000000-0000-0000-0000-000000000001",
-  "preferencesUpdated": true,
-  "scheduleRegenerationRecommended": true,
-  "updatedAt": "2026-08-03T09:12:00+09:00"
-}
-```
+7개 body field를 모두 받는 전체 교체다. 배열은 빈 배열을 허용하지만 누락/null은
+거부하고 `startPlaceId/endPlaceId`만 명시적 null을 허용한다. 교통 mode/priority는
+중복될 수 없고 priority는 1부터 연속이며 primary는 정확히 하나, priority 1이다.
+강한 `If-Match`와 응답의 일정 무효화 신호를 포함한 exact JSON은
+[`preferences-transport/contract.json`](../contracts/domains/preferences-transport/contract.json)을 따른다.
 
 ### 11.7 `PUT /api/v1/trips/{tripId}/place-preferences`
 
-Request:
+`items` 전체 교체다. 같은 place는 `must_visit/avoid` 사이에서도 한 번만 허용한다.
+`targetDayNo`는 null 또는 `1..tripDayCount`, priority tie는
+`priority DESC, placeId ASC`로 고정한다. 성공 응답은 일정 무효화와 재생성 신호를
+포함한다.
 
-```json
-{
-  "items": [
-    {
-      "placeId": "20000000-0000-0000-0000-000000000002",
-      "type": "must_visit",
-      "targetDayNo": 1,
-      "priority": 10
-    },
-    {
-      "placeId": "20000000-0000-0000-0000-000000000003",
-      "type": "must_visit",
-      "targetDayNo": null,
-      "priority": 5
-    }
-  ]
-}
-```
+### 11.8 `PUT|DELETE /api/v1/trips/{tripId}/transport-event`
 
-Response `200`:
-
-```json
-{
-  "items": [
-    {
-      "placeId": "20000000-0000-0000-0000-000000000002",
-      "type": "must_visit",
-      "targetDayNo": 1,
-      "priority": 10
-    },
-    {
-      "placeId": "20000000-0000-0000-0000-000000000003",
-      "type": "must_visit",
-      "targetDayNo": null,
-      "priority": 5
-    }
-  ],
-  "updatedAt": "2026-08-03T09:13:00+09:00"
-}
-```
-
-### 11.8 `PUT /api/v1/trips/{tripId}/transport-events/{eventType}`
-
-`eventType`은 `arrival` 또는 `departure`다.
-
-Request:
-
-```json
-{
-  "transportType": "flight",
-  "terminalPlaceId": "20000000-0000-0000-0000-000000000001",
-  "terminalName": null,
-  "scheduledAt": "2026-08-03T09:00:00+09:00",
-  "transportNumber": "KE1001",
-  "note": "수하물 수령 20분 반영"
-}
-```
-
-Response `200`:
-
-```json
-{
-  "eventId": "50100000-0000-0000-0000-000000000001",
-  "eventType": "arrival",
-  "transportType": "flight",
-  "scheduledAt": "2026-08-03T09:00:00+09:00",
-  "transportNumber": "KE1001",
-  "updatedAt": "2026-08-03T09:14:00+09:00"
-}
-```
-
-`transportType`은 `flight`, `ferry`를 지원한다. DELETE 응답은 `204`다.
+PUT body의 `eventType`은 `arrival|departure`, `transportType`은 `flight|ferry`다.
+`scheduledAt`은 RFC 3339 `+09:00`이고 제주 local date가 arrival이면 startDate,
+departure이면 endDate여야 한다. `terminalPlaceId/customTerminalName`은 정확히 하나다.
+DELETE는 `eventType` query를 필수로 받고 body는 허용하지 않는다. 두 method 모두
+`200 TransportEventMutationResponse`로 `scheduleEffect`와
+`regenerationRequired`를 반환한다.
 
 ### 11.9 `POST /api/v1/trips/{tripId}/accommodations`
 
