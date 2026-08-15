@@ -32,6 +32,9 @@ create index idx_detail_item_sweeps_scope_freshness
     place_id, source_provider, source_service, content_type_id, fetched_at desc, id desc
   );
 
+create index idx_detail_item_sweeps_import_run
+  on public.tour_api_detail_item_sweeps(import_run_id);
+
 create table public.tour_api_detail_item_sweep_pages (
   sweep_id uuid not null references public.tour_api_detail_item_sweeps(id),
   page_no integer not null,
@@ -46,6 +49,9 @@ create table public.tour_api_detail_item_sweep_pages (
     check (request_fingerprint ~ '^[0-9a-f]{64}$'),
   constraint ck_detail_item_sweep_pages_payload_hash check (payload_hash ~ '^[0-9a-f]{64}$')
 );
+
+create index idx_detail_item_sweep_pages_source_snapshot
+  on public.tour_api_detail_item_sweep_pages(source_snapshot_id);
 
 alter table public.place_detail_items
   add column source_sweep_id uuid references public.tour_api_detail_item_sweeps(id);

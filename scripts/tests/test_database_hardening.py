@@ -226,6 +226,8 @@ class DatabaseHardeningTest(unittest.TestCase):
             "values ('detailinfo2')",
             "create table public.tour_api_detail_item_sweeps",
             "create table public.tour_api_detail_item_sweep_pages",
+            "on public.tour_api_detail_item_sweeps(import_run_id)",
+            "on public.tour_api_detail_item_sweep_pages(source_snapshot_id)",
             "manifest_hash",
             "source_sweep_id",
             "validate_detail_item_sweep_lineage()",
