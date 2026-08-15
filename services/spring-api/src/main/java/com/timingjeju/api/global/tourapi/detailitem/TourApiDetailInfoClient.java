@@ -2,6 +2,7 @@ package com.timingjeju.api.global.tourapi.detailitem;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.tourapi.detail.DetailSourceResponse;
+import com.timingjeju.api.application.tourapi.detailitem.DetailInfoRequestContract;
 import com.timingjeju.api.application.tourapi.detailitem.DetailInfoSource;
 import com.timingjeju.api.global.externalapi.ExternalApiExecutor;
 import com.timingjeju.api.global.externalapi.ExternalApiOperation;
@@ -35,12 +36,13 @@ public final class TourApiDetailInfoClient implements DetailInfoSource {
   }
 
   @Override
-  public DetailSourceResponse fetch(String contentId, String contentTypeId) {
+  public DetailSourceResponse fetch(String contentId, String contentTypeId, int pageNo) {
     if (contentId == null
         || contentId.isBlank()
         || contentTypeId == null
-        || contentTypeId.isBlank()) {
-      throw new IllegalArgumentException("contentId와 contentTypeId는 필수입니다.");
+        || contentTypeId.isBlank()
+        || pageNo < 1) {
+      throw new IllegalArgumentException("contentId와 contentTypeId, pageNo는 필수입니다.");
     }
     Map<String, String> query = new LinkedHashMap<>();
     query.put("MobileOS", "ETC");
@@ -48,6 +50,8 @@ public final class TourApiDetailInfoClient implements DetailInfoSource {
     query.put("_type", "json");
     query.put("contentId", contentId);
     query.put("contentTypeId", contentTypeId);
+    query.put("pageNo", Integer.toString(pageNo));
+    query.put("numOfRows", Integer.toString(DetailInfoRequestContract.PAGE_SIZE));
     var request =
         new DetailInfoHttpRequest(
             ExternalApiOperation.TOUR_DETAIL_INFO,

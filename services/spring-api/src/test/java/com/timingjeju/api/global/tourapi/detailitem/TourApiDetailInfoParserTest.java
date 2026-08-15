@@ -29,6 +29,10 @@ class TourApiDetailInfoParserTest {
 
     assertThat(result.contentId()).isEqualTo("100");
     assertThat(result.contentTypeId()).isEqualTo("12");
+    assertThat(result.pageNo()).isEqualTo(1);
+    assertThat(result.numOfRows()).isEqualTo(100);
+    assertThat(result.totalCount()).isEqualTo(2);
+    assertThat(result.rawItemCount()).isEqualTo(2);
     assertThat(result.items()).extracting("sourceItemKey").containsExactly("20", "10");
     assertThat(result.items()).extracting("sequenceNo").containsExactly(1, 2);
     assertThat(result.items().getFirst().attributes().schema())
@@ -91,7 +95,7 @@ class TourApiDetailInfoParserTest {
   @Test
   void totalCount가_0인_정상_빈_응답은_empty_batch이고_items_구조_누락은_거부한다() {
     String empty =
-        "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":\"\",\"totalCount\":0}}}";
+        "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"pageNo\":1,\"numOfRows\":100,\"items\":\"\",\"totalCount\":0}}}";
     var result = parser.parse(SnapshotPayloadFormat.JSON, bytes(empty), "100", "12");
 
     assertThat(result.items()).isEmpty();
@@ -103,6 +107,19 @@ class TourApiDetailInfoParserTest {
                     "100",
                     "12"))
         .isInstanceOf(DetailItemImportException.class);
+  }
+
+  @Test
+  void paging_metadata가_누락되거나_item수가_numOfRows를_넘으면_거부한다() {
+    assertInvalid(
+        "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":[]},\"totalCount\":0}}}");
+    assertInvalid(
+        pageEnvelope(
+            1,
+            1,
+            2,
+            "{\"contentid\":\"100\",\"contenttypeid\":\"12\",\"serialnum\":\"1\"},"
+                + "{\"contentid\":\"100\",\"contenttypeid\":\"12\",\"serialnum\":\"2\"}"));
   }
 
   @Test
@@ -123,7 +140,18 @@ class TourApiDetailInfoParserTest {
   }
 
   private static String envelope(String items) {
-    return "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"items\":{\"item\":["
+    int count = items.split("\\\"contentid\\\"", -1).length - 1;
+    return pageEnvelope(1, 100, count, items);
+  }
+
+  private static String pageEnvelope(int pageNo, int numOfRows, int totalCount, String items) {
+    return "{\"response\":{\"header\":{\"resultCode\":\"0000\"},\"body\":{\"pageNo\":"
+        + pageNo
+        + ",\"numOfRows\":"
+        + numOfRows
+        + ",\"totalCount\":"
+        + totalCount
+        + ",\"items\":{\"item\":["
         + items
         + "]}}}}";
   }

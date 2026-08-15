@@ -16,6 +16,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -134,6 +138,143 @@ class JdbcDetailItemRepositoryIntegrationTest {
         .isZero();
   }
 
+  @Test
+  void 최신_snapshot_뒤에_도착한_과거_snapshot과_empty_batch는_row와_lifecycle을_되돌리지_못한다() {
+    LineageFixture newer = lineage(7, NOW.plusSeconds(20));
+    repository.sync(command(newer, List.of(item("1", 2))));
+    ItemState newestState = state("1");
+    finishRun(newer.run());
+
+    LineageFixture equalTimeDifferentSnapshot = lineage(13, NOW.plusSeconds(20));
+    assertThatThrownBy(
+            () -> repository.sync(command(equalTimeDifferentSnapshot, List.of(item("1", 2)))))
+        .isInstanceOf(DetailItemImportException.class);
+    finishRun(equalTimeDifferentSnapshot.run());
+
+    LineageFixture older = lineage(8, NOW.plusSeconds(10));
+    assertThatThrownBy(() -> repository.sync(command(older, List.of(item("1", 1)))))
+        .isInstanceOf(DetailItemImportException.class);
+    assertThatThrownBy(() -> repository.sync(command(older, List.of())))
+        .isInstanceOf(DetailItemImportException.class);
+
+    assertThat(state("1")).isEqualTo(newestState);
+    assertThat(
+            jdbc.queryForObject(
+                "select sequence_no from public.place_detail_items where source_item_key='1'",
+                Integer.class))
+        .isEqualTo(2);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where normalized_entity_type='place_detail_items'",
+                Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void 같은_snapshot은_payload와_active_key가_같은_true_replay만_허용한다() {
+    LineageFixture lineage = lineage(14, NOW.plusSeconds(10));
+    repository.sync(command(lineage, List.of(item("1", 1))));
+    ItemState original = state("1");
+
+    assertThatThrownBy(() -> repository.sync(command(lineage, List.of(item("1", 2)))))
+        .isInstanceOf(DetailItemImportException.class);
+    assertThatThrownBy(() -> repository.sync(command(lineage, List.of())))
+        .isInstanceOf(DetailItemImportException.class);
+
+    assertThat(state("1")).isEqualTo(original);
+    assertThat(
+            jdbc.queryForObject(
+                "select sequence_no from public.place_detail_items where source_item_key='1'",
+                Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where normalized_entity_type='place_detail_items'",
+                Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void 동일_content_snapshot을_두_transaction이_동시에_sync해도_한_row와_한_provenance만_남긴다() throws Exception {
+    LineageFixture lineage = lineage(9, NOW.plusSeconds(10));
+    DetailItemSyncCommand command = command(lineage, List.of(item("1", 1)));
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      Future<?> first = executor.submit(() -> concurrentSync(command, ready, start));
+      Future<?> second = executor.submit(() -> concurrentSync(command, ready, start));
+      assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+      first.get(10, TimeUnit.SECONDS);
+      second.get(10, TimeUnit.SECONDS);
+    }
+
+    assertThat(jdbc.queryForObject("select count(*) from public.place_detail_items", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where normalized_entity_type='place_detail_items'",
+                Integer.class))
+        .isEqualTo(1);
+    assertThat(state("1").snapshotId()).isEqualTo(lineage.snapshot());
+  }
+
+  @Test
+  void newer와_older_transaction이_겹쳐도_최종_content_lifecycle_lineage는_newer로_결정된다() throws Exception {
+    LineageFixture newer = lineage(10, NOW.plusSeconds(20));
+    finishRun(newer.run());
+    LineageFixture older = lineage(11, NOW.plusSeconds(10));
+    finishRun(older.run());
+    CountDownLatch start = new CountDownLatch(1);
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      Future<Boolean> newerResult =
+          executor.submit(
+              () -> concurrentSyncOutcome(command(newer, List.of(item("1", 2))), start, 0));
+      Future<Boolean> olderResult =
+          executor.submit(() -> concurrentSyncOutcome(command(older, List.of()), start, 75));
+      start.countDown();
+      assertThat(newerResult.get(10, TimeUnit.SECONDS)).isTrue();
+      assertThat(olderResult.get(10, TimeUnit.SECONDS)).isFalse();
+    }
+
+    ItemState state = state("1");
+    assertThat(state.snapshotId()).isEqualTo(newer.snapshot());
+    assertThat(state.staleAt()).isNull();
+    assertThat(state.tombstonedAt()).isNull();
+    assertThat(
+            jdbc.queryForObject(
+                "select sequence_no from public.place_detail_items where source_item_key='1'",
+                Integer.class))
+        .isEqualTo(2);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tour_api_operation_provenance where normalized_entity_type='place_detail_items'",
+                Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void 저장된_attributes_JSON_UTF8_size는_항상_64KiB_이하다() {
+    LineageFixture lineage = lineage(12, NOW.plusSeconds(10));
+    String escapedMultibyte = "제주 \"인용\" \\ 경로\n".repeat(2_000);
+    DetailItem large =
+        new DetailItem(
+            "info",
+            "large",
+            "큰 속성",
+            1,
+            new DetailItemAttributes(
+                "tour-api.detailInfo2.info", 1, Map.of("infotext", escapedMultibyte)));
+
+    repository.sync(command(lineage, List.of(large)));
+
+    assertThat(
+            jdbc.queryForObject(
+                "select octet_length(attributes::text) from public.place_detail_items where source_item_key='large'",
+                Integer.class))
+        .isLessThanOrEqualTo(DetailItemAttributes.MAX_BYTES);
+  }
+
   private DetailItemSyncCommand command(LineageFixture fixture, List<DetailItem> items) {
     return new DetailItemSyncCommand(
         "100", "12", batch(items), fixture.lineage(), fixture.fetchedAt());
@@ -220,6 +361,39 @@ class JdbcDetailItemRepositoryIntegrationTest {
                 instant(rs.getTimestamp("tombstoned_at")),
                 rs.getObject("source_snapshot_id", UUID.class)),
         key);
+  }
+
+  private void concurrentSync(
+      DetailItemSyncCommand command, CountDownLatch ready, CountDownLatch start) {
+    try {
+      ready.countDown();
+      if (!start.await(5, TimeUnit.SECONDS)) {
+        throw new AssertionError("동시 실행 시작 latch timeout");
+      }
+      repository.sync(command);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(interrupted);
+    }
+  }
+
+  private boolean concurrentSyncOutcome(
+      DetailItemSyncCommand command, CountDownLatch start, long delayMillis) {
+    try {
+      if (!start.await(5, TimeUnit.SECONDS)) {
+        throw new AssertionError("동시 실행 시작 latch timeout");
+      }
+      if (delayMillis > 0) {
+        Thread.sleep(delayMillis);
+      }
+      repository.sync(command);
+      return true;
+    } catch (DetailItemImportException expectedOlderRejection) {
+      return false;
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(interrupted);
+    }
   }
 
   private void clean() {

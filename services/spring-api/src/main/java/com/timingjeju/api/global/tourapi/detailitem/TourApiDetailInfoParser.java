@@ -4,8 +4,8 @@ import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.tourapi.detailitem.DetailInfoParser;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItem;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemAttributes;
-import com.timingjeju.api.application.tourapi.detailitem.DetailItemBatch;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportException;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemPage;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -96,7 +96,7 @@ public final class TourApiDetailInfoParser implements DetailInfoParser {
   }
 
   @Override
-  public DetailItemBatch parse(
+  public DetailItemPage parse(
       SnapshotPayloadFormat format, byte[] payload, String contentId, String contentTypeId) {
     if (format != SnapshotPayloadFormat.JSON
         || payload == null
@@ -114,13 +114,17 @@ public final class TourApiDetailInfoParser implements DetailInfoParser {
         throw DetailItemImportException.invalidResponse();
       }
       JsonNode body = response.path("body");
+      int pageNo = positiveInt(body.path("pageNo"));
+      int numOfRows = positiveInt(body.path("numOfRows"));
+      int totalCount = nonNegativeInt(body.path("totalCount"));
       JsonNode itemsNode = body.path("items");
       if (!body.isObject() || itemsNode.isMissingNode()) {
         throw DetailItemImportException.invalidResponse();
       }
       if ((itemsNode.isNull() || (itemsNode.isTextual() && itemsNode.asString().isBlank()))
-          && zeroTotalCount(body.path("totalCount"))) {
-        return new DetailItemBatch(contentId, contentTypeId, List.of());
+          && totalCount == 0) {
+        return new DetailItemPage(
+            contentId, contentTypeId, pageNo, numOfRows, totalCount, 0, List.of());
       }
       JsonNode node = itemsNode.path("item");
       if (!node.isArray()) throw DetailItemImportException.invalidResponse();
@@ -150,7 +154,8 @@ public final class TourApiDetailInfoParser implements DetailInfoParser {
                 new DetailItemAttributes(
                     "tour-api.detailInfo2." + contract.itemType(), 1, fields)));
       }
-      return new DetailItemBatch(contentId, contentTypeId, items);
+      return new DetailItemPage(
+          contentId, contentTypeId, pageNo, numOfRows, totalCount, node.size(), items);
     } catch (DetailItemImportException failure) {
       throw failure;
     } catch (Exception ignored) {
@@ -190,9 +195,23 @@ public final class TourApiDetailInfoParser implements DetailInfoParser {
     return text.isEmpty() ? null : text;
   }
 
-  private static boolean zeroTotalCount(JsonNode node) {
-    return (node.isIntegralNumber() && node.asInt() == 0)
-        || (node.isTextual() && "0".equals(node.asString().strip()));
+  private static int positiveInt(JsonNode node) {
+    int value = exactInt(node);
+    if (value < 1) throw DetailItemImportException.invalidResponse();
+    return value;
+  }
+
+  private static int nonNegativeInt(JsonNode node) {
+    int value = exactInt(node);
+    if (value < 0) throw DetailItemImportException.invalidResponse();
+    return value;
+  }
+
+  private static int exactInt(JsonNode node) {
+    if (!node.isIntegralNumber() || !node.canConvertToInt()) {
+      throw DetailItemImportException.invalidResponse();
+    }
+    return node.asInt();
   }
 
   private record ItemContract(

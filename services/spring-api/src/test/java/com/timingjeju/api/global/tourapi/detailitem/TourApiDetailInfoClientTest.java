@@ -2,6 +2,7 @@ package com.timingjeju.api.global.tourapi.detailitem;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.timingjeju.api.application.tourapi.detailitem.DetailInfoRequestContract;
 import com.timingjeju.api.global.externalapi.ExternalApiOperation;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,13 +21,15 @@ class TourApiDetailInfoClientTest {
               return "{}".getBytes(StandardCharsets.UTF_8);
             });
 
-    client.fetch("100", "12");
+    client.fetch("100", "12", 2);
 
     assertThat(captured.get().operation()).isEqualTo(ExternalApiOperation.TOUR_DETAIL_INFO);
     assertThat(captured.get().relativePath()).isEqualTo("/detailInfo2");
     assertThat(captured.get().queryParameters())
         .containsEntry("contentId", "100")
         .containsEntry("contentTypeId", "12")
+        .containsEntry("pageNo", "2")
+        .containsEntry("numOfRows", Integer.toString(DetailInfoRequestContract.PAGE_SIZE))
         .containsEntry("_type", "json")
         .doesNotContainKeys("serviceKey", "apiKey", "Authorization");
   }

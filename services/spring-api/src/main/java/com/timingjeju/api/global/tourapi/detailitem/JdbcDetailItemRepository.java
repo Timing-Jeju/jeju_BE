@@ -4,6 +4,7 @@ import com.timingjeju.api.application.tourapi.TourApiProvenanceCommand;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceException;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceWriter;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItem;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemBatch;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportException;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemLineage;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemRepository;
@@ -56,8 +57,10 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
       if (!command.contentTypeId().equals(source.contentTypeId())) {
         throw DetailItemImportException.storageFailure();
       }
-      validateLineage(command.contentId(), command.lineage());
+      SourceSnapshot incoming = validateLineage(command.contentId(), command.lineage());
       Map<String, ExistingItem> existing = findItems(source.placeId(), command.contentTypeId());
+      LatestSnapshot latest = findLatestSnapshot(source.placeId(), command.contentTypeId());
+      validateFreshness(incoming, latest, existing, command.batch());
       Counts counts = new Counts();
       Set<String> incomingKeys =
           command.batch().items().stream()
@@ -71,10 +74,12 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
         if (stored == null) {
           insert(source, item, document, command);
           counts.inserted++;
-        } else if (stored.same(document, item)
-            && Objects.equals(stored.snapshotId(), command.lineage().snapshotId())
-            && stored.staleAt() == null
-            && stored.tombstonedAt() == null) {
+        } else if (Objects.equals(stored.snapshotId(), command.lineage().snapshotId())) {
+          if (!stored.same(document, item)
+              || stored.staleAt() != null
+              || stored.tombstonedAt() != null) {
+            throw DetailItemImportException.storageFailure();
+          }
           writeProvenance(stored.id(), source.contentTypeId(), command.lineage(), () -> {});
           counts.skipped++;
         } else {
@@ -128,12 +133,12 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
     return rows.getFirst();
   }
 
-  private void validateLineage(String contentId, DetailItemLineage lineage) {
-    Boolean valid =
-        jdbc.queryForObject(
+  private SourceSnapshot validateLineage(String contentId, DetailItemLineage lineage) {
+    List<SourceSnapshot> snapshots =
+        jdbc.query(
             """
-            select exists (
-              select 1 from public.external_api_snapshots snapshot
+              select snapshot.id, snapshot.fetched_at
+              from public.external_api_snapshots snapshot
               join public.data_import_runs run on run.id=snapshot.import_run_id
               join public.tour_api_operations operation on operation.operation_key=snapshot.source_operation
               where snapshot.id=? and snapshot.import_run_id=? and snapshot.request_hash=?
@@ -142,9 +147,11 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
                 and snapshot.parse_status in ('parsed','tombstoned')
                 and run.source_operation='detailInfo2' and run.source_provider=? and run.source_service=?
                 and operation.active
-            )
             """,
-            Boolean.class,
+            (rs, row) ->
+                new SourceSnapshot(
+                    rs.getObject("id", UUID.class),
+                    Objects.requireNonNull(instant(rs.getTimestamp("fetched_at")))),
             lineage.snapshotId(),
             lineage.importRunId(),
             lineage.requestFingerprint(),
@@ -153,7 +160,61 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
             "content:" + contentId,
             PROVIDER,
             SERVICE);
-    if (!Boolean.TRUE.equals(valid)) throw DetailItemImportException.storageFailure();
+    if (snapshots.size() != 1) throw DetailItemImportException.storageFailure();
+    return snapshots.getFirst();
+  }
+
+  private LatestSnapshot findLatestSnapshot(UUID placeId, String contentTypeId) {
+    List<LatestSnapshot> rows =
+        jdbc.query(
+            """
+            select snapshot.id, snapshot.fetched_at
+            from public.tour_api_operation_provenance provenance
+            join public.place_detail_items item
+              on item.id=provenance.normalized_row_id
+             and provenance.normalized_entity_type='place_detail_items'
+            join public.external_api_snapshots snapshot
+              on snapshot.id=provenance.source_snapshot_id
+            where item.place_id=? and item.content_type_id=?
+              and item.source_provider=? and item.source_service=?
+              and provenance.operation_key='detailInfo2'
+            order by snapshot.fetched_at desc, snapshot.id desc
+            limit 1
+            """,
+            (rs, row) ->
+                new LatestSnapshot(
+                    rs.getObject("id", UUID.class),
+                    Objects.requireNonNull(instant(rs.getTimestamp("fetched_at")))),
+            placeId,
+            contentTypeId,
+            PROVIDER,
+            SERVICE);
+    return rows.isEmpty() ? null : rows.getFirst();
+  }
+
+  private static void validateFreshness(
+      SourceSnapshot incoming,
+      LatestSnapshot latest,
+      Map<String, ExistingItem> existing,
+      DetailItemBatch batch) {
+    if (latest == null) return;
+    int freshness = incoming.fetchedAt().compareTo(latest.fetchedAt());
+    if (freshness < 0 || (freshness == 0 && !incoming.id().equals(latest.id()))) {
+      throw DetailItemImportException.storageFailure();
+    }
+    if (incoming.id().equals(latest.id())) {
+      Set<String> incomingKeys =
+          batch.items().stream()
+              .map(JdbcDetailItemRepository::scopedKey)
+              .collect(Collectors.toSet());
+      boolean sameActiveKeys =
+          existing.values().stream()
+              .filter(row -> row.staleAt() == null && row.tombstonedAt() == null)
+              .map(ExistingItem::scopedKey)
+              .collect(Collectors.toSet())
+              .equals(incomingKeys);
+      if (!sameActiveKeys) throw DetailItemImportException.storageFailure();
+    }
   }
 
   private Map<String, ExistingItem> findItems(UUID placeId, String contentTypeId) {
@@ -300,7 +361,7 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
     attributes.put("schema", item.attributes().schema());
     attributes.put("version", item.attributes().version());
     attributes.put("fields", item.attributes().fields());
-    String attributesJson = objectMapper.writeValueAsString(attributes);
+    String attributesJson = item.attributes().canonicalJson();
     List<Object> canonical = new ArrayList<>();
     canonical.add(item.itemType());
     canonical.add(item.sourceItemKey());
@@ -352,6 +413,10 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
   }
 
   private record SourcePlace(UUID placeId, String contentTypeId) {}
+
+  private record SourceSnapshot(UUID id, Instant fetchedAt) {}
+
+  private record LatestSnapshot(UUID id, Instant fetchedAt) {}
 
   private record ExistingItem(
       UUID id,
