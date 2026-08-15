@@ -56,3 +56,9 @@ Reviewer가 성공 응답 합성과 404 오류 추적성 두 건을 지적한 �
 Green에서는 세 성공 응답을 실제 `$ref` `allOf`와 `unevaluatedProperties=false`로 닫고, validator가 composition·공통 required·child required 및 success fixture의 exact field 집합을 검증하도록 했다. endpoint error matrix는 canonical code 배열로 바꾸고 matrix → condition → 한국어 problem fixture를 양방향 exact 검증한다. 관련 17개 테스트가 성공했다.
 
 Notion 네 행도 endpoint별 error code/status/type/detail/instance를 local canonical 계약과 맞춘 뒤 재조회했다. preferences, place-preferences, transport PUT에는 `PLACE_NOT_FOUND`, transport DELETE에는 `TRANSPORT_EVENT_NOT_FOUND`가 exact occurrence URI template과 함께 존재함을 확인했다.
+
+## 성공 fixture 재귀 검증 보완
+
+두 번째 Reviewer finding에 따라 성공 fixture의 최상위 key 집합만 비교하던 검증을 TDD로 보완했다. 먼저 scalar type, UUID/date-time/`+09:00` format, enum, nested required·unknown·nullable과 PUT/DELETE event·deleted 의미를 훼손하는 mutation을 추가했다. 최초 16개 관련 테스트에서 13 failures로 모두 미탐지됨을 확인했다.
+
+Green에서는 local `$ref`와 `allOf`를 합성한 뒤 common·child·nested schema 전체를 재귀 검증하도록 validator를 확장했다. object closure, required, nullable, scalar type, enum, UUID/date-time/offset, 문자열·배열·정수 제약을 실제 fixture 값에 적용하고, PUT은 `event != null`/`deleted=false`, DELETE는 `event=null`/`deleted=true`를 endpoint 의미로 별도 고정했다. 전용 validator와 관련 통합 suite 19개가 성공했다. 외부 API 계약 값은 바뀌지 않아 canonical 문서와 Notion 네 행은 수정하지 않았다.

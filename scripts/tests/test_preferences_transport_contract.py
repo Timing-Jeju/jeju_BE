@@ -136,6 +136,39 @@ class PreferencesTransportContractTest(unittest.TestCase):
                     f"{expected} mutation을 validator가 거부해야 합니다.",
                 )
 
+    def test_success_fixture_recursive_schema_rejects_scalar_format_enum_nullable_and_nested_mutations(self) -> None:
+        mutations = (
+            ("schema type", lambda f: f["examples"]["preferences"]["body"].update(tripId=86)),
+            ("schema UUID format", lambda f: f["examples"]["preferences"]["body"].update(tripId="not-a-uuid")),
+            ("schema date-time format", lambda f: f["examples"]["preferences"]["body"].update(updatedAt="yesterday")),
+            ("schema enum", lambda f: f["examples"]["preferences"]["body"].update(scheduleEffect="bogus")),
+            ("schema nullable", lambda f: f["examples"]["preferences"]["body"]["preferences"].update(arrivalRegionCode=None)),
+            ("schema required", lambda f: f["examples"]["preferences"]["body"]["preferences"].pop("transportModes")),
+            ("schema additionalProperties", lambda f: f["examples"]["preferences"]["body"]["preferences"]["transportModes"][0].update(bogus=True)),
+            ("schema offset", lambda f: f["examples"]["putTransportEvent"]["body"]["event"].update(scheduledAt="2026-08-17T04:30:00Z")),
+            ("schema additionalProperties", lambda f: f["examples"]["deleteTransportEvent"]["body"].update(event={"bogus": True})),
+        )
+        for expected, mutate in mutations:
+            with self.subTest(expected=expected):
+                self.assertTrue(
+                    any(expected in error for error in self._fixture_errors(mutate)),
+                    f"{expected} mutation을 recursive schema validator가 거부해야 합니다.",
+                )
+
+    def test_success_fixture_put_delete_event_and_deleted_semantics_are_exact(self) -> None:
+        mutations = (
+            ("PUT event non-null", lambda f: f["examples"]["putTransportEvent"]["body"].update(event=None)),
+            ("PUT deleted=false", lambda f: f["examples"]["putTransportEvent"]["body"].update(deleted=True)),
+            ("DELETE event null", lambda f: f["examples"]["deleteTransportEvent"]["body"].update(event=copy.deepcopy(f["examples"]["putTransportEvent"]["body"]["event"]))),
+            ("DELETE deleted=true", lambda f: f["examples"]["deleteTransportEvent"]["body"].update(deleted=False)),
+        )
+        for expected, mutate in mutations:
+            with self.subTest(expected=expected):
+                self.assertTrue(
+                    any(expected in error for error in self._fixture_errors(mutate)),
+                    f"{expected} endpoint semantic mutation을 validator가 거부해야 합니다.",
+                )
+
     def test_endpoint_contract_has_auth_presence_errors_owner_figma_and_version(self) -> None:
         required = {
             "method", "path", "operation", "requestSchema", "headersSchema",

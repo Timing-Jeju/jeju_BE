@@ -7,6 +7,9 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -370,6 +373,166 @@ def _validate_catalog(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("catalog Notion/local/Figma version 또는 readiness projection이 다릅니다.")
 
 
+def _merge_schema(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if key == "properties" and isinstance(value, dict):
+            merged[key] = {**merged.get(key, {}), **value}
+        elif key == "required" and isinstance(value, list):
+            merged[key] = list(dict.fromkeys([*merged.get(key, []), *value]))
+        else:
+            merged[key] = value
+    return merged
+
+
+def _flatten_schema(
+    schema: Any,
+    schemas: dict[str, Any],
+    path: str,
+    errors: list[str],
+    resolving: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        errors.append(f"{path} schema object가 필요합니다.")
+        return {}
+    flattened: dict[str, Any] = {}
+    reference = schema.get("$ref")
+    if reference is not None:
+        if not isinstance(reference, str) or reference not in schemas:
+            errors.append(f"{path} schema $ref를 해석할 수 없습니다.")
+        elif reference in resolving:
+            errors.append(f"{path} schema $ref 순환 참조가 있습니다.")
+        else:
+            flattened = _flatten_schema(
+                schemas[reference], schemas, f"{path}->$ref({reference})", errors,
+                (*resolving, reference),
+            )
+    all_of = schema.get("allOf")
+    if all_of is not None:
+        if not isinstance(all_of, list) or not all_of:
+            errors.append(f"{path} schema allOf가 비어 있습니다.")
+        else:
+            for index, component in enumerate(all_of):
+                flattened = _merge_schema(
+                    flattened,
+                    _flatten_schema(component, schemas, f"{path}.allOf[{index}]", errors, resolving),
+                )
+    return _merge_schema(
+        flattened,
+        {key: value for key, value in schema.items() if key not in {"$ref", "allOf"}},
+    )
+
+
+def _validate_schema_value(
+    value: Any,
+    schema: Any,
+    schemas: dict[str, Any],
+    path: str,
+    errors: list[str],
+) -> None:
+    flattened = _flatten_schema(schema, schemas, path, errors)
+    if not flattened:
+        return
+    if value is None:
+        if flattened.get("nullable") is not True:
+            errors.append(f"{path} schema nullable=false인데 null입니다.")
+        return
+
+    expected_type = flattened.get("type")
+    type_matches = {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "boolean": isinstance(value, bool),
+    }
+    if expected_type not in type_matches or not type_matches[expected_type]:
+        errors.append(f"{path} schema type {expected_type}과 값이 다릅니다.")
+        return
+
+    enum = flattened.get("enum")
+    if isinstance(enum, list) and value not in enum:
+        errors.append(f"{path} schema enum 밖의 값입니다.")
+
+    if expected_type == "object":
+        properties = flattened.get("properties")
+        required = flattened.get("required", [])
+        if not isinstance(properties, dict) or not isinstance(required, list):
+            errors.append(f"{path} schema object properties/required가 잘못됐습니다.")
+            return
+        missing = set(required) - set(value)
+        if missing:
+            errors.append(f"{path} schema required 필드가 누락됐습니다: {', '.join(sorted(missing))}")
+        closed = flattened.get("additionalProperties") is False or flattened.get("unevaluatedProperties") is False
+        unknown = set(value) - set(properties)
+        if closed and unknown:
+            errors.append(f"{path} schema additionalProperties가 있습니다: {', '.join(sorted(unknown))}")
+        for field, field_value in value.items():
+            field_schema = properties.get(field)
+            if isinstance(field_schema, dict):
+                _validate_schema_value(field_value, field_schema, schemas, f"{path}.{field}", errors)
+        return
+
+    if expected_type == "array":
+        minimum = flattened.get("minItems")
+        maximum = flattened.get("maxItems")
+        if isinstance(minimum, int) and len(value) < minimum:
+            errors.append(f"{path} schema minItems보다 짧습니다.")
+        if isinstance(maximum, int) and len(value) > maximum:
+            errors.append(f"{path} schema maxItems보다 깁니다.")
+        if flattened.get("uniqueItems") is True:
+            encoded = [json.dumps(item, ensure_ascii=False, sort_keys=True, allow_nan=False) for item in value]
+            if len(encoded) != len(set(encoded)):
+                errors.append(f"{path} schema uniqueItems 중복이 있습니다.")
+        item_schema = flattened.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(value):
+                _validate_schema_value(item, item_schema, schemas, f"{path}[{index}]", errors)
+        return
+
+    if expected_type == "string":
+        minimum = flattened.get("minLength")
+        maximum = flattened.get("maxLength")
+        if isinstance(minimum, int) and len(value) < minimum:
+            errors.append(f"{path} schema minLength보다 짧습니다.")
+        if isinstance(maximum, int) and len(value) > maximum:
+            errors.append(f"{path} schema maxLength보다 깁니다.")
+        pattern = flattened.get("pattern")
+        if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
+            errors.append(f"{path} schema pattern과 다릅니다.")
+        if flattened.get("normalization") == "trim+nfc" and value != unicodedata.normalize("NFC", value.strip()):
+            errors.append(f"{path} schema normalization과 다릅니다.")
+        value_format = flattened.get("format")
+        if value_format == "uuid":
+            try:
+                parsed = uuid.UUID(value)
+            except (ValueError, AttributeError):
+                errors.append(f"{path} schema UUID format이 아닙니다.")
+            else:
+                if str(parsed) != value.lower():
+                    errors.append(f"{path} schema UUID format이 canonical이 아닙니다.")
+        elif value_format == "date-time":
+            date_time_pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+            try:
+                parsed_time = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                parsed_time = None
+            if re.fullmatch(date_time_pattern, value) is None or parsed_time is None or parsed_time.tzinfo is None:
+                errors.append(f"{path} schema date-time format이 아닙니다.")
+        offset = flattened.get("offset")
+        if isinstance(offset, str) and not value.endswith(offset):
+            errors.append(f"{path} schema offset {offset}가 아닙니다.")
+        return
+
+    if expected_type == "integer":
+        minimum = flattened.get("minimum")
+        maximum = flattened.get("maximum")
+        if isinstance(minimum, int) and value < minimum:
+            errors.append(f"{path} schema minimum보다 작습니다.")
+        if isinstance(maximum, int) and value > maximum:
+            errors.append(f"{path} schema maximum보다 큽니다.")
+
+
 def _validate_fixtures(contract: dict[str, Any], errors: list[str]) -> None:
     fixtures: dict[str, Any] = {}
     for name in ("request", "success", "problem"):
@@ -449,6 +612,27 @@ def _validate_fixtures(contract: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"success fixture {example_name} 추가 response field가 있습니다: {', '.join(sorted(extra_fields))}")
         if missing_fields:
             errors.append(f"success fixture {example_name} 누락 response field가 있습니다: {', '.join(sorted(missing_fields))}")
+        _validate_schema_value(
+            body,
+            response,
+            schemas,
+            f"success fixture {example_name}.body",
+            errors,
+        )
+
+    put_body = fixtures["success"].get("examples", {}).get("putTransportEvent", {}).get("body", {})
+    if not isinstance(put_body, dict) or put_body.get("event") is None:
+        errors.append("PUT event non-null endpoint semantics가 다릅니다.")
+    if not isinstance(put_body, dict) or put_body.get("deleted") is not False:
+        errors.append("PUT deleted=false endpoint semantics가 다릅니다.")
+    if isinstance(put_body, dict) and isinstance(put_body.get("event"), dict) and put_body.get("eventType") != put_body["event"].get("eventType"):
+        errors.append("PUT response/event eventType endpoint semantics가 다릅니다.")
+
+    delete_body = fixtures["success"].get("examples", {}).get("deleteTransportEvent", {}).get("body", {})
+    if not isinstance(delete_body, dict) or delete_body.get("event") is not None:
+        errors.append("DELETE event null endpoint semantics가 다릅니다.")
+    if not isinstance(delete_body, dict) or delete_body.get("deleted") is not True:
+        errors.append("DELETE deleted=true endpoint semantics가 다릅니다.")
     success_delete = fixtures["success"].get("examples", {}).get("deleteTransportEvent", {})
     if success_delete.get("status") != 200 or success_delete.get("body", {}).get("regenerationRequired") is not True:
         errors.append("DELETE success fixture regeneration signal이 누락됐습니다.")
