@@ -39,6 +39,18 @@ Figma file `4mKep38zm17iupVSQVsSJW`, page `251:4347`의 `329:5165`, `182:3248`, 
 
 현재 DB CHECK는 `place_id/custom_name` 둘 다 non-null을 허용하고 exclusion은 overlap만 막는다. XOR migration과 gap/sequence/active 삭제 transaction은 #68의 명시적 후속 범위다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.
 
-## 검증 대기
+## 최종 검증
 
-Spring clean check, 전체 품질 게이트와 Docker smoke는 다른 직렬 검증 작업이 끝난 뒤 최신 HEAD에서 실행한다. 해당 결과가 모두 성공하기 전에는 READY_FOR_REVIEW를 선언하지 않는다.
+- 원본 계약 커밋 `5bd4bed`을 보존한 채 `origin/develop` `5200e8f`를 정상 merge해 통합 HEAD `4060add`를 만들었다.
+- 최신 HEAD에서 REST와 #83~#87 domain validator, accommodations/통합 12건이 성공했다.
+- Spring `clean check`가 성공했다. 기본 test 492건과 integrationTest 145건이 실패 0이었고 로컬 Supabase Auth 각 1건만 환경 조건에 따라 skip됐다.
+- JaCoCo line은 covered 3994, missed 369로 약 91.54%이며 90% 하한을 통과했다.
+- 전체 quality gate에서 저장소 자동화 36+7+277건, 포맷, 컴파일, unit/slice/integration, OpenAPI, Architecture, 커버리지, bootJar와 Docker 검증이 모두 성공했다.
+- 별도 Docker smoke도 health, v1→latest, legacy audit, 실제 2-session concurrency, schema/negative/fixture/PostGIS 계약을 모두 통과했다.
+- 각 Docker 실행 뒤 `timing-jeju-smoke` container, network, volume, image 잔여가 모두 0건임을 확인했다.
+- 최신 develop 통합분은 Issue #25의 운영 구현이며 Issue #87 자체 변경에는 Spring Controller/Service/Repository, schema/Flyway, FastAPI가 없다.
+
+## 다음
+
+- 최종 기록 커밋을 일반 push하고 pre-push 전체 게이트 성공과 원격 HEAD 일치를 확인한다.
+- 독립 Reviewer에게 `origin/develop...HEAD` 검토를 요청한다. Developer는 PR과 승인 상태 파일을 만들지 않는다.
