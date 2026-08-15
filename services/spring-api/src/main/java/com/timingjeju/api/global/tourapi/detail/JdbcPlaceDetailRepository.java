@@ -9,6 +9,7 @@ import com.timingjeju.api.application.tourapi.detail.PlaceDetailRepository;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailUpsertCommand;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailUpsertResult;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,7 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
       validateSource(source, command);
       String attributes = attributes(command);
       ExistingDetail existing = findDetail(source.placeId(), attributes, command);
+      validateFreshness(source.placeId(), existing, command);
       AtomicReference<PlaceDetailUpsertResult> outcome = new AtomicReference<>();
       provenanceWriter.write(
           provenance(
@@ -113,14 +115,31 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
               and d.admission_fee_text is not distinct from ? and d.facilities_text is not distinct from ?
               and d.reservation_info_text is not distinct from ? and d.accessibility_text is not distinct from ?
               and d.intro_attributes = ?::jsonb and d.source_updated_at is not distinct from ?
-              and d.source_snapshot_id=? and d.import_run_id=? as same_detail,
-              p.overview is not distinct from ? as same_overview
+              and p.overview is not distinct from ? as same_values,
+              d.homepage_url is not distinct from ?
+              and d.intro_attributes->'detailCommon2' = (?::jsonb)->'detailCommon2'
+              and d.source_updated_at is not distinct from ?
+              and p.overview is not distinct from ? as same_common,
+              d.operating_hours_text is not distinct from ?
+              and d.closed_days_text is not distinct from ?
+              and d.parking_text is not distinct from ?
+              and d.pet_policy_text is not distinct from ?
+              and d.admission_fee_text is not distinct from ?
+              and d.facilities_text is not distinct from ?
+              and d.reservation_info_text is not distinct from ?
+              and d.accessibility_text is not distinct from ?
+              and d.intro_attributes->'detailIntro2' = (?::jsonb)->'detailIntro2' as same_intro,
+              d.source_updated_at
             from public.place_details d join public.tour_places p on p.id=d.place_id
             where d.place_id=?
             for update of d
             """,
             (rs, row) ->
-                new ExistingDetail(rs.getBoolean("same_detail"), rs.getBoolean("same_overview")),
+                new ExistingDetail(
+                    rs.getBoolean("same_values"),
+                    rs.getBoolean("same_common"),
+                    rs.getBoolean("same_intro"),
+                    instant(rs.getTimestamp("source_updated_at"))),
             command.intro().phone() != null ? command.intro().phone() : command.common().phone(),
             command.common().homepageUrl(),
             command.intro().operatingHoursText(),
@@ -133,9 +152,20 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
             command.intro().accessibilityText(),
             attributes,
             timestamp(command.common().sourceModifiedAt()),
-            command.introLineage().snapshotId(),
-            command.introLineage().importRunId(),
             command.common().overviewPlainText(),
+            command.common().homepageUrl(),
+            attributes,
+            timestamp(command.common().sourceModifiedAt()),
+            command.common().overviewPlainText(),
+            command.intro().operatingHoursText(),
+            command.intro().closedDaysText(),
+            command.intro().parkingText(),
+            command.intro().petPolicyText(),
+            command.intro().admissionFeeText(),
+            command.intro().facilitiesText(),
+            command.intro().reservationInfoText(),
+            command.intro().accessibilityText(),
+            attributes,
             placeId);
     return rows.isEmpty() ? null : rows.getFirst();
   }
@@ -176,8 +206,7 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
       requireOne(changed);
       return PlaceDetailUpsertResult.insertedResult();
     }
-    if (existing.sameDetail() && existing.sameOverview())
-      return PlaceDetailUpsertResult.skippedResult();
+    if (existing.sameValues()) return PlaceDetailUpsertResult.skippedResult();
     int changed =
         jdbc.update(
             """
@@ -213,7 +242,7 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
 
   private void writeOverview(
       UUID placeId, PlaceDetailUpsertCommand command, ExistingDetail existing) {
-    if (existing != null && existing.sameOverview()) return;
+    if (existing != null && existing.sameCommon()) return;
     int changed =
         jdbc.update(
             """
@@ -242,6 +271,92 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
     return objectMapper.writeValueAsString(root);
   }
 
+  private void validateFreshness(
+      UUID placeId, ExistingDetail existing, PlaceDetailUpsertCommand command) {
+    Instant incomingCommonFetchedAt = snapshotFetchedAt(command.commonLineage());
+    Instant incomingIntroFetchedAt = snapshotFetchedAt(command.introLineage());
+    if (existing == null) {
+      return;
+    }
+    validateCommonFreshness(
+        placeId, existing, command.common().sourceModifiedAt(), incomingCommonFetchedAt);
+    validateIntroFreshness(placeId, existing, incomingIntroFetchedAt);
+  }
+
+  private void validateCommonFreshness(
+      UUID placeId,
+      ExistingDetail existing,
+      Instant incomingSourceModifiedAt,
+      Instant incomingSnapshotFetchedAt) {
+    Instant storedSourceModifiedAt = existing.sourceUpdatedAt();
+    if (storedSourceModifiedAt != null) {
+      if (incomingSourceModifiedAt == null
+          || incomingSourceModifiedAt.isBefore(storedSourceModifiedAt)
+          || (incomingSourceModifiedAt.equals(storedSourceModifiedAt) && !existing.sameCommon())) {
+        throw PlaceDetailImportException.staleSource();
+      }
+      return;
+    }
+    if (incomingSourceModifiedAt != null) {
+      return;
+    }
+    Instant latestFetchedAt = latestSnapshotFetchedAt(placeId, "detailCommon2");
+    if (latestFetchedAt != null
+        && (incomingSnapshotFetchedAt.isBefore(latestFetchedAt)
+            || (incomingSnapshotFetchedAt.equals(latestFetchedAt) && !existing.sameCommon()))) {
+      throw PlaceDetailImportException.staleSource();
+    }
+  }
+
+  private void validateIntroFreshness(
+      UUID placeId, ExistingDetail existing, Instant incomingSnapshotFetchedAt) {
+    Instant latestFetchedAt = latestSnapshotFetchedAt(placeId, "detailIntro2");
+    if (latestFetchedAt != null
+        && (incomingSnapshotFetchedAt.isBefore(latestFetchedAt)
+            || (incomingSnapshotFetchedAt.equals(latestFetchedAt) && !existing.sameIntro()))) {
+      throw PlaceDetailImportException.staleSource();
+    }
+  }
+
+  private Instant snapshotFetchedAt(DetailLineage lineage) {
+    List<Instant> rows =
+        jdbc.query(
+            """
+            select snapshot.fetched_at
+            from public.external_api_snapshots snapshot
+            where snapshot.id=? and snapshot.import_run_id=?
+              and snapshot.source_provider=? and snapshot.source_service=?
+              and snapshot.source_operation=? and snapshot.request_hash=?
+              and snapshot.parse_status in ('parsed', 'tombstoned')
+            for key share
+            """,
+            (resultSet, rowNumber) -> resultSet.getTimestamp("fetched_at").toInstant(),
+            lineage.snapshotId(),
+            lineage.importRunId(),
+            PROVIDER,
+            SERVICE,
+            lineage.operationKey(),
+            lineage.requestFingerprint());
+    if (rows.size() != 1) {
+      throw PlaceDetailImportException.storageFailure();
+    }
+    return rows.getFirst();
+  }
+
+  private Instant latestSnapshotFetchedAt(UUID placeId, String operation) {
+    return jdbc.queryForObject(
+        """
+        select max(snapshot.fetched_at)
+        from public.tour_api_operation_provenance provenance
+        join public.external_api_snapshots snapshot on snapshot.id=provenance.source_snapshot_id
+        where provenance.normalized_entity_type='place_details'
+          and provenance.normalized_row_id=? and provenance.operation_key=?
+        """,
+        (resultSet, rowNumber) -> instant(resultSet.getTimestamp(1)),
+        placeId,
+        operation);
+  }
+
   private static String phone(PlaceDetailUpsertCommand command) {
     return command.intro().phone() != null ? command.intro().phone() : command.common().phone();
   }
@@ -266,11 +381,16 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
     return value == null ? null : Timestamp.from(value);
   }
 
+  private static Instant instant(Timestamp value) {
+    return value == null ? null : value.toInstant();
+  }
+
   private static void requireOne(int changed) {
     if (changed != 1) throw PlaceDetailImportException.storageFailure();
   }
 
   private record SourcePlace(UUID placeId, String contentTypeId) {}
 
-  private record ExistingDetail(boolean sameDetail, boolean sameOverview) {}
+  private record ExistingDetail(
+      boolean sameValues, boolean sameCommon, boolean sameIntro, Instant sourceUpdatedAt) {}
 }

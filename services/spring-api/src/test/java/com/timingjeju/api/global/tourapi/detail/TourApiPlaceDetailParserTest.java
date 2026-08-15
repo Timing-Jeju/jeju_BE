@@ -2,10 +2,13 @@ package com.timingjeju.api.global.tourapi.detail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailImportException;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -70,6 +73,103 @@ class TourApiPlaceDetailParserTest {
   }
 
   @Test
+  void 공식_detailIntro2_관광지_숙박_음식점_원천필드를_모두_introAttributes에_보존한다() {
+    Map<String, String[]> matrix = new LinkedHashMap<>();
+    matrix.put(
+        "12",
+        new String[] {
+          "accomcount",
+          "chkbabycarriage",
+          "chkcreditcard",
+          "chkpet",
+          "expagerange",
+          "expguide",
+          "heritage1",
+          "heritage2",
+          "heritage3",
+          "infocenter",
+          "opendate",
+          "parking",
+          "restdate",
+          "useseason",
+          "usetime"
+        });
+    matrix.put(
+        "32",
+        new String[] {
+          "barbecue",
+          "beauty",
+          "benikia",
+          "beverage",
+          "bicycle",
+          "campfire",
+          "checkintime",
+          "checkouttime",
+          "chkcooking",
+          "fitness",
+          "foodplace",
+          "goodstay",
+          "hanok",
+          "infocenterlodging",
+          "karaoke",
+          "parkinglodging",
+          "pickup",
+          "publicbath",
+          "publicpc",
+          "refundregulation",
+          "reservationlodging",
+          "reservationurl",
+          "roomcount",
+          "roomtype",
+          "sauna",
+          "scalelodging",
+          "seminar",
+          "sports",
+          "subfacility"
+        });
+    matrix.put(
+        "39",
+        new String[] {
+          "chkcreditcardfood",
+          "discountinfofood",
+          "firstmenu",
+          "infocenterfood",
+          "kidsfacility",
+          "lcnsno",
+          "opendatefood",
+          "opentimefood",
+          "packing",
+          "parkingfood",
+          "reservationfood",
+          "restdatefood",
+          "scalefood",
+          "seat",
+          "smoking",
+          "treatmenu"
+        });
+
+    assertSoftly(
+        softly ->
+            matrix.forEach(
+                (contentType, fields) -> {
+                  Map<String, String> expected = new LinkedHashMap<>();
+                  for (String field : fields) {
+                    expected.put(field, field + "-원문");
+                  }
+
+                  var parsed =
+                      intro.parse(
+                          SnapshotPayloadFormat.JSON,
+                          bytes(introEnvelope(contentType, jsonFields(expected))));
+
+                  softly
+                      .assertThat(parsed.introAttributes())
+                      .as("contentTypeId=%s 공식 원천 필드", contentType)
+                      .containsExactlyInAnyOrderEntriesOf(expected);
+                }));
+  }
+
+  @Test
   void intro_optional_누락은_null로_보존하고_지원하지_않는_content_type과_잘못된_타입은_거부한다() {
     var parsed = intro.parse(SnapshotPayloadFormat.JSON, bytes(introEnvelope("39", "")));
     assertThat(parsed.phone()).isNull();
@@ -115,6 +215,12 @@ class TourApiPlaceDetailParserTest {
 
   private static String food() {
     return "\"infocenterfood\":\"064-333-3333\",\"opentimefood\":\"10:00~20:00\",\"restdatefood\":\"화요일\",\"parkingfood\":\"무료 주차\",\"reservationfood\":\"예약 가능\",\"firstmenu\":\"갈치조림\"";
+  }
+
+  private static String jsonFields(Map<String, String> values) {
+    return values.entrySet().stream()
+        .map(entry -> "\"" + entry.getKey() + "\":\"" + json(entry.getValue()) + "\"")
+        .collect(java.util.stream.Collectors.joining(","));
   }
 
   private static String json(String value) {

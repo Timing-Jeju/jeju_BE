@@ -38,9 +38,19 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
   private static final UUID INTRO_RUN = UUID.fromString("27000000-0000-0000-0000-000000000006");
   private static final UUID INTRO_SNAPSHOT =
       UUID.fromString("27000000-0000-0000-0000-000000000007");
+  private static final UUID NEXT_COMMON_RUN =
+      UUID.fromString("27000000-0000-0000-0000-000000000008");
+  private static final UUID NEXT_COMMON_SNAPSHOT =
+      UUID.fromString("27000000-0000-0000-0000-000000000009");
+  private static final UUID NEXT_INTRO_RUN =
+      UUID.fromString("27000000-0000-0000-0000-000000000010");
+  private static final UUID NEXT_INTRO_SNAPSHOT =
+      UUID.fromString("27000000-0000-0000-0000-000000000011");
   private static final String LIST_HASH = "1".repeat(64);
   private static final String COMMON_HASH = "2".repeat(64);
   private static final String INTRO_HASH = "3".repeat(64);
+  private static final String NEXT_COMMON_HASH = "4".repeat(64);
+  private static final String NEXT_INTRO_HASH = "5".repeat(64);
   private static final Instant NOW = Instant.parse("2026-08-16T06:00:00Z");
 
   @Autowired PlaceDetailRepository repository;
@@ -63,10 +73,12 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
   @Test
   void place_details를_한번_upsert하고_common_intro_operation별_provenance와_raw를_보존한다() {
     var first = repository.upsert(command(COMMON_HASH));
+    DetailState beforeReplay = state();
     var replay = repository.upsert(command(COMMON_HASH));
 
     assertThat(first.inserted()).isTrue();
     assertThat(replay.skipped()).isTrue();
+    assertThat(state()).isEqualTo(beforeReplay);
     assertThat(
             jdbc.queryForObject(
                 "select overview from public.tour_places where id=?", String.class, PLACE))
@@ -113,27 +125,111 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
         .isZero();
   }
 
+  @Test
+  void 더_오래된_detailCommon_sourceModifiedAt은_새_snapshot이어도_최신_row와_provenance를_덮어쓰지_않는다() {
+    repository.upsert(command(COMMON_HASH));
+    DetailState before = state();
+    finishRun(COMMON_RUN);
+    finishRun(INTRO_RUN);
+    insertRunSnapshot(
+        NEXT_COMMON_RUN,
+        NEXT_COMMON_SNAPSHOT,
+        "detailCommon2",
+        NEXT_COMMON_HASH,
+        NOW.plusSeconds(10));
+    insertRunSnapshot(
+        NEXT_INTRO_RUN, NEXT_INTRO_SNAPSHOT, "detailIntro2", NEXT_INTRO_HASH, NOW.plusSeconds(10));
+
+    PlaceDetailUpsertCommand stale =
+        command(
+            "<p>오래된 개요</p>",
+            "오래된 개요",
+            NOW.minusSeconds(60),
+            new DetailLineage(
+                "detailCommon2", NEXT_COMMON_HASH, NEXT_COMMON_SNAPSHOT, NEXT_COMMON_RUN),
+            intro("갈치조림"),
+            new DetailLineage("detailIntro2", NEXT_INTRO_HASH, NEXT_INTRO_SNAPSHOT, NEXT_INTRO_RUN),
+            NOW.plusSeconds(10));
+
+    assertThatThrownBy(() -> repository.upsert(stale))
+        .isInstanceOf(PlaceDetailImportException.class);
+    assertThat(state()).isEqualTo(before);
+  }
+
+  @Test
+  void 더_오래된_detailIntro_snapshot은_새_common과_함께와도_최신_row와_provenance를_덮어쓰지_않는다() {
+    repository.upsert(command(COMMON_HASH));
+    DetailState before = state();
+    finishRun(COMMON_RUN);
+    finishRun(INTRO_RUN);
+    insertRunSnapshot(
+        NEXT_COMMON_RUN,
+        NEXT_COMMON_SNAPSHOT,
+        "detailCommon2",
+        NEXT_COMMON_HASH,
+        NOW.plusSeconds(10));
+    insertRunSnapshot(
+        NEXT_INTRO_RUN, NEXT_INTRO_SNAPSHOT, "detailIntro2", NEXT_INTRO_HASH, NOW.minusSeconds(60));
+
+    PlaceDetailUpsertCommand stale =
+        command(
+            "<p>안전한 개요</p>",
+            "안전한 개요",
+            NOW.minusSeconds(30),
+            new DetailLineage(
+                "detailCommon2", NEXT_COMMON_HASH, NEXT_COMMON_SNAPSHOT, NEXT_COMMON_RUN),
+            intro("오래된 메뉴"),
+            new DetailLineage("detailIntro2", NEXT_INTRO_HASH, NEXT_INTRO_SNAPSHOT, NEXT_INTRO_RUN),
+            NOW.plusSeconds(10));
+
+    assertThatThrownBy(() -> repository.upsert(stale))
+        .isInstanceOf(PlaceDetailImportException.class);
+    assertThat(state()).isEqualTo(before);
+  }
+
   private PlaceDetailUpsertCommand command(String commonHash) {
+    return command(
+        "<p>안전한 개요</p>",
+        "안전한 개요",
+        NOW.minusSeconds(30),
+        new DetailLineage("detailCommon2", commonHash, COMMON_SNAPSHOT, COMMON_RUN),
+        intro("갈치조림"),
+        new DetailLineage("detailIntro2", INTRO_HASH, INTRO_SNAPSHOT, INTRO_RUN),
+        NOW);
+  }
+
+  private PlaceDetailUpsertCommand command(
+      String overviewRaw,
+      String overviewPlainText,
+      Instant sourceModifiedAt,
+      DetailLineage commonLineage,
+      PlaceDetailIntro intro,
+      DetailLineage introLineage,
+      Instant fetchedAt) {
     return new PlaceDetailUpsertCommand(
         "100",
         new PlaceDetailCommon(
-            "100", "39", "064", null, "<p>안전한 개요</p>", "안전한 개요", NOW.minusSeconds(30)),
-        new PlaceDetailIntro(
-            "100",
-            "39",
-            "064",
-            "10~20",
-            "화요일",
-            "무료",
-            null,
-            null,
-            "갈치조림",
-            "예약",
-            null,
-            Map.of("firstmenu", "갈치조림")),
-        new DetailLineage("detailCommon2", commonHash, COMMON_SNAPSHOT, COMMON_RUN),
-        new DetailLineage("detailIntro2", INTRO_HASH, INTRO_SNAPSHOT, INTRO_RUN),
-        NOW);
+            "100", "39", "064", null, overviewRaw, overviewPlainText, sourceModifiedAt),
+        intro,
+        commonLineage,
+        introLineage,
+        fetchedAt);
+  }
+
+  private static PlaceDetailIntro intro(String firstMenu) {
+    return new PlaceDetailIntro(
+        "100",
+        "39",
+        "064",
+        "10~20",
+        "화요일",
+        "무료",
+        null,
+        null,
+        firstMenu,
+        "예약",
+        null,
+        Map.of("firstmenu", firstMenu));
   }
 
   private void insertPlace() {
@@ -151,22 +247,56 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
   }
 
   private void insertRunSnapshot(UUID run, UUID snapshot, String operation, String hash) {
+    insertRunSnapshot(run, snapshot, operation, hash, NOW);
+  }
+
+  private void insertRunSnapshot(
+      UUID run, UUID snapshot, String operation, String hash, Instant fetchedAt) {
     jdbc.update(
         "insert into public.data_import_runs (id, source_kind, source_name, source_operation, data_version, status, started_at, parser_version, schema_version, sync_mode, scope_key, request_fingerprint, idempotency_key, source_provider, source_service) values (?, 'tour_api', 'fixture', ?, '2026', 'running', ?, 'detail-v1', 'schema-v1', 'full', 'content:100', ?, ?, 'tour-api', 'KorService2')",
         run,
         operation,
         Timestamp.from(NOW),
         hash,
-        operation + "-27");
+        operation + "-27-" + run);
     jdbc.update(
         "insert into public.external_api_snapshots (id, import_run_id, source_provider, source_service, source_operation, scope_key, request_hash, page_key, fetched_at, parser_version, payload_hash, request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version, payload_format, initial_parse_status, parse_status, parsed_at) values (?, ?, 'tour-api', 'KorService2', ?, 'content:100', ?, '1', ?, 'detail-v1', ?, '{}'::jsonb, '{}'::jsonb, 2, 'test-v1', 'JSON', 'parsed', 'parsed', ?)",
         snapshot,
         run,
         operation,
         hash,
-        Timestamp.from(NOW),
+        Timestamp.from(fetchedAt),
         "f".repeat(64),
-        Timestamp.from(NOW));
+        Timestamp.from(fetchedAt));
+  }
+
+  private void finishRun(UUID run) {
+    jdbc.update(
+        "update public.data_import_runs set status='succeeded', finished_at=? where id=?",
+        Timestamp.from(NOW.plusSeconds(1)),
+        run);
+  }
+
+  private DetailState state() {
+    return jdbc.queryForObject(
+        """
+        select p.overview, d.source_updated_at, d.fetched_at, d.updated_at,
+          d.intro_attributes::text as attributes,
+          (select count(*) from public.tour_api_operation_provenance
+           where normalized_row_id=?) as provenance_count
+        from public.tour_places p join public.place_details d on d.place_id=p.id
+        where p.id=?
+        """,
+        (resultSet, rowNumber) ->
+            new DetailState(
+                resultSet.getString("overview"),
+                resultSet.getTimestamp("source_updated_at").toInstant(),
+                resultSet.getTimestamp("fetched_at").toInstant(),
+                resultSet.getTimestamp("updated_at").toInstant(),
+                resultSet.getString("attributes"),
+                resultSet.getInt("provenance_count")),
+        PLACE,
+        PLACE);
   }
 
   private void clean() {
@@ -177,4 +307,12 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
     jdbc.update("delete from public.external_api_snapshots");
     jdbc.update("delete from public.data_import_runs");
   }
+
+  private record DetailState(
+      String overview,
+      Instant sourceUpdatedAt,
+      Instant fetchedAt,
+      Instant updatedAt,
+      String attributes,
+      int provenanceCount) {}
 }
