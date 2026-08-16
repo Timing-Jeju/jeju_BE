@@ -269,7 +269,12 @@ class ReferenceCodeSyncServiceTest {
       saveCalls++;
       status = snapshot.status();
       return new com.timingjeju.api.application.snapshot.SnapshotSaveResult(
-          SNAPSHOT, snapshot.requestHash(), snapshot.payloadHash(), false);
+          SNAPSHOT,
+          snapshot.requestHash(),
+          snapshot.payloadHash(),
+          false,
+          snapshot.fetchedAt(),
+          snapshot.status());
     }
 
     @Override

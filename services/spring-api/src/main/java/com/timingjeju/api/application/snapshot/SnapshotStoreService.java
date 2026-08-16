@@ -85,7 +85,8 @@ public final class SnapshotStoreService {
                 retention,
                 failure == null ? null : failure.code(),
                 failure == null ? null : failure.message()));
-    if (outcome == SnapshotMutationOutcome.UPDATED) {
+    if (outcome == SnapshotMutationOutcome.UPDATED
+        || outcome == SnapshotMutationOutcome.ALREADY_AT_TARGET) {
       return;
     }
     throw SnapshotStoreException.of(

@@ -30,7 +30,8 @@ public record StoredSnapshot(
     Instant purgeAfter) {
 
   public SnapshotSaveResult result(boolean replayed) {
-    return new SnapshotSaveResult(snapshotId, requestHash, payloadHash, replayed);
+    return new SnapshotSaveResult(
+        snapshotId, requestHash, payloadHash, replayed, fetchedAt, status);
   }
 
   public StoredSnapshot withSnapshotId(UUID changedId) {

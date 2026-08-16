@@ -68,6 +68,9 @@ erDiagram
   data_import_runs ||--o{ external_api_snapshots : "captures raw"
   external_api_snapshots ||--o{ tour_place_sources : "lineage"
   external_api_snapshots ||--o{ place_detail_items : "lineage"
+  external_api_snapshots ||--o{ tour_api_detail_item_sweep_pages : "ordered raw pages"
+  tour_api_detail_item_sweeps ||--|{ tour_api_detail_item_sweep_pages : "complete manifest"
+  tour_api_detail_item_sweeps ||--o{ place_detail_items : "accepted sweep"
   external_api_snapshots ||--o{ external_reference_codes : "lineage"
   data_import_runs ||--o{ tour_places : "normalizes"
   external_api_snapshots ||--o{ tour_places : "source snapshot"
@@ -141,6 +144,8 @@ erDiagram
 | `tour_place_sources` | 한 장소에 연결된 provider/service별 외부 식별자와 삭제·stale 상태 | TourAPI, admin upload |
 | `place_details` | 전화/홈페이지/이용정보 text | TourAPI detail |
 | `place_detail_items` | `detailInfo2`의 반복·부가 항목 | TourAPI detail, item type/source key별 upsert |
+| `tour_api_detail_item_sweeps` | 완전한 `detailInfo2` 수집 manifest와 scope watermark | TourAPI detail complete sweep |
+| `tour_api_detail_item_sweep_pages` | sweep의 순서 있는 raw page snapshot 계보 | TourAPI detail page snapshot |
 | `place_operating_hours` | 파싱/검수된 요일별 반복 운영시간 | source/parsed/manual |
 | `place_aliases` | 검색/장소명 매칭 별칭 | TourAPI, app |
 | `place_images` | 외부 이미지 ID·저작권·출처를 보존한 반복 이미지 목록 | TourAPI/admin |
@@ -149,6 +154,8 @@ erDiagram
 `recommended_stay_minutes`는 TourAPI 원천값이 아니다. 큐레이션 또는 계산 결과이며 장소 row에 앱 기준값으로 저장한다.
 
 `tour_places`는 앱의 통합 장소 read model이고 외부 natural key는 `tour_place_sources`의 `(source_provider, source_service, external_id)`가 소유한다. TourAPI KorService2의 최신 법정동·분류 원문은 `l_dong_regn_cd`, `l_dong_signgu_cd`, `lcls_systm1`, `lcls_systm2`, `lcls_systm3`에 보존하며 기존 컬럼은 legacy 호환 필드다. `place_detail_items`는 provider/service/item key로 멱등 upsert한다. 영업시간은 같은 요일뿐 아니라 익일 첫 구간·휴무와도 겹칠 수 없고 정확히 `00:00`에 끝나는 구간은 다음 날을 점유하지 않는다. 교차 요일 검사는 같은 장소 행에 MVCC 쓰기 펜스를 세워 직렬화하고 오래된 `REPEATABLE READ` writer는 `40001`로 중단한다. 충돌하는 legacy 조합은 자동 수정하지 않고 migration을 중단한다. 신규 이미지와 URL 변경은 trigger가 길이 prefix를 포함한 `(place_id, source_provider, source_service, image_url)`의 SHA-256 digest를 `source_url_key`로 계산한다. declarative unique `(place_id, source_url_key)`가 `ON CONFLICT` 기준이며 advisory lock과 원본 비교가 digest collision을 차단한다. `source_image_id`가 있으면 별도 unique도 적용하고, v1의 기존 중복 URL만 `source_url_key=NULL`로 보존한다.
+
+`detailInfo2` item은 composite FK `(source_sweep_id, source_snapshot_id)`로 실제 포함된 sweep page pair를 참조한다. nullable legacy row는 호환하되 신규 insert/update 및 stale/tombstone lifecycle은 일치하는 pair만 허용한다. sweep은 ordered page snapshot ID·request fingerprint·payload hash·raw count manifest를 보존하고 normalized row와 독립적인 scope watermark 역할을 하므로 complete empty도 최신성 근거로 남는다. 같은 content advisory lock transaction에서 sweep 수용과 item/lifecycle write를 함께 수행하며 incomplete sweep은 watermark를 전진시키지 않는다.
 
 ### 4.3 Transit/Mobility
 

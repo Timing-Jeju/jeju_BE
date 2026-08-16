@@ -139,6 +139,41 @@ Table tour_place_sources {
   }
 }
 
+Table tour_api_detail_item_sweeps {
+  id uuid [pk]
+  place_id uuid [not null, ref: > tour_places.id]
+  source_provider text [not null]
+  source_service text [not null]
+  content_id text [not null]
+  content_type_id text [not null]
+  import_run_id uuid [not null, ref: > data_import_runs.id]
+  manifest_hash text [not null, note: "ordered page manifest SHA-256"]
+  fetched_at timestamptz [not null]
+  expected_total integer [not null]
+  page_count integer [not null]
+  accepted_at timestamptz [not null]
+
+  indexes {
+    (place_id, source_provider, source_service, content_type_id, import_run_id) [unique]
+  }
+}
+
+Ref: place_detail_items.(source_sweep_id, source_snapshot_id) > tour_api_detail_item_sweep_pages.(sweep_id, source_snapshot_id)
+
+Table tour_api_detail_item_sweep_pages {
+  sweep_id uuid [not null, ref: > tour_api_detail_item_sweeps.id]
+  page_no integer [not null]
+  source_snapshot_id uuid [not null, ref: > external_api_snapshots.id]
+  request_fingerprint text [not null]
+  payload_hash text [not null]
+  raw_item_count integer [not null]
+
+  indexes {
+    (sweep_id, page_no) [pk]
+    (sweep_id, source_snapshot_id) [unique]
+  }
+}
+
 Table place_detail_items {
   id uuid [pk]
   place_id uuid [not null, ref: > tour_places.id]
@@ -153,6 +188,7 @@ Table place_detail_items {
   payload_hash text [not null, note: "SHA-256 소문자 hex"]
   source_modified_at timestamptz
   source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  source_sweep_id uuid [ref: > tour_api_detail_item_sweeps.id]
   import_run_id uuid [ref: > data_import_runs.id]
   last_seen_at timestamptz [not null]
   stale_at timestamptz

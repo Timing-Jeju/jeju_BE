@@ -797,6 +797,16 @@ declare
   function_definition text;
   missing_objects text;
 begin
+  if not exists (
+    select 1 from public.tour_api_operations
+    where operation_key = 'detailInfo2'
+      and source_provider = 'tour-api'
+      and source_service = 'KorService2'
+      and active
+  ) then
+    raise exception 'legacy detailInfo2 operation registry upgrade is missing';
+  end if;
+
   select pg_catalog.lower(pg_get_functiondef('public.validate_tour_api_operation_provenance()'::regprocedure))
     into function_definition;
 
@@ -828,6 +838,46 @@ begin
   if (select count(*) from pg_catalog.pg_trigger
       where tgname like 'trg_%_provenance_identifier_update' and not tgisinternal) <> 7 then
     raise exception 'legacy TourAPI provenance target identifier update guards are incomplete';
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if to_regclass('public.tour_api_detail_item_sweeps') is null
+     or to_regclass('public.tour_api_detail_item_sweep_pages') is null then
+    raise exception 'legacy detailInfo2 complete sweep tables are missing';
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'place_detail_items'
+      and column_name = 'source_sweep_id'
+  ) then
+    raise exception 'legacy place_detail_items sweep lineage is missing';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.place_detail_items'::regclass
+      and constraint_row.conname = 'fk_place_detail_items_sweep_page'
+      and constraint_row.contype = 'f'
+      and constraint_row.condeferrable
+  ) then
+    raise exception 'legacy place_detail_items sweep page membership is missing';
+  end if;
+
+  if not (select relrowsecurity from pg_class where oid = 'public.tour_api_detail_item_sweeps'::regclass)
+     or not (select relrowsecurity from pg_class where oid = 'public.tour_api_detail_item_sweep_pages'::regclass) then
+    raise exception 'detailInfo2 sweep RLS is disabled';
+  end if;
+
+  if (exists(select 1 from pg_roles where rolname = 'anon') and
+      has_table_privilege('anon', 'public.tour_api_detail_item_sweeps', 'select'))
+     or (exists(select 1 from pg_roles where rolname = 'authenticated') and
+      has_table_privilege('authenticated', 'public.tour_api_detail_item_sweep_pages', 'select')) then
+    raise exception 'detailInfo2 sweep tables leaked to client roles';
   end if;
 end;
 $$;

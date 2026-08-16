@@ -25,6 +25,9 @@ SNAPSHOT_STORAGE_MIGRATION = (
 TOUR_API_PROVENANCE_MIGRATION = (
     MIGRATIONS / "20260814000000_tour_api_operation_provenance.sql"
 )
+TOUR_API_DETAIL_INFO_MIGRATION = (
+    MIGRATIONS / "20260816000000_tour_api_detail_info_operation.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -84,6 +87,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260813000000_import_run_lifecycle_fencing.sql",
                 "20260813010000_external_snapshot_storage.sql",
                 "20260814000000_tour_api_operation_provenance.sql",
+                "20260816000000_tour_api_detail_info_operation.sql",
             ],
             migration_names,
         )
@@ -102,6 +106,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
             "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
             "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
+            "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -213,6 +218,39 @@ class DatabaseHardeningTest(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, migration)
 
+    def test_detail_info_operation_declares_complete_sweep_watermark_and_page_lineage(self):
+        migration = self.read_migration(TOUR_API_DETAIL_INFO_MIGRATION)
+
+        for fragment in (
+            "insert into public.tour_api_operations (operation_key)",
+            "values ('detailinfo2')",
+            "create table public.tour_api_detail_item_sweeps",
+            "create table public.tour_api_detail_item_sweep_pages",
+            "on public.tour_api_detail_item_sweeps(import_run_id)",
+            "on public.tour_api_detail_item_sweep_pages(source_snapshot_id)",
+            "manifest_hash",
+            "source_sweep_id",
+            "constraint uq_detail_item_sweeps_scope_run unique",
+            "constraint fk_place_detail_items_sweep_page",
+            "foreign key (source_sweep_id, source_snapshot_id)",
+            "references public.tour_api_detail_item_sweep_pages(sweep_id, source_snapshot_id)",
+            "deferrable initially immediate",
+            "create index idx_place_detail_items_sweep_page on public.place_detail_items(source_sweep_id, source_snapshot_id)",
+            "validate_detail_item_sweep_lineage()",
+            "snapshot.page_key = new.page_no::text",
+            "snapshot.request_hash = new.request_fingerprint",
+            "snapshot.payload_hash = new.payload_hash",
+            "alter table public.tour_api_detail_item_sweeps enable row level security",
+            "alter table public.tour_api_detail_item_sweep_pages enable row level security",
+            "revoke all on public.tour_api_detail_item_sweeps from anon",
+            "revoke all on public.tour_api_detail_item_sweep_pages from authenticated",
+            "grant select, insert on public.tour_api_detail_item_sweeps to service_role",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
+        for forbidden in ("flyway", "servicekey"):
+            self.assertNotIn(forbidden, migration)
+
     def test_docker_v1_upgrade_applies_snapshot_storage_to_existing_snapshot(self):
         docker_smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
             encoding="utf-8"
@@ -228,6 +266,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/queries/legacy_snapshot_storage_upgrade_fixture.sql",
             "/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql",
             "/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql",
+            "/docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
         )
         positions = [docker_smoke.find(step) for step in ordered_steps]
@@ -357,6 +396,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql",
             "/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql",
+            "/docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql",
             "/docker-entrypoint-initdb.d/009_async_run_worker_runtime.sql",
             "/docker-entrypoint-initdb.d/010_import_run_lifecycle_fencing.sql",
             "/queries/legacy_v1_upgrade_contract.sql",
