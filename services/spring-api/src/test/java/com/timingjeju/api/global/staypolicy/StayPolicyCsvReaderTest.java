@@ -4,15 +4,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.timingjeju.api.application.staypolicy.StayPolicyCandidate;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.SecureDirectoryStream;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -26,6 +43,11 @@ class StayPolicyCsvReaderTest {
 
   private static final UUID PLACE = UUID.fromString("65000000-0000-0000-0000-000000000001");
   @TempDir Path importRoot;
+
+  @BeforeEach
+  void createNestedDirectory() throws IOException {
+    Files.createDirectories(importRoot.resolve("nested"));
+  }
 
   @Test
   void exact_schema의_category와_place_row만_읽는다() throws IOException {
@@ -210,6 +232,49 @@ class StayPolicyCsvReaderTest {
   @EnabledOnOs(OS.LINUX)
   void Linux_CI_provider는_secure_directory_handle을_반드시_지원한다() throws IOException {
     assertThat(supportsSecureDirectoryStream()).isTrue();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void OS와_무관한_secure_directory_contract로_nested_component와_NOFOLLOW_open을_검증한다()
+      throws IOException {
+    SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
+    SecureDirectoryStream<Path> nested = mock(SecureDirectoryStream.class);
+    BasicFileAttributeView view = mock(BasicFileAttributeView.class);
+    BasicFileAttributes attributes = mock(BasicFileAttributes.class);
+    SeekableByteChannel channel = mock(SeekableByteChannel.class);
+    Path nestedComponent = Path.of("nested");
+    Path fileComponent = Path.of("policy.csv");
+    byte[] content =
+        "scope,category,placeId,minutes\ncategory_default,SAFE,,90\n"
+            .getBytes(StandardCharsets.UTF_8);
+    AtomicBoolean firstRead = new AtomicBoolean(true);
+    when(root.newDirectoryStream(nestedComponent, LinkOption.NOFOLLOW_LINKS)).thenReturn(nested);
+    when(nested.getFileAttributeView(
+            fileComponent, BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS))
+        .thenReturn(view);
+    when(view.readAttributes()).thenReturn(attributes);
+    when(attributes.isRegularFile()).thenReturn(true);
+    when(channel.size()).thenReturn((long) content.length);
+    when(channel.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              if (!firstRead.getAndSet(false)) {
+                return -1;
+              }
+              invocation.<ByteBuffer>getArgument(0).put(content);
+              return content.length;
+            });
+    when(nested.newByteChannel(eq(fileComponent), anySet())).thenReturn(channel);
+    StayPolicyCsvReader reader = new StayPolicyCsvReader(importRoot, () -> {}, ignored -> root);
+
+    assertThat(reader.read(importRoot.resolve("nested/policy.csv")))
+        .containsExactly(StayPolicyCandidate.categoryDefault("SAFE", 90));
+    verify(root).newDirectoryStream(nestedComponent, LinkOption.NOFOLLOW_LINKS);
+    verify(nested)
+        .newByteChannel(
+            eq(fileComponent),
+            eq(Set.<OpenOption>of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)));
   }
 
   private boolean supportsSecureDirectoryStream() throws IOException {

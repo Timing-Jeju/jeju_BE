@@ -30,14 +30,21 @@ public final class StayPolicyCsvReader {
 
   private final Path importRoot;
   private final Runnable beforeFileOpen;
+  private final DirectoryStreamOpener directoryStreamOpener;
 
   public StayPolicyCsvReader(Path importRoot) {
-    this(importRoot, () -> {});
+    this(importRoot, () -> {}, Files::newDirectoryStream);
   }
 
   StayPolicyCsvReader(Path importRoot, Runnable beforeFileOpen) {
+    this(importRoot, beforeFileOpen, Files::newDirectoryStream);
+  }
+
+  StayPolicyCsvReader(
+      Path importRoot, Runnable beforeFileOpen, DirectoryStreamOpener directoryStreamOpener) {
     this.importRoot = realDirectory(importRoot);
     this.beforeFileOpen = beforeFileOpen;
+    this.directoryStreamOpener = directoryStreamOpener;
   }
 
   public List<StayPolicyCandidate> read(Path requestedFile) {
@@ -97,7 +104,7 @@ public final class StayPolicyCsvReader {
   }
 
   private String readFromAnchoredRoot(Path relative) {
-    try (DirectoryStream<Path> rootStream = Files.newDirectoryStream(importRoot)) {
+    try (DirectoryStream<Path> rootStream = directoryStreamOpener.open(importRoot)) {
       if (!(rootStream instanceof SecureDirectoryStream<Path> secureRoot)) {
         throw new StayPolicyFileException(
             "Stay policy import filesystem does not support secure path access");
@@ -235,5 +242,10 @@ public final class StayPolicyCsvReader {
   private static StayPolicyFileException malformed(int lineNumber, String reason) {
     return new StayPolicyFileException(
         "Invalid stay policy CSV line " + lineNumber + ": " + reason);
+  }
+
+  @FunctionalInterface
+  interface DirectoryStreamOpener {
+    DirectoryStream<Path> open(Path root) throws IOException;
   }
 }
