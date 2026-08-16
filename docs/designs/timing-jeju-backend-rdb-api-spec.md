@@ -1602,6 +1602,10 @@ Response `200`:
 
 ### 17.1 `GET /api/v1/weather/forecast`
 
+Canonical source: `docs/contracts/domains/weather-forecast/contract.json`, contractVersion: `1.0.0`, 구현 owner: Issue #67.
+
+`lat`, `lng`, `dateTime`은 동시에 required/non-null이며 추가 query를 허용하지 않는다. `lat=-90..90` exclusive, `lng=-180..180` inclusive의 finite number이고 `dateTime`은 Asia/Seoul의 `+09:00` RFC 3339 정시(seconds `00`)다. 요청 접수 시각을 내린 정시부터 6시간 inclusive는 `ultra_short`, 그 초과부터 10일 inclusive는 `village`로 조회한다. 과거·10일 초과는 422다.
+
 Request:
 
 ```http
@@ -1612,25 +1616,34 @@ Response `200`:
 
 ```json
 {
+  "contractVersion": "1.0.0",
   "grid": {
     "nx": 60,
     "ny": 37,
     "regionName": "서귀포시 성산읍"
   },
+  "provider": "KMA",
+  "providerApiVersion": "VilageFcstInfoService_2.0",
+  "forecastType": "village",
+  "baseDate": "2026-08-03",
+  "baseTime": "08:00",
   "forecastedAt": "2026-08-03T08:00:00+09:00",
   "validAt": "2026-08-03T14:00:00+09:00",
   "temperatureC": 25.8,
   "precipitationProbabilityPercent": 60,
   "precipitationAmountMm": 1.5,
   "precipitationType": "rain",
+  "skyCode": "cloudy",
+  "humidityPercent": 76,
   "windSpeedMps": 6.1,
-  "dataFreshness": {
-    "source": "kma_short_forecast",
-    "fetchedAt": "2026-08-03T08:05:00+09:00",
-    "stale": false
-  }
+  "observedAt": "2026-08-03T08:11:00+09:00",
+  "expiresAt": "2026-08-03T11:10:00+09:00",
+  "stale": false,
+  "fallbackUsed": false
 }
 ```
+
+KMA DFS grid는 각 투영축을 `floor(value + 0.5)`로 반올림하고 nx 1..149, ny 1..253만 허용한다. 초단기 base는 매시 30분/15분 지연, village base는 02·05·08·11·14·17·20·23시/10분 지연이다. provider guide version은 `2607`이다. category-derived 일곱 key는 항상 존재하며 선택 operation이 제공하지 않는 값은 `null`이고 생략하지 않는다. 최신 base 실패 시 직전 eligible base를 한 번만 사용하며 `fallbackUsed=true`, `stale=true`; 둘 다 실패하면 503 `WEATHER_FORECAST_UNAVAILABLE`이다. 조회 중 KMA request-time 호출은 금지한다.
 
 날씨 `impact`는 단순 조회 API가 계산하지 않는다. 일정 영향은 FastAPI 결과를 `trip_weather_impacts`에 저장해 일정 API에서 제공한다.
 

@@ -1,0 +1,190 @@
+{
+  "schemaVersion": "timing-jeju-weather-forecast-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "v1.1",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 94,
+  "implementationIssues": [67],
+  "schemas": {
+    "WeatherForecastQuery": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["lat", "lng", "dateTime"],
+      "properties": {
+        "lat": {"type": "number", "nullable": false, "exclusiveMinimum": -90, "exclusiveMaximum": 90, "finite": true},
+        "lng": {"type": "number", "nullable": false, "minimum": -180, "maximum": 180, "finite": true},
+        "dateTime": {"type": "string", "nullable": false, "format": "date-time", "timezone": "Asia/Seoul", "requiredOffset": "+09:00", "seconds": 0}
+      }
+    },
+    "CommonHeaders": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "Authorization": {"type": "string", "nullable": false, "pattern": "^Bearer [^\\s]{1,2048}$"}
+      }
+    },
+    "WeatherGrid": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["nx", "ny", "regionName"],
+      "properties": {
+        "nx": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 149},
+        "ny": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 253},
+        "regionName": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 100}
+      }
+    },
+    "WeatherForecastResponse": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": ["contractVersion", "grid", "provider", "providerApiVersion", "forecastType", "baseDate", "baseTime", "forecastedAt", "validAt", "temperatureC", "precipitationProbabilityPercent", "precipitationAmountMm", "precipitationType", "skyCode", "humidityPercent", "windSpeedMps", "observedAt", "expiresAt", "stale", "fallbackUsed"],
+      "properties": {
+        "contractVersion": {"type": "string", "nullable": false, "const": "1.0.0"},
+        "grid": {"$ref": "WeatherGrid"},
+        "provider": {"type": "string", "nullable": false, "const": "KMA"},
+        "providerApiVersion": {"type": "string", "nullable": false, "const": "VilageFcstInfoService_2.0"},
+        "forecastType": {"type": "string", "nullable": false, "enum": ["ultra_short", "village"]},
+        "baseDate": {"type": "string", "nullable": false, "format": "date"},
+        "baseTime": {"type": "string", "nullable": false, "pattern": "^(?:[01]\\d|2[0-3]):(?:00|30)$"},
+        "forecastedAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"},
+        "validAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"},
+        "temperatureC": {"type": "number", "nullable": true, "minimum": -100, "maximum": 100},
+        "precipitationProbabilityPercent": {"type": "integer", "nullable": true, "minimum": 0, "maximum": 100},
+        "precipitationAmountMm": {"type": "number", "nullable": true, "minimum": 0},
+        "precipitationType": {"type": "string", "nullable": true, "enum": ["none", "rain", "rain_snow", "snow", "shower", "raindrop", "raindrop_snowflake", "snowflake"]},
+        "skyCode": {"type": "string", "nullable": true, "enum": ["clear", "mostly_cloudy", "cloudy"]},
+        "humidityPercent": {"type": "integer", "nullable": true, "minimum": 0, "maximum": 100},
+        "windSpeedMps": {"type": "number", "nullable": true, "minimum": 0},
+        "observedAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"},
+        "expiresAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"},
+        "stale": {"type": "boolean", "nullable": false},
+        "fallbackUsed": {"type": "boolean", "nullable": false}
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/weather/forecast",
+      "operation": "read",
+      "requestSchema": "WeatherForecastQuery",
+      "headersSchema": "CommonHeaders",
+      "successSchema": "WeatherForecastResponse",
+      "auth": {"mode": "optional", "missingToken": "anonymous", "invalidToken": 401},
+      "owner": "none; public weather fact has no user owner",
+      "presence": "lat/lng/dateTime are simultaneously required and non-null; response is closed and all category-derived keys are required nullable",
+      "responses": {"success": [200], "errors": [400, 401, 422, 503]},
+      "errorMatrix": {
+        "400": ["INVALID_WEATHER_FORECAST_QUERY"],
+        "401": ["INVALID_ACCESS_TOKEN"],
+        "422": ["WEATHER_LOCATION_NOT_SUPPORTED", "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED"],
+        "503": ["WEATHER_FORECAST_UNAVAILABLE"]
+      },
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "none"},
+      "dbOwner": "Spring read-only weather_grid_points/weather_forecasts/external snapshot lineage; implementation #67",
+      "requestTimeCall": "none; request reads normalized stored forecast and never calls KMA or private MCP",
+      "dataLineage": "KMA versioned snapshot -> import run -> normalized weather_forecasts; raw provider payload is never projected",
+      "figma": {"node": "not-observed", "action": "날씨 예보 조회 소비 화면 근거 미확인", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0"
+    }
+  ],
+  "gridPolicy": {
+    "projection": "KMA DFS 5km Lambert conformal conic",
+    "rounding": "floor(projectedCoordinate + 0.5)",
+    "nx": {"minimum": 1, "maximum": 149},
+    "ny": {"minimum": 1, "maximum": 253},
+    "outOfGrid": "422 WEATHER_LOCATION_NOT_SUPPORTED"
+  },
+  "forecastPolicy": {
+    "timezone": "Asia/Seoul",
+    "queryGranularity": "whole hour; seconds must be 00",
+    "referenceTime": "Spring request acceptance time truncated down to the hour in Asia/Seoul",
+    "ultraShortHorizon": "0 through 6 hours inclusive",
+    "villageHorizon": "over 6 hours through 10 days inclusive",
+    "outsideHorizon": "422 WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
+    "providerApiVersion": "VilageFcstInfoService_2.0",
+    "providerGuideVersion": "2607",
+    "baseSelection": "latest eligible base whose publication delay elapsed",
+    "ultraShortBases": "hourly at HH:30; eligible after 15 minutes",
+    "villageBases": "02:00,05:00,08:00,11:00,14:00,17:00,20:00,23:00; eligible after 10 minutes",
+    "validAtRule": "returned validAt exactly equals requested dateTime"
+  },
+  "categoryPolicy": {
+    "responseFields": ["temperatureC", "precipitationProbabilityPercent", "precipitationAmountMm", "precipitationType", "skyCode", "humidityPercent", "windSpeedMps"],
+    "mapping": {"TMP/T1H": "temperatureC", "POP": "precipitationProbabilityPercent", "PCP/RN1": "precipitationAmountMm", "PTY": "precipitationType", "SKY": "skyCode", "REH": "humidityPercent", "WSD": "windSpeedMps"},
+    "unavailable": "explicit null",
+    "omitted": "forbidden",
+    "rawCategory": "not exposed",
+    "invalidAggregate": "missing a category required by the selected provider operation makes that base unusable and invokes the one-base fallback"
+  },
+  "freshnessPolicy": {
+    "observedAt": "snapshot fetched_at for the normalized selected row",
+    "expiresAt": "observedAt plus selected operation TTL",
+    "evaluatedAt": "response assembly time",
+    "staleRule": "stale = evaluatedAt >= expiresAt",
+    "freshSuccess": "fallbackUsed=false; stale follows staleRule",
+    "fallbackLimit": "exactly one immediately previous eligible base",
+    "fallbackSuccess": "fallbackUsed=true and stale=true",
+    "fallbackExhausted": "503 WEATHER_FORECAST_UNAVAILABLE",
+    "ttl": {"ultra_short": "10 minutes", "village": "same eligible base until the next base becomes eligible"}
+  },
+  "securityPolicy": {
+    "principal": "canonical JWT sub only; not used for weather row selection",
+    "forbiddenAuthorityInputs": ["user_metadata", "email", "provider payload", "raw token"],
+    "forbiddenPersistence": ["request precise coordinates", "request query", "raw provider payload in public response"],
+    "forbiddenLogging": ["precise coordinates", "raw token", "service key", "provider query", "provider payload"],
+    "fastApiBoundary": "FastAPI does not expose this endpoint, access DB, receive JWT, or receive provider credentials"
+  },
+  "errorConditions": [
+    {
+      "status": 400,
+      "code": "INVALID_WEATHER_FORECAST_QUERY",
+      "condition": "lat/lng/dateTime missing individually or together, null, wrong type, non-finite, out of WGS84 range, unknown query, non-RFC3339, non-+09:00, or seconds not 00",
+      "example": {"type": "https://api.timing-jeju.com/problems/invalid-weather-forecast-query", "title": "날씨 조회 조건이 올바르지 않습니다", "status": 400, "detail": "위도, 경도와 제주 현지 예보 시각을 올바른 형식으로 모두 입력해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000001", "code": "INVALID_WEATHER_FORECAST_QUERY", "traceId": "00000000000000000000000000000001", "fieldErrors": [{"field": "dateTime", "reason": "Asia/Seoul의 +09:00 정시를 입력해 주세요."}]}
+    },
+    {
+      "status": 401,
+      "code": "INVALID_ACCESS_TOKEN",
+      "condition": "optional Authorization header is present but Supabase JWT is invalid or expired",
+      "example": {"type": "https://api.timing-jeju.com/problems/invalid-access-token", "title": "인증 정보가 올바르지 않습니다", "status": 401, "detail": "유효한 인증 정보로 다시 요청해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000002", "code": "INVALID_ACCESS_TOKEN", "traceId": "00000000000000000000000000000002", "fieldErrors": []}
+    },
+    {
+      "status": 422,
+      "code": "WEATHER_LOCATION_NOT_SUPPORTED",
+      "condition": "valid WGS84 coordinate converts outside KMA nx 1..149 or ny 1..253, or no supported Jeju grid row exists",
+      "example": {"type": "https://api.timing-jeju.com/problems/weather-location-not-supported", "title": "지원하지 않는 날씨 조회 위치입니다", "status": 422, "detail": "제주 지역의 지원 가능한 위치를 입력해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000003", "code": "WEATHER_LOCATION_NOT_SUPPORTED", "traceId": "00000000000000000000000000000003", "fieldErrors": []}
+    },
+    {
+      "status": 422,
+      "code": "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
+      "condition": "dateTime is before request acceptance hour or after 10 days inclusive in Asia/Seoul",
+      "example": {"type": "https://api.timing-jeju.com/problems/weather-forecast-horizon-not-supported", "title": "지원하지 않는 예보 기간입니다", "status": 422, "detail": "현재 정시부터 10일 이내의 제주 현지 시각을 입력해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000004", "code": "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED", "traceId": "00000000000000000000000000000004", "fieldErrors": []}
+    },
+    {
+      "status": 503,
+      "code": "WEATHER_FORECAST_UNAVAILABLE",
+      "condition": "latest eligible base and exactly one immediately previous eligible base have no complete normalized row for requested grid and validAt",
+      "example": {"type": "https://api.timing-jeju.com/problems/weather-forecast-unavailable", "title": "날씨 예보를 불러올 수 없습니다", "status": 503, "detail": "최신 예보와 직전 예보를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000005", "code": "WEATHER_FORECAST_UNAVAILABLE", "traceId": "00000000000000000000000000000005", "fieldErrors": []}
+    }
+  ],
+  "externalTraceability": {
+    "notion": {"status": "not-ready", "contractVersion": "not-linked", "evidence": null, "ownerFollowUp": "PM/디자인 owner가 Spring REST API 명세 DB 행을 이 계약 1.0.0으로 대조하고 재조회 증거를 연결한다."},
+    "figma": {"status": "not-ready", "contractVersion": "not-linked", "evidence": null, "ownerFollowUp": "디자인 owner가 소비 node와 loading/empty/error 상태 및 contractVersion을 연결한다."}
+  },
+  "readiness": {
+    "metadata": {"status": "not-ready", "evidence": null},
+    "example": {"status": "not-ready", "evidence": null},
+    "implementation": {"status": "not-ready", "evidence": null}
+  },
+  "schemaGap": [
+    "weather_forecasts has no expires_at column; Issue #67 must derive expiry from snapshot fetched_at/base policy or add an explicit migration",
+    "weather_forecasts has no provider API/guide version column; Issue #67 must project audited snapshot/import metadata without exposing raw payload",
+    "weather_grid_points permits any KMA grid but the public endpoint supports only rows selected by the Jeju service policy",
+    "public schema single source is supabase/migrations; this documentation Issue adds no schema or Flyway"
+  ]
+}

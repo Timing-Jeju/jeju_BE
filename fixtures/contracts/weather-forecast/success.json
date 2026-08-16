@@ -1,0 +1,27 @@
+{
+  "contractVersion": "1.0.0",
+  "status": 200,
+  "evaluatedAt": "2026-08-03T09:06:00+09:00",
+  "body": {
+    "contractVersion": "1.0.0",
+    "grid": {"nx": 60, "ny": 37, "regionName": "서귀포시 성산읍"},
+    "provider": "KMA",
+    "providerApiVersion": "VilageFcstInfoService_2.0",
+    "forecastType": "village",
+    "baseDate": "2026-08-03",
+    "baseTime": "08:00",
+    "forecastedAt": "2026-08-03T08:00:00+09:00",
+    "validAt": "2026-08-03T14:00:00+09:00",
+    "temperatureC": 25.8,
+    "precipitationProbabilityPercent": 60,
+    "precipitationAmountMm": 1.5,
+    "precipitationType": "rain",
+    "skyCode": "cloudy",
+    "humidityPercent": 76,
+    "windSpeedMps": 6.1,
+    "observedAt": "2026-08-03T08:11:00+09:00",
+    "expiresAt": "2026-08-03T11:10:00+09:00",
+    "stale": false,
+    "fallbackUsed": false
+  }
+}
