@@ -101,6 +101,14 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
     insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
     repository.recompute(batch(Set.of(PLACE), Set.of(), true), POLICY);
 
+    repository.recompute(
+        batchAt(
+            Set.of(PLACE),
+            true,
+            OBSERVED_AT.plus(Duration.ofHours(7)),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        POLICY);
+
     var candidates = repository.findEligible(PLACE, 500, 3, OBSERVED_AT.plus(Duration.ofHours(7)));
 
     assertThat(candidates)
@@ -117,6 +125,34 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
                 PLACE,
                 STOP_A))
         .isTrue();
+  }
+
+  @Test
+  void stop_staleAt이_link_expiry보다_이르면_complete에서도_active를_보존하고_stale로_조회한다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    repository.recompute(batch(Set.of(PLACE), Set.of(), true), POLICY);
+    Instant staleAt = OBSERVED_AT.plus(Duration.ofHours(1));
+    jdbcTemplate.update(
+        "update public.bus_stops set stale=true, stale_at=? where id=?",
+        Timestamp.from(staleAt),
+        STOP_A);
+
+    repository.recompute(
+        batchAt(
+            Set.of(PLACE),
+            true,
+            OBSERVED_AT.plus(Duration.ofHours(2)),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        POLICY);
+
+    assertThat(linkState(STOP_A)).containsExactly(true, false);
+    assertThat(repository.findEligible(PLACE, 500, 3, OBSERVED_AT.plus(Duration.ofHours(2))))
+        .singleElement()
+        .satisfies(
+            candidate -> {
+              assertThat(candidate.fresh()).isFalse();
+              assertThat(candidate.expiresAt()).isEqualTo(staleAt);
+            });
   }
 
   @Test
@@ -231,6 +267,74 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
   }
 
   @Test
+  void partial_first도_watermark를_남기고_exact_replay는_link와_scope를_다시쓰지않는다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    PlaceStopLinkBatch partial = batch(Set.of(PLACE), Set.of(), false);
+
+    var first = repository.recompute(partial, POLICY);
+    String linkVersion = linkRowVersion();
+    String scopeVersion = scopeRowVersion();
+    var replay = repository.recompute(partial, POLICY);
+
+    assertThat(first.upserted()).isOne();
+    assertThat(replay.replayed()).isTrue();
+    assertThat(replay.upserted()).isZero();
+    assertThat(linkRowVersion()).isEqualTo(linkVersion);
+    assertThat(scopeRowVersion()).isEqualTo(scopeVersion);
+  }
+
+  @Test
+  void partial_first의_equal_observed_conflict와_older를_거부하고_watermark를_rollback한다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    repository.recompute(batch(Set.of(PLACE), Set.of(), false), POLICY);
+    String linkVersion = linkRowVersion();
+    String scopeVersion = scopeRowVersion();
+
+    assertThatThrownBy(
+            () ->
+                repository.recompute(
+                    batchAt(
+                        Set.of(PLACE),
+                        false,
+                        OBSERVED_AT,
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                    POLICY))
+        .isInstanceOf(PlaceStopLinkConflictException.class);
+    assertThatThrownBy(
+            () ->
+                repository.recompute(
+                    batchAt(
+                        Set.of(PLACE),
+                        false,
+                        OBSERVED_AT.minusSeconds(1),
+                        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                    POLICY))
+        .isInstanceOf(PlaceStopLinkConflictException.class);
+
+    assertThat(linkRowVersion()).isEqualTo(linkVersion);
+    assertThat(scopeRowVersion()).isEqualTo(scopeVersion);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select manifest_fingerprint from public.place_stop_link_scope_states where place_id=? and source_provider='postgis:tago'",
+                String.class,
+                PLACE))
+        .isEqualTo(FINGERPRINT);
+  }
+
+  @Test
+  void 후보가_0건인_partial_first도_scope_watermark를_남긴다() {
+    var result = repository.recompute(batch(Set.of(PLACE), Set.of(), false), POLICY);
+
+    assertThat(result.upserted()).isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.place_stop_link_scope_states where place_id=? and source_provider='postgis:tago'",
+                Integer.class,
+                PLACE))
+        .isOne();
+  }
+
+  @Test
   void 제주_범위를_벗어난_place_coordinate는_거부한다() {
     jdbcTemplate.update(
         "update public.tour_places set location=ST_SetSRID(ST_MakePoint(129.0,35.0),4326)::geography where id=?",
@@ -338,6 +442,30 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
     }
   }
 
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void partial_batch의_scope_watermark_실패도_link와_marker를_모두_rollback한다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    jdbcTemplate.update(
+        "alter table public.place_stop_link_scope_states add constraint test_partial_rollback check (false) not valid");
+
+    try {
+      assertThatThrownBy(() -> repository.recompute(batch(Set.of(PLACE), Set.of(), false), POLICY))
+          .isInstanceOf(RuntimeException.class);
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select count(*) from public.place_stop_links", Integer.class))
+          .isZero();
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select count(*) from public.place_stop_link_scope_states", Integer.class))
+          .isZero();
+    } finally {
+      jdbcTemplate.update(
+          "alter table public.place_stop_link_scope_states drop constraint test_partial_rollback");
+    }
+  }
+
   private PlaceStopLinkBatch batch(Set<UUID> places, Set<UUID> stops, boolean complete) {
     return new PlaceStopLinkBatch(
         places, stops, "postgis:tago", OBSERVED_AT, FINGERPRINT, complete);
@@ -385,5 +513,19 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
         (rs, row) -> List.of(rs.getBoolean(1), rs.getBoolean(2)),
         PLACE,
         stopId);
+  }
+
+  private String linkRowVersion() {
+    return jdbcTemplate.queryForObject(
+        "select ctid::text || ':' || xmin::text from public.place_stop_links where place_id=?",
+        String.class,
+        PLACE);
+  }
+
+  private String scopeRowVersion() {
+    return jdbcTemplate.queryForObject(
+        "select ctid::text || ':' || xmin::text from public.place_stop_link_scope_states where place_id=? and source_provider='postgis:tago'",
+        String.class,
+        PLACE);
   }
 }

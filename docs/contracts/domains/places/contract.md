@@ -99,7 +99,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
 | 이미지 | TourAPI 정규화 | `place_images.source_provider` | `created_at` | 부모 장소 freshness 투영 | 부모 장소 stale 투영 |
 | 운영정보 | TourAPI 정규화 | `place_details.source_provider` | `source_updated_at` 또는 `fetched_at` | 부모 장소 freshness 투영 | 부모 장소 stale 투영 |
 | saved/memo/tags | 사용자 입력 | `TIMING_JEJU` | `saved_places.updated_at` | null | false |
-| 주변 정류장 | TAGO 정류장 + 앱 link | `place_stop_links.source_provider` | `observed_at` | `expires_at` | `expires_at <= now()` |
+| 주변 정류장 | TAGO 정류장 + 앱 link | `place_stop_links.source_provider` | `observed_at` | `least(place_stop_links.expires_at, bus_stops.stale_at)` | effective expiresAt `<= now()` |
 
 공개 응답은 정규화 값만 반환합니다. 원천 response payload를 노출하지 않습니다.
 
@@ -131,11 +131,11 @@ eligible 조건은 아래를 모두 만족해야 합니다.
 4. 연결된 `bus_stops.source_deleted_at IS NULL`
 5. configured 거리 상한 이내
 
-eligible 행은 `expiresAt > now()`이면 fresh, `expiresAt <= now()`이면 stale입니다. stale-only도 `stale=true`로 포함합니다. disabled·tombstoned·out-of-radius와 tombstoned/source-deleted stop은 limit 전에 제외합니다. eligible fresh/stale이 하나도 없을 때만 상세 `200`과 `nearbyStops: []`를 반환합니다.
+eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at` 중 이른 시각입니다. 이 값이 `now()`보다 뒤면 fresh, 같거나 앞이면 stale이며 stale-only도 `stale=true`로 포함합니다. freshness cutoff나 `stale_at` 만료만으로 active link를 tombstone하지 않습니다. disabled·tombstoned·out-of-radius와 tombstoned/source-deleted stop은 limit 전에 제외합니다. eligible fresh/stale이 하나도 없을 때만 상세 `200`과 `nearbyStops: []`를 반환합니다.
 
 정렬은 `stale ASC`, `distanceMeters ASC`, `walkMinutes ASC NULLS LAST`, `stopId ASC`이며 stopId당 한 번, 전체 최대 5개입니다. 별도 freshness reason 필드는 만들지 않습니다. 기존 consumer가 알 수 없는 additive field를 무시할 수 있어야 합니다.
 
-#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 단일화합니다.
+#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. complete와 partial은 모두 `(place, provider)` observation/fingerprint watermark를 원자 compare/persist하되 partial은 누락 link를 tombstone하지 않습니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 단일화합니다.
 
 ## endpoint별 오류 matrix
 

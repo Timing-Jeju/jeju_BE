@@ -44,19 +44,20 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
     int replayed = 0;
     for (UUID placeId : scopes.stream().sorted().toList()) {
       lockScope(placeId, batch.sourceProvider());
-      if (isReplayOrThrow(placeId, batch)) {
+      if (claimScopeOrReplay(placeId, batch)) {
         replayed++;
         continue;
       }
       PlaceCoordinate coordinate = requireJejuPlace(placeId);
       List<CandidateWrite> candidates = candidates(coordinate, batch, policy);
       for (CandidateWrite candidate : candidates) {
-        upsert(placeId, candidate, batch);
-        upserted++;
+        if (candidate.expiresAt().isAfter(batch.observedAt())) {
+          upsert(placeId, candidate, batch);
+          upserted++;
+        }
       }
       if (batch.complete()) {
         tombstoned += tombstoneMissing(placeId, candidates, batch);
-        advanceScope(placeId, batch);
       }
     }
     return new PlaceStopLinkBatchResult(
@@ -77,14 +78,15 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
     }
     return jdbcTemplate.query(
         """
-        select link.stop_id, link.distance_meters, link.walk_minutes, link.expires_at,
-               link.expires_at > ? as fresh
+        select link.stop_id, link.distance_meters, link.walk_minutes,
+               least(link.expires_at, coalesce(stop.stale_at, link.expires_at)) as effective_expires_at,
+               least(link.expires_at, coalesce(stop.stale_at, link.expires_at)) > ? as fresh
         from public.place_stop_links link
         join public.bus_stops stop on stop.id=link.stop_id
         where link.place_id=? and link.enabled and link.tombstoned_at is null
           and stop.tombstoned_at is null and stop.source_deleted_at is null
           and link.distance_meters <= ?
-        order by (link.expires_at > ?) desc, link.expires_at desc,
+        order by fresh desc, effective_expires_at desc,
                  link.distance_meters, link.stop_id
         limit ?
         """,
@@ -93,12 +95,11 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
                 resultSet.getObject("stop_id", UUID.class),
                 resultSet.getInt("distance_meters"),
                 resultSet.getInt("walk_minutes"),
-                resultSet.getTimestamp("expires_at").toInstant(),
+                resultSet.getTimestamp("effective_expires_at").toInstant(),
                 resultSet.getBoolean("fresh")),
         Timestamp.from(now),
         placeId,
         radiusMeters,
-        Timestamp.from(now),
         maxCandidates);
   }
 
@@ -131,7 +132,7 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
         sourceProvider);
   }
 
-  private boolean isReplayOrThrow(UUID placeId, PlaceStopLinkBatch batch) {
+  private boolean claimScopeOrReplay(UUID placeId, PlaceStopLinkBatch batch) {
     List<ScopeState> states =
         jdbcTemplate.query(
             """
@@ -146,13 +147,16 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
                     resultSet.getString("manifest_fingerprint")),
             placeId,
             batch.sourceProvider());
-    if (states.isEmpty()) return false;
-    ScopeState state = states.getFirst();
-    int comparison = state.observedAt().compareTo(batch.observedAt());
-    if (comparison > 0 || (comparison == 0 && !state.fingerprint().equals(batch.fingerprint()))) {
-      throw new PlaceStopLinkConflictException();
+    if (!states.isEmpty()) {
+      ScopeState state = states.getFirst();
+      int comparison = state.observedAt().compareTo(batch.observedAt());
+      if (comparison > 0 || (comparison == 0 && !state.fingerprint().equals(batch.fingerprint()))) {
+        throw new PlaceStopLinkConflictException();
+      }
+      if (comparison == 0) return true;
     }
-    return comparison == 0;
+    advanceScope(placeId, batch);
+    return false;
   }
 
   private PlaceCoordinate requireJejuPlace(UUID placeId) {
@@ -181,10 +185,10 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
         select stop.id,
                ST_Distance(stop.location, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography) distance,
                least(?::timestamptz + (? * interval '1 millisecond'),
-                     stop.last_seen_at + (? * interval '1 millisecond')) expires_at
+                     stop.last_seen_at + (? * interval '1 millisecond'),
+                     coalesce(stop.stale_at, 'infinity'::timestamptz)) expires_at
         from public.bus_stops stop
         where stop.tombstoned_at is null and stop.source_deleted_at is null
-          and stop.last_seen_at + (? * interval '1 millisecond') > ?::timestamptz
           and ST_DWithin(stop.location,
                          ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?)
         order by distance, stop.id
@@ -203,8 +207,6 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
         Timestamp.from(batch.observedAt()),
         policy.linkTtl().toMillis(),
         policy.stopFreshnessTtl().toMillis(),
-        policy.stopFreshnessTtl().toMillis(),
-        Timestamp.from(batch.observedAt()),
         coordinate.longitude(),
         coordinate.latitude(),
         policy.radiusMeters(),

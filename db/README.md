@@ -41,7 +41,7 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260817000000_tour_api_place_images_operation.sql`: 반복 이미지 `detailImage2` sweep와 operation 계보 등록
 - `supabase/migrations/20260818000000_tour_api_incremental_sync.sql`: TourAPI 증분 동기화 cursor와 complete sweep 계약
 - `supabase/migrations/20260819000000_tago_stop_import.sql`: TAGO 제주 도시코드·정류장 full import와 freshness scope 계약
-- `supabase/migrations/20260822000000_place_stop_postgis_links.sql`: PostGIS 관광지-정류장 후보 link lifecycle·freshness와 complete scope watermark 계약
+- `supabase/migrations/20260822000000_place_stop_postgis_links.sql`: PostGIS 관광지-정류장 후보 link lifecycle·freshness와 complete/partial 공통 scope watermark 계약
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터
