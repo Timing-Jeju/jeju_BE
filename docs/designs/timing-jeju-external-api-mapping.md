@@ -305,6 +305,14 @@ GET http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst
   &ny=37
 ```
 
+### 6.2.1 격자와 발표 base 결정 계약
+
+Issue #42의 `KmaGridConverter`는 외부 호출 없이 WGS84 위경도를 KMA DFS 5 km 격자로 변환한다. 공식 격자영역 명세의 Lambert conformal conic 상수(지구반경 6371.00877 km, 표준위도 30°/60°, 기준점 N 38°·E 126°와 X 43·Y 136)를 식에서 직접 유도하고, 투영 좌표에 0.5를 더해 내림하여 가장 가까운 dot grid를 선택한다. 입력은 유한한 위경도와 투영 가능한 위도만 허용하며, 결과가 공식 149 × 253 격자를 벗어나면 외부 API에 잘못된 `nx`/`ny`를 보내기 전에 거부한다. 제주국제공항 등 대표 좌표와 공식 네 모서리를 golden fixture로 고정한다.
+
+`ForecastBaseTimeResolver`는 주입된 `Clock`의 instant를 항상 `Asia/Seoul`로 변환한다. 초단기예보는 매시 30분 base가 45분부터 조회 가능하므로 15분 지연을, 단기예보는 02·05·08·11·14·17·20·23시 base가 각 시각 10분부터 조회 가능하므로 10분 지연을 적용한다. 지연이 끝나지 않은 base는 선택하지 않으며 자정·월·년 경계에서도 직전 날짜의 base를 반환한다. 이 모듈은 HTTP, API key, DB, Controller를 소유하지 않고 후속 #43과 #76 importer가 같은 결정 계약을 재사용한다.
+
+근거는 공공데이터포털의 최신 `기상청41_단기예보 조회서비스_오픈API활용가이드_2607.zip`, 기상청의 [동네예보 데이터 활용안내](https://data.kma.go.kr/community/nuriLovePopup.do), [동네예보 격자영역 정보](https://apihub.kma.go.kr/getAttachFile.do?fileName=%2820240305%29%EB%8F%99%EB%84%A4%EC%98%88%EB%B3%B4+%EA%B2%A9%EC%9E%90%EC%98%81%EC%97%AD+%EC%A0%95%EB%B3%B4.pdf)다.
+
 ### 6.3 category 매핑
 
 | KMA category | DB |
