@@ -475,6 +475,12 @@
       "stopTombstoned": false,
       "stopSourceDeleted": false
     },
+    "coordinateRecompute": {
+      "expiredActiveLink": "refresh distanceMeters and walkMinutes only",
+      "preserve": ["provider", "observedAt", "expiresAt", "enabled", "tombstonedAt"],
+      "expiredNewLink": "do not create",
+      "policyDisabledOrTombstoned": "do not reactivate"
+    },
     "emptyWhen": "eligible fresh/stale link count = 0",
     "emptyResponse": {
       "status": 200,

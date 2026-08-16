@@ -156,6 +156,182 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
   }
 
   @Test
+  void 만료된_active_link도_place_좌표변경시_거리와_도보시간을_갱신하고_stale로_유지한다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    repository.recompute(batch(Set.of(PLACE), Set.of(), true), POLICY);
+    LinkMetadata originalMetadata = linkMetadata(STOP_A);
+    jdbcTemplate.update(
+        "update public.tour_places set location=ST_Project(location,50,radians(90)), updated_at=? where id=?",
+        Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(7))),
+        PLACE);
+
+    repository.recompute(
+        batchAt(
+            Set.of(PLACE),
+            true,
+            OBSERVED_AT.plus(Duration.ofHours(7)),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        POLICY);
+
+    assertThat(linkMetrics(STOP_A)).containsExactly(50, 1);
+    assertThat(linkState(STOP_A)).containsExactly(true, false);
+    assertThat(linkMetadata(STOP_A)).isEqualTo(originalMetadata);
+    assertThat(scopeMetadata())
+        .isEqualTo(
+            new ScopeMetadata(
+                OBSERVED_AT.plus(Duration.ofHours(7)),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    assertThat(repository.findEligible(PLACE, 500, 1, OBSERVED_AT.plus(Duration.ofHours(7))))
+        .singleElement()
+        .satisfies(candidate -> assertThat(candidate.fresh()).isFalse());
+  }
+
+  @Test
+  void 만료된_active_link도_stop_좌표변경시_거리와_도보시간을_갱신하고_stale로_유지한다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    repository.recompute(batch(Set.of(PLACE), Set.of(), true), POLICY);
+    LinkMetadata originalMetadata = linkMetadata(STOP_A);
+    jdbcTemplate.update(
+        "update public.bus_stops set location=ST_Project(ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography,200,radians(90)), updated_at=? where id=?",
+        Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(7))),
+        STOP_A);
+
+    repository.recompute(
+        batchAt(
+            Set.of(),
+            Set.of(STOP_A),
+            true,
+            OBSERVED_AT.plus(Duration.ofHours(7)),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        POLICY);
+
+    assertThat(linkMetrics(STOP_A)).containsExactly(200, 3);
+    assertThat(linkState(STOP_A)).containsExactly(true, false);
+    assertThat(linkMetadata(STOP_A)).isEqualTo(originalMetadata);
+    assertThat(scopeMetadata())
+        .isEqualTo(
+            new ScopeMetadata(
+                OBSERVED_AT.plus(Duration.ofHours(7)),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    assertThat(repository.findEligible(PLACE, 500, 1, OBSERVED_AT.plus(Duration.ofHours(7))))
+        .singleElement()
+        .satisfies(candidate -> assertThat(candidate.fresh()).isFalse());
+  }
+
+  @Test
+  void 만료된_신규후보는_생성하지_않고_disabled와_tombstoned_link도_재활성화하지_않는다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    insertStopAtDistance(STOP_B, 200, OBSERVED_AT);
+    repository.recompute(batch(Set.of(PLACE), Set.of(), true), POLICY);
+    jdbcTemplate.update(
+        "update public.place_stop_links set enabled=false where place_id=? and stop_id=?",
+        PLACE,
+        STOP_A);
+    jdbcTemplate.update(
+        "update public.place_stop_links set enabled=false, tombstoned_at=? where place_id=? and stop_id=?",
+        Timestamp.from(OBSERVED_AT.plusSeconds(1)),
+        PLACE,
+        STOP_B);
+    insertStopAtDistance(STOP_C, 300, OBSERVED_AT);
+    jdbcTemplate.update(
+        "update public.tour_places set location=ST_Project(location,10,radians(90)), updated_at=? where id=?",
+        Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(7))),
+        PLACE);
+
+    repository.recompute(
+        batchAt(
+            Set.of(PLACE),
+            true,
+            OBSERVED_AT.plus(Duration.ofHours(7)),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        new PlaceStopLinkPolicy(500, 3, Duration.ofHours(24), Duration.ofHours(6)));
+
+    assertThat(linkState(STOP_A)).containsExactly(false, false);
+    assertThat(linkState(STOP_B)).containsExactly(false, true);
+    assertThat(linkMetrics(STOP_A)).containsExactly(100, 2);
+    assertThat(linkMetrics(STOP_B)).containsExactly(200, 3);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.place_stop_links where place_id=? and stop_id=?",
+                Integer.class,
+                PLACE,
+                STOP_C))
+        .isZero();
+  }
+
+  @Test
+  void eligibility는_fresh그룹_거리_도보시간_stopId순으로_maxCandidates를_적용한다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    insertStopAtDistance(STOP_B, 200, OBSERVED_AT);
+    insertStopAtDistance(STOP_C, 300, OBSERVED_AT);
+    repository.recompute(
+        batch(Set.of(PLACE), Set.of(), true),
+        new PlaceStopLinkPolicy(500, 3, Duration.ofHours(24), Duration.ofHours(6)));
+    jdbcTemplate.update(
+        "update public.place_stop_links set distance_meters=50, walk_minutes=1, expires_at=? where place_id=? and stop_id=?",
+        Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(1))),
+        PLACE,
+        STOP_A);
+    jdbcTemplate.update(
+        "update public.place_stop_links set distance_meters=200, walk_minutes=3, expires_at=? where place_id=? and stop_id=?",
+        Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(12))),
+        PLACE,
+        STOP_B);
+    jdbcTemplate.update(
+        "update public.place_stop_links set distance_meters=100, walk_minutes=2, expires_at=? where place_id=? and stop_id=?",
+        Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(3))),
+        PLACE,
+        STOP_C);
+    Instant now = OBSERVED_AT.plus(Duration.ofHours(2));
+
+    assertThat(repository.findEligible(PLACE, 500, 1, now))
+        .extracting(candidate -> candidate.stopId())
+        .containsExactly(STOP_C);
+    assertThat(repository.findEligible(PLACE, 500, 2, now))
+        .extracting(candidate -> candidate.stopId())
+        .containsExactly(STOP_C, STOP_B);
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void 동일_distance는_walk_nullsLast후_stopId로_결정하고_expiry는_순서에_영향주지않는다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    insertStopAtDistance(STOP_B, 200, OBSERVED_AT);
+    insertStopAtDistance(STOP_C, 300, OBSERVED_AT);
+    repository.recompute(
+        batch(Set.of(PLACE), Set.of(), true),
+        new PlaceStopLinkPolicy(500, 3, Duration.ofHours(24), Duration.ofHours(6)));
+    jdbcTemplate.execute(
+        "alter table public.place_stop_links alter column walk_minutes drop not null");
+    try {
+      jdbcTemplate.update(
+          "update public.place_stop_links set distance_meters=100, walk_minutes=2, expires_at=? where place_id=? and stop_id=?",
+          Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(3))),
+          PLACE,
+          STOP_A);
+      jdbcTemplate.update(
+          "update public.place_stop_links set distance_meters=100, walk_minutes=2, expires_at=? where place_id=? and stop_id=?",
+          Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(4))),
+          PLACE,
+          STOP_B);
+      jdbcTemplate.update(
+          "update public.place_stop_links set distance_meters=100, walk_minutes=null, expires_at=? where place_id=? and stop_id=?",
+          Timestamp.from(OBSERVED_AT.plus(Duration.ofHours(5))),
+          PLACE,
+          STOP_C);
+
+      assertThat(repository.findEligible(PLACE, 500, 2, OBSERVED_AT.plus(Duration.ofHours(2))))
+          .extracting(candidate -> candidate.stopId())
+          .containsExactly(STOP_A, STOP_B);
+    } finally {
+      jdbcTemplate.update(
+          "update public.place_stop_links set walk_minutes=0 where walk_minutes is null");
+      jdbcTemplate.execute(
+          "alter table public.place_stop_links alter column walk_minutes set not null");
+    }
+  }
+
+  @Test
   void disabled_link와_link_or_stop_tombstone은_eligibility에서_제외된다() {
     insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
     insertStopAtDistance(STOP_B, 200, OBSERVED_AT);
@@ -515,6 +691,39 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
         stopId);
   }
 
+  private List<Integer> linkMetrics(UUID stopId) {
+    return jdbcTemplate.queryForObject(
+        "select distance_meters, walk_minutes from public.place_stop_links where place_id=? and stop_id=?",
+        (rs, row) -> List.of(rs.getInt(1), rs.getInt(2)),
+        PLACE,
+        stopId);
+  }
+
+  private LinkMetadata linkMetadata(UUID stopId) {
+    return jdbcTemplate.queryForObject(
+        "select source_provider, observed_at, expires_at, enabled, tombstoned_at from public.place_stop_links where place_id=? and stop_id=?",
+        (rs, row) ->
+            new LinkMetadata(
+                rs.getString("source_provider"),
+                rs.getTimestamp("observed_at").toInstant(),
+                rs.getTimestamp("expires_at").toInstant(),
+                rs.getBoolean("enabled"),
+                rs.getTimestamp("tombstoned_at") == null
+                    ? null
+                    : rs.getTimestamp("tombstoned_at").toInstant()),
+        PLACE,
+        stopId);
+  }
+
+  private ScopeMetadata scopeMetadata() {
+    return jdbcTemplate.queryForObject(
+        "select observed_at, manifest_fingerprint from public.place_stop_link_scope_states where place_id=? and source_provider='postgis:tago'",
+        (rs, row) ->
+            new ScopeMetadata(
+                rs.getTimestamp("observed_at").toInstant(), rs.getString("manifest_fingerprint")),
+        PLACE);
+  }
+
   private String linkRowVersion() {
     return jdbcTemplate.queryForObject(
         "select ctid::text || ':' || xmin::text from public.place_stop_links where place_id=?",
@@ -528,4 +737,13 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
         String.class,
         PLACE);
   }
+
+  private record LinkMetadata(
+      String sourceProvider,
+      Instant observedAt,
+      Instant expiresAt,
+      boolean enabled,
+      Instant tombstonedAt) {}
+
+  private record ScopeMetadata(Instant observedAt, String fingerprint) {}
 }

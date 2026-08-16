@@ -54,6 +54,8 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
         if (candidate.expiresAt().isAfter(batch.observedAt())) {
           upsert(placeId, candidate, batch);
           upserted++;
+        } else {
+          upserted += refreshActiveMetrics(placeId, candidate, batch.sourceProvider());
         }
       }
       if (batch.complete()) {
@@ -86,8 +88,8 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
         where link.place_id=? and link.enabled and link.tombstoned_at is null
           and stop.tombstoned_at is null and stop.source_deleted_at is null
           and link.distance_meters <= ?
-        order by fresh desc, effective_expires_at desc,
-                 link.distance_meters, link.stop_id
+        order by fresh desc, link.distance_meters,
+                 link.walk_minutes asc nulls last, link.stop_id
         limit ?
         """,
         (resultSet, rowNumber) ->
@@ -238,6 +240,24 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
         batch.sourceProvider(),
         Timestamp.from(batch.observedAt()),
         Timestamp.from(candidate.expiresAt()));
+  }
+
+  private int refreshActiveMetrics(UUID placeId, CandidateWrite candidate, String sourceProvider) {
+    return jdbcTemplate.update(
+        """
+        update public.place_stop_links
+        set distance_meters=?, walk_minutes=?
+        where place_id=? and stop_id=? and source_provider=?
+          and enabled and tombstoned_at is null
+          and (distance_meters, walk_minutes) is distinct from (?, ?)
+        """,
+        candidate.distanceMeters(),
+        candidate.walkMinutes(),
+        placeId,
+        candidate.stopId(),
+        sourceProvider,
+        candidate.distanceMeters(),
+        candidate.walkMinutes());
   }
 
   private int tombstoneMissing(
