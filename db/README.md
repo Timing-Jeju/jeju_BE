@@ -38,6 +38,10 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260813010000_external_snapshot_storage.sql`: snapshot redaction·크기·상태·retention 감사 계약
 - `supabase/migrations/20260814000000_tour_api_operation_provenance.sql`: TourAPI operation registry와 normalized row 다중 계보 계약
 - `supabase/migrations/20260816000000_tour_api_detail_info_operation.sql`: 반복 상세 `detailInfo2` operation 등록
+- `supabase/migrations/20260817000000_tour_api_place_images_operation.sql`: 반복 이미지 `detailImage2` sweep와 operation 계보 등록
+- `supabase/migrations/20260818000000_tour_api_incremental_sync.sql`: TourAPI 증분 동기화 cursor와 complete sweep 계약
+- `supabase/migrations/20260819000000_tago_stop_import.sql`: TAGO 제주 도시코드·정류장 full import와 freshness scope 계약
+- `supabase/migrations/20260822000000_place_stop_postgis_links.sql`: PostGIS 관광지-정류장 후보 link lifecycle·freshness와 complete scope watermark 계약
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터
@@ -52,6 +56,8 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `db/queries/database_concurrency_contract.sql`: 삭제되는 테스트 DB에서만 `dblink`를 사용해 체크포인트·일정의 실제 2세션 경쟁을 검증하는 계약
 
 운영 마이그레이션은 `auth` 스키마, `auth.users`, `auth.uid()`를 생성·교체·삭제하지 않으며 `auth.users`에 직접 INSERT하지 않습니다. `auth.users` 외래키와 `auth.uid()`를 사용하는 RLS 정책은 Supabase 소유 객체를 참조할 뿐 변경하지 않으므로 유지합니다.
+
+관광지-정류장 후보 연결 배치는 DB에 동기화된 장소·정류장 좌표만 사용하며 사용자 실시간 위치, 길찾기 provider credential, 새 환경변수를 요구하거나 저장하지 않습니다.
 
 현재 기능 개발 로드맵 전체에서 Flyway는 도입하지 않습니다. Flyway 의존성·설정·`db/migration`을 추가하지 않고, 도입 여부는 모든 주요 기능 개발이 끝난 뒤 마지막 안정화 GitHub Issue에서만 검토합니다. 운영에 `db/local-postgres` 파일을 적용하거나 이 파일을 `supabase db push` 대상으로 복사하면 안 됩니다.
 

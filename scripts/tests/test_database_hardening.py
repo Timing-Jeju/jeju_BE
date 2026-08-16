@@ -80,9 +80,7 @@ class DatabaseHardeningTest(unittest.TestCase):
 
     def test_versioned_migrations_are_additive_and_ordered(self):
         migration_names = [path.name for path in sorted(MIGRATIONS.glob("*.sql"))]
-
-        self.assertEqual(
-            [
+        baseline = [
                 "20260728000000_initial_public_schema.sql",
                 "20260730000000_database_integrity_hardening.sql",
                 "20260730010000_external_ingestion_foundation.sql",
@@ -98,28 +96,31 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260817000000_tour_api_place_images_operation.sql",
                 "20260818000000_tour_api_incremental_sync.sql",
                 "20260819000000_tago_stop_import.sql",
-            ],
-            migration_names,
+                "20260822000000_place_stop_postgis_links.sql",
+        ]
+        versions = [name[:14] for name in migration_names]
+
+        self.assertTrue(set(baseline).issubset(migration_names))
+        self.assertEqual(sorted(migration_names), migration_names)
+        self.assertEqual(len(versions), len(set(versions)), "migration timestamp가 중복됐습니다")
+        self.assertLess(
+            migration_names.index("20260819000000_tago_stop_import.sql"),
+            migration_names.index("20260822000000_place_stop_postgis_links.sql"),
         )
+        for optional_predecessor in (
+            "20260820000000_kma_village_forecast_version.sql",
+            "20260821000000_tago_arrival_cache.sql",
+        ):
+            if optional_predecessor in migration_names:
+                self.assertLess(
+                    migration_names.index(optional_predecessor),
+                    migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+                )
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
         ordered_mounts = (
             "./db/local-postgres/auth_compat.sql",
-            "./supabase/migrations/20260728000000_initial_public_schema.sql",
-            "./supabase/migrations/20260730000000_database_integrity_hardening.sql",
-            "./supabase/migrations/20260730010000_external_ingestion_foundation.sql",
-            "./supabase/migrations/20260730020000_ingestion_consistency_hardening.sql",
-            "./supabase/migrations/20260730030000_schedule_consistency_hardening.sql",
-            "./supabase/migrations/20260730040000_import_run_lineage_retention.sql",
-            "./supabase/migrations/20260810000000_api_idempotency_registry.sql",
-            "./supabase/migrations/20260811000000_async_run_worker_runtime.sql",
-            "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
-            "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
-            "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
-            "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
-            "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
-            "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
-            "./supabase/migrations/20260819000000_tago_stop_import.sql",
+            *(f"./supabase/migrations/{path.name}" for path in sorted(MIGRATIONS.glob("*.sql"))),
             "./db/local-postgres/seed_fixtures.sql",
         )
 

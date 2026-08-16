@@ -530,7 +530,28 @@ Table place_stop_links {
   walk_minutes integer [not null]
   link_method text [not null]
   confidence numeric [not null]
+  enabled boolean [not null, default: true]
+  source_provider text [not null]
+  observed_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  tombstoned_at timestamptz
   created_at timestamptz [not null]
+
+  indexes {
+    (place_id, expires_at, distance_meters, stop_id) [note: "enabled=true, tombstoned_at IS NULL partial eligible index"]
+  }
+
+  Note: "active, policy-disabled, tombstoned lifecycle를 구분하고 expires_at으로 fresh/stale을 판정한다."
+}
+
+Table place_stop_link_scope_states {
+  place_id uuid [pk, ref: > tour_places.id]
+  source_provider text [pk]
+  observed_at timestamptz [not null]
+  manifest_fingerprint text [not null]
+  updated_at timestamptz [not null]
+
+  Note: "authoritative complete batch의 row-count 독립 watermark와 equal-observed exact replay를 보존한다."
 }
 
 Table weather_grid_points {
