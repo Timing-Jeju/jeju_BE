@@ -6,7 +6,11 @@ import java.util.UUID;
 public record PlaceLineage(
     String operationKey, String requestFingerprint, UUID snapshotId, UUID importRunId) {
   public PlaceLineage {
-    if (!("areaBasedList2".equals(operationKey) || "areaBasedSyncList2".equals(operationKey))) {
+    if (!("areaBasedList2".equals(operationKey)
+        || "areaBasedSyncList2".equals(operationKey)
+        || "locationBasedList2".equals(operationKey)
+        || "searchKeyword2".equals(operationKey)
+        || "searchStay2".equals(operationKey))) {
       throw new IllegalArgumentException("operationKey가 올바르지 않습니다.");
     }
     if (requestFingerprint == null || !requestFingerprint.matches("[0-9a-f]{64}")) {

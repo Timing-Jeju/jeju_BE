@@ -3,6 +3,7 @@ package com.timingjeju.api.global.tourapi.place;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceCommand;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceException;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceWriter;
+import com.timingjeju.api.application.tourapi.place.PlaceAliasWrite;
 import com.timingjeju.api.application.tourapi.place.PlaceLineage;
 import com.timingjeju.api.application.tourapi.place.PlaceListImportException;
 import com.timingjeju.api.application.tourapi.place.PlaceListRepository;
@@ -85,6 +86,9 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
           provenanceWriter.write(
               provenance("tour_place_sources", sourceId, place.contentTypeId(), write.lineage()),
               () -> writeSource(existing, sourceId, placeId, write));
+          write
+              .aliases()
+              .forEach(alias -> writeAlias(placeId, place.contentTypeId(), alias, write));
         });
     return Objects.requireNonNull(outcome.get(), "write outcome이 누락되었습니다.");
   }
@@ -267,6 +271,71 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
             Timestamp.from(write.seenAt()),
             sourceId);
     requireOne(changed);
+  }
+
+  private void writeAlias(
+      UUID placeId, String contentTypeId, PlaceAliasWrite alias, PlaceListWrite write) {
+    UUID aliasId = findAliasId(placeId, alias.normalizedAlias());
+    boolean existing = aliasId != null;
+    if (!existing) {
+      aliasId = deterministicId("alias", placeId + "\u001f" + alias.normalizedAlias());
+    }
+    UUID normalizedRowId = aliasId;
+    provenanceWriter.write(
+        provenance("place_aliases", normalizedRowId, contentTypeId, write.lineage()),
+        () -> {
+          int changed =
+              existing
+                  ? jdbcTemplate.update(
+                      """
+                      update public.place_aliases
+                      set alias=?, source_snapshot_id=?, import_run_id=?, last_seen_at=?,
+                          stale_at=null, tombstoned_at=null
+                      where id=?
+                        and (alias, source_snapshot_id, import_run_id, last_seen_at, stale_at, tombstoned_at)
+                          is distinct from (?, ?, ?, ?, null, null)
+                      """,
+                      alias.alias(),
+                      write.lineage().snapshotId(),
+                      write.lineage().importRunId(),
+                      Timestamp.from(write.seenAt()),
+                      normalizedRowId,
+                      alias.alias(),
+                      write.lineage().snapshotId(),
+                      write.lineage().importRunId(),
+                      Timestamp.from(write.seenAt()))
+                  : jdbcTemplate.update(
+                      """
+                      insert into public.place_aliases (
+                        id, place_id, alias, normalized_alias, alias_type, confidence,
+                        source_snapshot_id, import_run_id, last_seen_at
+                      ) values (?, ?, ?, ?, 'keyword', 1.000, ?, ?, ?)
+                      """,
+                      normalizedRowId,
+                      placeId,
+                      alias.alias(),
+                      alias.normalizedAlias(),
+                      write.lineage().snapshotId(),
+                      write.lineage().importRunId(),
+                      Timestamp.from(write.seenAt()));
+          if ((!existing && changed != 1) || (existing && changed > 1)) {
+            throw PlaceListImportException.storageFailure();
+          }
+        });
+  }
+
+  private UUID findAliasId(UUID placeId, String normalizedAlias) {
+    List<UUID> rows =
+        jdbcTemplate.query(
+            """
+            select id from public.place_aliases
+            where place_id=? and normalized_alias=? and alias_type='keyword'
+            for update
+            """,
+            (resultSet, rowNumber) -> resultSet.getObject("id", UUID.class),
+            placeId,
+            normalizedAlias);
+    return rows.isEmpty() ? null : rows.getFirst();
   }
 
   private static TourApiProvenanceCommand provenance(

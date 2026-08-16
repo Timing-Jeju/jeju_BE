@@ -35,6 +35,9 @@ TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
     MIGRATIONS / "20260818000000_tour_api_incremental_sync.sql"
 )
 TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
+TOUR_API_DISCOVERY_MIGRATION = (
+    MIGRATIONS / "20260824000000_tourapi_discovery_import_checkpoints.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -81,47 +84,38 @@ class DatabaseHardeningTest(unittest.TestCase):
     def test_versioned_migrations_are_additive_and_ordered(self):
         migration_names = [path.name for path in sorted(MIGRATIONS.glob("*.sql"))]
 
-        self.assertEqual(
-            [
-                "20260728000000_initial_public_schema.sql",
-                "20260730000000_database_integrity_hardening.sql",
-                "20260730010000_external_ingestion_foundation.sql",
-                "20260730020000_ingestion_consistency_hardening.sql",
-                "20260730030000_schedule_consistency_hardening.sql",
-                "20260730040000_import_run_lineage_retention.sql",
-                "20260810000000_api_idempotency_registry.sql",
-                "20260811000000_async_run_worker_runtime.sql",
-                "20260813000000_import_run_lifecycle_fencing.sql",
-                "20260813010000_external_snapshot_storage.sql",
-                "20260814000000_tour_api_operation_provenance.sql",
-                "20260816000000_tour_api_detail_info_operation.sql",
-                "20260817000000_tour_api_place_images_operation.sql",
-                "20260818000000_tour_api_incremental_sync.sql",
-                "20260819000000_tago_stop_import.sql",
-            ],
-            migration_names,
-        )
+        required_migrations = {
+            "20260728000000_initial_public_schema.sql",
+            "20260730000000_database_integrity_hardening.sql",
+            "20260730010000_external_ingestion_foundation.sql",
+            "20260730020000_ingestion_consistency_hardening.sql",
+            "20260730030000_schedule_consistency_hardening.sql",
+            "20260730040000_import_run_lineage_retention.sql",
+            "20260810000000_api_idempotency_registry.sql",
+            "20260811000000_async_run_worker_runtime.sql",
+            "20260813000000_import_run_lifecycle_fencing.sql",
+            "20260813010000_external_snapshot_storage.sql",
+            "20260814000000_tour_api_operation_provenance.sql",
+            "20260816000000_tour_api_detail_info_operation.sql",
+            "20260817000000_tour_api_place_images_operation.sql",
+            "20260818000000_tour_api_incremental_sync.sql",
+            "20260819000000_tago_stop_import.sql",
+            "20260824000000_tourapi_discovery_import_checkpoints.sql",
+        }
+        self.assertEqual(sorted(migration_names), migration_names)
+        self.assertEqual(len(migration_names), len(set(name[:14] for name in migration_names)))
+        self.assertTrue(required_migrations.issubset(migration_names))
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
-        ordered_mounts = (
+        migration_mounts = [
+            f"./supabase/migrations/{path.name}"
+            for path in sorted(MIGRATIONS.glob("*.sql"))
+        ]
+        ordered_mounts = [
             "./db/local-postgres/auth_compat.sql",
-            "./supabase/migrations/20260728000000_initial_public_schema.sql",
-            "./supabase/migrations/20260730000000_database_integrity_hardening.sql",
-            "./supabase/migrations/20260730010000_external_ingestion_foundation.sql",
-            "./supabase/migrations/20260730020000_ingestion_consistency_hardening.sql",
-            "./supabase/migrations/20260730030000_schedule_consistency_hardening.sql",
-            "./supabase/migrations/20260730040000_import_run_lineage_retention.sql",
-            "./supabase/migrations/20260810000000_api_idempotency_registry.sql",
-            "./supabase/migrations/20260811000000_async_run_worker_runtime.sql",
-            "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
-            "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
-            "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
-            "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
-            "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
-            "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
-            "./supabase/migrations/20260819000000_tago_stop_import.sql",
+            *migration_mounts,
             "./db/local-postgres/seed_fixtures.sql",
-        )
+        ]
 
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             contents = (ROOT / compose_name).read_text(encoding="utf-8")
@@ -132,6 +126,22 @@ class DatabaseHardeningTest(unittest.TestCase):
                     f"{compose_name}에 migration 또는 fixture mount가 누락됐습니다",
                 )
                 self.assertEqual(sorted(positions), positions)
+
+    def test_tourapi_discovery_import_seeds_checkpoints_and_keyword_lookup_index(self):
+        migration = self.read_migration(TOUR_API_DISCOVERY_MIGRATION)
+
+        for fragment in (
+            "insert into public.data_import_checkpoints",
+            "('locationbasedlist2')",
+            "('searchkeyword2')",
+            "('searchstay2')",
+            "scope_key, checkpoint, source_watermark_at",
+            "on conflict (source_provider, source_service, source_operation, scope_key) do nothing",
+            "create index idx_place_aliases_keyword_lookup_active",
+            "where alias_type = 'keyword' and tombstoned_at is null",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
 
     def test_external_snapshot_storage_has_redaction_size_retention_and_security_guards(self):
         migration = self.read_migration(SNAPSHOT_STORAGE_MIGRATION)
