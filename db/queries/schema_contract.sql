@@ -1130,11 +1130,21 @@ begin
   where operation_key in (
     'areaCode2', 'categoryCode2', 'areaBasedList2', 'locationBasedList2',
     'searchKeyword2', 'searchStay2', 'detailCommon2', 'detailIntro2', 'detailInfo2',
-    'detailImage2'
+    'detailImage2', 'areaBasedSyncList2'
   ) and source_provider = 'tour-api' and source_service = 'KorService2' and active;
 
-  if invalid_count <> 10 then
+  if invalid_count <> 11 then
     raise exception 'TourAPI operation registry is incomplete';
+  end if;
+
+  if not exists (
+    select 1 from public.data_import_checkpoints
+    where source_provider='tour-api' and source_service='KorService2'
+      and source_operation='areaBasedSyncList2' and scope_key='jeju'
+      and checkpoint = '{"modifiedTime":"1970-01-01T00:00:00Z"}'::jsonb
+      and version=0
+  ) then
+    raise exception 'areaBasedSyncList2 canonical checkpoint is missing';
   end if;
 
   if to_regclass('public.tour_api_place_image_sweeps') is null

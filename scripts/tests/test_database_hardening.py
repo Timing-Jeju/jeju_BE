@@ -31,6 +31,9 @@ TOUR_API_DETAIL_INFO_MIGRATION = (
 TOUR_API_PLACE_IMAGES_MIGRATION = (
     MIGRATIONS / "20260817000000_tour_api_place_images_operation.sql"
 )
+TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
+    MIGRATIONS / "20260818000000_tour_api_incremental_sync.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -92,6 +95,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260814000000_tour_api_operation_provenance.sql",
                 "20260816000000_tour_api_detail_info_operation.sql",
                 "20260817000000_tour_api_place_images_operation.sql",
+                "20260818000000_tour_api_incremental_sync.sql",
             ],
             migration_names,
         )
@@ -112,6 +116,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
             "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
             "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
+            "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -278,6 +283,19 @@ class DatabaseHardeningTest(unittest.TestCase):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, migration)
         for forbidden in ("flyway", "servicekey"):
+            self.assertNotIn(forbidden, migration)
+
+    def test_incremental_sync_registers_operation_and_canonical_checkpoint_seed(self):
+        migration = self.read_migration(TOUR_API_INCREMENTAL_SYNC_MIGRATION)
+        for fragment in (
+            "values ('areabasedsynclist2')",
+            "insert into public.data_import_checkpoints",
+            "'tour-api', 'korservice2', 'areabasedsynclist2', 'jeju'",
+            "{\"modifiedtime\":\"1970-01-01t00:00:00z\"}",
+            "on conflict (source_provider, source_service, source_operation, scope_key) do nothing",
+        ):
+            self.assertIn(fragment, migration)
+        for forbidden in ("flyway", "servicekey", "authorization"):
             self.assertNotIn(forbidden, migration)
 
     def test_docker_v1_upgrade_applies_snapshot_storage_to_existing_snapshot(self):

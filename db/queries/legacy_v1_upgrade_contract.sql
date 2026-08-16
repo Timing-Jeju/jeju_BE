@@ -905,4 +905,19 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if not exists (
+    select 1 from public.tour_api_operations where operation_key='areaBasedSyncList2'
+  ) or not exists (
+    select 1 from public.data_import_checkpoints
+    where source_provider='tour-api' and source_service='KorService2'
+      and source_operation='areaBasedSyncList2' and scope_key='jeju'
+      and checkpoint = '{"modifiedTime":"1970-01-01T00:00:00Z"}'::jsonb
+  ) then
+    raise exception 'legacy areaBasedSyncList2 registry/checkpoint seed is missing';
+  end if;
+end;
+$$;
+
 select 'legacy_v1_upgrade_contract' as check_name, 'PASS' as result;
