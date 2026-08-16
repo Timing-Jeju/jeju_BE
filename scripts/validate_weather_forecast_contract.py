@@ -100,6 +100,9 @@ def _validate_query(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("query lng range/type가 다릅니다.")
     if date_time != {"type": "string", "nullable": False, "format": "date-time", "timezone": "Asia/Seoul", "requiredOffset": "+09:00", "seconds": 0}:
         errors.append("query dateTime timezone/format/granularity가 다릅니다.")
+    canonical_schemas = _load(DEFAULT_CONTRACT)["schemas"]
+    if schemas.get("CommonHeaders") != canonical_schemas["CommonHeaders"] or schemas.get("WeatherGrid") != canonical_schemas["WeatherGrid"] or schemas.get("WeatherForecastResponse") != canonical_schemas["WeatherForecastResponse"]:
+        errors.append("response schema canonical closed contract가 다릅니다.")
 
 
 def _validate_endpoint(contract: dict[str, Any], errors: list[str]) -> None:
@@ -129,6 +132,8 @@ def _validate_endpoint(contract: dict[str, Any], errors: list[str]) -> None:
     figma = endpoint.get("figma")
     if figma != {"node": "not-observed", "action": "날씨 예보 조회 소비 화면 근거 미확인", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}:
         errors.append("endpoint Figma 근거를 추측할 수 없습니다.")
+    if endpoint != _load(DEFAULT_CONTRACT)["endpoints"][0]:
+        errors.append("endpoint canonical contract가 다릅니다.")
 
 
 def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
@@ -142,9 +147,8 @@ def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
                 "securityPolicy": "security",
             }[key]
             errors.append(f"{label} policy가 canonical 계약과 다릅니다.")
-    gaps = contract.get("schemaGap")
-    if not isinstance(gaps, list) or len(gaps) != 4 or not all(isinstance(item, str) and item.strip() for item in gaps):
-        errors.append("schemaGap이 누락됐습니다.")
+    if contract.get("schemaGap") != _load(DEFAULT_CONTRACT)["schemaGap"]:
+        errors.append("schemaGap exact 계약이 다릅니다.")
 
 
 def _validate_problems(contract: dict[str, Any], errors: list[str]) -> None:
@@ -181,6 +185,8 @@ def _validate_external(contract: dict[str, Any], errors: list[str]) -> None:
     expected_readiness = {stage: {"status": "not-ready", "evidence": None} for stage in ("metadata", "example", "implementation")}
     if contract.get("readiness") != expected_readiness:
         errors.append("external readiness는 모두 not-ready여야 합니다.")
+    if external != _load(DEFAULT_CONTRACT)["externalTraceability"]:
+        errors.append("external readiness/owner follow-up exact 계약이 다릅니다.")
 
 
 def catalog_projection(endpoint: dict[str, Any]) -> dict[str, Any]:

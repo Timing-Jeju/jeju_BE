@@ -59,3 +59,9 @@ git diff --check
 ```
 
 상위 조정자의 지시에 따라 Spring clean/full quality gate, Docker smoke와 push는 아직 실행하지 않았다. 따라서 현재 상태는 `READY_FOR_REVIEW`가 아니라 검증 대기다. 승인 상태 파일과 PR은 만들지 않았다.
+
+## Self-review fail-closed 보완
+
+첫 커밋 `0515fbc` 뒤 candidate 계약의 response `providerApiVersion const`, endpoint `dbOwner`, `schemaGap` 문구를 변조해도 `--skip-catalog-fixtures` validator가 exit 0인 우회를 발견했다. 운영 validator를 바꾸기 전에 세 mutation을 추가했고 focused 실행에서 정확히 3 failures를 확인했다.
+
+Green에서는 CommonHeaders/WeatherGrid/WeatherForecastResponse, endpoint 전체, schemaGap과 external owner follow-up을 canonical exact 비교하도록 보강했다. request 필수 누락·UTC·response category 누락·raw category 추가·fallback/stale 불일치·validAt drift·Problem 9번째 필드 등 fixture mutation 7종도 fail-closed임을 고정했다. 관련 17 tests, 전체 계약 회귀 192 tests와 전용/common validator가 다시 성공했다.

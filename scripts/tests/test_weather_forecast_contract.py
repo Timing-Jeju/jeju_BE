@@ -1,10 +1,12 @@
 import copy
 import importlib.util
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -159,6 +161,9 @@ class WeatherForecastContractTest(unittest.TestCase):
             ("fallback", lambda value: value["freshnessPolicy"].update(fallbackLimit="unbounded")),
             ("problem", lambda value: value["errorConditions"][0]["example"].update(message="forbidden")),
             ("external readiness", lambda value: value["externalTraceability"]["notion"].update(status="ready")),
+            ("response schema", lambda value: value["schemas"]["WeatherForecastResponse"]["properties"]["providerApiVersion"].update(const="drift")),
+            ("endpoint canonical", lambda value: value["endpoints"][0].update(dbOwner="drift")),
+            ("schemaGap exact", lambda value: value["schemaGap"].__setitem__(0, "drift")),
         )
         for expected, mutate in mutations:
             with self.subTest(expected=expected):
@@ -199,6 +204,29 @@ class WeatherForecastContractTest(unittest.TestCase):
         errors = []
         self.validator._validate_value(omitted, schema, self.contract["schemas"], "response", errors)
         self.assertTrue(any("required" in error for error in errors), errors)
+
+    def test_fixture_mutations_fail_closed(self) -> None:
+        cases = (
+            ("request.json", lambda value: value["query"].pop("lat"), "required"),
+            ("request.json", lambda value: value["query"].update(dateTime="2026-08-03T05:00:00Z"), "+09:00"),
+            ("success.json", lambda value: value["body"].pop("temperatureC"), "required"),
+            ("success.json", lambda value: value["body"].update(rawCategory="TMP"), "additionalProperties"),
+            ("success.json", lambda value: value["body"].update(fallbackUsed=True, stale=False), "stale/fallback"),
+            ("success.json", lambda value: value["body"].update(validAt="2026-08-03T15:00:00+09:00"), "validAt"),
+            ("problem.json", lambda value: value["examples"]["INVALID_ACCESS_TOKEN"].update(message="forbidden"), "problem fixture"),
+        )
+        for filename, mutate, expected in cases:
+            with self.subTest(filename=filename, expected=expected), tempfile.TemporaryDirectory() as temporary:
+                target = Path(temporary)
+                for name in ("request.json", "success.json", "problem.json"):
+                    shutil.copy2(FIXTURES / name, target / name)
+                path = target / filename
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                mutate(payload)
+                path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                with mock.patch.object(self.validator, "FIXTURES", target):
+                    errors = self.validator.validate_fixtures(self.contract)
+                self.assertTrue(any(expected in error for error in errors), errors)
 
     def _run_validator(self, candidate: dict) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as temporary:
