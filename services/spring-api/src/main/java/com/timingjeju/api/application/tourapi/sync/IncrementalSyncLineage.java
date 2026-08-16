@@ -1,12 +1,12 @@
-package com.timingjeju.api.application.tourapi.place;
+package com.timingjeju.api.application.tourapi.sync;
 
 import java.util.Objects;
 import java.util.UUID;
 
-public record PlaceLineage(
+public record IncrementalSyncLineage(
     String operationKey, String requestFingerprint, UUID snapshotId, UUID importRunId) {
-  public PlaceLineage {
-    if (!("areaBasedList2".equals(operationKey) || "areaBasedSyncList2".equals(operationKey))) {
+  public IncrementalSyncLineage {
+    if (!"areaBasedSyncList2".equals(operationKey)) {
       throw new IllegalArgumentException("operationKey가 올바르지 않습니다.");
     }
     if (requestFingerprint == null || !requestFingerprint.matches("[0-9a-f]{64}")) {

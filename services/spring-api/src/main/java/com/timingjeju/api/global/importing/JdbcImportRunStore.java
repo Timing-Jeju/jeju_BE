@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.importing;
 
 import com.timingjeju.api.application.importing.ImportRunCounts;
+import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleError;
@@ -50,7 +51,11 @@ public class JdbcImportRunStore implements ImportRunStore {
     try {
       Optional<ImportRunLease> inserted = insert(command, runId, ownerToken, startedAt);
       if (inserted.isPresent()) {
-        return new ImportRunStartResult(inserted.orElseThrow(), false);
+        return new ImportRunStartResult(
+            inserted.orElseThrow(),
+            false,
+            ImportRunExecutionStatus.RUNNING,
+            ImportRunCounts.zero());
       }
 
       Optional<StoredStart> replay = findIdempotent(command);
@@ -76,7 +81,7 @@ public class JdbcImportRunStore implements ImportRunStore {
     if (!stored.matches(command)) {
       throw ImportRunLifecycleException.of(ImportRunLifecycleError.INVALID_REQUEST);
     }
-    return new ImportRunStartResult(stored.lease(), true);
+    return new ImportRunStartResult(stored.lease(), true, stored.status(), stored.counts());
   }
 
   private static boolean hasSqlState(Throwable failure, String expectedSqlState) {
@@ -282,7 +287,9 @@ public class JdbcImportRunStore implements ImportRunStore {
         jdbcTemplate.query(
             """
             select id, owner_token, fencing_token, request_fingerprint, parent_run_id,
-                   parser_version, schema_version, data_version, sync_mode, source_kind, source_name
+                   parser_version, schema_version, data_version, sync_mode, source_kind, source_name,
+                   status, row_count, fetched_count, inserted_count, updated_count, skipped_count,
+                   rejected_count, deleted_count, staled_count
             from public.data_import_runs
             where source_provider = ? and source_service = ? and source_operation = ?
               and scope_key = ? and idempotency_key = ? and idempotency_enforced
@@ -352,7 +359,17 @@ public class JdbcImportRunStore implements ImportRunStore {
         resultSet.getString("data_version"),
         resultSet.getString("sync_mode"),
         resultSet.getString("source_kind"),
-        resultSet.getString("source_name"));
+        resultSet.getString("source_name"),
+        ImportRunExecutionStatus.fromDatabaseValue(resultSet.getString("status")),
+        new ImportRunCounts(
+            resultSet.getInt("row_count"),
+            resultSet.getInt("fetched_count"),
+            resultSet.getInt("inserted_count"),
+            resultSet.getInt("updated_count"),
+            resultSet.getInt("skipped_count"),
+            resultSet.getInt("rejected_count"),
+            resultSet.getInt("deleted_count"),
+            resultSet.getInt("staled_count")));
   }
 
   private static <T> Optional<T> single(List<T> rows) {
@@ -373,7 +390,9 @@ public class JdbcImportRunStore implements ImportRunStore {
       String dataVersion,
       String syncMode,
       String sourceKind,
-      String sourceName) {
+      String sourceName,
+      ImportRunExecutionStatus status,
+      ImportRunCounts counts) {
     private boolean matches(ImportRunStartCommand command) {
       return Objects.equals(requestFingerprint, command.requestFingerprint())
           && Objects.equals(parentRunId, command.rawParentRunId())
