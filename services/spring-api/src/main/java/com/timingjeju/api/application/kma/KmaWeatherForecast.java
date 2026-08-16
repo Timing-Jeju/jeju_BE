@@ -16,7 +16,41 @@ public record KmaWeatherForecast(
     BigDecimal minTemperatureC,
     BigDecimal maxTemperatureC,
     int humidityPercent,
-    BigDecimal windSpeedMps) {
+    BigDecimal windSpeedMps,
+    Integer precipitationIntensityCode,
+    Integer windStrengthCode) {
+
+  public KmaWeatherForecast(
+      Instant forecastedAt,
+      Instant validAt,
+      String forecastType,
+      String forecastVersion,
+      String skyCode,
+      String precipitationType,
+      Integer precipitationProbabilityPercent,
+      BigDecimal precipitationAmountMm,
+      BigDecimal temperatureC,
+      BigDecimal minTemperatureC,
+      BigDecimal maxTemperatureC,
+      int humidityPercent,
+      BigDecimal windSpeedMps) {
+    this(
+        forecastedAt,
+        validAt,
+        forecastType,
+        forecastVersion,
+        skyCode,
+        precipitationType,
+        precipitationProbabilityPercent,
+        precipitationAmountMm,
+        temperatureC,
+        minTemperatureC,
+        maxTemperatureC,
+        humidityPercent,
+        windSpeedMps,
+        null,
+        null);
+  }
 
   public KmaWeatherForecast(
       Instant forecastedAt,
@@ -41,6 +75,8 @@ public record KmaWeatherForecast(
         null,
         null,
         humidityPercent,
-        windSpeedMps);
+        windSpeedMps,
+        null,
+        null);
   }
 }

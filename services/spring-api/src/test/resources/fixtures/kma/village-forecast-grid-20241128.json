@@ -1,0 +1,15 @@
+{
+  "effectiveDate": "2024-11-28",
+  "authoritativeNotice": "https://apihub.kma.go.kr/notice.do?seqNotice=33",
+  "authoritativeAttachment": "https://apihub.kma.go.kr/getAttachFile.do?fileName=%2820241128%29%EB%8B%A8%EA%B8%B0%EC%98%88%EB%B3%B4+%EC%84%9C%EB%B9%84%EC%8A%A4+%EA%B0%9C%EC%84%A0%EC%97%90+%EB%94%B0%EB%A5%B8+API+%EB%B3%80%EA%B2%BD%EC%82%AC%ED%95%AD.pdf",
+  "earlyBases": ["0200", "0500", "0800", "1100", "1400"],
+  "earlyExtendedDayOffset": 3,
+  "lateBases": ["1700", "2000", "2300"],
+  "lateExtendedDayOffset": 4,
+  "extendedHours": ["0000", "0300", "0600", "0900", "1200", "1500", "1800", "2100"],
+  "qualitativeCodes": {
+    "PCP": {"0": "none", "1": "weak", "2": "moderate", "3": "strong"},
+    "SNO": {"0": "none", "1": "moderate", "2": "heavy"},
+    "WSD": {"1": "weak", "2": "somewhat-strong", "3": "strong"}
+  }
+}

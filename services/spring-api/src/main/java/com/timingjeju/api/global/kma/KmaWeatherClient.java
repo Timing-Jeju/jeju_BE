@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.kma;
 
 import com.timingjeju.api.application.kma.KmaWeatherOperation;
+import com.timingjeju.api.application.kma.KmaWeatherResponsePart;
 import com.timingjeju.api.application.kma.KmaWeatherSource;
 import com.timingjeju.api.application.kma.KmaWeatherSourceResponse;
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
@@ -10,7 +11,9 @@ import com.timingjeju.api.global.externalapi.ExternalApiOperation;
 import com.timingjeju.api.global.externalapi.ExternalApiRequest;
 import com.timingjeju.api.global.externalapi.ExternalApiResponseFormat;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,56 +69,72 @@ public final class KmaWeatherClient implements KmaWeatherSource {
 
   private KmaWeatherSourceResponse fetchVillage(ForecastBaseTime baseTime, int nx, int ny) {
     try {
-      var root = objectMapper.createObjectNode();
-      var pages = root.putArray("forecastPages");
+      List<KmaWeatherResponsePart> parts = new ArrayList<>();
       byte[] first =
           executor.execute(request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, 1));
-      JsonNode firstPage = requireVillagePage(objectMapper.readTree(first), 1, null);
-      pages.add(firstPage);
-      int totalCount = exactInt(firstPage.path("response").path("body").path("totalCount"));
+      parts.add(part("getVilageFcst", 1, first));
+      JsonNode firstPage = inspect(first);
+      Integer totalCount = validVillagePageTotal(firstPage, 1, null);
+      if (totalCount == null) {
+        return new KmaWeatherSourceResponse(parts);
+      }
       int pageCount = (totalCount + PAGE_SIZE - 1) / PAGE_SIZE;
       for (int page = 2; page <= pageCount; page++) {
-        pages.add(
-            requireVillagePage(
-                objectMapper.readTree(
-                    executor.execute(
-                        request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, page))),
-                page,
-                totalCount));
+        byte[] pagePayload =
+            executor.execute(request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, page));
+        parts.add(part("getVilageFcst", page, pagePayload));
+        if (validVillagePageTotal(inspect(pagePayload), page, totalCount) == null) {
+          return new KmaWeatherSourceResponse(parts);
+        }
       }
-      root.set(
-          "forecastVersion", objectMapper.readTree(executor.execute(versionRequest(baseTime))));
-      return new KmaWeatherSourceResponse(
-          objectMapper.writeValueAsBytes(root), SnapshotPayloadFormat.JSON);
-    } catch (com.timingjeju.api.application.kma.KmaWeatherImportException failure) {
-      throw failure;
+      byte[] version = executor.execute(versionRequest(baseTime));
+      parts.add(part("getFcstVersion", 1, version));
+      return new KmaWeatherSourceResponse(parts);
     } catch (RuntimeException failure) {
       throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
     }
   }
 
-  private static JsonNode requireVillagePage(
+  private static KmaWeatherResponsePart part(String operation, int page, byte[] payload) {
+    return new KmaWeatherResponsePart(operation, page, payload, SnapshotPayloadFormat.JSON);
+  }
+
+  private JsonNode inspect(byte[] payload) {
+    try {
+      return objectMapper.readTree(payload);
+    } catch (RuntimeException invalidJson) {
+      return null;
+    }
+  }
+
+  private static Integer validVillagePageTotal(
       JsonNode page, int expectedPage, Integer expectedTotal) {
+    if (page == null) return null;
     JsonNode response = page.path("response");
     JsonNode header = response.path("header");
     JsonNode body = response.path("body");
-    int pageNo = exactInt(body.path("pageNo"));
-    int pageSize = exactInt(body.path("numOfRows"));
-    int totalCount = exactInt(body.path("totalCount"));
     if (!page.isObject()
         || !response.isObject()
         || !header.isObject()
         || !body.isObject()
         || !header.path("resultCode").isTextual()
-        || !"00".equals(header.path("resultCode").asString())
-        || pageNo != expectedPage
-        || pageSize != PAGE_SIZE
-        || totalCount < 1
-        || totalCount > MAX_VILLAGE_ITEMS
-        || (expectedTotal != null && totalCount != expectedTotal)) {
-      throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
+        || !"00".equals(header.path("resultCode").asString())) {
+      return null;
     }
-    return page;
+    try {
+      int pageNo = exactInt(body.path("pageNo"));
+      int pageSize = exactInt(body.path("numOfRows"));
+      int totalCount = exactInt(body.path("totalCount"));
+      return pageNo == expectedPage
+              && pageSize == PAGE_SIZE
+              && totalCount >= 1
+              && totalCount <= MAX_VILLAGE_ITEMS
+              && (expectedTotal == null || totalCount == expectedTotal)
+          ? totalCount
+          : null;
+    } catch (RuntimeException invalid) {
+      return null;
+    }
   }
 
   private static int exactInt(JsonNode node) {

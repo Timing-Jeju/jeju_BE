@@ -6,6 +6,8 @@ import com.timingjeju.api.application.kma.KmaWeatherImportException;
 import com.timingjeju.api.application.kma.KmaWeatherObservation;
 import com.timingjeju.api.application.kma.KmaWeatherOperation;
 import com.timingjeju.api.application.kma.KmaWeatherParser;
+import com.timingjeju.api.application.kma.KmaWeatherResponsePart;
+import com.timingjeju.api.application.kma.KmaWeatherSourceResponse;
 import java.math.BigDecimal;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -84,17 +86,23 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
 
   private KmaWeatherBatch village(byte[] payload) {
     try {
-      JsonNode root = reader.readTree(payload);
-      JsonNode pages = root.path("forecastPages");
-      JsonNode versionEnvelope = root.path("forecastVersion");
-      if (!root.isObject() || !pages.isArray() || pages.isEmpty() || !versionEnvelope.isObject()) {
+      List<KmaWeatherResponsePart> parts = KmaWeatherSourceResponse.decode(payload);
+      List<KmaWeatherResponsePart> pages =
+          parts.stream().filter(part -> "getVilageFcst".equals(part.providerOperation())).toList();
+      List<KmaWeatherResponsePart> versions =
+          parts.stream().filter(part -> "getFcstVersion".equals(part.providerOperation())).toList();
+      if (pages.isEmpty()
+          || versions.size() != 1
+          || parts.size() != pages.size() + 1
+          || !parts.getLast().equals(versions.getFirst())) {
         throw KmaWeatherImportException.invalidResponse();
       }
       List<Item> items = new ArrayList<>();
       int expectedTotal = -1;
       int expectedRows = -1;
       int expectedPage = 1;
-      for (JsonNode page : pages) {
+      for (KmaWeatherResponsePart part : pages) {
+        JsonNode page = reader.readTree(part.payload());
         JsonNode body = successfulBody(page);
         int pageNo = exactInt(body.path("pageNo"));
         int numOfRows = exactInt(body.path("numOfRows"));
@@ -117,7 +125,7 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
           || pages.size() != (expectedTotal + expectedRows - 1) / expectedRows) {
         throw KmaWeatherImportException.invalidResponse();
       }
-      String version = forecastVersion(versionEnvelope);
+      String version = forecastVersion(reader.readTree(versions.getFirst().payload()));
       return village(items, version);
     } catch (KmaWeatherImportException failure) {
       throw failure;
@@ -198,8 +206,19 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
       }
     }
     Instant forecastedAt = instant(first.baseDate(), first.baseTime());
+    List<KmaVillageForecastSchedule.Slot> expectedSlots =
+        KmaVillageForecastSchedule.slots(first.baseDate(), first.baseTime());
+    Map<LocalDateTime, Boolean> expectedGrid = new LinkedHashMap<>();
+    for (KmaVillageForecastSchedule.Slot slot : expectedSlots) {
+      expectedGrid.put(slot.validTime(), slot.qualitative());
+    }
+    if (!groups.keySet().stream()
+        .map(value -> LocalDateTime.of(value.date(), value.time()))
+        .collect(java.util.stream.Collectors.toSet())
+        .equals(expectedGrid.keySet())) {
+      throw KmaWeatherImportException.invalidResponse();
+    }
     List<KmaWeatherForecast> forecasts = new ArrayList<>();
-    Instant previous = null;
     boolean hasMin = false;
     boolean hasMax = false;
     for (Map.Entry<ValidTime, Map<String, String>> entry :
@@ -211,13 +230,11 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
       Map<String, String> values = entry.getValue();
       requireExactRequired(values.keySet(), VILLAGE_HOURLY);
       Instant validAt = instant(entry.getKey().date(), entry.getKey().time());
-      if (entry.getKey().time().getMinute() != 0
-          || !validAt.isAfter(forecastedAt)
-          || validAt.isAfter(forecastedAt.plus(java.time.Duration.ofHours(106)))
-          || (previous != null && !validAt.equals(previous.plus(java.time.Duration.ofHours(1))))) {
+      Boolean qualitative =
+          expectedGrid.get(LocalDateTime.of(entry.getKey().date(), entry.getKey().time()));
+      if (qualitative == null) {
         throw KmaWeatherImportException.invalidResponse();
       }
-      previous = validAt;
       BigDecimal minimum =
           values.containsKey("TMN")
               ? decimal(values.get("TMN"), new BigDecimal("-100"), new BigDecimal("100"))
@@ -228,6 +245,11 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
               : null;
       hasMin |= minimum != null;
       hasMax |= maximum != null;
+      Integer precipitationIntensity = qualitative ? integer(values.get("PCP"), 0, 3) : null;
+      Integer windStrength = qualitative ? integer(values.get("WSD"), 1, 3) : null;
+      if (qualitative && values.containsKey("SNO")) {
+        integer(values.get("SNO"), 0, 2);
+      }
       forecasts.add(
           new KmaWeatherForecast(
               forecastedAt,
@@ -237,12 +259,16 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
               skyCode(values.get("SKY")),
               precipitationType(values.get("PTY")),
               integer(values.get("POP"), 0, 100),
-              rainfall(values.get("PCP")),
+              qualitative ? null : rainfall(values.get("PCP")),
               decimal(values.get("TMP"), new BigDecimal("-100"), new BigDecimal("100")),
               minimum,
               maximum,
               integer(values.get("REH"), 0, 100),
-              decimal(values.get("WSD"), BigDecimal.ZERO, new BigDecimal("200"))));
+              qualitative
+                  ? null
+                  : decimal(values.get("WSD"), BigDecimal.ZERO, new BigDecimal("200")),
+              precipitationIntensity,
+              windStrength));
     }
     if (!hasMin || !hasMax) throw KmaWeatherImportException.invalidResponse();
     return new KmaWeatherBatch(

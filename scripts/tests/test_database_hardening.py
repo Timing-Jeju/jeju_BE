@@ -121,6 +121,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
             "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
             "./supabase/migrations/20260819000000_tago_stop_import.sql",
+            "./supabase/migrations/20260820000000_kma_village_forecast_version.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -133,6 +134,36 @@ class DatabaseHardeningTest(unittest.TestCase):
                     f"{compose_name}에 migration 또는 fixture mount가 누락됐습니다",
                 )
                 self.assertEqual(sorted(positions), positions)
+
+    def test_kma_village_migration_is_applied_by_every_smoke_upgrade_sequence(self):
+        smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "/docker-entrypoint-initdb.d/017_kma_village_forecast_version.sql",
+            smoke,
+        )
+        self.assertGreaterEqual(
+            smoke.count("/docker-entrypoint-initdb.d/017_kma_village_forecast_version.sql"),
+            2,
+            "latest KMA migration must be applied by upgrade and concurrency sequences",
+        )
+
+    def test_kma_seed_distinguishes_short_version_and_ultra_short_null_version(self):
+        seed = compact_sql(
+            (ROOT / "db" / "local-postgres" / "seed_fixtures.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        negative = compact_sql(
+            (ROOT / "db" / "queries" / "database_negative_constraints.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertRegex(seed, r"'short'[^;]+'[0-9]{12}'")
+        self.assertRegex(seed, r"'ultra_short'[^;]+null")
+        self.assertIn("precipitation_intensity_code", negative)
+        self.assertIn("wind_strength_code", negative)
 
     def test_external_snapshot_storage_has_redaction_size_retention_and_security_guards(self):
         migration = self.read_migration(SNAPSHOT_STORAGE_MIGRATION)

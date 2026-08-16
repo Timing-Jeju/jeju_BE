@@ -191,6 +191,9 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 예보와 영향은 반드시 분리한다. 예보가 갱신되어도 과거 계산이 어떤 forecast를 사용했는지 FK로 추적한다.
 단기예보 신규 행은 `getFcstVersion`의 `SHRT` 파일 version(`yyyyMMddHHmm`)을 반드시 저장하고,
 초단기예보에는 이 값을 혼합하지 않는다.
+2024-11-28 이후 확장 시간대의 PCP/WSD 정성 code는 각각
+`precipitation_intensity_code`/`wind_strength_code`에 저장하며, 같은 행의
+`precipitation_amount_mm`/`wind_speed_mps`는 null이어야 한다.
 
 ### 4.5 Trip Input
 

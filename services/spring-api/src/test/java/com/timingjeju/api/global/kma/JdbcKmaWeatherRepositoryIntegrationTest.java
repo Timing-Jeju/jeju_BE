@@ -157,6 +157,40 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
   }
 
   @Test
+  void extendedVillageForecastRoundTripsQualitativeCodesWithoutPhysicalUnits() {
+    Fixture fixture = fixture(22, "getVilageFcst");
+    KmaWeatherForecast forecast =
+        new KmaWeatherForecast(
+            Instant.parse("2026-08-15T20:00:00Z"),
+            Instant.parse("2026-08-18T15:00:00Z"),
+            "short",
+            "202608160500",
+            "3",
+            "1",
+            30,
+            null,
+            new BigDecimal("23.0"),
+            null,
+            null,
+            80,
+            null,
+            2,
+            3);
+    KmaWeatherBatch batch =
+        new KmaWeatherBatch(52, 38, 8, forecast.validAt(), List.of(), List.of(forecast));
+
+    repository.upsert(new KmaWeatherUpsertCommand(GRID, batch, fixture.lineage()));
+
+    assertThat(
+            jdbc.queryForMap(
+                "select precipitation_amount_mm, wind_speed_mps, precipitation_intensity_code, wind_strength_code from public.weather_forecasts"))
+        .containsEntry("precipitation_amount_mm", null)
+        .containsEntry("wind_speed_mps", null)
+        .containsEntry("precipitation_intensity_code", 2)
+        .containsEntry("wind_strength_code", 3);
+  }
+
+  @Test
   void observationReplaySkipsAndNewLineageUpdatesSameNaturalKey() {
     Fixture first = fixture(11, "getUltraSrtNcst");
     TransactionTemplate tx = new TransactionTemplate(transactionManager);

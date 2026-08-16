@@ -2,7 +2,6 @@ package com.timingjeju.api.global.kma;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.kma.KmaWeatherOperation;
 import com.timingjeju.api.domain.weather.ForecastBaseTime;
@@ -20,6 +19,93 @@ import org.junit.jupiter.api.Test;
 class KmaWeatherClientTest {
 
   @Test
+  void preservesExactDecompressedBytesForEveryPageAndVersion() {
+    byte[] pageOne =
+        (" { \"sentinel\" : 1.00, \"response\":{\"body\":{\"totalCount\":1001,"
+                + "\"numOfRows\":1000,\"pageNo\":1},\"header\":{\"resultCode\":\"00\"}}}\n")
+            .getBytes(StandardCharsets.UTF_8);
+    byte[] pageTwo =
+        ("{\"response\":{\"header\":{\"resultCode\":\"00\"},\"body\":"
+                + "{\"pageNo\":2,\"numOfRows\":1000,\"totalCount\":1001}},"
+                + "\"numberLexeme\":1e+0}")
+            .getBytes(StandardCharsets.UTF_8);
+    byte[] version =
+        ("\n{\"response\":{\"header\":{\"resultCode\":\"00\"}," + "\"body\":{\"pageNo\":1}}}\n")
+            .getBytes(StandardCharsets.UTF_8);
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request ->
+                request.operation() == ExternalApiOperation.KMA_FORECAST_VERSION
+                    ? version
+                    : ("2".equals(request.queryParameters().get("pageNo")) ? pageTwo : pageOne));
+
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
+
+    assertThat(response.parts()).hasSize(3);
+    assertThat(response.parts().get(0).payload()).isEqualTo(pageOne);
+    assertThat(response.parts().get(1).payload()).isEqualTo(pageTwo);
+    assertThat(response.parts().get(2).payload()).isEqualTo(version);
+  }
+
+  @Test
+  void returnsPageTwoProviderErrorBytesForRejectedAuditBeforeVersionCall() {
+    byte[] pageOne = villageEnvelope(1, 1001).getBytes(StandardCharsets.UTF_8);
+    byte[] pageTwo =
+        villageEnvelope(2, 1001)
+            .replace("\"resultCode\":\"00\"", "\"resultCode\":\"03\"")
+            .getBytes(StandardCharsets.UTF_8);
+    List<KmaWeatherHttpRequest> requests = new ArrayList<>();
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request -> {
+              requests.add(request);
+              return "2".equals(request.queryParameters().get("pageNo")) ? pageTwo : pageOne;
+            });
+
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
+
+    assertThat(response.parts()).hasSize(2);
+    assertThat(response.parts().get(1).payload()).isEqualTo(pageTwo);
+    assertThat(requests).noneMatch(request -> request.relativePath().equals("getFcstVersion"));
+  }
+
+  @Test
+  void returnsForecastVersionProviderErrorBytesForRejectedAudit() {
+    byte[] versionError =
+        versionEnvelope()
+            .replace("\"resultCode\":\"00\"", "\"resultCode\":\"03\"")
+            .getBytes(StandardCharsets.UTF_8);
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request ->
+                request.operation() == ExternalApiOperation.KMA_FORECAST_VERSION
+                    ? versionError
+                    : villageEnvelope(
+                            Integer.parseInt(request.queryParameters().get("pageNo")), 1001)
+                        .getBytes(StandardCharsets.UTF_8));
+
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
+
+    assertThat(response.parts()).hasSize(3);
+    assertThat(response.parts().getLast().payload()).isEqualTo(versionError);
+  }
+
+  @Test
   void fetchesEveryVillagePageAndForecastVersionWithoutCredentialMetadata() {
     List<KmaWeatherHttpRequest> requests = new ArrayList<>();
     KmaWeatherClient client =
@@ -33,14 +119,12 @@ class KmaWeatherClientTest {
               return villageEnvelope(Integer.parseInt(page), 1001).getBytes(StandardCharsets.UTF_8);
             });
 
-    byte[] combined =
-        client
-            .fetch(
-                KmaWeatherOperation.VILLAGE_FORECAST,
-                new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
-                52,
-                38)
-            .payload();
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
 
     assertThat(requests).hasSize(3);
     assertThat(requests.subList(0, 2))
@@ -56,13 +140,14 @@ class KmaWeatherClientTest {
     assertThat(requests.get(2).queryParameters())
         .containsEntry("ftype", "SHRT")
         .containsEntry("basedatetime", "202608160500");
-    assertThat(new String(combined, StandardCharsets.UTF_8))
-        .contains("forecastPages", "forecastVersion")
-        .doesNotContain("serviceKey");
+    assertThat(response.parts()).hasSize(3);
+    assertThat(response.parts())
+        .extracting(part -> part.providerOperation())
+        .containsExactly("getVilageFcst", "getVilageFcst", "getFcstVersion");
   }
 
   @Test
-  void rejectsUnboundedProviderTotalBeforeAdditionalCalls() {
+  void returnsUnboundedProviderTotalForRejectedAuditBeforeAdditionalCalls() {
     List<KmaWeatherHttpRequest> requests = new ArrayList<>();
     KmaWeatherClient client =
         new KmaWeatherClient(
@@ -71,19 +156,19 @@ class KmaWeatherClientTest {
               return villageEnvelope(1, 5001).getBytes(StandardCharsets.UTF_8);
             });
 
-    assertThatThrownBy(
-            () ->
-                client.fetch(
-                    KmaWeatherOperation.VILLAGE_FORECAST,
-                    new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
-                    52,
-                    38))
-        .isInstanceOf(com.timingjeju.api.application.kma.KmaWeatherImportException.class);
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
+
+    assertThat(response.parts()).singleElement();
     assertThat(requests).hasSize(1);
   }
 
   @Test
-  void stopsOnProviderErrorBeforeVersionCall() {
+  void returnsFirstPageProviderErrorForRejectedAuditBeforeVersionCall() {
     List<KmaWeatherHttpRequest> requests = new ArrayList<>();
     KmaWeatherClient client =
         new KmaWeatherClient(
@@ -94,14 +179,14 @@ class KmaWeatherClientTest {
                   .getBytes(StandardCharsets.UTF_8);
             });
 
-    assertThatThrownBy(
-            () ->
-                client.fetch(
-                    KmaWeatherOperation.VILLAGE_FORECAST,
-                    new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
-                    52,
-                    38))
-        .isInstanceOf(com.timingjeju.api.application.kma.KmaWeatherImportException.class);
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
+
+    assertThat(response.parts()).singleElement();
     assertThat(requests)
         .singleElement()
         .satisfies(request -> assertThat(request.relativePath()).isEqualTo("getVilageFcst"));

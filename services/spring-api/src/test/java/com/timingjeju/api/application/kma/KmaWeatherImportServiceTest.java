@@ -185,6 +185,22 @@ class KmaWeatherImportServiceTest {
   }
 
   @Test
+  void pageTwoAndVersionErrorsRemainRejectedAuditWithoutNormalizedRowsOrCheckpointCommit() {
+    when(source.fetch(any(), any(), any(Integer.class), any(Integer.class)))
+        .thenReturn(response("page-two-provider-error"), response("version-provider-error"));
+    reset(parser);
+    when(parser.parse(any(), any())).thenThrow(KmaWeatherImportException.invalidResponse());
+
+    assertThatThrownBy(() -> service.importVillageForecast(command()))
+        .isInstanceOf(KmaWeatherImportException.class);
+
+    verify(snapshots, times(2)).capture(any(), any(), any(), any(), any());
+    verify(snapshots, times(2)).markRejected(any());
+    verify(snapshots, never()).markParsed(any());
+    verify(committer, never()).commit(any());
+  }
+
+  @Test
   void replaysSucceededRunOnlyWhenCheckpointPointsToSameRun() {
     ImportRunCounts counts = new ImportRunCounts(6, 1, 0, 0, 1, 0, 0, 0);
     when(runs.start(any()))

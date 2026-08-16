@@ -138,9 +138,10 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
                 grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version, sky_code,
                 precipitation_type, precipitation_probability_percent, precipitation_amount_mm,
                 temperature_c, min_temperature_c, max_temperature_c, humidity_percent,
-                wind_speed_mps, source_provider, source_operation, import_run_id,
+                wind_speed_mps, precipitation_intensity_code, wind_strength_code,
+                source_provider, source_operation, import_run_id,
                 source_snapshot_id, raw_payload
-              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}'::jsonb)
+              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}'::jsonb)
               """,
               gridPointId,
               ts(value.forecastedAt()),
@@ -156,6 +157,8 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
               value.maxTemperatureC(),
               value.humidityPercent(),
               value.windSpeedMps(),
+              value.precipitationIntensityCode(),
+              value.windStrengthCode(),
               PROVIDER,
               lineage.operationKey(),
               lineage.importRunId(),
@@ -175,6 +178,7 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
             set forecast_version=?, sky_code=?, precipitation_type=?,
                 precipitation_probability_percent=?, precipitation_amount_mm=?, temperature_c=?,
                 min_temperature_c=?, max_temperature_c=?, humidity_percent=?, wind_speed_mps=?,
+                precipitation_intensity_code=?, wind_strength_code=?,
                 source_provider=?, source_operation=?,
                 import_run_id=?, source_snapshot_id=?, raw_payload='{}'::jsonb
             where id=?
@@ -189,6 +193,8 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
             value.maxTemperatureC(),
             value.humidityPercent(),
             value.windSpeedMps(),
+            value.precipitationIntensityCode(),
+            value.windStrengthCode(),
             PROVIDER,
             lineage.operationKey(),
             lineage.importRunId(),
@@ -225,6 +231,7 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
             select id, forecast_version, sky_code, precipitation_type,
                    precipitation_probability_percent, precipitation_amount_mm, temperature_c,
                    min_temperature_c, max_temperature_c, humidity_percent, wind_speed_mps,
+                   precipitation_intensity_code, wind_strength_code,
                    source_operation, import_run_id,
                    source_snapshot_id
             from public.weather_forecasts
@@ -283,6 +290,8 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
         rs.getBigDecimal("max_temperature_c"),
         rs.getInt("humidity_percent"),
         rs.getBigDecimal("wind_speed_mps"),
+        rs.getObject("precipitation_intensity_code", Integer.class),
+        rs.getObject("wind_strength_code", Integer.class),
         rs.getString("source_operation"),
         rs.getObject("import_run_id", UUID.class),
         rs.getObject("source_snapshot_id", UUID.class));
@@ -348,6 +357,8 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
       BigDecimal maximumTemperature,
       int humidity,
       BigDecimal windSpeed,
+      Integer precipitationIntensity,
+      Integer windStrength,
       String operation,
       UUID runId,
       UUID snapshotId) {
@@ -356,12 +367,14 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
           && Objects.equals(sky, value.skyCode())
           && Objects.equals(precipitationType, value.precipitationType())
           && Objects.equals(precipitationProbability, value.precipitationProbabilityPercent())
-          && sameDecimal(precipitation, value.precipitationAmountMm())
+          && sameNullableDecimal(precipitation, value.precipitationAmountMm())
           && sameDecimal(temperature, value.temperatureC())
           && sameNullableDecimal(minimumTemperature, value.minTemperatureC())
           && sameNullableDecimal(maximumTemperature, value.maxTemperatureC())
           && humidity == value.humidityPercent()
-          && sameDecimal(windSpeed, value.windSpeedMps())
+          && sameNullableDecimal(windSpeed, value.windSpeedMps())
+          && Objects.equals(precipitationIntensity, value.precipitationIntensityCode())
+          && Objects.equals(windStrength, value.windStrengthCode())
           && Objects.equals(operation, lineage.operationKey())
           && runId.equals(lineage.importRunId())
           && snapshotId.equals(lineage.snapshotId());

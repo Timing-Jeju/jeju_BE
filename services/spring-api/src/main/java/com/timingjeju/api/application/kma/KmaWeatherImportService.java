@@ -27,7 +27,7 @@ public final class KmaWeatherImportService implements KmaVillageForecastImporter
   public static final String PROVIDER = "kma";
   public static final String SERVICE = "VilageFcstInfoService_2.0";
   public static final String PARSER_VERSION = "kma-ultra-weather-v1";
-  public static final String VILLAGE_PARSER_VERSION = "kma-village-weather-v1";
+  public static final String VILLAGE_PARSER_VERSION = "kma-village-weather-v2";
 
   private final KmaWeatherSource source;
   private final KmaWeatherSnapshotGateway snapshots;
@@ -162,8 +162,10 @@ public final class KmaWeatherImportService implements KmaVillageForecastImporter
   }
 
   private static void requireParsable(SavedKmaWeatherSnapshot snapshot) {
-    if (snapshot.status() == SnapshotStatus.RECEIVED) return;
-    if (snapshot.replayed() && snapshot.status() == SnapshotStatus.PARSED) return;
+    if (snapshot.attemptSnapshots().stream()
+        .allMatch(saved -> saved.status() == SnapshotStatus.RECEIVED)) return;
+    if (snapshot.attemptSnapshots().stream()
+        .allMatch(saved -> saved.replayed() && saved.status() == SnapshotStatus.PARSED)) return;
     throw KmaWeatherImportException.invalidResponse();
   }
 
