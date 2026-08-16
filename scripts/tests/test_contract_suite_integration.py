@@ -35,6 +35,7 @@ EXPECTED_VALIDATORS = (
     "validate_trips_contract.py",
     "validate_preferences_transport_contract.py",
     "validate_accommodations_contract.py",
+    "validate_schedules_contract.py",
 )
 
 

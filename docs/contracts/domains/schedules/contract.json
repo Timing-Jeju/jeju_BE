@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "timing-jeju-schedules-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "v1.1",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 88,
+  "implementationIssues": [49, 50, 51],
+  "schemas": {
+    "ScheduleQuery": {"additionalProperties": false, "required": [], "properties": {"versionId": {"type": "string", "format": "uuid", "nullable": false, "presence": "optional; omitted selects active"}}},
+    "MutationHeaders": {"additionalProperties": false, "required": ["Authorization", "Idempotency-Key", "If-Match"], "properties": {"Authorization": {"type": "string", "nullable": false}, "Idempotency-Key": {"type": "string", "format": "uuid", "nullable": false}, "If-Match": {"type": "string", "pattern": "^\\\"trip-[0-9]+\\\"$", "nullable": false}}},
+    "CreateItemRequest": {"additionalProperties": false, "required": ["expectedActiveScheduleVersionId", "dayNo", "sequenceNo", "itemType", "plannedStartAt", "stayMinutes"], "optional": ["placeId", "accommodationId", "transportEventId", "title", "bufferAfterMinutes", "required", "memo"], "nullable": ["memo"], "typeConditionalRequired": "itemPolicy.requiredByType"},
+    "PatchItemRequest": {"additionalProperties": false, "required": ["expectedActiveScheduleVersionId"], "optional": ["placeId", "accommodationId", "transportEventId", "title", "plannedStartAt", "stayMinutes", "bufferAfterMinutes", "required", "memo"], "minMutableProperties": 1, "presence": "omitted=unchanged; memo alone nullable"},
+    "DeleteItemQuery": {"additionalProperties": false, "required": ["expectedActiveScheduleVersionId"], "properties": {"expectedActiveScheduleVersionId": {"type": "string", "format": "uuid", "nullable": false}}},
+    "ReorderRequest": {"additionalProperties": false, "required": ["expectedActiveScheduleVersionId", "days"], "days": {"minItems": 1, "uniqueDayNo": true, "orderedItemIds": "non-empty UUID array; global exact permutation"}},
+    "MoveItemRequest": {"additionalProperties": false, "required": ["expectedActiveScheduleVersionId", "targetDayNo", "targetSequenceNo", "plannedStartAt"], "nullable": []},
+    "ScheduleResponse": {"additionalProperties": false, "required": ["tripId", "scheduleVersion", "days"], "scheduleVersionRequired": ["scheduleVersionId", "versionNo", "status", "sourceType", "baseScheduleVersionId", "feasibilityStale"], "dayRequired": ["dayId", "dayNo", "date", "items", "legs"], "itemRequired": ["itemId", "sequenceNo", "itemType", "placeId", "title", "plannedStartAt", "plannedEndAt", "stayMinutes", "progress"], "nullable": ["baseScheduleVersionId", "placeId", "title", "progress"]},
+    "MutationResponse": {"additionalProperties": false, "required": ["tripId", "previousScheduleVersionId", "activeScheduleVersionId", "versionNo", "sourceType", "feasibilityStale", "changedItemIds", "etag", "updatedAt"], "constants": {"sourceType": "user_edit", "feasibilityStale": true}}
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}/schedule",
+      "operation": "read active or selected immutable schedule version",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner and wrong-trip version 404",
+      "versionSelector": "active when versionId omitted; explicit version must belong to same owner/trip",
+      "requiredHeaders": ["Authorization"],
+      "presence": "tripId required; versionId optional non-null UUID; body forbidden",
+      "responses": {"success": [200], "errors": [400, 401, 404]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "SCHEDULE_VERSION_NOT_FOUND"]},
+      "concurrency": "none",
+      "transaction": "read-only; never changes active pointer, version, items, legs or progress",
+      "requestTimeCall": "none",
+      "figma": {"node": "not-observed", "action": "활성 일정 조회 화면 API linkage not-linked", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/schedule-items",
+      "operation": "add item by copying active schedule into a new immutable version",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "requiredHeaders": ["Authorization", "Idempotency-Key", "If-Match"],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version, dayNo, sequenceNo, itemType and type-required fields required; optional fields may be omitted but not null unless declared nullable",
+      "responses": {"success": [201], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND", "SCHEDULE_VERSION_NOT_FOUND"], "409": ["IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT"], "422": ["SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"]},
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {"node": "not-observed", "action": "일정 항목 추가 API linkage not-linked", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+      "operation": "patch item in a new immutable version",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "requiredHeaders": ["Authorization", "Idempotency-Key", "If-Match"],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version plus at least one mutable property; omitted unchanged; explicit null only for memo",
+      "responses": {"success": [200], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND", "PLACE_NOT_FOUND"], "409": ["IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT"], "422": ["SCHEDULE_ITEM_INVALID", "SCHEDULE_ITEM_COMPLETED", "SCHEDULE_LEG_INCOMPLETE"]},
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {"node": "not-observed", "action": "일정 항목 편집 API linkage not-linked", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+      "operation": "delete item in a new immutable version",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "requiredHeaders": ["Authorization", "Idempotency-Key", "If-Match"],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expectedActiveScheduleVersionId required in query; body forbidden",
+      "responses": {"success": [200], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND"], "409": ["IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT"], "422": ["SCHEDULE_ITEM_COMPLETED", "SCHEDULE_LEG_INCOMPLETE"]},
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {"node": "not-observed", "action": "일정 항목 삭제 API linkage not-linked", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/trips/{tripId}/schedule-order",
+      "operation": "replace item ordering with an exact permutation in a new immutable version",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "requiredHeaders": ["Authorization", "Idempotency-Key", "If-Match"],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version and non-empty days required; every active item appears exactly once",
+      "responses": {"success": [200], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST", "SCHEDULE_ORDER_NOT_PERMUTATION"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND"], "409": ["IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT"], "422": ["SCHEDULE_ITEM_COMPLETED", "SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"]},
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {"node": "not-observed", "action": "Day 일정 드래그 순서 변경 API linkage not-linked", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+      "operation": "move item across days in a new immutable version",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "requiredHeaders": ["Authorization", "Idempotency-Key", "If-Match"],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version, targetDayNo, targetSequenceNo and plannedStartAt required",
+      "responses": {"success": [200], "errors": [400, 401, 404, 409, 422]},
+      "errorMatrix": {"400": ["INVALID_REQUEST"], "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], "404": ["TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND", "TRIP_DAY_NOT_FOUND"], "409": ["IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT"], "422": ["SCHEDULE_ITEM_COMPLETED", "SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"]},
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {"node": "not-observed", "action": "일정 항목 Day 이동 API linkage not-linked", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0"
+    }
+  ],
+  "readPolicy": {
+    "stableOrder": ["dayNo", "sequenceNo"],
+    "activeAbsent": "404 SCHEDULE_VERSION_NOT_FOUND",
+    "stale": "feasibilityStale required boolean on scheduleVersion; stale data remains a 200 projection",
+    "progress": "progress required and nullable; null means no progress row"
+  },
+  "versionPolicy": {
+    "immutable": "active, candidate, sealed and superseded versions plus their items and legs are never updated in place",
+    "activation": "copy active, apply edit, validate, seal new user_edit version, supersede previous active and switch pointer atomically",
+    "legCompleteness": "exactly one adjacent leg for every consecutive item pair; zero for fewer than two"
+  },
+  "itemPolicy": {
+    "itemTypes": ["place_visit", "meal", "accommodation", "arrival", "departure", "free_time", "custom"],
+    "requiredByType": {
+      "place_visit": ["placeId", "plannedStartAt", "stayMinutes"],
+      "meal": ["title", "plannedStartAt", "stayMinutes"],
+      "accommodation": ["accommodationId", "plannedStartAt", "stayMinutes"],
+      "arrival": ["transportEventId", "plannedStartAt", "stayMinutes"],
+      "departure": ["transportEventId", "plannedStartAt", "stayMinutes"],
+      "free_time": ["title", "plannedStartAt", "stayMinutes"],
+      "custom": ["title", "plannedStartAt", "stayMinutes"]
+    },
+    "timezone": "RFC 3339 +09:00; start and computed end must remain on target Asia/Seoul trip day",
+    "stayMinutes": "integer 1..1440",
+    "completedItem": "reject-422; completed item cannot be patched, deleted, reordered or moved"
+  },
+  "mutationPolicy": {
+    "expectedVersionLocation": {"POST": "body", "PATCH": "body", "DELETE": "query", "PUT": "body"},
+    "idempotency": "all five mutations require Idempotency-Key; canonical sub + method + normalized path + key; TTL 24 hours; same hash replays original status/body/ETag; different hash and concurrent loser are 409",
+    "concurrency": "strong trip aggregate ETag plus expected active schedule version",
+    "validator": "DB constraints and synchronous deterministic validator only",
+    "aiCorrection": "never call MCP/AI; correction requires separate schedule revision run owned by #89"
+  },
+  "orderPolicy": {
+    "permutation": "each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID",
+    "result": "renumber each affected day contiguously from 1 and rebuild every adjacent leg"
+  },
+  "movePolicy": {
+    "dayBoundary": "target day belongs to trip; local date of plannedStartAt equals target day date",
+    "result": "remove from source, insert at targetSequenceNo, compact both days, rebuild affected legs"
+  },
+  "errorConditions": [
+    {"status": 400, "code": "INVALID_REQUEST", "title": "요청 값이 올바르지 않습니다", "detail": "필수값과 형식, 일정 버전 식별자를 확인해 주세요.", "fixture": "400_invalid_request"},
+    {"status": 400, "code": "SCHEDULE_ORDER_NOT_PERMUTATION", "title": "일정 순서가 올바르지 않습니다", "detail": "활성 일정의 모든 항목을 중복과 누락 없이 한 번씩 보내 주세요.", "fixture": "400_order_not_permutation"},
+    {"status": 401, "code": "AUTHENTICATION_REQUIRED", "title": "인증이 필요합니다", "detail": "로그인 후 다시 요청해 주세요.", "fixture": "401_authentication_required"},
+    {"status": 401, "code": "INVALID_ACCESS_TOKEN", "title": "인증 정보가 올바르지 않습니다", "detail": "유효한 인증 정보로 다시 요청해 주세요.", "fixture": "401_invalid_access_token"},
+    {"status": 404, "code": "TRIP_NOT_FOUND", "title": "여행을 찾을 수 없습니다", "detail": "요청한 여행이 없거나 접근할 수 없습니다.", "fixture": "404_trip_not_found"},
+    {"status": 404, "code": "SCHEDULE_VERSION_NOT_FOUND", "title": "일정 버전을 찾을 수 없습니다", "detail": "요청한 일정 버전이 없거나 해당 여행에 속하지 않습니다.", "fixture": "404_schedule_version_not_found"},
+    {"status": 404, "code": "SCHEDULE_ITEM_NOT_FOUND", "title": "일정 항목을 찾을 수 없습니다", "detail": "요청한 일정 항목이 없거나 해당 여행에 속하지 않습니다.", "fixture": "404_schedule_item_not_found"},
+    {"status": 404, "code": "PLACE_NOT_FOUND", "title": "장소를 찾을 수 없습니다", "detail": "요청한 장소가 없거나 사용할 수 없습니다.", "fixture": "404_place_not_found"},
+    {"status": 404, "code": "TRIP_DAY_NOT_FOUND", "title": "여행 Day를 찾을 수 없습니다", "detail": "이동할 Day가 없거나 해당 여행에 속하지 않습니다.", "fixture": "404_trip_day_not_found"},
+    {"status": 409, "code": "IDEMPOTENCY_KEY_REUSED", "title": "멱등성 키가 다른 요청에 사용되었습니다", "detail": "새 Idempotency-Key로 다시 요청해 주세요.", "fixture": "409_idempotency_key_reused"},
+    {"status": 409, "code": "TRIP_VERSION_CONFLICT", "title": "여행 조건이 이미 변경되었습니다", "detail": "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요.", "fixture": "409_trip_version_conflict"},
+    {"status": 409, "code": "ACTIVE_SCHEDULE_VERSION_CONFLICT", "title": "활성 일정이 이미 변경되었습니다", "detail": "최신 활성 일정을 조회한 뒤 다시 편집해 주세요.", "fixture": "409_active_schedule_version_conflict"},
+    {"status": 422, "code": "SCHEDULE_ITEM_INVALID", "title": "일정 항목을 적용할 수 없습니다", "detail": "항목 유형별 필수값과 Day 시간 범위를 확인해 주세요.", "fixture": "422_schedule_item_invalid"},
+    {"status": 422, "code": "SCHEDULE_ITEM_COMPLETED", "title": "완료한 일정 항목은 변경할 수 없습니다", "detail": "완료되지 않은 일정 항목만 편집해 주세요.", "fixture": "422_schedule_item_completed"},
+    {"status": 422, "code": "SCHEDULE_LEG_INCOMPLETE", "title": "이동 구간을 완성할 수 없습니다", "detail": "인접 일정 항목 사이의 이동 구간을 확인해 주세요.", "fixture": "422_schedule_leg_incomplete"}
+  ],
+  "externalTraceability": {
+    "notion": {"status": "not-ready", "contractVersion": "not-linked", "databaseId": "not-observed", "rows": [], "reason": "이 개발 세션에서 6개 Notion endpoint 행을 직접 읽거나 수정했다는 증거가 없어 연결을 추정하지 않는다"},
+    "figma": {"status": "not-ready", "contractVersion": "not-linked", "fileKey": "4mKep38zm17iupVSQVsSJW", "pageNodeId": "251:4347", "observedNodes": [], "missingStateEvidence": ["endpoint action", "loading", "empty", "error", "contractVersion"], "reason": "일정 화면과 6개 API의 node/action/response 연결을 직접 관찰하지 못해 not-linked로 유지한다"}
+  },
+  "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}},
+  "schemaGap": [
+    "문서 작업은 schema를 변경하지 않으며 public schema 단일 기준은 supabase/migrations이다",
+    "item type별 place/accommodation/transport-event 참조 완전성은 #50 구현 전에 migration 필요성을 재검증한다",
+    "Spring/FastAPI 운영 코드와 Flyway는 이 Issue 범위가 아니다"
+  ]
+}

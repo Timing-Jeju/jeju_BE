@@ -228,11 +228,11 @@ MCP wire envelope, 내부 JWT, 실제 `calculate_feasibility` 송수신 JSON과 
 | Stay | PATCH | `/api/v1/trips/{tripId}/accommodations/{accommodationId}` | 필수 | 미호출 | - | `200` | accommodations |
 | Stay | DELETE | `/api/v1/trips/{tripId}/accommodations/{accommodationId}` | 필수 | 미호출 | - | `204` | accommodations |
 | Schedule | GET | `/api/v1/trips/{tripId}/schedule` | 필수 | 미호출 | - | `200` | version/items/legs |
-| Schedule | POST | `/api/v1/trips/{tripId}/schedule/items` | 필수 | 미호출 | - | `201` | new user-edit version |
-| Schedule | PATCH | `/api/v1/trips/{tripId}/schedule/items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
-| Schedule | DELETE | `/api/v1/trips/{tripId}/schedule/items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
-| Schedule | PUT | `/api/v1/trips/{tripId}/schedule/order` | 필수 | 미호출 | - | `200` | new user-edit version |
-| Schedule | POST | `/api/v1/trips/{tripId}/schedule/items/{itemId}/move` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | POST | `/api/v1/trips/{tripId}/schedule-items` | 필수 | 미호출 | - | `201` | new user-edit version |
+| Schedule | PATCH | `/api/v1/trips/{tripId}/schedule-items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | DELETE | `/api/v1/trips/{tripId}/schedule-items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | PUT | `/api/v1/trips/{tripId}/schedule-order` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | POST | `/api/v1/trips/{tripId}/schedule-items/{itemId}/move` | 필수 | 미호출 | - | `200` | new user-edit version |
 | Generation | POST | `/api/v1/trips/{tripId}/generation-runs` | 필수 | 호출 | `generate_day_itinerary` | `202` | FastAPI MCP |
 | Generation | GET | `/api/v1/trips/{tripId}/generation-runs/{runId}` | 필수 | 미호출 | - | `200` | run/candidates |
 | Generation | POST | `/api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply` | 필수 | 미호출 | - | `200` | atomic version apply |
@@ -892,6 +892,10 @@ DELETE는 body 없는 `204`지만 active 일정이 있거나 중간 gap이 생�
 
 ## 12. 상세 계약: Schedule Versioning
 
+여섯 endpoint의 exact path, header/body/query presence, 불변 version·동시성·오류·fixture
+계약은 [`schedules/contract.json`](../contracts/domains/schedules/contract.json)을 따른다.
+아래 예시는 설명용이며 machine-readable 계약과 충돌할 때 canonical JSON을 우선한다.
+
 ### 12.1 `GET /api/v1/trips/{tripId}/schedule`
 
 Request:
@@ -961,11 +965,11 @@ Response `200`:
 
 아래 5개 API는 모두 새 `user_edit` 버전을 만들고 원자적으로 활성화한다.
 
-- `POST /schedule/items`
-- `PATCH /schedule/items/{itemId}`
-- `DELETE /schedule/items/{itemId}`
-- `PUT /schedule/order`
-- `POST /schedule/items/{itemId}/move`
+- `POST /schedule-items`
+- `PATCH /schedule-items/{itemId}`
+- `DELETE /schedule-items/{itemId}`
+- `PUT /schedule-order`
+- `POST /schedule-items/{itemId}/move`
 
 공통 Response `200/201`:
 
@@ -984,7 +988,7 @@ Response `200`:
 }
 ```
 
-### 12.3 `POST /schedule/items`
+### 12.3 `POST /schedule-items`
 
 Request:
 
@@ -1006,7 +1010,7 @@ Request:
 
 Response `201`: 일정 변경 공통 응답.
 
-### 12.4 `PATCH /schedule/items/{itemId}`
+### 12.4 `PATCH /schedule-items/{itemId}`
 
 Request:
 
@@ -1022,18 +1026,18 @@ Request:
 
 Response `200`: 일정 변경 공통 응답.
 
-### 12.5 `DELETE /schedule/items/{itemId}`
+### 12.5 `DELETE /schedule-items/{itemId}`
 
 Request:
 
 ```http
-DELETE /api/v1/trips/50000000-0000-0000-0000-000000000001/schedule/items/61000000-0000-0000-0000-000000000003?expectedActiveScheduleVersionId=60000000-0000-0000-0000-000000000001
+DELETE /api/v1/trips/50000000-0000-0000-0000-000000000001/schedule-items/61000000-0000-0000-0000-000000000003?expectedActiveScheduleVersionId=60000000-0000-0000-0000-000000000001
 Idempotency-Key: 018f6f2a-60a0-7f5b-8c61-8f548f34bc32
 ```
 
 Response `200`: 일정 변경 공통 응답.
 
-### 12.6 `PUT /schedule/order`
+### 12.6 `PUT /schedule-order`
 
 Request:
 
@@ -1056,7 +1060,7 @@ Request:
 
 Response `200`: 일정 변경 공통 응답.
 
-### 12.7 `POST /schedule/items/{itemId}/move`
+### 12.7 `POST /schedule-items/{itemId}/move`
 
 Request:
 

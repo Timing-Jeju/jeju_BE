@@ -1,0 +1,7 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": {
+    "readActive": {"status": 200, "body": {"tripId": "50000000-0000-0000-0000-000000000001", "scheduleVersion": {"scheduleVersionId": "60000000-0000-0000-0000-000000000001", "versionNo": 1, "status": "active", "sourceType": "initial", "baseScheduleVersionId": null, "feasibilityStale": false}, "days": [{"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03", "items": [{"itemId": "61000000-0000-0000-0000-000000000001", "sequenceNo": 1, "itemType": "place_visit", "placeId": "20000000-0000-0000-0000-000000000002", "title": "성산일출봉", "plannedStartAt": "2026-08-03T11:20:00+09:00", "plannedEndAt": "2026-08-03T12:30:00+09:00", "stayMinutes": 70, "progress": null}], "legs": []}]}},
+    "createItem": {"status": 201, "body": {"tripId": "50000000-0000-0000-0000-000000000001", "previousScheduleVersionId": "60000000-0000-0000-0000-000000000001", "activeScheduleVersionId": "60000000-0000-0000-0000-000000000004", "versionNo": 4, "sourceType": "user_edit", "feasibilityStale": true, "changedItemIds": ["61000000-0000-0000-0000-000000000003"], "etag": "\"trip-8\"", "updatedAt": "2026-08-03T09:20:00+09:00"}}
+  }
+}
