@@ -32,6 +32,25 @@ MUTATION_HEADERS = ["Authorization", "Idempotency-Key", "If-Match"]
 OWNER = "canonical JWT sub; cross-owner and wrong-trip resource 404"
 PERMUTATION = "each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID"
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
+EXPECTED_ERROR_CONDITIONS = {
+    "INVALID_REQUEST": "request path/query/header/body violates the bound closed schema, including a non-UUID Idempotency-Key",
+    "SCHEDULE_ORDER_NOT_PERMUTATION": "reorder omits, duplicates, adds or references a foreign active item ID",
+    "AUTHENTICATION_REQUIRED": "Authorization header is missing",
+    "INVALID_ACCESS_TOKEN": "Bearer token is malformed, invalid or expired",
+    "TRIP_NOT_FOUND": "trip is missing or cross-owner",
+    "SCHEDULE_VERSION_NOT_FOUND": "schedule version is missing, cross-owner or wrong-trip",
+    "SCHEDULE_ITEM_NOT_FOUND": "schedule item is missing, cross-owner or wrong-trip",
+    "PLACE_NOT_FOUND": "place is missing or unavailable in the normalized place catalog",
+    "TRIP_DAY_NOT_FOUND": "target day is missing, cross-owner or wrong-trip",
+    "ACCOMMODATION_NOT_FOUND": "referenced accommodation is missing, cross-owner or wrong-trip",
+    "TRANSPORT_EVENT_NOT_FOUND": "referenced transport event is missing, cross-owner or wrong-trip",
+    "IDEMPOTENCY_KEY_REUSED": "same idempotency scope/key is reused with a different request hash",
+    "TRIP_VERSION_CONFLICT": "If-Match does not equal the current strong trip aggregate ETag",
+    "ACTIVE_SCHEDULE_VERSION_CONFLICT": "expectedActiveScheduleVersionId does not equal the current active schedule version",
+    "SCHEDULE_ITEM_INVALID": "item violates type-required fields, range, target day or time-window invariants",
+    "SCHEDULE_ITEM_COMPLETED": "patch, delete, reorder or move targets an item whose progress status is completed",
+    "SCHEDULE_LEG_INCOMPLETE": "an adjacent pair cannot be reused, derived from an eligible snapshot or conservatively synthesized",
+}
 
 
 def _reject_constant(value: str) -> None:
@@ -98,6 +117,12 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         mutation = schemas.get("MutationResponse", {})
         if mutation.get("required") != ["tripId", "previousScheduleVersionId", "activeScheduleVersionId", "versionNo", "sourceType", "feasibilityStale", "changedItemIds", "etag", "updatedAt"] or mutation.get("constants") != {"sourceType": "user_edit", "feasibilityStale": True}:
             errors.append("OpenAPI schema MutationResponse/etag shape가 다릅니다.")
+        source_types = schemas.get("ScheduleVersion", {}).get("properties", {}).get("sourceType", {}).get("enum")
+        if source_types != ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]:
+            errors.append("sourceType enum이 DB trip_schedule_versions와 다릅니다.")
+        key_schema = schemas.get("MutationHeaders", {}).get("properties", {}).get("Idempotency-Key")
+        if key_schema != {"type": "string", "format": "uuid", "nullable": False}:
+            errors.append("Idempotency-Key UUID schema가 api_idempotency_records와 다릅니다.")
 
     endpoints = contract.get("endpoints")
     identities = {(e.get("method"), e.get("path")) for e in endpoints} if isinstance(endpoints, list) and all(isinstance(e, dict) for e in endpoints) else set()
@@ -139,6 +164,9 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         matrix = endpoint.get("errorMatrix", {})
         if "ACTIVE_SCHEDULE_VERSION_CONFLICT" not in matrix.get("409", []) or "TRIP_VERSION_CONFLICT" not in matrix.get("409", []):
             errors.append(f"{identity} expected-version/If-Match 409가 모두 필요합니다.")
+        if endpoint["method"] in {"POST", "PATCH"} and endpoint["path"].endswith(("/schedule-items", "/{itemId}")):
+            if not {"ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"}.issubset(matrix.get("404", [])):
+                errors.append(f"{identity} accommodation/transport owner 404 error condition이 필요합니다.")
 
     policy = contract.get("mutationPolicy", {})
     if policy.get("expectedVersionLocation") != {"POST": "body", "PATCH": "body", "DELETE": "query", "PUT": "body"}:
@@ -160,6 +188,9 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
     leg_policy = contract.get("legDerivationPolicy", {})
     if leg_policy.get("sourcePriority") != ["reuse-unchanged-active-leg", "stored-route-snapshot", "conservative-walk-fallback", "reject-422"] or leg_policy.get("requestTimeCall") != "none" or leg_policy.get("durationInvariant") != "walkMinutes + waitMinutes + rideMinutes + transferMinutes" or leg_policy.get("stableFailure") != "422 SCHEDULE_LEG_INCOMPLETE; rollback draft, prior active pointer unchanged" or set(leg_policy.get("operations", {})) != {"add", "delete", "reorder", "move"}:
         errors.append("leg derivation 정책이 deterministic/fail-closed가 아닙니다.")
+    mapping = leg_policy.get("itemIdentityMapping", {})
+    if mapping.get("newIdentity") != "new UUID for every copied item in the new schedule version" or mapping.get("mapping") != "command-scoped bijection oldItemIdToNewItemId" or "new item IDs" not in str(leg_policy.get("reuse", "")) or any("oldItemIdToNewItemId" not in str(operation.get("identityMapping", "")) for operation in leg_policy.get("operations", {}).values()):
+        errors.append("item identity mapping과 leg endpoint 재연결 계약이 다릅니다.")
 
     item_policy = contract.get("itemPolicy", {})
     required = item_policy.get("requiredByType", {})
@@ -170,12 +201,26 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
 
     conditions = contract.get("errorConditions", [])
     condition_map = {c.get("code"): c for c in conditions} if isinstance(conditions, list) and all(isinstance(c, dict) for c in conditions) else {}
-    for code in ("TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND", "ACTIVE_SCHEDULE_VERSION_CONFLICT", "TRIP_VERSION_CONFLICT", "SCHEDULE_ITEM_COMPLETED"):
+    expected_condition_codes = set(EXPECTED_ERROR_CONDITIONS)
+    if set(condition_map) != expected_condition_codes:
+        errors.append("error condition/code 집합이 exact하지 않습니다.")
+    for code in ("TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND", "ACTIVE_SCHEDULE_VERSION_CONFLICT", "TRIP_VERSION_CONFLICT", "SCHEDULE_ITEM_COMPLETED"):
         if code not in condition_map:
             errors.append(f"오류 condition {code}가 누락됐습니다.")
     for condition in conditions if isinstance(conditions, list) else []:
+        if set(condition) != {"status", "code", "condition", "type", "title", "detail", "fixture"} or condition.get("condition") != EXPECTED_ERROR_CONDITIONS.get(condition.get("code")) or not str(condition.get("type", "")).startswith("https://api.timing-jeju.com/problems/"):
+            errors.append(f"error condition/code/type가 exact하지 않습니다: {condition.get('code')}")
         if not condition.get("title") or not condition.get("detail") or not any("가" <= ch <= "힣" for ch in condition.get("title", "") + condition.get("detail", "")):
             errors.append(f"한국어 Problem title/detail이 필요합니다: {condition.get('code')}")
+    matrix_codes: set[str] = set()
+    for endpoint in endpoints:
+        for status, codes in endpoint.get("errorMatrix", {}).items():
+            for code in codes:
+                matrix_codes.add(code)
+                if code not in condition_map or condition_map[code].get("status") != int(status):
+                    errors.append(f"error condition/matrix status가 다릅니다: {endpoint['method']} {endpoint['path']} {code}")
+    if matrix_codes != expected_condition_codes:
+        errors.append("error condition/matrix code 집합이 양방향 exact하지 않습니다.")
 
     external = contract.get("externalTraceability", {})
     notion = external.get("notion", {})
@@ -249,6 +294,8 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
         payload = example.get("query") if key == "deleteItem" else example.get("body")
         _validate_schema_value(payload, contract["schemas"][payload_schema], contract["schemas"], f"{key} request", errors)
     success = fixtures["success"]["examples"]
+    if fixtures["success"].get("sourceTypeFixtures") != ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]:
+        errors.append("sourceType DB fixture 집합이 다릅니다.")
     if success["readActive"]["status"] != 200 or success["createItem"]["status"] != 201 or success["createItem"]["body"].get("sourceType") != "user_edit":
         errors.append("immutable read/new-version success fixture가 다릅니다.")
     _validate_schema_value(success["readActive"]["body"], contract["schemas"]["ScheduleResponse"], contract["schemas"], "readActive success", errors)
@@ -257,7 +304,7 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
     problems = fixtures["problem"]["examples"]
     for code, condition in conditions.items():
         problem = problems.get(condition["fixture"])
-        if not isinstance(problem, dict) or problem.get("code") != code or problem.get("status") != condition["status"] or problem.get("title") != condition["title"] or problem.get("detail") != condition["detail"]:
+        if not isinstance(problem, dict) or problem.get("code") != code or problem.get("status") != condition["status"] or problem.get("type") != condition["type"] or problem.get("title") != condition["title"] or problem.get("detail") != condition["detail"]:
             errors.append(f"condition→problem fixture가 다릅니다: {code}")
         elif set(problem) != PROBLEM_FIELDS:
             errors.append(f"canonical Problem field가 다릅니다: {code}")

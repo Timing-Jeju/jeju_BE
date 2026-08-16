@@ -155,6 +155,43 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(["add", "delete", "reorder", "move"], list(policy["operations"]))
         for operation in policy["operations"].values():
             self.assertTrue(operation["affectedPairs"])
+            self.assertIn("oldItemIdToNewItemId", operation["identityMapping"])
+        self.assertEqual("new UUID for every copied item in the new schedule version", policy["itemIdentityMapping"]["newIdentity"])
+        self.assertEqual("command-scoped bijection oldItemIdToNewItemId", policy["itemIdentityMapping"]["mapping"])
+        self.assertIn("new item IDs", policy["reuse"])
+
+    def test_db_source_types_and_uuid_idempotency_key_are_exact(self) -> None:
+        schemas = self.contract["schemas"]
+        db_sources = ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]
+        self.assertEqual(db_sources, schemas["ScheduleVersion"]["properties"]["sourceType"]["enum"])
+        fixture_sources = json.loads((ROOT / "fixtures/contracts/schedules/success.json").read_text(encoding="utf-8"))["sourceTypeFixtures"]
+        self.assertEqual(db_sources, fixture_sources)
+        key_schema = schemas["MutationHeaders"]["properties"]["Idempotency-Key"]
+        self.assertEqual({"type": "string", "format": "uuid", "nullable": False}, key_schema)
+        errors = []
+        self.validator._validate_schema_value("not-a-uuid", key_schema, schemas, "Idempotency-Key", errors)
+        self.assertTrue(any("UUID" in error for error in errors))
+
+    def test_every_problem_has_exact_condition_and_owner_hidden_reference_codes(self) -> None:
+        conditions = {item["code"]: item for item in self.contract["errorConditions"]}
+        self.assertIn("ACCOMMODATION_NOT_FOUND", conditions)
+        self.assertIn("TRANSPORT_EVENT_NOT_FOUND", conditions)
+        self.assertTrue(all(set(item) == {"status", "code", "condition", "type", "title", "detail", "fixture"} for item in conditions.values()))
+        self.assertTrue(all(item["condition"] for item in conditions.values()))
+        for code in ("ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"):
+            self.assertEqual(404, conditions[code]["status"])
+            self.assertIn("missing, cross-owner or wrong-trip", conditions[code]["condition"])
+        create_matrix = self.contract["endpoints"][1]["errorMatrix"]["404"]
+        patch_matrix = self.contract["endpoints"][2]["errorMatrix"]["404"]
+        self.assertTrue({"ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"}.issubset(create_matrix))
+        self.assertTrue({"ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"}.issubset(patch_matrix))
+        matrix_codes = set()
+        for endpoint in self.contract["endpoints"]:
+            for status, codes in endpoint["errorMatrix"].items():
+                for code in codes:
+                    matrix_codes.add(code)
+                    self.assertEqual(int(status), conditions[code]["status"])
+        self.assertEqual(set(conditions), matrix_codes)
 
     def test_examples_and_spec_share_closed_response_shape(self) -> None:
         fixtures = json.loads((ROOT / "fixtures/contracts/schedules/success.json").read_text(encoding="utf-8"))["examples"]
@@ -206,6 +243,11 @@ class SchedulesContractTest(unittest.TestCase):
             ("OpenAPI schema", lambda c: c["schemas"]["MutationResponse"]["required"].remove("etag")),
             ("endpoint schema binding", lambda c: c["endpoints"][1]["schemas"].update(body="none")),
             ("leg derivation", lambda c: c["legDerivationPolicy"].update(requestTimeCall="private MCP")),
+            ("sourceType", lambda c: c["schemas"]["ScheduleVersion"]["properties"]["sourceType"]["enum"].append("bogus")),
+            ("Idempotency-Key UUID", lambda c: c["schemas"]["MutationHeaders"]["properties"]["Idempotency-Key"].pop("format")),
+            ("item identity mapping", lambda c: c["legDerivationPolicy"].pop("itemIdentityMapping")),
+            ("error condition", lambda c: c["errorConditions"][0].update(condition="different but non-empty condition")),
+            ("error condition", lambda c: c["errorConditions"][0].update(code="BOGUS")),
         )
         for expected, mutate in mutations:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:
