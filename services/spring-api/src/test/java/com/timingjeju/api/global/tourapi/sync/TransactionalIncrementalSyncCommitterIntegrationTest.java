@@ -3,27 +3,39 @@ package com.timingjeju.api.global.tourapi.sync;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.importing.ImportCheckpointAdvanceCommand;
 import com.timingjeju.api.application.importing.ImportCheckpointError;
 import com.timingjeju.api.application.importing.ImportCheckpointException;
 import com.timingjeju.api.application.importing.ImportCheckpointRepository;
+import com.timingjeju.api.application.importing.ImportCheckpointService;
+import com.timingjeju.api.application.importing.ImportRunCounts;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunScope;
+import com.timingjeju.api.application.importing.ImportRunStatus;
 import com.timingjeju.api.application.tourapi.place.TourPlace;
 import com.timingjeju.api.application.tourapi.sync.IncrementalPlaceRepository;
+import com.timingjeju.api.application.tourapi.sync.IncrementalSyncCommand;
 import com.timingjeju.api.application.tourapi.sync.IncrementalSyncCommitCommand;
 import com.timingjeju.api.application.tourapi.sync.IncrementalSyncCommitter;
 import com.timingjeju.api.application.tourapi.sync.IncrementalSyncCursor;
+import com.timingjeju.api.application.tourapi.sync.IncrementalSyncException;
 import com.timingjeju.api.application.tourapi.sync.IncrementalSyncLineage;
 import com.timingjeju.api.application.tourapi.sync.IncrementalSyncPageLineage;
+import com.timingjeju.api.application.tourapi.sync.IncrementalSyncService;
 import com.timingjeju.api.application.tourapi.sync.IncrementalSyncStorageException;
 import com.timingjeju.api.application.tourapi.sync.IncrementalSyncWrite;
 import com.timingjeju.api.application.tourapi.sync.PlaceSyncAction;
 import com.timingjeju.api.application.tourapi.sync.PlaceSyncChange;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -48,6 +60,8 @@ class TransactionalIncrementalSyncCommitterIntegrationTest {
   @Autowired private IncrementalPlaceRepository repository;
   @Autowired private IncrementalSyncCommitter committer;
   @Autowired private ImportCheckpointRepository checkpoints;
+  @Autowired private ImportCheckpointService checkpointService;
+  @Autowired private com.timingjeju.api.application.importing.ImportRunLifecycleService runService;
   @Autowired private JdbcTemplate jdbcTemplate;
 
   @BeforeEach
@@ -238,6 +252,85 @@ class TransactionalIncrementalSyncCommitterIntegrationTest {
         .isZero();
   }
 
+  @Test
+  void actual_PG_failed_partial_cancelled_running_replay는_fetch_commit_checkpoint없이_실패한다() {
+    for (String status : List.of("failed", "partial", "cancelled", "running")) {
+      clean();
+      insertCheckpoint();
+      UUID runId = insertReplayRun(status, "replay-" + status, ImportRunCounts.zero());
+      int[] fetchCalls = {0};
+
+      assertThatThrownBy(
+              () -> replayService(fetchCalls).sync(new IncrementalSyncCommand("replay-" + status)))
+          .isInstanceOf(IncrementalSyncException.class);
+
+      assertThat(fetchCalls[0]).isZero();
+      assertThat(
+              jdbcTemplate.queryForObject(
+                  "select status from public.data_import_runs where id=?", String.class, runId))
+          .isEqualTo(status);
+      assertThat(checkpoints.find(SCOPE).orElseThrow().version()).isZero();
+    }
+  }
+
+  @Test
+  void actual_PG_committed_succeeded_replay만_counts와_checkpoint_version을_반환한다() {
+    ImportRunCounts counts = new ImportRunCounts(9, 3, 4, 2, 2, 0, 1, 0);
+    UUID runId = insertReplayRun("succeeded", "replay-succeeded", counts);
+    checkpointService.advance(
+        new ImportCheckpointAdvanceCommand(
+            SCOPE,
+            0,
+            Map.of("modifiedTime", BASE.toString()),
+            BASE,
+            runId,
+            ImportRunStatus.SUCCEEDED));
+    int[] fetchCalls = {0};
+
+    var result = replayService(fetchCalls).sync(new IncrementalSyncCommand("replay-succeeded"));
+
+    assertThat(result.replayed()).isTrue();
+    assertThat(result.runId()).isEqualTo(runId);
+    assertThat(result.pageCount()).isEqualTo(3);
+    assertThat(result.counts()).isEqualTo(counts);
+    assertThat(result.checkpointVersion()).isEqualTo(1);
+    assertThat(fetchCalls[0]).isZero();
+  }
+
+  @Test
+  void actual_PG_succeeded라도_checkpoint가_다른_run이면_성공_replay하지_않는다() {
+    insertReplayRun("succeeded", "replay-orphan-success", ImportRunCounts.zero());
+
+    assertThatThrownBy(
+            () ->
+                replayService(new int[] {0})
+                    .sync(new IncrementalSyncCommand("replay-orphan-success")))
+        .isInstanceOf(IncrementalSyncException.class);
+    assertThat(checkpoints.find(SCOPE).orElseThrow().version()).isZero();
+  }
+
+  @Test
+  void actual_PG_concurrent_same_idempotency_running_retry는_둘다_성공으로_위장하지_않는다() throws Exception {
+    UUID runId = insertReplayRun("running", "replay-concurrent", ImportRunCounts.zero());
+    int[] fetchCalls = {0};
+    IncrementalSyncService service = replayService(fetchCalls);
+
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var first = pool.submit(() -> service.sync(new IncrementalSyncCommand("replay-concurrent")));
+      var second = pool.submit(() -> service.sync(new IncrementalSyncCommand("replay-concurrent")));
+      for (var future : List.of(first, second)) {
+        assertThatThrownBy(future::get).hasCauseInstanceOf(IncrementalSyncException.class);
+      }
+    }
+
+    assertThat(fetchCalls[0]).isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select status from public.data_import_runs where id=?", String.class, runId))
+        .isEqualTo("running");
+    assertThat(checkpoints.find(SCOPE).orElseThrow().version()).isZero();
+  }
+
   private IncrementalSyncCommitCommand command(
       Fixture fixture, long version, PlaceSyncChange change, Instant cursor) {
     return new IncrementalSyncCommitCommand(
@@ -250,6 +343,100 @@ class TransactionalIncrementalSyncCommitterIntegrationTest {
         List.of(
             new IncrementalSyncPageLineage(
                 1, 1, fixture.payloadHash(), fixture.fetchedAt(), fixture.lineage())));
+  }
+
+  private IncrementalSyncService replayService(int[] fetchCalls) {
+    return new IncrementalSyncService(
+        (cursor, pageNo) -> {
+          fetchCalls[0]++;
+          throw new AssertionError("replay가 provider를 호출하면 안 됩니다.");
+        },
+        new com.timingjeju.api.application.tourapi.sync.IncrementalSyncSnapshotGateway() {
+          @Override
+          public com.timingjeju.api.application.tourapi.sync.SavedIncrementalSyncPage save(
+              UUID runId,
+              IncrementalSyncCursor cursor,
+              int pageNo,
+              com.timingjeju.api.application.tourapi.sync.IncrementalSyncSourceResponse response) {
+            throw new AssertionError("replay가 snapshot을 저장하면 안 됩니다.");
+          }
+
+          @Override
+          public void markParsed(
+              com.timingjeju.api.application.tourapi.sync.SavedIncrementalSyncPage page) {
+            throw new AssertionError("replay가 snapshot 상태를 바꾸면 안 됩니다.");
+          }
+
+          @Override
+          public void markRejected(
+              com.timingjeju.api.application.tourapi.sync.SavedIncrementalSyncPage page) {
+            throw new AssertionError("replay가 snapshot 상태를 바꾸면 안 됩니다.");
+          }
+        },
+        (format, payload) -> {
+          throw new AssertionError("replay가 parser를 호출하면 안 됩니다.");
+        },
+        checkpointService,
+        runService,
+        command -> {
+          throw new AssertionError("replay가 commit하면 안 됩니다.");
+        },
+        java.time.Clock.systemUTC());
+  }
+
+  private UUID insertReplayRun(String status, String idempotencyKey, ImportRunCounts counts) {
+    UUID runId = UUID.randomUUID();
+    UUID ownerToken = UUID.randomUUID();
+    boolean terminal = !"running".equals(status);
+    String errorCode =
+        switch (status) {
+          case "failed" -> "IMPORT_PROVIDER_UNAVAILABLE";
+          case "partial" -> "IMPORT_PARSE_REJECTED";
+          case "cancelled" -> "IMPORT_CANCELLED";
+          default -> null;
+        };
+    String errorMessage = errorCode == null ? null : "고정된 테스트 실패 분류";
+    jdbcTemplate.update(
+        """
+        insert into public.data_import_runs (
+          id, source_kind, source_name, source_operation, data_version, status,
+          started_at, finished_at, row_count, fetched_count, inserted_count, updated_count,
+          skipped_count, rejected_count, deleted_count, staled_count, error_code, error_message,
+          parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
+          idempotency_key, source_provider, source_service, owner_token, fencing_token
+        ) values (?, 'tour_api', 'TourAPI 제주 장소 증분 동기화', 'areaBasedSyncList2', '2026', ?,
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  'tourapi-incremental-sync-v1', 'tourapi-incremental-sync-v1',
+                  'incremental', 'jeju', ?, ?, 'tour-api', 'KorService2', ?, 1)
+        """,
+        runId,
+        status,
+        Timestamp.from(BASE.minusSeconds(60)),
+        terminal ? Timestamp.from(BASE.minusSeconds(30)) : null,
+        counts.rowCount(),
+        counts.fetchedCount(),
+        counts.insertedCount(),
+        counts.updatedCount(),
+        counts.skippedCount(),
+        counts.rejectedCount(),
+        counts.deletedCount(),
+        counts.staledCount(),
+        errorCode,
+        errorMessage,
+        sha256("areaBasedSyncList2:jeju:tourapi-incremental-sync-v1"),
+        idempotencyKey,
+        ownerToken);
+    return runId;
+  }
+
+  private static String sha256(String value) {
+    try {
+      return HexFormat.of()
+          .formatHex(
+              MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (java.security.NoSuchAlgorithmException impossible) {
+      throw new IllegalStateException(impossible);
+    }
   }
 
   private IncrementalSyncWrite write(PlaceSyncChange change, Fixture fixture) {

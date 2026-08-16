@@ -8,6 +8,7 @@ import com.timingjeju.api.application.importing.ImportCheckpointAdvanceCommand;
 import com.timingjeju.api.application.importing.ImportCheckpointRepository;
 import com.timingjeju.api.application.importing.ImportCheckpointService;
 import com.timingjeju.api.application.importing.ImportRunCounts;
+import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunIdentityGenerator;
 import com.timingjeju.api.application.importing.ImportRunLease;
@@ -128,9 +129,13 @@ class IncrementalSyncServiceTest {
   }
 
   @Test
-  void 같은_idempotency_cursor_replay는_fetch_snapshot_commit을_반복하지_않는다() {
-    FakeRunStore runs = new FakeRunStore(true);
-    FakeCheckpointRepository checkpoints = new FakeCheckpointRepository(checkpoint());
+  void committed_succeeded_replay만_저장된_counts와_checkpoint를_진실하게_반환한다() {
+    ImportRunCounts storedCounts = new ImportRunCounts(9, 3, 4, 2, 2, 0, 1, 0);
+    FakeRunStore runs = new FakeRunStore(true, ImportRunExecutionStatus.SUCCEEDED, storedCounts);
+    FakeCheckpointRepository checkpoints =
+        new FakeCheckpointRepository(
+            new ImportCheckpoint(
+                SCOPE, Map.of("modifiedTime", CURSOR.toString()), NOW, RUN, 8, NOW));
     FakeSnapshotGateway snapshots = new FakeSnapshotGateway();
     FakeCommitter committer = new FakeCommitter();
     int[] fetchCalls = {0};
@@ -152,6 +157,10 @@ class IncrementalSyncServiceTest {
         service.sync(new IncrementalSyncCommand("issue-30-cursor-replay"));
 
     assertThat(result.replayed()).isTrue();
+    assertThat(result.runId()).isEqualTo(RUN);
+    assertThat(result.pageCount()).isEqualTo(3);
+    assertThat(result.counts()).isEqualTo(storedCounts);
+    assertThat(result.checkpointVersion()).isEqualTo(8);
     assertThat(fetchCalls[0]).isZero();
     assertThat(snapshots.saved).isZero();
     assertThat(committer.commands).isEmpty();
@@ -179,6 +188,60 @@ class IncrementalSyncServiceTest {
               assertThat(command.pages()).hasSize(1);
             });
     assertThat(snapshots.statuses).containsExactly(SnapshotStatus.PARSED);
+  }
+
+  @Test
+  void running_failed_partial_cancelled_replay는_fetch나_commit없이_안정적으로_실패한다() {
+    for (ImportRunExecutionStatus status :
+        List.of(
+            ImportRunExecutionStatus.RUNNING,
+            ImportRunExecutionStatus.FAILED,
+            ImportRunExecutionStatus.PARTIAL,
+            ImportRunExecutionStatus.CANCELLED)) {
+      FakeRunStore runs = new FakeRunStore(true, status, ImportRunCounts.zero());
+      FakeSnapshotGateway snapshots = new FakeSnapshotGateway();
+      FakeCommitter committer = new FakeCommitter();
+      int[] fetchCalls = {0};
+
+      assertThatThrownBy(
+              () ->
+                  service(
+                          runs,
+                          new FakeCheckpointRepository(checkpoint()),
+                          snapshots,
+                          (cursor, pageNo) -> {
+                            fetchCalls[0]++;
+                            return response(pageNo);
+                          },
+                          (format, payload) -> {
+                            throw new AssertionError("parser를 호출하면 안 됩니다.");
+                          },
+                          committer)
+                      .sync(new IncrementalSyncCommand("issue-30-replay-" + status)))
+          .isInstanceOf(IncrementalSyncException.class);
+
+      assertThat(fetchCalls[0]).isZero();
+      assertThat(snapshots.saved).isZero();
+      assertThat(committer.commands).isEmpty();
+      assertThat(runs.status).isNull();
+    }
+  }
+
+  @Test
+  void succeeded_replay라도_checkpoint가_그_run을_가리키지_않으면_실패한다() {
+    FakeRunStore runs =
+        new FakeRunStore(true, ImportRunExecutionStatus.SUCCEEDED, ImportRunCounts.zero());
+
+    assertThatThrownBy(
+            () ->
+                service(
+                        runs,
+                        new FakeCheckpointRepository(checkpoint()),
+                        new FakeSnapshotGateway(),
+                        new ArrayDeque<>(),
+                        new FakeCommitter())
+                    .sync(new IncrementalSyncCommand("issue-30-mismatched-checkpoint")))
+        .isInstanceOf(IncrementalSyncException.class);
   }
 
   private static IncrementalSyncService service(
@@ -274,17 +337,27 @@ class IncrementalSyncServiceTest {
 
   private static final class FakeRunStore implements ImportRunStore {
     private final boolean replayed;
+    private final ImportRunExecutionStatus executionStatus;
+    private final ImportRunCounts counts;
     private ImportRunStatus status;
     private ImportRunFailure failure;
 
     private FakeRunStore(boolean replayed) {
+      this(replayed, ImportRunExecutionStatus.RUNNING, ImportRunCounts.zero());
+    }
+
+    private FakeRunStore(
+        boolean replayed, ImportRunExecutionStatus executionStatus, ImportRunCounts counts) {
       this.replayed = replayed;
+      this.executionStatus = executionStatus;
+      this.counts = counts;
     }
 
     @Override
     public ImportRunStartResult start(
         ImportRunStartCommand command, UUID runId, UUID ownerToken, Instant startedAt) {
-      return new ImportRunStartResult(new ImportRunLease(runId, ownerToken, 1), replayed);
+      return new ImportRunStartResult(
+          new ImportRunLease(runId, ownerToken, 1), replayed, executionStatus, counts);
     }
 
     @Override

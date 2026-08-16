@@ -14,7 +14,8 @@ public record IncrementalSyncResult(
     counts = Objects.requireNonNull(counts, "counts는 필수입니다.");
   }
 
-  public static IncrementalSyncResult replayed(UUID runId, long checkpointVersion) {
-    return new IncrementalSyncResult(runId, 0, ImportRunCounts.zero(), checkpointVersion, true);
+  public static IncrementalSyncResult replayed(
+      UUID runId, int pageCount, ImportRunCounts counts, long checkpointVersion) {
+    return new IncrementalSyncResult(runId, pageCount, counts, checkpointVersion, true);
   }
 }

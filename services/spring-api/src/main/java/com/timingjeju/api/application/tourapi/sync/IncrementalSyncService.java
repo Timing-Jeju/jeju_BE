@@ -4,6 +4,7 @@ import com.timingjeju.api.application.importing.ImportCheckpoint;
 import com.timingjeju.api.application.importing.ImportCheckpointError;
 import com.timingjeju.api.application.importing.ImportCheckpointException;
 import com.timingjeju.api.application.importing.ImportCheckpointService;
+import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleService;
@@ -65,10 +66,10 @@ public final class IncrementalSyncService {
     ImportCheckpoint checkpoint =
         checkpoints.find(SCOPE).orElseThrow(IncrementalSyncException::invalidResponse);
     IncrementalSyncCursor cursor = cursor(checkpoint);
-    ImportRunStartResult started = runs.start(startCommand(command, cursor));
+    ImportRunStartResult started = runs.start(startCommand(command));
     ImportRunLease lease = started.lease();
     if (started.replayed()) {
-      return IncrementalSyncResult.replayed(lease.runId(), checkpoint.version());
+      return replay(started, checkpoint);
     }
 
     try {
@@ -152,6 +153,19 @@ public final class IncrementalSyncService {
     }
   }
 
+  private static IncrementalSyncResult replay(
+      ImportRunStartResult started, ImportCheckpoint checkpoint) {
+    if (started.status() != ImportRunExecutionStatus.SUCCEEDED
+        || !started.lease().runId().equals(checkpoint.lastSucceededRunId())) {
+      throw IncrementalSyncException.invalidResponse();
+    }
+    return IncrementalSyncResult.replayed(
+        started.lease().runId(),
+        started.counts().fetchedCount(),
+        started.counts(),
+        checkpoint.version());
+  }
+
   private static void requireParsable(SavedIncrementalSyncPage saved) {
     if (saved.status() == SnapshotStatus.RECEIVED) return;
     if (saved.replayed() && saved.status() == SnapshotStatus.PARSED) return;
@@ -187,8 +201,7 @@ public final class IncrementalSyncService {
     }
   }
 
-  private static ImportRunStartCommand startCommand(
-      IncrementalSyncCommand command, IncrementalSyncCursor cursor) {
+  private static ImportRunStartCommand startCommand(IncrementalSyncCommand command) {
     return new ImportRunStartCommand(
         ImportSourceKind.TOUR_API,
         "TourAPI 제주 장소 증분 동기화",
@@ -197,7 +210,7 @@ public final class IncrementalSyncService {
         PARSER_VERSION,
         "tourapi-incremental-sync-v1",
         ImportSyncMode.INCREMENTAL,
-        sha256(OPERATION + ":jeju:" + cursor.modifiedAfter()),
+        sha256(OPERATION + ":jeju:" + PARSER_VERSION),
         command.idempotencyKey(),
         null);
   }

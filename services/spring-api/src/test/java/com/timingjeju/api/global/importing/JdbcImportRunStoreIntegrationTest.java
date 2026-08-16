@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.importing.ImportRunCounts;
+import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleError;
@@ -66,6 +67,8 @@ class JdbcImportRunStoreIntegrationTest {
     ImportRunStartResult replay = service.start(command("idem-1", null, "jeju"));
 
     assertThat(replay.replayed()).isTrue();
+    assertThat(replay.status()).isEqualTo(ImportRunExecutionStatus.RUNNING);
+    assertThat(replay.counts()).isEqualTo(ImportRunCounts.zero());
     assertThat(replay.lease()).isEqualTo(first.lease());
     assertThat(
             jdbcTemplate.queryForObject(
@@ -102,6 +105,42 @@ class JdbcImportRunStoreIntegrationTest {
         .isInstanceOf(ImportRunLifecycleException.class)
         .extracting("code")
         .isEqualTo(ImportRunLifecycleError.INVALID_REQUEST);
+  }
+
+  @Test
+  void 같은_idempotency_replay는_terminal_status와_counts를_그대로_반환한다() {
+    ImportRunLease failed = service.start(command("matrix-failed", null, "matrix-failed")).lease();
+    service.fail(failed, ImportRunFailure.PROVIDER_UNAVAILABLE);
+    ImportRunStartResult failedReplay =
+        service.start(command("matrix-failed", null, "matrix-failed"));
+    assertThat(failedReplay.status()).isEqualTo(ImportRunExecutionStatus.FAILED);
+    assertThat(failedReplay.counts()).isEqualTo(ImportRunCounts.zero());
+
+    ImportRunLease partial =
+        service.start(command("matrix-partial", null, "matrix-partial")).lease();
+    ImportRunCounts partialCounts = new ImportRunCounts(4, 2, 1, 1, 1, 1, 0, 0);
+    service.completePartial(partial, partialCounts, ImportRunFailure.PARSE_REJECTED);
+    ImportRunStartResult partialReplay =
+        service.start(command("matrix-partial", null, "matrix-partial"));
+    assertThat(partialReplay.status()).isEqualTo(ImportRunExecutionStatus.PARTIAL);
+    assertThat(partialReplay.counts()).isEqualTo(partialCounts);
+
+    ImportRunLease succeeded =
+        service.start(command("matrix-succeeded", null, "matrix-succeeded")).lease();
+    ImportRunCounts succeededCounts = new ImportRunCounts(9, 3, 4, 2, 2, 0, 1, 0);
+    service.succeed(succeeded, succeededCounts);
+    ImportRunStartResult succeededReplay =
+        service.start(command("matrix-succeeded", null, "matrix-succeeded"));
+    assertThat(succeededReplay.status()).isEqualTo(ImportRunExecutionStatus.SUCCEEDED);
+    assertThat(succeededReplay.counts()).isEqualTo(succeededCounts);
+
+    ImportRunLease cancelled =
+        service.start(command("matrix-cancelled", null, "matrix-cancelled")).lease();
+    service.cancel(cancelled);
+    ImportRunStartResult cancelledReplay =
+        service.start(command("matrix-cancelled", null, "matrix-cancelled"));
+    assertThat(cancelledReplay.status()).isEqualTo(ImportRunExecutionStatus.CANCELLED);
+    assertThat(cancelledReplay.counts()).isEqualTo(ImportRunCounts.zero());
   }
 
   @Test
