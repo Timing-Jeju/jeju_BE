@@ -169,6 +169,12 @@ public class JdbcTagoStopRepository implements TagoStopRepository {
                    last_seen_at, stale
             from public.bus_stops
             where source_provider=? and source_service=? and city_code=?
+              and octet_length(source_provider) <= 128
+              and octet_length(source_service) <= 128
+              and octet_length(city_code) <= 64
+              and octet_length(node_id) <= 512
+              and octet_length(source_provider) + octet_length(source_service)
+                + octet_length(city_code) + octet_length(node_id) <= 1024
             order by node_id for update
             """,
             (resultSet, rowNumber) -> stored(resultSet),
@@ -213,6 +219,12 @@ public class JdbcTagoStopRepository implements TagoStopRepository {
                    last_seen_at, stale
             from public.bus_stops
             where source_provider=? and source_service=? and city_code=? and node_id=?
+              and octet_length(source_provider) <= 128
+              and octet_length(source_service) <= 128
+              and octet_length(city_code) <= 64
+              and octet_length(node_id) <= 512
+              and octet_length(source_provider) + octet_length(source_service)
+                + octet_length(city_code) + octet_length(node_id) <= 1024
             for update
             """,
             (resultSet, rowNumber) -> stored(resultSet),

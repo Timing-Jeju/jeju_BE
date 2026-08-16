@@ -39,8 +39,16 @@ on conflict (source_provider, source_service, source_operation, scope_key) do no
 
 create index idx_bus_stops_source_scope_freshness
   on public.bus_stops (
-    source_provider, source_service, city_code, stale, last_seen_at desc, node_id
-  );
+    source_provider, source_service, city_code, node_id
+  ) include (stale, last_seen_at)
+  where octet_length(source_provider) <= 128
+    and octet_length(source_service) <= 128
+    and octet_length(city_code) <= 64
+    and octet_length(node_id) <= 512
+    and octet_length(source_provider)
+      + octet_length(source_service)
+      + octet_length(city_code)
+      + octet_length(node_id) <= 1024;
 
 create index idx_external_reference_codes_source_scope_name
   on public.external_reference_codes (

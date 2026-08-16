@@ -1557,6 +1557,30 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("alter table public.bus_stops enable row level security", migration)
         self.assertIn("revoke all on public.bus_stops from anon, authenticated", migration)
 
+    def test_tago_scope_index_is_legacy_safe_and_matches_the_repository_lookup(self):
+        migration = self.read_migration(TAGO_STOP_IMPORT_MIGRATION)
+        repository = compact_sql(
+            (
+                ROOT
+                / "services/spring-api/src/main/java/com/timingjeju/api/global/tago/stop/JdbcTagoStopRepository.java"
+            ).read_text(encoding="utf-8")
+        )
+
+        bounded_scope = (
+            "octet_length(source_provider) <= 128 and "
+            "octet_length(source_service) <= 128 and "
+            "octet_length(city_code) <= 64 and "
+            "octet_length(node_id) <= 512"
+        )
+        self.assertIn(bounded_scope, migration)
+        self.assertIn(bounded_scope, repository)
+        self.assertRegex(
+            migration,
+            r"idx_bus_stops_source_scope_freshness[^;]+"
+            r"\(\s*source_provider, source_service, city_code, node_id\s*\)\s+"
+            r"include \(stale, last_seen_at\)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
