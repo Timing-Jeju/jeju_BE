@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 @Component
 public final class TagoStopClient implements TagoStopSource {
   static final int PAGE_SIZE = 100;
+  private static final String SERVICE_PATH = "BusSttnInfoInqireService/";
   private final TagoStopHttpExecutor executor;
 
   @Autowired
@@ -37,14 +38,15 @@ public final class TagoStopClient implements TagoStopSource {
   }
 
   public TagoStopSourceResponse fetchCityCodes() {
-    return fetch(ExternalApiOperation.TAGO_CITY_CODE, "getCtyCodeList", null, 1);
+    return fetch(ExternalApiOperation.TAGO_CITY_CODE, SERVICE_PATH + "getCtyCodeList", null, 1);
   }
 
   public TagoStopSourceResponse fetchStations(String cityCode, int pageNo) {
     if (cityCode == null || cityCode.isBlank() || pageNo < 1) {
       throw TagoStopImportException.invalidRequest();
     }
-    return fetch(ExternalApiOperation.TAGO_STATION_LIST, "getSttnNoList", cityCode, pageNo);
+    return fetch(
+        ExternalApiOperation.TAGO_STATION_LIST, SERVICE_PATH + "getSttnNoList", cityCode, pageNo);
   }
 
   private TagoStopSourceResponse fetch(
