@@ -98,6 +98,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260817000000_tour_api_place_images_operation.sql",
                 "20260818000000_tour_api_incremental_sync.sql",
                 "20260819000000_tago_stop_import.sql",
+                "20260823000000_recommended_stay_policy.sql",
             ],
             migration_names,
         )
@@ -120,6 +121,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
             "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
             "./supabase/migrations/20260819000000_tago_stop_import.sql",
+            "./supabase/migrations/20260823000000_recommended_stay_policy.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 

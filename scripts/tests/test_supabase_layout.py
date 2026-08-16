@@ -89,7 +89,7 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertEqual(26, len(re.findall(r"(?im)^create policy ", migration)))
 
     def test_general_postgres_compose_uses_local_auth_then_canonical_migration(self):
-        for compose_name in ("compose.yml", "compose.test.yml"):
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             compose = (ROOT / compose_name).read_text(encoding="utf-8")
             with self.subTest(compose=compose_name):
                 self.assertIn("./db/local-postgres/auth_compat.sql", compose)
