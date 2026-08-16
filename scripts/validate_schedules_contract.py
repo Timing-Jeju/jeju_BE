@@ -113,6 +113,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         errors.append("Day move boundary가 다릅니다.")
     if contract.get("versionPolicy", {}).get("legCompleteness") != "exactly one adjacent leg for every consecutive item pair; zero for fewer than two":
         errors.append("인접 leg 완전성 계약이 다릅니다.")
+    if contract.get("versionPolicy", {}).get("immutable") != "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed":
+        errors.append("불변 version과 허용 status transition 계약이 다릅니다.")
 
     item_policy = contract.get("itemPolicy", {})
     required = item_policy.get("requiredByType", {})

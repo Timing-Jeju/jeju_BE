@@ -57,6 +57,10 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("body", self.contract["mutationPolicy"]["expectedVersionLocation"]["PATCH"])
         self.assertEqual("body", self.contract["mutationPolicy"]["expectedVersionLocation"]["PUT"])
         self.assertEqual("strong trip aggregate ETag plus expected active schedule version", self.contract["mutationPolicy"]["concurrency"])
+        self.assertEqual(
+            "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed",
+            self.contract["versionPolicy"]["immutable"],
+        )
 
     def test_item_type_required_fields_completed_item_and_manual_validation_are_closed(self) -> None:
         self.assertEqual(

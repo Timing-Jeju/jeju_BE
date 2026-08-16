@@ -127,7 +127,7 @@
     "progress": "progress required and nullable; null means no progress row"
   },
   "versionPolicy": {
-    "immutable": "active, candidate, sealed and superseded versions plus their items and legs are never updated in place",
+    "immutable": "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed",
     "activation": "copy active, apply edit, validate, seal new user_edit version, supersede previous active and switch pointer atomically",
     "legCompleteness": "exactly one adjacent leg for every consecutive item pair; zero for fewer than two"
   },
@@ -185,7 +185,7 @@
   "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}},
   "schemaGap": [
     "문서 작업은 schema를 변경하지 않으며 public schema 단일 기준은 supabase/migrations이다",
-    "item type별 place/accommodation/transport-event 참조 완전성은 #50 구현 전에 migration 필요성을 재검증한다",
+    "trip_items에는 accommodation/transport-event 전용 FK가 없고 stay_minutes는 null/0 및 상한 없음이어서 #50에서 migration과 application validator 책임을 명시적으로 결정한다",
     "Spring/FastAPI 운영 코드와 Flyway는 이 Issue 범위가 아니다"
   ]
 }
