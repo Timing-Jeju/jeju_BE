@@ -73,6 +73,10 @@ Spring에는 공개 Controller가 없는 import run 생명주기 application por
 | `detailImage2` | 이미지 목록/저작권 코드 | `external_api_snapshots` -> `place_images` |
 | `areaBasedSyncList2` | 변경분 동기화 | `data_import_runs` -> `external_api_snapshots` -> place upsert -> checkpoint CAS |
 
+`locationBasedList2`, `searchKeyword2`, `searchStay2` 후보 보강의 구현·쿼터·transaction 계약은
+[TourAPI 후보 보강 importer](../TOURAPI_DISCOVERY_IMPORT.md)를 따른다. 세 operation은 같은 contentid를
+한 장소로 병합하지만 operation/request fingerprint/snapshot provenance는 append-only로 각각 보존한다.
+
 정확한 operation suffix와 필수 파라미터는 발급받은 최신 Swagger/활용 매뉴얼로 integration test에서 다시 고정한다.
 
 ### 3.3 필드 매핑
