@@ -15,6 +15,8 @@ import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Component
 public final class KmaWeatherClient implements KmaWeatherSource {
@@ -22,10 +24,12 @@ public final class KmaWeatherClient implements KmaWeatherSource {
   private static final DateTimeFormatter DATE = DateTimeFormatter.BASIC_ISO_DATE;
   private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HHmm");
   private static final int PAGE_SIZE = 1000;
+  private static final int MAX_VILLAGE_ITEMS = 5000;
   private final KmaWeatherHttpExecutor executor;
+  private final ObjectMapper objectMapper;
 
   @Autowired
-  public KmaWeatherClient(ExternalApiExecutor executor) {
+  public KmaWeatherClient(ExternalApiExecutor executor, ObjectMapper objectMapper) {
     this(
         request ->
             executor.execute(
@@ -34,11 +38,17 @@ public final class KmaWeatherClient implements KmaWeatherSource {
                     request.relativePath(),
                     request.queryParameters(),
                     request.format()),
-                body -> body));
+                body -> body),
+        objectMapper);
   }
 
   KmaWeatherClient(KmaWeatherHttpExecutor executor) {
+    this(executor, new ObjectMapper());
+  }
+
+  KmaWeatherClient(KmaWeatherHttpExecutor executor, ObjectMapper objectMapper) {
     this.executor = Objects.requireNonNull(executor, "executor는 필수입니다.");
+    this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.");
   }
 
   @Override
@@ -47,27 +57,87 @@ public final class KmaWeatherClient implements KmaWeatherSource {
     Objects.requireNonNull(operation, "operation은 필수입니다.");
     Objects.requireNonNull(baseTime, "baseTime은 필수입니다.");
     requireGrid(nx, ny);
+    if (operation == KmaWeatherOperation.VILLAGE_FORECAST) {
+      return fetchVillage(baseTime, nx, ny);
+    }
+    return new KmaWeatherSourceResponse(
+        executor.execute(request(operation, baseTime, nx, ny, 1)), SnapshotPayloadFormat.JSON);
+  }
+
+  private KmaWeatherSourceResponse fetchVillage(ForecastBaseTime baseTime, int nx, int ny) {
+    try {
+      var root = objectMapper.createObjectNode();
+      var pages = root.putArray("forecastPages");
+      byte[] first =
+          executor.execute(request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, 1));
+      JsonNode firstPage = objectMapper.readTree(first);
+      pages.add(firstPage);
+      int totalCount =
+          requiredItemCount(firstPage.path("response").path("body").path("totalCount"));
+      int pageCount = (totalCount + PAGE_SIZE - 1) / PAGE_SIZE;
+      for (int page = 2; page <= pageCount; page++) {
+        pages.add(
+            objectMapper.readTree(
+                executor.execute(
+                    request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, page))));
+      }
+      root.set(
+          "forecastVersion", objectMapper.readTree(executor.execute(versionRequest(baseTime))));
+      return new KmaWeatherSourceResponse(
+          objectMapper.writeValueAsBytes(root), SnapshotPayloadFormat.JSON);
+    } catch (com.timingjeju.api.application.kma.KmaWeatherImportException failure) {
+      throw failure;
+    } catch (RuntimeException failure) {
+      throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
+    }
+  }
+
+  private static int requiredItemCount(JsonNode node) {
+    if (!node.isIntegralNumber()
+        || !node.canConvertToInt()
+        || node.asInt() < 1
+        || node.asInt() > MAX_VILLAGE_ITEMS) {
+      throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
+    }
+    return node.asInt();
+  }
+
+  private static KmaWeatherHttpRequest request(
+      KmaWeatherOperation operation, ForecastBaseTime baseTime, int nx, int ny, int pageNo) {
     Map<String, String> query = new LinkedHashMap<>();
-    query.put("pageNo", "1");
+    query.put("pageNo", Integer.toString(pageNo));
     query.put("numOfRows", Integer.toString(PAGE_SIZE));
     query.put("dataType", "JSON");
     query.put("base_date", DATE.format(baseTime.baseDate()));
     query.put("base_time", TIME.format(baseTime.baseTime()));
     query.put("nx", Integer.toString(nx));
     query.put("ny", Integer.toString(ny));
-    KmaWeatherHttpRequest request =
-        new KmaWeatherHttpRequest(
-            externalOperation(operation),
-            operation.providerOperation(),
-            query,
-            ExternalApiResponseFormat.JSON);
-    return new KmaWeatherSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);
+    return new KmaWeatherHttpRequest(
+        externalOperation(operation),
+        operation.providerOperation(),
+        query,
+        ExternalApiResponseFormat.JSON);
+  }
+
+  private static KmaWeatherHttpRequest versionRequest(ForecastBaseTime baseTime) {
+    Map<String, String> query = new LinkedHashMap<>();
+    query.put("pageNo", "1");
+    query.put("numOfRows", "10");
+    query.put("dataType", "JSON");
+    query.put("ftype", "SHRT");
+    query.put("basedatetime", DATE.format(baseTime.baseDate()) + TIME.format(baseTime.baseTime()));
+    return new KmaWeatherHttpRequest(
+        ExternalApiOperation.KMA_FORECAST_VERSION,
+        "getFcstVersion",
+        query,
+        ExternalApiResponseFormat.JSON);
   }
 
   private static ExternalApiOperation externalOperation(KmaWeatherOperation operation) {
     return switch (operation) {
       case ULTRA_CURRENT -> ExternalApiOperation.KMA_ULTRA_CURRENT;
       case ULTRA_FORECAST -> ExternalApiOperation.KMA_ULTRA_FORECAST;
+      case VILLAGE_FORECAST -> ExternalApiOperation.KMA_VILLAGE_FORECAST;
     };
   }
 

@@ -59,6 +59,11 @@ public final class SnapshottingKmaWeatherGateway implements KmaWeatherSnapshotGa
     metadata.put("base_time", baseTime);
     metadata.put("nx", Integer.toString(command.nx()));
     metadata.put("ny", Integer.toString(command.ny()));
+    if (operation == KmaWeatherOperation.VILLAGE_FORECAST) {
+      metadata.put("versionEndpoint", "/getFcstVersion");
+      metadata.put("versionFtype", "SHRT");
+      metadata.put("versionBasedatetime", baseDate + baseTime);
+    }
     SnapshotSaveResult saved =
         snapshots.save(
             new SnapshotSaveCommand(
@@ -75,7 +80,7 @@ public final class SnapshottingKmaWeatherGateway implements KmaWeatherSnapshotGa
                 clock.instant(),
                 null,
                 null,
-                KmaWeatherImportService.PARSER_VERSION,
+                KmaWeatherImportService.parserVersion(operation),
                 response.format(),
                 "UTF-8",
                 response.payload(),

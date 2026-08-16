@@ -184,10 +184,12 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | --- | --- | --- |
 | `weather_grid_points` | 위경도와 KMA `nx`,`ny` 매핑 | app/KMA grid |
 | `weather_observations` | 초단기실황 snapshot | KMA |
-| `weather_forecasts` | 초단기/단기예보 snapshot | KMA |
+| `weather_forecasts` | 초단기/단기예보 snapshot과 단기 `forecast_version` | KMA |
 | `trip_weather_impacts` | 특정 일정 버전에 대한 날씨 영향 | FastAPI computed |
 
 예보와 영향은 반드시 분리한다. 예보가 갱신되어도 과거 계산이 어떤 forecast를 사용했는지 FK로 추적한다.
+단기예보 신규 행은 `getFcstVersion`의 `SHRT` 파일 version(`yyyyMMddHHmm`)을 반드시 저장하고,
+초단기예보에는 이 값을 혼합하지 않는다.
 
 ### 4.5 Trip Input
 

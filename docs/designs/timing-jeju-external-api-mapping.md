@@ -337,6 +337,12 @@ Issue #42의 `KmaGridConverter`는 외부 호출 없이 WGS84 위경도를 KMA D
 | `WSD` | `wind_speed_mps` |
 | `TMN`, `TMX` | min/max temperature |
 
+단기예보 importer는 `numOfRows=1000`으로 `totalCount`가 가리키는 모든 page를 순서대로
+수집하고 `getFcstVersion(ftype=SHRT, basedatetime=<base>)` 원문과 함께 하나의 versioned snapshot payload로
+보존한다. 각 시간대는 `TMP/POP/PCP/PTY/SKY/REH/WSD`가 완전해야 하며 응답 전체에는
+`TMN/TMX`가 모두 있어야 한다. 정시부터 이어지는 1시간 grid와 공식 단기예보 horizon 상한,
+공식 부가 category는 원문에 보존하고 file version 형식을 검증한 뒤에만 `short` forecast를 저장한다.
+
 강수량은 `강수없음`, `1mm 미만` 같은 문자열일 수 있으므로 parser 버전과 원문 category를 보존한다.
 
 Issue #43 parser의 필수 집계는 다음과 같다.

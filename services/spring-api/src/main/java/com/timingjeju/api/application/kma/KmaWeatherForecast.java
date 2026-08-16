@@ -7,9 +7,40 @@ public record KmaWeatherForecast(
     Instant forecastedAt,
     Instant validAt,
     String forecastType,
+    String forecastVersion,
     String skyCode,
     String precipitationType,
+    Integer precipitationProbabilityPercent,
     BigDecimal precipitationAmountMm,
     BigDecimal temperatureC,
+    BigDecimal minTemperatureC,
+    BigDecimal maxTemperatureC,
     int humidityPercent,
-    BigDecimal windSpeedMps) {}
+    BigDecimal windSpeedMps) {
+
+  public KmaWeatherForecast(
+      Instant forecastedAt,
+      Instant validAt,
+      String forecastType,
+      String skyCode,
+      String precipitationType,
+      BigDecimal precipitationAmountMm,
+      BigDecimal temperatureC,
+      int humidityPercent,
+      BigDecimal windSpeedMps) {
+    this(
+        forecastedAt,
+        validAt,
+        forecastType,
+        null,
+        skyCode,
+        precipitationType,
+        null,
+        precipitationAmountMm,
+        temperatureC,
+        null,
+        null,
+        humidityPercent,
+        windSpeedMps);
+  }
+}

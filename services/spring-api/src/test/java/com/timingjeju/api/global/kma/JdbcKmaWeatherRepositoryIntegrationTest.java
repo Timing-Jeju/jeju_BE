@@ -123,6 +123,40 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
   }
 
   @Test
+  void villageForecastPersistsVersionAndEveryNormalizedCategoryWithSingleLineage() {
+    Fixture fixture = fixture(21, "getVilageFcst");
+    KmaWeatherForecast forecast =
+        new KmaWeatherForecast(
+            Instant.parse("2026-08-15T20:00:00Z"),
+            Instant.parse("2026-08-15T21:00:00Z"),
+            "short",
+            "202608160500",
+            "3",
+            "1",
+            30,
+            new BigDecimal("0.5"),
+            new BigDecimal("23.0"),
+            new BigDecimal("19.0"),
+            new BigDecimal("28.0"),
+            80,
+            new BigDecimal("2.4"));
+    KmaWeatherBatch batch =
+        new KmaWeatherBatch(52, 38, 9, forecast.validAt(), List.of(), List.of(forecast));
+
+    repository.upsert(new KmaWeatherUpsertCommand(GRID, batch, fixture.lineage()));
+
+    assertThat(
+            jdbc.queryForMap(
+                "select forecast_version, precipitation_probability_percent, min_temperature_c, max_temperature_c, source_snapshot_id, import_run_id from public.weather_forecasts"))
+        .containsEntry("forecast_version", "202608160500")
+        .containsEntry("precipitation_probability_percent", 30)
+        .containsEntry("min_temperature_c", new BigDecimal("19.00"))
+        .containsEntry("max_temperature_c", new BigDecimal("28.00"))
+        .containsEntry("source_snapshot_id", fixture.snapshot())
+        .containsEntry("import_run_id", fixture.run());
+  }
+
+  @Test
   void observationReplaySkipsAndNewLineageUpdatesSameNaturalKey() {
     Fixture first = fixture(11, "getUltraSrtNcst");
     TransactionTemplate tx = new TransactionTemplate(transactionManager);

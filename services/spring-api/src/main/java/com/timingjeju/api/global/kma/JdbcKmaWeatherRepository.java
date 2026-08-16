@@ -135,20 +135,25 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
           jdbc.update(
               """
               insert into public.weather_forecasts (
-                grid_point_id, forecasted_at, valid_at, forecast_type, sky_code,
-                precipitation_type, precipitation_amount_mm, temperature_c, humidity_percent,
+                grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version, sky_code,
+                precipitation_type, precipitation_probability_percent, precipitation_amount_mm,
+                temperature_c, min_temperature_c, max_temperature_c, humidity_percent,
                 wind_speed_mps, source_provider, source_operation, import_run_id,
                 source_snapshot_id, raw_payload
-              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}'::jsonb)
+              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}'::jsonb)
               """,
               gridPointId,
               ts(value.forecastedAt()),
               ts(value.validAt()),
               value.forecastType(),
+              value.forecastVersion(),
               value.skyCode(),
               value.precipitationType(),
+              value.precipitationProbabilityPercent(),
               value.precipitationAmountMm(),
               value.temperatureC(),
+              value.minTemperatureC(),
+              value.maxTemperatureC(),
               value.humidityPercent(),
               value.windSpeedMps(),
               PROVIDER,
@@ -167,15 +172,21 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
         jdbc.update(
             """
             update public.weather_forecasts
-            set sky_code=?, precipitation_type=?, precipitation_amount_mm=?, temperature_c=?,
-                humidity_percent=?, wind_speed_mps=?, source_provider=?, source_operation=?,
+            set forecast_version=?, sky_code=?, precipitation_type=?,
+                precipitation_probability_percent=?, precipitation_amount_mm=?, temperature_c=?,
+                min_temperature_c=?, max_temperature_c=?, humidity_percent=?, wind_speed_mps=?,
+                source_provider=?, source_operation=?,
                 import_run_id=?, source_snapshot_id=?, raw_payload='{}'::jsonb
             where id=?
             """,
+            value.forecastVersion(),
             value.skyCode(),
             value.precipitationType(),
+            value.precipitationProbabilityPercent(),
             value.precipitationAmountMm(),
             value.temperatureC(),
+            value.minTemperatureC(),
+            value.maxTemperatureC(),
             value.humidityPercent(),
             value.windSpeedMps(),
             PROVIDER,
@@ -211,8 +222,10 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
     List<StoredForecast> rows =
         jdbc.query(
             """
-            select id, sky_code, precipitation_type, precipitation_amount_mm, temperature_c,
-                   humidity_percent, wind_speed_mps, source_operation, import_run_id,
+            select id, forecast_version, sky_code, precipitation_type,
+                   precipitation_probability_percent, precipitation_amount_mm, temperature_c,
+                   min_temperature_c, max_temperature_c, humidity_percent, wind_speed_mps,
+                   source_operation, import_run_id,
                    source_snapshot_id
             from public.weather_forecasts
             where grid_point_id=? and forecasted_at=? and valid_at=? and forecast_type=?
@@ -260,10 +273,14 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
   private static StoredForecast forecast(ResultSet rs) throws SQLException {
     return new StoredForecast(
         rs.getObject("id", UUID.class),
+        rs.getString("forecast_version"),
         rs.getString("sky_code"),
         rs.getString("precipitation_type"),
+        rs.getObject("precipitation_probability_percent", Integer.class),
         rs.getBigDecimal("precipitation_amount_mm"),
         rs.getBigDecimal("temperature_c"),
+        rs.getBigDecimal("min_temperature_c"),
+        rs.getBigDecimal("max_temperature_c"),
         rs.getInt("humidity_percent"),
         rs.getBigDecimal("wind_speed_mps"),
         rs.getString("source_operation"),
@@ -281,6 +298,10 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
 
   private static boolean sameDecimal(BigDecimal left, BigDecimal right) {
     return left != null && right != null && left.compareTo(right) == 0;
+  }
+
+  private static boolean sameNullableDecimal(BigDecimal left, BigDecimal right) {
+    return left == null ? right == null : right != null && left.compareTo(right) == 0;
   }
 
   private static final class Counts {
@@ -317,20 +338,28 @@ public class JdbcKmaWeatherRepository implements KmaWeatherRepository {
 
   private record StoredForecast(
       UUID id,
+      String forecastVersion,
       String sky,
       String precipitationType,
+      Integer precipitationProbability,
       BigDecimal precipitation,
       BigDecimal temperature,
+      BigDecimal minimumTemperature,
+      BigDecimal maximumTemperature,
       int humidity,
       BigDecimal windSpeed,
       String operation,
       UUID runId,
       UUID snapshotId) {
     private boolean same(KmaWeatherForecast value, KmaWeatherLineage lineage) {
-      return Objects.equals(sky, value.skyCode())
+      return Objects.equals(forecastVersion, value.forecastVersion())
+          && Objects.equals(sky, value.skyCode())
           && Objects.equals(precipitationType, value.precipitationType())
+          && Objects.equals(precipitationProbability, value.precipitationProbabilityPercent())
           && sameDecimal(precipitation, value.precipitationAmountMm())
           && sameDecimal(temperature, value.temperatureC())
+          && sameNullableDecimal(minimumTemperature, value.minTemperatureC())
+          && sameNullableDecimal(maximumTemperature, value.maxTemperatureC())
           && humidity == value.humidityPercent()
           && sameDecimal(windSpeed, value.windSpeedMps())
           && Objects.equals(operation, lineage.operationKey())

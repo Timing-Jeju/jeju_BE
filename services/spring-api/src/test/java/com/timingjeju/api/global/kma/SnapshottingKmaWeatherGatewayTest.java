@@ -75,6 +75,37 @@ class SnapshottingKmaWeatherGatewayTest {
   }
 
   @Test
+  void capturesCombinedVillageAndVersionRawPayloadWithVillageParserLineage() {
+    SnapshotStoreService store = mock(SnapshotStoreService.class);
+    when(store.save(any())).thenReturn(saved(false, SnapshotStatus.RECEIVED));
+    SnapshottingKmaWeatherGateway gateway =
+        new SnapshottingKmaWeatherGateway(store, Clock.fixed(FETCHED, ZoneOffset.UTC));
+    byte[] raw =
+        "{\"forecastPages\":[{\"response\":{}}],\"forecastVersion\":{\"response\":{}}}"
+            .getBytes(StandardCharsets.UTF_8);
+
+    gateway.capture(
+        RUN,
+        KmaWeatherOperation.VILLAGE_FORECAST,
+        new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+        new KmaWeatherImportCommand(UUID.randomUUID(), 52, 38, "village-run"),
+        new KmaWeatherSourceResponse(raw, SnapshotPayloadFormat.JSON));
+
+    ArgumentCaptor<SnapshotSaveCommand> captured =
+        ArgumentCaptor.forClass(SnapshotSaveCommand.class);
+    verify(store).save(captured.capture());
+    assertThat(captured.getValue().scope().operation()).isEqualTo("getVilageFcst");
+    assertThat(captured.getValue().parserVersion())
+        .isEqualTo(
+            com.timingjeju.api.application.kma.KmaWeatherImportService.VILLAGE_PARSER_VERSION);
+    assertThat(captured.getValue().requestMetadata())
+        .containsEntry("versionEndpoint", "/getFcstVersion")
+        .containsEntry("versionFtype", "SHRT")
+        .containsEntry("versionBasedatetime", "202608160500");
+    assertThat(captured.getValue().decompressedPayload()).isEqualTo(raw);
+  }
+
+  @Test
   void parsedReplayDoesNotRepeatTerminalTransition() {
     SnapshotStoreService store = mock(SnapshotStoreService.class);
     when(store.save(any())).thenReturn(saved(true, SnapshotStatus.PARSED));
