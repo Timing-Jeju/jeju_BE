@@ -28,19 +28,23 @@ class KmaVillageForecastScheduleTest {
           .isEqualTo("https://apihub.kma.go.kr/notice.do?seqNotice=33");
       assertThat(fixture.path("authoritativeAttachment").asString())
           .startsWith("https://apihub.kma.go.kr/getAttachFile.do?");
+      assertThat(fixture.path("earlyExtendedDayOffset").asInt()).isEqualTo(4);
+      assertThat(fixture.path("lateExtendedDayOffset").asInt()).isEqualTo(5);
+      assertThat(fixture.path("officialSlotCounts").path("0200").asInt()).isEqualTo(101);
+      assertThat(fixture.path("officialSlotCounts").path("2300").asInt()).isEqualTo(104);
     }
   }
 
   @ParameterizedTest(name = "official 2024-11-28 base {0} has {1} slots and extended day +{2}")
   @CsvSource({
-    "02:00,77,3",
-    "05:00,74,3",
-    "08:00,71,3",
-    "11:00,68,3",
-    "14:00,65,3",
-    "17:00,86,4",
-    "20:00,83,4",
-    "23:00,80,4"
+    "02:00,101,4",
+    "05:00,98,4",
+    "08:00,95,4",
+    "11:00,92,4",
+    "14:00,89,4",
+    "17:00,110,5",
+    "20:00,107,5",
+    "23:00,104,5"
   })
   void buildsEveryOfficialBaseScheduleWithHourlyThenThreeHourlyExtendedGrid(
       LocalTime baseTime, int expectedSize, int extendedDayOffset) {
@@ -64,5 +68,14 @@ class KmaVillageForecastScheduleTest {
             extendedStart.plusHours(21));
     assertThat(slots.stream().filter(slot -> !slot.qualitative()).toList())
         .allSatisfy(slot -> assertThat(slot.validTime()).isBefore(extendedStart));
+    assertThat(slots.stream().filter(slot -> !slot.qualitative()).toList().getLast().validTime())
+        .isEqualTo(extendedStart.minusHours(1));
+    assertThat(
+            slots.stream()
+                .filter(KmaVillageForecastSchedule.Slot::qualitative)
+                .toList()
+                .getFirst()
+                .validTime())
+        .isEqualTo(extendedStart);
   }
 }

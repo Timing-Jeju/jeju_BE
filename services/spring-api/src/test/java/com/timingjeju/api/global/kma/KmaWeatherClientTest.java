@@ -106,6 +106,67 @@ class KmaWeatherClientTest {
   }
 
   @Test
+  void returnsExactAccumulatedPageOneWhenPageTwoTransportThrowsWithoutInventingErrorBytes() {
+    byte[] pageOne = villageEnvelope(1, 1001).getBytes(StandardCharsets.UTF_8);
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request -> {
+              if ("2".equals(request.queryParameters().get("pageNo"))) {
+                throw new IllegalStateException("transport failed");
+              }
+              return pageOne;
+            });
+
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
+
+    assertThat(response.transportFailed()).isTrue();
+    assertThat(response.parts())
+        .singleElement()
+        .satisfies(
+            part -> {
+              assertThat(part.providerOperation()).isEqualTo("getVilageFcst");
+              assertThat(part.pageNumber()).isEqualTo(1);
+              assertThat(part.payload()).isEqualTo(pageOne);
+            });
+  }
+
+  @Test
+  void returnsExactAccumulatedPagesWhenVersionTransportThrowsWithoutInventingErrorBytes() {
+    byte[] pageOne = villageEnvelope(1, 1001).getBytes(StandardCharsets.UTF_8);
+    byte[] pageTwo = villageEnvelope(2, 1001).getBytes(StandardCharsets.UTF_8);
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request -> {
+              if (request.operation() == ExternalApiOperation.KMA_FORECAST_VERSION) {
+                throw new IllegalStateException("transport failed");
+              }
+              return "2".equals(request.queryParameters().get("pageNo")) ? pageTwo : pageOne;
+            });
+
+    var response =
+        client.fetch(
+            KmaWeatherOperation.VILLAGE_FORECAST,
+            new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+            52,
+            38);
+
+    assertThat(response.transportFailed()).isTrue();
+    assertThat(response.parts())
+        .extracting(part -> part.providerOperation(), part -> part.pageNumber())
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple("getVilageFcst", 1),
+            org.assertj.core.groups.Tuple.tuple("getVilageFcst", 2));
+    assertThat(response.parts())
+        .extracting(part -> part.payload())
+        .containsExactly(pageOne, pageTwo);
+  }
+
+  @Test
   void fetchesEveryVillagePageAndForecastVersionWithoutCredentialMetadata() {
     List<KmaWeatherHttpRequest> requests = new ArrayList<>();
     KmaWeatherClient client =

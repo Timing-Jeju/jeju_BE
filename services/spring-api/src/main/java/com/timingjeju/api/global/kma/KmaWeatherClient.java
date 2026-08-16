@@ -68,8 +68,8 @@ public final class KmaWeatherClient implements KmaWeatherSource {
   }
 
   private KmaWeatherSourceResponse fetchVillage(ForecastBaseTime baseTime, int nx, int ny) {
+    List<KmaWeatherResponsePart> parts = new ArrayList<>();
     try {
-      List<KmaWeatherResponsePart> parts = new ArrayList<>();
       byte[] first =
           executor.execute(request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, 1));
       parts.add(part("getVilageFcst", 1, first));
@@ -91,6 +91,9 @@ public final class KmaWeatherClient implements KmaWeatherSource {
       parts.add(part("getFcstVersion", 1, version));
       return new KmaWeatherSourceResponse(parts);
     } catch (RuntimeException failure) {
+      if (!parts.isEmpty()) {
+        return KmaWeatherSourceResponse.transportFailure(parts);
+      }
       throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
     }
   }

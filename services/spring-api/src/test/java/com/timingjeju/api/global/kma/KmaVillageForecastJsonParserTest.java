@@ -29,14 +29,24 @@ class KmaVillageForecastJsonParserTest {
   private final KmaWeatherJsonParser parser = new KmaWeatherJsonParser(new ObjectMapper());
 
   @ParameterizedTest(name = "official full horizon for base {0}")
-  @CsvSource({"02:00", "05:00", "08:00", "11:00", "14:00", "17:00", "20:00", "23:00"})
-  void parsesEveryOfficial20241128FullHorizon(LocalTime baseTime) {
+  @CsvSource({
+    "02:00,101",
+    "05:00,98",
+    "08:00,95",
+    "11:00,92",
+    "14:00,89",
+    "17:00,110",
+    "20:00,107",
+    "23:00,104"
+  })
+  void parsesEveryOfficial20241128FullHorizon(LocalTime baseTime, int officialSlotCount) {
     List<KmaVillageForecastSchedule.Slot> expected =
         KmaVillageForecastSchedule.slots(BASE_DATE, baseTime);
 
     var parsed = parser.parse(KmaWeatherOperation.VILLAGE_FORECAST, validPayload(baseTime));
 
-    assertThat(parsed.forecasts()).hasSize(expected.size());
+    assertThat(expected).hasSize(officialSlotCount);
+    assertThat(parsed.forecasts()).hasSize(officialSlotCount);
     assertThat(parsed.forecasts().getFirst().forecastVersion()).isEqualTo(version(baseTime));
     assertThat(parsed.forecasts().getLast().validAt())
         .isEqualTo(
@@ -53,7 +63,7 @@ class KmaVillageForecastJsonParserTest {
         .hasSize(8)
         .allSatisfy(
             value -> {
-              assertThat(value.precipitationIntensityCode()).isBetween(1, 3);
+              assertThat(value.precipitationIntensityCode()).isBetween(0, 3);
               assertThat(value.windStrengthCode()).isBetween(1, 3);
               assertThat(value.precipitationAmountMm()).isNull();
               assertThat(value.windSpeedMps()).isNull();
@@ -123,7 +133,7 @@ class KmaVillageForecastJsonParserTest {
     List<KmaVillageForecastSchedule.Slot> slots = KmaVillageForecastSchedule.slots(BASE_DATE, base);
     for (int index = 0; index < slots.size(); index++) {
       var slot = slots.get(index);
-      String pcp = slot.qualitative() ? Integer.toString(index % 3 + 1) : "강수없음";
+      String pcp = slot.qualitative() ? Integer.toString(index % 4) : "강수없음";
       String wsd = slot.qualitative() ? Integer.toString(index % 3 + 1) : "2.4";
       values.add(item(base, slot.validTime(), "TMP", "23"));
       values.add(item(base, slot.validTime(), "POP", "30"));
@@ -133,7 +143,7 @@ class KmaVillageForecastJsonParserTest {
       values.add(item(base, slot.validTime(), "REH", "80"));
       values.add(item(base, slot.validTime(), "WSD", wsd));
       if (slot.qualitative())
-        values.add(item(base, slot.validTime(), "SNO", Integer.toString(index % 2 + 1)));
+        values.add(item(base, slot.validTime(), "SNO", Integer.toString(index % 3)));
       if (index == 0) values.add(item(base, slot.validTime(), "TMN", "19"));
       if (index == 1) values.add(item(base, slot.validTime(), "TMX", "28"));
     }

@@ -14,21 +14,35 @@ import java.util.Objects;
 public final class KmaWeatherSourceResponse {
   private static final byte[] MAGIC = {'K', 'M', 'A', '1'};
   private final List<KmaWeatherResponsePart> parts;
+  private final boolean transportFailed;
 
   public KmaWeatherSourceResponse(byte[] payload, SnapshotPayloadFormat format) {
     this(List.of(new KmaWeatherResponsePart("single", null, payload, format)));
   }
 
   public KmaWeatherSourceResponse(List<KmaWeatherResponsePart> parts) {
+    this(parts, false);
+  }
+
+  private KmaWeatherSourceResponse(List<KmaWeatherResponsePart> parts, boolean transportFailed) {
     Objects.requireNonNull(parts, "parts는 필수입니다.");
     if (parts.isEmpty()) {
       throw new IllegalArgumentException("parts는 비어 있을 수 없습니다.");
     }
     this.parts = List.copyOf(parts);
+    this.transportFailed = transportFailed;
+  }
+
+  public static KmaWeatherSourceResponse transportFailure(List<KmaWeatherResponsePart> parts) {
+    return new KmaWeatherSourceResponse(parts, true);
   }
 
   public List<KmaWeatherResponsePart> parts() {
     return parts;
+  }
+
+  public boolean transportFailed() {
+    return transportFailed;
   }
 
   public byte[] payload() {

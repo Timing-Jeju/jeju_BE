@@ -126,6 +126,10 @@ public final class KmaWeatherImportService implements KmaVillageForecastImporter
 
     SavedKmaWeatherSnapshot snapshot =
         snapshots.capture(lease.runId(), operation, base, command, response);
+    if (response.transportFailed()) {
+      snapshots.markRejected(snapshot);
+      throw retry(KmaWeatherImportException.providerUnavailable());
+    }
     requireParsable(snapshot);
     KmaWeatherBatch batch;
     try {
