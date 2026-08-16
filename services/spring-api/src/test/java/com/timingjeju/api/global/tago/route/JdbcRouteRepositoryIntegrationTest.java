@@ -395,7 +395,20 @@ class JdbcRouteRepositoryIntegrationTest {
     assertThatThrownBy(
             () ->
                 committer.commit(
-                    new TagoRouteCommitCommand(lease, 0, List.of(route), stops, List.of())))
+                    new TagoRouteCommitCommand(
+                        lease,
+                        0,
+                        List.of(route),
+                        stops,
+                        List.of(
+                            new com.timingjeju.api.application.tago.route.TagoRouteLineage(
+                                "route-detail",
+                                route.route().externalRouteId(),
+                                0,
+                                1,
+                                DETAIL_SNAPSHOT,
+                                "c".repeat(64),
+                                NOW)))))
         .isInstanceOf(TagoRouteImportException.class);
     assertThat(
             jdbc.queryForObject(
