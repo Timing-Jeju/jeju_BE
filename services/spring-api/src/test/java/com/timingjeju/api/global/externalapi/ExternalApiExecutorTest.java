@@ -53,7 +53,16 @@ class ExternalApiExecutorTest {
       fixture.transport.respond(status(status), status(status), status(status));
       fixture.jitter.values.addAll(List.of(0L, 0L));
 
-      assertFailure(fixture, ExternalApiFailureCode.RETRY_EXHAUSTED);
+      assertThatThrownBy(
+              () ->
+                  fixture.executor.execute(
+                      request(ExternalApiHttpMethod.GET), ExternalApiExecutorTest::text))
+          .isInstanceOfSatisfying(
+              ExternalApiException.class,
+              failure -> {
+                assertThat(failure.code()).isEqualTo(ExternalApiFailureCode.RETRY_EXHAUSTED);
+                assertThat(failure.status()).isEqualTo(status);
+              });
       assertThat(fixture.transport.calls).as("status=" + status).isEqualTo(3);
     }
 

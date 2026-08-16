@@ -35,6 +35,7 @@ TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
     MIGRATIONS / "20260818000000_tour_api_incremental_sync.sql"
 )
 TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
+TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260821000000_tago_arrival_cache.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -98,6 +99,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260817000000_tour_api_place_images_operation.sql",
                 "20260818000000_tour_api_incremental_sync.sql",
                 "20260819000000_tago_stop_import.sql",
+                "20260821000000_tago_arrival_cache.sql",
             ],
             migration_names,
         )
@@ -120,6 +122,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
             "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
             "./supabase/migrations/20260819000000_tago_stop_import.sql",
+            "./supabase/migrations/20260821000000_tago_arrival_cache.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -1524,6 +1527,43 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("idx_external_reference_codes_source_scope_name", migration)
         self.assertIn("alter table public.bus_stops enable row level security", migration)
         self.assertIn("revoke all on public.bus_stops from anon, authenticated", migration)
+
+    def test_tago_arrival_cache_has_service_lineage_bounds_freshness_and_rls_contract(self):
+        migration = self.read_migration(TAGO_ARRIVAL_CACHE_MIGRATION)
+
+        for fragment in (
+            "alter table public.bus_arrival_snapshots add column source_service text",
+            "add column route_type text",
+            "source_service = snapshot.source_service",
+            "alter column source_service set not null",
+            "estimated_arrival_seconds between 0 and 86400",
+            "remaining_stops between 0 and 10000",
+            "validate_bus_arrival_observation_lineage",
+            "bus arrival observation has conflicting lineage",
+            "pg_advisory_xact_lock",
+            "idx_bus_arrivals_source_stop_freshness",
+            "source_provider, source_service, stop_id, observed_at desc",
+            "include (expires_at, source_snapshot_id, import_run_id)",
+            "alter table public.bus_arrival_snapshots enable row level security",
+            "revoke all on public.bus_arrival_snapshots from anon, authenticated",
+        ):
+            self.assertIn(fragment, migration)
+
+    def test_docker_smoke_upgrade_sequences_include_tago_stop_then_arrival(self):
+        smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")
+        stop = "/docker-entrypoint-initdb.d/016_tago_stop_import.sql"
+        arrival = "/docker-entrypoint-initdb.d/018_tago_arrival_cache.sql"
+
+        self.assertIn(stop, smoke)
+        self.assertIn(arrival, smoke)
+        self.assertLess(smoke.find(stop), smoke.find(arrival))
+
+        kma_migration = MIGRATIONS / "20260820000000_kma_village_forecast.sql"
+        if kma_migration.exists():
+            kma = "/docker-entrypoint-initdb.d/017_kma_village_forecast.sql"
+            self.assertIn(kma, smoke)
+            self.assertLess(smoke.find(stop), smoke.find(kma))
+            self.assertLess(smoke.find(kma), smoke.find(arrival))
 
 
 if __name__ == "__main__":

@@ -120,14 +120,14 @@ public final class ExternalApiExecutor implements AutoCloseable {
         if (status < 200 || status >= 300) {
           if (isRetryable(request.method(), status)) {
             if (attempt == policy.maxAttempts()) {
-              throw new ExternalApiException(ExternalApiFailureCode.RETRY_EXHAUSTED);
+              throw new ExternalApiException(ExternalApiFailureCode.RETRY_EXHAUSTED, status);
             }
             Duration delay = retryDelay(response, attempt);
             response.close();
             sleepWithinDeadline(delay, started);
             continue;
           }
-          throw new ExternalApiException(ExternalApiFailureCode.HTTP_STATUS);
+          throw new ExternalApiException(ExternalApiFailureCode.HTTP_STATUS, status);
         }
         requireContentType(request.responseFormat(), response);
         byte[] body = readBody(response, minimum(clientSettings.readTimeout(), remaining(started)));

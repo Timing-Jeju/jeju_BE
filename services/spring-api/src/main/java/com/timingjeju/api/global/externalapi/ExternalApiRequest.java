@@ -9,7 +9,7 @@ public final class ExternalApiRequest {
 
   private static final Pattern SAFE_RELATIVE_PATH =
       Pattern.compile("[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*");
-  private static final Pattern SAFE_QUERY_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9._~-]{0,63}");
+  private static final Pattern SAFE_QUERY_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9._~-]{0,63}");
 
   private final ExternalApiHttpMethod method;
   private final ExternalApiOperation operation;

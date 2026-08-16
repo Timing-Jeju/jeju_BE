@@ -3,14 +3,24 @@ package com.timingjeju.api.global.externalapi;
 public final class ExternalApiException extends RuntimeException {
 
   private final ExternalApiFailureCode code;
+  private final Integer status;
 
   ExternalApiException(ExternalApiFailureCode code) {
+    this(code, null);
+  }
+
+  ExternalApiException(ExternalApiFailureCode code, Integer status) {
     super(message(code), null, false, false);
     this.code = code;
+    this.status = status;
   }
 
   public ExternalApiFailureCode code() {
     return code;
+  }
+
+  public Integer status() {
+    return status;
   }
 
   private static String message(ExternalApiFailureCode code) {
