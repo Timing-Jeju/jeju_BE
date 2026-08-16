@@ -324,6 +324,8 @@ Issue #42의 `KmaGridConverter`는 외부 호출 없이 WGS84 위경도를 KMA D
 
 ### 6.3 category 매핑
 
+2026-08-16 기준 공공데이터포털의 2026-07-09 수정본(`기상청41_단기예보 조회서비스_오픈API활용가이드_2607.zip`)과 기상청 API Hub를 교차 확인한다. API Hub는 2026-06-23 12 KST부터 초단기예보 `POP`도 제공한다고 명시하지만, Issue #43의 정규화 계약은 아래 여섯 category만 저장한다. 따라서 `POP`과 초단기 부가 category(`UUU`, `VVV`, `VEC`, `LGT`)는 원문 snapshot에는 남기되 이 importer의 DB 컬럼으로 오분류하지 않는다. 단기예보 전용 `TMP`, `PCP`, `TMN`, `TMX`가 섞인 응답은 거부하며 #76에서 별도 처리한다.
+
 | KMA category | DB |
 | --- | --- |
 | `TMP`, `T1H` | `temperature_c` |
@@ -336,6 +338,19 @@ Issue #42의 `KmaGridConverter`는 외부 호출 없이 WGS84 위경도를 KMA D
 | `TMN`, `TMX` | min/max temperature |
 
 강수량은 `강수없음`, `1mm 미만` 같은 문자열일 수 있으므로 parser 버전과 원문 category를 보존한다.
+
+Issue #43 parser의 필수 집계는 다음과 같다.
+
+| Operation | 필수 category | 정규화 단위 |
+| --- | --- | --- |
+| `getUltraSrtNcst` | `T1H`, `RN1`, `PTY`, `REH`, `WSD`, `VEC` | grid/base당 실황 1행 |
+| `getUltraSrtFcst` | `T1H`, `RN1`, `PTY`, `SKY`, `REH`, `WSD` | grid/base/예보시각당 `ultra_short` 1행 |
+
+`RN1`의 `강수없음`은 0 mm, `1mm 미만`은 구간 대표값 0.5 mm로 정규화한다. 숫자 또는 `mm` 접미 숫자는 0 이상 900 미만만 허용하고 KMA 결측 sentinel `+900`/`-900`은 거부한다. 문자열 범주는 공식 `30.0~50.0mm`, `50.0mm 이상`만 보수적으로 하한을 저장하며 임의 범위·하한 문자열은 거부한다. 정확한 원문은 versioned raw snapshot에 보존한다. `PTY`는 실황과 초단기예보 모두 공식 코드 0~7 전체를 허용하고, `SKY`는 공식 코드 1·3·4만 허용한다. 초단기 `fcstTime`은 발표시각보다 엄격히 이후인 정시(`mm=00`)이면서 발표 후 6시간 이내여야 한다. 실황 `VEC`는 0도와 360도를 모두 유효한 경계값으로 허용한다.
+
+실황은 매시 정각 base가 10분 뒤 조회 가능하다고 보고, 초단기예보는 #42의 매시 30분 base/15분 지연 계약을 사용한다. 최신 발표 호출 또는 검증이 실패하면 직전 1시간 base를 정확히 한 번만 시도하고 성공 summary와 checkpoint에 `STALE_WEATHER_DATA`를 기록한다. 두 번째 실패 뒤에는 더 오래된 발표를 탐색하지 않는다.
+
+수집은 operation과 `nx`/`ny` 범위별로 run과 checkpoint를 분리한다. 성공 경로는 raw snapshot을 먼저 저장·`parsed` 전이한 다음 한 transaction에서 정규화 upsert, run 성공, 기대 version checkpoint CAS를 순서대로 수행한다. service key와 전체 query/URL은 snapshot metadata, 예외와 로그에 저장하지 않는다.
 
 ### 6.4 저장 여부
 
