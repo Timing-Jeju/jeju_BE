@@ -14,7 +14,7 @@ place_override,,20000000-0000-0000-0000-000000000002,70
 
 category는 live `tour_places.category`의 canonical code여야 합니다. place override는 존재하며 stale/tombstoned가 아닌 장소만 허용합니다. minutes는 5~1440, version은 소문자 영숫자로 시작하는 최대 64자의 `[a-z0-9._-]` 식별자입니다. `effectiveAt == 현재 시각`은 허용하고 미래는 거부합니다.
 
-payload hash는 version, effectiveAt과 NFKC 정규화한 policy 의미를 scope/target/minutes 순으로 정렬해 SHA-256으로 계산합니다. 따라서 CSV 행 순서와 줄바꿈에는 의존하지 않습니다.
+payload hash는 version, effectiveAt과 NFC 정규화한 policy 의미를 scope/target/minutes 순으로 정렬해 SHA-256으로 계산합니다. 따라서 CSV 행 순서와 줄바꿈에는 의존하지 않습니다. NFKC 호환 문자는 ASCII identifier로 축약하지 않으며 canonical syntax 검증에서 거부합니다.
 
 ## 실행
 

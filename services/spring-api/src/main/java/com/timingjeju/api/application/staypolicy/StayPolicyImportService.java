@@ -92,13 +92,20 @@ public final class StayPolicyImportService {
                     return policy;
                   }
                   String category =
-                      Normalizer.normalize(policy.category().strip(), Normalizer.Form.NFKC);
+                      Normalizer.normalize(policy.category().strip(), Normalizer.Form.NFC);
                   return new StayPolicyCandidate(
                       policy.scope(), category, policy.placeId(), policy.minutes());
                 })
             .toList();
     return new StayPolicyPayload(
-        payload.version(), payload.effectiveAt(), payload.expectedActiveVersion(), policies);
+        normalizeIdentifier(payload.version()),
+        payload.effectiveAt(),
+        normalizeIdentifier(payload.expectedActiveVersion()),
+        policies);
+  }
+
+  private static String normalizeIdentifier(String value) {
+    return value == null ? null : Normalizer.normalize(value.strip(), Normalizer.Form.NFC);
   }
 
   private static List<String> validateShape(StayPolicyPayload payload, Instant now) {
@@ -133,21 +140,23 @@ public final class StayPolicyImportService {
         violations.add("policy[" + index + "] scope is required");
         continue;
       }
-      boolean validScope =
+      boolean exactScope =
           switch (policy.scope()) {
-            case CATEGORY_DEFAULT ->
-                policy.category() != null
-                    && CATEGORY.matcher(policy.category()).matches()
-                    && policy.placeId() == null;
+            case CATEGORY_DEFAULT -> policy.category() != null && policy.placeId() == null;
             case PLACE_OVERRIDE -> policy.category() == null && policy.placeId() != null;
           };
-      if (!validScope) {
+      if (!exactScope) {
         violations.add("policy[" + index + "] category/place scope must be exactly one");
+      }
+      if (policy.scope() == StayPolicyScope.CATEGORY_DEFAULT
+          && policy.category() != null
+          && !CATEGORY.matcher(policy.category()).matches()) {
+        violations.add("policy[" + index + "] category must be a canonical code");
       }
       if (policy.minutes() < MIN_MINUTES || policy.minutes() > MAX_MINUTES) {
         violations.add("policy[" + index + "] minutes must be between 5 and 1440");
       }
-      if (validScope && !targets.add(policy.targetKey())) {
+      if (exactScope && !targets.add(policy.targetKey())) {
         violations.add("duplicate policy target: " + policy.targetKey());
       }
     }

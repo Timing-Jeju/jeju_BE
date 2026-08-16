@@ -96,7 +96,25 @@ class StayPolicyImportServiceTest {
   }
 
   @Test
-  void unicode_NFKC로_정규화한_target_duplicate를_거부하고_hash도_정규화한다() {
+  void unicode_NFC로_정규화한_target_duplicate를_거부한다() {
+    RecordingStore store = new RecordingStore(Set.of("Å"), Set.of());
+    StayPolicyImportService service = service(store);
+
+    assertThatThrownBy(
+            () ->
+                service.importPolicy(
+                    payload(
+                        List.of(
+                            StayPolicyCandidate.categoryDefault("A\u030A", 90),
+                            StayPolicyCandidate.categoryDefault("Å", 120))),
+                    false))
+        .isInstanceOf(StayPolicyValidationException.class)
+        .hasMessageContaining("duplicate policy target: category:Å");
+    assertThat(store.publishCalls).isZero();
+  }
+
+  @Test
+  void NFKC_only_호환_category는_ASCII_target으로_축약하지_않고_canonical_syntax로_거부한다() {
     RecordingStore store = new RecordingStore(Set.of("VE"), Set.of());
     StayPolicyImportService service = service(store);
 
@@ -109,8 +127,24 @@ class StayPolicyImportServiceTest {
                             StayPolicyCandidate.categoryDefault("VE", 120))),
                     false))
         .isInstanceOf(StayPolicyValidationException.class)
-        .hasMessageContaining("duplicate policy target: category:VE");
+        .hasMessageContaining("category must be a canonical code")
+        .hasMessageNotContaining("duplicate policy target: category:VE");
     assertThat(store.publishCalls).isZero();
+  }
+
+  @Test
+  void hash는_NFC_canonical_equivalence만_동일하게_취급한다() {
+    StayPolicyPayloadHasher hasher = new StayPolicyPayloadHasher();
+
+    String composed = hasher.hash(payload(List.of(StayPolicyCandidate.categoryDefault("Å", 90))));
+    String decomposed =
+        hasher.hash(payload(List.of(StayPolicyCandidate.categoryDefault("A\u030A", 90))));
+    String compatibility =
+        hasher.hash(payload(List.of(StayPolicyCandidate.categoryDefault("Ａ", 90))));
+    String ascii = hasher.hash(payload(List.of(StayPolicyCandidate.categoryDefault("A", 90))));
+
+    assertThat(decomposed).isEqualTo(composed);
+    assertThat(compatibility).isNotEqualTo(ascii);
   }
 
   private static StayPolicyImportService service(RecordingStore store) {
