@@ -83,6 +83,31 @@ class KmaWeatherClientTest {
   }
 
   @Test
+  void stopsOnProviderErrorBeforeVersionCall() {
+    List<KmaWeatherHttpRequest> requests = new ArrayList<>();
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request -> {
+              requests.add(request);
+              return villageEnvelope(1, 16)
+                  .replace("\"resultCode\":\"00\"", "\"resultCode\":\"03\"")
+                  .getBytes(StandardCharsets.UTF_8);
+            });
+
+    assertThatThrownBy(
+            () ->
+                client.fetch(
+                    KmaWeatherOperation.VILLAGE_FORECAST,
+                    new ForecastBaseTime(LocalDate.of(2026, 8, 16), LocalTime.of(5, 0)),
+                    52,
+                    38))
+        .isInstanceOf(com.timingjeju.api.application.kma.KmaWeatherImportException.class);
+    assertThat(requests)
+        .singleElement()
+        .satisfies(request -> assertThat(request.relativePath()).isEqualTo("getVilageFcst"));
+  }
+
+  @Test
   void buildsOfficialCurrentAndForecastRequestsWithoutCredentialQuery() {
     AtomicReference<KmaWeatherHttpRequest> captured = new AtomicReference<>();
     KmaWeatherClient client =

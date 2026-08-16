@@ -70,16 +70,18 @@ public final class KmaWeatherClient implements KmaWeatherSource {
       var pages = root.putArray("forecastPages");
       byte[] first =
           executor.execute(request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, 1));
-      JsonNode firstPage = objectMapper.readTree(first);
+      JsonNode firstPage = requireVillagePage(objectMapper.readTree(first), 1, null);
       pages.add(firstPage);
-      int totalCount =
-          requiredItemCount(firstPage.path("response").path("body").path("totalCount"));
+      int totalCount = exactInt(firstPage.path("response").path("body").path("totalCount"));
       int pageCount = (totalCount + PAGE_SIZE - 1) / PAGE_SIZE;
       for (int page = 2; page <= pageCount; page++) {
         pages.add(
-            objectMapper.readTree(
-                executor.execute(
-                    request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, page))));
+            requireVillagePage(
+                objectMapper.readTree(
+                    executor.execute(
+                        request(KmaWeatherOperation.VILLAGE_FORECAST, baseTime, nx, ny, page))),
+                page,
+                totalCount));
       }
       root.set(
           "forecastVersion", objectMapper.readTree(executor.execute(versionRequest(baseTime))));
@@ -92,11 +94,32 @@ public final class KmaWeatherClient implements KmaWeatherSource {
     }
   }
 
-  private static int requiredItemCount(JsonNode node) {
-    if (!node.isIntegralNumber()
-        || !node.canConvertToInt()
-        || node.asInt() < 1
-        || node.asInt() > MAX_VILLAGE_ITEMS) {
+  private static JsonNode requireVillagePage(
+      JsonNode page, int expectedPage, Integer expectedTotal) {
+    JsonNode response = page.path("response");
+    JsonNode header = response.path("header");
+    JsonNode body = response.path("body");
+    int pageNo = exactInt(body.path("pageNo"));
+    int pageSize = exactInt(body.path("numOfRows"));
+    int totalCount = exactInt(body.path("totalCount"));
+    if (!page.isObject()
+        || !response.isObject()
+        || !header.isObject()
+        || !body.isObject()
+        || !header.path("resultCode").isTextual()
+        || !"00".equals(header.path("resultCode").asString())
+        || pageNo != expectedPage
+        || pageSize != PAGE_SIZE
+        || totalCount < 1
+        || totalCount > MAX_VILLAGE_ITEMS
+        || (expectedTotal != null && totalCount != expectedTotal)) {
+      throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
+    }
+    return page;
+  }
+
+  private static int exactInt(JsonNode node) {
+    if (!node.isIntegralNumber() || !node.canConvertToInt()) {
       throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
     }
     return node.asInt();

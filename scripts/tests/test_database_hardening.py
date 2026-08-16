@@ -98,6 +98,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260817000000_tour_api_place_images_operation.sql",
                 "20260818000000_tour_api_incremental_sync.sql",
                 "20260819000000_tago_stop_import.sql",
+                "20260820000000_kma_village_forecast_version.sql",
             ],
             migration_names,
         )
