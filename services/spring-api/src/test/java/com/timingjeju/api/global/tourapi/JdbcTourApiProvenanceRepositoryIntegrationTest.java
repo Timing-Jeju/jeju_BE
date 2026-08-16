@@ -409,7 +409,7 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
   }
 
   @Test
-  void migration은_9개_registry와_nullable_content_type_및_서버전용_보안계약을_고정한다() {
+  void migration은_10개_registry와_nullable_content_type_및_서버전용_보안계약을_고정한다() {
     assertThat(
             jdbcTemplate.queryForList(
                 "select operation_key from public.tour_api_operations order by operation_key",
@@ -419,6 +419,7 @@ class JdbcTourApiProvenanceRepositoryIntegrationTest {
             "areaCode2",
             "categoryCode2",
             "detailCommon2",
+            "detailImage2",
             "detailInfo2",
             "detailIntro2",
             "locationBasedList2",

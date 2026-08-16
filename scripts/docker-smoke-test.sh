@@ -191,6 +191,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/011_external_snapshot_storage.sql \
   /docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql \
   /docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql \
+  /docker-entrypoint-initdb.d/014_tour_api_place_images_operation.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -350,6 +351,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/011_external_snapshot_storage.sql \
   /docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql \
   /docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql \
+  /docker-entrypoint-initdb.d/014_tour_api_place_images_operation.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
