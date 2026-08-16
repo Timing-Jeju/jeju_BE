@@ -12,6 +12,7 @@ import com.timingjeju.api.application.kma.KmaWeatherCommitCommand;
 import com.timingjeju.api.application.kma.KmaWeatherCommitter;
 import com.timingjeju.api.application.kma.KmaWeatherForecast;
 import com.timingjeju.api.application.kma.KmaWeatherLineage;
+import com.timingjeju.api.application.kma.KmaWeatherObservation;
 import com.timingjeju.api.application.kma.KmaWeatherRepository;
 import com.timingjeju.api.application.kma.KmaWeatherUpsertCommand;
 import com.timingjeju.api.domain.weather.ForecastBaseTime;
@@ -45,6 +46,7 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
   private static final UUID GRID = UUID.fromString("43000000-0000-0000-0000-000000000100");
   private static final Instant FORECASTED = Instant.parse("2026-08-15T15:30:00Z");
   private static final Instant VALID = Instant.parse("2026-08-15T16:00:00Z");
+  private static final Instant OBSERVED = Instant.parse("2026-08-15T15:00:00Z");
   private static final ImportRunScope SCOPE =
       new ImportRunScope("kma", "VilageFcstInfoService_2.0", "getUltraSrtFcst", "nx=52;ny=38");
 
@@ -118,6 +120,37 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
     assertThat(
             jdbc.queryForObject("select import_run_id from public.weather_forecasts", UUID.class))
         .isEqualTo(second.run());
+  }
+
+  @Test
+  void observationReplaySkipsAndNewLineageUpdatesSameNaturalKey() {
+    Fixture first = fixture(11, "getUltraSrtNcst");
+    TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+    var inserted = tx.execute(status -> repository.upsert(observation(first, "25.0")));
+    var replay = tx.execute(status -> repository.upsert(observation(first, "25.0")));
+    finish(first);
+    Fixture second = fixture(12, "getUltraSrtNcst");
+    var updated = tx.execute(status -> repository.upsert(observation(second, "26.5")));
+
+    assertThat(inserted.inserted()).isEqualTo(1);
+    assertThat(replay.skipped()).isEqualTo(1);
+    assertThat(updated.updated()).isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject("select count(*) from public.weather_observations", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select temperature_c from public.weather_observations", BigDecimal.class))
+        .isEqualByComparingTo("26.5");
+    assertThat(
+            jdbc.queryForObject(
+                "select source_snapshot_id from public.weather_observations", UUID.class))
+        .isEqualTo(second.snapshot());
+    assertThat(
+            jdbc.queryForObject(
+                "select raw_payload = '{}'::jsonb from public.weather_observations", Boolean.class))
+        .isTrue();
   }
 
   @Test
@@ -203,7 +236,28 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
     return new KmaWeatherUpsertCommand(GRID, batch, fixture.lineage());
   }
 
+  private KmaWeatherUpsertCommand observation(Fixture fixture, String temperature) {
+    KmaWeatherObservation observation =
+        new KmaWeatherObservation(
+            OBSERVED,
+            LocalDate.of(2026, 8, 16),
+            LocalTime.MIDNIGHT,
+            new BigDecimal(temperature),
+            BigDecimal.ZERO,
+            "0",
+            70,
+            new BigDecimal("2.0"),
+            360);
+    KmaWeatherBatch batch =
+        new KmaWeatherBatch(52, 38, 6, OBSERVED, List.of(observation), List.of());
+    return new KmaWeatherUpsertCommand(GRID, batch, fixture.lineage());
+  }
+
   private Fixture fixture(int sequence) {
+    return fixture(sequence, "getUltraSrtFcst");
+  }
+
+  private Fixture fixture(int sequence, String operation) {
     UUID run = UUID.fromString("43000000-0000-0000-0001-%012d".formatted(sequence));
     UUID snapshot = UUID.fromString("43000000-0000-0000-0002-%012d".formatted(sequence));
     UUID owner = UUID.fromString("43000000-0000-0000-0003-%012d".formatted(sequence));
@@ -215,11 +269,12 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
           id, source_kind, source_name, source_operation, data_version, status, started_at,
           parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
           idempotency_key, source_provider, source_service, owner_token, fencing_token
-        ) values (?, 'weather_api', 'issue-43', 'getUltraSrtFcst', '2607', 'running', ?,
+        ) values (?, 'weather_api', 'issue-43', ?, '2607', 'running', ?,
                   'kma-ultra-weather-v1', 'kma-ultra-weather-v1', 'snapshot', 'nx=52;ny=38', ?, ?,
                   'kma', 'VilageFcstInfoService_2.0', ?, 1)
         """,
         run,
+        operation,
         Timestamp.from(fetchedAt),
         hash,
         "issue-43-" + sequence,
@@ -231,17 +286,18 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
           request_hash, page_key, fetched_at, parser_version, payload_hash,
           request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version,
           payload_format, initial_parse_status, parse_status, parsed_at
-        ) values (?, ?, 'kma', 'VilageFcstInfoService_2.0', 'getUltraSrtFcst', 'nx=52;ny=38',
+        ) values (?, ?, 'kma', 'VilageFcstInfoService_2.0', ?, 'nx=52;ny=38',
                   ?, '202608160030', ?, 'kma-ultra-weather-v1', ?, '{}'::jsonb,
                   '{"response":{}}'::jsonb, 15, 'test-v1', 'JSON', 'parsed', 'parsed', ?)
         """,
         snapshot,
         run,
+        operation,
         hash,
         Timestamp.from(fetchedAt),
         "%064x".formatted(sequence + 100),
         Timestamp.from(fetchedAt));
-    return new Fixture(run, snapshot, owner, hash, fetchedAt);
+    return new Fixture(run, snapshot, owner, hash, fetchedAt, operation);
   }
 
   private void finish(Fixture fixture) {
@@ -265,13 +321,18 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
   }
 
   private record Fixture(
-      UUID run, UUID snapshot, UUID owner, String requestHash, Instant fetchedAt) {
+      UUID run,
+      UUID snapshot,
+      UUID owner,
+      String requestHash,
+      Instant fetchedAt,
+      String operation) {
     private ImportRunLease lease() {
       return new ImportRunLease(run, owner, 1);
     }
 
     private KmaWeatherLineage lineage() {
-      return new KmaWeatherLineage("getUltraSrtFcst", requestHash, snapshot, run);
+      return new KmaWeatherLineage(operation, requestHash, snapshot, run);
     }
   }
 }
