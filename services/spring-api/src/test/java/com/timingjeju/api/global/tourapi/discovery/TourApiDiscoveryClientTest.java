@@ -22,7 +22,7 @@ class TourApiDiscoveryClientTest {
             });
 
     client.fetch(DiscoveryImportCommand.location(126.5, 33.5, 1000, 2, "location"), 1);
-    assertThat(captured.get().relativePath()).isEqualTo("/locationBasedList2");
+    assertThat(captured.get().relativePath()).isEqualTo("locationBasedList2");
     assertThat(captured.get().queryParameters())
         .containsEntry("mapX", "126.5")
         .containsEntry("mapY", "33.5")
@@ -30,13 +30,13 @@ class TourApiDiscoveryClientTest {
         .doesNotContainKeys("serviceKey", "query", "rawPayload");
 
     client.fetch(DiscoveryImportCommand.keyword("성산 일출봉", 2, "keyword"), 1);
-    assertThat(captured.get().relativePath()).isEqualTo("/searchKeyword2");
+    assertThat(captured.get().relativePath()).isEqualTo("searchKeyword2");
     assertThat(captured.get().queryParameters())
         .containsEntry("keyword", "성산 일출봉")
         .containsEntry("lDongRegnCd", "50");
 
     client.fetch(DiscoveryImportCommand.stay(2, "stay"), 1);
-    assertThat(captured.get().relativePath()).isEqualTo("/searchStay2");
+    assertThat(captured.get().relativePath()).isEqualTo("searchStay2");
     assertThat(captured.get().queryParameters()).containsEntry("lDongRegnCd", "50");
     assertThat(captured.get().operation()).isEqualTo(ExternalApiOperation.TOUR_SEARCH_STAY);
   }

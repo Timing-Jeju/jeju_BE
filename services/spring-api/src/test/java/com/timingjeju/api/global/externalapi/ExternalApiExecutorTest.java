@@ -169,6 +169,43 @@ class ExternalApiExecutorTest {
   }
 
   @Test
+  void TourAPI_공식_type만_leading_underscore_query로_허용하고_나머지는_fail_closed한다() {
+    ExternalApiRequest request =
+        ExternalApiRequest.get(
+            ExternalApiOperation.TOUR_AREA_BASED_LIST,
+            "areaBasedList2",
+            Map.of("_type", "json", "keyword", "제주 바다"),
+            ExternalApiResponseFormat.JSON);
+
+    assertThat(request.queryParameters())
+        .containsEntry("_type", "json")
+        .containsEntry("keyword", "제주 바다");
+    assertThat(request.toString()).doesNotContain("json", "제주 바다", "keyword");
+
+    assertThat(List.of("_private", "_type_", " serviceKey", "serviceKey", "appKey", "type?"))
+        .allSatisfy(
+            name ->
+                assertThatThrownBy(
+                        () ->
+                            ExternalApiRequest.get(
+                                ExternalApiOperation.TOUR_AREA_BASED_LIST,
+                                "areaBasedList2",
+                                Map.of(name, "value"),
+                                ExternalApiResponseFormat.JSON))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("외부 API query 이름이 허용되지 않습니다."));
+    assertThatThrownBy(
+            () ->
+                ExternalApiRequest.get(
+                    ExternalApiOperation.TOUR_AREA_BASED_LIST,
+                    "areaBasedList2",
+                    Map.of("keyword", "제주\n바다"),
+                    ExternalApiResponseFormat.JSON))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("외부 API query 값이 허용되지 않습니다.");
+  }
+
+  @Test
   void content_type과_malformed_body를_원문_없이_분류한다() {
     Fixture type = new Fixture();
     type.transport.respond(
