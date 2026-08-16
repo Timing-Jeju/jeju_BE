@@ -431,6 +431,7 @@ Table place_images {
   source_modified_at timestamptz
   payload_hash text
   source_snapshot_id uuid [ref: > external_api_snapshots.id]
+  source_sweep_id uuid [ref: > tour_api_place_image_sweeps.id]
   import_run_id uuid [ref: > data_import_runs.id]
   last_seen_at timestamptz [not null]
   stale_at timestamptz
@@ -440,6 +441,37 @@ Table place_images {
   indexes {
     (place_id, source_provider, source_service, source_image_id) [unique, note: "source_image_id가 있을 때 적용"]
     (place_id, source_url_key) [unique, note: "digest URL identity와 ON CONFLICT 기준; advisory lock과 원문 비교로 collision 차단; legacy 중복 NULL 보존"]
+  }
+}
+
+Table tour_api_place_image_sweeps {
+  id uuid [pk]
+  place_id uuid [not null, ref: > tour_places.id]
+  source_provider text [not null]
+  source_service text [not null]
+  content_id text [not null]
+  content_type_id text [not null]
+  import_run_id uuid [not null, ref: > data_import_runs.id]
+  manifest_hash text [not null]
+  fetched_at timestamptz [not null]
+  expected_total integer [not null]
+  page_count integer [not null]
+  accepted_at timestamptz [not null]
+}
+
+Ref: place_images.(source_sweep_id, source_snapshot_id) > tour_api_place_image_sweep_pages.(sweep_id, source_snapshot_id)
+
+Table tour_api_place_image_sweep_pages {
+  sweep_id uuid [not null, ref: > tour_api_place_image_sweeps.id]
+  page_no integer [not null]
+  source_snapshot_id uuid [not null, ref: > external_api_snapshots.id]
+  request_fingerprint text [not null]
+  payload_hash text [not null]
+  raw_item_count integer [not null]
+
+  indexes {
+    (sweep_id, page_no) [pk]
+    (sweep_id, source_snapshot_id) [unique]
   }
 }
 

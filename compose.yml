@@ -22,6 +22,7 @@ services:
       - ./supabase/migrations/20260813010000_external_snapshot_storage.sql:/docker-entrypoint-initdb.d/011_external_snapshot_storage.sql:ro
       - ./supabase/migrations/20260814000000_tour_api_operation_provenance.sql:/docker-entrypoint-initdb.d/012_tour_api_operation_provenance.sql:ro
       - ./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql:/docker-entrypoint-initdb.d/013_tour_api_detail_info_operation.sql:ro
+      - ./supabase/migrations/20260817000000_tour_api_place_images_operation.sql:/docker-entrypoint-initdb.d/014_tour_api_place_images_operation.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/014_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

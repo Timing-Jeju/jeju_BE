@@ -882,4 +882,27 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if to_regclass('public.tour_api_place_image_sweeps') is null
+     or to_regclass('public.tour_api_place_image_sweep_pages') is null then
+    raise exception 'legacy detailImage2 complete sweep tables are missing';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema='public' and table_name='place_images' and column_name='source_sweep_id'
+  ) or not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid='public.place_images'::regclass and conname='fk_place_images_sweep_page'
+      and contype='f' and condeferrable
+  ) then
+    raise exception 'legacy place_images sweep page membership is missing';
+  end if;
+  if not (select relrowsecurity from pg_class where oid='public.tour_api_place_image_sweeps'::regclass)
+     or not (select relrowsecurity from pg_class where oid='public.tour_api_place_image_sweep_pages'::regclass) then
+    raise exception 'detailImage2 sweep RLS is disabled';
+  end if;
+end;
+$$;
+
 select 'legacy_v1_upgrade_contract' as check_name, 'PASS' as result;

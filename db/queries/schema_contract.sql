@@ -12,7 +12,9 @@ declare
     'external_reference_codes',
     'api_idempotency_records',
     'tour_api_operations',
-    'tour_api_operation_provenance'
+    'tour_api_operation_provenance',
+    'tour_api_place_image_sweeps',
+    'tour_api_place_image_sweep_pages'
   ];
   missing_objects text;
   invalid_count integer;
@@ -127,6 +129,7 @@ begin
       ('place_images', 'copyright_owner'),
       ('place_images', 'source_url_key'),
       ('place_images', 'source_snapshot_id'),
+      ('place_images', 'source_sweep_id'),
       ('place_images', 'import_run_id'),
       ('bus_stops', 'city_code'),
       ('bus_stops', 'source_snapshot_id'),
@@ -1126,11 +1129,28 @@ begin
   from public.tour_api_operations
   where operation_key in (
     'areaCode2', 'categoryCode2', 'areaBasedList2', 'locationBasedList2',
-    'searchKeyword2', 'searchStay2', 'detailCommon2', 'detailIntro2', 'detailInfo2'
+    'searchKeyword2', 'searchStay2', 'detailCommon2', 'detailIntro2', 'detailInfo2',
+    'detailImage2'
   ) and source_provider = 'tour-api' and source_service = 'KorService2' and active;
 
-  if invalid_count <> 9 then
+  if invalid_count <> 10 then
     raise exception 'TourAPI operation registry is incomplete';
+  end if;
+
+  if to_regclass('public.tour_api_place_image_sweeps') is null
+     or to_regclass('public.tour_api_place_image_sweep_pages') is null
+     or not exists (
+       select 1 from pg_catalog.pg_constraint
+       where conrelid = 'public.place_images'::regclass
+         and conname = 'fk_place_images_sweep_page'
+         and contype = 'f' and condeferrable
+     ) then
+    raise exception 'detailImage2 complete sweep page membership is missing';
+  end if;
+
+  if not (select relrowsecurity from pg_class where oid='public.tour_api_place_image_sweeps'::regclass)
+     or not (select relrowsecurity from pg_class where oid='public.tour_api_place_image_sweep_pages'::regclass) then
+    raise exception 'detailImage2 sweep RLS is disabled';
   end if;
 
   if not exists (

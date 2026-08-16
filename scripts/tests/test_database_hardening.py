@@ -28,6 +28,9 @@ TOUR_API_PROVENANCE_MIGRATION = (
 TOUR_API_DETAIL_INFO_MIGRATION = (
     MIGRATIONS / "20260816000000_tour_api_detail_info_operation.sql"
 )
+TOUR_API_PLACE_IMAGES_MIGRATION = (
+    MIGRATIONS / "20260817000000_tour_api_place_images_operation.sql"
+)
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -88,6 +91,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260813010000_external_snapshot_storage.sql",
                 "20260814000000_tour_api_operation_provenance.sql",
                 "20260816000000_tour_api_detail_info_operation.sql",
+                "20260817000000_tour_api_place_images_operation.sql",
             ],
             migration_names,
         )
@@ -107,6 +111,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
             "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
             "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
+            "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -245,6 +250,30 @@ class DatabaseHardeningTest(unittest.TestCase):
             "revoke all on public.tour_api_detail_item_sweeps from anon",
             "revoke all on public.tour_api_detail_item_sweep_pages from authenticated",
             "grant select, insert on public.tour_api_detail_item_sweeps to service_role",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
+        for forbidden in ("flyway", "servicekey"):
+            self.assertNotIn(forbidden, migration)
+
+    def test_detail_image_operation_declares_complete_sweep_and_exact_page_membership(self):
+        migration = self.read_migration(TOUR_API_PLACE_IMAGES_MIGRATION)
+        for fragment in (
+            "values ('detailimage2')",
+            "create table public.tour_api_place_image_sweeps",
+            "create table public.tour_api_place_image_sweep_pages",
+            "constraint uq_place_image_sweeps_scope_run unique",
+            "add column source_sweep_id uuid",
+            "constraint fk_place_images_sweep_page",
+            "foreign key (source_sweep_id, source_snapshot_id)",
+            "references public.tour_api_place_image_sweep_pages(sweep_id, source_snapshot_id)",
+            "deferrable initially immediate",
+            "validate_place_image_sweep_lineage()",
+            "snapshot.source_operation = 'detailimage2'",
+            "snapshot.page_key = new.page_no::text",
+            "snapshot.request_hash = new.request_fingerprint",
+            "alter table public.tour_api_place_image_sweeps enable row level security",
+            "grant select, insert on public.tour_api_place_image_sweeps to service_role",
         ):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, migration)
@@ -1409,6 +1438,9 @@ class DatabaseHardeningTest(unittest.TestCase):
         )
         self.assertIn("on conflict on constraint uq_place_images_source_url_key", negative_contract)
         self.assertIn("image source url key cannot be cleared", negative_contract)
+        self.assertIn("place image source digest collision", negative_contract)
+        self.assertIn("collision-a.jpg", negative_contract)
+        self.assertIn("collision-b.jpg", negative_contract)
         self.assertIn(
             "image url-only row must be updated instead of duplicated during enrichment",
             negative_contract,
