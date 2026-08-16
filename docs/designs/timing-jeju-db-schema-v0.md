@@ -155,8 +155,10 @@ erDiagram
 | `place_aliases` | 검색/장소명 매칭 별칭 | TourAPI, app |
 | `place_images` | 외부 이미지 ID·저작권·출처를 보존한 반복 이미지 목록 | TourAPI/admin |
 | `saved_places` | 관심 장소/메모/태그 | user input |
+| `place_stay_policy_versions` | 앱 큐레이션 payload version과 active 원자 교체 | versioned CSV import |
+| `place_stay_policies` | category default 또는 place override | app curation |
 
-`recommended_stay_minutes`는 TourAPI 원천값이 아니다. 큐레이션 또는 계산 결과이며 장소 row에 앱 기준값으로 저장한다.
+`tour_places.recommended_stay_minutes`는 TourAPI 원천값이 아니며 legacy read 호환으로만 유지한다. 신규 큐레이션은 장소 row나 외부 snapshot lineage를 수정하지 않고 `place_stay_policy_versions`와 `place_stay_policies`에만 저장한다. policy row는 category 또는 place 중 정확히 하나를 대상으로 하며 resolver는 active place override → active category default → unavailable 순서로 결정한다. provenance는 source=`app_curation`, version, effective/imported 시각으로 재현한다.
 
 `tour_places`는 앱의 통합 장소 read model이고 외부 natural key는 `tour_place_sources`의 `(source_provider, source_service, external_id)`가 소유한다. TourAPI KorService2의 최신 법정동·분류 원문은 `l_dong_regn_cd`, `l_dong_signgu_cd`, `lcls_systm1`, `lcls_systm2`, `lcls_systm3`에 보존하며 기존 컬럼은 legacy 호환 필드다. `place_detail_items`는 provider/service/item key로 멱등 upsert한다. 영업시간은 같은 요일뿐 아니라 익일 첫 구간·휴무와도 겹칠 수 없고 정확히 `00:00`에 끝나는 구간은 다음 날을 점유하지 않는다. 교차 요일 검사는 같은 장소 행에 MVCC 쓰기 펜스를 세워 직렬화하고 오래된 `REPEATABLE READ` writer는 `40001`로 중단한다. 충돌하는 legacy 조합은 자동 수정하지 않고 migration을 중단한다. 신규 이미지와 URL 변경은 trigger가 길이 prefix를 포함한 `(place_id, source_provider, source_service, image_url)`의 SHA-256 digest를 `source_url_key`로 계산한다. declarative unique `(place_id, source_url_key)`가 `ON CONFLICT` 기준이며 advisory lock과 원본 비교가 digest collision을 차단한다. `source_image_id`가 있으면 별도 unique도 적용하고, v1의 기존 중복 URL만 `source_url_key=NULL`로 보존한다.
 

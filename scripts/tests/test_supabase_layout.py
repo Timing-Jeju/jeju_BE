@@ -110,6 +110,37 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertIn("psql", smoke_test)
         self.assertIn("/queries/smoke_check.sql", smoke_test)
 
+    def test_recommended_stay_policy_migration_is_after_reserved_slots_everywhere(self):
+        migration_name = "20260823000000_recommended_stay_policy.sql"
+        migration = SUPABASE / "migrations" / migration_name
+        self.assertTrue(migration.is_file())
+        self.assertGreater(migration_name[:14], "20260822000000")
+        sql = migration.read_text(encoding="utf-8")
+        self.assertIn("create table public.place_stay_policy_versions", sql.lower())
+        self.assertIn("create table public.place_stay_policies", sql.lower())
+        self.assertNotRegex(sql.lower(), r"(?:insert into|update|delete from)\s+public\.tour_places")
+
+        mount = (
+            f"./supabase/migrations/{migration_name}:"
+            "/docker-entrypoint-initdb.d/020_recommended_stay_policy.sql:ro"
+        )
+        for compose_name in ("compose.yml", "compose.test.yml"):
+            compose = (ROOT / compose_name).read_text(encoding="utf-8")
+            with self.subTest(compose=compose_name):
+                self.assertIn(mount, compose)
+                self.assertEqual(1, compose.count("020_recommended_stay_policy.sql"))
+                self.assertIn("/docker-entrypoint-initdb.d/099_seed_fixtures.sql", compose)
+
+        smoke_test = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(
+            smoke_test.count(
+                "/docker-entrypoint-initdb.d/020_recommended_stay_policy.sql"
+            ),
+            2,
+        )
+
     def test_flyway_is_not_added_as_a_second_migration_system(self):
         self.assertFalse((ROOT / "db" / "migration").exists())
         spring_files = (
