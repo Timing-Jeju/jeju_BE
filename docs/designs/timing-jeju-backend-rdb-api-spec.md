@@ -88,7 +88,7 @@ Accept: application/json
 Idempotency-Key: 018f6f2a-60a0-7f5b-8c61-8f548f34bc31
 ```
 
-같은 사용자, 같은 경로, 같은 키의 재요청은 최초 결과를 반환한다. 본문이 달라지면 `409 IDEMPOTENCY_KEY_REUSED`를 반환한다.
+같은 사용자, 같은 경로, 같은 키와 같은 hash의 `COMPLETED` 재요청은 저장된 status, 순서가 보존된 header, body를 operation 재실행 없이 반환한다. 같은 key의 hash가 다르면 `Retry-After` 없이 즉시 `409 IDEMPOTENCY_KEY_REUSED`를 반환한다. 같은 hash가 2분 `PROCESSING` lease 안에 있으면 동시 loser를 기다리거나 replay하지 않고 즉시 같은 `409`와 `Retry-After: 1`을 반환한다.
 
 ### 6.3 커서 페이지네이션
 
@@ -1643,7 +1643,7 @@ Response `200`:
 | 404 | `TRIP_NOT_FOUND` | 여행 없음 |
 | 404 | `SCHEDULE_VERSION_NOT_FOUND` | 버전 없음 |
 | 409 | `SCHEDULE_VERSION_CONFLICT` | 활성 버전이 요청 기대값과 다름 |
-| 409 | `IDEMPOTENCY_KEY_REUSED` | 같은 키에 다른 요청 본문 |
+| 409 | `IDEMPOTENCY_KEY_REUSED` | 같은 scope/key의 다른 요청 hash, 또는 같은 hash가 `PROCESSING` active lease 안에 있음. 후자만 `Retry-After: 1` |
 | 409 | `RUN_ALREADY_IN_PROGRESS` | 같은 입력 계산 실행 중 |
 | 422 | `TRIP_DATE_RANGE_INVALID` | 종료일이 시작일보다 빠름 |
 | 422 | `TRANSPORT_EVENT_OUTSIDE_TRIP` | 도착/출발 시간이 여행 범위 밖 |

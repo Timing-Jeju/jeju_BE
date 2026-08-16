@@ -972,10 +972,10 @@
         "required": true,
         "header": "Idempotency-Key",
         "scope": "canonical sub + method + normalized path + tripId",
-        "ttl": "24 hours",
-        "replay": "same payload returns original status, body and ETag",
-        "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED",
-        "concurrentRequest": "wait for first transaction then replay"
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
       },
       "pagination": {
         "type": "none"
@@ -1060,10 +1060,10 @@
         "required": true,
         "header": "Idempotency-Key",
         "scope": "canonical sub + method + normalized path + tripId",
-        "ttl": "24 hours",
-        "replay": "same payload returns original status, body and ETag",
-        "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED",
-        "concurrentRequest": "wait for first transaction then replay"
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
       },
       "pagination": {
         "type": "none"
@@ -1144,10 +1144,10 @@
         "required": true,
         "header": "Idempotency-Key",
         "scope": "canonical sub + method + normalized path + tripId",
-        "ttl": "24 hours",
-        "replay": "same payload returns original status, body and ETag",
-        "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED",
-        "concurrentRequest": "wait for first transaction then replay"
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
       },
       "pagination": {
         "type": "none"
@@ -1230,10 +1230,10 @@
         "required": true,
         "header": "Idempotency-Key",
         "scope": "canonical sub + method + normalized path + tripId",
-        "ttl": "24 hours",
-        "replay": "same payload returns original status, body and ETag",
-        "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED",
-        "concurrentRequest": "wait for first transaction then replay"
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
       },
       "pagination": {
         "type": "none"
@@ -1316,10 +1316,10 @@
         "required": true,
         "header": "Idempotency-Key",
         "scope": "canonical sub + method + normalized path + tripId",
-        "ttl": "24 hours",
-        "replay": "same payload returns original status, body and ETag",
-        "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED",
-        "concurrentRequest": "wait for first transaction then replay"
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
       },
       "pagination": {
         "type": "none"
@@ -1398,7 +1398,19 @@
       "DELETE": "query",
       "PUT": "body"
     },
-    "idempotency": "all five mutations require Idempotency-Key; canonical sub + method + normalized path + key; TTL 24 hours; same hash replays original status/body/ETag; different hash and concurrent loser are 409",
+    "idempotency": {
+      "scope": "canonical sub + method + normalized path + Idempotency-Key",
+      "processingLease": "2 minutes",
+      "completedTtl": "24 hours from completion",
+      "completedSameHash": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+      "differentHash": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+      "leaseActiveSameHash": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays",
+      "retryAfter": {
+        "header": "Retry-After",
+        "value": "1",
+        "appliesTo": "PROCESSING lease-active same-hash concurrent loser only"
+      }
+    },
     "concurrency": "strong trip aggregate ETag plus expected active schedule version",
     "validator": "DB constraints and synchronous deterministic validator only",
     "aiCorrection": "never call MCP/AI; correction requires separate schedule revision run owned by #89"
@@ -1570,11 +1582,17 @@
     {
       "status": 409,
       "code": "IDEMPOTENCY_KEY_REUSED",
-      "condition": "same idempotency scope/key is reused with a different request hash",
+      "condition": "same idempotency scope/key has a different request hash, or the same hash is still PROCESSING with an active lease",
       "type": "https://api.timing-jeju.com/problems/idempotency-key-reused",
       "title": "멱등성 키가 다른 요청에 사용되었습니다",
-      "detail": "새 Idempotency-Key로 다시 요청해 주세요.",
-      "fixture": "409_idempotency_key_reused"
+      "detail": "다른 요청이면 새 Idempotency-Key로 다시 보내고, 동일 요청이 처리 중이면 Retry-After 헤더의 초만큼 기다린 뒤 다시 요청해 주세요.",
+      "fixture": "409_idempotency_key_reused",
+      "responseHeaders": {
+        "differentHash": {},
+        "leaseActiveSameHash": {
+          "Retry-After": "1"
+        }
+      }
     },
     {
       "status": 409,

@@ -32,6 +32,25 @@ MUTATION_HEADERS = ["Authorization", "Idempotency-Key", "If-Match"]
 OWNER = "canonical JWT sub; cross-owner and wrong-trip resource 404"
 PERMUTATION = "each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID"
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
+ENDPOINT_IDEMPOTENCY = {
+    "required": True,
+    "header": "Idempotency-Key",
+    "scope": "canonical sub + method + normalized path + tripId",
+    "ttl": "24 hours from COMPLETED",
+    "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+    "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+    "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays",
+}
+MUTATION_IDEMPOTENCY = {
+    "scope": "canonical sub + method + normalized path + Idempotency-Key",
+    "processingLease": "2 minutes",
+    "completedTtl": "24 hours from completion",
+    "completedSameHash": ENDPOINT_IDEMPOTENCY["replay"],
+    "differentHash": ENDPOINT_IDEMPOTENCY["payloadConflict"],
+    "leaseActiveSameHash": ENDPOINT_IDEMPOTENCY["concurrentRequest"],
+    "retryAfter": {"header": "Retry-After", "value": "1", "appliesTo": "PROCESSING lease-active same-hash concurrent loser only"},
+}
+IDEMPOTENCY_RESPONSE_HEADERS = {"differentHash": {}, "leaseActiveSameHash": {"Retry-After": "1"}}
 EXPECTED_ERROR_CONDITIONS = {
     "INVALID_REQUEST": "request path/query/header/body violates the bound closed schema, including a non-UUID Idempotency-Key",
     "SCHEDULE_ORDER_NOT_PERMUTATION": "reorder omits, duplicates, adds or references a foreign active item ID",
@@ -44,7 +63,7 @@ EXPECTED_ERROR_CONDITIONS = {
     "TRIP_DAY_NOT_FOUND": "target day is missing, cross-owner or wrong-trip",
     "ACCOMMODATION_NOT_FOUND": "referenced accommodation is missing, cross-owner or wrong-trip",
     "TRANSPORT_EVENT_NOT_FOUND": "referenced transport event is missing, cross-owner or wrong-trip",
-    "IDEMPOTENCY_KEY_REUSED": "same idempotency scope/key is reused with a different request hash",
+    "IDEMPOTENCY_KEY_REUSED": "same idempotency scope/key has a different request hash, or the same hash is still PROCESSING with an active lease",
     "TRIP_VERSION_CONFLICT": "If-Match does not equal the current strong trip aggregate ETag",
     "ACTIVE_SCHEDULE_VERSION_CONFLICT": "expectedActiveScheduleVersionId does not equal the current active schedule version",
     "SCHEDULE_ITEM_INVALID": "item violates type-required fields, range, target day or time-window invariants",
@@ -161,6 +180,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
             errors.append(f"{identity} 새 불변 version 원자 활성화 transaction이 필요합니다.")
         if endpoint.get("owner") != OWNER:
             errors.append(f"{identity} owner 404 은닉 정책이 다릅니다.")
+        if endpoint.get("idempotency") != ENDPOINT_IDEMPOTENCY:
+            errors.append(f"{identity} idempotency concurrentRequest/Retry-After 계약이 #72와 다릅니다.")
         matrix = endpoint.get("errorMatrix", {})
         if "ACTIVE_SCHEDULE_VERSION_CONFLICT" not in matrix.get("409", []) or "TRIP_VERSION_CONFLICT" not in matrix.get("409", []):
             errors.append(f"{identity} expected-version/If-Match 409가 모두 필요합니다.")
@@ -173,6 +194,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         errors.append("expectedActiveScheduleVersionId 위치가 다릅니다.")
     if policy.get("concurrency") != "strong trip aggregate ETag plus expected active schedule version":
         errors.append("If-Match/expected version concurrency가 다릅니다.")
+    if policy.get("idempotency") != MUTATION_IDEMPOTENCY:
+        errors.append("mutation idempotency policy가 endpoint #72 계약과 일치하지 않습니다.")
     if policy.get("validator") != "DB constraints and synchronous deterministic validator only" or not str(policy.get("aiCorrection", "")).startswith("never call MCP/AI"):
         errors.append("수동 편집 validator/AI 분리 경계가 다릅니다.")
 
@@ -208,8 +231,14 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         if code not in condition_map:
             errors.append(f"오류 condition {code}가 누락됐습니다.")
     for condition in conditions if isinstance(conditions, list) else []:
-        if set(condition) != {"status", "code", "condition", "type", "title", "detail", "fixture"} or condition.get("condition") != EXPECTED_ERROR_CONDITIONS.get(condition.get("code")) or not str(condition.get("type", "")).startswith("https://api.timing-jeju.com/problems/"):
-            errors.append(f"error condition/code/type가 exact하지 않습니다: {condition.get('code')}")
+        expected_fields = {"status", "code", "condition", "type", "title", "detail", "fixture"}
+        if condition.get("code") == "IDEMPOTENCY_KEY_REUSED":
+            expected_fields.add("responseHeaders")
+        if set(condition) != expected_fields or condition.get("condition") != EXPECTED_ERROR_CONDITIONS.get(condition.get("code")) or not str(condition.get("type", "")).startswith("https://api.timing-jeju.com/problems/"):
+            label = "idempotency condition" if condition.get("code") == "IDEMPOTENCY_KEY_REUSED" else "error condition/code/type"
+            errors.append(f"{label}가 exact하지 않습니다: {condition.get('code')}")
+        if condition.get("code") == "IDEMPOTENCY_KEY_REUSED" and (condition.get("status") != 409 or condition.get("type") != "https://api.timing-jeju.com/problems/idempotency-key-reused" or condition.get("detail") != "다른 요청이면 새 Idempotency-Key로 다시 보내고, 동일 요청이 처리 중이면 Retry-After 헤더의 초만큼 기다린 뒤 다시 요청해 주세요." or condition.get("responseHeaders") != IDEMPOTENCY_RESPONSE_HEADERS):
+            errors.append("idempotency condition/status/type/detail/Retry-After가 exact하지 않습니다.")
         if not condition.get("title") or not condition.get("detail") or not any("가" <= ch <= "힣" for ch in condition.get("title", "") + condition.get("detail", "")):
             errors.append(f"한국어 Problem title/detail이 필요합니다: {condition.get('code')}")
     matrix_codes: set[str] = set()
@@ -294,6 +323,13 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
         payload = example.get("query") if key == "deleteItem" else example.get("body")
         _validate_schema_value(payload, contract["schemas"][payload_schema], contract["schemas"], f"{key} request", errors)
     success = fixtures["success"]["examples"]
+    expected_idempotency_scenarios = {
+        "completedSameHash": {"state": "COMPLETED", "hash": "same", "outcome": "replay stored status, ordered headers and body", "operationExecuted": False},
+        "differentHash": {"hash": "different", "status": 409, "code": "IDEMPOTENCY_KEY_REUSED", "headers": {}},
+        "leaseActiveSameHash": {"state": "PROCESSING", "lease": "active", "hash": "same", "status": 409, "code": "IDEMPOTENCY_KEY_REUSED", "headers": {"Retry-After": "1"}, "waited": False, "replayed": False},
+    }
+    if fixtures["success"].get("idempotencyScenarios") != expected_idempotency_scenarios:
+        errors.append("idempotency completed/different-hash/lease-active fixture가 다릅니다.")
     if fixtures["success"].get("sourceTypeFixtures") != ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]:
         errors.append("sourceType DB fixture 집합이 다릅니다.")
     if success["readActive"]["status"] != 200 or success["createItem"]["status"] != 201 or success["createItem"]["body"].get("sourceType") != "user_edit":
@@ -302,6 +338,8 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
     for key in ("createItem", "patchItem", "deleteItem", "reorder", "move"):
         _validate_schema_value(success[key]["body"], contract["schemas"]["MutationResponse"], contract["schemas"], f"{key} success", errors)
     problems = fixtures["problem"]["examples"]
+    if fixtures["problem"].get("responseHeaders", {}).get("409_idempotency_key_reused") != IDEMPOTENCY_RESPONSE_HEADERS:
+        errors.append("IDEMPOTENCY_KEY_REUSED fixture Retry-After가 다릅니다.")
     for code, condition in conditions.items():
         problem = problems.get(condition["fixture"])
         if not isinstance(problem, dict) or problem.get("code") != code or problem.get("status") != condition["status"] or problem.get("type") != condition["type"] or problem.get("title") != condition["title"] or problem.get("detail") != condition["detail"]:

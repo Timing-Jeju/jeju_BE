@@ -172,11 +172,64 @@ class SchedulesContractTest(unittest.TestCase):
         self.validator._validate_schema_value("not-a-uuid", key_schema, schemas, "Idempotency-Key", errors)
         self.assertTrue(any("UUID" in error for error in errors))
 
+    def test_all_mutations_inherit_fail_fast_idempotency_state_contract(self) -> None:
+        endpoint_policy = {
+            "required": True,
+            "header": "Idempotency-Key",
+            "scope": "canonical sub + method + normalized path + tripId",
+            "ttl": "24 hours from COMPLETED",
+            "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+            "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+            "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays",
+        }
+        for endpoint in self.contract["endpoints"][1:]:
+            with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
+                self.assertEqual(endpoint_policy, endpoint["idempotency"])
+
+        self.assertEqual(
+            {
+                "scope": "canonical sub + method + normalized path + Idempotency-Key",
+                "processingLease": "2 minutes",
+                "completedTtl": "24 hours from completion",
+                "completedSameHash": endpoint_policy["replay"],
+                "differentHash": endpoint_policy["payloadConflict"],
+                "leaseActiveSameHash": endpoint_policy["concurrentRequest"],
+                "retryAfter": {"header": "Retry-After", "value": "1", "appliesTo": "PROCESSING lease-active same-hash concurrent loser only"},
+            },
+            self.contract["mutationPolicy"]["idempotency"],
+        )
+        condition = next(item for item in self.contract["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REUSED")
+        self.assertEqual(
+            {
+                "differentHash": {},
+                "leaseActiveSameHash": {"Retry-After": "1"},
+            },
+            condition["responseHeaders"],
+        )
+        self.assertIn("different request hash", condition["condition"])
+        self.assertIn("PROCESSING with an active lease", condition["condition"])
+        self.assertEqual("https://api.timing-jeju.com/problems/idempotency-key-reused", condition["type"])
+        self.assertEqual(409, condition["status"])
+        self.assertIn("Retry-After", condition["detail"])
+        fixture_headers = json.loads((ROOT / "fixtures/contracts/schedules/problem.json").read_text(encoding="utf-8"))["responseHeaders"]
+        self.assertEqual(condition["responseHeaders"], fixture_headers[condition["fixture"]])
+        scenarios = json.loads((ROOT / "fixtures/contracts/schedules/success.json").read_text(encoding="utf-8"))["idempotencyScenarios"]
+        self.assertEqual(False, scenarios["completedSameHash"]["operationExecuted"])
+        self.assertEqual("replay stored status, ordered headers and body", scenarios["completedSameHash"]["outcome"])
+        self.assertEqual({}, scenarios["differentHash"]["headers"])
+        self.assertEqual({"Retry-After": "1"}, scenarios["leaseActiveSameHash"]["headers"])
+        self.assertFalse(scenarios["leaseActiveSameHash"]["waited"])
+        self.assertFalse(scenarios["leaseActiveSameHash"]["replayed"])
+        spec = RDB_SPEC.read_text(encoding="utf-8")
+        self.assertIn("같은 hash가 2분 `PROCESSING` lease 안에 있으면", spec)
+        self.assertIn("즉시 같은 `409`와 `Retry-After: 1`", spec)
+
     def test_every_problem_has_exact_condition_and_owner_hidden_reference_codes(self) -> None:
         conditions = {item["code"]: item for item in self.contract["errorConditions"]}
         self.assertIn("ACCOMMODATION_NOT_FOUND", conditions)
         self.assertIn("TRANSPORT_EVENT_NOT_FOUND", conditions)
-        self.assertTrue(all(set(item) == {"status", "code", "condition", "type", "title", "detail", "fixture"} for item in conditions.values()))
+        base_fields = {"status", "code", "condition", "type", "title", "detail", "fixture"}
+        self.assertTrue(all(set(item) == (base_fields | {"responseHeaders"} if item["code"] == "IDEMPOTENCY_KEY_REUSED" else base_fields) for item in conditions.values()))
         self.assertTrue(all(item["condition"] for item in conditions.values()))
         for code in ("ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"):
             self.assertEqual(404, conditions[code]["status"])
@@ -248,6 +301,9 @@ class SchedulesContractTest(unittest.TestCase):
             ("item identity mapping", lambda c: c["legDerivationPolicy"].pop("itemIdentityMapping")),
             ("error condition", lambda c: c["errorConditions"][0].update(condition="different but non-empty condition")),
             ("error condition", lambda c: c["errorConditions"][0].update(code="BOGUS")),
+            ("idempotency concurrentRequest", lambda c: c["endpoints"][1]["idempotency"].update(concurrentRequest="wait and replay")),
+            ("idempotency condition", lambda c: next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REUSED").pop("condition")),
+            ("Retry-After", lambda c: next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REUSED")["responseHeaders"]["leaseActiveSameHash"].update({"Retry-After": "9"})),
         )
         for expected, mutate in mutations:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:
