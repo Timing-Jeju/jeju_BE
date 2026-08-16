@@ -957,6 +957,8 @@ Response `200`:
 - `PUT /schedule-order`
 - `POST /schedule-items/{itemId}/move`
 
+다섯 API 모두 `Idempotency-Key`가 없으면 `400 IDEMPOTENCY_KEY_REQUIRED`, 값이 있지만 canonical UUID가 아니면 `400 IDEMPOTENCY_KEY_INVALID`를 반환한다. 두 경우를 일반 `INVALID_REQUEST`로 합치지 않으며 공통 8필드 Problem Details registry의 한국어 title/detail을 사용한다.
+
 공통 Response `200/201`:
 
 ```json

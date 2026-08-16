@@ -934,7 +934,9 @@
       "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
       "errorMatrix": {
         "400": [
-          "INVALID_REQUEST"
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
         ],
         "401": [
           "AUTHENTICATION_REQUIRED",
@@ -1021,7 +1023,9 @@
       "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
       "errorMatrix": {
         "400": [
-          "INVALID_REQUEST"
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
         ],
         "401": [
           "AUTHENTICATION_REQUIRED",
@@ -1109,7 +1113,9 @@
       "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
       "errorMatrix": {
         "400": [
-          "INVALID_REQUEST"
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
         ],
         "401": [
           "AUTHENTICATION_REQUIRED",
@@ -1194,6 +1200,8 @@
       "errorMatrix": {
         "400": [
           "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID",
           "SCHEDULE_ORDER_NOT_PERMUTATION"
         ],
         "401": [
@@ -1279,7 +1287,9 @@
       "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
       "errorMatrix": {
         "400": [
-          "INVALID_REQUEST"
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
         ],
         "401": [
           "AUTHENTICATION_REQUIRED",
@@ -1483,11 +1493,29 @@
     {
       "status": 400,
       "code": "INVALID_REQUEST",
-      "condition": "request path/query/header/body violates the bound closed schema, including a non-UUID Idempotency-Key",
+      "condition": "request path/query/body or a non-idempotency header violates the bound closed schema",
       "type": "https://api.timing-jeju.com/problems/invalid-request",
       "title": "요청 값이 올바르지 않습니다",
       "detail": "필수값과 형식, 일정 버전 식별자를 확인해 주세요.",
       "fixture": "400_invalid_request"
+    },
+    {
+      "status": 400,
+      "code": "IDEMPOTENCY_KEY_REQUIRED",
+      "condition": "required Idempotency-Key header is missing",
+      "type": "https://api.timing-jeju.com/problems/idempotency-key-required",
+      "title": "멱등성 키가 필요합니다",
+      "detail": "Idempotency-Key 헤더를 입력해 주세요.",
+      "fixture": "400_idempotency_key_required"
+    },
+    {
+      "status": 400,
+      "code": "IDEMPOTENCY_KEY_INVALID",
+      "condition": "Idempotency-Key header is present but is not a canonical UUID",
+      "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
+      "title": "멱등성 키가 유효하지 않습니다",
+      "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+      "fixture": "400_idempotency_key_invalid"
     },
     {
       "status": 400,

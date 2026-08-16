@@ -224,6 +224,59 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertIn("같은 hash가 2분 `PROCESSING` lease 안에 있으면", spec)
         self.assertIn("즉시 같은 `409`와 `Retry-After: 1`", spec)
 
+    def test_missing_and_malformed_idempotency_keys_have_distinct_canonical_problems(self) -> None:
+        conditions = {item["code"]: item for item in self.contract["errorConditions"]}
+        expected = {
+            "IDEMPOTENCY_KEY_REQUIRED": {
+                "status": 400,
+                "condition": "required Idempotency-Key header is missing",
+                "type": "https://api.timing-jeju.com/problems/idempotency-key-required",
+                "title": "멱등성 키가 필요합니다",
+                "detail": "Idempotency-Key 헤더를 입력해 주세요.",
+                "fixture": "400_idempotency_key_required",
+            },
+            "IDEMPOTENCY_KEY_INVALID": {
+                "status": 400,
+                "condition": "Idempotency-Key header is present but is not a canonical UUID",
+                "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
+                "title": "멱등성 키가 유효하지 않습니다",
+                "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+                "fixture": "400_idempotency_key_invalid",
+            },
+        }
+        problems = json.loads((ROOT / "fixtures/contracts/schedules/problem.json").read_text(encoding="utf-8"))["examples"]
+        for code, fields in expected.items():
+            with self.subTest(code=code):
+                self.assertEqual({"code": code, **fields}, conditions[code])
+                fixture = problems[fields["fixture"]]
+                self.assertEqual({"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}, set(fixture))
+                for field in ("type", "title", "status", "detail"):
+                    self.assertEqual(fields[field], fixture[field])
+                self.assertEqual(code, fixture["code"])
+        for endpoint in self.contract["endpoints"][1:]:
+            with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
+                self.assertTrue({"INVALID_REQUEST", *expected}.issubset(endpoint["errorMatrix"]["400"]))
+        self.assertEqual(len(problems), len({problem["instance"] for problem in problems.values()}))
+        self.assertEqual(len(problems), len({problem["traceId"] for problem in problems.values()}))
+
+    def test_validator_rejects_idempotency_problem_fixture_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture_dir = Path(temporary)
+            for name in ("request", "success", "problem"):
+                source = ROOT / f"fixtures/contracts/schedules/{name}.json"
+                (fixture_dir / f"{name}.json").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            problem_path = fixture_dir / "problem.json"
+            problems = json.loads(problem_path.read_text(encoding="utf-8"))
+            problems["examples"]["400_idempotency_key_required"]["code"] = "INVALID_REQUEST"
+            problem_path.write_text(json.dumps(problems, ensure_ascii=False), encoding="utf-8")
+            original = self.validator.FIXTURES
+            self.validator.FIXTURES = fixture_dir
+            try:
+                errors = self.validator.validate(skip_catalog_fixtures=False)
+            finally:
+                self.validator.FIXTURES = original
+            self.assertTrue(any("condition→problem fixture" in error for error in errors))
+
     def test_every_problem_has_exact_condition_and_owner_hidden_reference_codes(self) -> None:
         conditions = {item["code"]: item for item in self.contract["errorConditions"]}
         self.assertIn("ACCOMMODATION_NOT_FOUND", conditions)
@@ -304,6 +357,9 @@ class SchedulesContractTest(unittest.TestCase):
             ("idempotency concurrentRequest", lambda c: c["endpoints"][1]["idempotency"].update(concurrentRequest="wait and replay")),
             ("idempotency condition", lambda c: next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REUSED").pop("condition")),
             ("Retry-After", lambda c: next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REUSED")["responseHeaders"]["leaseActiveSameHash"].update({"Retry-After": "9"})),
+            ("idempotency required/invalid", lambda c: c["errorConditions"].remove(next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REQUIRED"))),
+            ("idempotency required/invalid", lambda c: next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_INVALID").update(code="INVALID_REQUEST")),
+            ("error condition/matrix", lambda c: c["endpoints"][1]["errorMatrix"]["400"].remove("IDEMPOTENCY_KEY_INVALID")),
         )
         for expected, mutate in mutations:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:

@@ -52,7 +52,9 @@ MUTATION_IDEMPOTENCY = {
 }
 IDEMPOTENCY_RESPONSE_HEADERS = {"differentHash": {}, "leaseActiveSameHash": {"Retry-After": "1"}}
 EXPECTED_ERROR_CONDITIONS = {
-    "INVALID_REQUEST": "request path/query/header/body violates the bound closed schema, including a non-UUID Idempotency-Key",
+    "INVALID_REQUEST": "request path/query/body or a non-idempotency header violates the bound closed schema",
+    "IDEMPOTENCY_KEY_REQUIRED": "required Idempotency-Key header is missing",
+    "IDEMPOTENCY_KEY_INVALID": "Idempotency-Key header is present but is not a canonical UUID",
     "SCHEDULE_ORDER_NOT_PERMUTATION": "reorder omits, duplicates, adds or references a foreign active item ID",
     "AUTHENTICATION_REQUIRED": "Authorization header is missing",
     "INVALID_ACCESS_TOKEN": "Bearer token is malformed, invalid or expired",
@@ -227,6 +229,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
     expected_condition_codes = set(EXPECTED_ERROR_CONDITIONS)
     if set(condition_map) != expected_condition_codes:
         errors.append("error condition/code 집합이 exact하지 않습니다.")
+    if not {"IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID"}.issubset(condition_map):
+        errors.append("idempotency required/invalid condition이 누락되거나 conflation 됐습니다.")
     for code in ("TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND", "ACTIVE_SCHEDULE_VERSION_CONFLICT", "TRIP_VERSION_CONFLICT", "SCHEDULE_ITEM_COMPLETED"):
         if code not in condition_map:
             errors.append(f"오류 condition {code}가 누락됐습니다.")
@@ -239,6 +243,14 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
             errors.append(f"{label}가 exact하지 않습니다: {condition.get('code')}")
         if condition.get("code") == "IDEMPOTENCY_KEY_REUSED" and (condition.get("status") != 409 or condition.get("type") != "https://api.timing-jeju.com/problems/idempotency-key-reused" or condition.get("detail") != "다른 요청이면 새 Idempotency-Key로 다시 보내고, 동일 요청이 처리 중이면 Retry-After 헤더의 초만큼 기다린 뒤 다시 요청해 주세요." or condition.get("responseHeaders") != IDEMPOTENCY_RESPONSE_HEADERS):
             errors.append("idempotency condition/status/type/detail/Retry-After가 exact하지 않습니다.")
+        required_invalid = {
+            "IDEMPOTENCY_KEY_REQUIRED": ("https://api.timing-jeju.com/problems/idempotency-key-required", "멱등성 키가 필요합니다", "Idempotency-Key 헤더를 입력해 주세요."),
+            "IDEMPOTENCY_KEY_INVALID": ("https://api.timing-jeju.com/problems/idempotency-key-invalid", "멱등성 키가 유효하지 않습니다", "UUID 형식의 Idempotency-Key를 입력해 주세요."),
+        }
+        if condition.get("code") in required_invalid:
+            expected_type, expected_title, expected_detail = required_invalid[condition["code"]]
+            if condition.get("status") != 400 or (condition.get("type"), condition.get("title"), condition.get("detail")) != (expected_type, expected_title, expected_detail):
+                errors.append(f"idempotency required/invalid Problem이 exact하지 않습니다: {condition.get('code')}")
         if not condition.get("title") or not condition.get("detail") or not any("가" <= ch <= "힣" for ch in condition.get("title", "") + condition.get("detail", "")):
             errors.append(f"한국어 Problem title/detail이 필요합니다: {condition.get('code')}")
     matrix_codes: set[str] = set()
@@ -248,6 +260,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
                 matrix_codes.add(code)
                 if code not in condition_map or condition_map[code].get("status") != int(status):
                     errors.append(f"error condition/matrix status가 다릅니다: {endpoint['method']} {endpoint['path']} {code}")
+        if endpoint.get("method") != "GET" and not {"INVALID_REQUEST", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID"}.issubset(set(endpoint.get("errorMatrix", {}).get("400", []))):
+            errors.append(f"error condition/matrix idempotency required/invalid 400 code가 누락됐습니다: {endpoint.get('method')} {endpoint.get('path')}")
     if matrix_codes != expected_condition_codes:
         errors.append("error condition/matrix code 집합이 양방향 exact하지 않습니다.")
 
