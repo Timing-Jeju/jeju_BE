@@ -6,7 +6,8 @@ Issue #94가 확정하는 Spring 공개 API `GET /api/v1/weather/forecast`의 ca
 
 - Spring Boot만 공개 endpoint, optional Supabase JWT 검증, 정규화 DB 조회와 응답을 소유합니다. FastAPI는 endpoint·DB·JWT·KMA key를 소유하지 않습니다.
 - 날씨는 사용자 소유 리소스가 아닙니다. Authorization 생략은 anonymous, 전달한 token이 invalid/expired이면 401입니다. 권한 판단이 필요한 미래 확장은 canonical JWT `sub`만 사용합니다.
-- 현재 세션에서 Notion/Figma live evidence에 접근하지 않았습니다. 두 source의 contractVersion은 `not-linked`, 상태는 `not-ready`이며 PM/디자인 owner가 행·node·loading/empty/error를 재조회해 연결하기 전 승격하지 않습니다.
+- Notion page `3a40a87c-7ce5-816b-a8f7-ed2027e94b8c`는 같은 GET path, version `v1.1`, Spec Status `Ready`, Auth `Optional`, 화면 `장소 상세 / 일정 날씨`, DB `weather_grid_points/weather_forecasts`를 기록하지만 response가 `grid, forecastedAt, validAt, temp, POP, precipitation, wind, dataFreshness`만 가진 오래된 부분 계약이라 로컬 `1.0.0`과 일치하지 않습니다. 따라서 상태는 `drift-blocked`이며 PM/user 권한으로 Notion을 정렬하기 전 readiness를 승격하지 않습니다.
+- Figma file `4mKep38zm17iupVSQVsSJW`에는 section node `622:10382` 근처 intent node `622:19945`의 “여행 당일에 날씨 정보를 보고 일정을 바꿀 수 있게”만 확인됐습니다. 실제 response field와 loading/empty/error node 연결은 없으므로 `not-ready/not-linked`를 유지합니다.
 
 ## 요청과 시간 경계
 
@@ -26,6 +27,7 @@ Issue #42의 공식 DFS 5 km Lambert conformal conic 변환을 재사용하고 �
 
 - provider API version: `VilageFcstInfoService_2.0`
 - provider guide version: `2607`
+- 저장 enum은 canonical migration의 `ultra_short | short`를 유지합니다. 공개 응답은 `ultra_short | village`이며 Spring 구현 #67은 DB `ultra_short`를 API `ultra_short`로, DB `short`를 API `village`로 정확히 변환합니다. 공개 응답에 `short`를 노출하거나 #94에서 schema migration을 추가하지 않습니다.
 - 초단기: 매시 `HH:30`, 15분 발표 지연 후 선택
 - 동네예보: 02·05·08·11·14·17·20·23시, 10분 발표 지연 후 선택
 - 항상 발표 지연이 지난 최신 eligible base만 먼저 선택합니다.
@@ -54,7 +56,7 @@ endpoint status/code는 다음만 허용합니다.
 
 ## DB projection과 schema gap
 
-`weather_grid_points → weather_forecasts → external_api_snapshots/data_import_runs` 계보를 read-only로 조회합니다. `weather_forecasts`에는 `expires_at`과 provider version 컬럼이 없으므로 Issue #67이 snapshot/base 정책에서 안전하게 파생하거나 명시적 migration을 소유해야 합니다. 이 Issue는 Controller·DB schema·FastAPI를 변경하지 않습니다. `supabase/migrations`만 public schema의 기준입니다.
+`weather_grid_points → weather_forecasts → external_api_snapshots/data_import_runs` 계보를 read-only로 조회합니다. `weather_forecasts`에는 `expires_at`과 provider version 컬럼이 없으므로 Issue #67이 snapshot/base 정책에서 안전하게 파생하거나 명시적 migration을 소유해야 합니다. `forecast_type`의 저장 enum `short`는 공개 enum `village`로 projection하며 schema 변경 없이 읽습니다. 이 Issue는 Controller·DB schema·FastAPI를 변경하지 않습니다. `supabase/migrations`만 public schema의 기준입니다.
 
 검증 fixture는 `fixtures/contracts/weather-forecast`에 있으며 RDB API 예시는 `docs/designs/timing-jeju-backend-rdb-api-spec.md`에 같은 `contractVersion=1.0.0`으로 projection합니다.
 

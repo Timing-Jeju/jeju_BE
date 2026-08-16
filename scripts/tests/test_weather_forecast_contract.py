@@ -16,6 +16,7 @@ TEMPLATE = ROOT / "docs/contracts/rest/endpoint-template.json"
 FIXTURES = ROOT / "fixtures/contracts/weather-forecast"
 VALIDATOR = ROOT / "scripts/validate_weather_forecast_contract.py"
 RDB_SPEC = ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md"
+INITIAL_SCHEMA = ROOT / "supabase/migrations/20260728000000_initial_public_schema.sql"
 
 
 class WeatherForecastContractTest(unittest.TestCase):
@@ -70,6 +71,16 @@ class WeatherForecastContractTest(unittest.TestCase):
         self.assertEqual("VilageFcstInfoService_2.0", forecast["providerApiVersion"])
         self.assertEqual("2607", forecast["providerGuideVersion"])
         self.assertEqual("latest eligible base whose publication delay elapsed", forecast["baseSelection"])
+
+    def test_storage_forecast_type_projection_is_explicit_and_matches_schema(self) -> None:
+        self.assertEqual(
+            {"ultra_short": "ultra_short", "short": "village"},
+            self.contract["forecastPolicy"]["storageTypeToResponseType"],
+        )
+        schema = INITIAL_SCHEMA.read_text(encoding="utf-8")
+        self.assertIn("forecast_type in ('ultra_short', 'short')", schema)
+        rdb = RDB_SPEC.read_text(encoding="utf-8")
+        self.assertIn("DB `short` → API `village`", rdb)
 
     def test_response_is_closed_and_category_fields_are_required_nullable(self) -> None:
         response = self.contract["schemas"]["WeatherForecastResponse"]
@@ -142,13 +153,25 @@ class WeatherForecastContractTest(unittest.TestCase):
         self.assertIn("contractVersion: `1.0.0`", rdb)
         self.assertIn("WEATHER_FORECAST_UNAVAILABLE", rdb)
 
-    def test_external_readiness_is_not_claimed_without_live_evidence(self) -> None:
+    def test_external_evidence_pins_drift_without_claiming_readiness(self) -> None:
         external = self.contract["externalTraceability"]
-        for source in ("notion", "figma"):
-            self.assertEqual("not-ready", external[source]["status"])
-            self.assertEqual("not-linked", external[source]["contractVersion"])
-            self.assertIsNone(external[source]["evidence"])
-            self.assertTrue(external[source]["ownerFollowUp"])
+        notion = external["notion"]
+        self.assertEqual("drift-blocked", notion["status"])
+        self.assertEqual("v1.1", notion["contractVersion"])
+        self.assertEqual("3a40a87c-7ce5-816b-a8f7-ed2027e94b8c", notion["evidence"]["pageId"])
+        self.assertEqual("Ready", notion["evidence"]["specStatus"])
+        self.assertEqual("Optional", notion["evidence"]["auth"])
+        self.assertEqual("장소 상세 / 일정 날씨", notion["evidence"]["screen"])
+        self.assertEqual(["weather_grid_points", "weather_forecasts"], notion["evidence"]["db"])
+        self.assertEqual("local 1.0.0 response is not aligned with older partial Notion v1.1 response", notion["evidence"]["drift"])
+        figma = external["figma"]
+        self.assertEqual("not-ready", figma["status"])
+        self.assertEqual("not-linked", figma["contractVersion"])
+        self.assertEqual("622:19945", figma["evidence"]["intentNode"])
+        self.assertEqual("622:10382", figma["evidence"]["sectionNode"])
+        self.assertEqual(["responseFields", "loading", "empty", "error"], figma["evidence"]["missingLinkage"])
+        for source in (notion, figma):
+            self.assertTrue(source["ownerFollowUp"])
         for stage in self.contract["readiness"].values():
             self.assertEqual({"status": "not-ready", "evidence": None}, stage)
 
@@ -157,10 +180,13 @@ class WeatherForecastContractTest(unittest.TestCase):
             ("query", lambda value: value["schemas"]["WeatherForecastQuery"]["required"].remove("lng")),
             ("grid", lambda value: value["gridPolicy"].update(rounding="round")),
             ("horizon", lambda value: value["forecastPolicy"].update(villageHorizon="unbounded")),
+            ("storage projection", lambda value: value["forecastPolicy"]["storageTypeToResponseType"].update(short="short")),
             ("category", lambda value: value["categoryPolicy"].update(omitted="allowed")),
             ("fallback", lambda value: value["freshnessPolicy"].update(fallbackLimit="unbounded")),
             ("problem", lambda value: value["errorConditions"][0]["example"].update(message="forbidden")),
             ("external readiness", lambda value: value["externalTraceability"]["notion"].update(status="ready")),
+            ("external readiness", lambda value: value["externalTraceability"]["notion"]["evidence"].update(pageId="drift")),
+            ("external readiness", lambda value: value["externalTraceability"]["figma"].update(status="ready")),
             ("response schema", lambda value: value["schemas"]["WeatherForecastResponse"]["properties"]["providerApiVersion"].update(const="drift")),
             ("endpoint canonical", lambda value: value["endpoints"][0].update(dbOwner="drift")),
             ("schemaGap exact", lambda value: value["schemaGap"].__setitem__(0, "drift")),
@@ -209,11 +235,16 @@ class WeatherForecastContractTest(unittest.TestCase):
         cases = (
             ("request.json", lambda value: value["query"].pop("lat"), "required"),
             ("request.json", lambda value: value["query"].update(dateTime="2026-08-03T05:00:00Z"), "+09:00"),
+            ("request.json", lambda value: value["headers"].update(Authorization="Basic dXNlcjpwYXNz"), "pattern"),
+            ("request.json", lambda value: value["headers"].update({"X-Internal-Secret": "forbidden"}), "additionalProperties"),
+            ("request.json", lambda value: value.update(unknown="forbidden"), "request fixture top-level exact"),
             ("success.json", lambda value: value["body"].pop("temperatureC"), "required"),
             ("success.json", lambda value: value["body"].update(rawCategory="TMP"), "additionalProperties"),
             ("success.json", lambda value: value["body"].update(fallbackUsed=True, stale=False), "stale/fallback"),
             ("success.json", lambda value: value["body"].update(validAt="2026-08-03T15:00:00+09:00"), "validAt"),
+            ("success.json", lambda value: value.update(unknown="forbidden"), "success fixture top-level exact"),
             ("problem.json", lambda value: value["examples"]["INVALID_ACCESS_TOKEN"].update(message="forbidden"), "problem fixture"),
+            ("problem.json", lambda value: value.update(unknown="forbidden"), "problem fixture top-level exact"),
         )
         for filename, mutate, expected in cases:
             with self.subTest(filename=filename, expected=expected), tempfile.TemporaryDirectory() as temporary:

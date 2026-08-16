@@ -1606,6 +1606,8 @@ Canonical source: `docs/contracts/domains/weather-forecast/contract.json`, contr
 
 `lat`, `lng`, `dateTime`은 동시에 required/non-null이며 추가 query를 허용하지 않는다. `lat=-90..90` exclusive, `lng=-180..180` inclusive의 finite number이고 `dateTime`은 Asia/Seoul의 `+09:00` RFC 3339 정시(seconds `00`)다. 요청 접수 시각을 내린 정시부터 6시간 inclusive는 `ultra_short`, 그 초과부터 10일 inclusive는 `village`로 조회한다. 과거·10일 초과는 422다.
 
+Canonical DB의 `weather_forecasts.forecast_type`은 `ultra_short | short`다. 공개 응답은 `ultra_short | village`이므로 구현 #67은 DB `ultra_short` → API `ultra_short`, DB `short` → API `village`로 정확히 projection한다. `short`는 공개하지 않으며 이 문서 Issue는 migration을 추가하지 않는다.
+
 Request:
 
 ```http

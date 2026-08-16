@@ -35,9 +35,15 @@ Refactor에서는 query schema를 실제 경계값으로 검사하고 category-d
 
 ## 외부 추적성과 schema gap
 
-현재 세션에서 Notion/Figma live evidence를 읽을 수 없으므로 contractVersion은 `not-linked`, metadata/example/implementation은 `not-ready`로 유지했다. PM/디자인 owner가 Notion 행과 Figma 소비 node·loading/empty/error를 재조회해 연결해야 한다.
+PM의 직접 외부 조회로 Notion page `3a40a87c-7ce5-816b-a8f7-ed2027e94b8c`가 같은 GET path, contract version `v1.1`, Spec Status `Ready`, Auth `Optional`, 화면 `장소 상세 / 일정 날씨`, DB `weather_grid_points/weather_forecasts`를 가리키는 것을 확인했다. 다만 response는 `grid, forecastedAt, validAt, temp, POP, precipitation, wind, dataFreshness`만 가진 오래된 부분 계약이라 로컬 `1.0.0`과 불일치한다. 외부 write 권한 없이 맞췄다고 가장하지 않고 `drift-blocked`로 기록했으며 PM/user 권한으로 Notion 행을 정렬해야 한다.
+
+Figma file `4mKep38zm17iupVSQVsSJW`에서는 section `622:10382` 근처 intent node `622:19945`의 “여행 당일에 날씨 정보를 보고 일정을 바꿀 수 있게”를 확인했다. 실제 response field와 loading/empty/error node 연결은 발견되지 않았으므로 `not-ready/not-linked`를 유지하고 디자인 owner 후속을 명시했다. metadata/example/implementation readiness는 모두 `not-ready`다.
 
 `weather_forecasts`에는 `expires_at`과 provider version 컬럼이 없다. Issue #67이 versioned snapshot/base에서 파생하거나 명시적 migration으로 해결해야 한다. 이 Issue는 schema를 바꾸지 않는다.
+
+Reviewer 보완에서 canonical migration의 `forecast_type` 저장 enum이 `ultra_short | short`, 공개 enum이 `ultra_short | village`인 drift를 확인했다. #94에서 migration을 만들지 않고 구현 #67이 DB `ultra_short` → API `ultra_short`, DB `short` → API `village`로 정확히 projection하도록 contract/schemaGap/RDB·DB 문서와 mutation test에 고정했다.
+
+fixture validator는 request/success/problem top-level exact field 집합을 검사하고 request headers를 closed `CommonHeaders`로 재귀 검증한다. Red에서 Basic Authorization, `X-Internal-Secret`, 세 fixture의 unknown top-level이 통과하는 5 failures와 projection 누락 1 error를 재현했고, Green에서 모두 차단했다.
 
 ## 현재 검증
 

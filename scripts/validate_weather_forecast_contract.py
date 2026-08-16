@@ -20,6 +20,11 @@ TEMPLATE = ROOT / "docs/contracts/rest/endpoint-template.json"
 FIXTURES = ROOT / "fixtures/contracts/weather-forecast"
 IDENTITY = ("GET", "/api/v1/weather/forecast")
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
+FIXTURE_TOP_FIELDS = {
+    "request": {"contractVersion", "method", "path", "headers", "query", "body"},
+    "success": {"contractVersion", "status", "evaluatedAt", "body"},
+    "problem": {"contractVersion", "examples"},
+}
 TOP_FIELDS = {
     "schemaVersion", "contractVersion", "sourceSpecVersion", "inherits", "ownerIssue",
     "implementationIssues", "schemas", "endpoints", "gridPolicy", "forecastPolicy",
@@ -141,7 +146,7 @@ def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
         if contract.get(key) != expected:
             label = {
                 "gridPolicy": "grid",
-                "forecastPolicy": "horizon/base/version",
+                "forecastPolicy": "horizon/base/version/storage projection",
                 "categoryPolicy": "category nullable/omitted",
                 "freshnessPolicy": "fallback/freshness",
                 "securityPolicy": "security",
@@ -177,16 +182,20 @@ def _validate_external(contract: dict[str, Any], errors: list[str]) -> None:
     if not isinstance(external, dict) or set(external) != {"notion", "figma"}:
         errors.append("external readiness source가 다릅니다.")
         return
-    for source in ("notion", "figma"):
-        expected_keys = {"status", "contractVersion", "evidence", "ownerFollowUp"}
-        value = external.get(source, {})
-        if set(value) != expected_keys or value.get("status") != "not-ready" or value.get("contractVersion") != "not-linked" or value.get("evidence") is not None or not value.get("ownerFollowUp"):
-            errors.append(f"external readiness {source}를 live evidence 없이 승격할 수 없습니다.")
+    canonical = _load(DEFAULT_CONTRACT)["externalTraceability"]
+    if external != canonical:
+        errors.append("external readiness/evidence/owner follow-up exact 계약이 다릅니다.")
+    notion = external.get("notion", {})
+    notion_evidence = notion.get("evidence", {})
+    if notion.get("status") != "drift-blocked" or notion.get("contractVersion") != "v1.1" or notion_evidence.get("specStatus") != "Ready" or not notion.get("ownerFollowUp"):
+        errors.append("external readiness notion drift를 aligned로 승격할 수 없습니다.")
+    figma = external.get("figma", {})
+    figma_evidence = figma.get("evidence", {})
+    if figma.get("status") != "not-ready" or figma.get("contractVersion") != "not-linked" or figma_evidence.get("missingLinkage") != ["responseFields", "loading", "empty", "error"] or not figma.get("ownerFollowUp"):
+        errors.append("external readiness figma를 field/state linkage 없이 승격할 수 없습니다.")
     expected_readiness = {stage: {"status": "not-ready", "evidence": None} for stage in ("metadata", "example", "implementation")}
     if contract.get("readiness") != expected_readiness:
         errors.append("external readiness는 모두 not-ready여야 합니다.")
-    if external != _load(DEFAULT_CONTRACT)["externalTraceability"]:
-        errors.append("external readiness/owner follow-up exact 계약이 다릅니다.")
 
 
 def catalog_projection(endpoint: dict[str, Any]) -> dict[str, Any]:
@@ -318,8 +327,14 @@ def validate_fixtures(contract: dict[str, Any]) -> list[str]:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [f"fixture를 읽을 수 없습니다: {exc}"]
     for label, fixture in (("request", request), ("success", success), ("problem", problems)):
+        if not isinstance(fixture, dict) or set(fixture) != FIXTURE_TOP_FIELDS[label]:
+            errors.append(f"{label} fixture top-level exact 필드가 다릅니다.")
+            continue
         if fixture.get("contractVersion") != contract.get("contractVersion"):
             errors.append(f"{label} fixture contractVersion이 다릅니다.")
+    if not all(isinstance(fixture, dict) for fixture in (request, success, problems)):
+        return errors
+    _validate_value(request.get("headers"), contract["schemas"]["CommonHeaders"], contract["schemas"], "request.headers", errors)
     query = request.get("query")
     _validate_value(query, contract["schemas"]["WeatherForecastQuery"], contract["schemas"], "request.query", errors)
     if request.get("method") != "GET" or request.get("path") != "/api/v1/weather/forecast" or request.get("body") is not None:
