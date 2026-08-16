@@ -9,9 +9,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.validate_preferences_transport_contract import _validate_schema_value
+except ModuleNotFoundError:  # direct `python3 scripts/...` execution
+    from validate_preferences_transport_contract import _validate_schema_value
+
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/schedules/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
+TEMPLATE = ROOT / "docs/contracts/rest/endpoint-template.json"
 FIXTURES = ROOT / "fixtures/contracts/schedules"
 EXPECTED_ENDPOINTS = {
     ("GET", "/api/v1/trips/{tripId}/schedule"),
@@ -49,7 +55,7 @@ def _load(path: Path, label: str, errors: list[str]) -> Any:
         return None
 
 
-def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool = False) -> list[str]:
+def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool = False, catalog_path: Path = CATALOG) -> list[str]:
     errors: list[str] = []
     contract = _load(contract_path, "일정 계약", errors)
     if not isinstance(contract, dict):
@@ -59,9 +65,9 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         errors.append("identity/version/inheritance가 Issue #88 기준과 다릅니다.")
 
     schemas = contract.get("schemas", {})
-    expected_schema_names = {"ScheduleQuery", "MutationHeaders", "CreateItemRequest", "PatchItemRequest", "DeleteItemQuery", "ReorderRequest", "MoveItemRequest", "ScheduleResponse", "MutationResponse"}
+    expected_schema_names = {"TripPath", "ScheduleItemPath", "ScheduleQuery", "ReadHeaders", "MutationHeaders", "CreateItemRequest", "PatchItemRequest", "DeleteItemQuery", "ReorderDay", "ReorderRequest", "MoveItemRequest", "ScheduleVersion", "ItemProgress", "ScheduleItem", "ScheduleLeg", "ScheduleDay", "ScheduleResponse", "MutationResponse"}
     if set(schemas) != expected_schema_names:
-        errors.append("required/optional/null/omitted schema 집합이 다릅니다.")
+        errors.append("OpenAPI schema 집합이 다릅니다.")
     elif (
         schemas["CreateItemRequest"].get("required") != ["expectedActiveScheduleVersionId", "dayNo", "sequenceNo", "itemType", "plannedStartAt", "stayMinutes"]
         or schemas["PatchItemRequest"].get("presence") != "omitted=unchanged; memo alone nullable"
@@ -70,6 +76,28 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         or schemas["MutationResponse"].get("constants") != {"sourceType": "user_edit", "feasibilityStale": True}
     ):
         errors.append("required/optional/null/omitted schema semantics가 다릅니다.")
+    if isinstance(schemas, dict):
+        for name, schema in schemas.items():
+            if not isinstance(schema, dict) or schema.get("type") != "object" or schema.get("nullable") is not False or schema.get("additionalProperties") is not False or not isinstance(schema.get("required"), list) or not isinstance(schema.get("properties"), dict):
+                errors.append(f"OpenAPI schema {name}가 closed object가 아닙니다.")
+        leg = schemas.get("ScheduleLeg", {}).get("properties", {})
+        if leg.get("transportMode", {}).get("enum") != ["walk", "public_transit", "rental_car", "taxi"] or leg.get("plannedDepartureAt", {}).get("format") != "date-time":
+            errors.append("OpenAPI schema ScheduleLeg type/format/enum이 다릅니다.")
+        progress = schemas.get("ItemProgress", {}).get("properties", {})
+        if progress.get("status", {}).get("enum") != ["planned", "active", "arrived", "completed", "skipped", "missed"]:
+            errors.append("OpenAPI schema ItemProgress enum이 다릅니다.")
+        create = schemas.get("CreateItemRequest", {}).get("properties", {})
+        if create.get("stayMinutes") != {"type": "integer", "minimum": 1, "maximum": 1440, "nullable": False} or create.get("plannedStartAt") != {"type": "string", "format": "date-time", "offset": "+09:00", "nullable": False} or create.get("title", {}).get("nullable") is not False or create.get("memo", {}).get("nullable") is not True:
+            errors.append("OpenAPI schema Create/Patch type/format/range/nullability가 다릅니다.")
+        schedule_response = schemas.get("ScheduleResponse", {})
+        if schedule_response.get("required") != ["tripId", "scheduleVersion", "days"] or schedule_response.get("properties", {}).get("scheduleVersion") != {"$ref": "ScheduleVersion", "nullable": False}:
+            errors.append("OpenAPI schema ScheduleResponse binding/required가 다릅니다.")
+        item = schemas.get("ScheduleItem", {})
+        if item.get("required") != ["itemId", "sequenceNo", "itemType", "placeId", "title", "plannedStartAt", "plannedEndAt", "stayMinutes", "bufferAfterMinutes", "required", "memo", "progress"]:
+            errors.append("OpenAPI schema ScheduleItem response shape가 다릅니다.")
+        mutation = schemas.get("MutationResponse", {})
+        if mutation.get("required") != ["tripId", "previousScheduleVersionId", "activeScheduleVersionId", "versionNo", "sourceType", "feasibilityStale", "changedItemIds", "etag", "updatedAt"] or mutation.get("constants") != {"sourceType": "user_edit", "feasibilityStale": True}:
+            errors.append("OpenAPI schema MutationResponse/etag shape가 다릅니다.")
 
     endpoints = contract.get("endpoints")
     identities = {(e.get("method"), e.get("path")) for e in endpoints} if isinstance(endpoints, list) and all(isinstance(e, dict) for e in endpoints) else set()
@@ -78,6 +106,19 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         return errors
     if len(identities) != len(endpoints):
         errors.append("endpoint method/path duplicate가 있습니다.")
+
+    expected_bindings = {
+        ("GET", "/api/v1/trips/{tripId}/schedule"): ({"path": "TripPath", "query": "ScheduleQuery", "headers": "ReadHeaders", "body": "none"}, "ScheduleResponse"),
+        ("POST", "/api/v1/trips/{tripId}/schedule-items"): ({"path": "TripPath", "query": "none", "headers": "MutationHeaders", "body": "CreateItemRequest"}, "MutationResponse"),
+        ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): ({"path": "ScheduleItemPath", "query": "none", "headers": "MutationHeaders", "body": "PatchItemRequest"}, "MutationResponse"),
+        ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): ({"path": "ScheduleItemPath", "query": "DeleteItemQuery", "headers": "MutationHeaders", "body": "none"}, "MutationResponse"),
+        ("PUT", "/api/v1/trips/{tripId}/schedule-order"): ({"path": "TripPath", "query": "none", "headers": "MutationHeaders", "body": "ReorderRequest"}, "MutationResponse"),
+        ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move"): ({"path": "ScheduleItemPath", "query": "none", "headers": "MutationHeaders", "body": "MoveItemRequest"}, "MutationResponse"),
+    }
+    for endpoint in endpoints:
+        binding = expected_bindings[(endpoint["method"], endpoint["path"])]
+        if endpoint.get("schemas") != binding[0] or endpoint.get("successSchema") != binding[1]:
+            errors.append(f"endpoint schema binding이 다릅니다: {endpoint['method']} {endpoint['path']}")
 
     read = next(e for e in endpoints if e["method"] == "GET")
     if 409 in read.get("responses", {}).get("errors", []) or read.get("concurrency") != "none" or not str(read.get("transaction", "")).startswith("read-only"):
@@ -116,6 +157,10 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
     if contract.get("versionPolicy", {}).get("immutable") != "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed":
         errors.append("불변 version과 허용 status transition 계약이 다릅니다.")
 
+    leg_policy = contract.get("legDerivationPolicy", {})
+    if leg_policy.get("sourcePriority") != ["reuse-unchanged-active-leg", "stored-route-snapshot", "conservative-walk-fallback", "reject-422"] or leg_policy.get("requestTimeCall") != "none" or leg_policy.get("durationInvariant") != "walkMinutes + waitMinutes + rideMinutes + transferMinutes" or leg_policy.get("stableFailure") != "422 SCHEDULE_LEG_INCOMPLETE; rollback draft, prior active pointer unchanged" or set(leg_policy.get("operations", {})) != {"add", "delete", "reorder", "move"}:
+        errors.append("leg derivation 정책이 deterministic/fail-closed가 아닙니다.")
+
     item_policy = contract.get("itemPolicy", {})
     required = item_policy.get("requiredByType", {})
     if set(required) != {"place_visit", "meal", "accommodation", "arrival", "departure", "free_time", "custom"} or any(not fields for fields in required.values()):
@@ -145,15 +190,23 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         errors.append("Notion/Figma not-linked 상태에서 readiness를 승격할 수 없습니다.")
 
     if not skip_catalog_fixtures:
-        _validate_catalog(contract, errors)
+        _validate_catalog(contract, errors, catalog_path)
         _validate_fixtures(contract, condition_map, errors)
     return errors
 
 
-def _validate_catalog(contract: dict[str, Any], errors: list[str]) -> None:
-    catalog = _load(CATALOG, "REST catalog", errors)
+def _validate_catalog(contract: dict[str, Any], errors: list[str], catalog_path: Path = CATALOG) -> None:
+    catalog = _load(catalog_path, "REST catalog", errors)
     if not isinstance(catalog, dict):
         return
+    template = _load(TEMPLATE, "REST endpoint template", errors)
+    if not isinstance(template, dict):
+        return
+    fields = template.get("requiredEndpointFields", [])
+    expected_endpoints = [{field: endpoint[field] for field in fields} for endpoint in contract["endpoints"]]
+    actual_endpoints = [endpoint for endpoint in catalog.get("endpoints", []) if (endpoint.get("method"), endpoint.get("path")) in EXPECTED_ENDPOINTS]
+    if actual_endpoints != expected_endpoints:
+        errors.append("catalog endpoint projection이 domain 계약과 bidirectional하게 다릅니다.")
     domains = [d for d in catalog.get("domainContracts", []) if d.get("issue") == 88]
     expected = {"issue": 88, "domain": "schedules", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": contract["readiness"]}
     if domains != [expected]:
@@ -169,14 +222,38 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
     request = fixtures["request"]["examples"]
     if request["readActive"].get("body") is not None and "body" in request["readActive"]:
         errors.append("GET read fixture body는 금지됩니다.")
+    read_segments = request["readActive"]["path"].split("/")
+    _validate_schema_value({"tripId": read_segments[4]}, contract["schemas"]["TripPath"], contract["schemas"], "readActive path", errors)
+    _validate_schema_value(request["readActive"].get("query", {}), contract["schemas"]["ScheduleQuery"], contract["schemas"], "readActive query", errors)
+    _validate_schema_value(request["readActive"]["headers"], contract["schemas"]["ReadHeaders"], contract["schemas"], "readActive headers", errors)
     for key in ("createItem", "patchItem", "deleteItem", "reorder", "move"):
         if list(request[key].get("headers", {})) != MUTATION_HEADERS:
             errors.append(f"{key} fixture required headers가 다릅니다.")
     if "expectedActiveScheduleVersionId" not in request["deleteItem"].get("query", {}) or request["deleteItem"].get("body") is not None:
         errors.append("DELETE expected version query/body fixture가 다릅니다.")
+    request_schemas = {
+        "createItem": ("TripPath", "CreateItemRequest"),
+        "patchItem": ("ScheduleItemPath", "PatchItemRequest"),
+        "deleteItem": ("ScheduleItemPath", "DeleteItemQuery"),
+        "reorder": ("TripPath", "ReorderRequest"),
+        "move": ("ScheduleItemPath", "MoveItemRequest"),
+    }
+    for key, (path_schema, payload_schema) in request_schemas.items():
+        example = request[key]
+        segments = example["path"].split("/")
+        path_value = {"tripId": segments[4]}
+        if path_schema == "ScheduleItemPath":
+            path_value["itemId"] = segments[6]
+        _validate_schema_value(path_value, contract["schemas"][path_schema], contract["schemas"], f"{key} path", errors)
+        _validate_schema_value(example["headers"], contract["schemas"]["MutationHeaders"], contract["schemas"], f"{key} headers", errors)
+        payload = example.get("query") if key == "deleteItem" else example.get("body")
+        _validate_schema_value(payload, contract["schemas"][payload_schema], contract["schemas"], f"{key} request", errors)
     success = fixtures["success"]["examples"]
     if success["readActive"]["status"] != 200 or success["createItem"]["status"] != 201 or success["createItem"]["body"].get("sourceType") != "user_edit":
         errors.append("immutable read/new-version success fixture가 다릅니다.")
+    _validate_schema_value(success["readActive"]["body"], contract["schemas"]["ScheduleResponse"], contract["schemas"], "readActive success", errors)
+    for key in ("createItem", "patchItem", "deleteItem", "reorder", "move"):
+        _validate_schema_value(success[key]["body"], contract["schemas"]["MutationResponse"], contract["schemas"], f"{key} success", errors)
     problems = fixtures["problem"]["examples"]
     for code, condition in conditions.items():
         problem = problems.get(condition["fixture"])
@@ -189,9 +266,10 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT)
+    parser.add_argument("--catalog", type=Path, default=CATALOG)
     parser.add_argument("--skip-catalog-fixtures", action="store_true")
     args = parser.parse_args()
-    errors = validate(args.contract, args.skip_catalog_fixtures)
+    errors = validate(args.contract, args.skip_catalog_fixtures, args.catalog)
     if errors:
         for error in errors:
             print(f"[FAIL] {error}", file=sys.stderr)

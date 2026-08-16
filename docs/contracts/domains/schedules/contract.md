@@ -27,10 +27,16 @@ itemType은 `place_visit|meal|accommodation|arrival|departure|free_time|custom`�
 
 수동 변경은 DB constraint와 동기 deterministic validator만 사용한다. 이 요청 경로에서 MCP/AI를 호출하거나 실패한 편집을 자동 보정하지 않는다. AI 보정은 #89의 별도 schedule revision run으로만 접수한다.
 
+## 인접 leg 결정 규칙
+
+추가·삭제·재정렬·Day 이동은 영향을 받은 인접 pair를 `기존 active leg 재사용 → 저장된 route snapshot → 보수적 도보 fallback → 422` 순서로 결정한다. endpoint, 시간창, 좌표와 교통수단이 모두 그대로인 pair만 기존 의미 값을 새 leg row로 복사한다. 저장 snapshot은 같은 정규화 출발지·도착지·교통수단의 transaction 시작 시점 미만료 자료만 쓰며 `expiresAt DESC, observedAt DESC, snapshotId ASC` 순으로 하나를 고른다. 요청 중 외부 API·MCP는 호출하지 않는다.
+
+snapshot이 없고 두 item에 정규화 좌표가 있으면 PostGIS geography 거리를 올림하고 `ceil(distanceMeters / 50)`(최소 1분)의 도보 구간을 만든다. 이때 `transportMode=walk`, wait/ride/transfer/buffer는 0, 출발은 앞 item의 `plannedEndAt`, 도착은 출발+구성요소 합계다. 도착이 다음 item 시작을 넘거나 좌표가 없으면 안정적으로 `422 SCHEDULE_LEG_INCOMPLETE`를 반환한다. 모든 Day가 정확히 `N-1`개의 연속 leg를 갖고 DB sealing validator를 통과한 후에만 같은 transaction에서 seal/CAS 활성화하며, 실패 시 draft와 부분 row를 rollback하고 기존 active pointer를 유지한다.
+
 ## 오류, 외부 증거와 schema gap
 
 오류 fixture는 #72의 exact Problem Details field `type,title,status,detail,instance,code,traceId,fieldErrors`와 한국어 title/detail을 사용한다. `instance`에는 raw path/query, token, 이메일, `user_metadata`, provider payload를 반사하지 않는다.
 
 이 개발 세션에서는 Notion의 해당 6개 endpoint 행과 Figma의 일정 화면 node/action/loading/empty/error/API contract version 연결을 직접 읽거나 수정했다는 증거를 확보하지 못했다. 따라서 둘 다 `contractVersion=not-linked`, `status=not-ready`이며 metadata/example/implementation readiness도 승격하지 않는다. 알려진 Figma file/page 식별자는 탐색 시작점일 뿐 연결 증거가 아니다.
 
-문서 작업은 schema를 바꾸지 않는다. 현재 `trip_items`에는 accommodation/transport-event 전용 FK가 없고 `stay_minutes`는 null/0과 상한 없는 값을 허용한다. #50은 이 차이에 필요한 migration과 application validator 책임을 명시적으로 결정해야 한다. 운영 public schema의 단일 기준은 `supabase/migrations`이며 Flyway를 도입하지 않는다.
+문서 작업은 schema를 바꾸지 않는다. 현재 `trip_items`에는 accommodation/transport-event 전용 FK가 없고 `stay_minutes`는 null/0과 상한 없는 값을 허용한다. 또한 leg derivation source/algorithm version/snapshot ID의 전용 column이 없어 #50/#51은 `facts` 저장 규약 또는 migration을 명시적으로 결정해야 한다. 운영 public schema의 단일 기준은 `supabase/migrations`이며 Flyway를 도입하지 않는다.

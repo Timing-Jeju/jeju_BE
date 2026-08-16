@@ -8,6 +8,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "docs/contracts/domains/schedules/contract.json"
+CATALOG = ROOT / "docs/contracts/rest/catalog.json"
+RDB_SPEC = ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md"
 VALIDATOR = ROOT / "scripts/validate_schedules_contract.py"
 EXPECTED_ENDPOINTS = {
     ("GET", "/api/v1/trips/{tripId}/schedule"),
@@ -81,6 +83,14 @@ class SchedulesContractTest(unittest.TestCase):
 
     def test_required_optional_null_omitted_and_response_fields_are_machine_readable(self) -> None:
         schemas = self.contract["schemas"]
+        self.assertEqual({"TripPath", "ScheduleItemPath", "ScheduleQuery", "ReadHeaders", "MutationHeaders", "CreateItemRequest", "PatchItemRequest", "DeleteItemQuery", "ReorderDay", "ReorderRequest", "MoveItemRequest", "ScheduleVersion", "ItemProgress", "ScheduleItem", "ScheduleLeg", "ScheduleDay", "ScheduleResponse", "MutationResponse"}, set(schemas))
+        for name, schema in schemas.items():
+            with self.subTest(schema=name):
+                self.assertEqual("object", schema["type"])
+                self.assertFalse(schema["nullable"])
+                self.assertFalse(schema["additionalProperties"])
+                self.assertIsInstance(schema["required"], list)
+                self.assertIsInstance(schema["properties"], dict)
         self.assertEqual(["expectedActiveScheduleVersionId", "dayNo", "sequenceNo", "itemType", "plannedStartAt", "stayMinutes"], schemas["CreateItemRequest"]["required"])
         self.assertEqual(False, schemas["CreateItemRequest"]["additionalProperties"])
         self.assertEqual(["expectedActiveScheduleVersionId"], schemas["PatchItemRequest"]["required"])
@@ -89,6 +99,77 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(["expectedActiveScheduleVersionId", "targetDayNo", "targetSequenceNo", "plannedStartAt"], schemas["MoveItemRequest"]["required"])
         self.assertEqual(["tripId", "scheduleVersion", "days"], schemas["ScheduleResponse"]["required"])
         self.assertEqual(["tripId", "previousScheduleVersionId", "activeScheduleVersionId", "versionNo", "sourceType", "feasibilityStale", "changedItemIds", "etag", "updatedAt"], schemas["MutationResponse"]["required"])
+        self.assertEqual(["place_visit", "meal", "accommodation", "arrival", "departure", "free_time", "custom"], schemas["ScheduleItem"]["properties"]["itemType"]["enum"])
+        self.assertEqual(1, schemas["CreateItemRequest"]["properties"]["stayMinutes"]["minimum"])
+        self.assertEqual(1440, schemas["CreateItemRequest"]["properties"]["stayMinutes"]["maximum"])
+        self.assertFalse(schemas["CreateItemRequest"]["properties"]["title"]["nullable"])
+        self.assertTrue(schemas["CreateItemRequest"]["properties"]["memo"]["nullable"])
+        self.assertEqual("date-time", schemas["ScheduleLeg"]["properties"]["plannedDepartureAt"]["format"])
+        self.assertEqual(["walk", "public_transit", "rental_car", "taxi"], schemas["ScheduleLeg"]["properties"]["transportMode"]["enum"])
+        self.assertEqual(["planned", "active", "arrived", "completed", "skipped", "missed"], schemas["ItemProgress"]["properties"]["status"]["enum"])
+
+        for endpoint in self.contract["endpoints"]:
+            with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
+                self.assertEqual({"path", "query", "headers", "body"}, set(endpoint["schemas"]))
+                self.assertIn(endpoint["successSchema"], {"ScheduleResponse", "MutationResponse"})
+
+    def test_six_endpoints_are_bidirectionally_projected_to_canonical_catalog(self) -> None:
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        fields = json.loads((ROOT / "docs/contracts/rest/endpoint-template.json").read_text(encoding="utf-8"))["requiredEndpointFields"]
+        domain = [{key: endpoint[key] for key in fields} for endpoint in self.contract["endpoints"]]
+        projected = [endpoint for endpoint in catalog["endpoints"] if (endpoint["method"], endpoint["path"]) in EXPECTED_ENDPOINTS]
+        self.assertEqual(domain, projected)
+
+    def test_validator_rejects_domain_or_catalog_projection_drift(self) -> None:
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        cases = (("domain", self.contract, catalog), ("catalog", self.contract, catalog))
+        for side, contract, source_catalog in cases:
+            with self.subTest(side=side), tempfile.TemporaryDirectory() as temporary:
+                candidate = copy.deepcopy(contract)
+                candidate_catalog = copy.deepcopy(source_catalog)
+                if side == "domain":
+                    candidate["endpoints"][0]["dataLineage"] = "drift"
+                else:
+                    schedule = next(e for e in candidate_catalog["endpoints"] if e["path"].endswith("/schedule"))
+                    schedule["dataLineage"] = "drift"
+                contract_path = Path(temporary) / "contract.json"
+                catalog_path = Path(temporary) / "catalog.json"
+                contract_path.write_text(json.dumps(candidate, ensure_ascii=False), encoding="utf-8")
+                catalog_path.write_text(json.dumps(candidate_catalog, ensure_ascii=False), encoding="utf-8")
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR), "--contract", str(contract_path), "--catalog", str(catalog_path)],
+                    cwd=ROOT, text=True, capture_output=True, check=False,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("bidirectional", result.stdout + result.stderr)
+
+    def test_adjacent_leg_derivation_is_deterministic_and_atomic(self) -> None:
+        policy = self.contract["legDerivationPolicy"]
+        self.assertEqual(["reuse-unchanged-active-leg", "stored-route-snapshot", "conservative-walk-fallback", "reject-422"], policy["sourcePriority"])
+        self.assertEqual("none", policy["requestTimeCall"])
+        self.assertEqual("expiresAt DESC, observedAt DESC, snapshotId ASC", policy["storedSnapshot"]["tieBreaker"])
+        self.assertEqual("walk", policy["conservativeFallback"]["transportMode"])
+        self.assertEqual("ceil(distanceMeters / 50), minimum 1", policy["conservativeFallback"]["walkMinutes"])
+        self.assertEqual("walkMinutes + waitMinutes + rideMinutes + transferMinutes", policy["durationInvariant"])
+        self.assertEqual("422 SCHEDULE_LEG_INCOMPLETE; rollback draft, prior active pointer unchanged", policy["stableFailure"])
+        self.assertEqual(["add", "delete", "reorder", "move"], list(policy["operations"]))
+        for operation in policy["operations"].values():
+            self.assertTrue(operation["affectedPairs"])
+
+    def test_examples_and_spec_share_closed_response_shape(self) -> None:
+        fixtures = json.loads((ROOT / "fixtures/contracts/schedules/success.json").read_text(encoding="utf-8"))["examples"]
+        read = fixtures["readActive"]["body"]
+        self.assertIn("feasibilityStale", read["scheduleVersion"])
+        self.assertEqual(set(self.contract["schemas"]["ScheduleItem"]["required"]), set(read["days"][0]["items"][0]))
+        for name in ("createItem", "patchItem", "deleteItem", "reorder", "move"):
+            self.assertIn("etag", fixtures[name]["body"])
+        create = json.loads((ROOT / "fixtures/contracts/schedules/request.json").read_text(encoding="utf-8"))["examples"]["createItem"]["body"]
+        self.assertNotIn("title", create)
+        self.assertFalse(any(value is None for key, value in create.items() if key != "memo"))
+        spec = RDB_SPEC.read_text(encoding="utf-8")
+        self.assertIn('"feasibilityStale": false', spec)
+        self.assertIn('"etag": "\\"trip-13\\""', spec)
+        self.assertNotIn('"title": null', spec[spec.index("### 12.3"):])
 
     def test_reorder_and_move_boundaries_are_exact(self) -> None:
         self.assertEqual("each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID", self.contract["orderPolicy"]["permutation"])
@@ -118,6 +199,13 @@ class SchedulesContractTest(unittest.TestCase):
             ("owner", lambda c: c["endpoints"][2].update(owner="403")),
             ("한국어 Problem", lambda c: c["errorConditions"][0].update(detail="")),
             ("Notion/Figma", lambda c: c["externalTraceability"]["figma"].update(contractVersion="1.0.0")),
+            ("OpenAPI schema", lambda c: c["schemas"]["ScheduleLeg"]["properties"].pop("transportMode")),
+            ("OpenAPI schema", lambda c: c["schemas"]["CreateItemRequest"]["properties"]["stayMinutes"].update(maximum=10000)),
+            ("OpenAPI schema", lambda c: c["schemas"]["CreateItemRequest"]["properties"]["title"].update(nullable=True)),
+            ("OpenAPI schema", lambda c: c["schemas"]["ScheduleItem"]["required"].remove("bufferAfterMinutes")),
+            ("OpenAPI schema", lambda c: c["schemas"]["MutationResponse"]["required"].remove("etag")),
+            ("endpoint schema binding", lambda c: c["endpoints"][1]["schemas"].update(body="none")),
+            ("leg derivation", lambda c: c["legDerivationPolicy"].update(requestTimeCall="private MCP")),
         )
         for expected, mutate in mutations:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:

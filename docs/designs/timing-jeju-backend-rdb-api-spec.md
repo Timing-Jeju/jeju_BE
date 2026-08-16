@@ -917,7 +917,8 @@ Response `200`:
     "status": "active",
     "sourceType": "initial",
     "baseScheduleVersionId": null,
-    "score": 81
+    "score": 81,
+    "feasibilityStale": false
   },
   "days": [
     {
@@ -926,36 +927,21 @@ Response `200`:
       "date": "2026-08-03",
       "items": [
         {
-          "itemId": "61000000-0000-0000-0000-000000000002",
-          "sequenceNo": 2,
+          "itemId": "61000000-0000-0000-0000-000000000001",
+          "sequenceNo": 1,
           "itemType": "place_visit",
           "placeId": "20000000-0000-0000-0000-000000000002",
-          "name": "성산일출봉",
-          "category": "tourist_attraction",
-          "regionLabel": "성산",
-          "recommendedStayMinutes": 70,
+          "title": "성산일출봉",
           "plannedStartAt": "2026-08-03T11:20:00+09:00",
           "plannedEndAt": "2026-08-03T12:30:00+09:00",
           "stayMinutes": 70,
+          "bufferAfterMinutes": 0,
           "memo": null,
-          "saved": true,
           "required": true,
-          "progress": {
-            "status": "arrived",
-            "actualArrivedAt": "2026-08-03T11:20:00+09:00"
-          }
+          "progress": null
         }
       ],
-      "legs": [
-        {
-          "legId": "62000000-0000-0000-0000-000000000002",
-          "fromItemId": "61000000-0000-0000-0000-000000000002",
-          "toItemId": "61000000-0000-0000-0000-000000000003",
-          "transportMode": "public_transit",
-          "durationMinutes": 40,
-          "riskStatus": "caution"
-        }
-      ]
+      "legs": []
     }
   ]
 }
@@ -984,6 +970,7 @@ Response `200`:
   "changedItemIds": [
     "61000000-0000-0000-0000-000000000003"
   ],
+  "etag": "\"trip-13\"",
   "updatedAt": "2026-08-03T09:20:00+09:00"
 }
 ```
@@ -999,7 +986,6 @@ Request:
   "sequenceNo": 4,
   "itemType": "place_visit",
   "placeId": "20000000-0000-0000-0000-000000000006",
-  "title": null,
   "plannedStartAt": "2026-08-03T15:00:00+09:00",
   "stayMinutes": 45,
   "bufferAfterMinutes": 10,
