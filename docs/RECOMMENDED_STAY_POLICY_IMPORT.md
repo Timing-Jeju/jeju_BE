@@ -4,7 +4,7 @@
 
 ## CSV 계약
 
-UTF-8 CSV header는 정확히 `scope,category,placeId,minutes`입니다. quoting, multiline, 빈 행, control character, formula/macro prefix와 추가 열을 허용하지 않습니다. 따라서 사용자 이메일, API token, secret과 외부 raw payload를 담을 위치가 없습니다. 파일은 1 MiB/10,000행 이하이고 설정한 import root 안의 symlink가 아닌 절대 `.csv` 파일이어야 합니다.
+UTF-8 CSV header는 정확히 `scope,category,placeId,minutes`입니다. quoting, multiline, 빈 행, control character, `=`, `+`, `-`, `@` formula/macro prefix(선행 Unicode 공백 포함)와 추가 열을 허용하지 않습니다. 따라서 사용자 이메일, API token, secret과 외부 raw payload를 담을 위치가 없습니다. 파일은 1 MiB/10,000행 이하이고 설정한 import root 안의 절대 `.csv` 파일이어야 합니다. import root부터 최종 파일까지 모든 경로 구성요소는 디렉터리 핸들에 고정해 `NOFOLLOW_LINKS`로 열기 때문에 symlink를 허용하지 않습니다. filesystem provider가 `SecureDirectoryStream`을 지원하지 않으면 안전하지 않은 fallback으로 다시 열지 않고 import를 fail-closed합니다. 운영 Linux와 Ubuntu CI는 이 기능 지원을 필수 검사합니다.
 
 ```csv
 scope,category,placeId,minutes
@@ -30,4 +30,4 @@ STAY_POLICY_IMPORT_EXPECTED_ACTIVE_VERSION=
 STAY_POLICY_IMPORT_DRY_RUN=true
 ```
 
-실행 로그에는 version, payload hash, 행 수와 dry-run 여부만 남고 파일 경로·내용은 남기지 않습니다. 전체 validation 성공 후 한 transaction에서만 active version을 교체합니다. stale expected version, 같은 version의 다른 hash, 중간 insert 실패는 이전 active를 그대로 유지합니다.
+실행 로그에는 version, payload hash, 행 수와 dry-run 여부만 남고 파일 경로·내용은 남기지 않습니다. dry-run은 live target을 조회하되 write하지 않습니다. 실제 publish는 advisory lock/CAS와 target UUID/category의 결정적 `FOR UPDATE` 잠금·live 재검증을 같은 transaction에서 수행한 뒤에만 active version을 교체합니다. 검증과 publish 사이 stale/tombstone/category 변경, stale expected version, 같은 version의 다른 hash, 중간 insert 실패는 invalid version을 활성화하지 않고 이전 active를 그대로 유지합니다.

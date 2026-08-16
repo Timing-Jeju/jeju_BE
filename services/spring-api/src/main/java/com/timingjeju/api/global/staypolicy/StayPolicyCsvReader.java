@@ -2,13 +2,24 @@ package com.timingjeju.api.global.staypolicy;
 
 import com.timingjeju.api.application.staypolicy.StayPolicyCandidate;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 public final class StayPolicyCsvReader {
@@ -18,22 +29,24 @@ public final class StayPolicyCsvReader {
   private static final int MAX_ROWS = 10_000;
 
   private final Path importRoot;
+  private final Runnable beforeFileOpen;
 
   public StayPolicyCsvReader(Path importRoot) {
+    this(importRoot, () -> {});
+  }
+
+  StayPolicyCsvReader(Path importRoot, Runnable beforeFileOpen) {
     this.importRoot = realDirectory(importRoot);
+    this.beforeFileOpen = beforeFileOpen;
   }
 
   public List<StayPolicyCandidate> read(Path requestedFile) {
-    Path file = validatedFile(requestedFile);
-    String content;
-    try {
-      if (Files.size(file) > MAX_FILE_BYTES) {
-        throw new StayPolicyFileException("Stay policy CSV exceeds 1 MiB");
-      }
-      content = Files.readString(file, StandardCharsets.UTF_8);
-    } catch (IOException exception) {
-      throw new StayPolicyFileException("Stay policy CSV could not be read", exception);
-    }
+    Path relative = validatedRelativePath(requestedFile);
+    String content = readFromAnchoredRoot(relative);
+    return parseContent(content);
+  }
+
+  static List<StayPolicyCandidate> parseContent(String content) {
     rejectControlCharacters(content);
     String[] lines = content.split("\\R", -1);
     if (lines.length == 0 || !HEADER.equals(lines[0])) {
@@ -56,7 +69,7 @@ public final class StayPolicyCsvReader {
     return List.copyOf(policies);
   }
 
-  private Path validatedFile(Path requestedFile) {
+  private Path validatedRelativePath(Path requestedFile) {
     if (requestedFile == null || !requestedFile.isAbsolute()) {
       throw new StayPolicyFileException("Stay policy CSV path must be absolute");
     }
@@ -64,29 +77,87 @@ public final class StayPolicyCsvReader {
     if (!absolute.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".csv")) {
       throw new StayPolicyFileException("Stay policy import supports .csv files only");
     }
-    if (Files.isSymbolicLink(absolute)) {
-      throw new StayPolicyFileException("Stay policy CSV must not be a symbolic link");
-    }
-    Path real;
-    try {
-      real = absolute.toRealPath(LinkOption.NOFOLLOW_LINKS);
-    } catch (IOException exception) {
-      throw new StayPolicyFileException(
-          "Stay policy CSV must be a regular readable file", exception);
-    }
-    if (!real.startsWith(importRoot)) {
+    Path relative = importRoot.relativize(absolute);
+    if (relative.isAbsolute()
+        || relative.getNameCount() == 0
+        || containsParentTraversal(relative)) {
       throw new StayPolicyFileException(
           "Stay policy CSV must stay inside the configured import root");
     }
-    if (!Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) {
-      throw new StayPolicyFileException("Stay policy CSV must be a regular file");
+    return relative;
+  }
+
+  private static boolean containsParentTraversal(Path relative) {
+    for (Path component : relative) {
+      if ("..".equals(component.toString())) {
+        return true;
+      }
     }
-    return real;
+    return false;
+  }
+
+  private String readFromAnchoredRoot(Path relative) {
+    try (DirectoryStream<Path> rootStream = Files.newDirectoryStream(importRoot)) {
+      if (!(rootStream instanceof SecureDirectoryStream<Path> secureRoot)) {
+        throw new StayPolicyFileException(
+            "Stay policy import filesystem does not support secure path access");
+      }
+      return readFromDirectory(secureRoot, relative.iterator());
+    } catch (StayPolicyFileException exception) {
+      throw exception;
+    } catch (IOException exception) {
+      throw new StayPolicyFileException(
+          "Stay policy CSV path contains a symbolic link or could not be read", exception);
+    }
+  }
+
+  private String readFromDirectory(SecureDirectoryStream<Path> directory, Iterator<Path> parts)
+      throws IOException {
+    Path component = parts.next();
+    if (parts.hasNext()) {
+      try (SecureDirectoryStream<Path> child =
+          directory.newDirectoryStream(component, LinkOption.NOFOLLOW_LINKS)) {
+        return readFromDirectory(child, parts);
+      }
+    }
+    beforeFileOpen.run();
+    BasicFileAttributeView view =
+        directory.getFileAttributeView(
+            component, BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+    BasicFileAttributes attributes = view.readAttributes();
+    if (!attributes.isRegularFile()) {
+      throw new StayPolicyFileException(
+          "Stay policy CSV path contains a symbolic link or is not a regular file");
+    }
+    Set<OpenOption> options = new HashSet<>();
+    options.add(StandardOpenOption.READ);
+    options.add(LinkOption.NOFOLLOW_LINKS);
+    try (SeekableByteChannel channel = directory.newByteChannel(component, options)) {
+      return readBounded(channel);
+    }
+  }
+
+  private static String readBounded(SeekableByteChannel channel) throws IOException {
+    if (channel.size() > MAX_FILE_BYTES) {
+      throw new StayPolicyFileException("Stay policy CSV exceeds 1 MiB");
+    }
+    ByteBuffer buffer = ByteBuffer.allocate((int) MAX_FILE_BYTES + 1);
+    while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
+      // Continue until EOF or until one byte beyond the limit has been read.
+    }
+    if (buffer.position() > MAX_FILE_BYTES) {
+      throw new StayPolicyFileException("Stay policy CSV exceeds 1 MiB");
+    }
+    buffer.flip();
+    return StandardCharsets.UTF_8.decode(buffer).toString();
   }
 
   private static Path realDirectory(Path root) {
     if (root == null || !root.isAbsolute()) {
       throw new StayPolicyFileException("Stay policy import root must be absolute");
+    }
+    if (Files.isSymbolicLink(root)) {
+      throw new StayPolicyFileException("Stay policy import root must not be a symbolic link");
     }
     try {
       Path real = root.toRealPath(LinkOption.NOFOLLOW_LINKS);
@@ -108,8 +179,8 @@ public final class StayPolicyCsvReader {
       throw malformed(lineNumber, "exactly four fields are required");
     }
     for (String field : fields) {
-      String stripped = field.strip();
-      if (!stripped.isEmpty() && "=+@".indexOf(stripped.charAt(0)) >= 0) {
+      int first = firstNonWhitespace(field);
+      if (first < field.length() && "=+-@".indexOf(field.charAt(first)) >= 0) {
         throw malformed(lineNumber, "formula or macro fields are not allowed");
       }
     }
@@ -138,6 +209,18 @@ public final class StayPolicyCsvReader {
       }
       default -> throw malformed(lineNumber, "unknown scope");
     };
+  }
+
+  private static int firstNonWhitespace(String field) {
+    int index = 0;
+    while (index < field.length()) {
+      int codePoint = field.codePointAt(index);
+      if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) {
+        break;
+      }
+      index += Character.charCount(codePoint);
+    }
+    return index;
   }
 
   private static void rejectControlCharacters(String content) {

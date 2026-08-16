@@ -40,6 +40,7 @@ class StayPolicyImportServiceTest {
     assertThat(firstResult.payloadHash()).isEqualTo(reorderedResult.payloadHash());
     assertThat(firstResult.importedPolicyCount()).isEqualTo(2);
     assertThat(store.publishCalls).isEqualTo(1);
+    assertThat(store.catalogCalls).isEqualTo(1);
   }
 
   @Test
@@ -160,6 +161,7 @@ class StayPolicyImportServiceTest {
     private final Set<String> liveCategories;
     private final Set<UUID> livePlaces;
     private Set<String> validatedCategories = Set.of();
+    private int catalogCalls;
     private int publishCalls;
 
     private RecordingStore(Set<String> liveCategories, Set<UUID> livePlaces) {
@@ -169,6 +171,7 @@ class StayPolicyImportServiceTest {
 
     @Override
     public StayPolicyTargetValidation validateTargets(Set<String> categories, Set<UUID> placeIds) {
+      catalogCalls++;
       validatedCategories = new HashSet<>(categories);
       return new StayPolicyTargetValidation(
           intersection(categories, liveCategories), intersection(placeIds, livePlaces));
@@ -176,6 +179,28 @@ class StayPolicyImportServiceTest {
 
     @Override
     public void publish(ValidatedStayPolicyPayload payload, Instant importedAt) {
+      Set<String> requestedCategories = new HashSet<>();
+      Set<UUID> requestedPlaces = new HashSet<>();
+      payload.policies().stream()
+          .filter(policy -> policy.scope() == StayPolicyScope.CATEGORY_DEFAULT)
+          .map(StayPolicyCandidate::category)
+          .forEach(requestedCategories::add);
+      payload.policies().stream()
+          .filter(policy -> policy.scope() == StayPolicyScope.PLACE_OVERRIDE)
+          .map(StayPolicyCandidate::placeId)
+          .forEach(requestedPlaces::add);
+      List<String> violations = new java.util.ArrayList<>();
+      requestedCategories.stream()
+          .filter(category -> !liveCategories.contains(category))
+          .sorted()
+          .forEach(category -> violations.add("unknown canonical category: " + category));
+      requestedPlaces.stream()
+          .filter(placeId -> !livePlaces.contains(placeId))
+          .sorted()
+          .forEach(placeId -> violations.add("missing, stale or tombstoned place: " + placeId));
+      if (!violations.isEmpty()) {
+        throw new StayPolicyValidationException(violations);
+      }
       publishCalls++;
     }
 

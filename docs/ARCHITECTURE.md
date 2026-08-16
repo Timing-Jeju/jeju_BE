@@ -102,7 +102,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 추천 체류시간은 TourAPI 원문이 아니라 앱 큐레이션입니다. `tour_places.recommended_stay_minutes`는 legacy read 호환으로만 남기며 신규 writer는 `place_stay_policy_versions`와 `place_stay_policies`만 변경합니다. 정책 import는 `tour_places`, snapshot/import run 계보와 외부 operation provenance를 수정하지 않습니다.
 
-운영 writer는 versioned CSV import command 하나입니다. application 계층은 파일·Spring·JDBC를 모르며 전체 payload의 version, effective time, minutes, XOR scope, 정규화 중복과 live category/place를 먼저 검증합니다. dry-run도 DB 대상 검증까지 수행하지만 쓰지 않습니다. publish는 advisory transaction lock과 expected-active-version CAS 아래 새 draft와 모든 policy를 저장한 뒤 이전 active를 retire하고 새 version을 active로 바꿉니다. 같은 version/hash replay만 no-op이고 version/hash collision과 stale CAS는 거부합니다.
+운영 writer는 versioned CSV import command 하나입니다. application 계층은 파일·Spring·JDBC를 모르며 전체 payload의 version, effective time, minutes, XOR scope와 정규화 중복을 먼저 검증합니다. dry-run은 live category/place를 조회하되 쓰지 않습니다. 실제 publish는 advisory transaction lock과 expected-active-version CAS, 정렬된 target row의 `FOR UPDATE` 잠금·live 재검증을 한 transaction에서 수행하고, 성공한 경우에만 새 draft와 모든 policy를 저장한 뒤 이전 active를 retire하고 새 version을 active로 바꿉니다. 같은 version/hash replay만 no-op이고 검증과 publish 사이 target 변경, version/hash collision과 stale CAS는 이전 active를 유지한 채 거부합니다.
 
 목록과 상세 use case는 `StayPolicyResolver` 하나를 공유합니다. 단일 active snapshot에서 place override, category default 순으로 조회하며 둘 다 없으면 임의 숫자 대신 unavailable/null과 null provenance를 반환합니다.
 

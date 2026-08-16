@@ -27,6 +27,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -46,6 +48,8 @@ class JdbcStayPolicyRepositoryIntegrationTest {
       UUID.fromString("65000000-0000-0000-0000-000000000002");
   private static final UUID UNAVAILABLE_PLACE =
       UUID.fromString("65000000-0000-0000-0000-000000000003");
+  private static final UUID MUTATING_PLACE =
+      UUID.fromString("65000000-0000-0000-0000-000000000006");
   private static final Instant V1_EFFECTIVE = Instant.parse("2026-08-22T09:00:00Z");
   private static final Instant V2_EFFECTIVE = Instant.parse("2026-08-23T09:00:00Z");
   private static final Instant IMPORTED = Instant.parse("2026-08-23T09:00:05Z");
@@ -62,6 +66,7 @@ class JdbcStayPolicyRepositoryIntegrationTest {
     insertPlace(OVERRIDE_PLACE, "VE", false, null, 77);
     insertPlace(CATEGORY_PLACE, "VE", false, null, 66);
     insertPlace(UNAVAILABLE_PLACE, "content-type:99", false, null, 55);
+    insertPlace(MUTATING_PLACE, "MUTABLE", false, null, 45);
   }
 
   @AfterEach
@@ -196,6 +201,64 @@ class JdbcStayPolicyRepositoryIntegrationTest {
                 "select version from public.place_stay_policy_versions where status='active'",
                 String.class))
         .isIn("v2", "v3");
+  }
+
+  @ParameterizedTest
+  @EnumSource(TargetMutation.class)
+  void 사전검증과_publish사이_target변경은_invalid_version을_활성화하지_않고_이전_active를_유지한다(TargetMutation mutation)
+      throws Exception {
+    StayPolicyCandidate candidate =
+        mutation == TargetMutation.CATEGORY_CHANGE
+            ? category("MUTABLE", 90)
+            : override(MUTATING_PLACE, 90);
+    var preflight =
+        catalog.validateTargets(
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("MUTABLE") : Set.of(),
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of() : Set.of(MUTATING_PLACE));
+    assertThat(preflight.liveCategories())
+        .containsExactlyElementsOf(
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("MUTABLE") : Set.of());
+    assertThat(preflight.livePlaceIds())
+        .containsExactlyElementsOf(
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of() : Set.of(MUTATING_PLACE));
+    store.publish(payload("v1", null, V1_EFFECTIVE, List.of(category("VE", 80))), IMPORTED);
+
+    Throwable publicationFailure;
+    try (Connection mutator = dataSource.getConnection();
+        var executor = Executors.newSingleThreadExecutor()) {
+      mutator.setAutoCommit(false);
+      try (PreparedStatement statement = mutator.prepareStatement(mutation.sql)) {
+        mutation.bind(statement);
+        assertThat(statement.executeUpdate()).isEqualTo(1);
+      }
+      CountDownLatch publisherStarted = new CountDownLatch(1);
+      Future<Throwable> publication =
+          executor.submit(
+              () -> {
+                publisherStarted.countDown();
+                try {
+                  store.publish(
+                      payload("v2", "v1", V2_EFFECTIVE, List.of(candidate)),
+                      IMPORTED.plusSeconds(1));
+                  return null;
+                } catch (Throwable failure) {
+                  return failure;
+                }
+              });
+      publisherStarted.await();
+      mutator.commit();
+      publicationFailure = publication.get();
+    }
+
+    assertThat(publicationFailure)
+        .isInstanceOf(
+            com.timingjeju.api.application.staypolicy.StayPolicyValidationException.class);
+    assertThat(
+            jdbc.queryForList(
+                "select version || ':' || status from public.place_stay_policy_versions order by version",
+                String.class))
+        .containsExactly("v1:active");
+    assertThat(resolver.resolve(CATEGORY_PLACE, "VE").minutes()).isEqualTo(80);
   }
 
   @Test
@@ -406,5 +469,26 @@ class JdbcStayPolicyRepositoryIntegrationTest {
     jdbc.update("delete from public.tour_places");
     jdbc.update("delete from public.external_api_snapshots");
     jdbc.update("delete from public.data_import_runs");
+  }
+
+  private enum TargetMutation {
+    STALE("update public.tour_places set stale=true where id=?"),
+    TOMBSTONE("update public.tour_places set source_deleted_at=? where id=?"),
+    CATEGORY_CHANGE("update public.tour_places set category='MOVED' where id=?");
+
+    private final String sql;
+
+    TargetMutation(String sql) {
+      this.sql = sql;
+    }
+
+    private void bind(PreparedStatement statement) throws java.sql.SQLException {
+      if (this == TOMBSTONE) {
+        statement.setTimestamp(1, Timestamp.from(IMPORTED));
+        statement.setObject(2, MUTATING_PLACE);
+      } else {
+        statement.setObject(1, MUTATING_PLACE);
+      }
+    }
   }
 }

@@ -8,9 +8,12 @@ import com.timingjeju.api.application.staypolicy.StayPolicyPublicationStore;
 import com.timingjeju.api.application.staypolicy.StayPolicyScope;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetCatalog;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetValidation;
+import com.timingjeju.api.application.staypolicy.StayPolicyValidationException;
 import com.timingjeju.api.application.staypolicy.ValidatedStayPolicyPayload;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -54,6 +57,7 @@ public class JdbcStayPolicyStore
     if (!Objects.equals(payload.expectedActiveVersion(), active)) {
       throw StayPolicyPublicationException.stale(payload.expectedActiveVersion(), active);
     }
+    lockAndValidateTargets(payload.policies());
     Optional<String> existingHash = payloadHash(payload.version());
     if (existingHash.isPresent()) {
       if (Objects.equals(payload.version(), active)
@@ -96,6 +100,68 @@ public class JdbcStayPolicyStore
         jdbc.update(
             "update public.place_stay_policy_versions set status='active' where version=? and status='draft'",
             payload.version()));
+  }
+
+  private void lockAndValidateTargets(List<StayPolicyCandidate> policies) {
+    List<String> categories =
+        policies.stream()
+            .filter(policy -> policy.scope() == StayPolicyScope.CATEGORY_DEFAULT)
+            .map(StayPolicyCandidate::category)
+            .distinct()
+            .sorted()
+            .toList();
+    List<UUID> placeIds =
+        policies.stream()
+            .filter(policy -> policy.scope() == StayPolicyScope.PLACE_OVERRIDE)
+            .map(StayPolicyCandidate::placeId)
+            .distinct()
+            .sorted(Comparator.naturalOrder())
+            .toList();
+    List<String> predicates = new ArrayList<>();
+    List<Object> arguments = new ArrayList<>();
+    if (!placeIds.isEmpty()) {
+      predicates.add("id in (" + placeholders(placeIds.size()) + ")");
+      arguments.addAll(placeIds);
+    }
+    if (!categories.isEmpty()) {
+      predicates.add("category in (" + placeholders(categories.size()) + ")");
+      arguments.addAll(categories);
+    }
+    Set<String> liveCategories = new HashSet<>();
+    Set<UUID> livePlaceIds = new HashSet<>();
+    jdbc.query(
+        "select id, category, stale, source_deleted_at "
+            + "from public.tour_places where "
+            + String.join(" or ", predicates)
+            + " order by id for update",
+        resultSet -> {
+          if (!resultSet.getBoolean("stale")
+              && resultSet.getTimestamp("source_deleted_at") == null) {
+            UUID id = resultSet.getObject("id", UUID.class);
+            String category = resultSet.getString("category");
+            if (placeIds.contains(id)) {
+              livePlaceIds.add(id);
+            }
+            if (categories.contains(category)) {
+              liveCategories.add(category);
+            }
+          }
+        },
+        arguments.toArray());
+    List<String> violations = new ArrayList<>();
+    categories.stream()
+        .filter(category -> !liveCategories.contains(category))
+        .forEach(category -> violations.add("unknown canonical category: " + category));
+    placeIds.stream()
+        .filter(placeId -> !livePlaceIds.contains(placeId))
+        .forEach(placeId -> violations.add("missing, stale or tombstoned place: " + placeId));
+    if (!violations.isEmpty()) {
+      throw new StayPolicyValidationException(List.copyOf(violations));
+    }
+  }
+
+  private static String placeholders(int count) {
+    return String.join(",", java.util.Collections.nCopies(count, "?"));
   }
 
   @Override

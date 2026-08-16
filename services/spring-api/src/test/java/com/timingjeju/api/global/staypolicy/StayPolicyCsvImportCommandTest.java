@@ -1,14 +1,17 @@
 package com.timingjeju.api.global.staypolicy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.timingjeju.api.application.staypolicy.StayPolicyImportService;
 import com.timingjeju.api.application.staypolicy.StayPolicyPublicationStore;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetCatalog;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetValidation;
 import com.timingjeju.api.application.staypolicy.ValidatedStayPolicyPayload;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -25,6 +28,9 @@ class StayPolicyCsvImportCommandTest {
 
   @Test
   void versioned_CSV를_유일한_service_writer에_전달하고_dryRun은_write0이다() throws Exception {
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+      assumeTrue(stream instanceof SecureDirectoryStream<?>);
+    }
     Instant now = Instant.parse("2026-08-23T09:00:00Z");
     RecordingStore store = new RecordingStore();
     StayPolicyImportService service =

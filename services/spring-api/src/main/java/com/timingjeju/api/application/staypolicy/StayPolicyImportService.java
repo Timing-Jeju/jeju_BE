@@ -54,16 +54,20 @@ public final class StayPolicyImportService {
         placeIds.add(policy.placeId());
       }
     }
-    StayPolicyTargetValidation targets = targetCatalog.validateTargets(categories, placeIds);
-    categories.stream()
-        .filter(category -> !targets.liveCategories().contains(category))
-        .sorted()
-        .forEach(category -> violations.add("unknown canonical category: " + category));
-    placeIds.stream()
-        .filter(placeId -> !targets.livePlaceIds().contains(placeId))
-        .sorted()
-        .forEach(placeId -> violations.add("missing, stale or tombstoned place: " + placeId));
     throwIfInvalid(violations);
+
+    if (dryRun) {
+      StayPolicyTargetValidation targets = targetCatalog.validateTargets(categories, placeIds);
+      categories.stream()
+          .filter(category -> !targets.liveCategories().contains(category))
+          .sorted()
+          .forEach(category -> violations.add("unknown canonical category: " + category));
+      placeIds.stream()
+          .filter(placeId -> !targets.livePlaceIds().contains(placeId))
+          .sorted()
+          .forEach(placeId -> violations.add("missing, stale or tombstoned place: " + placeId));
+      throwIfInvalid(violations);
+    }
 
     String payloadHash = hasher.hash(normalized);
     ValidatedStayPolicyPayload validated =
