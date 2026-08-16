@@ -1,0 +1,1715 @@
+{
+  "schemaVersion": "timing-jeju-schedules-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "v1.1",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 88,
+  "implementationIssues": [
+    49,
+    50,
+    51
+  ],
+  "schemas": {
+    "TripPath": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "tripId"
+      ],
+      "properties": {
+        "tripId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        }
+      }
+    },
+    "ScheduleItemPath": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "tripId",
+        "itemId"
+      ],
+      "properties": {
+        "tripId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "itemId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        }
+      }
+    },
+    "ScheduleQuery": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "versionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false,
+          "presence": "optional; omitted selects active"
+        }
+      }
+    },
+    "ReadHeaders": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "Authorization"
+      ],
+      "properties": {
+        "Authorization": {
+          "type": "string",
+          "pattern": "^Bearer [^\\s]{1,2048}$",
+          "nullable": false
+        }
+      }
+    },
+    "MutationHeaders": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match"
+      ],
+      "properties": {
+        "Authorization": {
+          "type": "string",
+          "pattern": "^Bearer [^\\s]{1,2048}$",
+          "nullable": false
+        },
+      "Idempotency-Key": {
+        "type": "string",
+        "format": "uuid",
+        "nullable": false
+        },
+        "If-Match": {
+          "type": "string",
+          "pattern": "^\\\"trip-[0-9]+\\\"$",
+          "nullable": false
+        }
+      }
+    },
+    "CreateItemRequest": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "expectedActiveScheduleVersionId",
+        "dayNo",
+        "sequenceNo",
+        "itemType",
+        "plannedStartAt",
+        "stayMinutes"
+      ],
+      "properties": {
+        "expectedActiveScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "dayNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "sequenceNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "itemType": {
+          "type": "string",
+          "enum": [
+            "place_visit",
+            "meal",
+            "accommodation",
+            "arrival",
+            "departure",
+            "free_time",
+            "custom"
+          ],
+          "nullable": false
+        },
+        "placeId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "accommodationId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "transportEventId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "nullable": false
+        },
+        "plannedStartAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        },
+        "stayMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "nullable": false
+        },
+        "bufferAfterMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440,
+          "nullable": false
+        },
+        "required": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "memo": {
+          "type": "string",
+          "maxLength": 500,
+          "nullable": true
+        }
+      },
+      "typeConditionalRequired": "itemPolicy.requiredByType"
+    },
+    "PatchItemRequest": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "expectedActiveScheduleVersionId"
+      ],
+      "properties": {
+        "expectedActiveScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "placeId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "accommodationId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "transportEventId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "nullable": false
+        },
+        "plannedStartAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        },
+        "stayMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "nullable": false
+        },
+        "bufferAfterMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440,
+          "nullable": false
+        },
+        "required": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "memo": {
+          "type": "string",
+          "maxLength": 500,
+          "nullable": true
+        }
+      },
+      "minProperties": 2,
+      "presence": "omitted=unchanged; memo alone nullable"
+    },
+    "DeleteItemQuery": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "expectedActiveScheduleVersionId"
+      ],
+      "properties": {
+        "expectedActiveScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        }
+      }
+    },
+    "ReorderDay": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "dayNo",
+        "orderedItemIds"
+      ],
+      "properties": {
+        "dayNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "orderedItemIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "nullable": false,
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": false
+          }
+        }
+      }
+    },
+    "ReorderRequest": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "expectedActiveScheduleVersionId",
+        "days"
+      ],
+      "properties": {
+        "expectedActiveScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "days": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueBy": "dayNo",
+          "nullable": false,
+          "items": {
+            "$ref": "ReorderDay"
+          }
+        }
+      }
+    },
+    "MoveItemRequest": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "expectedActiveScheduleVersionId",
+        "targetDayNo",
+        "targetSequenceNo",
+        "plannedStartAt"
+      ],
+      "properties": {
+        "expectedActiveScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "targetDayNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "targetSequenceNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "plannedStartAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        }
+      }
+    },
+    "ScheduleVersion": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "scheduleVersionId",
+        "versionNo",
+        "status",
+        "sourceType",
+        "baseScheduleVersionId",
+        "score",
+        "feasibilityStale"
+      ],
+      "properties": {
+        "scheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "versionNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "candidate",
+            "active",
+            "superseded",
+            "rejected"
+          ],
+          "nullable": false
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": [
+          "initial",
+          "user_edit",
+          "ai_generation",
+          "recovery",
+          "live_recalculation"
+          ],
+          "nullable": false
+        },
+        "baseScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": true
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "nullable": true
+        },
+        "feasibilityStale": {
+          "type": "boolean",
+          "nullable": false
+        }
+      }
+    },
+    "ItemProgress": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "actualStartedAt",
+        "actualArrivedAt",
+        "actualCompletedAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "active",
+            "arrived",
+            "completed",
+            "skipped",
+            "missed"
+          ],
+          "nullable": false
+        },
+        "actualStartedAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": true
+        },
+        "actualArrivedAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": true
+        },
+        "actualCompletedAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": true
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        }
+      }
+    },
+    "ScheduleItem": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "itemId",
+        "sequenceNo",
+        "itemType",
+        "placeId",
+        "title",
+        "plannedStartAt",
+        "plannedEndAt",
+        "stayMinutes",
+        "bufferAfterMinutes",
+        "required",
+        "memo",
+        "progress"
+      ],
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "sequenceNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "itemType": {
+          "type": "string",
+          "enum": [
+            "place_visit",
+            "meal",
+            "accommodation",
+            "arrival",
+            "departure",
+            "free_time",
+            "custom"
+          ],
+          "nullable": false
+        },
+        "placeId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": true
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "nullable": false
+        },
+        "plannedStartAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        },
+        "plannedEndAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        },
+        "stayMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440,
+          "nullable": false
+        },
+        "bufferAfterMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440,
+          "nullable": false
+        },
+        "required": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "memo": {
+          "type": "string",
+          "maxLength": 500,
+          "nullable": true
+        },
+        "progress": {
+          "$ref": "ItemProgress",
+          "nullable": true
+        }
+      }
+    },
+    "ScheduleLeg": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "legId",
+        "sequenceNo",
+        "fromItemId",
+        "toItemId",
+        "transportMode",
+        "plannedDepartureAt",
+        "plannedArrivalAt",
+        "walkMinutes",
+        "waitMinutes",
+        "rideMinutes",
+        "transferMinutes",
+        "durationMinutes",
+        "bufferMinutes",
+        "distanceMeters",
+        "estimatedFareKrw",
+        "riskScore"
+      ],
+      "properties": {
+        "legId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "sequenceNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "fromItemId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "toItemId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "transportMode": {
+          "type": "string",
+          "enum": [
+            "walk",
+            "public_transit",
+            "rental_car",
+            "taxi"
+          ],
+          "nullable": false
+        },
+        "plannedDepartureAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        },
+        "plannedArrivalAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        },
+        "walkMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "nullable": false
+        },
+        "waitMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "nullable": false
+        },
+        "rideMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "nullable": false
+        },
+        "transferMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "nullable": false
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "bufferMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "nullable": false
+        },
+        "distanceMeters": {
+          "type": "integer",
+          "minimum": 0,
+          "nullable": true
+        },
+        "estimatedFareKrw": {
+          "type": "integer",
+          "minimum": 0,
+          "nullable": true
+        },
+        "riskScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "nullable": true
+        }
+      }
+    },
+    "ScheduleDay": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "dayId",
+        "dayNo",
+        "date",
+        "items",
+        "legs"
+      ],
+      "properties": {
+        "dayId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "dayNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "nullable": false
+        },
+        "items": {
+          "type": "array",
+          "nullable": false,
+          "items": {
+            "$ref": "ScheduleItem"
+          }
+        },
+        "legs": {
+          "type": "array",
+          "nullable": false,
+          "items": {
+            "$ref": "ScheduleLeg"
+          }
+        }
+      }
+    },
+    "ScheduleResponse": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "tripId",
+        "scheduleVersion",
+        "days"
+      ],
+      "properties": {
+        "tripId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "scheduleVersion": {
+          "$ref": "ScheduleVersion",
+          "nullable": false
+        },
+        "days": {
+          "type": "array",
+          "nullable": false,
+          "items": {
+            "$ref": "ScheduleDay"
+          }
+        }
+      }
+    },
+    "MutationResponse": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "tripId",
+        "previousScheduleVersionId",
+        "activeScheduleVersionId",
+        "versionNo",
+        "sourceType",
+        "feasibilityStale",
+        "changedItemIds",
+        "etag",
+        "updatedAt"
+      ],
+      "properties": {
+        "tripId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "previousScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "activeScheduleVersionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "versionNo": {
+          "type": "integer",
+          "minimum": 1,
+          "nullable": false
+        },
+        "sourceType": {
+          "type": "string",
+          "enum": [
+            "user_edit"
+          ],
+          "nullable": false
+        },
+        "feasibilityStale": {
+          "type": "boolean",
+          "enum": [
+            true
+          ],
+          "nullable": false
+        },
+        "changedItemIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "nullable": false,
+          "items": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": false
+          }
+        },
+        "etag": {
+          "type": "string",
+          "pattern": "^\\\"trip-[0-9]+\\\"$",
+          "nullable": false
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "offset": "+09:00",
+          "nullable": false
+        }
+      },
+      "constants": {
+        "sourceType": "user_edit",
+        "feasibilityStale": true
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}/schedule",
+      "operation": "read",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical JWT sub; cross-owner and wrong-trip version 404",
+      "schemas": {
+        "path": "TripPath",
+        "query": "ScheduleQuery",
+        "headers": "ReadHeaders",
+        "body": "none"
+      },
+      "successSchema": "ScheduleResponse",
+      "versionSelector": "active when versionId omitted; explicit version must belong to same owner/trip",
+      "requiredHeaders": [
+        "Authorization"
+      ],
+      "presence": "tripId required; versionId optional non-null UUID; body forbidden",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          404
+        ]
+      },
+      "dbOwner": "Spring reads owner-scoped trips.active_schedule_version_id and immutable trip schedule tables; implementation #49",
+      "dataLineage": "owner-scoped PostgreSQL trip_schedule_versions, trip_days, trip_items, trip_legs and trip_item_progress",
+      "errorMatrix": {
+        "400": [
+          "INVALID_REQUEST"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "TRIP_NOT_FOUND",
+          "SCHEDULE_VERSION_NOT_FOUND"
+        ]
+      },
+      "concurrency": "none",
+      "transaction": "read-only; never changes active pointer, version, items, legs or progress",
+      "requestTimeCall": "none",
+      "figma": {
+        "node": "not-observed",
+        "action": "활성 일정 조회 화면 API linkage not-linked",
+        "loading": "not-observed",
+        "empty": "not-observed",
+        "error": "not-observed"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/schedule-items",
+      "operation": "create",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "schemas": {
+        "path": "TripPath",
+        "query": "none",
+        "headers": "MutationHeaders",
+        "body": "CreateItemRequest"
+      },
+      "successSchema": "MutationResponse",
+      "requiredHeaders": [
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match"
+      ],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version, dayNo, sequenceNo, itemType and type-required fields required; optional fields may be omitted but not null unless declared nullable",
+      "responses": {
+        "success": [
+          201
+        ],
+        "errors": [
+          400,
+          401,
+          404,
+          409,
+          422
+        ]
+      },
+      "dbOwner": "Spring atomically copies/seals/activates schedule version and adjacent legs; implementation #50/#51",
+      "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
+      "errorMatrix": {
+        "400": [
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "TRIP_NOT_FOUND",
+          "PLACE_NOT_FOUND",
+          "ACCOMMODATION_NOT_FOUND",
+          "TRANSPORT_EVENT_NOT_FOUND",
+          "SCHEDULE_VERSION_NOT_FOUND"
+        ],
+        "409": [
+          "IDEMPOTENCY_KEY_REUSED",
+          "TRIP_VERSION_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+        ],
+        "422": [
+          "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_LEG_INCOMPLETE"
+        ]
+      },
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {
+        "node": "not-observed",
+        "action": "일정 항목 추가 API linkage not-linked",
+        "loading": "not-observed",
+        "empty": "not-observed",
+        "error": "not-observed"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonical sub + method + normalized path + tripId",
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+      "operation": "apply",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "schemas": {
+        "path": "ScheduleItemPath",
+        "query": "none",
+        "headers": "MutationHeaders",
+        "body": "PatchItemRequest"
+      },
+      "successSchema": "MutationResponse",
+      "requiredHeaders": [
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match"
+      ],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version plus at least one mutable property; omitted unchanged; explicit null only for memo",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          404,
+          409,
+          422
+        ]
+      },
+      "dbOwner": "Spring atomically copies/seals/activates schedule version and adjacent legs; implementation #50/#51",
+      "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
+      "errorMatrix": {
+        "400": [
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "TRIP_NOT_FOUND",
+          "SCHEDULE_ITEM_NOT_FOUND",
+          "PLACE_NOT_FOUND",
+          "ACCOMMODATION_NOT_FOUND",
+          "TRANSPORT_EVENT_NOT_FOUND"
+        ],
+        "409": [
+          "IDEMPOTENCY_KEY_REUSED",
+          "TRIP_VERSION_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+        ],
+        "422": [
+          "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_ITEM_COMPLETED",
+          "SCHEDULE_LEG_INCOMPLETE"
+        ]
+      },
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {
+        "node": "not-observed",
+        "action": "일정 항목 편집 API linkage not-linked",
+        "loading": "not-observed",
+        "empty": "not-observed",
+        "error": "not-observed"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonical sub + method + normalized path + tripId",
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+      "operation": "apply",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "schemas": {
+        "path": "ScheduleItemPath",
+        "query": "DeleteItemQuery",
+        "headers": "MutationHeaders",
+        "body": "none"
+      },
+      "successSchema": "MutationResponse",
+      "requiredHeaders": [
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match"
+      ],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expectedActiveScheduleVersionId required in query; body forbidden",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          404,
+          409,
+          422
+        ]
+      },
+      "dbOwner": "Spring atomically copies/seals/activates schedule version and adjacent legs; implementation #50/#51",
+      "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
+      "errorMatrix": {
+        "400": [
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "TRIP_NOT_FOUND",
+          "SCHEDULE_ITEM_NOT_FOUND"
+        ],
+        "409": [
+          "IDEMPOTENCY_KEY_REUSED",
+          "TRIP_VERSION_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+        ],
+        "422": [
+          "SCHEDULE_ITEM_COMPLETED",
+          "SCHEDULE_LEG_INCOMPLETE"
+        ]
+      },
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {
+        "node": "not-observed",
+        "action": "일정 항목 삭제 API linkage not-linked",
+        "loading": "not-observed",
+        "empty": "not-observed",
+        "error": "not-observed"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonical sub + method + normalized path + tripId",
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/trips/{tripId}/schedule-order",
+      "operation": "apply",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "schemas": {
+        "path": "TripPath",
+        "query": "none",
+        "headers": "MutationHeaders",
+        "body": "ReorderRequest"
+      },
+      "successSchema": "MutationResponse",
+      "requiredHeaders": [
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match"
+      ],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version and non-empty days required; every active item appears exactly once",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          404,
+          409,
+          422
+        ]
+      },
+      "dbOwner": "Spring atomically copies/seals/activates schedule version and adjacent legs; implementation #50/#51",
+      "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
+      "errorMatrix": {
+        "400": [
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID",
+          "SCHEDULE_ORDER_NOT_PERMUTATION"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "TRIP_NOT_FOUND",
+          "SCHEDULE_ITEM_NOT_FOUND"
+        ],
+        "409": [
+          "IDEMPOTENCY_KEY_REUSED",
+          "TRIP_VERSION_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+        ],
+        "422": [
+          "SCHEDULE_ITEM_COMPLETED",
+          "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_LEG_INCOMPLETE"
+        ]
+      },
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {
+        "node": "not-observed",
+        "action": "Day 일정 드래그 순서 변경 API linkage not-linked",
+        "loading": "not-observed",
+        "empty": "not-observed",
+        "error": "not-observed"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonical sub + method + normalized path + tripId",
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+      "operation": "apply",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical JWT sub; cross-owner and wrong-trip resource 404",
+      "schemas": {
+        "path": "ScheduleItemPath",
+        "query": "none",
+        "headers": "MutationHeaders",
+        "body": "MoveItemRequest"
+      },
+      "successSchema": "MutationResponse",
+      "requiredHeaders": [
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match"
+      ],
+      "expectedActiveScheduleVersionId": "required UUID selector",
+      "presence": "expected version, targetDayNo, targetSequenceNo and plannedStartAt required",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          404,
+          409,
+          422
+        ]
+      },
+      "dbOwner": "Spring atomically copies/seals/activates schedule version and adjacent legs; implementation #50/#51",
+      "dataLineage": "authenticated owner input plus stored active legs/route snapshots; no request-time external call",
+      "errorMatrix": {
+        "400": [
+          "INVALID_REQUEST",
+          "IDEMPOTENCY_KEY_REQUIRED",
+          "IDEMPOTENCY_KEY_INVALID"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "TRIP_NOT_FOUND",
+          "SCHEDULE_ITEM_NOT_FOUND",
+          "TRIP_DAY_NOT_FOUND"
+        ],
+        "409": [
+          "IDEMPOTENCY_KEY_REUSED",
+          "TRIP_VERSION_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+        ],
+        "422": [
+          "SCHEDULE_ITEM_COMPLETED",
+          "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_LEG_INCOMPLETE"
+        ]
+      },
+      "concurrency": "If-Match trip ETag and expected active version CAS",
+      "transaction": "new user_edit version; validate complete copy then CAS active pointer in one transaction",
+      "requestTimeCall": "none",
+      "figma": {
+        "node": "not-observed",
+        "action": "일정 항목 Day 이동 API linkage not-linked",
+        "loading": "not-observed",
+        "empty": "not-observed",
+        "error": "not-observed"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonical sub + method + normalized path + tripId",
+        "ttl": "24 hours from COMPLETED",
+        "replay": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+        "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+        "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    }
+  ],
+  "readPolicy": {
+    "stableOrder": [
+      "dayNo",
+      "sequenceNo"
+    ],
+    "activeAbsent": "404 SCHEDULE_VERSION_NOT_FOUND",
+    "stale": "feasibilityStale required boolean on scheduleVersion; stale data remains a 200 projection",
+    "progress": "progress required and nullable; null means no progress row"
+  },
+  "versionPolicy": {
+    "immutable": "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed",
+    "activation": "copy active, apply edit, validate, seal new user_edit version, supersede previous active and switch pointer atomically",
+    "legCompleteness": "exactly one adjacent leg for every consecutive item pair; zero for fewer than two"
+  },
+  "itemPolicy": {
+    "itemTypes": [
+      "place_visit",
+      "meal",
+      "accommodation",
+      "arrival",
+      "departure",
+      "free_time",
+      "custom"
+    ],
+    "requiredByType": {
+      "place_visit": [
+        "placeId",
+        "plannedStartAt",
+        "stayMinutes"
+      ],
+      "meal": [
+        "title",
+        "plannedStartAt",
+        "stayMinutes"
+      ],
+      "accommodation": [
+        "accommodationId",
+        "plannedStartAt",
+        "stayMinutes"
+      ],
+      "arrival": [
+        "transportEventId",
+        "plannedStartAt",
+        "stayMinutes"
+      ],
+      "departure": [
+        "transportEventId",
+        "plannedStartAt",
+        "stayMinutes"
+      ],
+      "free_time": [
+        "title",
+        "plannedStartAt",
+        "stayMinutes"
+      ],
+      "custom": [
+        "title",
+        "plannedStartAt",
+        "stayMinutes"
+      ]
+    },
+    "timezone": "RFC 3339 +09:00; start and computed end must remain on target Asia/Seoul trip day",
+    "stayMinutes": "integer 1..1440",
+    "completedItem": "reject-422; completed item cannot be patched, deleted, reordered or moved"
+  },
+  "mutationPolicy": {
+    "expectedVersionLocation": {
+      "POST": "body",
+      "PATCH": "body",
+      "DELETE": "query",
+      "PUT": "body"
+    },
+    "idempotency": {
+      "scope": "canonical sub + method + normalized path + Idempotency-Key",
+      "processingLease": "2 minutes",
+      "completedTtl": "24 hours from completion",
+      "completedSameHash": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
+      "differentHash": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
+      "leaseActiveSameHash": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays",
+      "retryAfter": {
+        "header": "Retry-After",
+        "value": "1",
+        "appliesTo": "PROCESSING lease-active same-hash concurrent loser only"
+      }
+    },
+    "concurrency": "strong trip aggregate ETag plus expected active schedule version",
+    "validator": "DB constraints and synchronous deterministic validator only",
+    "aiCorrection": "never call MCP/AI; correction requires separate schedule revision run owned by #89"
+  },
+  "orderPolicy": {
+    "permutation": "each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID",
+    "result": "renumber each affected day contiguously from 1 and rebuild every adjacent leg"
+  },
+  "movePolicy": {
+    "dayBoundary": "target day belongs to trip; local date of plannedStartAt equals target day date",
+    "result": "remove from source, insert at targetSequenceNo, compact both days, rebuild affected legs"
+  },
+  "legDerivationPolicy": {
+    "sourcePriority": [
+      "reuse-unchanged-active-leg",
+      "stored-route-snapshot",
+      "conservative-walk-fallback",
+      "reject-422"
+    ],
+    "requestTimeCall": "none",
+    "itemIdentityMapping": {
+      "newIdentity": "new UUID for every copied item in the new schedule version",
+      "mapping": "command-scoped bijection oldItemIdToNewItemId",
+      "scope": "created before leg derivation and discarded after the transaction; never persisted as cross-version FK",
+      "semanticEquality": ["itemType", "normalized place/coordinate identity", "plannedStartAt", "plannedEndAt", "transport mode"]
+    },
+    "reuse": "map the old ordered adjacent pair through oldItemIdToNewItemId, write fromItemId/toItemId with new item IDs, and reuse only route attributes/components when mapped adjacency and all semanticEquality fields are unchanged; never reuse old leg or old trip_items IDs",
+    "storedSnapshot": {
+      "eligibility": "same normalized origin/destination and transport mode, captured before mutation and unexpired at transaction start; route_summary must contain validated walk/wait/ride/transfer components whose sum equals duration_minutes",
+      "tieBreaker": "expiresAt DESC, observedAt DESC, snapshotId ASC",
+      "components": "copy validated route_summary components, distance and fare; risk defaults null when absent; a snapshot without complete components is ineligible"
+    },
+    "conservativeFallback": {
+      "eligibility": "both adjacent items have normalized coordinates and the computed arrival does not exceed the next plannedStartAt",
+      "transportMode": "walk",
+      "distanceMeters": "ceil(PostGIS geography distance)",
+      "walkMinutes": "ceil(distanceMeters / 50), minimum 1",
+      "waitMinutes": 0,
+      "rideMinutes": 0,
+      "transferMinutes": 0,
+      "bufferMinutes": 0,
+      "riskScore": null,
+      "estimatedFareKrw": 0
+    },
+    "durationInvariant": "walkMinutes + waitMinutes + rideMinutes + transferMinutes",
+    "timestamps": "plannedDepartureAt equals from.plannedEndAt; plannedArrivalAt equals departure plus durationMinutes; both remain on the trip day and arrival is not after to.plannedStartAt",
+    "stableFailure": "422 SCHEDULE_LEG_INCOMPLETE; rollback draft, prior active pointer unchanged",
+    "sealing": "derive every affected pair, copy every reusable unaffected pair, require exactly n-1 contiguous legs per day, run DB sealing validator, then seal and CAS-activate in the same transaction",
+    "ownership": "Spring implementation #50/#51 owns local derivation and atomic activation; #90 may refresh stored snapshots asynchronously but is never called by these requests",
+    "operations": {
+      "add": {
+        "affectedPairs": "replace predecessor→successor with predecessor→new and new→successor; day edges derive only the existing side",
+        "identityMapping": "oldItemIdToNewItemId maps every copied survivor; added item has only a new ID"
+      },
+      "delete": {
+        "affectedPairs": "remove legs touching deleted item and derive predecessor→successor when both exist",
+        "identityMapping": "oldItemIdToNewItemId excludes the deleted item and maps every survivor"
+      },
+      "reorder": {
+        "affectedPairs": "derive every adjacent pair whose ordered endpoints changed; reuse only unchanged pairs",
+        "identityMapping": "oldItemIdToNewItemId maps every item; adjacency comparison uses old pair mapped to new IDs"
+      },
+      "move": {
+        "affectedPairs": "apply delete rule to source day and add rule to target day, then validate both days",
+        "identityMapping": "oldItemIdToNewItemId maps moved and surviving items; source/target adjacency uses new IDs"
+      }
+    }
+  },
+  "errorConditions": [
+    {
+      "status": 400,
+      "code": "INVALID_REQUEST",
+      "condition": "request path/query/body or a non-idempotency header violates the bound closed schema",
+      "type": "https://api.timing-jeju.com/problems/invalid-request",
+      "title": "요청 값이 올바르지 않습니다",
+      "detail": "필수값과 형식, 일정 버전 식별자를 확인해 주세요.",
+      "fixture": "400_invalid_request"
+    },
+    {
+      "status": 400,
+      "code": "IDEMPOTENCY_KEY_REQUIRED",
+      "condition": "required Idempotency-Key header is missing",
+      "type": "https://api.timing-jeju.com/problems/idempotency-key-required",
+      "title": "멱등성 키가 필요합니다",
+      "detail": "Idempotency-Key 헤더를 입력해 주세요.",
+      "fixture": "400_idempotency_key_required"
+    },
+    {
+      "status": 400,
+      "code": "IDEMPOTENCY_KEY_INVALID",
+      "condition": "Idempotency-Key header is present but is not a canonical UUID",
+      "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
+      "title": "멱등성 키가 유효하지 않습니다",
+      "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+      "fixture": "400_idempotency_key_invalid"
+    },
+    {
+      "status": 400,
+      "code": "SCHEDULE_ORDER_NOT_PERMUTATION",
+      "condition": "reorder omits, duplicates, adds or references a foreign active item ID",
+      "type": "https://api.timing-jeju.com/problems/schedule-order-not-permutation",
+      "title": "일정 순서가 올바르지 않습니다",
+      "detail": "활성 일정의 모든 항목을 중복과 누락 없이 한 번씩 보내 주세요.",
+      "fixture": "400_order_not_permutation"
+    },
+    {
+      "status": 401,
+      "code": "AUTHENTICATION_REQUIRED",
+      "condition": "Authorization header is missing",
+      "type": "https://api.timing-jeju.com/problems/authentication-required",
+      "title": "인증이 필요합니다",
+      "detail": "로그인 후 다시 요청해 주세요.",
+      "fixture": "401_authentication_required"
+    },
+    {
+      "status": 401,
+      "code": "INVALID_ACCESS_TOKEN",
+      "condition": "Bearer token is malformed, invalid or expired",
+      "type": "https://api.timing-jeju.com/problems/invalid-access-token",
+      "title": "인증 정보가 올바르지 않습니다",
+      "detail": "유효한 인증 정보로 다시 요청해 주세요.",
+      "fixture": "401_invalid_access_token"
+    },
+    {
+      "status": 404,
+      "code": "TRIP_NOT_FOUND",
+      "condition": "trip is missing or cross-owner",
+      "type": "https://api.timing-jeju.com/problems/trip-not-found",
+      "title": "여행을 찾을 수 없습니다",
+      "detail": "요청한 여행이 없거나 접근할 수 없습니다.",
+      "fixture": "404_trip_not_found"
+    },
+    {
+      "status": 404,
+      "code": "SCHEDULE_VERSION_NOT_FOUND",
+      "condition": "schedule version is missing, cross-owner or wrong-trip",
+      "type": "https://api.timing-jeju.com/problems/schedule-version-not-found",
+      "title": "일정 버전을 찾을 수 없습니다",
+      "detail": "요청한 일정 버전이 없거나 해당 여행에 속하지 않습니다.",
+      "fixture": "404_schedule_version_not_found"
+    },
+    {
+      "status": 404,
+      "code": "SCHEDULE_ITEM_NOT_FOUND",
+      "condition": "schedule item is missing, cross-owner or wrong-trip",
+      "type": "https://api.timing-jeju.com/problems/schedule-item-not-found",
+      "title": "일정 항목을 찾을 수 없습니다",
+      "detail": "요청한 일정 항목이 없거나 해당 여행에 속하지 않습니다.",
+      "fixture": "404_schedule_item_not_found"
+    },
+    {
+      "status": 404,
+      "code": "PLACE_NOT_FOUND",
+      "condition": "place is missing or unavailable in the normalized place catalog",
+      "type": "https://api.timing-jeju.com/problems/place-not-found",
+      "title": "장소를 찾을 수 없습니다",
+      "detail": "요청한 장소가 없거나 사용할 수 없습니다.",
+      "fixture": "404_place_not_found"
+    },
+    {
+      "status": 404,
+      "code": "TRIP_DAY_NOT_FOUND",
+      "condition": "target day is missing, cross-owner or wrong-trip",
+      "type": "https://api.timing-jeju.com/problems/trip-day-not-found",
+      "title": "여행 Day를 찾을 수 없습니다",
+      "detail": "이동할 Day가 없거나 해당 여행에 속하지 않습니다.",
+      "fixture": "404_trip_day_not_found"
+    },
+    {
+      "status": 404,
+      "code": "ACCOMMODATION_NOT_FOUND",
+      "condition": "referenced accommodation is missing, cross-owner or wrong-trip",
+      "type": "https://api.timing-jeju.com/problems/accommodation-not-found",
+      "title": "숙소를 찾을 수 없습니다",
+      "detail": "요청한 숙소가 없거나 해당 여행에 속하지 않습니다.",
+      "fixture": "404_accommodation_not_found"
+    },
+    {
+      "status": 404,
+      "code": "TRANSPORT_EVENT_NOT_FOUND",
+      "condition": "referenced transport event is missing, cross-owner or wrong-trip",
+      "type": "https://api.timing-jeju.com/problems/transport-event-not-found",
+      "title": "교통 이벤트를 찾을 수 없습니다",
+      "detail": "요청한 교통 이벤트가 없거나 해당 여행에 속하지 않습니다.",
+      "fixture": "404_transport_event_not_found"
+    },
+    {
+      "status": 409,
+      "code": "IDEMPOTENCY_KEY_REUSED",
+      "condition": "same idempotency scope/key has a different request hash, or the same hash is still PROCESSING with an active lease",
+      "type": "https://api.timing-jeju.com/problems/idempotency-key-reused",
+      "title": "멱등성 키가 다른 요청에 사용되었습니다",
+      "detail": "다른 요청이면 새 Idempotency-Key로 다시 보내고, 동일 요청이 처리 중이면 Retry-After 헤더의 초만큼 기다린 뒤 다시 요청해 주세요.",
+      "fixture": "409_idempotency_key_reused",
+      "responseHeaders": {
+        "differentHash": {},
+        "leaseActiveSameHash": {
+          "Retry-After": "1"
+        }
+      }
+    },
+    {
+      "status": 409,
+      "code": "TRIP_VERSION_CONFLICT",
+      "condition": "If-Match does not equal the current strong trip aggregate ETag",
+      "type": "https://api.timing-jeju.com/problems/trip-version-conflict",
+      "title": "여행 조건이 이미 변경되었습니다",
+      "detail": "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요.",
+      "fixture": "409_trip_version_conflict"
+    },
+    {
+      "status": 409,
+      "code": "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+      "condition": "expectedActiveScheduleVersionId does not equal the current active schedule version",
+      "type": "https://api.timing-jeju.com/problems/active-schedule-version-conflict",
+      "title": "활성 일정이 이미 변경되었습니다",
+      "detail": "최신 활성 일정을 조회한 뒤 다시 편집해 주세요.",
+      "fixture": "409_active_schedule_version_conflict"
+    },
+    {
+      "status": 422,
+      "code": "SCHEDULE_ITEM_INVALID",
+      "condition": "item violates type-required fields, range, target day or time-window invariants",
+      "type": "https://api.timing-jeju.com/problems/schedule-item-invalid",
+      "title": "일정 항목을 적용할 수 없습니다",
+      "detail": "항목 유형별 필수값과 Day 시간 범위를 확인해 주세요.",
+      "fixture": "422_schedule_item_invalid"
+    },
+    {
+      "status": 422,
+      "code": "SCHEDULE_ITEM_COMPLETED",
+      "condition": "patch, delete, reorder or move targets an item whose progress status is completed",
+      "type": "https://api.timing-jeju.com/problems/schedule-item-completed",
+      "title": "완료한 일정 항목은 변경할 수 없습니다",
+      "detail": "완료되지 않은 일정 항목만 편집해 주세요.",
+      "fixture": "422_schedule_item_completed"
+    },
+    {
+      "status": 422,
+      "code": "SCHEDULE_LEG_INCOMPLETE",
+      "condition": "an adjacent pair cannot be reused, derived from an eligible snapshot or conservatively synthesized",
+      "type": "https://api.timing-jeju.com/problems/schedule-leg-incomplete",
+      "title": "이동 구간을 완성할 수 없습니다",
+      "detail": "인접 일정 항목 사이의 이동 구간을 확인해 주세요.",
+      "fixture": "422_schedule_leg_incomplete"
+    }
+  ],
+  "externalTraceability": {
+    "notion": {
+      "status": "not-ready",
+      "contractVersion": "not-linked",
+      "databaseId": "not-observed",
+      "rows": [],
+      "reason": "이 개발 세션에서 6개 Notion endpoint 행을 직접 읽거나 수정했다는 증거가 없어 연결을 추정하지 않는다"
+    },
+    "figma": {
+      "status": "not-ready",
+      "contractVersion": "not-linked",
+      "fileKey": "4mKep38zm17iupVSQVsSJW",
+      "pageNodeId": "251:4347",
+      "observedNodes": [],
+      "missingStateEvidence": [
+        "endpoint action",
+        "loading",
+        "empty",
+        "error",
+        "contractVersion"
+      ],
+      "reason": "일정 화면과 6개 API의 node/action/response 연결을 직접 관찰하지 못해 not-linked로 유지한다"
+    }
+  },
+  "readiness": {
+    "metadata": {
+      "status": "not-ready",
+      "evidence": null
+    },
+    "example": {
+      "status": "not-ready",
+      "evidence": null
+    },
+    "implementation": {
+      "status": "not-ready",
+      "evidence": null
+    }
+  },
+  "schemaGap": [
+    "문서 작업은 schema를 변경하지 않으며 public schema 단일 기준은 supabase/migrations이다",
+    "trip_items에는 accommodation/transport-event 전용 FK가 없고 stay_minutes는 null/0 및 상한 없음이어서 #50에서 migration과 application validator 책임을 명시적으로 결정한다",
+    "trip_legs에는 derivation source/algorithm version/snapshot ID 전용 column이 없으므로 #50/#51에서 facts 저장 규약 또는 migration을 결정한다",
+    "Spring/FastAPI 운영 코드와 Flyway는 이 Issue 범위가 아니다"
+  ]
+}
