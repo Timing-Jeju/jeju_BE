@@ -88,7 +88,7 @@ Accept: application/json
 Idempotency-Key: 018f6f2a-60a0-7f5b-8c61-8f548f34bc31
 ```
 
-같은 사용자, 같은 경로, 같은 키의 재요청은 최초 결과를 반환한다. 본문이 달라지면 `409 IDEMPOTENCY_KEY_REUSED`를 반환한다.
+같은 사용자, 같은 경로, 같은 키와 같은 hash의 `COMPLETED` 재요청은 저장된 status, 순서가 보존된 header, body를 operation 재실행 없이 반환한다. 같은 key의 hash가 다르면 `Retry-After` 없이 즉시 `409 IDEMPOTENCY_KEY_REUSED`를 반환한다. 같은 hash가 2분 `PROCESSING` lease 안에 있으면 동시 loser를 기다리거나 replay하지 않고 즉시 같은 `409`와 `Retry-After: 1`을 반환한다.
 
 ### 6.3 커서 페이지네이션
 
@@ -228,11 +228,11 @@ MCP wire envelope, 내부 JWT, 실제 `calculate_feasibility` 송수신 JSON과 
 | Stay | PATCH | `/api/v1/trips/{tripId}/accommodations/{accommodationId}` | 필수 | 미호출 | - | `200` | accommodations |
 | Stay | DELETE | `/api/v1/trips/{tripId}/accommodations/{accommodationId}` | 필수 | 미호출 | - | `204` | accommodations |
 | Schedule | GET | `/api/v1/trips/{tripId}/schedule` | 필수 | 미호출 | - | `200` | version/items/legs |
-| Schedule | POST | `/api/v1/trips/{tripId}/schedule/items` | 필수 | 미호출 | - | `201` | new user-edit version |
-| Schedule | PATCH | `/api/v1/trips/{tripId}/schedule/items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
-| Schedule | DELETE | `/api/v1/trips/{tripId}/schedule/items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
-| Schedule | PUT | `/api/v1/trips/{tripId}/schedule/order` | 필수 | 미호출 | - | `200` | new user-edit version |
-| Schedule | POST | `/api/v1/trips/{tripId}/schedule/items/{itemId}/move` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | POST | `/api/v1/trips/{tripId}/schedule-items` | 필수 | 미호출 | - | `201` | new user-edit version |
+| Schedule | PATCH | `/api/v1/trips/{tripId}/schedule-items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | DELETE | `/api/v1/trips/{tripId}/schedule-items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | PUT | `/api/v1/trips/{tripId}/schedule-order` | 필수 | 미호출 | - | `200` | new user-edit version |
+| Schedule | POST | `/api/v1/trips/{tripId}/schedule-items/{itemId}/move` | 필수 | 미호출 | - | `200` | new user-edit version |
 | Generation | POST | `/api/v1/trips/{tripId}/generation-runs` | 필수 | 호출 | `generate_day_itinerary` | `202` | FastAPI MCP |
 | Generation | GET | `/api/v1/trips/{tripId}/generation-runs/{runId}` | 필수 | 미호출 | - | `200` | run/candidates |
 | Generation | POST | `/api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply` | 필수 | 미호출 | - | `200` | atomic version apply |
@@ -892,6 +892,10 @@ DELETE는 body 없는 `204`지만 active 일정이 있거나 중간 gap이 생�
 
 ## 12. 상세 계약: Schedule Versioning
 
+여섯 endpoint의 exact path, header/body/query presence, 불변 version·동시성·오류·fixture
+계약은 [`schedules/contract.json`](../contracts/domains/schedules/contract.json)을 따른다.
+아래 예시는 설명용이며 machine-readable 계약과 충돌할 때 canonical JSON을 우선한다.
+
 ### 12.1 `GET /api/v1/trips/{tripId}/schedule`
 
 Request:
@@ -913,7 +917,8 @@ Response `200`:
     "status": "active",
     "sourceType": "initial",
     "baseScheduleVersionId": null,
-    "score": 81
+    "score": 81,
+    "feasibilityStale": false
   },
   "days": [
     {
@@ -922,36 +927,21 @@ Response `200`:
       "date": "2026-08-03",
       "items": [
         {
-          "itemId": "61000000-0000-0000-0000-000000000002",
-          "sequenceNo": 2,
+          "itemId": "61000000-0000-0000-0000-000000000001",
+          "sequenceNo": 1,
           "itemType": "place_visit",
           "placeId": "20000000-0000-0000-0000-000000000002",
-          "name": "성산일출봉",
-          "category": "tourist_attraction",
-          "regionLabel": "성산",
-          "recommendedStayMinutes": 70,
+          "title": "성산일출봉",
           "plannedStartAt": "2026-08-03T11:20:00+09:00",
           "plannedEndAt": "2026-08-03T12:30:00+09:00",
           "stayMinutes": 70,
+          "bufferAfterMinutes": 0,
           "memo": null,
-          "saved": true,
           "required": true,
-          "progress": {
-            "status": "arrived",
-            "actualArrivedAt": "2026-08-03T11:20:00+09:00"
-          }
+          "progress": null
         }
       ],
-      "legs": [
-        {
-          "legId": "62000000-0000-0000-0000-000000000002",
-          "fromItemId": "61000000-0000-0000-0000-000000000002",
-          "toItemId": "61000000-0000-0000-0000-000000000003",
-          "transportMode": "public_transit",
-          "durationMinutes": 40,
-          "riskStatus": "caution"
-        }
-      ]
+      "legs": []
     }
   ]
 }
@@ -961,11 +951,13 @@ Response `200`:
 
 아래 5개 API는 모두 새 `user_edit` 버전을 만들고 원자적으로 활성화한다.
 
-- `POST /schedule/items`
-- `PATCH /schedule/items/{itemId}`
-- `DELETE /schedule/items/{itemId}`
-- `PUT /schedule/order`
-- `POST /schedule/items/{itemId}/move`
+- `POST /schedule-items`
+- `PATCH /schedule-items/{itemId}`
+- `DELETE /schedule-items/{itemId}`
+- `PUT /schedule-order`
+- `POST /schedule-items/{itemId}/move`
+
+다섯 API 모두 `Idempotency-Key`가 없으면 `400 IDEMPOTENCY_KEY_REQUIRED`, 값이 있지만 canonical UUID가 아니면 `400 IDEMPOTENCY_KEY_INVALID`를 반환한다. 두 경우를 일반 `INVALID_REQUEST`로 합치지 않으며 공통 8필드 Problem Details registry의 한국어 title/detail을 사용한다.
 
 공통 Response `200/201`:
 
@@ -980,11 +972,12 @@ Response `200`:
   "changedItemIds": [
     "61000000-0000-0000-0000-000000000003"
   ],
+  "etag": "\"trip-13\"",
   "updatedAt": "2026-08-03T09:20:00+09:00"
 }
 ```
 
-### 12.3 `POST /schedule/items`
+### 12.3 `POST /schedule-items`
 
 Request:
 
@@ -995,7 +988,6 @@ Request:
   "sequenceNo": 4,
   "itemType": "place_visit",
   "placeId": "20000000-0000-0000-0000-000000000006",
-  "title": null,
   "plannedStartAt": "2026-08-03T15:00:00+09:00",
   "stayMinutes": 45,
   "bufferAfterMinutes": 10,
@@ -1006,7 +998,7 @@ Request:
 
 Response `201`: 일정 변경 공통 응답.
 
-### 12.4 `PATCH /schedule/items/{itemId}`
+### 12.4 `PATCH /schedule-items/{itemId}`
 
 Request:
 
@@ -1022,18 +1014,18 @@ Request:
 
 Response `200`: 일정 변경 공통 응답.
 
-### 12.5 `DELETE /schedule/items/{itemId}`
+### 12.5 `DELETE /schedule-items/{itemId}`
 
 Request:
 
 ```http
-DELETE /api/v1/trips/50000000-0000-0000-0000-000000000001/schedule/items/61000000-0000-0000-0000-000000000003?expectedActiveScheduleVersionId=60000000-0000-0000-0000-000000000001
+DELETE /api/v1/trips/50000000-0000-0000-0000-000000000001/schedule-items/61000000-0000-0000-0000-000000000003?expectedActiveScheduleVersionId=60000000-0000-0000-0000-000000000001
 Idempotency-Key: 018f6f2a-60a0-7f5b-8c61-8f548f34bc32
 ```
 
 Response `200`: 일정 변경 공통 응답.
 
-### 12.6 `PUT /schedule/order`
+### 12.6 `PUT /schedule-order`
 
 Request:
 
@@ -1056,7 +1048,7 @@ Request:
 
 Response `200`: 일정 변경 공통 응답.
 
-### 12.7 `POST /schedule/items/{itemId}/move`
+### 12.7 `POST /schedule-items/{itemId}/move`
 
 Request:
 
@@ -1653,7 +1645,7 @@ Response `200`:
 | 404 | `TRIP_NOT_FOUND` | 여행 없음 |
 | 404 | `SCHEDULE_VERSION_NOT_FOUND` | 버전 없음 |
 | 409 | `SCHEDULE_VERSION_CONFLICT` | 활성 버전이 요청 기대값과 다름 |
-| 409 | `IDEMPOTENCY_KEY_REUSED` | 같은 키에 다른 요청 본문 |
+| 409 | `IDEMPOTENCY_KEY_REUSED` | 같은 scope/key의 다른 요청 hash, 또는 같은 hash가 `PROCESSING` active lease 안에 있음. 후자만 `Retry-After: 1` |
 | 409 | `RUN_ALREADY_IN_PROGRESS` | 같은 입력 계산 실행 중 |
 | 422 | `TRIP_DATE_RANGE_INVALID` | 종료일이 시작일보다 빠름 |
 | 422 | `TRANSPORT_EVENT_OUTSIDE_TRIP` | 도착/출발 시간이 여행 범위 밖 |
