@@ -51,12 +51,6 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
   private static final Pattern DECIMAL = Pattern.compile("[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)");
   private static final Pattern MILLIMETERS =
       Pattern.compile("([+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))\\s*mm", Pattern.CASE_INSENSITIVE);
-  private static final Pattern RANGE_MILLIMETERS =
-      Pattern.compile(
-          "([+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))\\s*[~-]\\s*([+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))\\s*mm",
-          Pattern.CASE_INSENSITIVE);
-  private static final Pattern ABOVE_MILLIMETERS =
-      Pattern.compile("([+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))\\s*mm\\s*이상", Pattern.CASE_INSENSITIVE);
 
   private final ObjectReader reader;
 
@@ -189,7 +183,8 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
     for (Map.Entry<ValidTime, Map<String, String>> entry : groups.entrySet()) {
       requireExactRequired(entry.getValue().keySet(), FORECAST_REQUIRED);
       Instant validAt = instant(entry.getKey().date(), entry.getKey().time());
-      if (validAt.isBefore(forecastedAt)
+      if (entry.getKey().time().getMinute() != 0
+          || !validAt.isAfter(forecastedAt)
           || validAt.isAfter(forecastedAt.plus(java.time.Duration.ofHours(6)))) {
         throw KmaWeatherImportException.invalidResponse();
       }
@@ -199,7 +194,7 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
               forecastedAt,
               validAt,
               "ultra_short",
-              Integer.toString(integer(values.get("SKY"), 1, 4)),
+              skyCode(values.get("SKY")),
               precipitationType(values.get("PTY")),
               rainfall(values.get("RN1")),
               decimal(values.get("T1H"), new BigDecimal("-100"), new BigDecimal("100")),
@@ -256,26 +251,31 @@ public final class KmaWeatherJsonParser implements KmaWeatherParser {
   private static BigDecimal rainfall(String raw) {
     String value = requiredValue(raw);
     if ("강수없음".equals(value)) return BigDecimal.ZERO;
-    if ("1mm미만".equalsIgnoreCase(value.replace(" ", ""))) return new BigDecimal("0.5");
-    Matcher range = RANGE_MILLIMETERS.matcher(value);
-    if (range.matches()) return nonNegative(new BigDecimal(range.group(1)));
-    Matcher above = ABOVE_MILLIMETERS.matcher(value);
-    if (above.matches()) return nonNegative(new BigDecimal(above.group(1)));
+    String compact = value.replace(" ", "");
+    if ("1mm미만".equalsIgnoreCase(compact)) return new BigDecimal("0.5");
+    if ("30.0~50.0mm".equalsIgnoreCase(compact)) return new BigDecimal("30.0");
+    if ("50.0mm이상".equalsIgnoreCase(compact)) return new BigDecimal("50.0");
     Matcher millimeters = MILLIMETERS.matcher(value);
-    if (millimeters.matches()) return nonNegative(new BigDecimal(millimeters.group(1)));
-    return nonNegative(decimal(value, BigDecimal.ZERO, new BigDecimal("9999")));
+    if (millimeters.matches()) return rainfallNumber(millimeters.group(1));
+    return rainfallNumber(value);
   }
 
-  private static BigDecimal nonNegative(BigDecimal value) {
-    if (value.signum() < 0) throw KmaWeatherImportException.invalidResponse();
-    return value;
+  private static BigDecimal rainfallNumber(String value) {
+    BigDecimal parsed = decimal(value, BigDecimal.ZERO, new BigDecimal("900"));
+    if (parsed.compareTo(new BigDecimal("900")) >= 0) {
+      throw KmaWeatherImportException.invalidResponse();
+    }
+    return parsed;
   }
 
   private static String precipitationType(String value) {
     int code = integer(value, 0, 7);
-    if (!Set.of(0, 1, 2, 3, 5, 6, 7).contains(code)) {
-      throw KmaWeatherImportException.invalidResponse();
-    }
+    return Integer.toString(code);
+  }
+
+  private static String skyCode(String value) {
+    int code = integer(value, 1, 4);
+    if (!Set.of(1, 3, 4).contains(code)) throw KmaWeatherImportException.invalidResponse();
     return Integer.toString(code);
   }
 

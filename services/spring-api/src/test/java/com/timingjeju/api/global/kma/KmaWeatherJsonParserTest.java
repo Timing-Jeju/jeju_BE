@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.ObjectMapper;
 
 @Tag("unit")
@@ -88,11 +89,34 @@ class KmaWeatherJsonParserTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"강수없음,0", "1mm 미만,0.5", "0.7mm,0.7", "30.0~50.0mm,30.0", "50.0mm 이상,50.0"})
-  void parsesOfficialRainfallStrings(String source, String expected) {
-    var parsed = parser.parse(KmaWeatherOperation.ULTRA_CURRENT, currentEnvelope("RN1", source));
+  @CsvSource({"강수없음,0", "1mm 미만,0.5", "0.7,0.7", "0.7mm,0.7", "30.0~50.0mm,30.0", "50.0mm 이상,50.0"})
+  void parsesOnlyOfficialRainfallValuesForCurrentAndForecast(String source, String expected) {
+    var current = parser.parse(KmaWeatherOperation.ULTRA_CURRENT, currentEnvelope("RN1", source));
+    var forecast =
+        parser.parse(KmaWeatherOperation.ULTRA_FORECAST, forecastEnvelope("RN1", source, "0100"));
 
-    assertThat(parsed.observations().getFirst().precipitationMm()).isEqualByComparingTo(expected);
+    assertThat(current.observations().getFirst().precipitationMm()).isEqualByComparingTo(expected);
+    assertThat(forecast.forecasts().getFirst().precipitationAmountMm())
+        .isEqualByComparingTo(expected);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"900", "+900", "-900", "900mm", "+900mm", "-900mm", "2~3mm", "17mm 이상"})
+  void rejectsRainfallSentinelsAndUnofficialBoundsForCurrentAndForecast(String source) {
+    assertInvalid(currentEnvelope("RN1", source));
+    assertForecastInvalid(forecastEnvelope("RN1", source, "0100"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2, 3, 4, 5, 6, 7})
+  void acceptsAllOfficialPrecipitationTypeCodesForCurrentAndForecast(int code) {
+    String value = Integer.toString(code);
+    var current = parser.parse(KmaWeatherOperation.ULTRA_CURRENT, currentEnvelope("PTY", value));
+    var forecast =
+        parser.parse(KmaWeatherOperation.ULTRA_FORECAST, forecastEnvelope("PTY", value, "0100"));
+
+    assertThat(current.observations().getFirst().precipitationType()).isEqualTo(value);
+    assertThat(forecast.forecasts().getFirst().precipitationType()).isEqualTo(value);
   }
 
   @ParameterizedTest
@@ -150,9 +174,23 @@ class KmaWeatherJsonParserTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"T1H,101", "RN1,-0.1", "PTY,4", "REH,101", "WSD,-0.1", "VEC,361"})
+  @CsvSource({"T1H,101", "RN1,-0.1", "PTY,8", "REH,101", "WSD,-0.1", "VEC,361"})
   void rejectsValuesOutsideCurrentRanges(String category, String value) {
     assertInvalid(currentEnvelope(category, value));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"1", "3", "4"})
+  void acceptsOnlyOfficialSkyCodes(String code) {
+    var parsed =
+        parser.parse(KmaWeatherOperation.ULTRA_FORECAST, forecastEnvelope("SKY", code, "0100"));
+
+    assertThat(parsed.forecasts().getFirst().skyCode()).isEqualTo(code);
+  }
+
+  @Test
+  void rejectsUnofficialSkyCodeTwo() {
+    assertForecastInvalid(forecastEnvelope("SKY", "2", "0100"));
   }
 
   @ParameterizedTest
@@ -194,6 +232,12 @@ class KmaWeatherJsonParserTest {
     assertForecastInvalid(envelope(tooLate));
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"0000", "0030", "0031", "0101", "0630", "0700"})
+  void rejectsForecastTimesThatAreNotOfficialFutureHourlySlots(String validTime) {
+    assertForecastInvalid(envelope(forecastItems(validTime)));
+  }
+
   private static byte[] currentEnvelope(String replacedCategory, String replacement) {
     List<String> items =
         new ArrayList<>(
@@ -214,6 +258,17 @@ class KmaWeatherJsonParserTest {
 
   private static byte[] forecastEnvelope() {
     return envelope(forecastItems("0100"));
+  }
+
+  private static byte[] forecastEnvelope(
+      String replacedCategory, String replacement, String validTime) {
+    List<String> items = forecastItems(validTime);
+    for (int index = 0; index < items.size(); index++) {
+      if (items.get(index).contains("\"category\":\"" + replacedCategory + "\"")) {
+        items.set(index, forecast(replacedCategory, validTime, replacement));
+      }
+    }
+    return envelope(items);
   }
 
   private static List<String> forecastItems(String validTime) {
