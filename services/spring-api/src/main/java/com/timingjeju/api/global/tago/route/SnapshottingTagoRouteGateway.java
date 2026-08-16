@@ -20,8 +20,9 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class SnapshottingTagoRouteGateway implements TagoRouteSnapshotGateway {
-  private static final SnapshotScope SCOPE =
-      new SnapshotScope("TAGO", "BusRouteInfoInqireService", "getRouteNoList", "jeju-routes");
+  private static final String PROVIDER = "TAGO";
+  private static final String SERVICE = "BusRouteInfoInqireService";
+  private static final String SCOPE_KEY = "jeju-routes";
   private static final String VERSION = "tago-route-v1";
   private final SnapshotStoreService snapshots;
   private final Clock clock;
@@ -40,15 +41,9 @@ public final class SnapshottingTagoRouteGateway implements TagoRouteSnapshotGate
       int page,
       TagoRouteSourceResponse response) {
     Instant fetched = clock.instant();
+    SourceOperation operation = operation(kind);
     Map<String, Object> metadata = new LinkedHashMap<>();
-    metadata.put(
-        "endpoint",
-        switch (kind) {
-          case "route-list" -> "/getRouteNoList";
-          case "route-detail" -> "/getRouteInfoIem";
-          case "route-stops" -> "/getRouteAcctoThrghSttnList";
-          default -> throw TagoRouteImportException.invalidRequest();
-        });
+    metadata.put("endpoint", '/' + operation.name());
     metadata.put("kind", kind);
     metadata.put("cityCode", city);
     metadata.put("route", route);
@@ -60,7 +55,7 @@ public final class SnapshottingTagoRouteGateway implements TagoRouteSnapshotGate
         snapshots.save(
             new SnapshotSaveCommand(
                 run,
-                SCOPE,
+                new SnapshotScope(PROVIDER, SERVICE, operation.name(), SCOPE_KEY),
                 null,
                 kind + '-' + route + '-' + Math.max(page, 0),
                 200,
@@ -83,6 +78,17 @@ public final class SnapshottingTagoRouteGateway implements TagoRouteSnapshotGate
         saved.replayed(),
         saved.status());
   }
+
+  private static SourceOperation operation(String kind) {
+    return switch (kind) {
+      case "route-list" -> new SourceOperation("getRouteNoList");
+      case "route-detail" -> new SourceOperation("getRouteInfoIem");
+      case "route-stops" -> new SourceOperation("getRouteAcctoThrghSttnList");
+      default -> throw TagoRouteImportException.invalidRequest();
+    };
+  }
+
+  private record SourceOperation(String name) {}
 
   @Override
   public void markParsed(SavedTagoRoutePayload payload) {

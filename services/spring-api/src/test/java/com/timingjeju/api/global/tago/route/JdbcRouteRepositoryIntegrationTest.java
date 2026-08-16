@@ -44,6 +44,8 @@ class JdbcRouteRepositoryIntegrationTest {
   private static final UUID CITY_SNAPSHOT = UUID.fromString("36000000-0000-0000-0000-000000000202");
   private static final UUID STOP_SNAPSHOT = UUID.fromString("36000000-0000-0000-0000-000000000203");
   private static final UUID ROUTE_RUN = UUID.fromString("36000000-0000-0000-0000-000000000211");
+  private static final UUID ROUTE_LIST_SNAPSHOT =
+      UUID.fromString("36000000-0000-0000-0000-000000000210");
   private static final UUID DETAIL_SNAPSHOT =
       UUID.fromString("36000000-0000-0000-0000-000000000212");
   private static final UUID ROUTE_STOPS_SNAPSHOT =
@@ -93,10 +95,18 @@ class JdbcRouteRepositoryIntegrationTest {
         "jeju-routes",
         "issue36-route-fixture");
     insertSnapshot(
-        DETAIL_SNAPSHOT,
+        ROUTE_LIST_SNAPSHOT,
         ROUTE_RUN,
         "BusRouteInfoInqireService",
         "getRouteNoList",
+        "jeju-routes",
+        "route-list-101-1",
+        "f");
+    insertSnapshot(
+        DETAIL_SNAPSHOT,
+        ROUTE_RUN,
+        "BusRouteInfoInqireService",
+        "getRouteInfoIem",
         "jeju-routes",
         "route-detail-R-1",
         "c");
@@ -104,7 +114,7 @@ class JdbcRouteRepositoryIntegrationTest {
         ROUTE_STOPS_SNAPSHOT,
         ROUTE_RUN,
         "BusRouteInfoInqireService",
-        "getRouteNoList",
+        "getRouteAcctoThrghSttnList",
         "jeju-routes",
         "route-stops-R-1",
         "d");
@@ -165,6 +175,52 @@ class JdbcRouteRepositoryIntegrationTest {
   }
 
   @Test
+  void 같은_freshness는_동일_manifest만_true_replay하고_충돌은_모든_상태를_rollback한다() {
+    routeRepository.apply(
+        List.of(routeWrite("R-EQUAL", NOW)), routeStopWrites("R-EQUAL", NOW), ROUTE_RUN, NOW);
+    String routeXmin =
+        jdbc.queryForObject(
+            "select xmin::text from public.bus_routes where external_route_id='R-EQUAL'",
+            String.class);
+    List<String> stopXmins =
+        jdbc.queryForList(
+            "select xmin::text from public.route_stops where route_id=(select id from public.bus_routes where external_route_id='R-EQUAL') order by stop_sequence",
+            String.class);
+
+    var replay =
+        routeRepository.apply(
+            List.of(routeWrite("R-EQUAL", NOW)), routeStopWrites("R-EQUAL", NOW), ROUTE_RUN, NOW);
+
+    assertThat(replay.skipped()).isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select xmin::text from public.bus_routes where external_route_id='R-EQUAL'",
+                String.class))
+        .isEqualTo(routeXmin);
+    assertThat(
+            jdbc.queryForList(
+                "select xmin::text from public.route_stops where route_id=(select id from public.bus_routes where external_route_id='R-EQUAL') order by stop_sequence",
+                String.class))
+        .containsExactlyElementsOf(stopXmins);
+
+    var lease = new com.timingjeju.api.application.importing.ImportRunLease(ROUTE_RUN, OWNER, 1);
+    assertEqualFreshnessConflictRollsBack(
+        lease,
+        routeWrite("R-EQUAL", NOW, "일반"),
+        routeStopWrites("R-EQUAL", NOW),
+        routeXmin,
+        stopXmins);
+    assertEqualFreshnessConflictRollsBack(
+        lease,
+        routeWrite("R-EQUAL", NOW),
+        List.of(
+            routeStopWrite("R-EQUAL", "STOP-2", 1, NOW),
+            routeStopWrite("R-EQUAL", "STOP-1", 2, NOW)),
+        routeXmin,
+        stopXmins);
+  }
+
+  @Test
   void DB는_RLS_scope_index_deferred_sequence_guard를_유지한다() {
     routeRepository.apply(
         List.of(routeWrite("R-A", NOW), routeWrite("R-B", NOW)),
@@ -203,7 +259,13 @@ class JdbcRouteRepositoryIntegrationTest {
                 "select count(*) from public.external_api_snapshots where import_run_id=? and parse_status='parsed'",
                 Integer.class,
                 ROUTE_RUN))
-        .isEqualTo(2);
+        .isEqualTo(3);
+    assertThat(
+            jdbc.queryForList(
+                "select source_operation from public.external_api_snapshots where import_run_id=? order by source_operation",
+                String.class,
+                ROUTE_RUN))
+        .containsExactly("getRouteAcctoThrghSttnList", "getRouteInfoIem", "getRouteNoList");
     assertThat(
             jdbc.queryForObject(
                 "select version from public.data_import_checkpoints where source_provider='TAGO' and source_service='BusRouteInfoInqireService' and source_operation='getRouteNoList' and scope_key='jeju-routes'",
@@ -297,8 +359,12 @@ class JdbcRouteRepositoryIntegrationTest {
   }
 
   private TagoRouteWrite routeWrite(String routeId, Instant observedAt) {
+    return routeWrite(routeId, observedAt, "급행");
+  }
+
+  private TagoRouteWrite routeWrite(String routeId, Instant observedAt, String routeType) {
     return new TagoRouteWrite(
-        new TagoRoute("39", routeId, "101", "급행", "공항", "성산", routeId),
+        new TagoRoute("39", routeId, "101", routeType, "공항", "성산", routeId),
         DETAIL_SNAPSHOT,
         ROUTE_RUN,
         observedAt);
@@ -306,18 +372,50 @@ class JdbcRouteRepositoryIntegrationTest {
 
   private List<TagoRouteStopWrite> routeStopWrites(String routeId, Instant observedAt) {
     return List.of(
-        new TagoRouteStopWrite(
-            new TagoRouteStop("39", routeId, "STOP-1", 1),
-            routeId,
-            ROUTE_STOPS_SNAPSHOT,
-            ROUTE_RUN,
-            observedAt),
-        new TagoRouteStopWrite(
-            new TagoRouteStop("39", routeId, "STOP-2", 2),
-            routeId,
-            ROUTE_STOPS_SNAPSHOT,
-            ROUTE_RUN,
-            observedAt));
+        routeStopWrite(routeId, "STOP-1", 1, observedAt),
+        routeStopWrite(routeId, "STOP-2", 2, observedAt));
+  }
+
+  private TagoRouteStopWrite routeStopWrite(
+      String routeId, String nodeId, int sequence, Instant observedAt) {
+    return new TagoRouteStopWrite(
+        new TagoRouteStop("39", routeId, nodeId, sequence),
+        routeId,
+        ROUTE_STOPS_SNAPSHOT,
+        ROUTE_RUN,
+        observedAt);
+  }
+
+  private void assertEqualFreshnessConflictRollsBack(
+      com.timingjeju.api.application.importing.ImportRunLease lease,
+      TagoRouteWrite route,
+      List<TagoRouteStopWrite> stops,
+      String routeXmin,
+      List<String> stopXmins) {
+    assertThatThrownBy(
+            () ->
+                committer.commit(
+                    new TagoRouteCommitCommand(lease, 0, List.of(route), stops, List.of())))
+        .isInstanceOf(TagoRouteImportException.class);
+    assertThat(
+            jdbc.queryForObject(
+                "select xmin::text from public.bus_routes where external_route_id='R-EQUAL'",
+                String.class))
+        .isEqualTo(routeXmin);
+    assertThat(
+            jdbc.queryForList(
+                "select xmin::text from public.route_stops where route_id=(select id from public.bus_routes where external_route_id='R-EQUAL') order by stop_sequence",
+                String.class))
+        .containsExactlyElementsOf(stopXmins);
+    assertThat(
+            jdbc.queryForObject(
+                "select status from public.data_import_runs where id=?", String.class, ROUTE_RUN))
+        .isEqualTo("running");
+    assertThat(
+            jdbc.queryForObject(
+                "select version from public.data_import_checkpoints where source_provider='TAGO' and source_service='BusRouteInfoInqireService' and source_operation='getRouteNoList' and scope_key='jeju-routes'",
+                Long.class))
+        .isZero();
   }
 
   private TagoStopWrite stop(String nodeId) {

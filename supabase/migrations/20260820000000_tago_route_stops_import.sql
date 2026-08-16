@@ -1,5 +1,42 @@
 -- Issue #36: TAGO 노선·경유 정류장 importer checkpoint와 순번 계약.
 
+-- TAGO route 한 run은 provider/service/scope를 고정한 채 공식 3개 operation을 함께 수집한다.
+create or replace function public.validate_external_snapshot_import_scope()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  perform import_run.id
+  from public.data_import_runs import_run
+  where import_run.id = new.import_run_id
+    and import_run.source_provider = new.source_provider
+    and import_run.source_service = new.source_service
+    and import_run.scope_key = new.scope_key
+    and (
+      import_run.source_operation = new.source_operation
+      or (
+        import_run.source_provider = 'TAGO'
+        and import_run.source_service = 'BusRouteInfoInqireService'
+        and import_run.source_operation = 'getRouteNoList'
+        and new.source_operation in (
+          'getRouteNoList', 'getRouteInfoIem', 'getRouteAcctoThrghSttnList'
+        )
+      )
+    )
+  for key share;
+
+  if not found then
+    raise exception using
+      errcode = '23514',
+      message = 'external snapshot source scope must match its import run';
+  end if;
+
+  return new;
+end;
+$$;
+
 do $$
 declare
   duplicate_record record;

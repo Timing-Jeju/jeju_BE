@@ -1534,6 +1534,8 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("legacy tago route natural key collision", migration)
         self.assertIn("legacy route stop sequence is not positive contiguous unique", migration)
         self.assertIn("'tago', 'busrouteinfoinqireservice', 'getroutenolist', 'jeju-routes'", migration)
+        self.assertIn("create or replace function public.validate_external_snapshot_import_scope", migration)
+        self.assertIn("'getroutenolist', 'getrouteinfoiem', 'getrouteacctothrghsttnlist'", migration)
         self.assertIn("validate_route_stop_sequence_contiguous", migration)
         self.assertIn("deferrable initially deferred", migration)
         self.assertIn("idx_bus_routes_tago_scope_freshness", migration)

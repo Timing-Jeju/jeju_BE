@@ -2,6 +2,7 @@ package com.timingjeju.api.global.tago.route;
 
 import com.timingjeju.api.application.tago.route.TagoRoute;
 import com.timingjeju.api.application.tago.route.TagoRouteImportException;
+import com.timingjeju.api.application.tago.route.TagoRouteManifest;
 import com.timingjeju.api.application.tago.route.TagoRouteRepository;
 import com.timingjeju.api.application.tago.route.TagoRouteStopWrite;
 import com.timingjeju.api.application.tago.route.TagoRouteWrite;
@@ -37,6 +38,11 @@ public class JdbcTagoRouteRepository implements TagoRouteRepository {
     try {
       Map<String, UUID> routeIds = new HashMap<>();
       java.util.Set<String> staleWrites = new java.util.HashSet<>();
+      java.util.Set<String> replayWrites = new java.util.HashSet<>();
+      Map<String, List<TagoRouteStopWrite>> byRoute =
+          routeStops.stream()
+              .collect(
+                  java.util.stream.Collectors.groupingBy(write -> write.stop().externalRouteId()));
       int inserted = 0;
       int updated = 0;
       int skipped = 0;
@@ -46,9 +52,24 @@ public class JdbcTagoRouteRepository implements TagoRouteRepository {
           throw TagoRouteImportException.invalidResponse();
         lockNaturalKey(write.route());
         StoredRoute existing = findRoute(write.route());
+        List<TagoRouteStopWrite> incomingStops =
+            byRoute.getOrDefault(write.route().externalRouteId(), List.of());
         if (existing != null && write.observedAt().isBefore(existing.lastSeenAt())) {
           routeIds.put(write.route().externalRouteId(), existing.id());
           staleWrites.add(write.route().externalRouteId());
+          skipped++;
+          continue;
+        }
+        if (existing != null && write.observedAt().equals(existing.lastSeenAt())) {
+          TagoRouteManifest incoming = TagoRouteManifest.incoming(write.route(), incomingStops);
+          TagoRouteManifest stored =
+              storedManifest(
+                  existing,
+                  write.route().directionKey(),
+                  existingStops(existing.id(), write.route().directionKey()));
+          if (!incoming.equals(stored)) throw TagoRouteImportException.invalidResponse();
+          routeIds.put(write.route().externalRouteId(), existing.id());
+          replayWrites.add(write.route().externalRouteId());
           skipped++;
           continue;
         }
@@ -57,13 +78,10 @@ public class JdbcTagoRouteRepository implements TagoRouteRepository {
         if (existing == null) inserted++;
         else updated++;
       }
-      Map<String, List<TagoRouteStopWrite>> byRoute =
-          routeStops.stream()
-              .collect(
-                  java.util.stream.Collectors.groupingBy(write -> write.stop().externalRouteId()));
       for (TagoRouteWrite routeWrite : routes) {
         UUID routeId = routeIds.get(routeWrite.route().externalRouteId());
-        if (staleWrites.contains(routeWrite.route().externalRouteId())) continue;
+        if (staleWrites.contains(routeWrite.route().externalRouteId())
+            || replayWrites.contains(routeWrite.route().externalRouteId())) continue;
         List<TagoRouteStopWrite> stops =
             byRoute.getOrDefault(routeWrite.route().externalRouteId(), List.of());
         List<ExistingStop> existingStops =
@@ -98,9 +116,16 @@ public class JdbcTagoRouteRepository implements TagoRouteRepository {
   private StoredRoute findRoute(TagoRoute route) {
     List<StoredRoute> rows =
         jdbc.query(
-            "select id, last_seen_at from public.bus_routes where source_provider = ? and source_service = ? and city_code = ? and external_route_id = ? for update",
+            "select id, city_code, external_route_id, route_no, route_type, direction_name, last_seen_at from public.bus_routes where source_provider = ? and source_service = ? and city_code = ? and external_route_id = ? for update",
             (rs, row) ->
-                new StoredRoute(rs.getObject(1, UUID.class), rs.getTimestamp(2).toInstant()),
+                new StoredRoute(
+                    rs.getObject(1, UUID.class),
+                    rs.getString(2),
+                    rs.getString(3),
+                    rs.getString(4),
+                    rs.getString(5),
+                    rs.getString(6),
+                    rs.getTimestamp(7).toInstant()),
             PROVIDER,
             SERVICE,
             route.cityCode(),
@@ -139,6 +164,20 @@ public class JdbcTagoRouteRepository implements TagoRouteRepository {
         return false;
     }
     return true;
+  }
+
+  private static TagoRouteManifest storedManifest(
+      StoredRoute route, String directionKey, List<ExistingStop> stops) {
+    return TagoRouteManifest.stored(
+        route.cityCode(),
+        route.externalRouteId(),
+        route.routeNo(),
+        route.routeType(),
+        route.directionName(),
+        directionKey,
+        stops.stream()
+            .map(stop -> new TagoRouteManifest.Stop(stop.nodeId(), stop.sequence()))
+            .toList());
   }
 
   private int refreshRouteStop(UUID routeId, TagoRouteStopWrite stop) {
@@ -185,7 +224,14 @@ public class JdbcTagoRouteRepository implements TagoRouteRepository {
         Timestamp.from(write.observedAt()));
   }
 
-  private record StoredRoute(UUID id, Instant lastSeenAt) {}
+  private record StoredRoute(
+      UUID id,
+      String cityCode,
+      String externalRouteId,
+      String routeNo,
+      String routeType,
+      String directionName,
+      Instant lastSeenAt) {}
 
   private record ExistingStop(String nodeId, int sequence) {}
 }

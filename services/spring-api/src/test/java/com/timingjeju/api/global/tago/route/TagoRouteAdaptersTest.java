@@ -73,7 +73,7 @@ class TagoRouteAdaptersTest {
   }
 
   @Test
-  void snapshot_metadata는_공식_operation_provenance만_남기고_credential을_남기지_않는다() {
+  void snapshot은_각_원문_응답의_공식_operation을_source_scope에_기록하고_credential을_남기지_않는다() {
     SnapshotStoreService store = mock(SnapshotStoreService.class);
     when(store.save(any()))
         .thenReturn(
@@ -82,20 +82,20 @@ class TagoRouteAdaptersTest {
     SnapshottingTagoRouteGateway gateway =
         new SnapshottingTagoRouteGateway(store, Clock.fixed(NOW, ZoneOffset.UTC));
 
-    gateway.save(
-        RUN,
-        "route-stops",
-        "39",
-        "JEB405410111",
-        2,
+    TagoRouteSourceResponse response =
         new TagoRouteSourceResponse(
-            "fixture".getBytes(StandardCharsets.UTF_8), SnapshotPayloadFormat.JSON));
+            "fixture".getBytes(StandardCharsets.UTF_8), SnapshotPayloadFormat.JSON);
+    gateway.save(RUN, "route-list", "39", "101", 1, response);
+    gateway.save(RUN, "route-detail", "39", "JEB405410111", 0, response);
+    gateway.save(RUN, "route-stops", "39", "JEB405410111", 2, response);
 
     ArgumentCaptor<SnapshotSaveCommand> command =
         ArgumentCaptor.forClass(SnapshotSaveCommand.class);
-    verify(store).save(command.capture());
-    assertThat(command.getValue().scope().operation()).isEqualTo("getRouteNoList");
-    assertThat(command.getValue().requestMetadata())
+    verify(store, org.mockito.Mockito.times(3)).save(command.capture());
+    assertThat(command.getAllValues())
+        .extracting(saved -> saved.scope().operation())
+        .containsExactly("getRouteNoList", "getRouteInfoIem", "getRouteAcctoThrghSttnList");
+    assertThat(command.getAllValues().get(2).requestMetadata())
         .containsEntry("endpoint", "/getRouteAcctoThrghSttnList")
         .containsEntry("cityCode", "39")
         .doesNotContainKeys("serviceKey", "apiKey", "Authorization", "url");
