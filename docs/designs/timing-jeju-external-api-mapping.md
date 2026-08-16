@@ -143,6 +143,15 @@ Spring에는 공개 Controller가 없는 import run 생명주기 application por
 
 ### 4.2 정류소
 
+도시코드는 `getCtyCodeList`의 공식 목록에서 런타임에 `제주` 이름을 유일하게 발견하며,
+정류소 전체 적재는 `getSttnNoList`에 그 `cityCode`와 고정 `numOfRows=100`, 증가하는
+`pageNo`만 전달한다. 두 endpoint는 서버 allowlist에 고정하고 `serviceKey`는 공통 외부 API
+credential 경계에서만 주입하므로 importer query·snapshot metadata·로그에는 남기지 않는다.
+JSON과 XML 모두 `response/header/resultCode=00` 및 `body/items/item`, `pageNo`,
+`numOfRows`, `totalCount` envelope를 동일하게 검증한다. 중간 page 누락, total 변동,
+page 간 natural key 중복, 제주 범위 밖 또는 유한하지 않은 좌표가 있으면 정규화 행과
+checkpoint는 쓰지 않는다.
+
 ```http
 GET http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnList
   ?serviceKey=<percent-encoded-decoded-service-key>

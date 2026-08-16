@@ -34,6 +34,7 @@ TOUR_API_PLACE_IMAGES_MIGRATION = (
 TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
     MIGRATIONS / "20260818000000_tour_api_incremental_sync.sql"
 )
+TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -96,6 +97,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260816000000_tour_api_detail_info_operation.sql",
                 "20260817000000_tour_api_place_images_operation.sql",
                 "20260818000000_tour_api_incremental_sync.sql",
+                "20260819000000_tago_stop_import.sql",
             ],
             migration_names,
         )
@@ -117,6 +119,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
             "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
             "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
+            "./supabase/migrations/20260819000000_tago_stop_import.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -1510,6 +1513,17 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("timetable_entries", negative_contract)
         self.assertIn("assert_schedule_day_coverage", negative_contract)
         self.assertIn("draft trip dates remain mutable", negative_contract)
+
+    def test_tago_stop_import_has_checkpoint_legacy_audit_rls_and_scope_indexes(self):
+        migration = self.read_migration(TAGO_STOP_IMPORT_MIGRATION)
+
+        self.assertIn("legacy tago stop natural key collision", migration)
+        self.assertIn("'tago', 'bussttninfoinqireservice', 'getsttnnolist', 'jeju'", migration)
+        self.assertIn("on conflict (source_provider, source_service, source_operation, scope_key) do nothing", migration)
+        self.assertIn("idx_bus_stops_source_scope_freshness", migration)
+        self.assertIn("idx_external_reference_codes_source_scope_name", migration)
+        self.assertIn("alter table public.bus_stops enable row level security", migration)
+        self.assertIn("revoke all on public.bus_stops from anon, authenticated", migration)
 
 
 if __name__ == "__main__":
