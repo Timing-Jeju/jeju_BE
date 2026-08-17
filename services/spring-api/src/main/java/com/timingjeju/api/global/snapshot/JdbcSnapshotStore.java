@@ -76,15 +76,26 @@ public class JdbcSnapshotStore implements SnapshotStore {
             select exists(
               select 1 from public.data_import_runs
               where id=? and source_provider=? and source_service=?
-                and source_operation=? and scope_key=?
+                and scope_key=?
+                and (
+                  source_operation=?
+                  or (
+                    -- TAGO route 한 run은 공식 route list/detail/stops operation을 함께 수집한다.
+                    source_provider='TAGO'
+                    and source_service='BusRouteInfoInqireService'
+                    and source_operation='getRouteNoList'
+                    and ? in ('getRouteNoList', 'getRouteInfoIem', 'getRouteAcctoThrghSttnList')
+                  )
+                )
             )
             """,
             Boolean.class,
             snapshot.importRunId(),
             scope.provider(),
             scope.service(),
+            scope.scopeKey(),
             scope.operation(),
-            scope.scopeKey())
+            scope.operation())
         .booleanValue();
   }
 

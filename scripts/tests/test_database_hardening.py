@@ -35,6 +35,7 @@ TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
     MIGRATIONS / "20260818000000_tour_api_incremental_sync.sql"
 )
 TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
+TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_import.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -98,6 +99,7 @@ class DatabaseHardeningTest(unittest.TestCase):
                 "20260817000000_tour_api_place_images_operation.sql",
                 "20260818000000_tour_api_incremental_sync.sql",
                 "20260819000000_tago_stop_import.sql",
+                "20260820000000_tago_route_stops_import.sql",
             ],
             migration_names,
         )
@@ -120,6 +122,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
             "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
             "./supabase/migrations/20260819000000_tago_stop_import.sql",
+            "./supabase/migrations/20260820000000_tago_route_stops_import.sql",
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -1524,6 +1527,21 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("idx_external_reference_codes_source_scope_name", migration)
         self.assertIn("alter table public.bus_stops enable row level security", migration)
         self.assertIn("revoke all on public.bus_stops from anon, authenticated", migration)
+
+    def test_tago_route_import_has_checkpoint_sequence_guard_rls_and_scope_indexes(self):
+        migration = self.read_migration(TAGO_ROUTE_IMPORT_MIGRATION)
+
+        self.assertIn("legacy tago route natural key collision", migration)
+        self.assertIn("legacy route stop sequence is not positive contiguous unique", migration)
+        self.assertIn("'tago', 'busrouteinfoinqireservice', 'getroutenolist', 'jeju-routes'", migration)
+        self.assertIn("create or replace function public.validate_external_snapshot_import_scope", migration)
+        self.assertIn("'getroutenolist', 'getrouteinfoiem', 'getrouteacctothrghsttnlist'", migration)
+        self.assertIn("validate_route_stop_sequence_contiguous", migration)
+        self.assertIn("deferrable initially deferred", migration)
+        self.assertIn("idx_bus_routes_tago_scope_freshness", migration)
+        self.assertIn("idx_route_stops_scope_direction_sequence", migration)
+        self.assertIn("alter table public.bus_routes enable row level security", migration)
+        self.assertIn("revoke all on public.route_stops from anon, authenticated", migration)
 
 
 if __name__ == "__main__":
