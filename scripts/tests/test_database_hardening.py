@@ -35,6 +35,7 @@ TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
     MIGRATIONS / "20260818000000_tour_api_incremental_sync.sql"
 )
 TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
+TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_import.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -81,22 +82,23 @@ class DatabaseHardeningTest(unittest.TestCase):
     def test_versioned_migrations_are_additive_and_ordered(self):
         migration_names = [path.name for path in sorted(MIGRATIONS.glob("*.sql"))]
         baseline = [
-                "20260728000000_initial_public_schema.sql",
-                "20260730000000_database_integrity_hardening.sql",
-                "20260730010000_external_ingestion_foundation.sql",
-                "20260730020000_ingestion_consistency_hardening.sql",
-                "20260730030000_schedule_consistency_hardening.sql",
-                "20260730040000_import_run_lineage_retention.sql",
-                "20260810000000_api_idempotency_registry.sql",
-                "20260811000000_async_run_worker_runtime.sql",
-                "20260813000000_import_run_lifecycle_fencing.sql",
-                "20260813010000_external_snapshot_storage.sql",
-                "20260814000000_tour_api_operation_provenance.sql",
-                "20260816000000_tour_api_detail_info_operation.sql",
-                "20260817000000_tour_api_place_images_operation.sql",
-                "20260818000000_tour_api_incremental_sync.sql",
-                "20260819000000_tago_stop_import.sql",
-                "20260822000000_place_stop_postgis_links.sql",
+            "20260728000000_initial_public_schema.sql",
+            "20260730000000_database_integrity_hardening.sql",
+            "20260730010000_external_ingestion_foundation.sql",
+            "20260730020000_ingestion_consistency_hardening.sql",
+            "20260730030000_schedule_consistency_hardening.sql",
+            "20260730040000_import_run_lineage_retention.sql",
+            "20260810000000_api_idempotency_registry.sql",
+            "20260811000000_async_run_worker_runtime.sql",
+            "20260813000000_import_run_lifecycle_fencing.sql",
+            "20260813010000_external_snapshot_storage.sql",
+            "20260814000000_tour_api_operation_provenance.sql",
+            "20260816000000_tour_api_detail_info_operation.sql",
+            "20260817000000_tour_api_place_images_operation.sql",
+            "20260818000000_tour_api_incremental_sync.sql",
+            "20260819000000_tago_stop_import.sql",
+            "20260820000000_tago_route_stops_import.sql",
+            "20260822000000_place_stop_postgis_links.sql",
         ]
         versions = [name[:14] for name in migration_names]
 
@@ -105,6 +107,10 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertEqual(len(versions), len(set(versions)), "migration timestamp가 중복됐습니다")
         self.assertLess(
             migration_names.index("20260819000000_tago_stop_import.sql"),
+            migration_names.index("20260820000000_tago_route_stops_import.sql"),
+        )
+        self.assertLess(
+            migration_names.index("20260820000000_tago_route_stops_import.sql"),
             migration_names.index("20260822000000_place_stop_postgis_links.sql"),
         )
         for optional_predecessor in (
@@ -1525,6 +1531,21 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("idx_external_reference_codes_source_scope_name", migration)
         self.assertIn("alter table public.bus_stops enable row level security", migration)
         self.assertIn("revoke all on public.bus_stops from anon, authenticated", migration)
+
+    def test_tago_route_import_has_checkpoint_sequence_guard_rls_and_scope_indexes(self):
+        migration = self.read_migration(TAGO_ROUTE_IMPORT_MIGRATION)
+
+        self.assertIn("legacy tago route natural key collision", migration)
+        self.assertIn("legacy route stop sequence is not positive contiguous unique", migration)
+        self.assertIn("'tago', 'busrouteinfoinqireservice', 'getroutenolist', 'jeju-routes'", migration)
+        self.assertIn("create or replace function public.validate_external_snapshot_import_scope", migration)
+        self.assertIn("'getroutenolist', 'getrouteinfoiem', 'getrouteacctothrghsttnlist'", migration)
+        self.assertIn("validate_route_stop_sequence_contiguous", migration)
+        self.assertIn("deferrable initially deferred", migration)
+        self.assertIn("idx_bus_routes_tago_scope_freshness", migration)
+        self.assertIn("idx_route_stops_scope_direction_sequence", migration)
+        self.assertIn("alter table public.bus_routes enable row level security", migration)
+        self.assertIn("revoke all on public.route_stops from anon, authenticated", migration)
 
 
 if __name__ == "__main__":
