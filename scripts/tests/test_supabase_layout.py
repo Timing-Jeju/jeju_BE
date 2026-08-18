@@ -174,6 +174,41 @@ class SupabaseLayoutTest(unittest.TestCase):
             2,
         )
 
+    def test_recommended_stay_policy_dbml_matches_canonical_migration(self):
+        dbml = (
+            ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
+        ).read_text(encoding="utf-8")
+
+        expected_contracts = (
+            "#37 place-link `/020`, #65 stay-policy `/021`, seed `/099`",
+            "Table place_stay_policy_versions {",
+            "version text [pk]",
+            "status text [not null, note: \"draft, active, retired\"]",
+            "payload_hash text [not null, note: \"SHA-256 lowercase hex, 64 chars\"]",
+            "effective_at timestamptz [not null]",
+            "imported_at timestamptz [not null]",
+            "(status) [unique, note: \"partial: status = 'active'\"]",
+            "version syntax: ^[a-z0-9][a-z0-9._-]{0,63}$",
+            "payload_hash syntax: ^[0-9a-f]{64}$",
+            "Table place_stay_policies {",
+            "version text [not null, ref: > place_stay_policy_versions.version]",
+            "scope text [not null, note: \"category_default, place_override\"]",
+            "place_id uuid [ref: > tour_places.id]",
+            "minutes integer [not null, note: \"5..1440\"]",
+            "source text [not null, default: 'app_curation']",
+            "(version, category) [unique, note: \"partial: scope = 'category_default'\"]",
+            "(version, place_id) [unique, note: \"partial: scope = 'place_override'\"]",
+            "(place_id, version) [note: \"partial lookup: scope = 'place_override'\"]",
+            "(category, version) [note: \"partial lookup: scope = 'category_default'\"]",
+            "category/place_id XOR",
+            "effective_at <= imported_at",
+            "category syntax: ^[A-Za-z0-9:_-]{1,64}$",
+            "both FKs ON DELETE RESTRICT",
+        )
+        for expected in expected_contracts:
+            with self.subTest(contract=expected):
+                self.assertIn(expected, dbml)
+
     def test_flyway_is_not_added_as_a_second_migration_system(self):
         self.assertFalse((ROOT / "db" / "migration").exists())
         spring_files = (
