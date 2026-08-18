@@ -15,7 +15,9 @@ import com.timingjeju.api.application.snapshot.SnapshotStoreException;
 import com.timingjeju.api.application.snapshot.SnapshotStoreService;
 import com.timingjeju.api.application.snapshot.SnapshotTransitionCommand;
 import com.timingjeju.api.application.snapshot.StoredSnapshot;
+import com.timingjeju.api.application.tago.route.TagoRouteSourceResponse;
 import com.timingjeju.api.application.tourapi.detail.DetailSourceResponse;
+import com.timingjeju.api.global.tago.route.SnapshottingTagoRouteGateway;
 import com.timingjeju.api.global.tourapi.detailitem.SnapshottingDetailInfoPageGateway;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.nio.charset.StandardCharsets;
@@ -47,10 +49,12 @@ class JdbcSnapshotStoreIntegrationTest {
 
   private static final Instant FETCHED_AT = Instant.parse("2026-08-13T12:00:00Z");
   private static final UUID RUN_ID = UUID.fromString("30000000-0000-0000-0000-000000000023");
+  private static final UUID ROUTE_RUN_ID = UUID.fromString("30000000-0000-0000-0000-000000000036");
 
   @Autowired private SnapshotStoreService service;
   @Autowired private JdbcSnapshotStore store;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private SnapshottingTagoRouteGateway routeGateway;
 
   @BeforeEach
   void setUp() {
@@ -80,6 +84,34 @@ class JdbcSnapshotStoreIntegrationTest {
         .containsEntry("parse_status", "received")
         .containsEntry("payload_size_bytes", 10L)
         .containsEntry("redaction_version", "snapshot-redaction-v2");
+  }
+
+  @Test
+  void TAGO_route_run은_각_원문_operation_snapshot을_같은_run_lineage로_보존한다() {
+    insertRun(ROUTE_RUN_ID, "TAGO", "BusRouteInfoInqireService", "getRouteNoList", "jeju-routes");
+    TagoRouteSourceResponse response =
+        new TagoRouteSourceResponse(
+            "{\"response\":{}}".getBytes(StandardCharsets.UTF_8), SnapshotPayloadFormat.JSON);
+
+    var routeList = routeGateway.save(ROUTE_RUN_ID, "route-list", "39", "101", 1, response);
+    var routeDetail = routeGateway.save(ROUTE_RUN_ID, "route-detail", "39", "R-1", 0, response);
+    var routeStops = routeGateway.save(ROUTE_RUN_ID, "route-stops", "39", "R-1", 1, response);
+    routeGateway.markParsed(routeList);
+    routeGateway.markParsed(routeDetail);
+    routeGateway.markParsed(routeStops);
+
+    assertThat(
+            jdbcTemplate.queryForList(
+                "select source_operation from public.external_api_snapshots where import_run_id=? and parse_status='parsed' order by source_operation",
+                String.class,
+                ROUTE_RUN_ID))
+        .containsExactly("getRouteAcctoThrghSttnList", "getRouteInfoIem", "getRouteNoList");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(distinct import_run_id) from public.external_api_snapshots where import_run_id=?",
+                Integer.class,
+                ROUTE_RUN_ID))
+        .isEqualTo(1);
   }
 
   @Test
