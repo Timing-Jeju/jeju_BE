@@ -174,6 +174,40 @@ GET http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnLis
 
 ### 4.3 노선과 경유 정류장
 
+노선 importer는 공식 `BusRouteInfoInqireService`의 세 operation만 호출한다. 노선번호
+목록은 `getRouteNoList`에 `cityCode`, `routeNo`, 고정 `numOfRows=100`, 증가하는
+`pageNo`를 전달하고, 목록에서 얻은 각 `routeId`를 `getRouteInfoIem` 상세와
+`getRouteAcctoThrghSttnList` 경유 목록에 전달한다. 인증키는 공통 credential 경계에서만
+주입하며 importer query, snapshot metadata와 로그에는 남기지 않는다. JSON/XML 모두
+`response/header/resultCode=00`과 `body/items/item` envelope를 검증한다. page 누락,
+`totalCount` 변동, route 또는 sequence 중복, 1부터 연속하지 않는 순번, 다른 도시·공급자
+정류장과 선행 #35 정류장에 없는 `nodeid`는 정규화 쓰기 전에 거부한다.
+
+`routeId`는 TAGO에서 방향별 운행을 식별하는 안정 키로 사용하고 `route_stops.direction_key`에
+같은 값을 저장한다. 따라서 101/201처럼 같은 노선번호의 양방향 `routeId`를 합치지 않으며,
+노선은 `(source_provider, source_service, city_code, external_route_id)`, 경유 순서는
+`(route_id, direction_key, stop_sequence)` natural key를 유지한다.
+
+```http
+GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteNoList
+  ?serviceKey=<percent-encoded-decoded-service-key>
+  &_type=json
+  &cityCode=<discovered-city-code>
+  &routeNo=101
+  &numOfRows=100
+  &pageNo=1
+```
+
+```http
+GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteAcctoThrghSttnList
+  ?serviceKey=<percent-encoded-decoded-service-key>
+  &_type=json
+  &cityCode=<discovered-city-code>
+  &routeId=<route-id>
+  &numOfRows=100
+  &pageNo=1
+```
+
 ```http
 GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteInfoIem
   ?serviceKey=<percent-encoded-decoded-service-key>

@@ -19,7 +19,7 @@
 - [외부 적재 계보·유효기간 강화](../../supabase/migrations/20260730020000_ingestion_consistency_hardening.sql)
 - [일정 Day 무결성 강화](../../supabase/migrations/20260730030000_schedule_consistency_hardening.sql)
 - [import run 계보 보존](../../supabase/migrations/20260730040000_import_run_lineage_retention.sql)
-- [KMA 단기예보 version](../../supabase/migrations/20260820000000_kma_village_forecast_version.sql)
+- [KMA 단기예보 version](../../supabase/migrations/20260820000001_kma_village_forecast_version.sql)
 - [스키마 계약 검사](../../db/queries/schema_contract.sql)
 - [음수 무결성 계약](../../db/queries/database_negative_constraints.sql)
 - [자동 스모크 검사](../../db/queries/smoke_check.sql)
