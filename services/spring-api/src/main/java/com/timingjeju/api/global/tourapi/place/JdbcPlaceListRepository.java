@@ -76,7 +76,9 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
     UUID placeId =
         existing == null ? deterministicId("place", place.contentId()) : existing.placeId();
     UUID sourceId =
-        existing == null ? deterministicId("source", place.contentId()) : existing.sourceId();
+        existing == null || existing.sourceId() == null
+            ? deterministicId("source", place.contentId())
+            : existing.sourceId();
     AtomicReference<WriteOutcome> outcome = new AtomicReference<>();
     provenanceWriter.write(
         provenance("tour_places", placeId, place.contentTypeId(), write.lineage()),
@@ -103,7 +105,7 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
 
   private void writeSource(
       StoredPlace existing, UUID sourceId, UUID placeId, PlaceListWrite write) {
-    if (existing == null) {
+    if (existing == null || existing.sourceId() == null) {
       insertSource(sourceId, placeId, write);
     } else if (!existing.sameValue(write)) {
       updateSource(sourceId, write);
@@ -131,10 +133,14 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
                    s.l_dong_regn_cd, s.l_dong_signgu_cd,
                    s.lcls_systm1, s.lcls_systm2, s.lcls_systm3,
                    s.source_snapshot_id as source_snapshot_id, s.last_import_run_id
-            from public.tour_place_sources s
-            join public.tour_places p on p.id=s.place_id
-            where s.source_provider=? and s.source_service=? and s.external_id=?
-            for update of p, s
+            from public.tour_places p
+            left join public.tour_place_sources s
+              on s.place_id=p.id
+             and s.source_provider=?
+             and s.source_service=?
+             and s.external_id=p.content_id
+            where p.content_id=?
+            for update of p
             """,
             (resultSet, rowNumber) -> map(resultSet),
             PROVIDER,
@@ -186,7 +192,7 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
             """
             update public.tour_places
             set content_type_id=?, name=?, normalized_name=?, category=?, region_code=?,
-                address=?, address_detail=?,
+                address=?, address_detail=?, source_provider=?, source_service=?,
                 location=ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
                 image_url=?, thumbnail_url=?, source_modified_at=?, import_run_id=?,
                 source_snapshot_id=?, last_seen_at=?, stale=false, stale_at=null,
@@ -200,6 +206,8 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
             regionCode(place),
             place.address(),
             place.addressDetail(),
+            PROVIDER,
+            SERVICE,
             place.longitude(),
             place.latitude(),
             place.imageUrl(),
@@ -408,15 +416,15 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
           && Objects.equals(imageUrl, place.imageUrl())
           && Objects.equals(thumbnailUrl, place.thumbnailUrl())
           && Objects.equals(sourceModifiedAt, place.sourceModifiedAt())
-          && placeSnapshotId.equals(write.lineage().snapshotId())
-          && placeRunId.equals(write.lineage().importRunId())
+          && Objects.equals(placeSnapshotId, write.lineage().snapshotId())
+          && Objects.equals(placeRunId, write.lineage().importRunId())
           && Objects.equals(lDongRegnCd, place.lDongRegnCd())
           && Objects.equals(lDongSignguCd, place.lDongSignguCd())
           && Objects.equals(lclsSystm1, place.lclsSystm1())
           && Objects.equals(lclsSystm2, place.lclsSystm2())
           && Objects.equals(lclsSystm3, place.lclsSystm3())
-          && sourceSnapshotId.equals(write.lineage().snapshotId())
-          && sourceRunId.equals(write.lineage().importRunId());
+          && Objects.equals(sourceSnapshotId, write.lineage().snapshotId())
+          && Objects.equals(sourceRunId, write.lineage().importRunId());
     }
   }
 }
