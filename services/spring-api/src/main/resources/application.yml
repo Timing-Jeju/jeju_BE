@@ -60,6 +60,15 @@ app:
       read-timeout: ${KMA_READ_TIMEOUT:5s}
   social-login:
     provider-ids: ${APP_SOCIAL_LOGIN_PROVIDER_IDS:google,kakao,custom:naver}
+  stay-policy:
+    import:
+      enabled: ${STAY_POLICY_IMPORT_ENABLED:false}
+      root: ${STAY_POLICY_IMPORT_ROOT:}
+      file: ${STAY_POLICY_IMPORT_FILE:}
+      version: ${STAY_POLICY_IMPORT_VERSION:}
+      effective-at: ${STAY_POLICY_IMPORT_EFFECTIVE_AT:}
+      expected-active-version: ${STAY_POLICY_IMPORT_EXPECTED_ACTIVE_VERSION:}
+      dry-run: ${STAY_POLICY_IMPORT_DRY_RUN:true}
   security:
     jwt:
       mode: jwks

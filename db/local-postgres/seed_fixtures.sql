@@ -903,4 +903,23 @@ set
   updated_at = now()
 where id = '50000000-0000-0000-0000-000000000001';
 
+insert into place_stay_policy_versions (
+  version, status, payload_hash, effective_at, imported_at
+) values (
+  'fixture-v1', 'active', repeat('65', 32), now(), now()
+);
+
+insert into place_stay_policies (
+  version, scope, category, place_id, minutes, source, updated_at
+) values
+(
+  'fixture-v1', 'category_default', 'tourist_attraction', null,
+  75, 'app_curation', now()
+),
+(
+  'fixture-v1', 'place_override', null,
+  '20000000-0000-0000-0000-000000000002',
+  70, 'app_curation', now()
+);
+
 commit;

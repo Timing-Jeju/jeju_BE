@@ -101,6 +101,7 @@ class DatabaseHardeningTest(unittest.TestCase):
             "20260819000000_tago_stop_import.sql",
             "20260820000000_tago_route_stops_import.sql",
             "20260822000000_place_stop_postgis_links.sql",
+            "20260823000000_recommended_stay_policy.sql",
         ]
         versions = [name[:14] for name in migration_names]
 
@@ -114,6 +115,10 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertLess(
             migration_names.index("20260820000000_tago_route_stops_import.sql"),
             migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+        )
+        self.assertLess(
+            migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            migration_names.index("20260823000000_recommended_stay_policy.sql"),
         )
         if KMA_FORECAST_MIGRATION.name in migration_names:
             self.assertLess(
