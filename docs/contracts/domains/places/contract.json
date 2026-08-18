@@ -439,8 +439,8 @@
       "owner": "TAGO stop + Timing Jeju place-stop link",
       "provider": "place_stop_links.source_provider",
       "observedAt": "place_stop_links.observed_at",
-      "expiresAt": "place_stop_links.expires_at",
-      "stale": "expires_at <= now()"
+      "expiresAt": "least(place_stop_links.expires_at, non-null bus_stops.stale_at)",
+      "stale": "effective expiresAt <= now()"
     }
   },
   "nearbyStops": {
@@ -474,6 +474,12 @@
       "outOfRadius": false,
       "stopTombstoned": false,
       "stopSourceDeleted": false
+    },
+    "coordinateRecompute": {
+      "expiredActiveLink": "refresh distanceMeters and walkMinutes only",
+      "preserve": ["provider", "observedAt", "expiresAt", "enabled", "tombstonedAt"],
+      "expiredNewLink": "do not create",
+      "policyDisabledOrTombstoned": "do not reactivate"
     },
     "emptyWhen": "eligible fresh/stale link count = 0",
     "emptyResponse": {
