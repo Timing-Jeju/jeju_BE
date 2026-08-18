@@ -214,6 +214,32 @@ class JdbcDemoStorageReaderIntegrationTest {
     assertThat(view.provenances())
         .extracting(DemoProvenanceRow::normalizedRowId)
         .contains(PLACE_ID);
+    assertThat(view.totalRuns()).isEqualTo(6);
+    assertThat(view.totalSnapshots()).isEqualTo(6);
+    assertThat(view.totalPlaces()).isEqualTo(2);
+    assertThat(view.totalPlaceDetails()).isEqualTo(1);
+    assertThat(view.totalDetailItems()).isEqualTo(1);
+    assertThat(view.totalPlaceImages()).isEqualTo(1);
+    assertThat(view.totalProvenances()).isEqualTo(6);
+  }
+
+  @Test
+  void latest_조회는_샘플_최대치와_총건수_차이를_보여준다() {
+    for (int index = 0; index < 45; index++) {
+      insertPlace(
+          UUID.nameUUIDFromBytes(("overflow-" + index).getBytes()),
+          String.valueOf(200 + index),
+          String.valueOf(300 + index),
+          LIST_RUN,
+          LIST_SNAPSHOT,
+          "12",
+          "추가-" + index);
+    }
+
+    DemoStorageView view = reader.latest();
+
+    assertThat(view.places()).hasSize(40);
+    assertThat(view.totalPlaces()).isEqualTo(47);
   }
 
   @Test

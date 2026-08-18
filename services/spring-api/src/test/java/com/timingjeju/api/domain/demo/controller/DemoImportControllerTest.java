@@ -125,7 +125,14 @@ class DemoImportControllerTest {
                     "12",
                     "a".repeat(64),
                     UUID.fromString("22222222-2222-2222-2222-222222222222"),
-                    UUID.fromString("22222222-2222-2222-2222-222222222222"))));
+                    UUID.fromString("22222222-2222-2222-2222-222222222222"))),
+            4,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1);
     when(service.latestStorage()).thenReturn(view);
 
     MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new DemoImportController(service)).build();

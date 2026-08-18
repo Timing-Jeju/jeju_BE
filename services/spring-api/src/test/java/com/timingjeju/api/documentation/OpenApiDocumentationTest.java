@@ -16,9 +16,11 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 @Tag("integration")
 @SpringBootTest
@@ -26,6 +28,26 @@ import org.springframework.test.web.servlet.MockMvc;
 class OpenApiDocumentationTest {
 
   @Autowired private MockMvc mockMvc;
+
+  @Autowired
+  @Qualifier("requestMappingHandlerMapping")
+  private RequestMappingHandlerMapping handlerMapping;
+
+  @Test
+  void non_local_profile에는_demo_경로가_등록되지_않는다() throws Exception {
+    mockMvc
+        .perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.paths['/api/v1/demo/imports/tour-api']").doesNotExist())
+        .andExpect(jsonPath("$.paths['/api/v1/demo/storage']").doesNotExist())
+        .andExpect(jsonPath("$.paths['/api/v1/demo/storage/view']").doesNotExist());
+
+    org.assertj.core.api.Assertions.assertThat(handlerMapping.getHandlerMethods().keySet())
+        .noneMatch(
+            mapping ->
+                mapping.getPatternValues().stream()
+                    .anyMatch(pattern -> pattern.startsWith("/api/v1/demo/")));
+  }
 
   @Test
   void OpenAPI_JSON에_서비스_기본_정보가_포함된다() throws Exception {

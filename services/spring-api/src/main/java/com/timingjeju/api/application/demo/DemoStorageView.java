@@ -9,7 +9,14 @@ public record DemoStorageView(
     List<DemoPlaceDetailRow> placeDetails,
     List<DemoPlaceDetailItemRow> detailItems,
     List<DemoPlaceImageRow> placeImages,
-    List<DemoProvenanceRow> provenances) {
+    List<DemoProvenanceRow> provenances,
+    long totalRuns,
+    long totalSnapshots,
+    long totalPlaces,
+    long totalPlaceDetails,
+    long totalDetailItems,
+    long totalPlaceImages,
+    long totalProvenances) {
   public DemoStorageView {
     runs = List.copyOf(runs);
     snapshots = List.copyOf(snapshots);

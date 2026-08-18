@@ -1,6 +1,7 @@
 package com.timingjeju.api.application.demo;
 
 import com.timingjeju.api.application.importing.ImportRunCounts;
+import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleService;
@@ -164,26 +165,39 @@ public final class DemoImportService {
 
   private StageStatus importPlaceDetail(String contentId, String contentTypeId) {
     ImportRunStartResult commonStart =
-        startRun(
+        startRunOrRetry(
             "detailCommon2",
             "demo-detail-common-" + contentId,
             contentId,
             detailRequestFingerprint("detailCommon2", contentId, null));
     ImportRunStartResult introStart =
-        startRun(
+        startRunOrRetry(
             "detailIntro2",
             "demo-detail-intro-" + contentId + "-" + contentTypeId,
             contentId,
             detailRequestFingerprint("detailIntro2", contentId, contentTypeId));
-    if (commonStart.replayed()) {
-      if (introStart.replayed()) {
+    boolean commonReplaySucceeded =
+        commonStart.replayed() && commonStart.status() == ImportRunExecutionStatus.SUCCEEDED;
+    boolean introReplaySucceeded =
+        introStart.replayed() && introStart.status() == ImportRunExecutionStatus.SUCCEEDED;
+    if (commonReplaySucceeded) {
+      if (introReplaySucceeded) {
         return StageStatus.SKIPPED;
       }
       runService.fail(introStart.lease(), ImportRunFailure.INVALID_PROVIDER_RESPONSE);
       return StageStatus.FAILED;
     }
-    if (introStart.replayed()) {
+    if (introReplaySucceeded) {
       runService.fail(commonStart.lease(), ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+      return StageStatus.FAILED;
+    }
+    if (commonStart.replayed() || introStart.replayed()) {
+      if (!commonStart.replayed()) {
+        runService.fail(commonStart.lease(), ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+      }
+      if (!introStart.replayed()) {
+        runService.fail(introStart.lease(), ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+      }
       return StageStatus.FAILED;
     }
 
@@ -271,12 +285,15 @@ public final class DemoImportService {
 
   private StageStatus importDetailInfo(String contentId, String contentTypeId) {
     ImportRunStartResult started =
-        startRun(
+        startRunOrRetry(
             "detailInfo2",
             "demo-detail-info-" + contentId + "-" + contentTypeId,
             contentId,
             detailRequestFingerprint("detailInfo2", contentId, contentTypeId));
-    if (started.replayed()) return StageStatus.SKIPPED;
+    if (started.replayed() && started.status() == ImportRunExecutionStatus.SUCCEEDED) {
+      return StageStatus.SKIPPED;
+    }
+    if (started.replayed()) return StageStatus.FAILED;
     ImportRunLease lease = started.lease();
     try {
       DetailItemSyncResult sync =
@@ -304,12 +321,15 @@ public final class DemoImportService {
 
   private StageStatus importDetailImage(String contentId, String contentTypeId) {
     ImportRunStartResult started =
-        startRun(
+        startRunOrRetry(
             "detailImage2",
             "demo-detail-image-" + contentId + "-" + contentTypeId,
             contentId,
             detailRequestFingerprint("detailImage2", contentId, contentTypeId));
-    if (started.replayed()) return StageStatus.SKIPPED;
+    if (started.replayed() && started.status() == ImportRunExecutionStatus.SUCCEEDED) {
+      return StageStatus.SKIPPED;
+    }
+    if (started.replayed()) return StageStatus.FAILED;
     ImportRunLease lease = started.lease();
     try {
       PlaceImageSyncResult sync =
@@ -365,8 +385,25 @@ public final class DemoImportService {
     return new ImportRunCounts(1, 1, 0, 0, 1, 0, 0, 0);
   }
 
-  private ImportRunStartResult startRun(
+  private ImportRunStartResult startRunOrRetry(
       String operation, String idempotencyKey, String contentId, String fingerprint) {
+    ImportRunStartResult started =
+        startRun(operation, idempotencyKey, contentId, fingerprint, null);
+    if (started.replayed()
+        && started.status() != ImportRunExecutionStatus.SUCCEEDED
+        && started.status() != ImportRunExecutionStatus.RUNNING) {
+      String retryKey = idempotencyKey + "-retry-" + started.lease().runId();
+      started = startRun(operation, retryKey, contentId, fingerprint, started.lease().runId());
+    }
+    return started;
+  }
+
+  private ImportRunStartResult startRun(
+      String operation,
+      String idempotencyKey,
+      String contentId,
+      String fingerprint,
+      UUID parentRunId) {
     return runService.start(
         new ImportRunStartCommand(
             ImportSourceKind.TOUR_API,
@@ -378,7 +415,12 @@ public final class DemoImportService {
             ImportSyncMode.SNAPSHOT,
             fingerprint,
             idempotencyKey,
-            null));
+            parentRunId));
+  }
+
+  private ImportRunStartResult startRun(
+      String operation, String idempotencyKey, String contentId, String fingerprint) {
+    return startRun(operation, idempotencyKey, contentId, fingerprint, null);
   }
 
   private SnapshotSaveResult saveSnapshot(
@@ -458,7 +500,7 @@ public final class DemoImportService {
           <div class="card">
             <h2>요약</h2>
             <div>최근 import_run: %s</div>
-            <div class="muted">총 데이터: runs=%d, snapshots=%d, places=%d, detail_items=%d, images=%d, provenances=%d</div>
+            <div class="muted">총 데이터: runs=%d, snapshots=%d, places=%d, place_details=%d, detail_items=%d, images=%d, provenances=%d</div>
             <div class="muted">JSON 길이: %d bytes</div>
           </div>
           <section>
@@ -494,12 +536,13 @@ public final class DemoImportService {
         """
         .formatted(
             safe(view.runs().isEmpty() ? "없음" : view.runs().getFirst().id().toString()),
-            view.runs().size(),
-            view.snapshots().size(),
-            view.places().size(),
-            view.detailItems().size(),
-            view.placeImages().size(),
-            view.provenances().size(),
+            view.totalRuns(),
+            view.totalSnapshots(),
+            view.totalPlaces(),
+            view.totalPlaceDetails(),
+            view.totalDetailItems(),
+            view.totalPlaceImages(),
+            view.totalProvenances(),
             payload.length(),
             buildRunsTable(view),
             buildSnapshotTable(view),

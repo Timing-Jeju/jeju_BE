@@ -9,6 +9,17 @@
 
 ## Red → Green
 
+- Reviewer 보완 Red 명령:
+  `./gradlew test --rerun-tasks --tests 'com.timingjeju.api.documentation.LocalDemoOpenApiIntegrationTest' --tests 'com.timingjeju.api.documentation.OpenApiDocumentationTest'`
+- Red 실패: non-local 매핑 검증용 `RequestMappingHandlerMapping` 주입이
+  `requestMappingHandlerMapping`, `controllerEndpointHandlerMapping` 두 후보로 모호해
+  `NoUniqueBeanDefinitionException`이 발생했다. 애플리케이션 MVC 매핑 빈을 qualifier로 지정해 Green으로 전환했다.
+- replay 상태 매트릭스 Red에서는 `RUNNING` replay까지 실행 가능한 lease처럼 취급해 상세 단계 성공 수가
+  예상 0, 실제 1로 불일치했다. `SUCCEEDED`만 skip하고 `RUNNING`은 실행하지 않으며,
+  `FAILED/PARTIAL/CANCELLED`는 원 run UUID를 포함한 deterministic retry key로 한 번만 재시도하도록 수정했다.
+- 저장 view Red에서는 최근 샘플 최대 40행의 `List.size()`가 전체 건수처럼 표시됐다.
+  7개 테이블별 `COUNT(*)`를 별도 DTO 필드로 제공하고 실제 PostgreSQL에 45개 초과 샘플을 추가해
+  샘플 40행과 전체 47건이 함께 반환되는지 검증했다.
 - 초기 실패/리스크: `PlaceListImportCommand` 입력 검증, `ExternalApiRequest` 경로/쿼리 게이트, detail 공통/intro 업서트/리플레이 처리, sweep 통계, 후보 탐색 스코프, 저장 view 반영에서 반복적인 적합성 누락 및 테스트 불일치가 누적되어 있었음.
 - 공통 실패(계약 파라미터 누락/불일치), 중복 키 충돌, 부분 페이지(`numOfRows`) 처리, 시간 정밀도(`timestamp`) 비교, URL 검증, 스테이지 중간 실패 후 이어서 진행 등의 실제 이슈를 TDD로 정리함.
 - 아키텍처 위반은 `domain.demo.service.DemoImportService` 어댑터 추가 및 계약 분리로 정리.
@@ -35,6 +46,10 @@
 - 로컬/데모: `API_PORT=18080`로 지정하면 in-app browser 환경(`http://localhost:18080`)에서 바로 확인 가능
 - 시연용 문서: `docs/TOUR_API_DEMO.md` 추가
 - `/api/v1/demo/storage/view`는 raw query/key/error payload를 노출하지 않고, `tour_places`, `place_details`, `place_detail_items`, `place_images`를 조합해 상태를 보여줌
+- `POST /api/v1/demo/imports/tour-api`는 요청 바디가 없고, 제주 전체 목록(페이지당 100건,
+  최대 10,000페이지)과 콘텐츠 유형 `12/32/39`별 상세 후보 1개를 서버 내부 고정 계약으로 사용함
+- local profile OpenAPI에는 demo 3개 경로가 포함되고 POST `requestBody`는 없으며,
+  non-local 통합 컨텍스트에는 demo OpenAPI 경로와 MVC handler mapping이 모두 없음을 검증함
 
 ## 추가로 검증/참고한 항목
 - `./gradlew architectureTest`

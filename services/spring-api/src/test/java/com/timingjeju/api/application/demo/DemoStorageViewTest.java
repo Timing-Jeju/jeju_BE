@@ -36,7 +36,14 @@ class DemoStorageViewTest {
             List.of(),
             List.of(),
             List.of(),
-            List.of());
+            List.of(),
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0);
 
     assertThat(view.tableFlow())
         .containsExactly(

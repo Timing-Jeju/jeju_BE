@@ -16,20 +16,9 @@
 ## 수집 실행
 - 수집 시작: `POST /api/v1/demo/imports/tour-api`
 
-요청 바디 예시:
-```json
-{
-  "areaCodes": ["39"],
-  "contentTypes": ["12", "32", "39"],
-  "maxPages": 4,
-  "maxPlaceCount": 3,
-  "contentType": null
-}
-```
-
-주의:
-- `maxPages`는 4로 고정해도 되지만, API의 페이지 단위는 내부 보호값으로 더 넓은 전체 조회(`MAX_PAGES`)를 유지하고 있습니다.
-- 실제 운영 데모에서는 회의 중 확인 가능한 범위를 위해 `maxPlaceCount`를 작게 설정합니다.
+이 POST는 요청 바디를 받지 않습니다. 리스트 수집 계약은 제주(`lDongRegnCd=50`), 페이지당 100건,
+최대 10,000페이지로 서버 내부에서 고정됩니다. 상세 수집은 저장된 목록에서 콘텐츠 유형
+`12`, `32`, `39`별 최신 후보 1개씩, 최대 3개를 선택합니다.
 
 ## 시연용 확인 경로
 - 최신 저장 상태 JSON: `GET /api/v1/demo/storage`
@@ -39,7 +28,7 @@
 - 리스트 조회/정규화는 실패하면 `POST /imports/tour-api`가 실패합니다.
 - 목록 수집이 끝난 뒤 `common/intro/info/image` 단계는 개별 후보별로 분리되어 실행되며, 일부 실패해도 전체 import를 즉시 중단하지 않고 **부분 성공(HTTP 200)** 응답을 반환합니다.
 - 시연 화면/로그에는 외부 API 쿼리 파라미터, API key, raw 응답/에러 본문을 노출하지 않습니다.
-- `storage/view`는 `tour_places`, `place_details`, `place_detail_items`, `place_images`, `data_import_runs`, `external_api_snapshots` 기준으로 정합적으로 보여줍니다.
+- `storage/view`는 `tour_places`, `place_details`, `place_detail_items`, `place_images`, `data_import_runs`, `external_api_snapshots`, `tour_api_operation_provenance`의 실제 전체 건수와 최근 샘플 행을 구분해 보여줍니다.
 
 ## 2026-08-18 실사례 기준 결과 스냅샷(요약)
 - 페이지 수집: 22페이지 처리

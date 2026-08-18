@@ -44,6 +44,41 @@ public class JdbcDemoStorageReader implements DemoStorageReader {
         from tour_api_place_image_sweeps
        where import_run_id = ?
       """;
+  private static final String RUN_COUNT_SQL =
+      """
+      select coalesce(count(*), 0)
+        from data_import_runs
+      """;
+  private static final String SNAPSHOT_COUNT_SQL =
+      """
+      select coalesce(count(*), 0)
+        from external_api_snapshots
+      """;
+  private static final String PLACE_COUNT_SQL =
+      """
+      select coalesce(count(*), 0)
+        from tour_places
+      """;
+  private static final String PLACE_DETAIL_COUNT_SQL =
+      """
+      select coalesce(count(*), 0)
+        from place_details
+      """;
+  private static final String PLACE_DETAIL_ITEM_COUNT_SQL =
+      """
+      select coalesce(count(*), 0)
+        from place_detail_items
+      """;
+  private static final String PLACE_IMAGE_COUNT_SQL =
+      """
+      select coalesce(count(*), 0)
+        from place_images
+      """;
+  private static final String PROVENANCE_COUNT_SQL =
+      """
+      select coalesce(count(*), 0)
+        from tour_api_operation_provenance
+      """;
 
   private final JdbcTemplate jdbc;
 
@@ -174,7 +209,20 @@ public class JdbcDemoStorageReader implements DemoStorageReader {
     List<DemoProvenanceRow> provenances = queryProvenance(provenanceRowIds);
 
     return new DemoStorageView(
-        runs, snapshots, places, placeDetails, detailItems, placeImages, provenances);
+        runs,
+        snapshots,
+        places,
+        placeDetails,
+        detailItems,
+        placeImages,
+        provenances,
+        count(RUN_COUNT_SQL),
+        count(SNAPSHOT_COUNT_SQL),
+        count(PLACE_COUNT_SQL),
+        count(PLACE_DETAIL_COUNT_SQL),
+        count(PLACE_DETAIL_ITEM_COUNT_SQL),
+        count(PLACE_IMAGE_COUNT_SQL),
+        count(PROVENANCE_COUNT_SQL));
   }
 
   @Override
@@ -297,5 +345,9 @@ public class JdbcDemoStorageReader implements DemoStorageReader {
             (rs, row) -> new DemoSweepStats(rs.getInt("expected_total"), rs.getInt("page_count")),
             importRunId)
         .getFirst();
+  }
+
+  private long count(String sql) {
+    return jdbc.queryForObject(sql, Long.class);
   }
 }
