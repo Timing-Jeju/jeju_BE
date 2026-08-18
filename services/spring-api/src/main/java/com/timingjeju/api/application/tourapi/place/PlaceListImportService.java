@@ -158,7 +158,12 @@ public final class PlaceListImportService {
       throw PlaceListImportException.invalidResponse();
     }
     int total = expectedTotal < 0 ? page.totalCount() : expectedTotal;
-    if (page.numOfRows() != PlaceListRequestContract.PAGE_SIZE) {
+    int remaining = total - alreadyFetched;
+    if (remaining <= 0) {
+      throw PlaceListImportException.invalidResponse();
+    }
+    int expectedRows = Math.min(PlaceListRequestContract.PAGE_SIZE, remaining);
+    if (page.numOfRows() != expectedRows || page.rawItemCount() != expectedRows) {
       throw PlaceListImportException.invalidResponse();
     }
     if (page.totalCount() != total || alreadyFetched + page.rawItemCount() > total) {
