@@ -179,8 +179,8 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
               PROVIDER,
               SERVICE);
       if (snapshots.size() != 1
-          || !snapshots.getFirst().fetchedAt().equals(page.fetchedAt())
-          || !snapshots.getFirst().payloadHash().equals(page.payloadHash())) {
+          || !snapshots.getFirst().payloadHash().equals(page.payloadHash())
+          || !nearSameMicros(snapshots.getFirst().fetchedAt(), page.fetchedAt())) {
         throw DetailItemImportException.storageFailure();
       }
     }
@@ -475,6 +475,28 @@ public class JdbcDetailItemRepository implements DetailItemRepository {
 
   private static Instant instant(Timestamp value) {
     return value == null ? null : value.toInstant();
+  }
+
+  private static boolean nearSameMicros(Instant dbFetchedAt, Instant commandFetchedAt) {
+    return nanosAbsBetween(dbFetchedAt, commandFetchedAt) < 1_000L;
+  }
+
+  private static long nanosAbsBetween(Instant left, Instant right) {
+    long leftSec = left.getEpochSecond();
+    long rightSec = right.getEpochSecond();
+    int leftNano = left.getNano();
+    int rightNano = right.getNano();
+
+    if (leftSec == rightSec) {
+      return Math.abs((long) leftNano - rightNano);
+    }
+    if (leftSec + 1 == rightSec) {
+      return 1_000_000_000L + rightNano - leftNano;
+    }
+    if (leftSec - 1 == rightSec) {
+      return 1_000_000_000L + leftNano - rightNano;
+    }
+    return 1_000_000_000L;
   }
 
   private static void requireOne(int changed) {

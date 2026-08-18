@@ -47,7 +47,7 @@ class SnapshottingDetailImagePageGatewayTest {
     assertThat(command.getValue().scope().scopeKey()).isEqualTo("content:100");
     assertThat(command.getValue().pageKey()).isEqualTo("2");
     assertThat(command.getValue().requestMetadata())
-        .containsEntry("endpoint", "/detailImage2")
+        .containsEntry("endpoint", "detailImage2")
         .containsEntry("imageYN", "Y")
         .containsEntry("subImageYN", "Y")
         .containsEntry("numOfRows", "100");

@@ -46,13 +46,12 @@ public final class TourApiDetailImageClient implements DetailImageSource {
     query.put("_type", "json");
     query.put("contentId", contentId);
     query.put("imageYN", "Y");
-    query.put("subImageYN", "Y");
     query.put("pageNo", Integer.toString(pageNo));
     query.put("numOfRows", Integer.toString(DetailImageRequestContract.PAGE_SIZE));
     DetailImageHttpRequest request =
         new DetailImageHttpRequest(
             ExternalApiOperation.TOUR_DETAIL_IMAGE,
-            "/detailImage2",
+            "detailImage2",
             query,
             ExternalApiResponseFormat.JSON);
     return new DetailSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);
