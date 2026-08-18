@@ -110,11 +110,22 @@ public final class DemoImportService {
     PlaceListImportResult result =
         placeImporter.importPlaces(
             new PlaceListImportCommand("demo-" + clock.instant().toEpochMilli()));
-    for (DemoPlaceRow place :
-        storageReader.candidates(result.runId(), DETAIL_CONTENT_TYPES.toArray(new String[0]))) {
-      importPlaceDetail(place.contentId(), place.contentTypeId());
-      importDetailInfo(place.contentId(), place.contentTypeId());
-      importDetailImage(place.contentId(), place.contentTypeId());
+    List<DemoPlaceRow> candidates =
+        storageReader.candidates(result.runId(), DETAIL_CONTENT_TYPES.toArray(new String[0]));
+    int detailStageSucceeded = 0;
+    int detailStageFailed = 0;
+    for (DemoPlaceRow place : candidates) {
+      StageStatus detailCommonStatus = importPlaceDetail(place.contentId(), place.contentTypeId());
+      StageStatus detailInfoStatus = importDetailInfo(place.contentId(), place.contentTypeId());
+      StageStatus detailImageStatus = importDetailImage(place.contentId(), place.contentTypeId());
+      detailStageSucceeded +=
+          stageDelta(detailCommonStatus)
+              + stageDelta(detailInfoStatus)
+              + stageDelta(detailImageStatus);
+      detailStageFailed +=
+          failureDelta(detailCommonStatus)
+              + failureDelta(detailInfoStatus)
+              + failureDelta(detailImageStatus);
     }
     return new DemoImportResult(
         result.runId(),
@@ -123,7 +134,24 @@ public final class DemoImportService {
         result.updated(),
         result.skipped(),
         result.rejected(),
-        result.replayed());
+        result.replayed(),
+        candidates.size(),
+        detailStageSucceeded,
+        detailStageFailed);
+  }
+
+  private static int stageDelta(StageStatus status) {
+    return status == StageStatus.SUCCEEDED ? 1 : 0;
+  }
+
+  private static int failureDelta(StageStatus status) {
+    return status == StageStatus.FAILED ? 1 : 0;
+  }
+
+  private enum StageStatus {
+    SUCCEEDED,
+    FAILED,
+    SKIPPED
   }
 
   public DemoStorageView latestStorage() {
@@ -134,35 +162,29 @@ public final class DemoImportService {
     return buildSafeHtml(storageReader.latest());
   }
 
-  private void importPlaceDetail(String contentId, String contentTypeId) {
+  private StageStatus importPlaceDetail(String contentId, String contentTypeId) {
     ImportRunStartResult commonStart =
         startRun(
             "detailCommon2",
             "demo-detail-common-" + contentId,
             contentId,
             detailRequestFingerprint("detailCommon2", contentId, null));
-    if (commonStart.replayed()) {
-      ImportRunStartResult introStart =
-          startRun(
-              "detailIntro2",
-              "demo-detail-intro-" + contentId + "-" + contentTypeId,
-              contentId,
-              detailRequestFingerprint("detailIntro2", contentId, contentTypeId));
-      if (introStart.replayed()) {
-        return;
-      }
-      runService.fail(introStart.lease(), ImportRunFailure.INVALID_PROVIDER_RESPONSE);
-      throw PlaceDetailImportException.storageFailure();
-    }
     ImportRunStartResult introStart =
         startRun(
             "detailIntro2",
             "demo-detail-intro-" + contentId + "-" + contentTypeId,
             contentId,
             detailRequestFingerprint("detailIntro2", contentId, contentTypeId));
+    if (commonStart.replayed()) {
+      if (introStart.replayed()) {
+        return StageStatus.SKIPPED;
+      }
+      runService.fail(introStart.lease(), ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+      return StageStatus.FAILED;
+    }
     if (introStart.replayed()) {
       runService.fail(commonStart.lease(), ImportRunFailure.INVALID_PROVIDER_RESPONSE);
-      throw PlaceDetailImportException.storageFailure();
+      return StageStatus.FAILED;
     }
 
     ImportRunLease commonLease = commonStart.lease();
@@ -173,7 +195,7 @@ public final class DemoImportService {
     } catch (RuntimeException failure) {
       runService.fail(commonLease, ImportRunFailure.PARSE_REJECTED);
       runService.fail(introLease, ImportRunFailure.PARSE_REJECTED);
-      throw failure;
+      return StageStatus.FAILED;
     }
     SavedIntroSection intro;
     try {
@@ -181,7 +203,7 @@ public final class DemoImportService {
     } catch (RuntimeException failure) {
       runService.fail(commonLease, ImportRunFailure.PARSE_REJECTED);
       runService.fail(introLease, ImportRunFailure.PARSE_REJECTED);
-      throw failure;
+      return StageStatus.FAILED;
     }
     try {
       PlaceDetailUpsertResult upserted =
@@ -196,10 +218,11 @@ public final class DemoImportService {
       ImportRunCounts counts = upsertCounts(upserted);
       runService.succeed(commonLease, counts);
       runService.succeed(introLease, counts);
+      return StageStatus.SUCCEEDED;
     } catch (RuntimeException failure) {
       runService.fail(commonLease, ImportRunFailure.INVALID_PROVIDER_RESPONSE);
       runService.fail(introLease, ImportRunFailure.INVALID_PROVIDER_RESPONSE);
-      throw failure;
+      return StageStatus.FAILED;
     }
   }
 
@@ -246,14 +269,14 @@ public final class DemoImportService {
     }
   }
 
-  private void importDetailInfo(String contentId, String contentTypeId) {
+  private StageStatus importDetailInfo(String contentId, String contentTypeId) {
     ImportRunStartResult started =
         startRun(
             "detailInfo2",
             "demo-detail-info-" + contentId + "-" + contentTypeId,
             contentId,
             detailRequestFingerprint("detailInfo2", contentId, contentTypeId));
-    if (started.replayed()) return;
+    if (started.replayed()) return StageStatus.SKIPPED;
     ImportRunLease lease = started.lease();
     try {
       DetailItemSyncResult sync =
@@ -269,23 +292,24 @@ public final class DemoImportService {
               sync.skippedCount(),
               sync.staledCount(),
               sync.tombstonedCount()));
+      return StageStatus.SUCCEEDED;
     } catch (DetailItemImportException failure) {
       runService.fail(lease, ImportRunFailure.PARSE_REJECTED);
-      throw failure;
+      return StageStatus.FAILED;
     } catch (RuntimeException failure) {
       runService.fail(lease, ImportRunFailure.INVALID_PROVIDER_RESPONSE);
-      throw failure;
+      return StageStatus.FAILED;
     }
   }
 
-  private void importDetailImage(String contentId, String contentTypeId) {
+  private StageStatus importDetailImage(String contentId, String contentTypeId) {
     ImportRunStartResult started =
         startRun(
             "detailImage2",
             "demo-detail-image-" + contentId + "-" + contentTypeId,
             contentId,
             detailRequestFingerprint("detailImage2", contentId, contentTypeId));
-    if (started.replayed()) return;
+    if (started.replayed()) return StageStatus.SKIPPED;
     ImportRunLease lease = started.lease();
     try {
       PlaceImageSyncResult sync =
@@ -301,12 +325,13 @@ public final class DemoImportService {
               sync.skippedCount(),
               sync.staledCount(),
               sync.tombstonedCount()));
+      return StageStatus.SUCCEEDED;
     } catch (PlaceImageImportException failure) {
       runService.fail(lease, ImportRunFailure.PARSE_REJECTED);
-      throw failure;
+      return StageStatus.FAILED;
     } catch (RuntimeException failure) {
       runService.fail(lease, ImportRunFailure.INVALID_PROVIDER_RESPONSE);
-      throw failure;
+      return StageStatus.FAILED;
     }
   }
 

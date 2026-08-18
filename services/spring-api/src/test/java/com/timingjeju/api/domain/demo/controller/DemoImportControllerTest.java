@@ -32,7 +32,8 @@ class DemoImportControllerTest {
   void tour_api_수집_엔드포인트는_import_결과를_반환한다() throws Exception {
     DemoImportService service = mock(DemoImportService.class);
     UUID runId = UUID.fromString("11111111-1111-1111-1111-111111111111");
-    when(service.importTourPlaces()).thenReturn(new DemoImportResult(runId, 2, 5, 3, 1, 0, false));
+    when(service.importTourPlaces())
+        .thenReturn(new DemoImportResult(runId, 2, 5, 3, 1, 0, false, 0, 0, 0));
 
     MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new DemoImportController(service)).build();
 

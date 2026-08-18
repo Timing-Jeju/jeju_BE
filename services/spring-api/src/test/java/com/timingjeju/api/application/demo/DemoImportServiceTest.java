@@ -1,7 +1,6 @@
 package com.timingjeju.api.application.demo;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -33,6 +32,7 @@ import com.timingjeju.api.application.tourapi.detail.PlaceDetailIntro;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailRepository;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailUpsertResult;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportCommand;
+import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportException;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemImportService;
 import com.timingjeju.api.application.tourapi.detailitem.DetailItemSyncResult;
 import com.timingjeju.api.application.tourapi.image.PlaceImageImportCommand;
@@ -48,6 +48,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -467,6 +468,112 @@ class DemoImportServiceTest {
   }
 
   @Test
+  void detail_실패_1개를_포함해도_후보_각_단계_런은_시도되고_부분결과가_반환된다() {
+    PlaceListImportService importer = mock(PlaceListImportService.class);
+    DemoStorageReader reader = mock(DemoStorageReader.class);
+    ImportRunLifecycleService runService = mock(ImportRunLifecycleService.class);
+    SnapshotStoreService snapshotService = mock(SnapshotStoreService.class);
+    DetailItemImportService detailItemImportService = mock(DetailItemImportService.class);
+    PlaceImageImportService detailImageImportService = mock(PlaceImageImportService.class);
+    Clock clock = Clock.fixed(Instant.parse("2026-08-17T10:00:00Z"), ZoneOffset.UTC);
+    PlaceDetailRepository placeDetailRepository = mock(PlaceDetailRepository.class);
+    DemoImportService service =
+        new DemoImportService(
+            importer,
+            reader,
+            runService,
+            snapshotService,
+            contentId ->
+                new DetailSourceResponse(
+                    ("{\"contentId\":\"" + contentId + "\"}").getBytes(StandardCharsets.UTF_8),
+                    SnapshotPayloadFormat.JSON),
+            (format, payload) ->
+                new PlaceDetailCommon(
+                    new String(payload, StandardCharsets.UTF_8)
+                        .replaceAll(".*\\\"contentId\\\":\\\"(.*?)\\\".*", "$1"),
+                    "12",
+                    null,
+                    null,
+                    null,
+                    null,
+                    clock.instant()),
+            (contentId, contentTypeId) ->
+                new DetailSourceResponse(
+                    ("{\"contentId\":\"" + contentId + "\"}").getBytes(StandardCharsets.UTF_8),
+                    SnapshotPayloadFormat.JSON),
+            (format, payload) ->
+                new PlaceDetailIntro(
+                    new String(payload, StandardCharsets.UTF_8)
+                        .replaceAll(".*\\\"contentId\\\":\\\"(.*?)\\\".*", "$1"),
+                    "12",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Map.of()),
+            placeDetailRepository,
+            detailItemImportService,
+            detailImageImportService,
+            clock,
+            new ObjectMapper());
+    when(importer.importPlaces(any(PlaceListImportCommand.class)))
+        .thenReturn(new PlaceListImportResult(UUID.randomUUID(), 1, 1, 0, 0, 0, Map.of(), false));
+    when(reader.candidates(any(UUID.class), anyString(), anyString(), anyString()))
+        .thenReturn(List.of(place("10001"), place("10002"), place("10003")));
+    when(reader.sweepStats(any(UUID.class), anyString())).thenReturn(DemoSweepStats.empty());
+
+    String snapshotFingerprint = "d".repeat(64);
+    when(snapshotService.save(any(SnapshotSaveCommand.class)))
+        .thenReturn(
+            new SnapshotSaveResult(
+                UUID.fromString("20000000-0000-0000-0000-000000000001"),
+                snapshotFingerprint,
+                "h",
+                false,
+                clock.instant(),
+                SnapshotStatus.RECEIVED));
+    when(reader.sweepStats(any(UUID.class), anyString())).thenReturn(DemoSweepStats.empty());
+
+    when(detailItemImportService.importItems(any(DetailItemImportCommand.class)))
+        .thenAnswer(
+            invocation -> {
+              DetailItemImportCommand command = invocation.getArgument(0);
+              if (command.contentId().equals("10002")) {
+                throw DetailItemImportException.invalidResponse();
+              }
+              return new DetailItemSyncResult(1, 0, 0, 1, 0);
+            });
+    when(detailImageImportService.importImages(any(PlaceImageImportCommand.class)))
+        .thenReturn(new PlaceImageSyncResult(1, 1, 0, 0, 0));
+    when(placeDetailRepository.upsert(any())).thenReturn(PlaceDetailUpsertResult.insertedResult());
+    AtomicInteger runSequence = new AtomicInteger(0);
+    when(runService.start(any(ImportRunStartCommand.class)))
+        .thenAnswer(
+            invocation -> {
+              int current = runSequence.incrementAndGet();
+              return new ImportRunStartResult(
+                  new ImportRunLease(
+                      UUID.fromString(
+                          String.format("30000000-0000-0000-0000-%012d", (current % 900 + 100))),
+                      UUID.randomUUID(),
+                      1L),
+                  false);
+            });
+
+    DemoImportResult result = service.importTourPlaces();
+
+    assertThat(result.selectedPlaceCount()).isEqualTo(3);
+    assertThat(result.detailStageSucceeded()).isEqualTo(8);
+    assertThat(result.detailStageFailed()).isEqualTo(1);
+    verify(runService, times(12)).start(any(ImportRunStartCommand.class));
+  }
+
+  @Test
   void detail_common만_replay면_storageFailure로_실패한다() {
     PlaceListImportService importer = mock(PlaceListImportService.class);
     DemoStorageReader reader = mock(DemoStorageReader.class);
@@ -514,6 +621,12 @@ class DemoImportServiceTest {
                     null,
                     126.0,
                     33.0)));
+    ImportRunLease infoLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000003"), UUID.randomUUID(), 1L);
+    ImportRunLease imageLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000004"), UUID.randomUUID(), 1L);
     ImportRunLease commonLease =
         new ImportRunLease(
             UUID.fromString("30000000-0000-0000-0000-000000000001"), UUID.randomUUID(), 1L);
@@ -523,13 +636,20 @@ class DemoImportServiceTest {
             new ImportRunStartResult(
                 new ImportRunLease(
                     UUID.fromString("30000000-0000-0000-0000-000000000002"), UUID.randomUUID(), 1L),
-                false));
+                false))
+        .thenReturn(new ImportRunStartResult(infoLease, false))
+        .thenReturn(new ImportRunStartResult(imageLease, false));
+    when(detailItemImportService.importItems(any(DetailItemImportCommand.class)))
+        .thenReturn(new DetailItemSyncResult(0, 0, 0, 0, 0));
+    when(detailImageImportService.importImages(any(PlaceImageImportCommand.class)))
+        .thenReturn(new PlaceImageSyncResult(0, 0, 0, 0, 0));
     when(reader.sweepStats(any(), anyString())).thenReturn(DemoSweepStats.empty());
 
-    assertThatThrownBy(service::importTourPlaces).isInstanceOf(PlaceDetailImportException.class);
-    verify(runService, times(2)).start(any(ImportRunStartCommand.class));
+    DemoImportResult result = service.importTourPlaces();
+    verify(runService, times(4)).start(any(ImportRunStartCommand.class));
     verify(runService)
         .fail(any(ImportRunLease.class), eq(ImportRunFailure.INVALID_PROVIDER_RESPONSE));
+    assertThat(result.detailStageFailed()).isEqualTo(1);
     verifyNoInteractions(snapshotService, commonSource, introSource);
   }
 
@@ -588,14 +708,27 @@ class DemoImportServiceTest {
     ImportRunLease introLease =
         new ImportRunLease(
             UUID.fromString("30000000-0000-0000-0000-000000000002"), UUID.randomUUID(), 1L);
+    ImportRunLease infoLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000003"), UUID.randomUUID(), 1L);
+    ImportRunLease imageLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000004"), UUID.randomUUID(), 1L);
     when(runService.start(any(ImportRunStartCommand.class)))
         .thenReturn(new ImportRunStartResult(commonLease, true))
-        .thenReturn(new ImportRunStartResult(introLease, false));
+        .thenReturn(new ImportRunStartResult(introLease, false))
+        .thenReturn(new ImportRunStartResult(infoLease, false))
+        .thenReturn(new ImportRunStartResult(imageLease, false));
+    when(detailItemImportService.importItems(any(DetailItemImportCommand.class)))
+        .thenReturn(new DetailItemSyncResult(0, 0, 0, 0, 0));
+    when(detailImageImportService.importImages(any(PlaceImageImportCommand.class)))
+        .thenReturn(new PlaceImageSyncResult(0, 0, 0, 0, 0));
     when(reader.sweepStats(any(), anyString())).thenReturn(DemoSweepStats.empty());
 
-    assertThatThrownBy(service::importTourPlaces).isInstanceOf(PlaceDetailImportException.class);
+    DemoImportResult result = service.importTourPlaces();
     verify(runService).fail(introLease, ImportRunFailure.INVALID_PROVIDER_RESPONSE);
     verify(runService, times(0)).succeed(eq(introLease), any(ImportRunCounts.class));
+    assertThat(result.detailStageFailed()).isEqualTo(1);
     verifyNoInteractions(snapshotService, commonSource, introSource);
   }
 
@@ -651,13 +784,29 @@ class DemoImportServiceTest {
     ImportRunLease commonLease =
         new ImportRunLease(
             UUID.fromString("30000000-0000-0000-0000-000000000011"), UUID.randomUUID(), 1L);
+    ImportRunLease introLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000012"), UUID.randomUUID(), 1L);
+    ImportRunLease infoLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000013"), UUID.randomUUID(), 1L);
+    ImportRunLease imageLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000014"), UUID.randomUUID(), 1L);
     when(runService.start(any(ImportRunStartCommand.class)))
         .thenReturn(new ImportRunStartResult(commonLease, false))
-        .thenReturn(new ImportRunStartResult(mock(ImportRunLease.class), true));
+        .thenReturn(new ImportRunStartResult(introLease, true))
+        .thenReturn(new ImportRunStartResult(infoLease, false))
+        .thenReturn(new ImportRunStartResult(imageLease, false));
+    when(detailItemImportService.importItems(any(DetailItemImportCommand.class)))
+        .thenReturn(new DetailItemSyncResult(0, 0, 0, 0, 0));
+    when(detailImageImportService.importImages(any(PlaceImageImportCommand.class)))
+        .thenReturn(new PlaceImageSyncResult(0, 0, 0, 0, 0));
     when(reader.sweepStats(any(), anyString())).thenReturn(DemoSweepStats.empty());
 
-    assertThatThrownBy(service::importTourPlaces).isInstanceOf(PlaceDetailImportException.class);
+    DemoImportResult result = service.importTourPlaces();
     verify(runService).fail(commonLease, ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+    assertThat(result.detailStageFailed()).isEqualTo(1);
     verifyNoInteractions(snapshotService, commonSource, introSource);
     verify(runService, times(0)).succeed(eq(commonLease), any(ImportRunCounts.class));
   }
@@ -718,17 +867,46 @@ class DemoImportServiceTest {
     ImportRunLease introLease =
         new ImportRunLease(
             UUID.fromString("30000000-0000-0000-0000-000000000100"), UUID.randomUUID(), 1L);
+    ImportRunLease infoLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000101"), UUID.randomUUID(), 1L);
+    ImportRunLease imageLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000102"), UUID.randomUUID(), 1L);
     when(runService.start(any(ImportRunStartCommand.class)))
         .thenReturn(new ImportRunStartResult(commonLease, false))
-        .thenReturn(new ImportRunStartResult(introLease, false));
+        .thenReturn(new ImportRunStartResult(introLease, false))
+        .thenReturn(new ImportRunStartResult(infoLease, false))
+        .thenReturn(new ImportRunStartResult(imageLease, false));
     when(commonSource.fetch("10001")).thenThrow(PlaceDetailImportException.invalidResponse());
+    when(detailItemImportService.importItems(any(DetailItemImportCommand.class)))
+        .thenReturn(new DetailItemSyncResult(0, 0, 0, 0, 0));
+    when(detailImageImportService.importImages(any(PlaceImageImportCommand.class)))
+        .thenReturn(new PlaceImageSyncResult(0, 0, 0, 0, 0));
     when(reader.sweepStats(any(), anyString())).thenReturn(DemoSweepStats.empty());
 
-    assertThatThrownBy(service::importTourPlaces).isInstanceOf(PlaceDetailImportException.class);
+    DemoImportResult result = service.importTourPlaces();
     verify(runService).fail(commonLease, ImportRunFailure.PARSE_REJECTED);
     verify(runService).fail(introLease, ImportRunFailure.PARSE_REJECTED);
+    assertThat(result.detailStageFailed()).isEqualTo(1);
     verify(runService, times(0)).succeed(eq(commonLease), any(ImportRunCounts.class));
     verify(runService, times(0)).succeed(eq(introLease), any(ImportRunCounts.class));
     verifyNoInteractions(snapshotService);
+  }
+
+  private static DemoPlaceRow place(String contentId) {
+    return new DemoPlaceRow(
+        UUID.randomUUID(),
+        UUID.randomUUID(),
+        contentId,
+        "12",
+        "성산일출봉 " + contentId,
+        "관광지",
+        "제주",
+        null,
+        null,
+        null,
+        126.0,
+        33.0);
   }
 }

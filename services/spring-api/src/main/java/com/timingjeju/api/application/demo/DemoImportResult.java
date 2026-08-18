@@ -9,4 +9,7 @@ public record DemoImportResult(
     int updated,
     int skipped,
     int rejected,
-    boolean replayed) {}
+    boolean replayed,
+    int selectedPlaceCount,
+    int detailStageSucceeded,
+    int detailStageFailed) {}
