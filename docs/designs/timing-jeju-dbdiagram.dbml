@@ -1,6 +1,6 @@
 Project timing_jeju_v1_2 {
   database_type: "PostgreSQL"
-  note: "Supabase Auth + Postgres/PostGIS. 적용된 migration은 수정하지 않고 더 큰 timestamp migration만 추가한다. 외부 정규화 행은 parsed/tombstoned 원문과 같은 run·scope를 필수로 유지한다. manual/fixture/admin은 이전·새 행이 모두 예외일 때 편집 가능하고 외부 legacy 행은 예외 marker로 우회할 수 없다."
+  note: "Supabase Auth + Postgres/PostGIS. 적용된 migration은 수정하지 않고 더 큰 timestamp migration만 추가한다. 외부 정규화 행은 parsed/tombstoned 원문과 같은 run·scope를 필수로 유지한다. manual/fixture/admin은 이전·새 행이 모두 예외일 때 편집 가능하고 외부 legacy 행은 예외 marker로 우회할 수 없다. migration canonical order는 stop-import `/016`, #36 route `/017`, #76 KMA(optional) `/018`, #39 arrival `/019`, #37 place-link `/020`, #65 stay-policy `/021`, seed `/099`를 기준으로 정렬한다."
 }
 
 Table auth.users {
@@ -341,6 +341,39 @@ Table tour_places {
   }
 }
 
+Table place_stay_policy_versions {
+  version text [pk]
+  status text [not null, note: "draft, active, retired"]
+  payload_hash text [not null, note: "SHA-256 lowercase hex, 64 chars"]
+  effective_at timestamptz [not null]
+  imported_at timestamptz [not null]
+
+  indexes {
+    (status) [unique, note: "partial: status = 'active'"]
+  }
+
+  Note: "version syntax: ^[a-z0-9][a-z0-9._-]{0,63}$; payload_hash syntax: ^[0-9a-f]{64}$; effective_at <= imported_at"
+}
+
+Table place_stay_policies {
+  version text [not null, ref: > place_stay_policy_versions.version]
+  scope text [not null, note: "category_default, place_override"]
+  category text
+  place_id uuid [ref: > tour_places.id]
+  minutes integer [not null, note: "5..1440"]
+  source text [not null, default: 'app_curation']
+  updated_at timestamptz [not null]
+
+  indexes {
+    (version, category) [unique, note: "partial: scope = 'category_default'"]
+    (version, place_id) [unique, note: "partial: scope = 'place_override'"]
+    (place_id, version) [note: "partial lookup: scope = 'place_override'"]
+    (category, version) [note: "partial lookup: scope = 'category_default'"]
+  }
+
+  Note: "category/place_id XOR; category syntax: ^[A-Za-z0-9:_-]{1,64}$; source = 'app_curation'; both FKs ON DELETE RESTRICT"
+}
+
 Table place_details {
   place_id uuid [pk, ref: > tour_places.id]
   phone text
@@ -530,7 +563,28 @@ Table place_stop_links {
   walk_minutes integer [not null]
   link_method text [not null]
   confidence numeric [not null]
+  enabled boolean [not null, default: true]
+  source_provider text [not null]
+  observed_at timestamptz [not null]
+  expires_at timestamptz [not null]
+  tombstoned_at timestamptz
   created_at timestamptz [not null]
+
+  indexes {
+    (place_id, expires_at, distance_meters, stop_id) [note: "enabled=true, tombstoned_at IS NULL partial eligible index"]
+  }
+
+  Note: "active, policy-disabled, tombstoned lifecycle를 구분하고 expires_at으로 fresh/stale을 판정한다."
+}
+
+Table place_stop_link_scope_states {
+  place_id uuid [pk, ref: > tour_places.id]
+  source_provider text [pk]
+  observed_at timestamptz [not null]
+  manifest_fingerprint text [not null]
+  updated_at timestamptz [not null]
+
+  Note: "authoritative complete batch의 row-count 독립 watermark와 equal-observed exact replay를 보존한다."
 }
 
 Table weather_grid_points {

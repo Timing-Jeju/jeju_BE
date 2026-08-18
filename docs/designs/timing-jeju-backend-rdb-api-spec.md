@@ -417,6 +417,10 @@ Response `200`:
       },
       "thumbnailUrl": "https://example.com/seongsan-thumb.jpg",
       "recommendedStayMinutes": 70,
+      "recommendedStaySource": "place_override",
+      "recommendedStayPolicyVersion": "stay-2026-summer-v1",
+      "recommendedStayEffectiveAt": "2026-08-23T18:00:00+09:00",
+      "recommendedStayUpdatedAt": "2026-08-23T18:00:05+09:00",
       "operationsSummary": "07:30~20:00",
       "distanceMeters": 120,
       "dataFreshness": {
@@ -464,6 +468,10 @@ Response `200`:
   "thumbnailUrl": "https://example.com/seongsan-thumb.jpg",
   "overview": "제주 동쪽의 대표 오름 관광지입니다.",
   "recommendedStayMinutes": 70,
+  "recommendedStaySource": "place_override",
+  "recommendedStayPolicyVersion": "stay-2026-summer-v1",
+  "recommendedStayEffectiveAt": "2026-08-23T18:00:00+09:00",
+  "recommendedStayUpdatedAt": "2026-08-23T18:00:05+09:00",
   "operationsSummary": "07:30~20:00",
   "contact": {
     "phone": "064-000-0001",
@@ -513,6 +521,8 @@ matrix의 canonical 기준은
 `nearbyStops`는 #66 contract version부터 항상 포함하는 null 아닌 additive 배열이고,
 eligible 행이 없을 때만 상세 `200`과 `[]`를 반환합니다. stale-only 결과는 각 항목의
 `stale=true`로 반환하며 별도 freshness reason 필드는 만들지 않습니다.
+
+목록과 상세는 같은 Spring `StayPolicyResolver`를 사용한다. active place override가 category default보다 우선하며 둘 다 없으면 `recommendedStayMinutes`, `recommendedStayPolicyVersion`, `recommendedStayEffectiveAt`, `recommendedStayUpdatedAt`은 `null`, source는 `unavailable`이다. legacy `tour_places.recommended_stay_minutes`는 fallback으로 사용하지 않는다.
 
 ### 10.3 `GET /api/v1/saved-places`
 

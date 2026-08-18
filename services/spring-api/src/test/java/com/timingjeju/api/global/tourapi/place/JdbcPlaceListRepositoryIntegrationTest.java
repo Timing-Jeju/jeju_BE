@@ -43,8 +43,14 @@ class JdbcPlaceListRepositoryIntegrationTest {
 
   private static final UUID RUN = UUID.fromString("26000000-0000-0000-0000-000000000001");
   private static final UUID SNAPSHOT = UUID.fromString("26000000-0000-0000-0000-000000000002");
+  private static final UUID SEED_PLACE_ID = UUID.fromString("26000000-0000-0000-0000-000000000102");
+  private static final UUID LEGACY_RUN = UUID.fromString("26000000-0000-0000-0000-000000000111");
+  private static final UUID LEGACY_SNAPSHOT =
+      UUID.fromString("26000000-0000-0000-0000-000000000112");
   private static final String HASH =
       "2626262626262626262626262626262626262626262626262626262626262626";
+  private static final String LEGACY_HASH =
+      "3636363636363636363636363636363636363636363636363636363636363636";
   private static final Instant NOW = Instant.parse("2026-08-16T03:00:00Z");
 
   @Autowired private PlaceListRepository repository;
@@ -119,6 +125,100 @@ class JdbcPlaceListRepositoryIntegrationTest {
             jdbcTemplate.queryForObject(
                 "select count(*) from public.tour_place_sources", Integer.class))
         .isEqualTo(1);
+  }
+
+  @Test
+  void 기존_tour_places_자연키가_있으면_동일_contentid_시_source없이_재사용하고_업데이트한다() {
+    insertLegacyPlaceWithoutSource(SEED_PLACE_ID, "126435", "한국관광공사", "TourAPI 국문 관광정보", "구성산일출봉");
+
+    var result =
+        repository.upsert(
+            command(place("126435", "성산일출봉"), RUN, SNAPSHOT, HASH, NOW.plusSeconds(1)));
+
+    assertThat(result.inserted()).isEqualTo(0);
+    assertThat(result.updated()).isEqualTo(1);
+    assertThat(result.skipped()).isEqualTo(0);
+    assertThat(jdbcTemplate.queryForObject("select id from public.tour_places", UUID.class))
+        .isEqualTo(SEED_PLACE_ID);
+    assertThat(
+            jdbcTemplate.queryForObject("select count(*) from public.tour_places", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.tour_place_sources", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select source_provider from public.tour_place_sources where place_id=?",
+                String.class,
+                SEED_PLACE_ID))
+        .isEqualTo("tour-api");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select name from public.tour_places where id=?", String.class, SEED_PLACE_ID))
+        .isEqualTo("성산일출봉");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select source_provider from public.tour_places where id=?",
+                String.class,
+                SEED_PLACE_ID))
+        .isEqualTo("tour-api");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select source_service from public.tour_places where id=?",
+                String.class,
+                SEED_PLACE_ID))
+        .isEqualTo("KorService2");
+    UUID sourceId =
+        jdbcTemplate.queryForObject(
+            "select id from public.tour_place_sources where place_id=?", UUID.class, SEED_PLACE_ID);
+    assertThat(
+            jdbcTemplate.queryForList(
+                "select normalized_entity_type from public.tour_api_operation_provenance where normalized_row_id=?",
+                String.class,
+                SEED_PLACE_ID))
+        .containsExactly("tour_places");
+    assertThat(
+            jdbcTemplate.queryForList(
+                "select normalized_entity_type from public.tour_api_operation_provenance where normalized_row_id=?",
+                String.class,
+                sourceId))
+        .containsExactly("tour_place_sources");
+  }
+
+  @Test
+  void 같은_batch에서_동일_contentid를_여러번_전달해도_자연키_충돌없이_업데이트_후_스킵한다() {
+    insertLegacyPlaceWithoutSource(SEED_PLACE_ID, "126435", "한국관광공사", "TourAPI 국문 관광정보", "구성산일출봉");
+    PlaceListWrite write = write(place("126435", "성산일출봉"), RUN, SNAPSHOT, HASH, NOW.plusSeconds(1));
+
+    var result = repository.upsert(new PlaceListUpsertCommand(List.of(write, write)));
+
+    assertThat(result.inserted()).isEqualTo(0);
+    assertThat(result.updated()).isEqualTo(1);
+    assertThat(result.skipped()).isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject("select count(*) from public.tour_places", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.tour_place_sources", Integer.class))
+        .isEqualTo(1);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select name from public.tour_places where id=?", String.class, SEED_PLACE_ID))
+        .isEqualTo("성산일출봉");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select source_provider from public.tour_places where id=?",
+                String.class,
+                SEED_PLACE_ID))
+        .isEqualTo("tour-api");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select source_service from public.tour_places where id=?",
+                String.class,
+                SEED_PLACE_ID))
+        .isEqualTo("KorService2");
   }
 
   @Test
@@ -544,6 +644,73 @@ class JdbcPlaceListRepositoryIntegrationTest {
         1,
         List.of(write),
         new ImportRunCounts(1, 1, 0, 0, 0, 0, 0, 0));
+  }
+
+  private void insertLegacyPlaceWithoutSource(
+      UUID placeId, String contentId, String sourceProvider, String sourceService, String name) {
+    insertLegacyLineage(LEGACY_RUN, LEGACY_SNAPSHOT, sourceProvider, sourceService);
+
+    UUID placeRunId = LEGACY_RUN;
+    UUID placeSnapshotId = LEGACY_SNAPSHOT;
+    jdbcTemplate.update(
+        """
+        insert into public.tour_places (
+          id, external_place_id, content_id, content_type_id, name, normalized_name,
+          category, region_code, address, address_detail, location, source_provider, source_service,
+          source_snapshot_id, import_run_id, last_seen_at
+        ) values (
+          ?, ?, ?, '12', ?, ?, 'attraction', '50130', '제주', '성산읍',
+          ST_SetSRID(ST_MakePoint(126.5, 33.5),4326)::geography, ?, ?, ?, ?, ?)
+        """,
+        placeId,
+        contentId,
+        contentId,
+        name,
+        name,
+        sourceProvider,
+        sourceService,
+        placeSnapshotId,
+        placeRunId,
+        Timestamp.from(NOW.minusSeconds(120)));
+  }
+
+  private void insertLegacyLineage(
+      UUID run, UUID snapshot, String sourceProvider, String sourceService) {
+    jdbcTemplate.update(
+        """
+        insert into public.data_import_runs (
+          id, source_kind, source_name, source_operation, data_version, status, started_at,
+          parser_version, schema_version, sync_mode, scope_key, request_fingerprint,
+          idempotency_key, source_provider, source_service
+        ) values (?, 'tour_api', 'fixture-legacy', 'areaBasedList2', '2026', 'running', ?,
+                  'place-list-v1', 'schema-v1', 'full', 'jeju', ?, ?, ?, ?)
+        """,
+        run,
+        Timestamp.from(NOW),
+        LEGACY_HASH,
+        "issue-26-legacy-" + run,
+        sourceProvider,
+        sourceService);
+
+    jdbcTemplate.update(
+        """
+        insert into public.external_api_snapshots (
+          id, import_run_id, source_provider, source_service, source_operation, scope_key,
+          request_hash, page_key, fetched_at, parser_version, payload_hash,
+          request_metadata_redacted, raw_payload, payload_size_bytes, redaction_version,
+          payload_format, initial_parse_status, parse_status, parsed_at
+        ) values (?, ?, ?, ?, 'areaBasedList2', 'jeju', ?, '1', ?,
+                  'place-list-v1', ?, '{}'::jsonb, '{}'::jsonb, 2, 'test-v1',
+                  'JSON', 'parsed', 'parsed', ?)
+        """,
+        snapshot,
+        run,
+        sourceProvider,
+        sourceService,
+        LEGACY_HASH,
+        Timestamp.from(NOW),
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        Timestamp.from(NOW));
   }
 
   private void clean() {

@@ -347,12 +347,13 @@ insert into bus_stops (
 );
 
 insert into place_stop_links (
-  place_id, stop_id, distance_meters, walk_minutes, link_method
+  place_id, stop_id, distance_meters, walk_minutes, link_method,
+  source_provider, observed_at, expires_at
 ) values
-('20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 40, 1, 'fixture'),
-('20000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000002', 939, 14, 'fixture'),
-('20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003', 905, 13, 'fixture'),
-('20000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000004', 80, 2, 'fixture');
+('20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 40, 1, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z'),
+('20000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000002', 939, 14, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z'),
+('20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003', 905, 13, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z'),
+('20000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000004', 80, 2, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z');
 
 insert into bus_routes (
   id, external_route_id, route_no, route_type, direction_name,
@@ -901,5 +902,24 @@ set
   status = 'planned',
   updated_at = now()
 where id = '50000000-0000-0000-0000-000000000001';
+
+insert into place_stay_policy_versions (
+  version, status, payload_hash, effective_at, imported_at
+) values (
+  'fixture-v1', 'active', repeat('65', 32), now(), now()
+);
+
+insert into place_stay_policies (
+  version, scope, category, place_id, minutes, source, updated_at
+) values
+(
+  'fixture-v1', 'category_default', 'tourist_attraction', null,
+  75, 'app_curation', now()
+),
+(
+  'fixture-v1', 'place_override', null,
+  '20000000-0000-0000-0000-000000000002',
+  70, 'app_curation', now()
+);
 
 commit;

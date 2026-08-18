@@ -55,7 +55,7 @@ public final class TourApiDetailInfoClient implements DetailInfoSource {
     var request =
         new DetailInfoHttpRequest(
             ExternalApiOperation.TOUR_DETAIL_INFO,
-            "/detailInfo2",
+            "detailInfo2",
             query,
             ExternalApiResponseFormat.JSON);
     return new DetailSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);

@@ -39,6 +39,8 @@ TOUR_API_DISCOVERY_MIGRATION = (
     MIGRATIONS / "20260824000000_tourapi_discovery_import_checkpoints.sql"
 )
 TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_import.sql"
+KMA_FORECAST_MIGRATION = MIGRATIONS / "20260820000001_kma_village_forecast_version.sql"
+TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260821000000_tago_arrival_cache.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -84,8 +86,7 @@ class DatabaseHardeningTest(unittest.TestCase):
 
     def test_versioned_migrations_are_additive_and_ordered(self):
         migration_names = [path.name for path in sorted(MIGRATIONS.glob("*.sql"))]
-
-        required_migrations = {
+        baseline = [
             "20260728000000_initial_public_schema.sql",
             "20260730000000_database_integrity_hardening.sql",
             "20260730010000_external_ingestion_foundation.sql",
@@ -102,11 +103,55 @@ class DatabaseHardeningTest(unittest.TestCase):
             "20260818000000_tour_api_incremental_sync.sql",
             "20260819000000_tago_stop_import.sql",
             "20260820000000_tago_route_stops_import.sql",
-            "20260824000000_tourapi_discovery_import_checkpoints.sql",
-        }
-        self.assertEqual(sorted(migration_names), migration_names)
-        self.assertEqual(len(migration_names), len(set(name[:14] for name in migration_names)))
+            "20260822000000_place_stop_postgis_links.sql",
+            "20260823000000_recommended_stay_policy.sql",
+        ]
+        versions = [name[:14] for name in migration_names]
+
+        required_migrations = set(baseline) | {"20260824000000_tourapi_discovery_import_checkpoints.sql"}
         self.assertTrue(required_migrations.issubset(migration_names))
+
+        self.assertEqual(sorted(migration_names), migration_names)
+        self.assertEqual(len(versions), len(set(versions)), "migration timestamp가 중복됐습니다")
+        self.assertLess(
+            migration_names.index("20260819000000_tago_stop_import.sql"),
+            migration_names.index("20260820000000_tago_route_stops_import.sql"),
+        )
+        self.assertLess(
+            migration_names.index("20260820000000_tago_route_stops_import.sql"),
+            migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+        )
+        self.assertLess(
+            migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            migration_names.index("20260823000000_recommended_stay_policy.sql"),
+        )
+        self.assertLess(
+            migration_names.index("20260823000000_recommended_stay_policy.sql"),
+            migration_names.index("20260824000000_tourapi_discovery_import_checkpoints.sql"),
+        )
+        if KMA_FORECAST_MIGRATION.name in migration_names:
+            self.assertLess(
+                migration_names.index("20260820000000_tago_route_stops_import.sql"),
+                migration_names.index(KMA_FORECAST_MIGRATION.name),
+            )
+            self.assertLess(
+                migration_names.index(KMA_FORECAST_MIGRATION.name),
+                migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            )
+        if TAGO_ARRIVAL_CACHE_MIGRATION.name in migration_names:
+            self.assertLess(
+                migration_names.index("20260820000000_tago_route_stops_import.sql"),
+                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+            )
+            if KMA_FORECAST_MIGRATION.name in migration_names:
+                self.assertLess(
+                    migration_names.index(KMA_FORECAST_MIGRATION.name),
+                    migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+                )
+            self.assertLess(
+                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+                migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            )
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
         migration_mounts = [

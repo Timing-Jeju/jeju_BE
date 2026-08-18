@@ -25,8 +25,10 @@ services:
       - ./supabase/migrations/20260818000000_tour_api_incremental_sync.sql:/docker-entrypoint-initdb.d/015_tour_api_incremental_sync.sql:ro
       - ./supabase/migrations/20260819000000_tago_stop_import.sql:/docker-entrypoint-initdb.d/016_tago_stop_import.sql:ro
       - ./supabase/migrations/20260820000000_tago_route_stops_import.sql:/docker-entrypoint-initdb.d/017_tago_route_stops_import.sql:ro
-      - ./supabase/migrations/20260824000000_tourapi_discovery_import_checkpoints.sql:/docker-entrypoint-initdb.d/021_tourapi_discovery_import_checkpoints.sql:ro
-      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/022_seed_fixtures.sql:ro
+      - ./supabase/migrations/20260822000000_place_stop_postgis_links.sql:/docker-entrypoint-initdb.d/020_place_stop_postgis_links.sql:ro
+      - ./supabase/migrations/20260823000000_recommended_stay_policy.sql:/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql:ro
+      - ./supabase/migrations/20260824000000_tourapi_discovery_import_checkpoints.sql:/docker-entrypoint-initdb.d/022_tourapi_discovery_import_checkpoints.sql:ro
+      - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U timing_jeju_test -d timing_jeju_test"]

@@ -68,7 +68,10 @@ public final class ExternalApiRequest {
   }
 
   private static String validatePath(String value) {
-    if (value == null || !SAFE_RELATIVE_PATH.matcher(value).matches()) {
+    if (value == null) {
+      throw new IllegalArgumentException("외부 API path는 안전한 상대 경로여야 합니다.");
+    }
+    if (value.isBlank() || value.startsWith("/") || !SAFE_RELATIVE_PATH.matcher(value).matches()) {
       throw new IllegalArgumentException("외부 API path는 안전한 상대 경로여야 합니다.");
     }
     for (String segment : value.split("/")) {
@@ -87,13 +90,17 @@ public final class ExternalApiRequest {
     input.forEach(
         (name, value) -> {
           if (name == null
+              || name.isBlank()
               || !("_type".equals(name) || SAFE_QUERY_NAME.matcher(name).matches())
               || "serviceKey".equalsIgnoreCase(name)
               || "appKey".equalsIgnoreCase(name)) {
             throw new IllegalArgumentException("외부 API query 이름이 허용되지 않습니다.");
           }
           if (value == null || containsControl(value)) {
-            throw new IllegalArgumentException("외부 API query 값이 허용되지 않습니다.");
+            throw new IllegalArgumentException("외부 API query는 허용되지 않습니다.");
+          }
+          if ("_type".equals(name) && !"json".equals(value)) {
+            throw new IllegalArgumentException("외부 API query는 허용되지 않습니다.");
           }
           if (result.putIfAbsent(name, value) != null) {
             throw new IllegalArgumentException("외부 API query 이름은 중복될 수 없습니다.");

@@ -396,6 +396,26 @@ class JdbcDetailItemRepositoryIntegrationTest {
   }
 
   @Test
+  void 마이크로초_정밀도로_검증한다() {
+    LineageFixture lineage = lineage(30, Instant.parse("2026-08-16T08:00:00.123456789Z"));
+
+    var result = repository.sync(command(lineage, List.of(item("precision", 1))));
+
+    assertThat(result.insertedCount()).isEqualTo(1);
+    assertThat(state("precision").snapshotId()).isEqualTo(lineage.snapshot());
+  }
+
+  @Test
+  void 마이크로초_경계_반올림도_허용한다() {
+    LineageFixture lineage = lineage(31, Instant.parse("2026-08-16T08:00:59.999999789Z"));
+
+    var result = repository.sync(command(lineage, List.of(item("precision-boundary", 1))));
+
+    assertThat(result.insertedCount()).isEqualTo(1);
+    assertThat(state("precision-boundary").snapshotId()).isEqualTo(lineage.snapshot());
+  }
+
+  @Test
   void multi_page_item은_각자_실제_raw_page_snapshot과_complete_sweep에_연결된다() {
     LineageFixture first = lineage(21, NOW.plusSeconds(10));
     UUID secondSnapshot = UUID.fromString("28000000-0000-0000-0001-000000000022");

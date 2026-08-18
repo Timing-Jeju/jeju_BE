@@ -74,7 +74,10 @@ public final class PlaceListImportService {
       int expectedTotal = -1;
       int rawRows = 0;
       int pageNo = 1;
-      while (pageNo <= MAX_PAGES) {
+      while (true) {
+        if (pageNo > MAX_PAGES) {
+          throw PlaceListImportException.invalidResponse();
+        }
         PlaceListSourceResponse response = source.fetch(pageNo);
         terminalFailure = ImportRunFailure.INVALID_PROVIDER_RESPONSE;
         Instant fetchedAt = clock.instant();
@@ -154,10 +157,15 @@ public final class PlaceListImportService {
     if (page.pageNo() != requestedPage) {
       throw PlaceListImportException.invalidResponse();
     }
-    if (page.numOfRows() != PlaceListRequestContract.PAGE_SIZE) {
+    int total = expectedTotal < 0 ? page.totalCount() : expectedTotal;
+    int remaining = total - alreadyFetched;
+    if (remaining <= 0) {
       throw PlaceListImportException.invalidResponse();
     }
-    int total = expectedTotal < 0 ? page.totalCount() : expectedTotal;
+    int expectedRows = Math.min(PlaceListRequestContract.PAGE_SIZE, remaining);
+    if (page.numOfRows() != expectedRows || page.rawItemCount() != expectedRows) {
+      throw PlaceListImportException.invalidResponse();
+    }
     if (page.totalCount() != total || alreadyFetched + page.rawItemCount() > total) {
       throw PlaceListImportException.invalidResponse();
     }
@@ -199,7 +207,7 @@ public final class PlaceListImportService {
         response.payload(),
         Map.of(
             "endpoint",
-            "/areaBasedList2",
+            "areaBasedList2",
             "pageNo",
             Integer.toString(pageNo),
             "numOfRows",
