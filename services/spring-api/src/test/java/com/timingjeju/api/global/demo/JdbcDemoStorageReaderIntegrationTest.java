@@ -243,6 +243,27 @@ class JdbcDemoStorageReaderIntegrationTest {
   }
 
   @Test
+  void latest_조회_샘플은_place_details_items_images를_별도_쿼리로_조회해_정확한_요약을_보여준다() {
+    setTourPlaceUpdatedAt(PLACE_ID, NOW.minusSeconds(3_600));
+    insertTourPlaceOverflow(45);
+
+    DemoStorageView view = reader.latest();
+
+    assertThat(view.places()).extracting(DemoPlaceRow::id).doesNotContain(PLACE_ID);
+    assertThat(view.places()).hasSize(40);
+    assertThat(view.placeDetails())
+        .extracting(DemoPlaceDetailRow::placeId)
+        .containsExactly(PLACE_ID);
+    assertThat(view.detailItems())
+        .extracting(DemoPlaceDetailItemRow::placeId)
+        .containsExactly(PLACE_ID);
+    assertThat(view.placeImages()).extracting(DemoPlaceImageRow::placeId).containsExactly(PLACE_ID);
+    assertThat(view.totalPlaceDetails()).isEqualTo(1);
+    assertThat(view.totalDetailItems()).isEqualTo(1);
+    assertThat(view.totalPlaceImages()).isEqualTo(1);
+  }
+
+  @Test
   void candidates는_리스트_런_ID로_프로베넌스_스코프를_제한한다() {
     assertThat(reader.candidates(LIST_RUN, "12", "32", "39"))
         .extracting(DemoPlaceRow::id)
@@ -337,6 +358,26 @@ class JdbcDemoStorageReaderIntegrationTest {
         "서귀포시",
         "https://example.test/photo.jpg",
         "https://example.test/photo-small.jpg");
+  }
+
+  private void insertTourPlaceOverflow(int count) {
+    for (int index = 0; index < count; index++) {
+      insertPlace(
+          UUID.nameUUIDFromBytes(("overflow-" + index).getBytes()),
+          String.valueOf(200 + index),
+          String.valueOf(300 + index),
+          LIST_RUN,
+          LIST_SNAPSHOT,
+          "12",
+          "추가-" + index);
+    }
+  }
+
+  private void setTourPlaceUpdatedAt(UUID placeId, Instant updatedAt) {
+    jdbc.update(
+        "update public.tour_places set updated_at = ? where id = ?",
+        Timestamp.from(updatedAt),
+        placeId);
   }
 
   private void insertPlaceDetail(UUID placeId, UUID runId, UUID snapshotId) {

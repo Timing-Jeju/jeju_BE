@@ -629,8 +629,8 @@ public final class DemoImportService {
                 view.places(),
                 place ->
                     """
-                <tr>
-                  <td>%s</td>
+          <tr>
+                  <td><div>%s</div><div class=\"muted\">%s</div></td>
                   <td>%s</td>
                   <td>%s</td>
                   <td>%s</td>
@@ -640,6 +640,7 @@ public final class DemoImportService {
                 </tr>
                 """
                         .formatted(
+                            safe(place.name()),
                             safe(place.id()),
                             safe(place.contentId()),
                             safe(place.contentTypeId()),

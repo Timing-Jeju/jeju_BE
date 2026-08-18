@@ -27,7 +27,30 @@ public class JdbcDemoStorageReader implements DemoStorageReader {
              category, address, overview, image_url, thumbnail_url,
              ST_X(location::geometry), ST_Y(location::geometry)
         from tour_places
-       order by updated_at desc
+       order by updated_at desc, id
+       limit ?
+      """;
+  private static final String PLACE_DETAILS_SQL =
+      """
+      select place_id, import_run_id, phone, operating_hours_text,
+             closed_days_text, parking_text, intro_attributes, source_snapshot_id
+        from place_details
+       order by updated_at desc, place_id
+       limit ?
+      """;
+  private static final String PLACE_IMAGES_SQL =
+      """
+      select i.id, i.place_id, i.image_url, i.thumbnail_url, i.import_run_id, i.source_image_id
+        from place_images i
+       order by i.created_at desc, i.id
+       limit ?
+      """;
+  private static final String PLACE_DETAIL_ITEMS_SQL =
+      """
+      select i.id, i.place_id, i.content_type_id, i.item_type, i.source_item_key,
+             i.sequence_no, i.title, i.import_run_id
+        from place_detail_items i
+       order by i.updated_at desc, i.id
        limit ?
       """;
   private static final String DETAIL_INFO_SWEEP_STATS_SQL =
@@ -143,13 +166,7 @@ public class JdbcDemoStorageReader implements DemoStorageReader {
 
     List<DemoPlaceDetailRow> placeDetails =
         jdbc.query(
-            """
-            select place_id, import_run_id, phone, operating_hours_text,
-                   closed_days_text, parking_text, intro_attributes, source_snapshot_id
-              from place_details
-              join (select id from tour_places order by updated_at desc limit ?) p on p.id = place_id
-             order by place_id
-            """,
+            PLACE_DETAILS_SQL,
             ps -> ps.setInt(1, ROW_LIMIT),
             (rs, row) ->
                 new DemoPlaceDetailRow(
@@ -164,12 +181,7 @@ public class JdbcDemoStorageReader implements DemoStorageReader {
 
     List<DemoPlaceImageRow> placeImages =
         jdbc.query(
-            """
-            select i.id, i.place_id, i.image_url, i.thumbnail_url, i.import_run_id, i.source_image_id
-              from place_images i
-              join (select id from tour_places order by updated_at desc limit ?) p on p.id = i.place_id
-             order by i.place_id, i.display_order
-            """,
+            PLACE_IMAGES_SQL,
             ps -> ps.setInt(1, ROW_LIMIT),
             (rs, row) ->
                 new DemoPlaceImageRow(
@@ -182,13 +194,7 @@ public class JdbcDemoStorageReader implements DemoStorageReader {
 
     List<DemoPlaceDetailItemRow> detailItems =
         jdbc.query(
-            """
-            select i.id, i.place_id, i.content_type_id, i.item_type, i.source_item_key,
-                   i.sequence_no, i.title, i.import_run_id
-              from place_detail_items i
-              join (select id from tour_places order by updated_at desc limit ?) p on p.id = i.place_id
-             order by place_id, sequence_no
-            """,
+            PLACE_DETAIL_ITEMS_SQL,
             ps -> ps.setInt(1, ROW_LIMIT),
             (rs, row) ->
                 new DemoPlaceDetailItemRow(

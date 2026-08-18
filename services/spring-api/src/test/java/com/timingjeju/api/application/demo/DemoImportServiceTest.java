@@ -1066,6 +1066,7 @@ class DemoImportServiceTest {
     assertThat(html)
         .contains(
             "<div class=\"muted\">총 데이터: runs=1, snapshots=2, places=1, place_details=1, detail_items=1, images=2, provenances=2</div>");
+    assertThat(html).contains("44444444-1111-4111-b111-111111111111", "성산일출봉 &lt;script&gt;");
     assertThat(html).contains("&lt;script&gt;danger()&lt;/script&gt;");
     assertThat(html).contains("&lt;script&gt;alert(1)&lt;/script&gt;");
     assertThat(html)
