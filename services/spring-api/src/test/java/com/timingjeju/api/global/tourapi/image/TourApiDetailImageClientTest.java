@@ -28,10 +28,9 @@ class TourApiDetailImageClientTest {
     assertThat(captured.get().queryParameters())
         .containsEntry("contentId", "100")
         .containsEntry("imageYN", "Y")
-        .containsEntry("subImageYN", "Y")
         .containsEntry("pageNo", "2")
         .containsEntry("numOfRows", Integer.toString(DetailImageRequestContract.PAGE_SIZE))
         .containsEntry("_type", "json")
-        .doesNotContainKeys("serviceKey", "apiKey", "Authorization");
+        .doesNotContainKeys("subImageYN", "serviceKey", "apiKey", "Authorization");
   }
 }
