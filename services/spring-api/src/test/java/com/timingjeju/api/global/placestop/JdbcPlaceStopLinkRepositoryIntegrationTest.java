@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.placestop.PlaceStopLinkBatch;
+import com.timingjeju.api.application.placestop.PlaceStopLinkBatchResult;
 import com.timingjeju.api.application.placestop.PlaceStopLinkConflictException;
 import com.timingjeju.api.application.placestop.PlaceStopLinkPolicy;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
@@ -13,13 +14,18 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 class JdbcPlaceStopLinkRepositoryIntegrationTest
     extends PostgreSqlRepositoryIntegrationTestSupport {
@@ -37,6 +43,7 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
 
   @Autowired private JdbcPlaceStopLinkRepository repository;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private PlatformTransactionManager transactionManager;
 
   @BeforeEach
   void setUp() {
@@ -260,6 +267,46 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
   }
 
   @Test
+  void 새로_재계산된_후보가_정책_disabled_link를_무조건_활성화하지_않는다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    repository.recompute(batch(Set.of(PLACE), Set.of(), true), POLICY);
+    jdbcTemplate.update(
+        "update public.place_stop_links set enabled=false where place_id=? and stop_id=?",
+        PLACE,
+        STOP_A);
+    repository.recompute(
+        batchAt(
+            Set.of(PLACE),
+            true,
+            OBSERVED_AT.plus(Duration.ofHours(1)),
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        POLICY);
+
+    assertThat(linkState(STOP_A)).containsExactly(false, false);
+  }
+
+  @Test
+  void tombstoned_link는_새로운_스냅샷에서_재활성화되고_타임스탬프가_초기화된다() {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    repository.recompute(batch(Set.of(PLACE), Set.of(), true), POLICY);
+    jdbcTemplate.update(
+        "update public.place_stop_links set enabled=false, tombstoned_at=? where place_id=? and stop_id=?",
+        Timestamp.from(OBSERVED_AT.plusSeconds(1)),
+        PLACE,
+        STOP_A);
+
+    repository.recompute(
+        batchAt(
+            Set.of(PLACE),
+            true,
+            OBSERVED_AT.plus(Duration.ofHours(1)),
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
+        POLICY);
+
+    assertThat(linkState(STOP_A)).containsExactly(true, false);
+  }
+
+  @Test
   void eligibility는_fresh그룹_거리_도보시간_stopId순으로_maxCandidates를_적용한다() {
     insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
     insertStopAtDistance(STOP_B, 200, OBSERVED_AT);
@@ -440,6 +487,106 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
                         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
                     POLICY))
         .isInstanceOf(PlaceStopLinkConflictException.class);
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void 동일_scope_동시_recompute에서_동일_observed와_다른_fingerprint는_단건만_성공하고_상대는_rollback한다()
+      throws Exception {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+    insertStopAtDistance(STOP_B, 200, OBSERVED_AT);
+
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    PlaceStopLinkBatch firstBatch = batchAt(Set.of(PLACE), true, OBSERVED_AT, "f".repeat(64));
+    PlaceStopLinkBatch secondBatch = batchAt(Set.of(PLACE), true, OBSERVED_AT, "a".repeat(64));
+
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      var first =
+          executor.submit(
+              () ->
+                  recomputeInTransaction(
+                      new TransactionTemplate(transactionManager), ready, start, firstBatch));
+      var second =
+          executor.submit(
+              () ->
+                  recomputeInTransaction(
+                      new TransactionTemplate(transactionManager), ready, start, secondBatch));
+
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+
+      List<Object> outcomes =
+          List.of(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS));
+      assertThat(outcomes).filteredOn(PlaceStopLinkBatchResult.class::isInstance).hasSize(1);
+      assertThat(outcomes).filteredOn(PlaceStopLinkConflictException.class::isInstance).hasSize(1);
+    }
+
+    String winnerFingerprint =
+        jdbcTemplate.queryForObject(
+            "select manifest_fingerprint from public.place_stop_link_scope_states where place_id=? and source_provider='postgis:tago'",
+            String.class,
+            PLACE);
+    assertThat(winnerFingerprint).isIn("f".repeat(64), "a".repeat(64));
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.place_stop_links where place_id=?",
+                Integer.class,
+                PLACE))
+        .isEqualTo(2);
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void 같은_scope_동시_recompute에서_older_newer는_신규_watermark만_남고_패자는_rollback한다() throws Exception {
+    insertStopAtDistance(STOP_A, 100, OBSERVED_AT);
+
+    PlaceStopLinkBatch older =
+        batchAt(Set.of(PLACE), true, OBSERVED_AT.minusSeconds(30), "b".repeat(64));
+    PlaceStopLinkBatch newer =
+        batchAt(Set.of(PLACE), true, OBSERVED_AT.plusSeconds(30), "c".repeat(64));
+
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      var winnerTask =
+          executor.submit(
+              () ->
+                  recomputeInTransaction(
+                      new TransactionTemplate(transactionManager), ready, start, newer));
+      var loserTask =
+          executor.submit(
+              () -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                  throw new IllegalStateException("동시성 시작을 기다리지 못했습니다.");
+                }
+                Thread.sleep(250);
+                return recomputeInTransaction(
+                    new TransactionTemplate(transactionManager), ready, start, older);
+              });
+
+      assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+
+      List<Object> outcomes =
+          List.of(winnerTask.get(20, TimeUnit.SECONDS), loserTask.get(20, TimeUnit.SECONDS));
+      assertThat(outcomes).filteredOn(PlaceStopLinkBatchResult.class::isInstance).hasSize(1);
+      assertThat(outcomes).filteredOn(PlaceStopLinkConflictException.class::isInstance).hasSize(1);
+    }
+
+    ScopeMetadata scope = scopeMetadata();
+    assertThat(scope.fingerprint()).isIn("b".repeat(64), "c".repeat(64));
+    assertThat(scope.observedAt()).isEqualTo(OBSERVED_AT.plusSeconds(30));
+    LinkMetadata link = linkMetadata(STOP_A);
+    assertThat(link.observedAt()).isEqualTo(scope.observedAt());
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from public.place_stop_links where place_id=?",
+                Integer.class,
+                PLACE))
+        .isEqualTo(1);
   }
 
   @Test
@@ -655,6 +802,25 @@ class JdbcPlaceStopLinkRepositoryIntegrationTest
   private PlaceStopLinkBatch batchAt(
       Set<UUID> places, Set<UUID> stops, boolean complete, Instant observedAt, String fingerprint) {
     return new PlaceStopLinkBatch(places, stops, "postgis:tago", observedAt, fingerprint, complete);
+  }
+
+  private Object recomputeInTransaction(
+      TransactionTemplate transactionTemplate,
+      CountDownLatch ready,
+      CountDownLatch start,
+      PlaceStopLinkBatch batch) {
+    ready.countDown();
+    try {
+      if (!start.await(10, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("동시성 시작을 기다리지 못했습니다.");
+      }
+      return transactionTemplate.execute(status -> repository.recompute(batch, POLICY));
+    } catch (PlaceStopLinkConflictException failure) {
+      return failure;
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("동시성 테스트가 중단되었습니다.", interrupted);
+    }
   }
 
   private void insertPlace(UUID id, double longitude, double latitude) {

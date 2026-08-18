@@ -218,7 +218,7 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
   private void upsert(UUID placeId, CandidateWrite candidate, PlaceStopLinkBatch batch) {
     jdbcTemplate.update(
         """
-        insert into public.place_stop_links (
+        insert into public.place_stop_links as link (
           place_id, stop_id, distance_meters, walk_minutes, link_method, confidence,
           enabled, source_provider, observed_at, expires_at, tombstoned_at
         ) values (?, ?, ?, ?, 'spatial_radius', 1.000, true, ?, ?, ?, null)
@@ -227,7 +227,7 @@ public class JdbcPlaceStopLinkRepository implements PlaceStopLinkRepository {
             walk_minutes=excluded.walk_minutes,
             link_method=excluded.link_method,
             confidence=excluded.confidence,
-            enabled=true,
+            enabled = case when link.tombstoned_at is not null then true else link.enabled end,
             source_provider=excluded.source_provider,
             observed_at=excluded.observed_at,
             expires_at=excluded.expires_at,

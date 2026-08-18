@@ -36,6 +36,8 @@ TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
 )
 TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
 TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_import.sql"
+KMA_FORECAST_MIGRATION = MIGRATIONS / "20260820000001_kma_village_forecast_version.sql"
+TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260821000000_tago_arrival_cache.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -113,15 +115,29 @@ class DatabaseHardeningTest(unittest.TestCase):
             migration_names.index("20260820000000_tago_route_stops_import.sql"),
             migration_names.index("20260822000000_place_stop_postgis_links.sql"),
         )
-        for optional_predecessor in (
-            "20260820000000_kma_village_forecast_version.sql",
-            "20260821000000_tago_arrival_cache.sql",
-        ):
-            if optional_predecessor in migration_names:
+        if KMA_FORECAST_MIGRATION.name in migration_names:
+            self.assertLess(
+                migration_names.index("20260820000000_tago_route_stops_import.sql"),
+                migration_names.index(KMA_FORECAST_MIGRATION.name),
+            )
+            self.assertLess(
+                migration_names.index(KMA_FORECAST_MIGRATION.name),
+                migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            )
+        if TAGO_ARRIVAL_CACHE_MIGRATION.name in migration_names:
+            self.assertLess(
+                migration_names.index("20260820000000_tago_route_stops_import.sql"),
+                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+            )
+            if KMA_FORECAST_MIGRATION.name in migration_names:
                 self.assertLess(
-                    migration_names.index(optional_predecessor),
-                    migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+                    migration_names.index(KMA_FORECAST_MIGRATION.name),
+                    migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
                 )
+            self.assertLess(
+                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+                migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            )
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
         ordered_mounts = (
