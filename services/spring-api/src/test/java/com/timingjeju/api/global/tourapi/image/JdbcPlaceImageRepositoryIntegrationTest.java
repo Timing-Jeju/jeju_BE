@@ -260,6 +260,35 @@ class JdbcPlaceImageRepositoryIntegrationTest {
   }
 
   @Test
+  void 마이크로초_정밀도로_검증한다() {
+    Fixture fixture = fixture(31, Instant.parse("2026-08-16T09:00:00.123456789Z"));
+
+    var result =
+        repository.sync(
+            command(fixture, List.of(image("precision", "https://img.test/precision.jpg", 1))));
+
+    assertThat(result.insertedCount()).isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject("select source_snapshot_id from public.place_images", UUID.class))
+        .isEqualTo(fixture.snapshot());
+  }
+
+  @Test
+  void 마이크로초_경계_반올림도_허용한다() {
+    Fixture fixture = fixture(32, Instant.parse("2026-08-16T09:00:59.999999789Z"));
+
+    var result =
+        repository.sync(
+            command(
+                fixture, List.of(image("precision-boundary", "https://img.test/boundary.jpg", 1))));
+
+    assertThat(result.insertedCount()).isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject("select source_snapshot_id from public.place_images", UUID.class))
+        .isEqualTo(fixture.snapshot());
+  }
+
+  @Test
   void newer_empty와_older_nonempty가_겹쳐도_complete_empty_fence가_최종상태다() throws Exception {
     Fixture newer = fixture(13, NOW.plusSeconds(20));
     finish(newer.run());
