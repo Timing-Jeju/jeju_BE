@@ -52,7 +52,7 @@ public final class TourApiDetailImageClient implements DetailImageSource {
     DetailImageHttpRequest request =
         new DetailImageHttpRequest(
             ExternalApiOperation.TOUR_DETAIL_IMAGE,
-            "/detailImage2",
+            "detailImage2",
             query,
             ExternalApiResponseFormat.JSON);
     return new DetailSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);

@@ -53,7 +53,7 @@ class SnapshottingIncrementalSyncGatewayTest {
     assertThat(command.getValue().scope().scopeKey()).isEqualTo("jeju");
     assertThat(command.getValue().pageKey()).isEqualTo("2");
     assertThat(command.getValue().requestMetadata())
-        .containsEntry("endpoint", "/areaBasedSyncList2")
+        .containsEntry("endpoint", "areaBasedSyncList2")
         .containsEntry("modifiedtime", CURSOR.toString())
         .containsEntry("lDongRegnCd", "50")
         .containsEntry("numOfRows", "100");

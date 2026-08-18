@@ -57,7 +57,7 @@ public final class SnapshottingDetailImagePageGateway implements DetailImageSnap
                 storedBytes,
                 Map.of(
                     "endpoint",
-                    "/detailImage2",
+                    "detailImage2",
                     "contentId",
                     contentId,
                     "imageYN",

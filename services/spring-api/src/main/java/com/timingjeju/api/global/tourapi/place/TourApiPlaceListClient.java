@@ -51,7 +51,7 @@ public final class TourApiPlaceListClient implements PlaceListSource {
     PlaceListHttpRequest request =
         new PlaceListHttpRequest(
             ExternalApiOperation.TOUR_AREA_BASED_LIST,
-            "/areaBasedList2",
+            "areaBasedList2",
             query,
             ExternalApiResponseFormat.JSON);
     return new PlaceListSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);

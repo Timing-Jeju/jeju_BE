@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -90,6 +91,69 @@ class PlaceListImportServiceTest {
     assertThat(runStore.counts).isEqualTo(new ImportRunCounts(4, 2, 2, 0, 1, 1, 0, 0));
     assertThat(snapshotStore.statuses)
         .containsExactly(SnapshotStatus.PARSED, SnapshotStatus.PARSED);
+  }
+
+  @Test
+  void 전체_리스트_total을_도달할_때까지_페이지를_계속_요청한다() {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    Queue<PlaceListPage> pages = new ArrayDeque<>();
+    pages.add(page(1, 100, 200, repeatedPlaces(100, "1-"), Map.of()));
+    pages.add(page(2, 100, 200, repeatedPlaces(100, "2-"), Map.of()));
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(1, 0, 0));
+    PlaceListImportService service = service(runStore, snapshotStore, pages, repository);
+
+    PlaceListImportResult result = service.importPlaces(new PlaceListImportCommand("bounded-tour"));
+
+    assertThat(result.pageCount()).isEqualTo(2);
+    assertThat(result.inserted()).isEqualTo(1);
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.SUCCEEDED);
+    assertThat(snapshotStore.saved).isEqualTo(2);
+    assertThat(runStore.counts).isEqualTo(new ImportRunCounts(200, 2, 1, 0, 0, 0, 0, 0));
+    assertThat(runStore.failure).isNull();
+  }
+
+  @Test
+  void pageNo_한도_초과하면_invalid_response로_fail_한다() {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    java.util.ArrayDeque<UUID> snapshotIds = new java.util.ArrayDeque<>();
+    for (int i = 0; i < 10_005; i++) {
+      snapshotIds.add(UUID.fromString(String.format("27000000-0000-0000-0000-%012d", i)));
+    }
+    ImportRunLifecycleService runService =
+        new ImportRunLifecycleService(runStore, CLOCK, new FixedRunIds());
+    SnapshotStoreService snapshotService =
+        new SnapshotStoreService(snapshotStore, new SafeRedactor(), CLOCK, snapshotIds::remove);
+    int[] sourceCalls = {0};
+    int[] parseCalls = {0};
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(0, 0, 0));
+    PlaceListImportService service =
+        new PlaceListImportService(
+            pageNo -> {
+              sourceCalls[0]++;
+              return response(pageNo);
+            },
+            (format, payload) -> {
+              parseCalls[0]++;
+              int pageNo = Integer.parseInt(new String(payload, StandardCharsets.UTF_8));
+              return page(pageNo, 100, 2_000_000, List.of(place("P" + pageNo)), Map.of());
+            },
+            repository,
+            runService,
+            snapshotService,
+            CLOCK);
+
+    assertThatThrownBy(() -> service.importPlaces(new PlaceListImportCommand("max-pages-guard")))
+        .isInstanceOf(PlaceListImportException.class);
+
+    assertThat(sourceCalls[0]).isEqualTo(10000);
+    assertThat(parseCalls[0]).isEqualTo(10000);
+    assertThat(snapshotStore.saved).isEqualTo(10000);
+    assertThat(snapshotStore.statuses).containsOnly(SnapshotStatus.PARSED);
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.FAILED);
+    assertThat(runStore.failure).isEqualTo(ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+    assertThat(repository.commands).isEmpty();
   }
 
   @Test
@@ -224,6 +288,10 @@ class PlaceListImportServiceTest {
     return new TourPlace(
         contentId, "12", "성산일출봉", 126.5, 33.5, "제주", "성산읍", null, null, "50", "50130", "VE", "VE01",
         "VE0101", NOW);
+  }
+
+  private static List<TourPlace> repeatedPlaces(int count, String prefix) {
+    return IntStream.range(0, count).mapToObj(i -> place(prefix + i)).toList();
   }
 
   private static final class FakeRepository implements PlaceListRepository {

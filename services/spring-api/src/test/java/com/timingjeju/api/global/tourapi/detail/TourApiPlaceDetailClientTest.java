@@ -32,13 +32,13 @@ class TourApiPlaceDetailClientTest {
     intro.fetch("100", "12");
 
     assertThat(commonRequest.get().operation()).isEqualTo(ExternalApiOperation.TOUR_DETAIL_COMMON);
-    assertThat(commonRequest.get().relativePath()).isEqualTo("/detailCommon2");
+    assertThat(commonRequest.get().relativePath()).isEqualTo("detailCommon2");
     assertThat(commonRequest.get().queryParameters())
         .containsEntry("contentId", "100")
         .containsEntry("overviewYN", "Y")
         .doesNotContainKeys("contentTypeId", "serviceKey", "apiKey", "Authorization");
     assertThat(introRequest.get().operation()).isEqualTo(ExternalApiOperation.TOUR_DETAIL_INTRO);
-    assertThat(introRequest.get().relativePath()).isEqualTo("/detailIntro2");
+    assertThat(introRequest.get().relativePath()).isEqualTo("detailIntro2");
     assertThat(introRequest.get().queryParameters())
         .containsEntry("contentId", "100")
         .containsEntry("contentTypeId", "12")

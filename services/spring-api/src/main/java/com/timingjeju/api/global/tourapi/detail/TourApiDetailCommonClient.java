@@ -47,7 +47,7 @@ public final class TourApiDetailCommonClient implements DetailCommonSource {
     var request =
         new PlaceDetailHttpRequest(
             ExternalApiOperation.TOUR_DETAIL_COMMON,
-            "/detailCommon2",
+            "detailCommon2",
             query,
             ExternalApiResponseFormat.JSON);
     return new DetailSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);

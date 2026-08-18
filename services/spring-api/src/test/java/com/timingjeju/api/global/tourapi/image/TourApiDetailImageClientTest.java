@@ -24,7 +24,7 @@ class TourApiDetailImageClientTest {
     client.fetch("100", 2);
 
     assertThat(captured.get().operation()).isEqualTo(ExternalApiOperation.TOUR_DETAIL_IMAGE);
-    assertThat(captured.get().relativePath()).isEqualTo("/detailImage2");
+    assertThat(captured.get().relativePath()).isEqualTo("detailImage2");
     assertThat(captured.get().queryParameters())
         .containsEntry("contentId", "100")
         .containsEntry("imageYN", "Y")
