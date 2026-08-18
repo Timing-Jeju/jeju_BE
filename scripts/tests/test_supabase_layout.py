@@ -122,13 +122,13 @@ class SupabaseLayoutTest(unittest.TestCase):
 
         mount = (
             f"./supabase/migrations/{migration_name}:"
-            "/docker-entrypoint-initdb.d/020_recommended_stay_policy.sql:ro"
+            "/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql:ro"
         )
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             compose = (ROOT / compose_name).read_text(encoding="utf-8")
             with self.subTest(compose=compose_name):
                 self.assertIn(mount, compose)
-                self.assertEqual(1, compose.count("020_recommended_stay_policy.sql"))
+                self.assertEqual(1, compose.count("021_recommended_stay_policy.sql"))
                 self.assertIn("/docker-entrypoint-initdb.d/099_seed_fixtures.sql", compose)
 
                 conditional_order = [
@@ -137,20 +137,24 @@ class SupabaseLayoutTest(unittest.TestCase):
                         "/docker-entrypoint-initdb.d/016_tago_stop_import.sql",
                     ),
                     (
-                        "20260820000000_kma_village_forecast_version.sql",
-                        "/docker-entrypoint-initdb.d/017_kma_village_forecast_version.sql",
+                        "20260820000000_tago_route_stops_import.sql",
+                        "/docker-entrypoint-initdb.d/017_tago_route_stops_import.sql",
+                    ),
+                    (
+                        "20260820000001_kma_village_forecast_version.sql",
+                        "/docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql",
                     ),
                     (
                         "20260821000000_tago_arrival_cache.sql",
-                        "/docker-entrypoint-initdb.d/018_tago_arrival_cache.sql",
+                        "/docker-entrypoint-initdb.d/019_tago_arrival_cache.sql",
                     ),
                     (
                         "20260822000000_place_stop_postgis_links.sql",
-                        "/docker-entrypoint-initdb.d/019_place_stop_postgis_links.sql",
+                        "/docker-entrypoint-initdb.d/020_place_stop_postgis_links.sql",
                     ),
                     (
                         migration_name,
-                        "/docker-entrypoint-initdb.d/020_recommended_stay_policy.sql",
+                        "/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql",
                     ),
                 ]
                 positions = []
@@ -165,7 +169,7 @@ class SupabaseLayoutTest(unittest.TestCase):
         )
         self.assertGreaterEqual(
             smoke_test.count(
-                "/docker-entrypoint-initdb.d/020_recommended_stay_policy.sql"
+                "/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql"
             ),
             2,
         )
