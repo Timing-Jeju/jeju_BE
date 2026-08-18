@@ -57,7 +57,7 @@ public final class TourApiIncrementalSyncClient implements IncrementalSyncSource
     IncrementalSyncHttpRequest request =
         new IncrementalSyncHttpRequest(
             ExternalApiOperation.TOUR_AREA_SYNC,
-            "/areaBasedSyncList2",
+            "areaBasedSyncList2",
             query,
             ExternalApiResponseFormat.JSON);
     return new IncrementalSyncSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);

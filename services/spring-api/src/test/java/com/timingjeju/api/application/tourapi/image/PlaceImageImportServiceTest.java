@@ -26,7 +26,7 @@ class PlaceImageImportServiceTest {
   void 모든_page의_snapshot_exact_bytes를_parse한_뒤_전역순서로_한번만_sync한다() {
     Queue<PlaceImagePage> pages = new ArrayDeque<>();
     pages.add(page(1, 100, 101, images(1, 100)));
-    pages.add(page(2, 100, 101, images(101, 101)));
+    pages.add(page(2, 1, 101, images(101, 101)));
     RecordingRepository repository = new RecordingRepository();
     RecordingGateway snapshots = new RecordingGateway("stored".getBytes());
     List<byte[]> parsed = new ArrayList<>();
@@ -54,6 +54,26 @@ class PlaceImageImportServiceTest {
         .extracting(PlaceImage::displayOrder)
         .containsExactlyElementsOf(java.util.stream.IntStream.rangeClosed(1, 101).boxed().toList());
     assertThat(result.insertedCount()).isEqualTo(101);
+  }
+
+  @Test
+  void 마지막_page가_부분page여도_요청한_총건수만큼_맞으면_통과한다() {
+    Queue<PlaceImagePage> pages = new ArrayDeque<>();
+    pages.add(page(1, 100, 105, images(1, 100)));
+    pages.add(page(2, 5, 105, images(101, 105)));
+    RecordingRepository repository = new RecordingRepository();
+    var service =
+        new PlaceImageImportService(
+            (contentId, pageNo) -> response("network"),
+            new RecordingGateway("stored".getBytes()),
+            (format, payload, contentId) -> pages.remove(),
+            repository,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+
+    service.importImages(new PlaceImageImportCommand("100", "12", RUN));
+
+    assertThat(repository.command.batch().images()).hasSize(105);
+    assertThat(repository.command.sweep().expectedTotal()).isEqualTo(105);
   }
 
   @Test

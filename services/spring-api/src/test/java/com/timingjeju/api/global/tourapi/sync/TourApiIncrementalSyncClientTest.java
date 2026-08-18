@@ -27,7 +27,7 @@ class TourApiIncrementalSyncClientTest {
     client.fetch(new IncrementalSyncCursor(Instant.parse("2026-08-16T01:02:03Z")), 3);
 
     assertThat(captured.get().operation()).isEqualTo(ExternalApiOperation.TOUR_AREA_SYNC);
-    assertThat(captured.get().relativePath()).isEqualTo("/areaBasedSyncList2");
+    assertThat(captured.get().relativePath()).isEqualTo("areaBasedSyncList2");
     assertThat(captured.get().format()).isEqualTo(ExternalApiResponseFormat.JSON);
     assertThat(captured.get().queryParameters())
         .containsEntry("numOfRows", "100")

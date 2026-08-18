@@ -88,7 +88,8 @@ public final class TourApiDetailImageParser implements DetailImageParser {
     try {
       URI uri = URI.create(value);
       if (!uri.isAbsolute()
-          || !"https".equalsIgnoreCase(uri.getScheme())
+          || (!"http".equalsIgnoreCase(uri.getScheme())
+              && !"https".equalsIgnoreCase(uri.getScheme()))
           || uri.getHost() == null
           || uri.getRawUserInfo() != null
           || uri.getRawFragment() != null) {

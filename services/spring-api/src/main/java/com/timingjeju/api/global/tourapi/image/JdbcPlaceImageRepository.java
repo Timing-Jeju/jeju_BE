@@ -141,21 +141,26 @@ public class JdbcPlaceImageRepository implements PlaceImageRepository {
   private void validateSweep(String contentId, PlaceImageSweep sweep) {
     for (PlaceImagePageLineage page : sweep.pages()) {
       PlaceImageLineage lineage = page.lineage();
-      Integer count =
-          jdbc.queryForObject(
+      List<SourceSnapshot> snapshots =
+          jdbc.query(
               """
-          select count(*) from public.external_api_snapshots snapshot
+          select snapshot.id, snapshot.fetched_at, snapshot.payload_hash
+          from public.external_api_snapshots snapshot
           join public.data_import_runs run on run.id=snapshot.import_run_id
           join public.tour_api_operations operation on operation.operation_key=snapshot.source_operation
           where snapshot.id=? and snapshot.import_run_id=? and snapshot.request_hash=?
             and snapshot.source_provider=? and snapshot.source_service=?
             and snapshot.source_operation='detailImage2' and snapshot.scope_key=?
-            and snapshot.page_key=? and snapshot.payload_hash=? and snapshot.fetched_at=?
+            and snapshot.page_key=? and snapshot.payload_hash=?
             and snapshot.parse_status in ('parsed','tombstoned')
             and run.source_provider=? and run.source_service=? and run.source_operation='detailImage2'
             and run.scope_key=? and operation.active
           """,
-              Integer.class,
+              (rs, row) ->
+                  new SourceSnapshot(
+                      rs.getObject("id", UUID.class),
+                      Objects.requireNonNull(instant(rs.getTimestamp("fetched_at"))),
+                      rs.getString("payload_hash")),
               lineage.snapshotId(),
               lineage.importRunId(),
               lineage.requestFingerprint(),
@@ -164,11 +169,14 @@ public class JdbcPlaceImageRepository implements PlaceImageRepository {
               "content:" + contentId,
               Integer.toString(page.pageNo()),
               page.payloadHash(),
-              timestamp(page.fetchedAt()),
               PROVIDER,
               SERVICE,
               "content:" + contentId);
-      if (count == null || count != 1) fail();
+      if (snapshots.size() != 1
+          || !snapshots.getFirst().payloadHash().equals(page.payloadHash())
+          || !nearSameMicros(snapshots.getFirst().fetchedAt(), page.fetchedAt())) {
+        fail();
+      }
     }
   }
 
@@ -470,6 +478,28 @@ public class JdbcPlaceImageRepository implements PlaceImageRepository {
     return value == null ? null : value.toInstant();
   }
 
+  private static boolean nearSameMicros(Instant dbFetchedAt, Instant commandFetchedAt) {
+    return nanosAbsBetween(dbFetchedAt, commandFetchedAt) < 1_000L;
+  }
+
+  private static long nanosAbsBetween(Instant left, Instant right) {
+    long leftSec = left.getEpochSecond();
+    long rightSec = right.getEpochSecond();
+    int leftNano = left.getNano();
+    int rightNano = right.getNano();
+
+    if (leftSec == rightSec) {
+      return Math.abs((long) leftNano - rightNano);
+    }
+    if (leftSec + 1 == rightSec) {
+      return 1_000_000_000L + rightNano - leftNano;
+    }
+    if (leftSec - 1 == rightSec) {
+      return 1_000_000_000L + leftNano - rightNano;
+    }
+    return 1_000_000_000L;
+  }
+
   private static void one(int changed) {
     if (changed != 1) fail();
   }
@@ -477,6 +507,8 @@ public class JdbcPlaceImageRepository implements PlaceImageRepository {
   private static void fail() {
     throw PlaceImageImportException.storageFailure();
   }
+
+  private record SourceSnapshot(UUID id, Instant fetchedAt, String payloadHash) {}
 
   private record SourcePlace(UUID placeId, String contentTypeId, String contentId) {}
 
