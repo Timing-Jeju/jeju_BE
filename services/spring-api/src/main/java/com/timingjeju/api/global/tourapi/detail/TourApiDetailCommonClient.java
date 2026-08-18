@@ -37,13 +37,6 @@ public final class TourApiDetailCommonClient implements DetailCommonSource {
   @Override
   public DetailSourceResponse fetch(String contentId) {
     Map<String, String> query = base(contentId);
-    query.put("defaultYN", "N");
-    query.put("firstImageYN", "N");
-    query.put("areacodeYN", "N");
-    query.put("catcodeYN", "N");
-    query.put("addrinfoYN", "N");
-    query.put("mapinfoYN", "N");
-    query.put("overviewYN", "Y");
     var request =
         new PlaceDetailHttpRequest(
             ExternalApiOperation.TOUR_DETAIL_COMMON,

@@ -35,13 +35,25 @@ class TourApiPlaceDetailClientTest {
     assertThat(commonRequest.get().relativePath()).isEqualTo("detailCommon2");
     assertThat(commonRequest.get().queryParameters())
         .containsEntry("contentId", "100")
-        .containsEntry("overviewYN", "Y")
-        .doesNotContainKeys("contentTypeId", "serviceKey", "apiKey", "Authorization");
+        .containsEntry("_type", "json")
+        .doesNotContainKeys(
+            "defaultYN",
+            "firstImageYN",
+            "areacodeYN",
+            "catcodeYN",
+            "addrinfoYN",
+            "mapinfoYN",
+            "overviewYN",
+            "contentTypeId",
+            "serviceKey",
+            "apiKey",
+            "Authorization");
     assertThat(introRequest.get().operation()).isEqualTo(ExternalApiOperation.TOUR_DETAIL_INTRO);
     assertThat(introRequest.get().relativePath()).isEqualTo("detailIntro2");
     assertThat(introRequest.get().queryParameters())
         .containsEntry("contentId", "100")
         .containsEntry("contentTypeId", "12")
+        .containsEntry("_type", "json")
         .doesNotContainKeys("serviceKey", "apiKey", "Authorization");
   }
 }

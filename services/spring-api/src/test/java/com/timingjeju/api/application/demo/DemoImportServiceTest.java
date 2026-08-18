@@ -661,4 +661,74 @@ class DemoImportServiceTest {
     verifyNoInteractions(snapshotService, commonSource, introSource);
     verify(runService, times(0)).succeed(eq(commonLease), any(ImportRunCounts.class));
   }
+
+  @Test
+  void detail_common_요청_실패면_이미_시작한_intro_lease도_fail로_종료한다() {
+    PlaceListImportService importer = mock(PlaceListImportService.class);
+    DemoStorageReader reader = mock(DemoStorageReader.class);
+    ImportRunLifecycleService runService = mock(ImportRunLifecycleService.class);
+    SnapshotStoreService snapshotService = mock(SnapshotStoreService.class);
+    DetailCommonSource commonSource = mock(DetailCommonSource.class);
+    DetailIntroSource introSource = mock(DetailIntroSource.class);
+    DetailCommonParser commonParser = mock(DetailCommonParser.class);
+    DetailIntroParser introParser = mock(DetailIntroParser.class);
+    PlaceDetailRepository placeDetailRepository = mock(PlaceDetailRepository.class);
+    DetailItemImportService detailItemImportService = mock(DetailItemImportService.class);
+    PlaceImageImportService detailImageImportService = mock(PlaceImageImportService.class);
+
+    DemoImportService service =
+        new DemoImportService(
+            importer,
+            reader,
+            runService,
+            snapshotService,
+            commonSource,
+            commonParser,
+            introSource,
+            introParser,
+            placeDetailRepository,
+            detailItemImportService,
+            detailImageImportService,
+            Clock.fixed(Instant.parse("2026-08-17T10:00:00Z"), ZoneOffset.UTC),
+            new ObjectMapper());
+
+    UUID listRunId = UUID.fromString("eeeeeee8-1111-4111-b111-111111111111");
+    when(importer.importPlaces(any(PlaceListImportCommand.class)))
+        .thenReturn(new PlaceListImportResult(listRunId, 1, 1, 0, 0, 0, Map.of(), false));
+    when(reader.candidates(eq(listRunId), anyString(), anyString(), anyString()))
+        .thenReturn(
+            List.of(
+                new DemoPlaceRow(
+                    UUID.fromString("10000000-0000-0000-0000-000000000001"),
+                    UUID.fromString("10000000-0000-0000-0000-000000000002"),
+                    "10001",
+                    "12",
+                    "성산일출봉",
+                    "관광지",
+                    "제주",
+                    null,
+                    null,
+                    null,
+                    126.0,
+                    33.0)));
+
+    ImportRunLease commonLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000099"), UUID.randomUUID(), 1L);
+    ImportRunLease introLease =
+        new ImportRunLease(
+            UUID.fromString("30000000-0000-0000-0000-000000000100"), UUID.randomUUID(), 1L);
+    when(runService.start(any(ImportRunStartCommand.class)))
+        .thenReturn(new ImportRunStartResult(commonLease, false))
+        .thenReturn(new ImportRunStartResult(introLease, false));
+    when(commonSource.fetch("10001")).thenThrow(PlaceDetailImportException.invalidResponse());
+    when(reader.sweepStats(any(), anyString())).thenReturn(DemoSweepStats.empty());
+
+    assertThatThrownBy(service::importTourPlaces).isInstanceOf(PlaceDetailImportException.class);
+    verify(runService).fail(commonLease, ImportRunFailure.PARSE_REJECTED);
+    verify(runService).fail(introLease, ImportRunFailure.PARSE_REJECTED);
+    verify(runService, times(0)).succeed(eq(commonLease), any(ImportRunCounts.class));
+    verify(runService, times(0)).succeed(eq(introLease), any(ImportRunCounts.class));
+    verifyNoInteractions(snapshotService);
+  }
 }

@@ -167,13 +167,14 @@ public final class DemoImportService {
 
     ImportRunLease commonLease = commonStart.lease();
     SavedCommonSection common;
+    ImportRunLease introLease = introStart.lease();
     try {
       common = parseCommonWithLineage(commonLease, contentId);
     } catch (RuntimeException failure) {
       runService.fail(commonLease, ImportRunFailure.PARSE_REJECTED);
+      runService.fail(introLease, ImportRunFailure.PARSE_REJECTED);
       throw failure;
     }
-    ImportRunLease introLease = introStart.lease();
     SavedIntroSection intro;
     try {
       intro = parseIntroWithLineage(introLease, contentId, contentTypeId);
