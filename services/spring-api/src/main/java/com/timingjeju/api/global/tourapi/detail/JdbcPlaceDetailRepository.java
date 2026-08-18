@@ -299,9 +299,14 @@ public class JdbcPlaceDetailRepository implements PlaceDetailRepository {
     if (incomingSourceModifiedAt == null
         || incomingSourceModifiedAt.isBefore(storedSourceModifiedAt)
         || (incomingSourceModifiedAt.equals(storedSourceModifiedAt)
+            && hasOverview(source.overview())
             && !Objects.equals(source.overview(), command.common().overviewPlainText()))) {
       throw PlaceDetailImportException.staleSource();
     }
+  }
+
+  private static boolean hasOverview(String value) {
+    return value != null && !value.isBlank();
   }
 
   private static boolean samePlaceCommon(SourcePlace source, PlaceDetailUpsertCommand command) {
