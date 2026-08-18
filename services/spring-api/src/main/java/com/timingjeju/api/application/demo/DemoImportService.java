@@ -444,7 +444,7 @@ public final class DemoImportService {
           <style>
             body { font-family: Arial, sans-serif; padding: 1rem; }
             h1, h2 { margin-top: 1.25rem; }
-            table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+            table { border-collapse: collapse; width: 100%%; margin-bottom: 1rem; }
             th, td { border: 1px solid #ddd; padding: 0.5rem; vertical-align: top; }
             th { background: #f5f5f5; text-align: left; }
             .card { border: 1px solid #ddd; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; }
@@ -769,6 +769,9 @@ public final class DemoImportService {
       }
       String scheme = uri.getScheme();
       if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+        return "";
+      }
+      if (uri.getUserInfo() != null && !uri.getUserInfo().isBlank()) {
         return "";
       }
       return safe(uri.toString());

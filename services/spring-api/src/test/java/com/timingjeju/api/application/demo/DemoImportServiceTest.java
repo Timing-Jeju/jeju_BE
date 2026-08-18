@@ -909,4 +909,154 @@ class DemoImportServiceTest {
         126.0,
         33.0);
   }
+
+  @Test
+  void storage_view는_전체_테이블을_렌더링하고_노출_민감정보를_안전하게_제외한다() {
+    PlaceListImportService importer = mock(PlaceListImportService.class);
+    DemoStorageReader reader = mock(DemoStorageReader.class);
+    ImportRunLifecycleService runService = mock(ImportRunLifecycleService.class);
+    SnapshotStoreService snapshotService = mock(SnapshotStoreService.class);
+
+    UUID runId = UUID.fromString("11111111-1111-4111-b111-111111111111");
+    DemoStorageView view =
+        new DemoStorageView(
+            List.of(
+                new DemoRunRow(
+                    runId,
+                    "tour_api",
+                    "areaBasedList2",
+                    "succeeded",
+                    4,
+                    3,
+                    Instant.parse("2026-08-18T00:00:00Z"))),
+            List.of(
+                new DemoSnapshotRow(
+                    UUID.fromString("22222222-1111-4111-b111-111111111111"),
+                    runId,
+                    "detailCommon2",
+                    "parsed",
+                    2048L),
+                new DemoSnapshotRow(
+                    UUID.fromString("33333333-1111-4111-b111-111111111111"),
+                    runId,
+                    "detailInfo2",
+                    "parsed",
+                    4096L)),
+            List.of(
+                new DemoPlaceRow(
+                    UUID.fromString("44444444-1111-4111-b111-111111111111"),
+                    runId,
+                    "10001",
+                    "12",
+                    "성산일출봉 <script>",
+                    "관광지",
+                    "제주시",
+                    "<script>alert('x')</script>",
+                    "javascript:alert(1)",
+                    "https://cdn.safe.example.com/thumbs/10001.jpg",
+                    126.0,
+                    33.0)),
+            List.of(
+                new DemoPlaceDetailRow(
+                    UUID.fromString("55555555-1111-4111-b111-111111111111"),
+                    UUID.fromString("66666666-1111-4111-b111-111111111111"),
+                    "02-1234-5678",
+                    "09:00~18:00",
+                    "연중무휴",
+                    "주차장 있음",
+                    "{\"overview\":\"<script>danger()</script>\"}",
+                    UUID.fromString("77777777-1111-4111-b111-111111111111"))),
+            List.of(
+                new DemoPlaceDetailItemRow(
+                    UUID.fromString("88888888-1111-4111-b111-111111111111"),
+                    UUID.fromString("44444444-1111-4111-b111-111111111111"),
+                    "12",
+                    "room",
+                    "ROOM-1",
+                    1,
+                    "객실<script>alert(1)</script>",
+                    runId)),
+            List.of(
+                new DemoPlaceImageRow(
+                    UUID.fromString("99999999-1111-4111-b111-111111111111"),
+                    UUID.fromString("44444444-1111-4111-b111-111111111111"),
+                    "https://img.example.test/place/10001.jpg",
+                    null,
+                    runId,
+                    "IMG-OK"),
+                new DemoPlaceImageRow(
+                    UUID.fromString("aaaaaaaa-1111-4111-b111-111111111111"),
+                    UUID.fromString("44444444-1111-4111-b111-111111111111"),
+                    "https://user:pass@img.example.test/x.jpg",
+                    "javascript:alert(2)",
+                    runId,
+                    null)),
+            List.of(
+                new DemoProvenanceRow(
+                    UUID.fromString("bbbbbbbb-1111-4111-b111-111111111111"),
+                    "TourPlace",
+                    UUID.fromString("44444444-1111-4111-b111-111111111111"),
+                    "detailCommon2",
+                    "12",
+                    "fp-common",
+                    UUID.fromString("22222222-1111-4111-b111-111111111111"),
+                    runId),
+                new DemoProvenanceRow(
+                    UUID.fromString("cccccccc-1111-4111-b111-111111111111"),
+                    "TourPlaceDetailItem",
+                    UUID.fromString("88888888-1111-4111-b111-111111111111"),
+                    "detailInfo2",
+                    "12",
+                    "fp-detail",
+                    UUID.fromString("33333333-1111-4111-b111-111111111111"),
+                    runId)));
+
+    when(reader.latest()).thenReturn(view);
+    DemoImportService service =
+        new DemoImportService(
+            importer,
+            reader,
+            runService,
+            snapshotService,
+            mock(DetailCommonSource.class),
+            mock(DetailCommonParser.class),
+            mock(DetailIntroSource.class),
+            mock(DetailIntroParser.class),
+            mock(PlaceDetailRepository.class),
+            mock(DetailItemImportService.class),
+            mock(PlaceImageImportService.class),
+            Clock.fixed(Instant.parse("2026-08-18T00:00:00Z"), ZoneOffset.UTC),
+            new ObjectMapper());
+
+    String html = service.storageView();
+
+    assertThat(html).contains("<h1>Tour API Demo Storage</h1>");
+    assertThat(html)
+        .contains(
+            "<h2>데모 Run",
+            "<h2>Snapshot",
+            "<h2>Places (개요/이미지)",
+            "<h2>Place Detail",
+            "<h2>Detail Item",
+            "<h2>Image Thumbnails",
+            "<h2>Lineage");
+
+    assertThat(html)
+        .contains(
+            "<div class=\"muted\">총 데이터: runs=1, snapshots=2, places=1, detail_items=1, images=2, provenances=2</div>");
+    assertThat(html).contains("&lt;script&gt;danger()&lt;/script&gt;");
+    assertThat(html).contains("&lt;script&gt;alert(1)&lt;/script&gt;");
+    assertThat(html)
+        .contains(
+            "<img src=\"https://img.example.test/place/10001.jpg\"",
+            "src=\"https://cdn.safe.example.com/thumbs/10001.jpg\"");
+
+    assertThat(html).doesNotContain("javascript:");
+    assertThat(html)
+        .doesNotContain("user@img.example.com")
+        .doesNotContain("<script>")
+        .doesNotContain("raw_payload")
+        .doesNotContain("provider_request")
+        .doesNotContain("api_key");
+  }
 }
