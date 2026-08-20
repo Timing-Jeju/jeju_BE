@@ -1,5 +1,6 @@
 package com.timingjeju.api.application.tourapi.discovery;
 
+import com.timingjeju.api.application.importing.ImportRunCounts;
 import com.timingjeju.api.application.tourapi.place.PlaceRejectReason;
 import java.util.Map;
 import java.util.UUID;
@@ -18,7 +19,15 @@ public record DiscoveryImportResult(
     rejectedReasons = Map.copyOf(rejectedReasons);
   }
 
-  public static DiscoveryImportResult replayed(UUID runId) {
-    return new DiscoveryImportResult(runId, 0, 0, 0, 0, 0, Map.of(), true);
+  public static DiscoveryImportResult replayed(UUID runId, ImportRunCounts counts, int pageCount) {
+    return new DiscoveryImportResult(
+        runId,
+        pageCount,
+        counts.insertedCount(),
+        counts.updatedCount(),
+        counts.skippedCount(),
+        counts.rejectedCount(),
+        Map.of(),
+        true);
   }
 }

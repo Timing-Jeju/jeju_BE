@@ -1,7 +1,9 @@
 package com.timingjeju.api.application.tourapi.discovery;
 
+import com.timingjeju.api.application.importing.ImportCheckpoint;
 import com.timingjeju.api.application.importing.ImportCheckpointService;
 import com.timingjeju.api.application.importing.ImportRunCounts;
+import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleService;
@@ -25,6 +27,7 @@ import com.timingjeju.api.application.tourapi.place.PlaceListSourceResponse;
 import com.timingjeju.api.application.tourapi.place.PlaceListUpsertResult;
 import com.timingjeju.api.application.tourapi.place.PlaceListWrite;
 import com.timingjeju.api.application.tourapi.place.PlaceRejectReason;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -39,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 public final class DiscoveryImportService {
@@ -75,18 +79,16 @@ public final class DiscoveryImportService {
 
   public DiscoveryImportResult importCandidates(DiscoveryImportCommand command) {
     Objects.requireNonNull(command, "command는 필수입니다.");
+    ImportRunScope scope = scope(command);
     ImportRunStartResult start = runService.start(startCommand(command));
     ImportRunLease lease = start.lease();
+    Optional<ImportCheckpoint> checkpoint = checkpointService.find(scope);
     if (start.replayed()) {
-      return DiscoveryImportResult.replayed(lease.runId());
+      return replay(start, checkpoint.orElseThrow(DiscoveryImportException::invalidResponse));
     }
-    ImportRunScope scope = scope(command);
-    long expectedCheckpointVersion =
-        checkpointService
-            .find(scope)
-            .orElseThrow(DiscoveryImportException::storageFailure)
-            .version();
 
+    long expectedCheckpointVersion =
+        checkpoint.orElseThrow(DiscoveryImportException::storageFailure).version();
     ImportRunFailure terminalFailure = ImportRunFailure.PROVIDER_UNAVAILABLE;
     try {
       List<PlaceListWrite> writes = new ArrayList<>();
@@ -177,6 +179,33 @@ public final class DiscoveryImportService {
       throw terminalFailure == ImportRunFailure.PARSE_REJECTED
           ? DiscoveryImportException.storageFailure()
           : DiscoveryImportException.invalidResponse();
+    }
+  }
+
+  private static DiscoveryImportResult replay(
+      ImportRunStartResult start, ImportCheckpoint checkpoint) {
+    if (start.status() != ImportRunExecutionStatus.SUCCEEDED
+        || !start.lease().runId().equals(checkpoint.lastSucceededRunId())) {
+      throw DiscoveryImportException.invalidResponse();
+    }
+    return DiscoveryImportResult.replayed(
+        start.lease().runId(), start.counts(), pageCount(checkpoint));
+  }
+
+  private static int pageCount(ImportCheckpoint checkpoint) {
+    Object value = checkpoint.checkpoint().get("pageCount");
+    try {
+      BigDecimal normalized = new BigDecimal(value.toString()).stripTrailingZeros();
+      if (normalized.scale() != 0) {
+        throw DiscoveryImportException.invalidResponse();
+      }
+      long pageCount = normalized.longValueExact();
+      if (pageCount < 0 || pageCount > Integer.MAX_VALUE) {
+        throw DiscoveryImportException.invalidResponse();
+      }
+      return (int) pageCount;
+    } catch (RuntimeException failure) {
+      throw DiscoveryImportException.invalidResponse();
     }
   }
 

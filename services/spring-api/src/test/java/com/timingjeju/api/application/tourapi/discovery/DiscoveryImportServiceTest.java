@@ -8,6 +8,7 @@ import com.timingjeju.api.application.importing.ImportCheckpointAdvanceCommand;
 import com.timingjeju.api.application.importing.ImportCheckpointRepository;
 import com.timingjeju.api.application.importing.ImportCheckpointService;
 import com.timingjeju.api.application.importing.ImportRunCounts;
+import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunIdentityGenerator;
 import com.timingjeju.api.application.importing.ImportRunLease;
@@ -85,7 +86,7 @@ class DiscoveryImportServiceTest {
               assertThat(alias.alias()).isEqualTo("성산 맛집");
               assertThat(alias.normalizedAlias()).isEqualTo("성산 맛집");
             });
-    assertThat(runs.status).isEqualTo(ImportRunStatus.SUCCEEDED);
+    assertThat(runs.finishStatus).isEqualTo(ImportRunStatus.SUCCEEDED);
     assertThat(snapshots.statuses).containsExactly(SnapshotStatus.PARSED);
   }
 
@@ -137,35 +138,120 @@ class DiscoveryImportServiceTest {
 
     assertThat(repository.commands).isEmpty();
     assertThat(snapshots.saved).isEqualTo(2);
-    assertThat(runs.status).isEqualTo(ImportRunStatus.FAILED);
+    assertThat(runs.finishStatus).isEqualTo(ImportRunStatus.FAILED);
   }
 
   @Test
-  void 동일_idempotency_exact_replay는_provider_snapshot_normalized_write를_반복하지_않는다() {
-    FakeRunStore runs = new FakeRunStore(true);
+  void 동일_idempotency_exact_replay는_이미_저장된_counts와_pageCount를_반환한다() {
+    ImportRunCounts counts = new ImportRunCounts(12, 5, 4, 4, 2, 2, 0, 0);
+    FakeRunStore runs = new FakeRunStore(true, ImportRunExecutionStatus.SUCCEEDED, counts);
     FakeSnapshotStore snapshots = new FakeSnapshotStore();
     FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(0, 0, 0));
-    AtomicInteger fetches = new AtomicInteger();
+    FakeCheckpointRepository checkpoints = new FakeCheckpointRepository(RUN, 7);
+    int[] fetches = {0};
     DiscoveryImportService service =
         service(
             runs,
             snapshots,
             (command, page) -> {
-              fetches.incrementAndGet();
+              fetches[0]++;
               return response(page);
             },
             (operation, format, payload) -> {
               throw new AssertionError("parser 호출 금지");
             },
-            repository);
+            repository,
+            checkpoints);
 
     DiscoveryImportResult result =
         service.importCandidates(DiscoveryImportCommand.location(126.5, 33.5, 500, 1, "replay"));
 
     assertThat(result.replayed()).isTrue();
-    assertThat(fetches).hasValue(0);
+    assertThat(result.pageCount()).isEqualTo(7);
+    assertThat(result.inserted()).isEqualTo(4);
+    assertThat(result.updated()).isEqualTo(4);
+    assertThat(result.skipped()).isEqualTo(2);
+    assertThat(result.rejected()).isEqualTo(2);
+    assertThat(fetches[0]).isZero();
     assertThat(snapshots.saved).isZero();
     assertThat(repository.commands).isEmpty();
+    assertThat(checkpoints.advanceCalls).isZero();
+    assertThat(runs.finishStatus).isNull();
+  }
+
+  @Test
+  void
+      running_failed_partial_cancelled_replay는_fetch나_parser_snapshot_normalized_write를_재실행하지_않고_실패한다() {
+    for (ImportRunExecutionStatus status :
+        List.of(
+            ImportRunExecutionStatus.RUNNING,
+            ImportRunExecutionStatus.FAILED,
+            ImportRunExecutionStatus.PARTIAL,
+            ImportRunExecutionStatus.CANCELLED)) {
+      FakeRunStore runs = new FakeRunStore(true, status, ImportRunCounts.zero());
+      FakeSnapshotStore snapshots = new FakeSnapshotStore();
+      FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(0, 0, 0));
+      FakeCheckpointRepository checkpoints = new FakeCheckpointRepository(RUN, 0);
+      int[] fetches = {0};
+
+      assertThatThrownBy(
+              () ->
+                  service(
+                          runs,
+                          snapshots,
+                          (command, page) -> {
+                            fetches[0]++;
+                            return response(page);
+                          },
+                          (operation, format, payload) -> {
+                            throw new AssertionError("parser 호출 금지");
+                          },
+                          repository,
+                          checkpoints)
+                      .importCandidates(
+                          DiscoveryImportCommand.location(126.5, 33.5, 500, 1, "replay-" + status)))
+          .isInstanceOf(DiscoveryImportException.class)
+          .hasMessageContaining("응답 계약");
+
+      assertThat(fetches[0]).isZero();
+      assertThat(snapshots.saved).isZero();
+      assertThat(repository.commands).isEmpty();
+      assertThat(checkpoints.advanceCalls).isZero();
+      assertThat(runs.finishStatus).isNull();
+    }
+  }
+
+  @Test
+  void succeeded_replay라도_checkpoint_runId가_다르면_실패한다() {
+    FakeRunStore runs =
+        new FakeRunStore(true, ImportRunExecutionStatus.SUCCEEDED, ImportRunCounts.zero());
+    FakeSnapshotStore snapshots = new FakeSnapshotStore();
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(0, 0, 0));
+    FakeCheckpointRepository checkpoints = new FakeCheckpointRepository(UUID.randomUUID(), 0);
+
+    assertThatThrownBy(
+            () ->
+                service(
+                        runs,
+                        snapshots,
+                        (command, page) -> {
+                          throw new AssertionError("fetch 호출 금지");
+                        },
+                        (operation, format, payload) -> {
+                          throw new AssertionError("parser 호출 금지");
+                        },
+                        repository,
+                        checkpoints)
+                    .importCandidates(
+                        DiscoveryImportCommand.location(
+                            126.5, 33.5, 500, 1, "checkpoint-mismatch")))
+        .isInstanceOf(DiscoveryImportException.class)
+        .hasMessageContaining("응답 계약");
+
+    assertThat(snapshots.saved).isZero();
+    assertThat(repository.commands).isEmpty();
+    assertThat(checkpoints.advanceCalls).isZero();
+    assertThat(runs.finishStatus).isNull();
   }
 
   private static DiscoveryImportService service(
@@ -174,8 +260,18 @@ class DiscoveryImportServiceTest {
       DiscoverySource source,
       DiscoveryParser parser,
       FakeRepository repository) {
+    return service(runs, snapshots, source, parser, repository, new FakeCheckpointRepository());
+  }
+
+  private static DiscoveryImportService service(
+      FakeRunStore runs,
+      FakeSnapshotStore snapshots,
+      DiscoverySource source,
+      DiscoveryParser parser,
+      FakeRepository repository,
+      FakeCheckpointRepository checkpoints) {
     var runService = new ImportRunLifecycleService(runs, CLOCK, new FixedIds());
-    var checkpointService = new ImportCheckpointService(new FakeCheckpointRepository());
+    var checkpointService = new ImportCheckpointService(checkpoints);
     var committer =
         new TransactionalDiscoveryImportCommitter(repository, runService, checkpointService);
     Queue<UUID> ids = new ArrayDeque<>(List.of(SNAPSHOT_1, SNAPSHOT_2));
@@ -229,16 +325,26 @@ class DiscoveryImportServiceTest {
 
   private static final class FakeRunStore implements ImportRunStore {
     private final boolean replayed;
-    private ImportRunStatus status;
+    private final ImportRunExecutionStatus status;
+    private final ImportRunCounts counts;
+    private ImportRunStatus finishStatus;
 
     private FakeRunStore(boolean replayed) {
+      this(replayed, ImportRunExecutionStatus.RUNNING, ImportRunCounts.zero());
+    }
+
+    private FakeRunStore(
+        boolean replayed, ImportRunExecutionStatus status, ImportRunCounts counts) {
       this.replayed = replayed;
+      this.status = status;
+      this.counts = counts;
     }
 
     @Override
     public ImportRunStartResult start(
         ImportRunStartCommand command, UUID runId, UUID ownerToken, Instant startedAt) {
-      return new ImportRunStartResult(new ImportRunLease(runId, ownerToken, 1), replayed);
+      return new ImportRunStartResult(
+          new ImportRunLease(runId, ownerToken, 1), replayed, status, counts);
     }
 
     @Override
@@ -253,7 +359,7 @@ class DiscoveryImportServiceTest {
         ImportRunCounts delta,
         ImportRunFailure failure,
         Instant finishedAt) {
-      this.status = status;
+      this.finishStatus = status;
       return ImportRunMutationOutcome.UPDATED;
     }
   }
@@ -294,30 +400,29 @@ class DiscoveryImportServiceTest {
   }
 
   private static final class FakeCheckpointRepository implements ImportCheckpointRepository {
+    private final UUID lastSucceededRunId;
+    private final int pageCount;
     private ImportCheckpoint checkpoint;
+    private int advanceCalls;
 
     private FakeCheckpointRepository() {
-      ImportRunScope scope =
-          new ImportRunScope("tour-api", "KorService2", "searchKeyword2", "jeju");
-      checkpoint =
-          new ImportCheckpoint(
-              scope,
-              Map.of("manifest", "uninitialized", "pageCount", 0),
-              Instant.EPOCH,
-              null,
-              0,
-              NOW);
+      this(null, 0);
+    }
+
+    private FakeCheckpointRepository(UUID lastSucceededRunId, int pageCount) {
+      this.lastSucceededRunId = lastSucceededRunId;
+      this.pageCount = pageCount;
     }
 
     @Override
     public Optional<ImportCheckpoint> find(ImportRunScope scope) {
-      if (!checkpoint.scope().operation().equals(scope.operation())) {
+      if (checkpoint == null || !checkpoint.scope().equals(scope)) {
         checkpoint =
             new ImportCheckpoint(
                 scope,
-                Map.of("manifest", "uninitialized", "pageCount", 0),
+                Map.of("manifest", "uninitialized", "pageCount", pageCount),
                 Instant.EPOCH,
-                null,
+                lastSucceededRunId,
                 0,
                 NOW);
       }
@@ -326,6 +431,7 @@ class DiscoveryImportServiceTest {
 
     @Override
     public ImportCheckpoint advance(ImportCheckpointAdvanceCommand command) {
+      advanceCalls++;
       checkpoint =
           new ImportCheckpoint(
               command.scope(),
