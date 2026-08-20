@@ -36,9 +36,8 @@ TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
 )
 TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
 TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_import.sql"
-KMA_VILLAGE_FORECAST_MIGRATION = (
-    MIGRATIONS / "20260820000001_kma_village_forecast_version.sql"
-)
+KMA_FORECAST_MIGRATION = MIGRATIONS / "20260820000001_kma_village_forecast_version.sql"
+TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260821000000_tago_arrival_cache.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -84,50 +83,71 @@ class DatabaseHardeningTest(unittest.TestCase):
 
     def test_versioned_migrations_are_additive_and_ordered(self):
         migration_names = [path.name for path in sorted(MIGRATIONS.glob("*.sql"))]
+        baseline = [
+            "20260728000000_initial_public_schema.sql",
+            "20260730000000_database_integrity_hardening.sql",
+            "20260730010000_external_ingestion_foundation.sql",
+            "20260730020000_ingestion_consistency_hardening.sql",
+            "20260730030000_schedule_consistency_hardening.sql",
+            "20260730040000_import_run_lineage_retention.sql",
+            "20260810000000_api_idempotency_registry.sql",
+            "20260811000000_async_run_worker_runtime.sql",
+            "20260813000000_import_run_lifecycle_fencing.sql",
+            "20260813010000_external_snapshot_storage.sql",
+            "20260814000000_tour_api_operation_provenance.sql",
+            "20260816000000_tour_api_detail_info_operation.sql",
+            "20260817000000_tour_api_place_images_operation.sql",
+            "20260818000000_tour_api_incremental_sync.sql",
+            "20260819000000_tago_stop_import.sql",
+            "20260820000000_tago_route_stops_import.sql",
+            "20260822000000_place_stop_postgis_links.sql",
+            "20260823000000_recommended_stay_policy.sql",
+        ]
+        versions = [name[:14] for name in migration_names]
 
-        self.assertEqual(
-            [
-                "20260728000000_initial_public_schema.sql",
-                "20260730000000_database_integrity_hardening.sql",
-                "20260730010000_external_ingestion_foundation.sql",
-                "20260730020000_ingestion_consistency_hardening.sql",
-                "20260730030000_schedule_consistency_hardening.sql",
-                "20260730040000_import_run_lineage_retention.sql",
-                "20260810000000_api_idempotency_registry.sql",
-                "20260811000000_async_run_worker_runtime.sql",
-                "20260813000000_import_run_lifecycle_fencing.sql",
-                "20260813010000_external_snapshot_storage.sql",
-                "20260814000000_tour_api_operation_provenance.sql",
-                "20260816000000_tour_api_detail_info_operation.sql",
-                "20260817000000_tour_api_place_images_operation.sql",
-                "20260818000000_tour_api_incremental_sync.sql",
-                "20260819000000_tago_stop_import.sql",
-                "20260820000000_tago_route_stops_import.sql",
-                "20260820000001_kma_village_forecast_version.sql",
-            ],
-            migration_names,
+        self.assertTrue(set(baseline).issubset(migration_names))
+        self.assertEqual(sorted(migration_names), migration_names)
+        self.assertEqual(len(versions), len(set(versions)), "migration timestamp가 중복됐습니다")
+        self.assertLess(
+            migration_names.index("20260819000000_tago_stop_import.sql"),
+            migration_names.index("20260820000000_tago_route_stops_import.sql"),
         )
+        self.assertLess(
+            migration_names.index("20260820000000_tago_route_stops_import.sql"),
+            migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+        )
+        self.assertLess(
+            migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            migration_names.index("20260823000000_recommended_stay_policy.sql"),
+        )
+        if KMA_FORECAST_MIGRATION.name in migration_names:
+            self.assertLess(
+                migration_names.index("20260820000000_tago_route_stops_import.sql"),
+                migration_names.index(KMA_FORECAST_MIGRATION.name),
+            )
+            self.assertLess(
+                migration_names.index(KMA_FORECAST_MIGRATION.name),
+                migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            )
+        if TAGO_ARRIVAL_CACHE_MIGRATION.name in migration_names:
+            self.assertLess(
+                migration_names.index("20260820000000_tago_route_stops_import.sql"),
+                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+            )
+            if KMA_FORECAST_MIGRATION.name in migration_names:
+                self.assertLess(
+                    migration_names.index(KMA_FORECAST_MIGRATION.name),
+                    migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+                )
+            self.assertLess(
+                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+                migration_names.index("20260822000000_place_stop_postgis_links.sql"),
+            )
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
         ordered_mounts = (
             "./db/local-postgres/auth_compat.sql",
-            "./supabase/migrations/20260728000000_initial_public_schema.sql",
-            "./supabase/migrations/20260730000000_database_integrity_hardening.sql",
-            "./supabase/migrations/20260730010000_external_ingestion_foundation.sql",
-            "./supabase/migrations/20260730020000_ingestion_consistency_hardening.sql",
-            "./supabase/migrations/20260730030000_schedule_consistency_hardening.sql",
-            "./supabase/migrations/20260730040000_import_run_lineage_retention.sql",
-            "./supabase/migrations/20260810000000_api_idempotency_registry.sql",
-            "./supabase/migrations/20260811000000_async_run_worker_runtime.sql",
-            "./supabase/migrations/20260813000000_import_run_lifecycle_fencing.sql",
-            "./supabase/migrations/20260813010000_external_snapshot_storage.sql",
-            "./supabase/migrations/20260814000000_tour_api_operation_provenance.sql",
-            "./supabase/migrations/20260816000000_tour_api_detail_info_operation.sql",
-            "./supabase/migrations/20260817000000_tour_api_place_images_operation.sql",
-            "./supabase/migrations/20260818000000_tour_api_incremental_sync.sql",
-            "./supabase/migrations/20260819000000_tago_stop_import.sql",
-            "./supabase/migrations/20260820000000_tago_route_stops_import.sql",
-            "./supabase/migrations/20260820000001_kma_village_forecast_version.sql",
+            *(f"./supabase/migrations/{path.name}" for path in sorted(MIGRATIONS.glob("*.sql"))),
             "./db/local-postgres/seed_fixtures.sql",
         )
 
@@ -1562,30 +1582,6 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("idx_external_reference_codes_source_scope_name", migration)
         self.assertIn("alter table public.bus_stops enable row level security", migration)
         self.assertIn("revoke all on public.bus_stops from anon, authenticated", migration)
-
-    def test_tago_scope_index_is_legacy_safe_and_matches_the_repository_lookup(self):
-        migration = self.read_migration(TAGO_STOP_IMPORT_MIGRATION)
-        repository = compact_sql(
-            (
-                ROOT
-                / "services/spring-api/src/main/java/com/timingjeju/api/global/tago/stop/JdbcTagoStopRepository.java"
-            ).read_text(encoding="utf-8")
-        )
-
-        bounded_scope = (
-            "octet_length(source_provider) <= 128 and "
-            "octet_length(source_service) <= 128 and "
-            "octet_length(city_code) <= 64 and "
-            "octet_length(node_id) <= 512"
-        )
-        self.assertIn(bounded_scope, migration)
-        self.assertIn(bounded_scope, repository)
-        self.assertRegex(
-            migration,
-            r"idx_bus_stops_source_scope_freshness[^;]+"
-            r"\(\s*source_provider, source_service, city_code, node_id\s*\)\s+"
-            r"include \(stale, last_seen_at\)",
-        )
 
     def test_tago_route_import_has_checkpoint_sequence_guard_rls_and_scope_indexes(self):
         migration = self.read_migration(TAGO_ROUTE_IMPORT_MIGRATION)

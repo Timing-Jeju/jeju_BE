@@ -42,7 +42,7 @@ public final class TourApiDetailIntroClient implements DetailIntroSource {
     var request =
         new PlaceDetailHttpRequest(
             ExternalApiOperation.TOUR_DETAIL_INTRO,
-            "/detailIntro2",
+            "detailIntro2",
             query,
             ExternalApiResponseFormat.JSON);
     return new DetailSourceResponse(executor.execute(request), SnapshotPayloadFormat.JSON);

@@ -196,6 +196,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/016_tago_stop_import.sql \
   /docker-entrypoint-initdb.d/017_tago_route_stops_import.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
+  /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -360,6 +361,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/016_tago_stop_import.sql \
   /docker-entrypoint-initdb.d/017_tago_route_stops_import.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
+  /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

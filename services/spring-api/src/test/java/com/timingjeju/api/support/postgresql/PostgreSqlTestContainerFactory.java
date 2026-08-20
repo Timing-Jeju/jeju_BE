@@ -81,6 +81,13 @@ final class PostgreSqlTestContainerFactory {
     if (migrations.isEmpty()) {
       throw new IllegalStateException("Supabase canonical migration이 없습니다: " + migrationDirectory);
     }
+    for (int index = 1; index < migrations.size(); index++) {
+      String previous = migrations.get(index - 1).getFileName().toString().substring(0, 14);
+      String current = migrations.get(index).getFileName().toString().substring(0, 14);
+      if (previous.equals(current)) {
+        throw new IllegalStateException("Supabase migration timestamp가 중복됐습니다: " + current);
+      }
+    }
 
     List<Path> initScripts = new ArrayList<>(migrations.size() + 1);
     initScripts.add(authCompatibility);

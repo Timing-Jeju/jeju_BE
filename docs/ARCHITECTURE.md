@@ -88,7 +88,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마 → `20260730000000` 기본 무결성 → `20260730010000` 외부 적재 기반 → `20260730020000` 적재 일관성 → `20260730030000` 일정 일관성 → `20260730040000` import run 계보 보존 → `20260810000000` 변경 API 멱등성 registry → `20260811000000` async run worker runtime → `20260813000000` import run owner/fencing → `20260813010000` 외부 snapshot 저장 감사 → `20260814000000` TourAPI operation 계보 → `20260816000000` detailInfo2 complete sweep → `20260817000000` detailImage2 complete sweep 계보 → `20260818000000` areaBasedSyncList2 checkpoint seed 순서로 누적 적용합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재 뒤 `20260820000000` `#36` 노선-정류장 적재가 기본 선행이며, 통합 병합 시 `20260820000001` `#76` KMA 예보와 `20260821000000` `#39` 도착정보를 사이에 두고, 최종 `20260822000000` `#37` 관광지-정류장 후보 link와 `20260823000000` `#65` 추천 체류시간 정책을 순차 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -97,6 +97,14 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 ## 변경 API 멱등성 경계
 
 후속 생성·계산·적용 API는 [멱등성 application 계약](IDEMPOTENCY.md)의 `IdempotencyUseCase`를 통해서만 업무 변경을 실행합니다. application port는 Spring/JDBC에 의존하지 않고 `global.idempotency` adapter가 PostgreSQL registry와 트랜잭션을 연결합니다. 이 공통 기반 자체는 공개 endpoint를 추가하지 않습니다.
+
+## 추천 체류시간 정책 경계
+
+추천 체류시간은 TourAPI 원문이 아니라 앱 큐레이션입니다. `tour_places.recommended_stay_minutes`는 legacy read 호환으로만 남기며 신규 writer는 `place_stay_policy_versions`와 `place_stay_policies`만 변경합니다. 정책 import는 `tour_places`, snapshot/import run 계보와 외부 operation provenance를 수정하지 않습니다.
+
+운영 writer는 versioned CSV import command 하나입니다. application 계층은 파일·Spring·JDBC를 모르며 전체 payload의 version, effective time, minutes, XOR scope와 정규화 중복을 먼저 검증합니다. dry-run은 live category/place를 조회하되 쓰지 않습니다. 실제 publish는 advisory transaction lock과 expected-active-version CAS, 정렬된 target row의 `FOR UPDATE` 잠금·live 재검증을 한 transaction에서 수행하고, 성공한 경우에만 새 draft와 모든 policy를 저장한 뒤 이전 active를 retire하고 새 version을 active로 바꿉니다. 같은 version/hash replay만 no-op이고 검증과 publish 사이 target 변경, version/hash collision과 stale CAS는 이전 active를 유지한 채 거부합니다.
+
+목록과 상세 use case는 `StayPolicyResolver` 하나를 공유합니다. 단일 active snapshot에서 place override, category default 순으로 조회하며 둘 다 없으면 임의 숫자 대신 unavailable/null과 null provenance를 반환합니다.
 
 ## 공통 비동기 run 경계
 

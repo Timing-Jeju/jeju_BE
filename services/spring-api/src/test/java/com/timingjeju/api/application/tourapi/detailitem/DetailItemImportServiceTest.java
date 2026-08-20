@@ -36,7 +36,7 @@ class DetailItemImportServiceTest {
         new DetailItemImportService(
             (id, type, pageNo) -> response(),
             new RecordingSnapshotGateway(),
-            (format, payload, id, type) -> page("100", "12", 1, 100, 1, items("1")),
+            (format, payload, id, type) -> page("100", "12", 1, 1, 1, items("1")),
             repository,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
@@ -95,7 +95,7 @@ class DetailItemImportServiceTest {
       firstPage.add(item(Integer.toString(index), index));
     }
     pages.add(page("100", "12", 1, 100, 101, firstPage));
-    pages.add(page("100", "12", 2, 100, 101, items("101")));
+    pages.add(page("100", "12", 2, 1, 101, items("101")));
     List<Integer> requestedPages = new ArrayList<>();
     RecordingRepository repository = new RecordingRepository();
     var service =
@@ -119,6 +119,26 @@ class DetailItemImportServiceTest {
   }
 
   @Test
+  void 마지막_page가_부분page여도_요청한_총건수만큼_맞으면_통과한다() {
+    Queue<DetailItemPage> pages = new ArrayDeque<>();
+    pages.add(page("100", "12", 1, 100, 105, manyItems(100)));
+    pages.add(page("100", "12", 2, 5, 105, manyItems(101, 5)));
+    RecordingRepository repository = new RecordingRepository();
+    var service =
+        new DetailItemImportService(
+            (id, type, pageNo) -> response(),
+            new RecordingSnapshotGateway(),
+            (format, payload, id, type) -> pages.remove(),
+            repository,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+
+    service.importItems(new DetailItemImportCommand("100", "12", RUN));
+
+    assertThat(repository.command.batch().items()).hasSize(105);
+    assertThat(repository.command.sweep().expectedTotal()).isEqualTo(105);
+  }
+
+  @Test
   void parser는_network_response가_아니라_snapshot_gateway가_보존한_exact_bytes만_소비한다() {
     RecordingRepository repository = new RecordingRepository();
     byte[] networkPayload = "network raw page".getBytes(StandardCharsets.UTF_8);
@@ -132,7 +152,7 @@ class DetailItemImportServiceTest {
             snapshots,
             (format, payload, id, type) -> {
               parsedPayloads.add(payload);
-              return page("100", "12", 1, 100, 1, items("1"));
+              return page("100", "12", 1, 1, 1, items("1"));
             },
             repository,
             Clock.fixed(NOW, ZoneOffset.UTC));
@@ -218,13 +238,21 @@ class DetailItemImportServiceTest {
   }
 
   private static List<DetailItem> manyItems(int count) {
-    return java.util.stream.IntStream.rangeClosed(1, count)
+    return manyItems(1, count);
+  }
+
+  private static List<DetailItem> manyItems(int start, int count) {
+    return java.util.stream.IntStream.rangeClosed(start, start + count - 1)
         .mapToObj(index -> item(Integer.toString(index), index))
         .toList();
   }
 
   private static List<DetailItem> items(String key) {
     return List.of(item(key, 1));
+  }
+
+  private static List<DetailItem> items(String startKey, int count) {
+    return manyItems(Integer.parseInt(startKey), count);
   }
 
   private static DetailItem item(String key, int sequence) {

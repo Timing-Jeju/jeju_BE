@@ -169,6 +169,30 @@ class ExternalApiExecutorTest {
   }
 
   @Test
+  void 상대경로_앞의_슬래시는_거부한다() {
+    assertThatThrownBy(
+            () ->
+                ExternalApiRequest.get(
+                    ExternalApiOperation.TOUR_AREA_BASED_LIST,
+                    "/areaBasedList2",
+                    Map.of("_type", "json"),
+                    ExternalApiResponseFormat.JSON))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void type_쿼리는_json_만_허용한다() {
+    assertThatThrownBy(
+            () ->
+                ExternalApiRequest.get(
+                    ExternalApiOperation.TOUR_AREA_BASED_LIST,
+                    "areaBasedList2",
+                    Map.of("_type", "xml"),
+                    ExternalApiResponseFormat.JSON))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void content_type과_malformed_body를_원문_없이_분류한다() {
     Fixture type = new Fixture();
     type.transport.respond(

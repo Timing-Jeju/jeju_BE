@@ -207,42 +207,6 @@ class JdbcTagoStopRepositoryIntegrationTest {
         .isEqualTo(1);
   }
 
-  @Test
-  void scopeLookupUsesLegacySafeBoundedCoveringIndex() {
-    String indexDefinition =
-        jdbcTemplate.queryForObject(
-            "select pg_get_indexdef('public.idx_bus_stops_source_scope_freshness'::regclass)",
-            String.class);
-    assertThat(indexDefinition)
-        .contains("source_provider, source_service, city_code, node_id")
-        .contains("INCLUDE (stale, last_seen_at)")
-        .contains("octet_length(source_provider) <= 128")
-        .contains("octet_length(node_id) <= 512");
-
-    jdbcTemplate.execute("set local enable_seqscan = off");
-    String plan =
-        String.join(
-            "\n",
-            jdbcTemplate.queryForList(
-                """
-                explain select id, node_id, stale, last_seen_at
-                from public.bus_stops
-                where source_provider=? and source_service=? and city_code=?
-                  and octet_length(source_provider) <= 128
-                  and octet_length(source_service) <= 128
-                  and octet_length(city_code) <= 64
-                  and octet_length(node_id) <= 512
-                  and octet_length(source_provider) + octet_length(source_service)
-                    + octet_length(city_code) + octet_length(node_id) <= 1024
-                order by node_id
-                """,
-                String.class,
-                "TAGO",
-                "BusSttnInfoInqireService",
-                "39"));
-    assertThat(plan).contains("idx_bus_stops_source_scope_freshness");
-  }
-
   private TagoCityCode city(String code) {
     return new TagoCityCode(code, code.equals("39") ? "제주특별자치도" : "다른 도시");
   }

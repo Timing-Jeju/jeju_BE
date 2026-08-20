@@ -1219,4 +1219,36 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.place_stop_links'::regclass
+      and conname = 'ck_place_stop_links_lifecycle'
+  ) then
+    raise exception 'place_stop_links lifecycle check is missing';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_indexes
+    where schemaname = 'public'
+      and tablename = 'place_stop_links'
+      and indexname = 'idx_place_stop_links_eligible'
+      and indexdef ilike '%where%enabled%tombstoned_at%is null%'
+  ) then
+    raise exception 'place_stop_links eligible partial index is missing';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_class
+    where oid = 'public.place_stop_links'::regclass and relrowsecurity
+  ) or not exists (
+    select 1 from pg_catalog.pg_class
+    where oid = 'public.place_stop_link_scope_states'::regclass and relrowsecurity
+  ) then
+    raise exception 'place-stop link tables must enable RLS';
+  end if;
+end;
+$$;
+
 select 'schema_contract' as check_name, 'PASS' as result;
