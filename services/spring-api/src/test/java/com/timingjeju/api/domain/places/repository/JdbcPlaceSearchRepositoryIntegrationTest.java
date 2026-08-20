@@ -149,16 +149,24 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Test
   void PostGIS_radius는_정확한_경계를_포함하고_초과를_제외하며_GiST_plan을_사용한다() {
+    UUID tieA = UUID.fromString("32000000-0000-0000-0000-000000000019");
+    UUID tieB = UUID.fromString("32000000-0000-0000-0000-000000000020");
     UUID boundary = UUID.fromString("32000000-0000-0000-0000-000000000021");
     UUID outside = UUID.fromString("32000000-0000-0000-0000-000000000022");
-    insertProjectedPlace(boundary, 1_000.0);
-    insertProjectedPlace(outside, 1_000.1);
+    insertProjectedPlace(tieB, "동일거리", 500.0);
+    insertProjectedPlace(tieA, "동일거리", 500.0);
+    insertProjectedPlace(boundary, "경계", 1_000.0);
+    insertProjectedPlace(outside, "초과", 1_000.1);
     PlacesListQuery nearby =
         PlacesListQuery.of(null, "geo_test", "seongsan", 33.5, 126.5, 1_000, null, 20, false);
 
-    assertThat(repository.search(nearby, null, Optional.empty()))
+    List<PlaceSearchRow> rows = repository.search(nearby, null, Optional.empty());
+    assertThat(rows).extracting(PlaceSearchRow::placeId).containsExactly(tieA, tieB, boundary);
+    assertThat(
+            repository.search(
+                nearby, new PlaceSearchPosition(500L, "동일거리", tieA), Optional.empty()))
         .extracting(PlaceSearchRow::placeId)
-        .containsExactly(boundary);
+        .containsExactly(tieB, boundary);
 
     jdbc.execute("set local enable_seqscan=off");
     String plan =
@@ -248,7 +256,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         sourceDeletedAt == null ? null : Timestamp.from(sourceDeletedAt));
   }
 
-  private void insertProjectedPlace(UUID id, double meters) {
+  private void insertProjectedPlace(UUID id, String normalizedName, double meters) {
     jdbc.update(
         """
         insert into public.tour_places(
@@ -259,8 +267,8 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         """,
         id,
         "content-" + id,
-        "geo-" + id,
-        "geo-" + id,
+        normalizedName,
+        normalizedName,
         meters);
   }
 
