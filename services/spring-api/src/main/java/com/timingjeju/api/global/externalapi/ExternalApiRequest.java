@@ -91,7 +91,7 @@ public final class ExternalApiRequest {
         (name, value) -> {
           if (name == null
               || name.isBlank()
-              || (!("_type".equals(name)) && !SAFE_QUERY_NAME.matcher(name).matches())
+              || !("_type".equals(name) || SAFE_QUERY_NAME.matcher(name).matches())
               || "serviceKey".equalsIgnoreCase(name)
               || "appKey".equalsIgnoreCase(name)) {
             throw new IllegalArgumentException("외부 API query 이름이 허용되지 않습니다.");
