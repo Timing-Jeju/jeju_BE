@@ -181,7 +181,7 @@ class ExternalApiExecutorTest {
   }
 
   @Test
-  void type_쿼리는_json_만_허용한다() {
+  void type_쿼리는_json_만_허용하고_기타_query_name을_차단한다() {
     assertThatThrownBy(
             () ->
                 ExternalApiRequest.get(
@@ -189,7 +189,49 @@ class ExternalApiExecutorTest {
                     "areaBasedList2",
                     Map.of("_type", "xml"),
                     ExternalApiResponseFormat.JSON))
-        .isInstanceOf(IllegalArgumentException.class);
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("외부 API query는 허용되지 않습니다.");
+
+    assertThat(List.of("_private", "_type_", " serviceKey", "serviceKey", "appKey", "type?"))
+        .allSatisfy(
+            name ->
+                assertThatThrownBy(
+                        () ->
+                            ExternalApiRequest.get(
+                                ExternalApiOperation.TOUR_AREA_BASED_LIST,
+                                "areaBasedList2",
+                                Map.of(name, "value"),
+                                ExternalApiResponseFormat.JSON))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("외부 API query 이름이 허용되지 않습니다."));
+  }
+
+  @Test
+  void keyword_query_control_char는_허용되지_않는다() {
+    assertThatThrownBy(
+            () ->
+                ExternalApiRequest.get(
+                    ExternalApiOperation.TOUR_AREA_BASED_LIST,
+                    "areaBasedList2",
+                    Map.of("keyword", "제주\n바다"),
+                    ExternalApiResponseFormat.JSON))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("외부 API query는 허용되지 않습니다.");
+  }
+
+  @Test
+  void TourAPI_공식_type만_leading_underscore_query로_허용하고_나머지는_fail_closed한다() {
+    ExternalApiRequest request =
+        ExternalApiRequest.get(
+            ExternalApiOperation.TOUR_AREA_BASED_LIST,
+            "areaBasedList2",
+            Map.of("_type", "json", "keyword", "제주 바다"),
+            ExternalApiResponseFormat.JSON);
+
+    assertThat(request.queryParameters())
+        .containsEntry("_type", "json")
+        .containsEntry("keyword", "제주 바다");
+    assertThat(request.toString()).doesNotContain("json", "제주 바다", "keyword");
   }
 
   @Test

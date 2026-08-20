@@ -35,6 +35,9 @@ TOUR_API_INCREMENTAL_SYNC_MIGRATION = (
     MIGRATIONS / "20260818000000_tour_api_incremental_sync.sql"
 )
 TAGO_STOP_IMPORT_MIGRATION = MIGRATIONS / "20260819000000_tago_stop_import.sql"
+TOUR_API_DISCOVERY_MIGRATION = (
+    MIGRATIONS / "20260824000000_tourapi_discovery_import_checkpoints.sql"
+)
 TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_import.sql"
 KMA_FORECAST_MIGRATION = MIGRATIONS / "20260820000001_kma_village_forecast_version.sql"
 TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260821000000_tago_arrival_cache.sql"
@@ -105,7 +108,9 @@ class DatabaseHardeningTest(unittest.TestCase):
         ]
         versions = [name[:14] for name in migration_names]
 
-        self.assertTrue(set(baseline).issubset(migration_names))
+        required_migrations = set(baseline) | {"20260824000000_tourapi_discovery_import_checkpoints.sql"}
+        self.assertTrue(required_migrations.issubset(migration_names))
+
         self.assertEqual(sorted(migration_names), migration_names)
         self.assertEqual(len(versions), len(set(versions)), "migration timestamp가 중복됐습니다")
         self.assertLess(
@@ -119,6 +124,10 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertLess(
             migration_names.index("20260822000000_place_stop_postgis_links.sql"),
             migration_names.index("20260823000000_recommended_stay_policy.sql"),
+        )
+        self.assertLess(
+            migration_names.index("20260823000000_recommended_stay_policy.sql"),
+            migration_names.index("20260824000000_tourapi_discovery_import_checkpoints.sql"),
         )
         if KMA_FORECAST_MIGRATION.name in migration_names:
             self.assertLess(
@@ -145,11 +154,15 @@ class DatabaseHardeningTest(unittest.TestCase):
             )
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
-        ordered_mounts = (
+        migration_mounts = [
+            f"./supabase/migrations/{path.name}"
+            for path in sorted(MIGRATIONS.glob("*.sql"))
+        ]
+        ordered_mounts = [
             "./db/local-postgres/auth_compat.sql",
-            *(f"./supabase/migrations/{path.name}" for path in sorted(MIGRATIONS.glob("*.sql"))),
+            *migration_mounts,
             "./db/local-postgres/seed_fixtures.sql",
-        )
+        ]
 
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             contents = (ROOT / compose_name).read_text(encoding="utf-8")
@@ -160,6 +173,22 @@ class DatabaseHardeningTest(unittest.TestCase):
                     f"{compose_name}에 migration 또는 fixture mount가 누락됐습니다",
                 )
                 self.assertEqual(sorted(positions), positions)
+
+    def test_tourapi_discovery_import_seeds_checkpoints_and_keyword_lookup_index(self):
+        migration = self.read_migration(TOUR_API_DISCOVERY_MIGRATION)
+
+        for fragment in (
+            "insert into public.data_import_checkpoints",
+            "('locationbasedlist2')",
+            "('searchkeyword2')",
+            "('searchstay2')",
+            "scope_key, checkpoint, source_watermark_at",
+            "on conflict (source_provider, source_service, source_operation, scope_key) do nothing",
+            "create index idx_place_aliases_keyword_lookup_active",
+            "where alias_type = 'keyword' and tombstoned_at is null",
+        ):
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, migration)
 
     def test_external_snapshot_storage_has_redaction_size_retention_and_security_guards(self):
         migration = self.read_migration(SNAPSHOT_STORAGE_MIGRATION)
