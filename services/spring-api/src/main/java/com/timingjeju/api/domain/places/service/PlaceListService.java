@@ -8,6 +8,7 @@ import com.timingjeju.api.application.pagination.CursorInvalidException;
 import com.timingjeju.api.application.pagination.CursorPosition;
 import com.timingjeju.api.application.pagination.CursorSort;
 import com.timingjeju.api.application.staypolicy.RecommendedStay;
+import com.timingjeju.api.application.staypolicy.StayPolicyResolutionException;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
 import com.timingjeju.api.application.staypolicy.StayPolicySubject;
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
@@ -17,6 +18,7 @@ import com.timingjeju.api.domain.places.dto.response.PlaceListItem;
 import com.timingjeju.api.domain.places.dto.response.PlaceLocation;
 import com.timingjeju.api.domain.places.dto.response.PlacesListResponse;
 import com.timingjeju.api.domain.places.exception.PlaceListException;
+import com.timingjeju.api.domain.places.exception.PlaceSearchUnavailableException;
 import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
 import com.timingjeju.api.domain.places.model.PlaceSearchRow;
 import com.timingjeju.api.domain.places.repository.PlaceSearchRepository;
@@ -56,14 +58,24 @@ public class PlaceListService {
     }
     CursorContext context = context(query);
     PlaceSearchPosition after = decode(query, context);
-    List<PlaceSearchRow> fetched = repository.search(query, after, currentUserId);
+    List<PlaceSearchRow> fetched;
+    try {
+      fetched = repository.search(query, after, currentUserId);
+    } catch (PlaceSearchUnavailableException failure) {
+      throw dataUnavailable();
+    }
     boolean hasNext = fetched.size() > query.size();
     List<PlaceSearchRow> rows = hasNext ? fetched.subList(0, query.size()) : fetched;
-    Map<UUID, RecommendedStay> stays =
-        stayPolicyResolver.resolveAll(
-            rows.stream()
-                .map(row -> new StayPolicySubject(row.placeId(), row.category()))
-                .toList());
+    Map<UUID, RecommendedStay> stays;
+    try {
+      stays =
+          stayPolicyResolver.resolveAll(
+              rows.stream()
+                  .map(row -> new StayPolicySubject(row.placeId(), row.category()))
+                  .toList());
+    } catch (StayPolicyResolutionException failure) {
+      throw dataUnavailable();
+    }
     List<PlaceListItem> items =
         rows.stream()
             .map(
@@ -75,6 +87,10 @@ public class PlaceListService {
             ? cursorCodec.encode(context, cursorPosition(rows.getLast(), query.nearby()))
             : null;
     return new PlacesListResponse(items, new PlaceCursorPage(query.size(), hasNext, nextCursor));
+  }
+
+  private static PlaceListException dataUnavailable() {
+    return new PlaceListException("PLACE_DATA_UNAVAILABLE");
   }
 
   private CursorContext context(PlacesListQuery query) {

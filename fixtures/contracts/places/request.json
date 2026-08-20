@@ -7,7 +7,7 @@
       "path": "/api/v1/places",
       "query": {
         "query": "  성산  ",
-        "category": "tourist_attraction",
+        "category": "VE",
         "regionCode": "seongsan",
         "lat": 33.458111,
         "lng": 126.941516,

@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.places.dto.response;
 
+import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.List;
@@ -10,7 +11,7 @@ public record PlaceListItem(
     UUID placeId,
     String contentId,
     String name,
-    String category,
+    @Schema(pattern = CanonicalPlaceCategory.OPEN_API_PATTERN) String category,
     String regionCode,
     String regionLabel,
     String address,

@@ -35,7 +35,7 @@
     "contentId": "126435",
     "contentTypeId": "12",
     "name": "성산일출봉 [유네스코 세계자연유산]",
-    "category": "tourist_attraction",
+    "category": "VE",
     "fallbackStopKeywords": [
       "성산일출봉",
       "성산일출봉입구"
@@ -67,7 +67,7 @@
     "contentId": "127813",
     "contentTypeId": "12",
     "name": "섭지코지",
-    "category": "tourist_attraction",
+    "category": "VE",
     "fallbackStopKeywords": [
       "섭지코지",
       "신양리"

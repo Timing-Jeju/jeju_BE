@@ -1,5 +1,6 @@
 package com.timingjeju.api.application.staypolicy;
 
+import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Instant;
@@ -13,7 +14,6 @@ import java.util.regex.Pattern;
 public final class StayPolicyImportService {
 
   private static final Pattern VERSION = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
-  private static final Pattern CATEGORY = Pattern.compile("[A-Za-z0-9:_-]{1,64}");
   private static final int MIN_MINUTES = 5;
   private static final int MAX_MINUTES = 1_440;
   private static final int MAX_POLICIES = 10_000;
@@ -95,8 +95,7 @@ public final class StayPolicyImportService {
                   if (policy == null || policy.category() == null) {
                     return policy;
                   }
-                  String category =
-                      Normalizer.normalize(policy.category().strip(), Normalizer.Form.NFC);
+                  String category = Normalizer.normalize(policy.category(), Normalizer.Form.NFC);
                   return new StayPolicyCandidate(
                       policy.scope(), category, policy.placeId(), policy.minutes());
                 })
@@ -154,7 +153,7 @@ public final class StayPolicyImportService {
       }
       if (policy.scope() == StayPolicyScope.CATEGORY_DEFAULT
           && policy.category() != null
-          && !CATEGORY.matcher(policy.category()).matches()) {
+          && !CanonicalPlaceCategory.isValid(policy.category())) {
         violations.add("policy[" + index + "] category must be a canonical code");
       }
       if (policy.minutes() < MIN_MINUTES || policy.minutes() > MAX_MINUTES) {

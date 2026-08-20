@@ -67,7 +67,7 @@ class JdbcStayPolicyRepositoryIntegrationTest {
     insertPlace(OVERRIDE_PLACE, "VE", false, null, 77);
     insertPlace(CATEGORY_PLACE, "VE", false, null, 66);
     insertPlace(UNAVAILABLE_PLACE, "content-type:99", false, null, 55);
-    insertPlace(MUTATING_PLACE, "MUTABLE", false, null, 45);
+    insertPlace(MUTATING_PLACE, "AC", false, null, 45);
   }
 
   @AfterEach
@@ -159,12 +159,12 @@ class JdbcStayPolicyRepositoryIntegrationTest {
   void target_catalog는_live_category와_place만_인정하고_publish는_tour_place_lineage를_변경하지_않는다() {
     UUID stale = UUID.fromString("65000000-0000-0000-0000-000000000004");
     UUID tombstoned = UUID.fromString("65000000-0000-0000-0000-000000000005");
-    insertPlace(stale, "STALE", true, null, 44);
-    insertPlace(tombstoned, "DELETED", false, IMPORTED, 33);
+    insertPlace(stale, "FD", true, null, 44);
+    insertPlace(tombstoned, "EX", false, IMPORTED, 33);
 
     var targets =
         catalog.validateTargets(
-            Set.of("VE", "STALE", "DELETED"), Set.of(OVERRIDE_PLACE, stale, tombstoned));
+            Set.of("VE", "FD", "EX"), Set.of(OVERRIDE_PLACE, stale, tombstoned));
     String before = placeFingerprint(OVERRIDE_PLACE);
     store.publish(
         payload("v1", null, V1_EFFECTIVE, List.of(override(OVERRIDE_PLACE, 120))), IMPORTED);
@@ -235,15 +235,15 @@ class JdbcStayPolicyRepositoryIntegrationTest {
       throws Exception {
     StayPolicyCandidate candidate =
         mutation == TargetMutation.CATEGORY_CHANGE
-            ? category("MUTABLE", 90)
+            ? category("AC", 90)
             : override(MUTATING_PLACE, 90);
     var preflight =
         catalog.validateTargets(
-            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("MUTABLE") : Set.of(),
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("AC") : Set.of(),
             mutation == TargetMutation.CATEGORY_CHANGE ? Set.of() : Set.of(MUTATING_PLACE));
     assertThat(preflight.liveCategories())
         .containsExactlyElementsOf(
-            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("MUTABLE") : Set.of());
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("AC") : Set.of());
     assertThat(preflight.livePlaceIds())
         .containsExactlyElementsOf(
             mutation == TargetMutation.CATEGORY_CHANGE ? Set.of() : Set.of(MUTATING_PLACE));

@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.places.dto.request;
 
+import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import java.util.regex.Pattern;
 
 public record PlacesListQuery(
@@ -13,7 +14,6 @@ public record PlacesListQuery(
     int size,
     boolean savedOnly) {
 
-  private static final Pattern CATEGORY = Pattern.compile("^[a-z][a-z0-9_]{0,49}$");
   private static final Pattern REGION = Pattern.compile("^[a-z0-9][a-z0-9_-]{0,49}$");
   private static final int DEFAULT_SIZE = 20;
   private static final int DEFAULT_RADIUS_METERS = 10_000;
@@ -52,7 +52,7 @@ public record PlacesListQuery(
   private static void validateQuery(
       String query, String category, String regionCode, String cursor, int size) {
     if ((query != null && (query.isEmpty() || query.length() > 100))
-        || (category != null && !CATEGORY.matcher(category).matches())
+        || (category != null && !CanonicalPlaceCategory.isValid(category))
         || (regionCode != null && !REGION.matcher(regionCode).matches())
         || (cursor != null && (cursor.isEmpty() || cursor.length() > 2048))
         || size < 1

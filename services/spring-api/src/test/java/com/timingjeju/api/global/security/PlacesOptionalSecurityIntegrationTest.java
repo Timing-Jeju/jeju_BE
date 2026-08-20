@@ -15,6 +15,7 @@ import com.timingjeju.api.application.staypolicy.RecommendedStay;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
 import com.timingjeju.api.application.staypolicy.StayPolicySubject;
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
+import com.timingjeju.api.domain.places.exception.PlaceSearchUnavailableException;
 import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
 import com.timingjeju.api.domain.places.model.PlaceSearchRow;
 import com.timingjeju.api.domain.places.repository.PlaceSearchRepository;
@@ -28,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +65,11 @@ class PlacesOptionalSecurityIntegrationTest {
 
   @Autowired private MockMvc mvc;
   @Autowired private FakePlaceSearchRepository repository;
+
+  @BeforeEach
+  void resetRepository() {
+    repository.failure.set(null);
+  }
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -113,6 +120,27 @@ class PlacesOptionalSecurityIntegrationTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("INVALID_QUERY_PARAMETER"))
         .andExpect(jsonPath("$.fieldErrors").isArray());
+  }
+
+  @Test
+  void query는_trim후_길이1과_100을_MVC에서_허용한다() throws Exception {
+    mvc.perform(get("/api/v1/places").queryParam("query", "  가  ")).andExpect(status().isOk());
+    mvc.perform(get("/api/v1/places").queryParam("query", "  " + "가".repeat(100) + "  "))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void repository_typed_failure는_raw_message없이_traceId가_있는_503이다() throws Exception {
+    repository.failure.set(new PlaceSearchUnavailableException());
+
+    mvc.perform(get("/api/v1/places"))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.code").value("PLACE_DATA_UNAVAILABLE"))
+        .andExpect(
+            jsonPath("$.traceId").value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{32}")))
+        .andExpect(jsonPath("$.detail").value("잠시 후 다시 시도해 주세요."))
+        .andExpect(jsonPath("$.sql").doesNotExist())
+        .andExpect(jsonPath("$.message").doesNotExist());
   }
 
   private static String token(UUID userId) throws Exception {
@@ -170,10 +198,14 @@ class PlacesOptionalSecurityIntegrationTest {
   static final class FakePlaceSearchRepository implements PlaceSearchRepository {
     private final AtomicReference<Optional<UUID>> lastUser =
         new AtomicReference<>(Optional.empty());
+    private final AtomicReference<RuntimeException> failure = new AtomicReference<>();
 
     @Override
     public List<PlaceSearchRow> search(
         PlacesListQuery query, PlaceSearchPosition after, Optional<UUID> currentUserId) {
+      if (failure.get() != null) {
+        throw failure.get();
+      }
       lastUser.set(currentUserId);
       return List.of();
     }

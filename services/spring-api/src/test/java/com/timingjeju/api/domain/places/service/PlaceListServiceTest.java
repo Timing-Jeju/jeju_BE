@@ -10,10 +10,12 @@ import static org.mockito.Mockito.when;
 import com.timingjeju.api.application.pagination.CursorCodec;
 import com.timingjeju.api.application.staypolicy.RecommendedStay;
 import com.timingjeju.api.application.staypolicy.RecommendedStaySource;
+import com.timingjeju.api.application.staypolicy.StayPolicyResolutionException;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
 import com.timingjeju.api.domain.places.dto.response.PlacesListResponse;
 import com.timingjeju.api.domain.places.exception.PlaceListException;
+import com.timingjeju.api.domain.places.exception.PlaceSearchUnavailableException;
 import com.timingjeju.api.domain.places.model.PlaceSearchRow;
 import com.timingjeju.api.domain.places.repository.PlaceSearchRepository;
 import java.time.Instant;
@@ -121,13 +123,69 @@ class PlaceListServiceTest {
         .isEqualTo("INVALID_CURSOR");
   }
 
+  @Test
+  void repository와_stay_policy의_typed_failure만_PLACE_DATA_UNAVAILABLE로_변환한다() {
+    PlaceSearchRepository unavailableRepository = mock(PlaceSearchRepository.class);
+    StayPolicyResolver resolver = mock(StayPolicyResolver.class);
+    when(unavailableRepository.search(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()))
+        .thenThrow(new PlaceSearchUnavailableException());
+    PlaceListService repositoryFailure = service(unavailableRepository, resolver);
+
+    assertThatThrownBy(() -> repositoryFailure.list(query(), Optional.empty()))
+        .isInstanceOf(PlaceListException.class)
+        .extracting("code")
+        .isEqualTo("PLACE_DATA_UNAVAILABLE");
+
+    PlaceSearchRepository repository = mock(PlaceSearchRepository.class);
+    when(repository.search(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()))
+        .thenReturn(List.of(row(FIRST, "성산일출봉", false)));
+    when(resolver.resolveAll(anyList())).thenThrow(new StayPolicyResolutionException());
+
+    assertThatThrownBy(() -> service(repository, resolver).list(query(), Optional.empty()))
+        .isInstanceOf(PlaceListException.class)
+        .extracting("code")
+        .isEqualTo("PLACE_DATA_UNAVAILABLE");
+  }
+
+  @Test
+  void programmer_bug는_PLACE_DATA_UNAVAILABLE로_숨기지_않는다() {
+    PlaceSearchRepository repository = mock(PlaceSearchRepository.class);
+    when(repository.search(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()))
+        .thenThrow(new IllegalStateException("programmer bug"));
+
+    assertThatThrownBy(
+            () ->
+                service(repository, mock(StayPolicyResolver.class)).list(query(), Optional.empty()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("programmer bug");
+  }
+
+  private static PlaceListService service(
+      PlaceSearchRepository repository, StayPolicyResolver resolver) {
+    return new PlaceListService(
+        repository, resolver, CursorCodec.hmacSha256("test-only-place-cursor-key-32-bytes"));
+  }
+
+  private static PlacesListQuery query() {
+    return PlacesListQuery.of(null, null, null, null, null, null, null, 20, false);
+  }
+
   private static PlaceSearchRow row(UUID id, String name, boolean stale) {
     return new PlaceSearchRow(
         id,
         id.toString(),
         name,
         name,
-        "tourist_attraction",
+        "VE",
         "seongsan",
         "성산읍",
         "제주특별자치도",

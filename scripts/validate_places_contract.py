@@ -119,11 +119,11 @@ EXPECTED_SCHEMA_PROPERTIES = {
     },
 }
 EXPECTED_SCHEMA_DIGESTS = {
-    "PlacesListRequest": "fef973bbc757b4cd3c491e1187a4e9cdd8c537b44553ee5ba95899024f3aa90e",
+    "PlacesListRequest": "e10118c0d8fe0f6f4da2a210dbb5c9e9aa81e00eff53e5ce9fcd45718f520056",
     "PlaceDetailPath": "2c80be1c2604a34033256df7c54f900caf2e8d11bc80a67827bf8dc4ce44aa22",
     "Location": "5d545fbf900382f1c8259038886baf3925845243a8ac6de18165a25afaabc38a",
     "DataFreshness": "132bfa40d554d4cd63bc3e5ad57af66881f61946c97f4505af5bf022d7832321",
-    "PlaceListItem": "22bd46a53dd7267c7fb6a290aad52653750f65931bb5a1f7178509d9585d328d",
+    "PlaceListItem": "d9177a3629b49001b3d0ff8c2966e53ffb61295d9b48362de6174055125840cb",
     "CursorPage": "86db2725e30ba15baae804f4844b8e3aea6650ba0f029a03c5151e20f2b91efb",
     "PlacesListResponse": "a26ed8eb8b7fd70d23df5be2357cbbcfd3d5318342e7714f9854eed20b0a55b7",
     "SavedPlaceState": "fa15ccc8bd4177995c3525ed02a6d08914ac810f984ec57e686bd467874d116b",
@@ -131,7 +131,7 @@ EXPECTED_SCHEMA_DIGESTS = {
     "Operations": "4f32334aba9cd22586cfad076e7fef6005bbae089436dbb286523a6c0d844960",
     "PlaceImage": "f414a74fac5626c9c8f68e6a4629c6c97980be973e3f017c09c2b69cd25c102e",
     "NearbyStop": "e25fbd42367a7feca16d141112df511633190aebcff900b5a95631b441e71049",
-    "PlaceDetailResponse": "415654a6120ebd4c958dbf0e47206327355defbcea2fa909b4427a07f6300744",
+    "PlaceDetailResponse": "45079c2680cf21e2a365429de2f65ec722783e664d83f1d2a0e9db7710fde3c9",
     "FieldError": "5fb09356a2a56dfab89fa6a47fa5eb2498bfb4faa42f567810b4430cd301fddc",
     "ProblemDetails": "c25c20be66d088f93b5b196c0e4a4dd16c3f90593b9045d425a24240a86903ac",
 }

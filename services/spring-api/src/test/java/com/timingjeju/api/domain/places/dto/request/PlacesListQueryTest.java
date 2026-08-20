@@ -28,17 +28,28 @@ class PlacesListQueryTest {
   @Test
   void 검색어는_trim하고_size와_radius의_양끝_경계를_허용한다() {
     PlacesListQuery minimum =
-        PlacesListQuery.of(
-            "  성산  ", "tourist_attraction", "seongsan", 33.45, 126.94, 100, null, 1, true);
+        PlacesListQuery.of("  성산  ", "VE", "seongsan", 33.45, 126.94, 100, null, 1, true);
     PlacesListQuery maximum =
         PlacesListQuery.of(
-            "성산", "tourist_attraction", "seongsan", 33.45, 126.94, 50_000, null, 100, false);
+            "성산", "content-type:99", "seongsan", 33.45, 126.94, 50_000, null, 100, false);
 
     assertThat(minimum.query()).isEqualTo("성산");
     assertThat(minimum.size()).isEqualTo(1);
     assertThat(minimum.radiusMeters()).isEqualTo(100);
     assertThat(maximum.size()).isEqualTo(100);
     assertThat(maximum.radiusMeters()).isEqualTo(50_000);
+  }
+
+  @Test
+  void trim한_query의_정확한_길이_1과_100을_허용한다() {
+    PlacesListQuery minimum =
+        PlacesListQuery.of("  가  ", null, null, null, null, null, null, 20, false);
+    PlacesListQuery maximum =
+        PlacesListQuery.of(
+            "  " + "가".repeat(100) + "  ", null, null, null, null, null, null, 20, false);
+
+    assertThat(minimum.query()).isEqualTo("가");
+    assertThat(maximum.query()).hasSize(100);
   }
 
   @ParameterizedTest
@@ -66,7 +77,10 @@ class PlacesListQueryTest {
     return Stream.of(
         Arguments.of("   ", null, null, 20),
         Arguments.of("가".repeat(101), null, null, 20),
-        Arguments.of(null, "Tourist", null, 20),
+        Arguments.of(null, "tourist_attraction", null, 20),
+        Arguments.of(null, " VE ", null, 20),
+        Arguments.of(null, "VE\n", null, 20),
+        Arguments.of(null, "API_KEY", null, 20),
         Arguments.of(null, null, "JEJU!", 20),
         Arguments.of(null, null, null, 0),
         Arguments.of(null, null, null, 101));

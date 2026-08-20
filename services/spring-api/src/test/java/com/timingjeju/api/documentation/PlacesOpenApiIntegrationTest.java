@@ -49,6 +49,21 @@ class PlacesOpenApiIntegrationTest {
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='size')].schema.maximum")
                 .value(100))
         .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/places'].get.parameters[?(@.name=='query')].schema.minLength")
+                .value(1))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/places'].get.parameters[?(@.name=='query')].schema.maxLength")
+                .value(100))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/places'].get.parameters[?(@.name=='category')].schema.pattern")
+                .value("^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"))
+        .andExpect(
+            jsonPath("$.components.schemas.PlaceListItem.properties.category.pattern")
+                .value("^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"))
+        .andExpect(
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].required")
                 .value(false))
         .andExpect(

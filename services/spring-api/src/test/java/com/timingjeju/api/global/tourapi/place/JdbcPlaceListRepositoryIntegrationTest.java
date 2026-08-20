@@ -111,6 +111,30 @@ class JdbcPlaceListRepositoryIntegrationTest {
   }
 
   @Test
+  void 실제_writer는_lclsSystm1을_trim_uppercase하고_없으면_contentTypeId로_fallback한다() {
+    repository.upsert(
+        new PlaceListUpsertCommand(
+            List.of(
+                write(
+                    placeWithCategory("100", "writer code", "12", " ve "),
+                    RUN,
+                    SNAPSHOT,
+                    HASH,
+                    NOW),
+                write(
+                    placeWithCategory("101", "writer fallback", "99", null),
+                    RUN,
+                    SNAPSHOT,
+                    HASH,
+                    NOW))));
+
+    assertThat(
+            jdbcTemplate.queryForList(
+                "select category from public.tour_places order by content_id", String.class))
+        .containsExactly("VE", "content-type:99");
+  }
+
+  @Test
   void 한_batch의_duplicate_contentid도_장소행을_중복생성하지_않는다() {
     PlaceListWrite write = write(place("100", "성산일출봉"), RUN, SNAPSHOT, HASH, NOW);
 
@@ -543,9 +567,14 @@ class JdbcPlaceListRepositoryIntegrationTest {
   }
 
   private static TourPlace place(String contentId, String title) {
+    return placeWithCategory(contentId, title, "12", "VE");
+  }
+
+  private static TourPlace placeWithCategory(
+      String contentId, String title, String contentTypeId, String lclsSystm1) {
     return new TourPlace(
         contentId,
-        "12",
+        contentTypeId,
         title,
         126.941516,
         33.458111,
@@ -555,7 +584,7 @@ class JdbcPlaceListRepositoryIntegrationTest {
         "https://images.example.test/thumb.jpg",
         "50",
         "50130",
-        "VE",
+        lclsSystm1,
         "VE01",
         "VE0101",
         NOW.minusSeconds(60));

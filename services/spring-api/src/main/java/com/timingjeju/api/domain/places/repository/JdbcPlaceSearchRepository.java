@@ -1,6 +1,7 @@
 package com.timingjeju.api.domain.places.repository;
 
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
+import com.timingjeju.api.domain.places.exception.PlaceSearchUnavailableException;
 import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
 import com.timingjeju.api.domain.places.model.PlaceSearchRow;
 import java.sql.Array;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -118,7 +120,11 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
         parameters.addValue("afterDistance", after.distanceMeters());
       }
     }
-    return jdbc.query(sql, parameters, this::map);
+    try {
+      return jdbc.query(sql, parameters, this::map);
+    } catch (DataAccessException failure) {
+      throw new PlaceSearchUnavailableException();
+    }
   }
 
   private static String keysetClause(boolean nearby, PlaceSearchPosition after) {

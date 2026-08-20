@@ -1,8 +1,10 @@
 package com.timingjeju.api.domain.places.controller.docs;
 
 import com.timingjeju.api.domain.places.dto.response.PlacesListResponse;
+import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import com.timingjeju.api.global.error.ApiProblemDetails;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -54,8 +56,8 @@ public interface PlacesApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   PlacesListResponse list(
-      @Size(min = 1, max = 100) String query,
-      @Pattern(regexp = "^[a-z][a-z0-9_]{0,49}$") String category,
+      @Parameter(schema = @Schema(minLength = 1, maxLength = 100)) String query,
+      @Pattern(regexp = CanonicalPlaceCategory.OPEN_API_PATTERN) String category,
       @Pattern(regexp = "^[a-z0-9][a-z0-9_-]{0,49}$") String regionCode,
       @DecimalMin("33.0") @DecimalMax("34.0") Double lat,
       @DecimalMin("126.0") @DecimalMax("127.0") Double lng,

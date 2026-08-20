@@ -1,6 +1,9 @@
 package com.timingjeju.api.domain.places.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
 import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
@@ -14,8 +17,11 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
 
+@AutoConfigureMockMvc
 class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryIntegrationTestSupport {
 
   private static final UUID USER_A = UUID.fromString("32000000-0000-0000-0000-000000000001");
@@ -27,41 +33,31 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Autowired private JdbcPlaceSearchRepository repository;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private MockMvc mvc;
 
   @BeforeEach
   void setUp() {
     insertUser(USER_A);
     insertUser(USER_B);
+    insertPlace(PLACE_A, "content-a", "성산일출봉", "성산일출봉", "VE", "seongsan", 126.5, 33.5, false, null);
+    insertPlace(PLACE_B, "content-b", "성산_해변", "성산_해변", "VE", "seongsan", 126.51, 33.5, true, null);
     insertPlace(
-        PLACE_A,
-        "content-a",
-        "성산일출봉",
-        "성산일출봉",
-        "tourist_attraction",
-        "seongsan",
-        126.5,
+        PLACE_C,
+        "content-c",
+        "카페 100%",
+        "카페 100%",
+        "content-type:99",
+        "jeju-si",
+        126.52,
         33.5,
         false,
         null);
-    insertPlace(
-        PLACE_B,
-        "content-b",
-        "성산_해변",
-        "성산_해변",
-        "tourist_attraction",
-        "seongsan",
-        126.51,
-        33.5,
-        true,
-        null);
-    insertPlace(
-        PLACE_C, "content-c", "카페 100%", "카페 100%", "cafe", "jeju-si", 126.52, 33.5, false, null);
     insertPlace(
         DELETED,
         "content-deleted",
         "삭제 장소",
         "삭제 장소",
-        "tourist_attraction",
+        "VE",
         "seongsan",
         126.5,
         33.5,
@@ -103,13 +99,40 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         "insert into public.place_details(place_id,operating_hours_text,closed_days_text,source_provider,source_service) values (?, '09:00~18:00', '월요일', 'fixture', 'places-test')",
         PLACE_A);
 
-    List<PlaceSearchRow> rows = search(null, "tourist_attraction", "seongsan", Optional.empty());
+    List<PlaceSearchRow> rows = search(null, "VE", "seongsan", Optional.empty());
 
     assertThat(rows).extracting(PlaceSearchRow::placeId).containsExactly(PLACE_A, PLACE_B);
     assertThat(rows.getFirst().thumbnailUrl()).isEqualTo("https://images.example.test/first.jpg");
     assertThat(rows.getFirst().operationsSummary()).isEqualTo("09:00~18:00 · 월요일");
     assertThat(rows.get(1).stale()).isTrue();
     assertThat(rows).extracting(PlaceSearchRow::placeId).doesNotContain(DELETED);
+  }
+
+  @Test
+  void 실제_GET은_canonical_category_exact_filter와_stay_policy를_함께_투영한다() throws Exception {
+    Instant effectiveAt = Instant.parse("2026-08-20T01:00:00Z");
+    Instant importedAt = Instant.parse("2026-08-20T01:00:05Z");
+    jdbc.update(
+        "insert into public.place_stay_policy_versions(version,status,payload_hash,effective_at,imported_at) values ('places-v1','active',repeat('a',64),?,?)",
+        Timestamp.from(effectiveAt),
+        Timestamp.from(importedAt));
+    jdbc.update(
+        "insert into public.place_stay_policies(version,scope,category,minutes,source,updated_at) values ('places-v1','category_default','VE',90,'app_curation',?)",
+        Timestamp.from(importedAt));
+
+    mvc.perform(get("/api/v1/places").queryParam("category", "VE"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(2))
+        .andExpect(jsonPath("$.items[0].category").value("VE"))
+        .andExpect(jsonPath("$.items[0].recommendedStayMinutes").value(90))
+        .andExpect(jsonPath("$.items[0].recommendedStaySource").value("category_default"))
+        .andExpect(jsonPath("$.items[0].recommendedStayPolicyVersion").value("places-v1"));
+
+    mvc.perform(get("/api/v1/places").queryParam("category", "content-type:99"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(1))
+        .andExpect(jsonPath("$.items[0].category").value("content-type:99"))
+        .andExpect(jsonPath("$.items[0].recommendedStaySource").value("unavailable"));
   }
 
   @Test
@@ -162,7 +185,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
     insertProjectedPlace(boundary, "경계", 999.999);
     insertProjectedPlace(outside, "초과", 1_000.1);
     PlacesListQuery nearby =
-        PlacesListQuery.of(null, "geo_test", "seongsan", 33.5, 126.5, 1_000, null, 20, false);
+        PlacesListQuery.of(null, "AC", "seongsan", 33.5, 126.5, 1_000, null, 20, false);
 
     List<PlaceSearchRow> rows = repository.search(nearby, null, Optional.empty());
     assertThat(rows).extracting(PlaceSearchRow::placeId).containsExactly(tieA, tieB, boundary);
@@ -185,8 +208,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
   @Test
   void 동일이름_keyset은_tie_placeId로_경계삽입에도_중복없이_진행한다() {
     PlacesListQuery firstQuery =
-        PlacesListQuery.of(
-            null, "tourist_attraction", "seongsan", null, null, null, null, 1, false);
+        PlacesListQuery.of(null, "VE", "seongsan", null, null, null, null, 1, false);
     List<PlaceSearchRow> first = repository.search(firstQuery, null, Optional.empty());
     PlaceSearchRow item = first.getFirst();
     UUID insertedBefore = UUID.fromString("32000000-0000-0000-0000-000000000010");
@@ -195,7 +217,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         "content-new",
         "성산일출봉",
         "성산일출봉",
-        "tourist_attraction",
+        "VE",
         "seongsan",
         126.49,
         33.5,
@@ -265,7 +287,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         """
         insert into public.tour_places(
           id,content_id,name,normalized_name,category,region_code,location,source_provider,source_service)
-        values (?, ?, ?, ?, 'geo_test','seongsan',
+        values (?, ?, ?, ?, 'AC','seongsan',
           ST_Project(ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography,?,radians(90)),
           'fixture','places-test')
         """,
