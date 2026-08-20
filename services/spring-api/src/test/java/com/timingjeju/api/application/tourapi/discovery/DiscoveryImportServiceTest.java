@@ -48,6 +48,9 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @Tag("unit")
 class DiscoveryImportServiceTest {
@@ -179,6 +182,24 @@ class DiscoveryImportServiceTest {
     assertThat(runs.finishStatus).isNull();
   }
 
+  @ParameterizedTest
+  @ValueSource(ints = {10, 100})
+  void succeeded_replay의_pageCount는_십진수_끝자리_0이_있는_정수도_허용한다(int pageCount) {
+    DiscoveryImportResult result = replayWithPageCount(pageCount);
+
+    assertThat(result.replayed()).isTrue();
+    assertThat(result.pageCount()).isEqualTo(pageCount);
+  }
+
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"0", "101", "1.5"})
+  void succeeded_replay의_pageCount가_누락되거나_범위밖이거나_소수면_실패한다(Object pageCount) {
+    assertThatThrownBy(() -> replayWithPageCount(pageCount))
+        .isInstanceOf(DiscoveryImportException.class)
+        .hasMessageContaining("응답 계약");
+  }
+
   @Test
   void
       running_failed_partial_cancelled_replay는_fetch나_parser_snapshot_normalized_write를_재실행하지_않고_실패한다() {
@@ -279,6 +300,24 @@ class DiscoveryImportServiceTest {
         new SnapshotStoreService(snapshots, new SafeRedactor(), CLOCK, ids::remove);
     return new DiscoveryImportService(
         source, parser, committer, runService, checkpointService, snapshotService, CLOCK);
+  }
+
+  private static DiscoveryImportResult replayWithPageCount(Object pageCount) {
+    FakeRunStore runs =
+        new FakeRunStore(true, ImportRunExecutionStatus.SUCCEEDED, ImportRunCounts.zero());
+    FakeCheckpointRepository checkpoints = new FakeCheckpointRepository(RUN, pageCount);
+    return service(
+            runs,
+            new FakeSnapshotStore(),
+            (command, page) -> {
+              throw new AssertionError("fetch 호출 금지");
+            },
+            (operation, format, payload) -> {
+              throw new AssertionError("parser 호출 금지");
+            },
+            new FakeRepository(new PlaceListUpsertResult(0, 0, 0)),
+            checkpoints)
+        .importCandidates(DiscoveryImportCommand.location(126.5, 33.5, 500, 1, "replay"));
   }
 
   private static PlaceListSourceResponse response(int page) {
@@ -401,7 +440,7 @@ class DiscoveryImportServiceTest {
 
   private static final class FakeCheckpointRepository implements ImportCheckpointRepository {
     private final UUID lastSucceededRunId;
-    private final int pageCount;
+    private final Object pageCount;
     private ImportCheckpoint checkpoint;
     private int advanceCalls;
 
@@ -409,7 +448,7 @@ class DiscoveryImportServiceTest {
       this(null, 0);
     }
 
-    private FakeCheckpointRepository(UUID lastSucceededRunId, int pageCount) {
+    private FakeCheckpointRepository(UUID lastSucceededRunId, Object pageCount) {
       this.lastSucceededRunId = lastSucceededRunId;
       this.pageCount = pageCount;
     }
@@ -417,14 +456,12 @@ class DiscoveryImportServiceTest {
     @Override
     public Optional<ImportCheckpoint> find(ImportRunScope scope) {
       if (checkpoint == null || !checkpoint.scope().equals(scope)) {
-        checkpoint =
-            new ImportCheckpoint(
-                scope,
-                Map.of("manifest", "uninitialized", "pageCount", pageCount),
-                Instant.EPOCH,
-                lastSucceededRunId,
-                0,
-                NOW);
+        Map<String, Object> value = new java.util.HashMap<>();
+        value.put("manifest", "uninitialized");
+        if (pageCount != null) {
+          value.put("pageCount", pageCount);
+        }
+        checkpoint = new ImportCheckpoint(scope, value, Instant.EPOCH, lastSucceededRunId, 0, NOW);
       }
       return Optional.of(checkpoint);
     }

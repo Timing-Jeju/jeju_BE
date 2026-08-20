@@ -51,6 +51,7 @@ public final class DiscoveryImportService {
   private static final String SERVICE = "KorService2";
   private static final String PARSER_VERSION = "tourapi-discovery-v1";
   private static final int MAX_PAGE_ATTEMPTS = 3;
+  private static final int MAX_PAGE_COUNT = 100;
 
   private final DiscoverySource source;
   private final DiscoveryParser parser;
@@ -195,15 +196,11 @@ public final class DiscoveryImportService {
   private static int pageCount(ImportCheckpoint checkpoint) {
     Object value = checkpoint.checkpoint().get("pageCount");
     try {
-      BigDecimal normalized = new BigDecimal(value.toString()).stripTrailingZeros();
-      if (normalized.scale() != 0) {
+      int pageCount = new BigDecimal(value.toString()).intValueExact();
+      if (pageCount < 1 || pageCount > MAX_PAGE_COUNT) {
         throw DiscoveryImportException.invalidResponse();
       }
-      long pageCount = normalized.longValueExact();
-      if (pageCount < 0 || pageCount > Integer.MAX_VALUE) {
-        throw DiscoveryImportException.invalidResponse();
-      }
-      return (int) pageCount;
+      return pageCount;
     } catch (RuntimeException failure) {
       throw DiscoveryImportException.invalidResponse();
     }
