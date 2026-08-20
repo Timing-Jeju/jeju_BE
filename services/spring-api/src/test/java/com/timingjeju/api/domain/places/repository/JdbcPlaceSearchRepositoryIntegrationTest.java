@@ -66,7 +66,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         false,
         Instant.now());
     jdbc.update(
-        "insert into public.place_aliases(place_id,alias,normalized_alias,alias_type) values (?,?,?,'keyword')",
+        "insert into public.place_aliases(place_id,alias,normalized_alias,alias_type) values (?,?,?,'user_query')",
         PLACE_A,
         "일출 명소",
         "일출 명소");
@@ -148,14 +148,16 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
   }
 
   @Test
-  void PostGIS_radius는_정확한_경계를_포함하고_초과를_제외하며_GiST_plan을_사용한다() {
+  void PostGIS_radius는_spheroid_epsilon_안쪽을_포함하고_바깥쪽을_제외하며_GiST_plan을_사용한다() {
     UUID tieA = UUID.fromString("32000000-0000-0000-0000-000000000019");
     UUID tieB = UUID.fromString("32000000-0000-0000-0000-000000000020");
     UUID boundary = UUID.fromString("32000000-0000-0000-0000-000000000021");
     UUID outside = UUID.fromString("32000000-0000-0000-0000-000000000022");
     insertProjectedPlace(tieB, "동일거리", 500.0);
     insertProjectedPlace(tieA, "동일거리", 500.0);
-    insertProjectedPlace(boundary, "경계", 1_000.0);
+    // ST_Project/ST_DWithin spheroid calculations can differ by sub-millimeter rounding. Verify
+    // the inclusive predicate with a stable pair immediately inside/outside the 1,000 m edge.
+    insertProjectedPlace(boundary, "경계", 999.999);
     insertProjectedPlace(outside, "초과", 1_000.1);
     PlacesListQuery nearby =
         PlacesListQuery.of(null, "geo_test", "seongsan", 33.5, 126.5, 1_000, null, 20, false);
