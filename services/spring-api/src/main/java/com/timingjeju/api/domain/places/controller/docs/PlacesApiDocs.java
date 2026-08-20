@@ -7,6 +7,8 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
@@ -55,8 +57,8 @@ public interface PlacesApiDocs {
       @Size(min = 1, max = 100) String query,
       @Pattern(regexp = "^[a-z][a-z0-9_]{0,49}$") String category,
       @Pattern(regexp = "^[a-z0-9][a-z0-9_-]{0,49}$") String regionCode,
-      Double lat,
-      Double lng,
+      @DecimalMin("33.0") @DecimalMax("34.0") Double lat,
+      @DecimalMin("126.0") @DecimalMax("127.0") Double lng,
       @Min(100) @Max(50000) Integer radiusMeters,
       @Size(min = 1, max = 2048) String cursor,
       @Min(1) @Max(100) Integer size,

@@ -28,7 +28,9 @@ Green이었고, 남은 1건은 geography `ST_Project`와 `ST_DWithin`의 sub-mil
 self-review에서는 PM 결정과 production이 제주 bounding box를 사용하지만 canonical #83
 contract/validator가 전지구 범위를 유지한 불일치를 발견했다. validator 기대값을 먼저
 `lat 33..34`, `lng 126..127`로 바꿔 `lat/lng/radiusMeters 범위와 조합 계약이 다릅니다` Red를
-확인한 뒤 JSON/Markdown 계약을 같은 범위로 동기화했다.
+확인한 뒤 JSON/Markdown 계약을 같은 범위로 동기화했다. generated OpenAPI에도 bbox가
+누락된 Red를 추가로 확인하고 optional parameter를 유지한 `DecimalMin/DecimalMax` 제약으로
+계약과 맞췄다.
 
 ## 검색·보안·데이터 경계
 

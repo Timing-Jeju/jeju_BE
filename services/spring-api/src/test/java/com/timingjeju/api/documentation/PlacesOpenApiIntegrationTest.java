@@ -48,6 +48,24 @@ class PlacesOpenApiIntegrationTest {
         .andExpect(
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='size')].schema.maximum")
                 .value(100))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].required")
+                .value(false))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.minimum")
+                .value(33.0))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.maximum")
+                .value(34.0))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].required")
+                .value(false))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.minimum")
+                .value(126.0))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.maximum")
+                .value(127.0))
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['401']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['403']").doesNotExist())
