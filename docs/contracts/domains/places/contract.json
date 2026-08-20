@@ -14,8 +14,8 @@
         "query": {"type": "string", "nullable": false, "normalization": "trim", "minLength": 1, "maxLength": 100},
         "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
         "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
-        "lat": {"type": "number", "nullable": false, "minimum": -90, "maximum": 90},
-        "lng": {"type": "number", "nullable": false, "minimum": -180, "maximum": 180},
+        "lat": {"type": "number", "nullable": false, "minimum": 33, "maximum": 34},
+        "lng": {"type": "number", "nullable": false, "minimum": 126, "maximum": 127},
         "radiusMeters": {"type": "integer", "nullable": false, "minimum": 100, "maximum": 50000},
         "cursor": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 2048},
         "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100},
@@ -243,15 +243,15 @@
         "lat": {
           "required": false,
           "nullable": false,
-          "minimum": -90,
-          "maximum": 90,
+          "minimum": 33,
+          "maximum": 34,
           "pairedWith": "lng"
         },
         "lng": {
           "required": false,
           "nullable": false,
-          "minimum": -180,
-          "maximum": 180,
+          "minimum": 126,
+          "maximum": 127,
           "pairedWith": "lat"
         },
         "radiusMeters": {

@@ -119,7 +119,7 @@ EXPECTED_SCHEMA_PROPERTIES = {
     },
 }
 EXPECTED_SCHEMA_DIGESTS = {
-    "PlacesListRequest": "5a3447f60fdd4956facb230d4b4a8fede2d76f6fd0be5ee5ca5ab441e8eec0bd",
+    "PlacesListRequest": "fef973bbc757b4cd3c491e1187a4e9cdd8c537b44553ee5ba95899024f3aa90e",
     "PlaceDetailPath": "2c80be1c2604a34033256df7c54f900caf2e8d11bc80a67827bf8dc4ce44aa22",
     "Location": "5d545fbf900382f1c8259038886baf3925845243a8ac6de18165a25afaabc38a",
     "DataFreshness": "132bfa40d554d4cd63bc3e5ad57af66881f61946c97f4505af5bf022d7832321",
@@ -544,11 +544,11 @@ def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
         query.get("radiusMeters", {}),
     )
     valid_geo = (
-        geo[0].get("minimum") == -90
-        and geo[0].get("maximum") == 90
+        geo[0].get("minimum") == 33
+        and geo[0].get("maximum") == 34
         and geo[0].get("pairedWith") == "lng"
-        and geo[1].get("minimum") == -180
-        and geo[1].get("maximum") == 180
+        and geo[1].get("minimum") == 126
+        and geo[1].get("maximum") == 127
         and geo[1].get("pairedWith") == "lat"
         and geo[2].get("minimum") == 100
         and geo[2].get("maximum") == 50000
