@@ -126,6 +126,25 @@ class ArchitectureTest {
   }
 
   @Test
+  void TourAPI_discovery_application은_Spring_global_adapter와_공개_Controller에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.tourapi.discovery..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global..")
+        .allowEmptyShould(false)
+        .check(classes);
+    noClasses()
+        .that()
+        .resideInAnyPackage("..application.tourapi.discovery..", "..global.tourapi.discovery..")
+        .should()
+        .beAnnotatedWith(RestController.class)
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void 소셜_로그인_domain은_Spring_Security나_global_보안_구현에_의존하지_않는다() {
     noClasses()
         .that()
