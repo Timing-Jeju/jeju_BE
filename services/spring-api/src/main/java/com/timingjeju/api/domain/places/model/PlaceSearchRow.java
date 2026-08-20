@@ -1,4 +1,4 @@
-package com.timingjeju.api.domain.places.repository;
+package com.timingjeju.api.domain.places.model;
 
 import java.time.Instant;
 import java.util.List;

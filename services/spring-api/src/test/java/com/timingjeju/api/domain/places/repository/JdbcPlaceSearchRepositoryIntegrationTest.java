@@ -3,6 +3,8 @@ package com.timingjeju.api.domain.places.repository;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
+import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
+import com.timingjeju.api.domain.places.model.PlaceSearchRow;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
 import java.sql.Timestamp;
 import java.time.Instant;

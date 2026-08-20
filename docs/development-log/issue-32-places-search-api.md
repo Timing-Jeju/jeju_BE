@@ -54,6 +54,11 @@ contract/validator가 전지구 범위를 유지한 불일치를 발견했다. v
 - 기존 live demo 3개와 FaithLog backend/Postgres/Redis 보존 확인
 - normal hook의 secret scan, production/test pairing, Spotless, unitTest 성공
 
+첫 Spring `clean check`는 929 tests 중 동작 실패 없이 ArchUnit package naming 1건만 Red였고
+7개가 환경 조건으로 skip됐다. 예외를 `..places.exception..`, repository port의 position/row
+값 객체를 `..places.model..`로 이동해 역할 package를 정렬했으며 focused Architecture와 관련
+places unit/security/controller 21개를 Green으로 확인했다.
+
 ## 남은 완료 조건
 
 - shared slot에서 Spring `clean check`, repository quality gate, Docker smoke를 직렬 실행한다.

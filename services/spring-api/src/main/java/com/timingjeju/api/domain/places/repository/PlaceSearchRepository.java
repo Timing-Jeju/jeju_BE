@@ -1,6 +1,8 @@
 package com.timingjeju.api.domain.places.repository;
 
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
+import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
+import com.timingjeju.api.domain.places.model.PlaceSearchRow;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;

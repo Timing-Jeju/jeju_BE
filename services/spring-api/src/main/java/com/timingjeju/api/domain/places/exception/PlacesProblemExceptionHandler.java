@@ -2,7 +2,6 @@ package com.timingjeju.api.domain.places.exception;
 
 import com.timingjeju.api.domain.places.controller.PlacesController;
 import com.timingjeju.api.domain.places.dto.request.PlaceQueryValidationException;
-import com.timingjeju.api.domain.places.service.PlaceListException;
 import com.timingjeju.api.global.error.FieldErrorDetail;
 import com.timingjeju.api.global.error.ProblemResponseWriter;
 import jakarta.servlet.http.HttpServletRequest;

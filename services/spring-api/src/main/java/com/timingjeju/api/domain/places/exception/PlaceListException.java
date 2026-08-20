@@ -1,4 +1,4 @@
-package com.timingjeju.api.domain.places.service;
+package com.timingjeju.api.domain.places.exception;
 
 public final class PlaceListException extends RuntimeException {
 
