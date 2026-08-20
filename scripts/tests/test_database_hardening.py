@@ -177,6 +177,16 @@ class DatabaseHardeningTest(unittest.TestCase):
     def test_kma_village_migration_is_applied_by_every_smoke_upgrade_sequence(self):
         smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")
 
+        for unrelated_tago_migration in (
+            "/docker-entrypoint-initdb.d/016_tago_stop_import.sql",
+            "/docker-entrypoint-initdb.d/017_tago_route_stops_import.sql",
+        ):
+            self.assertNotIn(
+                unrelated_tago_migration,
+                smoke,
+                "KMA legacy loops must not replay unrelated TAGO migrations",
+            )
+
         self.assertIn(
             "/docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql",
             smoke,
