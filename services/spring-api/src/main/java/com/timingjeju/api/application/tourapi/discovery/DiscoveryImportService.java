@@ -83,15 +83,19 @@ public final class DiscoveryImportService {
     ImportRunScope scope = scope(command);
     ImportRunStartResult start = runService.start(startCommand(command));
     ImportRunLease lease = start.lease();
-    Optional<ImportCheckpoint> checkpoint = checkpointService.find(scope);
     if (start.replayed()) {
+      Optional<ImportCheckpoint> checkpoint = checkpointService.find(scope);
       return replay(start, checkpoint.orElseThrow(DiscoveryImportException::invalidResponse));
     }
 
-    long expectedCheckpointVersion =
-        checkpoint.orElseThrow(DiscoveryImportException::storageFailure).version();
-    ImportRunFailure terminalFailure = ImportRunFailure.PROVIDER_UNAVAILABLE;
+    ImportRunFailure terminalFailure = ImportRunFailure.PARSE_REJECTED;
     try {
+      long expectedCheckpointVersion =
+          checkpointService
+              .find(scope)
+              .orElseThrow(DiscoveryImportException::storageFailure)
+              .version();
+      terminalFailure = ImportRunFailure.PROVIDER_UNAVAILABLE;
       List<PlaceListWrite> writes = new ArrayList<>();
       Map<PlaceRejectReason, Integer> rejectedReasons = new EnumMap<>(PlaceRejectReason.class);
       Set<String> contentIds = new HashSet<>();

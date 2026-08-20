@@ -275,6 +275,40 @@ class DiscoveryImportServiceTest {
     assertThat(runs.finishStatus).isNull();
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void 신규_run의_checkpoint_조회가_누락되거나_실패하면_부수효과없이_storage_failure로_종료한다(boolean throwsFailure) {
+    FakeRunStore runs = new FakeRunStore(false);
+    FakeSnapshotStore snapshots = new FakeSnapshotStore();
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(0, 0, 0));
+    FakeCheckpointRepository checkpoints =
+        throwsFailure ? FakeCheckpointRepository.failingFind() : FakeCheckpointRepository.missing();
+
+    assertThatThrownBy(
+            () ->
+                service(
+                        runs,
+                        snapshots,
+                        (command, page) -> {
+                          throw new AssertionError("fetch 호출 금지");
+                        },
+                        (operation, format, payload) -> {
+                          throw new AssertionError("parser 호출 금지");
+                        },
+                        repository,
+                        checkpoints)
+                    .importCandidates(
+                        DiscoveryImportCommand.location(
+                            126.5, 33.5, 500, 1, "checkpoint-read-" + throwsFailure)))
+        .isInstanceOf(DiscoveryImportException.class)
+        .hasMessageContaining("적재를 완료하지 못했습니다");
+
+    assertThat(snapshots.saved).isZero();
+    assertThat(repository.commands).isEmpty();
+    assertThat(checkpoints.advanceCalls).isZero();
+    assertThat(runs.finishStatus).isEqualTo(ImportRunStatus.FAILED);
+  }
+
   private static DiscoveryImportService service(
       FakeRunStore runs,
       FakeSnapshotStore snapshots,
@@ -441,20 +475,44 @@ class DiscoveryImportServiceTest {
   private static final class FakeCheckpointRepository implements ImportCheckpointRepository {
     private final UUID lastSucceededRunId;
     private final Object pageCount;
+    private final boolean missing;
+    private final RuntimeException findFailure;
     private ImportCheckpoint checkpoint;
     private int advanceCalls;
 
     private FakeCheckpointRepository() {
-      this(null, 0);
+      this(null, 0, false, null);
     }
 
     private FakeCheckpointRepository(UUID lastSucceededRunId, Object pageCount) {
+      this(lastSucceededRunId, pageCount, false, null);
+    }
+
+    private FakeCheckpointRepository(
+        UUID lastSucceededRunId, Object pageCount, boolean missing, RuntimeException findFailure) {
       this.lastSucceededRunId = lastSucceededRunId;
       this.pageCount = pageCount;
+      this.missing = missing;
+      this.findFailure = findFailure;
+    }
+
+    private static FakeCheckpointRepository missing() {
+      return new FakeCheckpointRepository(null, null, true, null);
+    }
+
+    private static FakeCheckpointRepository failingFind() {
+      return new FakeCheckpointRepository(
+          null, null, false, new IllegalStateException("checkpoint storage unavailable"));
     }
 
     @Override
     public Optional<ImportCheckpoint> find(ImportRunScope scope) {
+      if (findFailure != null) {
+        throw findFailure;
+      }
+      if (missing) {
+        return Optional.empty();
+      }
       if (checkpoint == null || !checkpoint.scope().equals(scope)) {
         Map<String, Object> value = new java.util.HashMap<>();
         value.put("manifest", "uninitialized");
