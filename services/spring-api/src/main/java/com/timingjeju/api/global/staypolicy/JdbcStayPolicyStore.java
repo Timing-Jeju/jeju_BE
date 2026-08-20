@@ -6,6 +6,7 @@ import com.timingjeju.api.application.staypolicy.StayPolicyCandidate;
 import com.timingjeju.api.application.staypolicy.StayPolicyLookup;
 import com.timingjeju.api.application.staypolicy.StayPolicyPublicationStore;
 import com.timingjeju.api.application.staypolicy.StayPolicyScope;
+import com.timingjeju.api.application.staypolicy.StayPolicySubject;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetCatalog;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetValidation;
 import com.timingjeju.api.application.staypolicy.StayPolicyValidationException;
@@ -15,7 +16,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -190,6 +193,59 @@ public class JdbcStayPolicyStore
             placeId,
             category);
     return values.stream().findFirst();
+  }
+
+  @Override
+  public Map<UUID, RecommendedStay> findActive(List<StayPolicySubject> subjects) {
+    if (subjects.isEmpty()) {
+      return Map.of();
+    }
+    String values =
+        String.join(",", java.util.Collections.nCopies(subjects.size(), "(?::uuid, ?::text)"));
+    List<Object> arguments = new ArrayList<>(subjects.size() * 2);
+    subjects.forEach(
+        subject -> {
+          arguments.add(subject.placeId());
+          arguments.add(subject.category());
+        });
+    Map<UUID, RecommendedStay> resolved = new LinkedHashMap<>();
+    jdbc.query(
+        """
+        with requested(place_id, category) as (values %s)
+        select requested.place_id, policy.minutes, policy.scope, policy.version,
+               policy.effective_at, policy.updated_at
+        from requested
+        left join lateral (
+          select p.minutes, p.scope, v.version, v.effective_at, p.updated_at
+          from public.place_stay_policy_versions v
+          join public.place_stay_policies p on p.version=v.version
+          where v.status='active'
+            and ((p.scope='place_override' and p.place_id=requested.place_id)
+              or (p.scope='category_default' and p.category=requested.category))
+          order by case p.scope when 'place_override' then 0 else 1 end
+          limit 1
+        ) policy on true
+        """
+            .formatted(values),
+        resultSet -> {
+          UUID placeId = resultSet.getObject("place_id", UUID.class);
+          if (resultSet.getObject("minutes") == null) {
+            resolved.put(placeId, RecommendedStay.unavailable());
+          } else {
+            resolved.put(
+                placeId,
+                new RecommendedStay(
+                    resultSet.getInt("minutes"),
+                    "place_override".equals(resultSet.getString("scope"))
+                        ? RecommendedStaySource.PLACE_OVERRIDE
+                        : RecommendedStaySource.CATEGORY_DEFAULT,
+                    resultSet.getString("version"),
+                    resultSet.getTimestamp("effective_at").toInstant(),
+                    resultSet.getTimestamp("updated_at").toInstant()));
+          }
+        },
+        arguments.toArray());
+    return Map.copyOf(resolved);
   }
 
   private Optional<String> activeVersion() {

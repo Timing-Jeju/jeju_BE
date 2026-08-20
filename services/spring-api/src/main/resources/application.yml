@@ -33,6 +33,8 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  places:
+    cursor-signing-key: ${APP_PLACES_CURSOR_SIGNING_KEY:}
   external-api:
     tour-api:
       enabled: ${TOUR_API_ENABLED:false}

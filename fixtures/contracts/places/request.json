@@ -12,7 +12,8 @@
         "lat": 33.458111,
         "lng": 126.941516,
         "radiusMeters": 10000,
-        "size": 20
+        "size": 20,
+        "savedOnly": false
       }
     },
     "detail": {

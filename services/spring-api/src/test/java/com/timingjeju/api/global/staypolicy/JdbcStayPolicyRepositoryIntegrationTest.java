@@ -8,6 +8,7 @@ import com.timingjeju.api.application.staypolicy.RecommendedStaySource;
 import com.timingjeju.api.application.staypolicy.StayPolicyCandidate;
 import com.timingjeju.api.application.staypolicy.StayPolicyPublicationStore;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
+import com.timingjeju.api.application.staypolicy.StayPolicySubject;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetCatalog;
 import com.timingjeju.api.application.staypolicy.ValidatedStayPolicyPayload;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
@@ -107,6 +108,31 @@ class JdbcStayPolicyRepositoryIntegrationTest {
                 "select status from public.place_stay_policy_versions where version='v1'",
                 String.class))
         .isEqualTo("retired");
+  }
+
+  @Test
+  void 목록용_batch_resolver는_override_category_unavailable을_한_snapshot으로_반환한다() {
+    store.publish(
+        payload(
+            "v1", null, V1_EFFECTIVE, List.of(category("VE", 90), override(OVERRIDE_PLACE, 120))),
+        IMPORTED);
+
+    var resolved =
+        resolver.resolveAll(
+            List.of(
+                new StayPolicySubject(OVERRIDE_PLACE, "VE"),
+                new StayPolicySubject(CATEGORY_PLACE, "VE"),
+                new StayPolicySubject(UNAVAILABLE_PLACE, "content-type:99")));
+
+    assertThat(resolved.get(OVERRIDE_PLACE).source())
+        .isEqualTo(RecommendedStaySource.PLACE_OVERRIDE);
+    assertThat(resolved.get(CATEGORY_PLACE).source())
+        .isEqualTo(RecommendedStaySource.CATEGORY_DEFAULT);
+    assertThat(resolved.get(UNAVAILABLE_PLACE)).isEqualTo(RecommendedStay.unavailable());
+    assertThat(resolved.values())
+        .filteredOn(stay -> stay.source() != RecommendedStaySource.UNAVAILABLE)
+        .extracting(RecommendedStay::policyVersion)
+        .containsOnly("v1");
   }
 
   @Test

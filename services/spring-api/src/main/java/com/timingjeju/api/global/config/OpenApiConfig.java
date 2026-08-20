@@ -14,6 +14,7 @@ import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import java.util.List;
+import java.util.Map;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -49,6 +50,7 @@ public class OpenApiConfig {
     return openApi -> {
       clearSecurity(openApi, "/api/v1/auth/social/providers");
       clearSecurity(openApi, "/api/v1/auth/social/naver/userinfo");
+      optionalSecurity(openApi, "/api/v1/places");
     };
   }
 
@@ -90,8 +92,7 @@ public class OpenApiConfig {
                                     "500",
                                     new ApiResponse()
                                         .$ref("#/components/responses/InternalServerProblem"));
-                            if (operation.getSecurity() == null
-                                || !operation.getSecurity().isEmpty()) {
+                            if (requiresAuthentication(operation.getSecurity())) {
                               operation
                                   .getResponses()
                                   .putIfAbsent(
@@ -141,5 +142,25 @@ public class OpenApiConfig {
         .get(path)
         .readOperations()
         .forEach(operation -> operation.setSecurity(List.of()));
+  }
+
+  private static void optionalSecurity(OpenAPI openApi, String path) {
+    if (openApi.getPaths() == null || openApi.getPaths().get(path) == null) {
+      return;
+    }
+    openApi
+        .getPaths()
+        .get(path)
+        .readOperations()
+        .forEach(
+            operation ->
+                operation.setSecurity(
+                    List.of(
+                        new SecurityRequirement(),
+                        new SecurityRequirement().addList("bearerAuth"))));
+  }
+
+  private static boolean requiresAuthentication(List<SecurityRequirement> security) {
+    return security == null || (!security.isEmpty() && security.stream().noneMatch(Map::isEmpty));
   }
 }
