@@ -24,9 +24,9 @@ final class KmaVillageForecastSchedule {
     }
     int extensionDay;
     if (EARLY_BASE_HOURS.contains(baseTime.getHour())) {
-      extensionDay = 4;
+      extensionDay = 3;
     } else if (LATE_BASE_HOURS.contains(baseTime.getHour())) {
-      extensionDay = 5;
+      extensionDay = 4;
     } else {
       throw KmaWeatherImportException.invalidResponse();
     }

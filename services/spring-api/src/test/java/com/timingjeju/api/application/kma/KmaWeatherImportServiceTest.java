@@ -170,6 +170,27 @@ class KmaWeatherImportServiceTest {
   }
 
   @Test
+  void currentAndPreviousFirstTransportFailuresRemainProviderUnavailableWithoutSideEffects() {
+    when(source.fetch(any(), any(), any(Integer.class), any(Integer.class)))
+        .thenThrow(new IllegalStateException("transport unavailable"));
+
+    assertThatThrownBy(() -> service.importVillageForecast(command()))
+        .isInstanceOf(KmaWeatherImportException.class)
+        .extracting(failure -> ((KmaWeatherImportException) failure).code())
+        .isEqualTo(KmaWeatherImportError.PROVIDER_UNAVAILABLE);
+
+    verify(source, times(2)).fetch(any(), any(), any(Integer.class), any(Integer.class));
+    verify(snapshots, never()).capture(any(), any(), any(), any(), any());
+    verify(snapshots, never()).markParsed(any());
+    verify(snapshots, never()).markRejected(any());
+    verify(parser, never()).parse(any(), any());
+    verify(committer, never()).commit(any());
+    verify(runs)
+        .fail(
+            lease, com.timingjeju.api.application.importing.ImportRunFailure.PROVIDER_UNAVAILABLE);
+  }
+
+  @Test
   void rejectsInvalidLatestSnapshotBeforeUsingPreviousBase() {
     when(source.fetch(any(), any(), any(Integer.class), any(Integer.class)))
         .thenReturn(response("invalid"), response("previous"));

@@ -30,14 +30,14 @@ class KmaVillageForecastJsonParserTest {
 
   @ParameterizedTest(name = "official full horizon for base {0}")
   @CsvSource({
-    "02:00,101",
-    "05:00,98",
-    "08:00,95",
-    "11:00,92",
-    "14:00,89",
-    "17:00,110",
-    "20:00,107",
-    "23:00,104"
+    "02:00,77",
+    "05:00,74",
+    "08:00,71",
+    "11:00,68",
+    "14:00,65",
+    "17:00,86",
+    "20:00,83",
+    "23:00,80"
   })
   void parsesEveryOfficial20241128FullHorizon(LocalTime baseTime, int officialSlotCount) {
     List<KmaVillageForecastSchedule.Slot> expected =
@@ -75,6 +75,59 @@ class KmaVillageForecastJsonParserTest {
               assertThat(value.precipitationAmountMm()).isNotNull();
               assertThat(value.windSpeedMps()).isNotNull();
             });
+  }
+
+  @Test
+  void officialBoundaryKeepsLastHourlyQuantitativeAndFirstExtendedSlotQualitative() {
+    LocalTime base = LocalTime.of(5, 0);
+    LocalDateTime extensionStart = BASE_DATE.plusDays(3).atStartOfDay();
+
+    var parsed = parser.parse(KmaWeatherOperation.VILLAGE_FORECAST, validPayload(base));
+
+    assertThat(parsed.forecasts())
+        .filteredOn(
+            value ->
+                value
+                    .validAt()
+                    .equals(
+                        extensionStart
+                            .minusHours(1)
+                            .atZone(java.time.ZoneId.of("Asia/Seoul"))
+                            .toInstant()))
+        .singleElement()
+        .satisfies(
+            value -> {
+              assertThat(value.precipitationAmountMm()).isNotNull();
+              assertThat(value.windSpeedMps()).isNotNull();
+              assertThat(value.precipitationIntensityCode()).isNull();
+              assertThat(value.windStrengthCode()).isNull();
+            });
+    assertThat(parsed.forecasts())
+        .filteredOn(
+            value ->
+                value
+                    .validAt()
+                    .equals(extensionStart.atZone(java.time.ZoneId.of("Asia/Seoul")).toInstant()))
+        .singleElement()
+        .satisfies(
+            value -> {
+              assertThat(value.precipitationAmountMm()).isNull();
+              assertThat(value.windSpeedMps()).isNull();
+              assertThat(value.precipitationIntensityCode()).isNotNull();
+              assertThat(value.windStrengthCode()).isNotNull();
+            });
+  }
+
+  @ParameterizedTest
+  @CsvSource({"PCP,1.5", "WSD,2.4"})
+  void rejectsQuantitativeValuesAtOrBeyondTheOfficialQualitativeBoundary(
+      String category, String quantitativeValue) {
+    LocalTime base = LocalTime.of(5, 0);
+    LocalDateTime extensionStart = BASE_DATE.plusDays(3).atStartOfDay();
+    List<String> invalid = new ArrayList<>(items(base));
+    replaceValue(invalid, extensionStart, category, quantitativeValue);
+
+    assertInvalid(payload(base, invalid));
   }
 
   @Test
@@ -172,6 +225,21 @@ class KmaVillageForecastJsonParserTest {
         + "\",\"fcstTime\":\""
         + TIME.format(valid.toLocalTime())
         + "\"";
+  }
+
+  private static void replaceValue(
+      List<String> items, LocalDateTime valid, String category, String value) {
+    for (int index = 0; index < items.size(); index++) {
+      String item = items.get(index);
+      if (item.contains("\"category\":\"" + category + "\"") && item.contains(validMarker(valid))) {
+        items.set(
+            index,
+            item.replaceFirst(
+                "\\\"fcstValue\\\":\\\"[^\\\"]+\\\"", "\\\"fcstValue\\\":\\\"" + value + "\\\""));
+        return;
+      }
+    }
+    throw new AssertionError("공식 경계 item을 찾지 못했습니다.");
   }
 
   private static String page(int pageNo, List<String> items, int totalCount, int rows) {
