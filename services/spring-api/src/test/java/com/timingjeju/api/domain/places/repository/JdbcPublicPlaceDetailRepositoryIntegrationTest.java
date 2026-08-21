@@ -2,18 +2,24 @@ package com.timingjeju.api.domain.places.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.timingjeju.api.domain.places.config.PlaceNearbyStopsProperties;
 import com.timingjeju.api.domain.places.dto.response.PlaceDetailResponse;
+import com.timingjeju.api.domain.places.model.PlaceDetailNearbyStopRow;
 import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import com.timingjeju.api.domain.places.service.PlaceDetailService;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 class JdbcPublicPlaceDetailRepositoryIntegrationTest
     extends PostgreSqlRepositoryIntegrationTestSupport {
@@ -31,6 +37,7 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
   @Autowired private JdbcPublicPlaceDetailRepository repository;
   @Autowired private PlaceDetailService service;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private NamedParameterJdbcTemplate namedJdbc;
 
   @BeforeEach
   void setUp() {
@@ -181,6 +188,67 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
   }
 
   @Test
+  void 주변정류장은_fresh를_먼저_정렬하고_stale_fallback으로_전체5개를_채운다() {
+    Instant now = Instant.parse("2026-08-21T06:00:00Z");
+    UUID freshFar = stop(101, 300, 4, now.plusSeconds(7200), null);
+    UUID freshTieWalkEight = stop(102, 100, 8, now.plusSeconds(7200), null);
+    UUID freshTieWalkThree = stop(103, 100, 3, now.plusSeconds(10800), now.plusSeconds(3600));
+    UUID staleEquality = stop(104, 50, 1, now.plusSeconds(7200), now);
+    UUID staleThirty = stop(105, 30, 2, now.minusSeconds(1), null);
+    UUID staleTen = stop(106, 10, 5, now.minusSeconds(2), null);
+    UUID staleTwenty = stop(107, 20, 4, now.minusSeconds(3), null);
+
+    List<PlaceDetailNearbyStopRow> stops =
+        repositoryAt(now, 500).find(PLACE, Optional.empty()).orElseThrow().nearbyStops();
+
+    assertThat(stops)
+        .extracting(PlaceDetailNearbyStopRow::stopId)
+        .containsExactly(freshTieWalkThree, freshTieWalkEight, freshFar, staleTen, staleTwenty);
+    assertThat(stops)
+        .extracting(PlaceDetailNearbyStopRow::stale)
+        .containsExactly(false, false, false, true, true);
+    assertThat(stops.getFirst().expiresAt()).isEqualTo(now.plusSeconds(3600));
+    assertThat(stops).noneMatch(stop -> stop.stopId().equals(staleEquality));
+    assertThat(stops).noneMatch(stop -> stop.stopId().equals(staleThirty));
+  }
+
+  @Test
+  void 주변정류장은_inclusive거리와_equal_expiry를_포함하고_lifecycle_outside를_제외한다() {
+    Instant now = Instant.parse("2026-08-21T06:00:00Z");
+    UUID fresh = stop(111, 499, 3, now.plusSeconds(1), null);
+    UUID equality = stop(112, 500, 4, now.plusSeconds(3600), now);
+    stop(113, 501, 1, now.plusSeconds(3600), null);
+    UUID disabled = stop(114, 10, 1, now.plusSeconds(3600), null);
+    UUID linkTombstoned = stop(115, 20, 1, now.plusSeconds(3600), null);
+    UUID stopTombstoned = stop(116, 30, 1, now.plusSeconds(3600), null);
+    UUID sourceDeleted = stop(117, 40, 1, now.plusSeconds(3600), null);
+    jdbc.update(
+        "update public.place_stop_links set enabled=false where place_id=? and stop_id=?",
+        PLACE,
+        disabled);
+    jdbc.update(
+        "update public.place_stop_links set enabled=false,tombstoned_at=? where place_id=? and stop_id=?",
+        Timestamp.from(now),
+        PLACE,
+        linkTombstoned);
+    jdbc.update(
+        "update public.bus_stops set tombstoned_at=? where id=?",
+        Timestamp.from(now),
+        stopTombstoned);
+    jdbc.update(
+        "update public.bus_stops set source_deleted_at=? where id=?",
+        Timestamp.from(now),
+        sourceDeleted);
+
+    List<PlaceDetailNearbyStopRow> stops =
+        repositoryAt(now, 500).find(PLACE, Optional.empty()).orElseThrow().nearbyStops();
+
+    assertThat(stops).extracting(PlaceDetailNearbyStopRow::stopId).containsExactly(fresh, equality);
+    assertThat(stops).extracting(PlaceDetailNearbyStopRow::stale).containsExactly(false, true);
+    assertThat(stops.get(1).expiresAt()).isEqualTo(now);
+  }
+
+  @Test
   void 상세_query는_place_PK와_image_order_index_plan을_사용한다() {
     jdbc.execute("set local enable_seqscan=off");
     String plan =
@@ -250,5 +318,33 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
         "https://images.example.test/" + name + "-thumb.jpg",
         displayOrder,
         tombstonedAt == null ? null : Timestamp.from(tombstonedAt));
+  }
+
+  private UUID stop(
+      int suffix, int distanceMeters, int walkMinutes, Instant linkExpiresAt, Instant staleAt) {
+    UUID stopId = UUID.fromString("66000000-0000-0000-0000-" + String.format("%012d", suffix));
+    jdbc.update(
+        "insert into public.bus_stops(id,node_id,node_name,location,source_provider,source_service,city_code,last_seen_at,stale_at) values (?,?,?,ST_SetSRID(ST_MakePoint(126.941,33.458),4326)::geography,'fixture','fixture','39',?,?)",
+        stopId,
+        stopId.toString(),
+        "정류장-" + suffix,
+        Timestamp.from(Instant.parse("2026-08-21T00:00:00Z")),
+        staleAt == null ? null : Timestamp.from(staleAt));
+    jdbc.update(
+        "insert into public.place_stop_links(place_id,stop_id,distance_meters,walk_minutes,link_method,enabled,source_provider,observed_at,expires_at) values (?,?,?,?, 'spatial_radius', true, 'postgis:tago', ?, ?)",
+        PLACE,
+        stopId,
+        distanceMeters,
+        walkMinutes,
+        Timestamp.from(Instant.parse("2026-08-21T00:00:00Z")),
+        Timestamp.from(linkExpiresAt));
+    return stopId;
+  }
+
+  private JdbcPublicPlaceDetailRepository repositoryAt(Instant now, int maxDistanceMeters) {
+    return new JdbcPublicPlaceDetailRepository(
+        namedJdbc,
+        new PlaceNearbyStopsProperties(maxDistanceMeters),
+        Clock.fixed(now, ZoneOffset.UTC));
   }
 }

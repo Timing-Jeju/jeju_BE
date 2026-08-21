@@ -7,7 +7,13 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.timingjeju.api.domain.places.config.PlaceNearbyStopsProperties;
 import com.timingjeju.api.domain.places.exception.PlaceDetailUnavailableException;
+import java.sql.Types;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
@@ -34,11 +40,45 @@ class JdbcPlaceDetailRepositoryTest {
   }
 
   @Test
+  void 주변정류장_SQL은_effective_expiry와_exact_lifecycle을_적용한뒤_최대5개를_정렬한다() {
+    assertThat(JdbcPublicPlaceDetailRepository.SELECT)
+        .doesNotContain("place_stop_links", "bus_stops");
+    assertThat(JdbcPublicPlaceDetailRepository.SELECT_NEARBY_STOPS)
+        .contains("least(link.expires_at, coalesce(stop.stale_at, link.expires_at))")
+        .contains("link.enabled")
+        .contains("link.tombstoned_at is null")
+        .contains("stop.tombstoned_at is null")
+        .contains("stop.source_deleted_at is null")
+        .contains("link.distance_meters <= :maxDistanceMeters")
+        .contains("least(link.expires_at, coalesce(stop.stale_at, link.expires_at)) > :now")
+        .contains("order by fresh desc, link.distance_meters asc")
+        .contains("link.walk_minutes asc nulls last, link.stop_id asc")
+        .contains("limit 5");
+  }
+
+  @Test
+  void 주변정류장_now_parameter는_timestamptz가_지원하는_OffsetDateTime으로_bind한다() {
+    Instant now = Instant.parse("2026-08-21T06:00:00Z");
+    JdbcPublicPlaceDetailRepository repository =
+        new JdbcPublicPlaceDetailRepository(
+            mock(NamedParameterJdbcTemplate.class),
+            new PlaceNearbyStopsProperties(500),
+            Clock.fixed(now, ZoneOffset.UTC));
+
+    var parameters = repository.nearbyStopParameters(UUID.randomUUID());
+
+    assertThat(parameters.getValue("now")).isEqualTo(OffsetDateTime.ofInstant(now, ZoneOffset.UTC));
+    assertThat(parameters.getSqlType("now")).isEqualTo(Types.TIMESTAMP_WITH_TIMEZONE);
+  }
+
+  @Test
   void DB_read_failure만_raw_SQL과_cause없는_typed_failure로_변환한다() {
     NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     when(jdbc.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
         .thenThrow(new DataAccessResourceFailureException("select password from secret_table"));
-    JdbcPublicPlaceDetailRepository repository = new JdbcPublicPlaceDetailRepository(jdbc);
+    JdbcPublicPlaceDetailRepository repository =
+        new JdbcPublicPlaceDetailRepository(
+            jdbc, new PlaceNearbyStopsProperties(500), Clock.systemUTC());
 
     assertThatThrownBy(
             () ->

@@ -21,12 +21,14 @@ public record PlaceDetailSnapshot(
     String parkingText,
     String admissionFeeText,
     List<PlaceDetailImageRow> images,
+    List<PlaceDetailNearbyStopRow> nearbyStops,
     boolean saved,
     String memo,
     List<String> tags) {
 
   public PlaceDetailSnapshot {
     images = List.copyOf(images);
+    nearbyStops = List.copyOf(nearbyStops);
     tags = List.copyOf(tags);
   }
 }

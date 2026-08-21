@@ -456,6 +456,38 @@ class PlacesContractTest(unittest.TestCase):
             errors = validator.validate_contract(contract, temporary_root)
             self.assertTrue(any("readiness 문서" in error for error in errors), errors)
 
+    def test_nearby_stop_projection_pins_effective_expiry_distance_config_and_source_fields(self):
+        contract = self.contract()
+        nearby = contract["nearbyStops"]
+        schema = contract["schemas"]["NearbyStop"]
+        fixture = json.loads(
+            (ROOT / "fixtures/contracts/places/success.json").read_text(encoding="utf-8")
+        )["detail"]["nearbyStops"][0]
+
+        self.assertEqual(
+            "least(place_stop_links.expires_at, non-null bus_stops.stale_at)",
+            nearby["effectiveExpiresAt"],
+        )
+        self.assertEqual(
+            {
+                "property": "app.places.nearby-stops.max-distance-meters",
+                "default": 500,
+                "minimum": 1,
+                "maximum": 500,
+                "inclusive": True,
+            },
+            nearby["distancePolicy"],
+        )
+        self.assertEqual(
+            ["spatial_radius", "fixture", "manual", "api_nearby"],
+            schema["properties"]["linkMethod"]["enum"],
+        )
+        self.assertEqual(
+            {"type": "string", "nullable": False, "minLength": 1, "maxLength": 128},
+            schema["properties"]["provider"],
+        )
+        self.assertEqual("postgis:tago", fixture["provider"])
+
     def test_query_is_trimmed_before_one_to_one_hundred_character_validation(self):
         contract = self.contract()
         query_schema = contract["schemas"]["PlacesListRequest"]["properties"]["query"]
@@ -615,6 +647,14 @@ class PlacesContractTest(unittest.TestCase):
             (
                 lambda c: c["nearbyStops"]["itemFields"].remove("expiresAt"),
                 "nearbyStops itemFields",
+            ),
+            (
+                lambda c: c["nearbyStops"].update(effectiveExpiresAt="link only"),
+                "effective expiresAt",
+            ),
+            (
+                lambda c: c["nearbyStops"]["distancePolicy"].update(default=501),
+                "validated distance config",
             ),
             (
                 lambda c: c["nearbyStops"].update(emptyWhen="stale-only"),

@@ -17,6 +17,7 @@ import com.timingjeju.api.application.staypolicy.StayPolicySubject;
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
 import com.timingjeju.api.domain.places.exception.PlaceDetailUnavailableException;
 import com.timingjeju.api.domain.places.exception.PlaceSearchUnavailableException;
+import com.timingjeju.api.domain.places.model.PlaceDetailNearbyStopRow;
 import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
 import com.timingjeju.api.domain.places.model.PlaceSearchRow;
@@ -115,7 +116,9 @@ class PlacesOptionalSecurityIntegrationTest {
         .andExpect(jsonPath("$.saved.memo").value((Object) null))
         .andExpect(jsonPath("$.saved.tags").isEmpty())
         .andExpect(jsonPath("$.images").isEmpty())
-        .andExpect(jsonPath("$.nearbyStops").isEmpty());
+        .andExpect(jsonPath("$.nearbyStops.length()").value(1))
+        .andExpect(jsonPath("$.nearbyStops[0].provider").value("postgis:tago"))
+        .andExpect(jsonPath("$.nearbyStops[0].stale").value(false));
   }
 
   @Test
@@ -342,6 +345,17 @@ class PlacesOptionalSecurityIntegrationTest {
               legacy,
               legacy,
               List.of(),
+              List.of(
+                  new PlaceDetailNearbyStopRow(
+                      UUID.fromString("30000000-0000-0000-0000-000000000001"),
+                      "성산일출봉입구",
+                      280,
+                      4,
+                      "spatial_radius",
+                      "postgis:tago",
+                      Instant.parse("2026-08-03T00:00:00Z"),
+                      Instant.parse("2026-08-04T00:00:00Z"),
+                      false)),
               false,
               null,
               List.of()));

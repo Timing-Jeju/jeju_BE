@@ -39,7 +39,8 @@ public record PlaceDetailResponse(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PlaceContact contact,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PlaceOperations operations,
     @Size(max = 20) @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<PlaceImage> images,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<NearbyStop> nearbyStops) {
+    @Size(max = 5) @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
+        List<NearbyStop> nearbyStops) {
 
   public PlaceDetailResponse {
     images = List.copyOf(images);

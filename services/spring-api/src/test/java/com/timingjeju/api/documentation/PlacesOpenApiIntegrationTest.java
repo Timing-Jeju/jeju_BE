@@ -119,6 +119,10 @@ class PlacesOpenApiIntegrationTest {
         .andExpect(jsonPath("$.components.schemas.Contact.additionalProperties").value(false))
         .andExpect(jsonPath("$.components.schemas.Operations.additionalProperties").value(false))
         .andExpect(jsonPath("$.components.schemas.PlaceImage.additionalProperties").value(false))
+        .andExpect(jsonPath("$.components.schemas.NearbyStop.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.PlaceDetailResponse.properties.nearbyStops.maxItems")
+                .value(5))
         .andExpect(
             jsonPath("$.components.schemas.PlaceDetailResponse.properties.images.maxItems")
                 .value(20))

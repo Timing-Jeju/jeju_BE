@@ -90,7 +90,7 @@
         "distanceMeters": 280,
         "walkMinutes": 4,
         "linkMethod": "spatial_radius",
-        "provider": "TAGO",
+        "provider": "postgis:tago",
         "observedAt": "2026-08-03T09:00:00+09:00",
         "expiresAt": "2026-08-04T09:00:00+09:00",
         "stale": false

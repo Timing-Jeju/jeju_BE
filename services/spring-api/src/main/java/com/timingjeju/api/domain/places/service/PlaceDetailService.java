@@ -4,6 +4,7 @@ import com.timingjeju.api.application.staypolicy.RecommendedStay;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolutionException;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
 import com.timingjeju.api.application.text.PublicPlainTextNormalizer;
+import com.timingjeju.api.domain.places.dto.response.NearbyStop;
 import com.timingjeju.api.domain.places.dto.response.PlaceContact;
 import com.timingjeju.api.domain.places.dto.response.PlaceDetailResponse;
 import com.timingjeju.api.domain.places.dto.response.PlaceImage;
@@ -13,6 +14,7 @@ import com.timingjeju.api.domain.places.dto.response.SavedPlaceState;
 import com.timingjeju.api.domain.places.exception.PlaceDetailException;
 import com.timingjeju.api.domain.places.exception.PlaceDetailUnavailableException;
 import com.timingjeju.api.domain.places.model.PlaceDetailImageRow;
+import com.timingjeju.api.domain.places.model.PlaceDetailNearbyStopRow;
 import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import com.timingjeju.api.domain.places.repository.PlaceDetailRepository;
 import java.net.URI;
@@ -90,7 +92,20 @@ public class PlaceDetailService {
             publicText.normalize(snapshot.phone()), publicUri(snapshot.homepageUrl()).orElse(null)),
         operations,
         images,
-        List.of());
+        snapshot.nearbyStops().stream().map(PlaceDetailService::nearbyStop).toList());
+  }
+
+  private static NearbyStop nearbyStop(PlaceDetailNearbyStopRow row) {
+    return new NearbyStop(
+        row.stopId(),
+        row.stopName(),
+        row.distanceMeters(),
+        row.walkMinutes(),
+        row.linkMethod(),
+        row.provider(),
+        row.observedAt(),
+        row.expiresAt(),
+        row.stale());
   }
 
   private static Optional<PlaceImage> image(PlaceDetailImageRow row) {

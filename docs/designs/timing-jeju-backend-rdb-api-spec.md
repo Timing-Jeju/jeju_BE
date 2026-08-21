@@ -500,7 +500,7 @@ Response `200`:
       "distanceMeters": 280,
       "walkMinutes": 4,
       "linkMethod": "spatial_radius",
-      "provider": "TAGO",
+      "provider": "postgis:tago",
       "observedAt": "2026-08-03T09:00:00+09:00",
       "expiresAt": "2026-08-04T09:00:00+09:00",
       "stale": false
@@ -520,7 +520,10 @@ matrix의 canonical 기준은
 [`docs/contracts/domains/places/contract.md`](../contracts/domains/places/contract.md)입니다.
 `nearbyStops`는 #66 contract version부터 항상 포함하는 null 아닌 additive 배열이고,
 eligible 행이 없을 때만 상세 `200`과 `[]`를 반환합니다. stale-only 결과는 각 항목의
-`stale=true`로 반환하며 별도 freshness reason 필드는 만들지 않습니다.
+`stale=true`로 반환하며 별도 freshness reason 필드는 만들지 않습니다. 응답 `expiresAt`은
+`least(place_stop_links.expires_at, non-null bus_stops.stale_at)`인 effective expiry이고 이 값이
+조회 시각과 같아도 stale입니다. 거리 상한은 validated
+`app.places.nearby-stops.max-distance-meters`(기본 500, 범위 1..500)를 사용하며 `<=` 경계를 포함합니다.
 
 목록과 상세는 같은 Spring `StayPolicyResolver`를 사용한다. active place override가 category default보다 우선하며 둘 다 없으면 `recommendedStayMinutes`, `recommendedStayPolicyVersion`, `recommendedStayEffectiveAt`, `recommendedStayUpdatedAt`은 `null`, source는 `unavailable`이다. legacy `tour_places.recommended_stay_minutes`는 fallback으로 사용하지 않는다.
 

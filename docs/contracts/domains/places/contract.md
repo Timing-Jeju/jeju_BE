@@ -123,7 +123,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
   "distanceMeters": 280,
   "walkMinutes": 4,
   "linkMethod": "spatial_radius",
-  "provider": "TAGO",
+  "provider": "postgis:tago",
   "observedAt": "2026-08-03T09:00:00+09:00",
   "expiresAt": "2026-08-04T09:00:00+09:00",
   "stale": false
@@ -141,6 +141,8 @@ eligible 조건은 아래를 모두 만족해야 합니다.
 5. configured 거리 상한 이내
 
 eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at` 중 이른 시각입니다. 이 값이 `now()`보다 뒤면 fresh, 같거나 앞이면 stale이며 stale-only도 `stale=true`로 포함합니다. freshness cutoff나 `stale_at` 만료만으로 active link를 tombstone하지 않습니다. disabled·tombstoned·out-of-radius와 tombstoned/source-deleted stop은 limit 전에 제외합니다. eligible fresh/stale이 하나도 없을 때만 상세 `200`과 `nearbyStops: []`를 반환합니다.
+
+거리 상한은 validated property `app.places.nearby-stops.max-distance-meters`로 주입하며 기본값은 500m, 허용 범위는 1..500m입니다. SQL predicate는 경계를 포함하는 `distance_meters <= configured max`입니다. `provider`, `observedAt`, `linkMethod`는 link row 값을 변환하지 않고 투영하고, 공개 `expiresAt`만 위 effective expiry를 사용합니다.
 
 장소 또는 정류장 좌표가 바뀌면 이미 만료된 geometric candidate라도 기존 active link의 `distance_meters`와 `walk_minutes`는 scope watermark transaction 안에서 갱신합니다. 이 metrics-only 갱신은 link의 provider·observedAt·expiresAt·lifecycle을 바꾸지 않으며, 만료된 신규 link를 만들거나 policy-disabled/tombstoned link를 재활성화하지 않습니다.
 

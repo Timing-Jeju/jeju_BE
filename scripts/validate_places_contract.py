@@ -130,7 +130,7 @@ EXPECTED_SCHEMA_DIGESTS = {
     "Contact": "b5a9faac8be0a083d48c3b396c7025815d0ff57effacad77bdb9a2af2981445d",
     "Operations": "cb0d2906830c6b35469cd433e10ad2650fce8e631e7ae8dacfcbfc4916de9340",
     "PlaceImage": "f414a74fac5626c9c8f68e6a4629c6c97980be973e3f017c09c2b69cd25c102e",
-    "NearbyStop": "e25fbd42367a7feca16d141112df511633190aebcff900b5a95631b441e71049",
+    "NearbyStop": "437411b480c46cbe2d8de5ff831932172949ae7d8527a271ece5bea327dd1f75",
     "PlaceDetailResponse": "f81ec8e7637057c3cc87f6f486cd9ded8cd6119776cf1da19800f281ed465f54",
     "FieldError": "5fb09356a2a56dfab89fa6a47fa5eb2498bfb4faa42f567810b4430cd301fddc",
     "ProblemDetails": "c25c20be66d088f93b5b196c0e4a4dd16c3f90593b9045d425a24240a86903ac",
@@ -663,6 +663,24 @@ def _validate_nearby_stops(contract: dict[str, Any], errors: list[str]) -> None:
         errors,
     )
     _expect(
+        nearby.get("effectiveExpiresAt")
+        == "least(place_stop_links.expires_at, non-null bus_stops.stale_at)",
+        "nearbyStops effective expiresAt projection이 다릅니다.",
+        errors,
+    )
+    _expect(
+        nearby.get("distancePolicy")
+        == {
+            "property": "app.places.nearby-stops.max-distance-meters",
+            "default": 500,
+            "minimum": 1,
+            "maximum": 500,
+            "inclusive": True,
+        },
+        "nearbyStops validated distance config가 다릅니다.",
+        errors,
+    )
+    _expect(
         nearby.get("eligibility") == EXPECTED_ELIGIBILITY,
         "disabled/tombstoned/out-of-radius/bus stop lifecycle 제외 계약이 다릅니다.",
         errors,
@@ -700,8 +718,8 @@ def _validate_nearby_stops(contract: dict[str, Any], errors: list[str]) -> None:
         errors,
     )
     _expect(
-        nearby.get("freshBoundary") == "expiresAt > now()"
-        and nearby.get("staleBoundary") == "expiresAt <= now()",
+        nearby.get("freshBoundary") == "effective expiresAt > now()"
+        and nearby.get("staleBoundary") == "effective expiresAt <= now()",
         "expiresAt 직전/동일/직후 freshness 경계가 다릅니다.",
         errors,
     )
