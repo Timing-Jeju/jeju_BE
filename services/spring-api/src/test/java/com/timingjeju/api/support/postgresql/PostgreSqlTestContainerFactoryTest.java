@@ -28,6 +28,8 @@ class PostgreSqlTestContainerFactoryTest {
     assertThat(names.getFirst()).isEqualTo("auth_compat.sql");
     assertThat(names.subList(1, names.size())).isSorted();
     assertThat(names.subList(1, names.size())).allMatch(name -> name.matches("\\d{14}_.+\\.sql"));
+    assertThat(names.subList(1, names.size()).stream().map(name -> name.substring(0, 14)))
+        .doesNotHaveDuplicates();
     assertThat(names).doesNotContain("seed_fixtures.sql", "seed.sql");
   }
 }

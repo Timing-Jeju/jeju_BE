@@ -89,7 +89,7 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertEqual(26, len(re.findall(r"(?im)^create policy ", migration)))
 
     def test_general_postgres_compose_uses_local_auth_then_canonical_migration(self):
-        for compose_name in ("compose.yml", "compose.test.yml"):
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             compose = (ROOT / compose_name).read_text(encoding="utf-8")
             with self.subTest(compose=compose_name):
                 self.assertIn("./db/local-postgres/auth_compat.sql", compose)
@@ -109,6 +109,148 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertIn("./db/queries:/queries:ro", compose)
         self.assertIn("psql", smoke_test)
         self.assertIn("/queries/smoke_check.sql", smoke_test)
+
+    def test_recommended_stay_policy_migration_is_after_reserved_slots_everywhere(self):
+        migration_name = "20260823000000_recommended_stay_policy.sql"
+        migration = SUPABASE / "migrations" / migration_name
+        self.assertTrue(migration.is_file())
+        self.assertGreater(migration_name[:14], "20260822000000")
+        sql = migration.read_text(encoding="utf-8")
+        self.assertIn("create table public.place_stay_policy_versions", sql.lower())
+        self.assertIn("create table public.place_stay_policies", sql.lower())
+        self.assertNotRegex(sql.lower(), r"(?:insert into|update|delete from)\s+public\.tour_places")
+
+        mount = (
+            f"./supabase/migrations/{migration_name}:"
+            "/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql:ro"
+        )
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
+            compose = (ROOT / compose_name).read_text(encoding="utf-8")
+            with self.subTest(compose=compose_name):
+                self.assertIn(mount, compose)
+                self.assertEqual(1, compose.count("021_recommended_stay_policy.sql"))
+                self.assertIn("/docker-entrypoint-initdb.d/099_seed_fixtures.sql", compose)
+
+                conditional_order = [
+                    (
+                        "20260819000000_tago_stop_import.sql",
+                        "/docker-entrypoint-initdb.d/016_tago_stop_import.sql",
+                    ),
+                    (
+                        "20260820000000_tago_route_stops_import.sql",
+                        "/docker-entrypoint-initdb.d/017_tago_route_stops_import.sql",
+                    ),
+                    (
+                        "20260820000001_kma_village_forecast_version.sql",
+                        "/docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql",
+                    ),
+                    (
+                        "20260822000000_place_stop_postgis_links.sql",
+                        "/docker-entrypoint-initdb.d/020_place_stop_postgis_links.sql",
+                    ),
+                    (
+                        migration_name,
+                        "/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql",
+                    ),
+                    (
+                        "20260824000000_tourapi_discovery_import_checkpoints.sql",
+                        "/docker-entrypoint-initdb.d/022_tourapi_discovery_import_checkpoints.sql",
+                    ),
+                    (
+                        "20260825000000_public_place_tombstone.sql",
+                        "/docker-entrypoint-initdb.d/023_public_place_tombstone.sql",
+                    ),
+                    (
+                        "20260826000000_tago_arrival_cache.sql",
+                        "/docker-entrypoint-initdb.d/024_tago_arrival_cache.sql",
+                    ),
+                ]
+                positions = []
+                for source_name, target_name in conditional_order:
+                    if (SUPABASE / "migrations" / source_name).is_file():
+                        self.assertIn(target_name, compose)
+                        positions.append(compose.index(target_name))
+                self.assertEqual(sorted(positions), positions)
+
+        smoke_test = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(
+            smoke_test.count(
+                "/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql"
+            ),
+            2,
+        )
+
+    def test_recommended_stay_policy_dbml_matches_canonical_migration(self):
+        dbml = (
+            ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
+        ).read_text(encoding="utf-8")
+
+        expected_contracts = (
+            "#37 place-link `/020`, #65 stay-policy `/021`, seed `/099`",
+            "Table place_stay_policy_versions {",
+            "version text [pk]",
+            "status text [not null, note: \"draft, active, retired\"]",
+            "payload_hash text [not null, note: \"SHA-256 lowercase hex, 64 chars\"]",
+            "effective_at timestamptz [not null]",
+            "imported_at timestamptz [not null]",
+            "(status) [unique, note: \"partial: status = 'active'\"]",
+            "version syntax: ^[a-z0-9][a-z0-9._-]{0,63}$",
+            "payload_hash syntax: ^[0-9a-f]{64}$",
+            "Table place_stay_policies {",
+            "version text [not null, ref: > place_stay_policy_versions.version]",
+            "scope text [not null, note: \"category_default, place_override\"]",
+            "place_id uuid [ref: > tour_places.id]",
+            "minutes integer [not null, note: \"5..1440\"]",
+            "source text [not null, default: 'app_curation']",
+            "(version, category) [unique, note: \"partial: scope = 'category_default'\"]",
+            "(version, place_id) [unique, note: \"partial: scope = 'place_override'\"]",
+            "(place_id, version) [note: \"partial lookup: scope = 'place_override'\"]",
+            "(category, version) [note: \"partial lookup: scope = 'category_default'\"]",
+            "category/place_id XOR",
+            "effective_at <= imported_at",
+            "category syntax: ^[A-Za-z0-9:_-]{1,64}$",
+            "both FKs ON DELETE RESTRICT",
+        )
+        for expected in expected_contracts:
+            with self.subTest(contract=expected):
+                self.assertIn(expected, dbml)
+
+    def test_public_place_tombstone_migration_is_additive_and_mounted_last(self):
+        migration_name = "20260825000000_public_place_tombstone.sql"
+        migration = SUPABASE / "migrations" / migration_name
+        self.assertTrue(migration.is_file())
+        self.assertGreater(migration_name[:14], "20260824000000")
+        sql = migration.read_text(encoding="utf-8").lower()
+        self.assertRegex(
+            sql,
+            r"alter\s+table\s+public\.tour_places\s+add\s+column\s+tombstoned_at\s+timestamptz",
+        )
+        self.assertNotRegex(sql, r"\b(?:insert|update|delete)\b")
+        self.assertNotIn("create index", sql)
+
+        dbml = (
+            ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
+        ).read_text(encoding="utf-8")
+        tour_places = re.search(r"Table tour_places \{(?P<body>.*?)\n\}", dbml, re.DOTALL)
+        tour_place_sources = re.search(
+            r"Table tour_place_sources \{(?P<body>.*?)\n\}", dbml, re.DOTALL
+        )
+        self.assertIsNotNone(tour_places)
+        self.assertIsNotNone(tour_place_sources)
+        self.assertEqual(1, tour_places.group("body").count("tombstoned_at timestamptz"))
+        self.assertEqual(
+            1, tour_place_sources.group("body").count("tombstoned_at timestamptz")
+        )
+
+        source = f"./supabase/migrations/{migration_name}"
+        target = "/docker-entrypoint-initdb.d/023_public_place_tombstone.sql"
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
+            compose = (ROOT / compose_name).read_text(encoding="utf-8")
+            with self.subTest(compose=compose_name):
+                self.assertIn(f"{source}:{target}:ro", compose)
+                self.assertLess(compose.index(target), compose.index("099_seed_fixtures.sql"))
 
     def test_flyway_is_not_added_as_a_second_migration_system(self):
         self.assertFalse((ROOT / "db" / "migration").exists())

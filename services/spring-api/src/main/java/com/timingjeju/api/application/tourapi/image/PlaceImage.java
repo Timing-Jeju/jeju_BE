@@ -50,7 +50,8 @@ public record PlaceImage(
       URI uri = URI.create(value);
       if (bytes(value) > 8192
           || !uri.isAbsolute()
-          || !"https".equalsIgnoreCase(uri.getScheme())
+          || (!"http".equalsIgnoreCase(uri.getScheme())
+              && !"https".equalsIgnoreCase(uri.getScheme()))
           || uri.getHost() == null
           || uri.getRawUserInfo() != null
           || uri.getRawFragment() != null) {

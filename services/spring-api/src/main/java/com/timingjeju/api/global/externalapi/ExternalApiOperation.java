@@ -15,6 +15,8 @@ public enum ExternalApiOperation {
   TAGO_CITY_CODE(ExternalApiProvider.TAGO, "reference_code", "city_code"),
   TAGO_STATION_LIST(ExternalApiProvider.TAGO, "bus_stop", "station_list"),
   TAGO_NEARBY_STOP(ExternalApiProvider.TAGO, "bus_stop", "nearby_stop"),
+  TAGO_ROUTE_LIST(ExternalApiProvider.TAGO, "bus_route", "route_list"),
+  TAGO_ROUTE_DETAIL(ExternalApiProvider.TAGO, "bus_route", "route_detail"),
   TAGO_ROUTE_INFO(ExternalApiProvider.TAGO, "bus_route", "route_info"),
   TAGO_ROUTE_STOPS(ExternalApiProvider.TAGO, "bus_route", "route_stops"),
   TAGO_ARRIVAL(ExternalApiProvider.TAGO, "bus_arrival", "arrival"),

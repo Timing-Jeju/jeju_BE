@@ -2506,6 +2506,72 @@ select pg_temp.expect_rejected(
 );
 
 select pg_temp.expect_rejected(
+  'short forecast requires a 12 digit SHRT forecast version',
+  $statement$
+    insert into weather_forecasts (
+      grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version,
+      temperature_c, humidity_percent, source_operation, source_snapshot_id, import_run_id
+    ) values (
+      '35000000-0000-0000-0000-000000000001', now(), now() + interval '1 hour',
+      'short', 'SHRT-invalid', 20, 70, 'getVilageFcst',
+      '00000000-0000-0000-0000-000000000302',
+      '00000000-0000-0000-0000-000000000032'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'ultra short forecast must not carry a SHRT version',
+  $statement$
+    insert into weather_forecasts (
+      grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version,
+      temperature_c, humidity_percent, source_operation, source_snapshot_id, import_run_id
+    ) values (
+      '35000000-0000-0000-0000-000000000001', now(), now() + interval '2 hours',
+      'ultra_short', '202608160800', 20, 70, 'getUltraSrtFcst',
+      '00000000-0000-0000-0000-000000000303',
+      '00000000-0000-0000-0000-000000000033'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'qualitative precipitation code is never stored together with millimeters',
+  $statement$
+    insert into weather_forecasts (
+      grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version,
+      precipitation_amount_mm, precipitation_intensity_code,
+      temperature_c, humidity_percent, source_operation, source_snapshot_id, import_run_id
+    ) values (
+      '35000000-0000-0000-0000-000000000001', now(), now() + interval '3 hours',
+      'short', '202608160800', 1.0, 2, 20, 70, 'getVilageFcst',
+      '00000000-0000-0000-0000-000000000302',
+      '00000000-0000-0000-0000-000000000032'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'qualitative wind code is never stored together with meters per second',
+  $statement$
+    insert into weather_forecasts (
+      grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version,
+      wind_speed_mps, wind_strength_code,
+      temperature_c, humidity_percent, source_operation, source_snapshot_id, import_run_id
+    ) values (
+      '35000000-0000-0000-0000-000000000001', now(), now() + interval '4 hours',
+      'short', '202608160800', 3.0, 3, 20, 70, 'getVilageFcst',
+      '00000000-0000-0000-0000-000000000302',
+      '00000000-0000-0000-0000-000000000032'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
   'weather impact day must match compute and item day',
   $statement$
     insert into trip_weather_impacts (

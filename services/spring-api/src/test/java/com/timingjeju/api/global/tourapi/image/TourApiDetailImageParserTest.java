@@ -15,7 +15,7 @@ class TourApiDetailImageParserTest {
   private final TourApiDetailImageParser parser = new TourApiDetailImageParser(new ObjectMapper());
 
   @Test
-  void source_id와_https_대표_썸네일_저작권_license를_응답순서대로_보존한다() {
+  void source_id와_http_https_대표_썸네일_저작권_license를_응답순서대로_보존한다() {
     var page =
         parser.parse(
             SnapshotPayloadFormat.JSON,
@@ -25,7 +25,7 @@ class TourApiDetailImageParserTest {
                     100,
                     2,
                     "{\"contentid\":\"100\",\"serialnum\":\"IMG-2\",\"originimgurl\":\"https://img.example.test/2.jpg\",\"smallimageurl\":\"https://img.example.test/2-small.jpg\",\"imgname\":\"두 번째\",\"cpyrhtDivCd\":\"Type1\",\"copyrightowner\":\"한국관광공사\",\"license\":\"공공누리 제1유형\"},"
-                        + "{\"contentid\":\"100\",\"originimgurl\":\"https://img.example.test/1.jpg\",\"imgname\":\"첫 번째\"}")),
+                        + "{\"contentid\":\"100\",\"originimgurl\":\"http://img.example.test/1.jpg\",\"smallimageurl\":\"http://img.example.test/1-small.jpg\",\"imgname\":\"첫 번째\"}")),
             "100");
 
     assertThat(page.pageNo()).isEqualTo(1);
@@ -35,6 +35,9 @@ class TourApiDetailImageParserTest {
     assertThat(page.images().getFirst().imageUrl()).isEqualTo("https://img.example.test/2.jpg");
     assertThat(page.images().getFirst().thumbnailUrl())
         .isEqualTo("https://img.example.test/2-small.jpg");
+    assertThat(page.images().get(1).imageUrl()).isEqualTo("http://img.example.test/1.jpg");
+    assertThat(page.images().get(1).thumbnailUrl())
+        .isEqualTo("http://img.example.test/1-small.jpg");
     assertThat(page.images().getFirst().copyrightCode()).isEqualTo("Type1");
     assertThat(page.images().getFirst().copyrightOwner()).isEqualTo("한국관광공사");
     assertThat(page.images().getFirst().licenseText()).isEqualTo("공공누리 제1유형");
@@ -52,9 +55,11 @@ class TourApiDetailImageParserTest {
   }
 
   @Test
-  void http_상대_URL_userinfo_8192byte초과와_비문자_field를_거부한다() {
-    assertInvalid(item("http://img.example.test/a.jpg", null));
+  void http_https_상대_URL_userinfo_비문자_누락된_host_비허용_fragment를_거부한다() {
+    assertInvalid(item("ftp://img.example.test/a.jpg", null));
     assertInvalid(item("/relative.jpg", null));
+    assertInvalid(item("https:///img.example.test/path", null));
+    assertInvalid(item("https://img.example.test/path#section", null));
     assertInvalid(item("https://user@img.example.test/a.jpg", null));
     assertInvalid(item("https://img.example.test/" + "가".repeat(2800), null));
     assertInvalid("{\"contentid\":\"100\",\"originimgurl\":123,\"serialnum\":\"IMG-1\"}");

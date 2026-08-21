@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -51,9 +52,15 @@ class PlaceListImportServiceTest {
     FakeRunStore runStore = new FakeRunStore(false);
     FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
     Queue<PlaceListPage> pages = new ArrayDeque<>();
-    pages.add(page(1, 100, 4, List.of(place("1"), place("2")), Map.of()));
     pages.add(
-        page(2, 100, 4, List.of(place("1")), Map.of(PlaceRejectReason.INVALID_COORDINATE, 1)));
+        page(
+            1,
+            100,
+            200,
+            List.of(place("1"), place("2")),
+            Map.of(PlaceRejectReason.INVALID_COORDINATE, 98)));
+    pages.add(
+        page(2, 100, 200, List.of(place("1")), Map.of(PlaceRejectReason.INVALID_COORDINATE, 99)));
     FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(2, 0, 1));
     PlaceListImportService service = service(runStore, snapshotStore, pages, repository);
 
@@ -64,8 +71,8 @@ class PlaceListImportServiceTest {
     assertThat(result.pageCount()).isEqualTo(2);
     assertThat(result.inserted()).isEqualTo(2);
     assertThat(result.skipped()).isEqualTo(1);
-    assertThat(result.rejected()).isEqualTo(1);
-    assertThat(result.rejectedReasons()).containsEntry(PlaceRejectReason.INVALID_COORDINATE, 1);
+    assertThat(result.rejected()).isEqualTo(197);
+    assertThat(result.rejectedReasons()).containsEntry(PlaceRejectReason.INVALID_COORDINATE, 197);
     assertThat(result.replayed()).isFalse();
     assertThat(repository.commands)
         .singleElement()
@@ -87,9 +94,160 @@ class PlaceListImportServiceTest {
             });
     assertThat(runStore.status).isEqualTo(ImportRunStatus.PARTIAL);
     assertThat(runStore.failure).isEqualTo(ImportRunFailure.PARSE_REJECTED);
-    assertThat(runStore.counts).isEqualTo(new ImportRunCounts(4, 2, 2, 0, 1, 1, 0, 0));
+    assertThat(runStore.counts).isEqualTo(new ImportRunCounts(200, 2, 2, 0, 1, 197, 0, 0));
     assertThat(snapshotStore.statuses)
         .containsExactly(SnapshotStatus.PARSED, SnapshotStatus.PARSED);
+  }
+
+  @Test
+  void 전체_리스트_total을_도달할_때까지_페이지를_계속_요청한다() {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    Queue<PlaceListPage> pages = new ArrayDeque<>();
+    pages.add(page(1, 100, 200, repeatedPlaces(100, "1-"), Map.of()));
+    pages.add(page(2, 100, 200, repeatedPlaces(100, "2-"), Map.of()));
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(1, 0, 0));
+    PlaceListImportService service = service(runStore, snapshotStore, pages, repository);
+
+    PlaceListImportResult result = service.importPlaces(new PlaceListImportCommand("bounded-tour"));
+
+    assertThat(result.pageCount()).isEqualTo(2);
+    assertThat(result.inserted()).isEqualTo(1);
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.SUCCEEDED);
+    assertThat(snapshotStore.saved).isEqualTo(2);
+    assertThat(runStore.counts).isEqualTo(new ImportRunCounts(200, 2, 1, 0, 0, 0, 0, 0));
+    assertThat(runStore.failure).isNull();
+  }
+
+  @Test
+  void 마지막_페이지가_부분_응답이어도_총건수에_맞으면_성공한다() {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    Queue<PlaceListPage> pages = new ArrayDeque<>();
+    pages.add(page(1, 100, 151, repeatedPlaces(100, "1-"), Map.of()));
+    pages.add(page(2, 51, 151, repeatedPlaces(51, "2-"), Map.of()));
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(151, 0, 0));
+    PlaceListImportService service = service(runStore, snapshotStore, pages, repository);
+
+    PlaceListImportResult result =
+        service.importPlaces(new PlaceListImportCommand("partial-last-page"));
+
+    assertThat(result.pageCount()).isEqualTo(2);
+    assertThat(result.inserted()).isEqualTo(151);
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.SUCCEEDED);
+    assertThat(snapshotStore.saved).isEqualTo(2);
+    assertThat(runStore.counts).isEqualTo(new ImportRunCounts(151, 2, 151, 0, 0, 0, 0, 0));
+    assertThat(runStore.failure).isNull();
+    assertThat(snapshotStore.statuses)
+        .containsExactly(SnapshotStatus.PARSED, SnapshotStatus.PARSED);
+  }
+
+  @Test
+  void 마지막이_아닌_페이지에서_부분_응답은_실패로_간주한다() {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(150, 0, 0));
+    PlaceListImportService service =
+        service(
+            runStore,
+            snapshotStore,
+            pageNo -> response(pageNo),
+            (format, payload) -> {
+              int pageNo = Integer.parseInt(new String(payload, StandardCharsets.UTF_8));
+              if (pageNo == 1) {
+                return page(1, 100, 200, repeatedPlaces(100, "1-"), Map.of());
+              }
+              return page(2, 50, 200, repeatedPlaces(50, "2-"), Map.of());
+            },
+            repository);
+
+    assertThatThrownBy(() -> service.importPlaces(new PlaceListImportCommand("partial-middle")))
+        .isInstanceOf(PlaceListImportException.class);
+
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.FAILED);
+    assertThat(runStore.failure).isEqualTo(ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+    assertThat(snapshotStore.saved).isEqualTo(2);
+    assertThat(snapshotStore.statuses)
+        .containsExactly(SnapshotStatus.PARSED, SnapshotStatus.REJECTED);
+    assertThat(repository.commands).isEmpty();
+  }
+
+  @Test
+  void 마지막_페이지가_numOfRows_불일치면_실패한다() {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(150, 0, 0));
+    PlaceListImportService service =
+        service(
+            runStore,
+            snapshotStore,
+            pageNo -> response(pageNo),
+            (format, payload) -> {
+              int pageNo = Integer.parseInt(new String(payload, StandardCharsets.UTF_8));
+              if (pageNo == 1) {
+                return page(1, 100, 151, repeatedPlaces(100, "1-"), Map.of());
+              }
+              return page(2, 100, 151, repeatedPlaces(51, "2-"), Map.of());
+            },
+            repository);
+
+    assertThatThrownBy(() -> service.importPlaces(new PlaceListImportCommand("bad-last-page-size")))
+        .isInstanceOf(PlaceListImportException.class);
+
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.FAILED);
+    assertThat(runStore.failure).isEqualTo(ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+    assertThat(snapshotStore.saved).isEqualTo(2);
+    assertThat(snapshotStore.statuses)
+        .containsExactly(SnapshotStatus.PARSED, SnapshotStatus.REJECTED);
+    assertThat(repository.commands).isEmpty();
+  }
+
+  @Test
+  void pageNo_한도_초과하면_invalid_response로_fail_한다() {
+    FakeRunStore runStore = new FakeRunStore(false);
+    FakeSnapshotStore snapshotStore = new FakeSnapshotStore();
+    java.util.ArrayDeque<UUID> snapshotIds = new java.util.ArrayDeque<>();
+    for (int i = 0; i < 10_005; i++) {
+      snapshotIds.add(UUID.fromString(String.format("27000000-0000-0000-0000-%012d", i)));
+    }
+    ImportRunLifecycleService runService =
+        new ImportRunLifecycleService(runStore, CLOCK, new FixedRunIds());
+    SnapshotStoreService snapshotService =
+        new SnapshotStoreService(snapshotStore, new SafeRedactor(), CLOCK, snapshotIds::remove);
+    int[] sourceCalls = {0};
+    int[] parseCalls = {0};
+    FakeRepository repository = new FakeRepository(new PlaceListUpsertResult(0, 0, 0));
+    PlaceListImportService service =
+        new PlaceListImportService(
+            pageNo -> {
+              sourceCalls[0]++;
+              return response(pageNo);
+            },
+            (format, payload) -> {
+              parseCalls[0]++;
+              int pageNo = Integer.parseInt(new String(payload, StandardCharsets.UTF_8));
+              return page(
+                  pageNo,
+                  100,
+                  2_000_000,
+                  List.of(place("P" + pageNo)),
+                  Map.of(PlaceRejectReason.INVALID_COORDINATE, 99));
+            },
+            repository,
+            runService,
+            snapshotService,
+            CLOCK);
+
+    assertThatThrownBy(() -> service.importPlaces(new PlaceListImportCommand("max-pages-guard")))
+        .isInstanceOf(PlaceListImportException.class);
+
+    assertThat(sourceCalls[0]).isEqualTo(10000);
+    assertThat(parseCalls[0]).isEqualTo(10000);
+    assertThat(snapshotStore.saved).isEqualTo(10000);
+    assertThat(snapshotStore.statuses).containsOnly(SnapshotStatus.PARSED);
+    assertThat(runStore.status).isEqualTo(ImportRunStatus.FAILED);
+    assertThat(runStore.failure).isEqualTo(ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+    assertThat(repository.commands).isEmpty();
   }
 
   @Test
@@ -155,7 +313,12 @@ class PlaceListImportServiceTest {
             },
             (format, payload) -> {
               parserCalls[0]++;
-              return page(1, numOfRows, 1, List.of(place("1")), Map.of());
+              return page(
+                  1,
+                  numOfRows,
+                  200,
+                  List.of(place("1")),
+                  Map.of(PlaceRejectReason.INVALID_COORDINATE, 99));
             },
             repository);
 
@@ -224,6 +387,10 @@ class PlaceListImportServiceTest {
     return new TourPlace(
         contentId, "12", "성산일출봉", 126.5, 33.5, "제주", "성산읍", null, null, "50", "50130", "VE", "VE01",
         "VE0101", NOW);
+  }
+
+  private static List<TourPlace> repeatedPlaces(int count, String prefix) {
+    return IntStream.range(0, count).mapToObj(i -> place(prefix + i)).toList();
   }
 
   private static final class FakeRepository implements PlaceListRepository {

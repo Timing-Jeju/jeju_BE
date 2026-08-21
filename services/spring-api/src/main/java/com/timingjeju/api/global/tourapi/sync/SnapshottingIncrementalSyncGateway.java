@@ -61,7 +61,7 @@ public final class SnapshottingIncrementalSyncGateway implements IncrementalSync
                 storedBytes,
                 Map.of(
                     "endpoint",
-                    "/areaBasedSyncList2",
+                    "areaBasedSyncList2",
                     "modifiedtime",
                     cursor.modifiedAfter().toString(),
                     "lDongRegnCd",

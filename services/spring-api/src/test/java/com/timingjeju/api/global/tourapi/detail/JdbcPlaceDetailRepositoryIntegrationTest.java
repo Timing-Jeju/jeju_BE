@@ -188,6 +188,31 @@ class JdbcPlaceDetailRepositoryIntegrationTest {
   }
 
   @Test
+  void 첫_detail_insert의_common이_기존_개요_null이면서_동일한_freshness면_업데이트한다() {
+    replacePlace(null, NOW.minusSeconds(30));
+    PlaceState before = placeState();
+
+    assertThat(repository.upsert(command(COMMON_HASH)).inserted()).isTrue();
+    assertThat(placeState())
+        .extracting(
+            PlaceState::overview, PlaceState::sourceModifiedAt, PlaceState::sourceSnapshotId)
+        .containsExactly("안전한 개요", NOW.minusSeconds(30), COMMON_SNAPSHOT);
+    assertThat(placeState().lastSeenAt()).isEqualTo(before.lastSeenAt());
+    assertThat(jdbc.queryForObject("select count(*) from public.place_details", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void 첫_detail_insert의_common이_동일한_freshness_이지만_기존_개요가_비어있으면_업데이트한다() {
+    replacePlace("", NOW.minusSeconds(30));
+
+    assertThat(repository.upsert(command(COMMON_HASH)).inserted()).isTrue();
+    assertThat(placeState().overview()).isEqualTo("안전한 개요");
+    assertThat(jdbc.queryForObject("select count(*) from public.place_details", Integer.class))
+        .isEqualTo(1);
+  }
+
+  @Test
   void 더_오래된_detailCommon_sourceModifiedAt은_새_snapshot이어도_최신_row와_provenance를_덮어쓰지_않는다() {
     repository.upsert(command(COMMON_HASH));
     DetailState before = state();

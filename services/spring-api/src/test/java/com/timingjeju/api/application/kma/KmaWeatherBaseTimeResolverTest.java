@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.timingjeju.api.domain.weather.ForecastBaseTime;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
@@ -12,6 +13,19 @@ import org.junit.jupiter.api.Test;
 
 @Tag("unit")
 class KmaWeatherBaseTimeResolverTest {
+
+  @Test
+  void resolvesVillageOfficialBaseAndPreviousPublicationAcrossDateBoundary() {
+    KmaWeatherBaseTimeResolver resolver =
+        new KmaWeatherBaseTimeResolver(
+            Clock.fixed(Instant.parse("2026-08-15T16:09:59Z"), ZoneOffset.UTC));
+
+    ForecastBaseTime latest = resolver.latest(KmaWeatherOperation.VILLAGE_FORECAST);
+
+    assertThat(latest).isEqualTo(base("2026-08-15", "23:00"));
+    assertThat(resolver.previous(KmaWeatherOperation.VILLAGE_FORECAST, latest))
+        .isEqualTo(base("2026-08-15", "20:00"));
+  }
 
   @Test
   void currentUsesPreviousHourBeforeTenMinutePublicationBoundary() {

@@ -114,20 +114,22 @@ public final class DetailItemImportService {
       int fetched) {
     if (!command.contentId().equals(page.contentId())
         || !command.contentTypeId().equals(page.contentTypeId())
-        || page.pageNo() != requestedPage
-        || page.numOfRows() != DetailInfoRequestContract.PAGE_SIZE) {
+        || page.pageNo() != requestedPage) {
       throw DetailItemImportException.invalidResponse();
     }
     int total = expectedTotal < 0 ? page.totalCount() : expectedTotal;
+    int remaining = total - fetched;
+    if (remaining <= 0) {
+      throw DetailItemImportException.invalidResponse();
+    }
+    int expectedRows = Math.min(DetailInfoRequestContract.PAGE_SIZE, remaining);
+    if (page.numOfRows() != expectedRows || page.rawItemCount() != expectedRows) {
+      throw DetailItemImportException.invalidResponse();
+    }
     if (page.totalCount() != total || fetched + page.rawItemCount() > total) {
       throw DetailItemImportException.invalidResponse();
     }
-    int remaining = total - fetched;
     if (remaining > 0 && page.rawItemCount() == 0) {
-      throw DetailItemImportException.invalidResponse();
-    }
-    if (remaining > DetailInfoRequestContract.PAGE_SIZE
-        && page.rawItemCount() != DetailInfoRequestContract.PAGE_SIZE) {
       throw DetailItemImportException.invalidResponse();
     }
     return total;

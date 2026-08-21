@@ -12,13 +12,14 @@
       "required": [],
       "properties": {
         "query": {"type": "string", "nullable": false, "normalization": "trim", "minLength": 1, "maxLength": 100},
-        "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
+        "category": {"type": "string", "nullable": false, "pattern": "^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"},
         "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
-        "lat": {"type": "number", "nullable": false, "minimum": -90, "maximum": 90},
-        "lng": {"type": "number", "nullable": false, "minimum": -180, "maximum": 180},
+        "lat": {"type": "number", "nullable": false, "minimum": 33, "maximum": 34},
+        "lng": {"type": "number", "nullable": false, "minimum": 126, "maximum": 127},
         "radiusMeters": {"type": "integer", "nullable": false, "minimum": 100, "maximum": 50000},
         "cursor": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 2048},
-        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100}
+        "size": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 100},
+        "savedOnly": {"type": "boolean", "nullable": false}
       },
       "dependentRequired": {"lat": ["lng"], "lng": ["lat"], "radiusMeters": ["lat", "lng"]}
     },
@@ -51,18 +52,22 @@
     "PlaceListItem": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "operationsSummary", "distanceMeters", "dataFreshness", "saved", "memo", "tags"],
+      "required": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "recommendedStaySource", "recommendedStayPolicyVersion", "recommendedStayEffectiveAt", "recommendedStayUpdatedAt", "operationsSummary", "distanceMeters", "dataFreshness", "saved", "memo", "tags"],
       "properties": {
         "placeId": {"type": "string", "nullable": false, "format": "uuid"},
         "contentId": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100},
         "name": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200},
-        "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
+        "category": {"type": "string", "nullable": false, "pattern": "^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"},
         "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
         "regionLabel": {"type": "string", "nullable": true, "maxLength": 100},
         "address": {"type": "string", "nullable": true, "maxLength": 500},
         "location": {"$ref": "Location", "nullable": false},
         "thumbnailUrl": {"type": "string", "nullable": true, "format": "uri"},
         "recommendedStayMinutes": {"type": "integer", "nullable": true, "minimum": 1, "maximum": 1440},
+        "recommendedStaySource": {"type": "string", "nullable": false, "enum": ["place_override", "category_default", "unavailable"]},
+        "recommendedStayPolicyVersion": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 100},
+        "recommendedStayEffectiveAt": {"type": "string", "nullable": true, "format": "date-time"},
+        "recommendedStayUpdatedAt": {"type": "string", "nullable": true, "format": "date-time"},
         "operationsSummary": {"type": "string", "nullable": true, "maxLength": 500},
         "distanceMeters": {"type": "integer", "nullable": true, "minimum": 0},
         "dataFreshness": {"$ref": "DataFreshness", "nullable": false},
@@ -105,7 +110,7 @@
       "additionalProperties": false,
       "required": ["phone", "homepageUrl"],
       "properties": {
-        "phone": {"type": "string", "nullable": true, "maxLength": 50},
+        "phone": {"type": "string", "nullable": true, "maxLength": 1000},
         "homepageUrl": {"type": "string", "nullable": true, "format": "uri"}
       }
     },
@@ -114,10 +119,10 @@
       "additionalProperties": false,
       "required": ["operatingHoursText", "closedDaysText", "parkingText", "admissionFeeText"],
       "properties": {
-        "operatingHoursText": {"type": "string", "nullable": true, "maxLength": 2000},
-        "closedDaysText": {"type": "string", "nullable": true, "maxLength": 2000},
-        "parkingText": {"type": "string", "nullable": true, "maxLength": 2000},
-        "admissionFeeText": {"type": "string", "nullable": true, "maxLength": 2000}
+        "operatingHoursText": {"type": "string", "nullable": true, "maxLength": 1000},
+        "closedDaysText": {"type": "string", "nullable": true, "maxLength": 1000},
+        "parkingText": {"type": "string", "nullable": true, "maxLength": 1000},
+        "admissionFeeText": {"type": "string", "nullable": true, "maxLength": 1000}
       }
     },
     "PlaceImage": {
@@ -142,8 +147,8 @@
         "stopName": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200},
         "distanceMeters": {"type": "integer", "nullable": false, "minimum": 0},
         "walkMinutes": {"type": "integer", "nullable": true, "minimum": 0},
-        "linkMethod": {"type": "string", "nullable": false, "enum": ["spatial_radius", "manual", "provider_mapping"]},
-        "provider": {"type": "string", "nullable": false, "enum": ["TAGO", "TIMING_JEJU"]},
+        "linkMethod": {"type": "string", "nullable": false, "enum": ["spatial_radius", "fixture", "manual", "api_nearby"]},
+        "provider": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 128},
         "observedAt": {"type": "string", "nullable": false, "format": "date-time"},
         "expiresAt": {"type": "string", "nullable": false, "format": "date-time"},
         "stale": {"type": "boolean", "nullable": false}
@@ -152,24 +157,28 @@
     "PlaceDetailResponse": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "operationsSummary", "saved", "overview", "contact", "operations", "images", "nearbyStops"],
+      "required": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "recommendedStaySource", "recommendedStayPolicyVersion", "recommendedStayEffectiveAt", "recommendedStayUpdatedAt", "operationsSummary", "saved", "overview", "contact", "operations", "images", "nearbyStops"],
       "properties": {
         "placeId": {"type": "string", "nullable": false, "format": "uuid"},
         "contentId": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100},
         "name": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200},
-        "category": {"type": "string", "nullable": false, "pattern": "^[a-z][a-z0-9_]{0,49}$"},
+        "category": {"type": "string", "nullable": false, "pattern": "^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"},
         "regionCode": {"type": "string", "nullable": false, "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"},
         "regionLabel": {"type": "string", "nullable": true, "maxLength": 100},
         "address": {"type": "string", "nullable": true, "maxLength": 500},
         "location": {"$ref": "Location", "nullable": false},
         "thumbnailUrl": {"type": "string", "nullable": true, "format": "uri"},
         "recommendedStayMinutes": {"type": "integer", "nullable": true, "minimum": 1, "maximum": 1440},
-        "operationsSummary": {"type": "string", "nullable": true, "maxLength": 500},
+        "recommendedStaySource": {"type": "string", "nullable": false, "enum": ["place_override", "category_default", "unavailable"]},
+        "recommendedStayPolicyVersion": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 100},
+        "recommendedStayEffectiveAt": {"type": "string", "nullable": true, "format": "date-time"},
+        "recommendedStayUpdatedAt": {"type": "string", "nullable": true, "format": "date-time"},
+        "operationsSummary": {"type": "string", "nullable": true, "maxLength": 1000},
         "saved": {"$ref": "SavedPlaceState", "nullable": false},
         "overview": {"type": "string", "nullable": true, "maxLength": 10000},
         "contact": {"$ref": "Contact", "nullable": false},
         "operations": {"$ref": "Operations", "nullable": false},
-        "images": {"type": "array", "nullable": false, "items": {"$ref": "PlaceImage", "nullable": false}},
+        "images": {"type": "array", "nullable": false, "maxItems": 20, "items": {"$ref": "PlaceImage", "nullable": false}},
         "nearbyStops": {"type": "array", "nullable": false, "maxItems": 5, "uniqueBy": "stopId", "items": {"$ref": "NearbyStop", "nullable": false}}
       }
     },
@@ -234,15 +243,15 @@
         "lat": {
           "required": false,
           "nullable": false,
-          "minimum": -90,
-          "maximum": 90,
+          "minimum": 33,
+          "maximum": 34,
           "pairedWith": "lng"
         },
         "lng": {
           "required": false,
           "nullable": false,
-          "minimum": -180,
-          "maximum": 180,
+          "minimum": 126,
+          "maximum": 127,
           "pairedWith": "lat"
         },
         "radiusMeters": {
@@ -268,6 +277,12 @@
           "minimum": 1,
           "maximum": 100,
           "default": 20
+        },
+        "savedOnly": {
+          "required": false,
+          "nullable": false,
+          "type": "boolean",
+          "default": false
         }
       },
       "pagination": {
@@ -297,6 +312,7 @@
           "lng",
           "radiusMeters",
           "size",
+          "savedOnly",
           "sortProfile"
         ],
         "filterChange": "reject CURSOR_CONTEXT_MISMATCH"
@@ -366,6 +382,10 @@
       "location",
       "thumbnailUrl",
       "recommendedStayMinutes",
+      "recommendedStaySource",
+      "recommendedStayPolicyVersion",
+      "recommendedStayEffectiveAt",
+      "recommendedStayUpdatedAt",
       "operationsSummary",
       "distanceMeters",
       "dataFreshness",
@@ -384,6 +404,10 @@
       "location",
       "thumbnailUrl",
       "recommendedStayMinutes",
+      "recommendedStaySource",
+      "recommendedStayPolicyVersion",
+      "recommendedStayEffectiveAt",
+      "recommendedStayUpdatedAt",
       "operationsSummary",
       "saved",
       "overview",
@@ -394,6 +418,7 @@
     ],
     "rules": {
       "recommendedStayMinutes": "목록과 상세에서 같은 curated 값 또는 null",
+      "recommendedStayProvenance": "목록과 상세에서 source/version/effectiveAt/updatedAt 동일",
       "thumbnailUrl": "상세 images의 displayOrder 최우선 thumbnail과 동일하거나 null",
       "operationsSummary": "상세 operations에서 파생한 동일 시점 요약 또는 null",
       "dataFreshness": "목록 item마다 provider/observedAt/expiresAt/stale required; Notion latest list와 동일"
@@ -439,12 +464,20 @@
       "owner": "TAGO stop + Timing Jeju place-stop link",
       "provider": "place_stop_links.source_provider",
       "observedAt": "place_stop_links.observed_at",
-      "expiresAt": "place_stop_links.expires_at",
-      "stale": "expires_at <= now()"
+      "expiresAt": "least(place_stop_links.expires_at, non-null bus_stops.stale_at)",
+      "stale": "effective expiresAt <= now()"
     }
   },
   "nearbyStops": {
     "presence": "required non-null array from #66 contract version",
+    "effectiveExpiresAt": "least(place_stop_links.expires_at, non-null bus_stops.stale_at)",
+    "distancePolicy": {
+      "property": "app.places.nearby-stops.max-distance-meters",
+      "default": 500,
+      "minimum": 1,
+      "maximum": 500,
+      "inclusive": true
+    },
     "itemFields": [
       "stopId",
       "stopName",
@@ -475,13 +508,19 @@
       "stopTombstoned": false,
       "stopSourceDeleted": false
     },
+    "coordinateRecompute": {
+      "expiredActiveLink": "refresh distanceMeters and walkMinutes only",
+      "preserve": ["provider", "observedAt", "expiresAt", "enabled", "tombstonedAt"],
+      "expiredNewLink": "do not create",
+      "policyDisabledOrTombstoned": "do not reactivate"
+    },
     "emptyWhen": "eligible fresh/stale link count = 0",
     "emptyResponse": {
       "status": 200,
       "nearbyStops": []
     },
-    "freshBoundary": "expiresAt > now()",
-    "staleBoundary": "expiresAt <= now()",
+    "freshBoundary": "effective expiresAt > now()",
+    "staleBoundary": "effective expiresAt <= now()",
     "sort": [
       "stale ASC",
       "distanceMeters ASC",
@@ -528,7 +567,7 @@
           "method": "GET",
           "path": "/api/v1/places",
           "specStatus": "Draft",
-          "canonicalListItemFields": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "operationsSummary", "distanceMeters", "dataFreshness", "saved", "memo", "tags"],
+          "canonicalListItemFields": ["placeId", "contentId", "name", "category", "regionCode", "regionLabel", "address", "location", "thumbnailUrl", "recommendedStayMinutes", "recommendedStaySource", "recommendedStayPolicyVersion", "recommendedStayEffectiveAt", "recommendedStayUpdatedAt", "operationsSummary", "distanceMeters", "dataFreshness", "saved", "memo", "tags"],
           "pageId": "3a40a87c-7ce5-8107-98bf-fdb79281852b",
           "url": "https://app.notion.com/p/3a40a87c7ce5810798bffdb79281852b?pvs=204"
         },

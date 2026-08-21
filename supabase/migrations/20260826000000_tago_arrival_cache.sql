@@ -1,4 +1,5 @@
 -- Issue #39: TAGO 정류장 도착정보 snapshot·single-flight cache 저장 계약.
+-- 기존 공유 migration 이후 복구된 unpublished 변경이므로 append-only 최신 timestamp를 사용한다.
 
 alter table public.bus_arrival_snapshots
   add column source_service text,
