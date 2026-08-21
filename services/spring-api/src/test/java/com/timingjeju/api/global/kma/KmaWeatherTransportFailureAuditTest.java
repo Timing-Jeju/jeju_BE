@@ -5,16 +5,19 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.timingjeju.api.application.importing.ImportCheckpointService;
+import com.timingjeju.api.application.importing.ImportRunFailure;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleService;
 import com.timingjeju.api.application.importing.ImportRunStartResult;
 import com.timingjeju.api.application.kma.KmaWeatherBaseTimeResolver;
 import com.timingjeju.api.application.kma.KmaWeatherCommitter;
 import com.timingjeju.api.application.kma.KmaWeatherImportCommand;
+import com.timingjeju.api.application.kma.KmaWeatherImportError;
 import com.timingjeju.api.application.kma.KmaWeatherImportException;
 import com.timingjeju.api.application.kma.KmaWeatherImportService;
 import com.timingjeju.api.application.kma.KmaWeatherParser;
@@ -42,7 +45,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.ObjectMapper;
@@ -53,6 +58,113 @@ class KmaWeatherTransportFailureAuditTest {
       Clock.fixed(Instant.parse("2026-08-15T15:45:00Z"), ZoneOffset.UTC);
   private static final byte[] PAGE_ONE = villageEnvelope(1).getBytes(StandardCharsets.UTF_8);
   private static final byte[] PAGE_TWO = villageEnvelope(2).getBytes(StandardCharsets.UTF_8);
+
+  @Test
+  void firstTransportFailuresThroughRealClientRemainProviderUnavailableWithoutSideEffects() {
+    AtomicInteger requests = new AtomicInteger();
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request -> {
+              requests.incrementAndGet();
+              throw new IllegalStateException("first request transport failed");
+            });
+    RecordingStore store = new RecordingStore();
+    RecordingRedactor redactor = new RecordingRedactor();
+    SnapshotStoreService snapshotStore =
+        new SnapshotStoreService(store, redactor, CLOCK, UUID::randomUUID);
+    SnapshottingKmaWeatherGateway gateway = new SnapshottingKmaWeatherGateway(snapshotStore, CLOCK);
+    ImportCheckpointService checkpoints = mock(ImportCheckpointService.class);
+    ImportRunLifecycleService runs = mock(ImportRunLifecycleService.class);
+    KmaWeatherParser parser = mock(KmaWeatherParser.class);
+    KmaWeatherCommitter committer = mock(KmaWeatherCommitter.class);
+    ImportRunLease lease = new ImportRunLease(UUID.randomUUID(), UUID.randomUUID(), 1L);
+    when(checkpoints.find(any())).thenReturn(Optional.empty());
+    when(runs.start(any())).thenReturn(new ImportRunStartResult(lease, false));
+    KmaWeatherImportService service =
+        new KmaWeatherImportService(
+            client,
+            gateway,
+            parser,
+            checkpoints,
+            runs,
+            committer,
+            new KmaWeatherBaseTimeResolver(CLOCK));
+
+    assertThatThrownBy(
+            () ->
+                service.importVillageForecast(
+                    new KmaWeatherImportCommand(UUID.randomUUID(), 52, 38, "first-transport")))
+        .isInstanceOf(KmaWeatherImportException.class)
+        .extracting(failure -> ((KmaWeatherImportException) failure).code())
+        .isEqualTo(KmaWeatherImportError.PROVIDER_UNAVAILABLE);
+
+    assertThat(requests).hasValue(2);
+    assertThat(store.saved).isEmpty();
+    assertThat(store.transitions).isEmpty();
+    assertThat(redactor.payloads).isEmpty();
+    verify(parser, never()).parse(any(), any());
+    verify(committer, never()).commit(any());
+    verify(checkpoints, never()).advance(any());
+    verify(runs, times(1)).fail(lease, ImportRunFailure.PROVIDER_UNAVAILABLE);
+  }
+
+  @ParameterizedTest(name = "invalid first response remains invalid provider response: {0}")
+  @ValueSource(strings = {"not-json", "{}"})
+  void invalidBodyThroughRealClientRemainsInvalidProviderResponse(String payload) {
+    AtomicInteger requests = new AtomicInteger();
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request -> {
+              requests.incrementAndGet();
+              return payload.getBytes(StandardCharsets.UTF_8);
+            });
+    RecordingStore store = new RecordingStore();
+    SnapshotStoreService snapshotStore =
+        new SnapshotStoreService(store, new RecordingRedactor(), CLOCK, UUID::randomUUID);
+    SnapshottingKmaWeatherGateway gateway = new SnapshottingKmaWeatherGateway(snapshotStore, CLOCK);
+    ImportCheckpointService checkpoints = mock(ImportCheckpointService.class);
+    ImportRunLifecycleService runs = mock(ImportRunLifecycleService.class);
+    KmaWeatherParser parser = mock(KmaWeatherParser.class);
+    KmaWeatherCommitter committer = mock(KmaWeatherCommitter.class);
+    ImportRunLease lease = new ImportRunLease(UUID.randomUUID(), UUID.randomUUID(), 1L);
+    when(checkpoints.find(any())).thenReturn(Optional.empty());
+    when(runs.start(any())).thenReturn(new ImportRunStartResult(lease, false));
+    when(parser.parse(any(), any())).thenThrow(KmaWeatherImportException.invalidResponse());
+    KmaWeatherImportService service =
+        new KmaWeatherImportService(
+            client,
+            gateway,
+            parser,
+            checkpoints,
+            runs,
+            committer,
+            new KmaWeatherBaseTimeResolver(CLOCK));
+
+    assertThatThrownBy(
+            () ->
+                service.importVillageForecast(
+                    new KmaWeatherImportCommand(UUID.randomUUID(), 52, 38, "invalid-body")))
+        .isInstanceOf(KmaWeatherImportException.class)
+        .extracting(failure -> ((KmaWeatherImportException) failure).code())
+        .isEqualTo(KmaWeatherImportError.INVALID_PROVIDER_RESPONSE);
+
+    if ("not-json".equals(payload)) {
+      assertThat(requests).hasValue(1);
+      assertThat(store.saved).hasSize(2);
+      assertThat(store.transitions).isEmpty();
+      verify(parser, never()).parse(any(), any());
+    } else {
+      assertThat(requests).hasValue(2);
+      assertThat(store.saved).hasSize(4);
+      assertThat(store.transitions)
+          .hasSize(4)
+          .allSatisfy(value -> assertThat(value.status()).isEqualTo(SnapshotStatus.REJECTED));
+      verify(parser, times(2)).parse(any(), any());
+    }
+    verify(committer, never()).commit(any());
+    verify(checkpoints, never()).advance(any());
+    verify(runs).fail(lease, ImportRunFailure.INVALID_PROVIDER_RESPONSE);
+  }
 
   @ParameterizedTest(
       name = "transport failure at {0} preserves all prior responses as rejected audit")
@@ -98,7 +210,9 @@ class KmaWeatherTransportFailureAuditTest {
             () ->
                 service.importVillageForecast(
                     new KmaWeatherImportCommand(UUID.randomUUID(), 52, 38, "transport-audit")))
-        .isInstanceOf(KmaWeatherImportException.class);
+        .isInstanceOf(KmaWeatherImportException.class)
+        .extracting(failure -> ((KmaWeatherImportException) failure).code())
+        .isEqualTo(KmaWeatherImportError.PROVIDER_UNAVAILABLE);
 
     List<String> expectedKeys =
         "page2".equals(failurePoint)
@@ -135,6 +249,7 @@ class KmaWeatherTransportFailureAuditTest {
         .allSatisfy(value -> assertThat(value.status()).isEqualTo(SnapshotStatus.REJECTED));
     verify(parser, never()).parse(any(), any());
     verify(committer, never()).commit(any());
+    verify(runs).fail(lease, ImportRunFailure.PROVIDER_UNAVAILABLE);
   }
 
   private static String villageEnvelope(int page) {

@@ -94,7 +94,7 @@ public final class KmaWeatherClient implements KmaWeatherSource {
       if (!parts.isEmpty()) {
         return KmaWeatherSourceResponse.transportFailure(parts);
       }
-      throw com.timingjeju.api.application.kma.KmaWeatherImportException.invalidResponse();
+      throw com.timingjeju.api.application.kma.KmaWeatherImportException.providerUnavailable();
     }
   }
 
