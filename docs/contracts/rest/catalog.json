@@ -67,7 +67,7 @@
       "auth": {"mode": "optional", "missingToken": "anonymous", "invalidToken": 401},
       "owner": "Spring Places domain; contract #83, base/detail implementation #33, nearbyStops #66",
       "schemas": {"path": "PlaceDetailPath", "query": "none", "headers": "CommonHeaders", "body": "none"},
-      "presence": "placeId required canonical UUID; nearbyStops required non-null additive array from #66; 익명 saved={value:false,memo:null,tags:[]}",
+      "presence": "placeId required canonical UUID; images required stable max 20; public normalized detail text max 1000 Unicode code points; nearbyStops required non-null additive array from #66; 익명 saved={value:false,memo:null,tags:[]}",
       "responses": {"success": [200], "errors": [400, 401, 404, 503]},
       "dbOwner": "Spring read-only active place/detail/image/current-user saved projection #33; #37 place_stop_links read extension #66",
       "requestTimeCall": "none; TourAPI/TAGO request-time 호출 금지",

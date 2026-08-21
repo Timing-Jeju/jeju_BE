@@ -333,6 +333,7 @@ Table tour_places {
   stale_at timestamptz
   stale_reason text
   source_deleted_at timestamptz
+  tombstoned_at timestamptz
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
 

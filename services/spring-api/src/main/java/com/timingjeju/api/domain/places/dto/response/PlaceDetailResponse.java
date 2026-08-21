@@ -2,6 +2,7 @@ package com.timingjeju.api.domain.places.dto.response;
 
 import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Size;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -31,12 +32,13 @@ public record PlaceDetailResponse(
         Instant recommendedStayEffectiveAt,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
         Instant recommendedStayUpdatedAt,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String operationsSummary,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, maxLength = 1000)
+        String operationsSummary,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) SavedPlaceState saved,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String overview,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PlaceContact contact,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PlaceOperations operations,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<PlaceImage> images,
+    @Size(max = 20) @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<PlaceImage> images,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) List<NearbyStop> nearbyStops) {
 
   public PlaceDetailResponse {

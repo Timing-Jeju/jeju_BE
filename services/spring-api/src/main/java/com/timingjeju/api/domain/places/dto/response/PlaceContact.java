@@ -5,6 +5,7 @@ import java.net.URI;
 
 @Schema(name = "Contact", additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public record PlaceContact(
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) String phone,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, maxLength = 1000)
+        String phone,
     @Schema(format = "uri", requiredMode = Schema.RequiredMode.REQUIRED, nullable = true)
         URI homepageUrl) {}

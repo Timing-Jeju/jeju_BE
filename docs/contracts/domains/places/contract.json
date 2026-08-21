@@ -110,7 +110,7 @@
       "additionalProperties": false,
       "required": ["phone", "homepageUrl"],
       "properties": {
-        "phone": {"type": "string", "nullable": true, "maxLength": 50},
+        "phone": {"type": "string", "nullable": true, "maxLength": 1000},
         "homepageUrl": {"type": "string", "nullable": true, "format": "uri"}
       }
     },
@@ -119,10 +119,10 @@
       "additionalProperties": false,
       "required": ["operatingHoursText", "closedDaysText", "parkingText", "admissionFeeText"],
       "properties": {
-        "operatingHoursText": {"type": "string", "nullable": true, "maxLength": 2000},
-        "closedDaysText": {"type": "string", "nullable": true, "maxLength": 2000},
-        "parkingText": {"type": "string", "nullable": true, "maxLength": 2000},
-        "admissionFeeText": {"type": "string", "nullable": true, "maxLength": 2000}
+        "operatingHoursText": {"type": "string", "nullable": true, "maxLength": 1000},
+        "closedDaysText": {"type": "string", "nullable": true, "maxLength": 1000},
+        "parkingText": {"type": "string", "nullable": true, "maxLength": 1000},
+        "admissionFeeText": {"type": "string", "nullable": true, "maxLength": 1000}
       }
     },
     "PlaceImage": {
@@ -173,12 +173,12 @@
         "recommendedStayPolicyVersion": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 100},
         "recommendedStayEffectiveAt": {"type": "string", "nullable": true, "format": "date-time"},
         "recommendedStayUpdatedAt": {"type": "string", "nullable": true, "format": "date-time"},
-        "operationsSummary": {"type": "string", "nullable": true, "maxLength": 500},
+        "operationsSummary": {"type": "string", "nullable": true, "maxLength": 1000},
         "saved": {"$ref": "SavedPlaceState", "nullable": false},
         "overview": {"type": "string", "nullable": true, "maxLength": 10000},
         "contact": {"$ref": "Contact", "nullable": false},
         "operations": {"$ref": "Operations", "nullable": false},
-        "images": {"type": "array", "nullable": false, "items": {"$ref": "PlaceImage", "nullable": false}},
+        "images": {"type": "array", "nullable": false, "maxItems": 20, "items": {"$ref": "PlaceImage", "nullable": false}},
         "nearbyStops": {"type": "array", "nullable": false, "maxItems": 5, "uniqueBy": "stopId", "items": {"$ref": "NearbyStop", "nullable": false}}
       }
     },

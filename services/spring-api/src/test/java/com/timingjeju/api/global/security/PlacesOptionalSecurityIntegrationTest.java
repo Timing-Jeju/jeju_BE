@@ -132,6 +132,32 @@ class PlacesOptionalSecurityIntegrationTest {
   }
 
   @Test
+  void stale_boolean과_effective_stale_at_place는_API에서_404다() throws Exception {
+    mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-000000000003"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("PLACE_NOT_FOUND"));
+    mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-000000000004"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("PLACE_NOT_FOUND"));
+  }
+
+  @Test
+  void legacy_detail_HTML과_control_overlength도_MVC_public_JSON에서_정규화한다() throws Exception {
+    mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-000000000005"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.contact.phone").value(org.hamcrest.Matchers.hasLength(1000)))
+        .andExpect(
+            jsonPath("$.contact.phone")
+                .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("secret"))))
+        .andExpect(
+            jsonPath("$.operations.operatingHoursText")
+                .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("onclick"))))
+        .andExpect(
+            jsonPath("$.operations.operatingHoursText")
+                .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("<b"))));
+  }
+
+  @Test
   void detail의_typed_DB_failure는_raw_message없는_503이다() throws Exception {
     detailRepository.failure.set(new PlaceDetailUnavailableException());
 
@@ -275,6 +301,10 @@ class PlacesOptionalSecurityIntegrationTest {
 
   static final class FakePlaceDetailRepository implements PlaceDetailRepository {
     private static final UUID MISSING = new UUID(0, 0);
+    private static final UUID STALE_BOOLEAN =
+        UUID.fromString("20000000-0000-0000-0000-000000000003");
+    private static final UUID STALE_AT = UUID.fromString("20000000-0000-0000-0000-000000000004");
+    private static final UUID LEGACY_TEXT = UUID.fromString("20000000-0000-0000-0000-000000000005");
     private final AtomicReference<Optional<UUID>> lastUser =
         new AtomicReference<>(Optional.empty());
     private final AtomicReference<RuntimeException> failure = new AtomicReference<>();
@@ -285,9 +315,14 @@ class PlacesOptionalSecurityIntegrationTest {
         throw failure.get();
       }
       lastUser.set(currentUserId);
-      if (MISSING.equals(placeId)) {
+      if (MISSING.equals(placeId) || STALE_BOOLEAN.equals(placeId) || STALE_AT.equals(placeId)) {
         return Optional.empty();
       }
+      String legacy =
+          LEGACY_TEXT.equals(placeId)
+              ? "<script>secret()</script><b onclick='evil()'>운영&nbsp; 안내</b>\u0000 "
+                  + "가".repeat(1100)
+              : null;
       return Optional.of(
           new PlaceDetailSnapshot(
               placeId,
@@ -300,12 +335,12 @@ class PlacesOptionalSecurityIntegrationTest {
               33.458,
               126.941,
               null,
+              legacy,
               null,
-              null,
-              null,
-              null,
-              null,
-              null,
+              legacy,
+              legacy,
+              legacy,
+              legacy,
               List.of(),
               false,
               null,

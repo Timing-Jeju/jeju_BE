@@ -69,7 +69,9 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 
 `placeId`는 canonical UUID이며 path field는 required/non-null입니다. 장소가 없으면 `404 PLACE_NOT_FOUND`입니다. 상세은 장소 공통 필드와 `overview`, `contact`, `operations`, `images`, `nearbyStops`, 개인화 `saved` 객체를 추가합니다.
 
-#33은 active `tour_places`와 active detail/image, 현재 사용자의 `saved_places`만 단일 bounded SQL projection으로 읽습니다. detail/image/detail item이 없는 active 장소도 `200`이며 nullable 필드와 빈 배열을 생략하지 않습니다. `nearbyStops`는 #66 전까지 required `[]`이고 place-stop query를 실행하지 않습니다. DB read와 stay-policy의 typed resolution 실패만 `503 PLACE_DATA_UNAVAILABLE`로 닫으며 raw SQL·provider payload·내부 lineage를 응답하지 않습니다.
+#33은 `source_deleted_at IS NULL`, `tombstoned_at IS NULL`, `stale=false`, `stale_at IS NULL OR stale_at > now()`를 모두 만족하는 active `tour_places`와 active detail/image, 현재 사용자의 `saved_places`만 단일 bounded SQL projection으로 읽습니다. detail/image/detail item이 없는 active 장소도 `200`이며 nullable 필드와 빈 배열을 생략하지 않습니다. 이미지는 tombstone 제외 후 `display_order, id` 순서로 DB에서 최대 20개만 materialize합니다. `nearbyStops`는 #66 전까지 required `[]`이고 place-stop query를 실행하지 않습니다. DB read와 stay-policy의 typed resolution 실패만 `503 PLACE_DATA_UNAVAILABLE`로 닫으며 raw SQL·provider payload·내부 lineage를 응답하지 않습니다.
+
+외부 detail의 phone·hours·closed days·parking·fee 등 공개 normalized text는 ingestion과 legacy projection 양쪽에서 HTML element/attribute, script/style content, entity, control character를 안전하게 제거·decode하고 whitespace를 접은 plain text입니다. 각 값은 Unicode code point 기준 최대 1000이며 raw HTML을 공개하지 않습니다.
 
 - `recommendedStayMinutes`: TourAPI 원천이 아니라 Timing Jeju curated 값입니다.
 - `thumbnailUrl`: `images`의 가장 앞선 display order thumbnail과 같거나 둘 다 null입니다.

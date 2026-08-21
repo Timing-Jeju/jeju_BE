@@ -43,12 +43,20 @@ public class JdbcPublicPlaceDetailRepository implements PlaceDetailRepository {
       from public.tour_places p
       left join public.place_details detail
         on detail.place_id=p.id and detail.tombstoned_at is null
-      left join public.place_images image
-        on image.place_id=p.id and image.tombstoned_at is null
+      left join lateral (
+        select candidate.*
+        from public.place_images candidate
+        where candidate.place_id=p.id and candidate.tombstoned_at is null
+        order by candidate.display_order asc nulls last, candidate.id asc
+        limit 20
+      ) image on true
       left join public.saved_places saved
         on saved.place_id=p.id and saved.user_id=:userId
       where p.id=:placeId
         and p.source_deleted_at is null
+        and p.tombstoned_at is null
+        and p.stale = false
+        and (p.stale_at is null or p.stale_at > now())
         and p.content_id is not null and btrim(p.content_id) <> ''
         and p.region_code is not null and btrim(p.region_code) <> ''
       order by image.display_order asc nulls last, image.id asc nulls last

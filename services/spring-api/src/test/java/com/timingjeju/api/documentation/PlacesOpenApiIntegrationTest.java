@@ -120,6 +120,26 @@ class PlacesOpenApiIntegrationTest {
         .andExpect(jsonPath("$.components.schemas.Operations.additionalProperties").value(false))
         .andExpect(jsonPath("$.components.schemas.PlaceImage.additionalProperties").value(false))
         .andExpect(
+            jsonPath("$.components.schemas.PlaceDetailResponse.properties.images.maxItems")
+                .value(20))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.PlaceDetailResponse.properties.operationsSummary.maxLength")
+                .value(1000))
+        .andExpect(jsonPath("$.components.schemas.Contact.properties.phone.maxLength").value(1000))
+        .andExpect(
+            jsonPath("$.components.schemas.Operations.properties.operatingHoursText.maxLength")
+                .value(1000))
+        .andExpect(
+            jsonPath("$.components.schemas.Operations.properties.closedDaysText.maxLength")
+                .value(1000))
+        .andExpect(
+            jsonPath("$.components.schemas.Operations.properties.parkingText.maxLength")
+                .value(1000))
+        .andExpect(
+            jsonPath("$.components.schemas.Operations.properties.admissionFeeText.maxLength")
+                .value(1000))
+        .andExpect(
             jsonPath("$.components.schemas.PlaceDetailResponse.required")
                 .value(
                     org.hamcrest.Matchers.hasItems(

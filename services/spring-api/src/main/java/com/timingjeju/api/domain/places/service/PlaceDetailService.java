@@ -3,6 +3,7 @@ package com.timingjeju.api.domain.places.service;
 import com.timingjeju.api.application.staypolicy.RecommendedStay;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolutionException;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
+import com.timingjeju.api.application.text.PublicPlainTextNormalizer;
 import com.timingjeju.api.domain.places.dto.response.PlaceContact;
 import com.timingjeju.api.domain.places.dto.response.PlaceDetailResponse;
 import com.timingjeju.api.domain.places.dto.response.PlaceImage;
@@ -27,11 +28,15 @@ public class PlaceDetailService {
 
   private final PlaceDetailRepository repository;
   private final StayPolicyResolver stayPolicyResolver;
+  private final PublicPlainTextNormalizer publicText;
 
   public PlaceDetailService(
-      PlaceDetailRepository repository, StayPolicyResolver stayPolicyResolver) {
+      PlaceDetailRepository repository,
+      StayPolicyResolver stayPolicyResolver,
+      PublicPlainTextNormalizer publicText) {
     this.repository = repository;
     this.stayPolicyResolver = stayPolicyResolver;
+    this.publicText = publicText;
   }
 
   @Transactional(readOnly = true)
@@ -59,10 +64,10 @@ public class PlaceDetailService {
     URI thumbnail = images.isEmpty() ? null : images.getFirst().thumbnailUrl();
     PlaceOperations operations =
         new PlaceOperations(
-            snapshot.operatingHoursText(),
-            snapshot.closedDaysText(),
-            snapshot.parkingText(),
-            snapshot.admissionFeeText());
+            publicText.normalize(snapshot.operatingHoursText()),
+            publicText.normalize(snapshot.closedDaysText()),
+            publicText.normalize(snapshot.parkingText()),
+            publicText.normalize(snapshot.admissionFeeText()));
     return new PlaceDetailResponse(
         snapshot.placeId(),
         snapshot.contentId(),
@@ -81,7 +86,8 @@ public class PlaceDetailService {
         summary(operations),
         new SavedPlaceState(snapshot.saved(), snapshot.memo(), snapshot.tags()),
         snapshot.overview(),
-        new PlaceContact(snapshot.phone(), publicUri(snapshot.homepageUrl()).orElse(null)),
+        new PlaceContact(
+            publicText.normalize(snapshot.phone()), publicUri(snapshot.homepageUrl()).orElse(null)),
         operations,
         images,
         List.of());
@@ -120,17 +126,16 @@ public class PlaceDetailService {
     return Optional.empty();
   }
 
-  private static String summary(PlaceOperations operations) {
-    return java.util.stream.Stream.of(
-            operations.operatingHoursText(),
-            operations.closedDaysText(),
-            operations.parkingText(),
-            operations.admissionFeeText())
-        .filter(value -> value != null && !value.isBlank())
-        .map(String::trim)
-        .collect(
-            java.util.stream.Collectors.collectingAndThen(
-                java.util.stream.Collectors.joining(" · "),
-                value -> value.isEmpty() ? null : value));
+  private String summary(PlaceOperations operations) {
+    String joined =
+        java.util.stream.Stream.of(
+                operations.operatingHoursText(),
+                operations.closedDaysText(),
+                operations.parkingText(),
+                operations.admissionFeeText())
+            .filter(value -> value != null && !value.isBlank())
+            .map(String::trim)
+            .collect(java.util.stream.Collectors.joining(" · "));
+    return publicText.normalize(joined);
   }
 }

@@ -15,6 +15,7 @@ import com.timingjeju.api.domain.places.exception.PlaceDetailUnavailableExceptio
 import com.timingjeju.api.domain.places.model.PlaceDetailImageRow;
 import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import com.timingjeju.api.domain.places.repository.PlaceDetailRepository;
+import com.timingjeju.api.global.text.JsoupPublicPlainTextNormalizer;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -27,6 +28,8 @@ class PlaceDetailServiceTest {
 
   private static final UUID PLACE_ID = UUID.fromString("20000000-0000-0000-0000-000000000002");
   private static final UUID USER_ID = UUID.fromString("10000000-0000-0000-0000-000000000001");
+  private static final JsoupPublicPlainTextNormalizer PUBLIC_TEXT =
+      new JsoupPublicPlainTextNormalizer();
 
   @Test
   void 상세는_same_snapshot의_operations와_stay_provenance를_닫힌_shape로_반환한다() {
@@ -44,7 +47,8 @@ class PlaceDetailServiceTest {
                 Instant.parse("2026-08-23T09:00:05Z")));
 
     PlaceDetailResponse response =
-        new PlaceDetailService(repository, stayPolicies).detail(PLACE_ID, Optional.of(USER_ID));
+        new PlaceDetailService(repository, stayPolicies, PUBLIC_TEXT)
+            .detail(PLACE_ID, Optional.of(USER_ID));
 
     assertThat(response.placeId()).isEqualTo(PLACE_ID);
     assertThat(response.thumbnailUrl().toString())
@@ -72,7 +76,8 @@ class PlaceDetailServiceTest {
     when(stayPolicies.resolve(PLACE_ID, "VE")).thenReturn(RecommendedStay.unavailable());
 
     PlaceDetailResponse response =
-        new PlaceDetailService(repository, stayPolicies).detail(PLACE_ID, Optional.empty());
+        new PlaceDetailService(repository, stayPolicies, PUBLIC_TEXT)
+            .detail(PLACE_ID, Optional.empty());
 
     assertThat(response.overview()).isNull();
     assertThat(response.thumbnailUrl()).isNull();
@@ -95,7 +100,7 @@ class PlaceDetailServiceTest {
 
     assertThatThrownBy(
             () ->
-                new PlaceDetailService(repository, mock(StayPolicyResolver.class))
+                new PlaceDetailService(repository, mock(StayPolicyResolver.class), PUBLIC_TEXT)
                     .detail(PLACE_ID, Optional.empty()))
         .isInstanceOf(PlaceDetailException.class)
         .extracting("code")
@@ -110,7 +115,7 @@ class PlaceDetailServiceTest {
 
     assertThatThrownBy(
             () ->
-                new PlaceDetailService(repository, mock(StayPolicyResolver.class))
+                new PlaceDetailService(repository, mock(StayPolicyResolver.class), PUBLIC_TEXT)
                     .detail(PLACE_ID, Optional.empty()))
         .isInstanceOf(PlaceDetailException.class)
         .extracting("code")
@@ -124,10 +129,60 @@ class PlaceDetailServiceTest {
 
     assertThatThrownBy(
             () ->
-                new PlaceDetailService(available, stayPolicies).detail(PLACE_ID, Optional.empty()))
+                new PlaceDetailService(available, stayPolicies, PUBLIC_TEXT)
+                    .detail(PLACE_ID, Optional.empty()))
         .isInstanceOf(PlaceDetailException.class)
         .extracting("code")
         .isEqualTo("PLACE_DATA_UNAVAILABLE");
+  }
+
+  @Test
+  void legacy_detail_text도_public_projection에서_plain_text_1000_code_point로_다시_정규화한다() {
+    PlaceDetailRepository repository = mock(PlaceDetailRepository.class);
+    StayPolicyResolver stayPolicies = mock(StayPolicyResolver.class);
+    String dangerous =
+        "<script>secret()</script><style>.x{}</style><b onclick='evil()'>운영&nbsp; 안내</b>"
+            + "\u0000  오전\n 9시 "
+            + "🍊".repeat(1000);
+    PlaceDetailSnapshot legacy =
+        new PlaceDetailSnapshot(
+            PLACE_ID,
+            "126435",
+            "성산일출봉",
+            "VE",
+            "seongsan",
+            null,
+            null,
+            33.458111,
+            126.941516,
+            null,
+            dangerous,
+            null,
+            dangerous,
+            dangerous,
+            dangerous,
+            dangerous,
+            List.of(),
+            false,
+            null,
+            List.of());
+    when(repository.find(PLACE_ID, Optional.empty())).thenReturn(Optional.of(legacy));
+    when(stayPolicies.resolve(PLACE_ID, "VE")).thenReturn(RecommendedStay.unavailable());
+
+    PlaceDetailResponse response =
+        new PlaceDetailService(repository, stayPolicies, new JsoupPublicPlainTextNormalizer())
+            .detail(PLACE_ID, Optional.empty());
+
+    assertThat(response.contact().phone())
+        .startsWith("운영 안내 오전 9시")
+        .doesNotContain("secret", "onclick", "style");
+    assertThat(response.contact().phone().codePointCount(0, response.contact().phone().length()))
+        .isEqualTo(1000);
+    assertThat(response.operations().operatingHoursText()).isEqualTo(response.contact().phone());
+    assertThat(response.operationsSummary()).doesNotContain("secret", "onclick", "style");
+    assertThat(
+            response.operationsSummary().codePointCount(0, response.operationsSummary().length()))
+        .isLessThanOrEqualTo(1000);
   }
 
   private static PlaceDetailSnapshot fullSnapshot(boolean saved, String memo, List<String> tags) {

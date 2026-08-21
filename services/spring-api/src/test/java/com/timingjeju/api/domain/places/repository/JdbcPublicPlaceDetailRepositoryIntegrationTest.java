@@ -21,6 +21,10 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
   private static final UUID PLACE = UUID.fromString("33000000-0000-0000-0000-000000000001");
   private static final UUID NO_DETAIL = UUID.fromString("33000000-0000-0000-0000-000000000002");
   private static final UUID DELETED = UUID.fromString("33000000-0000-0000-0000-000000000003");
+  private static final UUID STALE_BOOLEAN = UUID.fromString("33000000-0000-0000-0000-000000000004");
+  private static final UUID STALE_AT = UUID.fromString("33000000-0000-0000-0000-000000000005");
+  private static final UUID TOMBSTONED = UUID.fromString("33000000-0000-0000-0000-000000000006");
+  private static final UUID FUTURE_FRESH = UUID.fromString("33000000-0000-0000-0000-000000000007");
   private static final UUID USER_A = UUID.fromString("33000000-0000-0000-0000-000000000011");
   private static final UUID USER_B = UUID.fromString("33000000-0000-0000-0000-000000000012");
 
@@ -35,6 +39,17 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
     insertPlace(PLACE, "detail-active", null);
     insertPlace(NO_DETAIL, "detail-empty", null);
     insertPlace(DELETED, "detail-deleted", Instant.parse("2026-08-21T00:00:00Z"));
+    insertPlace(STALE_BOOLEAN, "detail-stale-boolean", null);
+    insertPlace(STALE_AT, "detail-stale-at", null);
+    insertPlace(TOMBSTONED, "detail-tombstoned", null);
+    insertPlace(FUTURE_FRESH, "detail-future-fresh", null);
+    jdbc.update(
+        "update public.tour_places set stale=true, stale_at=now() where id=?", STALE_BOOLEAN);
+    jdbc.update("update public.tour_places set stale=false, stale_at=now() where id=?", STALE_AT);
+    jdbc.update("update public.tour_places set tombstoned_at=now() where id=?", TOMBSTONED);
+    jdbc.update(
+        "update public.tour_places set stale=false, stale_at=now()+interval '1 hour' where id=?",
+        FUTURE_FRESH);
   }
 
   @Test
@@ -113,6 +128,38 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
   }
 
   @Test
+  void stale_boolean_effective_stale_at_tombstone은_404이고_future_stale_at은_active다() {
+    assertThat(repository.find(STALE_BOOLEAN, Optional.empty())).isEmpty();
+    assertThat(repository.find(STALE_AT, Optional.empty())).isEmpty();
+    assertThat(repository.find(TOMBSTONED, Optional.empty())).isEmpty();
+    assertThat(repository.find(FUTURE_FRESH, Optional.empty())).isPresent();
+  }
+
+  @Test
+  void active_image_21개는_DB에서_stable_first20만_읽고_thumbnail은_first다() {
+    for (int index = 0; index < 21; index++) {
+      insertImage(
+          "33000000-0000-0000-0000-" + String.format("%012d", 200 + index),
+          index / 2,
+          String.format("bounded-%02d", index),
+          null);
+    }
+
+    PlaceDetailResponse response = service.detail(PLACE, Optional.empty());
+
+    assertThat(response.images()).hasSize(20);
+    assertThat(response.images())
+        .extracting(image -> image.url().toString())
+        .containsExactly(
+            java.util.stream.IntStream.range(0, 20)
+                .mapToObj(
+                    index -> String.format("https://images.example.test/bounded-%02d.jpg", index))
+                .toArray(String[]::new));
+    assertThat(response.thumbnailUrl().toString())
+        .isEqualTo("https://images.example.test/bounded-00-thumb.jpg");
+  }
+
+  @Test
   void 실제_stay_resolver의_minutes_source_version_effectiveAt_updatedAt을_상세에_투영한다() {
     Instant effectiveAt = Instant.parse("2026-08-20T01:00:00Z");
     Instant updatedAt = Instant.parse("2026-08-20T01:00:05Z");
@@ -143,17 +190,25 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
                 """
                 explain select p.id
                 from public.tour_places p
-                left join public.place_images image
-                  on image.place_id=p.id and image.tombstoned_at is null
+                left join lateral (
+                  select candidate.id, candidate.display_order
+                  from public.place_images candidate
+                  where candidate.place_id=p.id and candidate.tombstoned_at is null
+                  order by candidate.display_order asc nulls last, candidate.id asc
+                  limit 20
+                ) image on true
                 where p.id='33000000-0000-0000-0000-000000000001'::uuid
                   and p.source_deleted_at is null
+                  and p.tombstoned_at is null
+                  and p.stale=false
+                  and (p.stale_at is null or p.stale_at > now())
                 order by image.display_order asc nulls last, image.id asc nulls last
                 """,
                 String.class));
 
     assertThat(plan)
         .contains("tour_places_pkey")
-        .contains("Sort Key: image.display_order, image.id")
+        .contains("Limit")
         .matches("(?s).*(idx_place_images_place_order|uq_place_images_source_url_key).*");
   }
 
