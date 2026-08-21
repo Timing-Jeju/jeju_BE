@@ -121,6 +121,15 @@ class PlacesOpenApiIntegrationTest {
         .andExpect(jsonPath("$.components.schemas.PlaceImage.additionalProperties").value(false))
         .andExpect(jsonPath("$.components.schemas.NearbyStop.additionalProperties").value(false))
         .andExpect(
+            jsonPath("$.components.schemas.NearbyStop.properties.provider.minLength").value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.NearbyStop.properties.provider.maxLength").value(128))
+        .andExpect(
+            jsonPath("$.components.schemas.NearbyStop.properties.linkMethod.enum")
+                .value(
+                    org.hamcrest.Matchers.contains(
+                        "spatial_radius", "fixture", "manual", "api_nearby")))
+        .andExpect(
             jsonPath("$.components.schemas.PlaceDetailResponse.properties.nearbyStops.maxItems")
                 .value(5))
         .andExpect(

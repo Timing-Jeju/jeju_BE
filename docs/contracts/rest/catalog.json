@@ -71,7 +71,7 @@
       "responses": {"success": [200], "errors": [400, 401, 404, 503]},
       "dbOwner": "Spring read-only active place/detail/image/current-user saved projection #33; #37 place_stop_links read extension #66",
       "requestTimeCall": "none; TourAPI/TAGO request-time 호출 금지",
-      "dataLineage": "TourAPI normalized detail/images + Timing Jeju curation/current-user saved; nearbyStops=[] until #66 adds TAGO/#37 link provenance",
+      "dataLineage": "TourAPI normalized detail/images + Timing Jeju curation/current-user saved; nearbyStops maximum 5 from TAGO/#37 link provenance with effective expiry=min(link expiry, stop stale_at when non-null)",
       "figma": {"node": "251-4347", "action": "장소 상세·이미지·이용정보·주변 정류장", "loading": "상세 section skeleton", "empty": "주변 정류장만 []이고 장소 상세 유지", "error": "장소 없음 또는 데이터 사용 불가 안내"},
       "contractVersion": "1.0.0",
       "idempotency": {"required": false, "header": "none"},

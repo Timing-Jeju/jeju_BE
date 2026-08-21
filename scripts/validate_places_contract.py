@@ -411,11 +411,13 @@ def _validate_schemas(contract: dict[str, Any], errors: list[str]) -> None:
         )
 
 
-def _validate_temporal_order(value: Any, path: str, errors: list[str]) -> None:
+def _validate_temporal_order(
+    value: Any, path: str, errors: list[str], enforce_order: bool = True
+) -> None:
     if isinstance(value, dict):
         observed_at = value.get("observedAt")
         expires_at = value.get("expiresAt")
-        if isinstance(observed_at, str) and isinstance(expires_at, str):
+        if enforce_order and isinstance(observed_at, str) and isinstance(expires_at, str):
             observed = _parse_rfc3339(observed_at)
             expires = _parse_rfc3339(expires_at)
             if observed is None or expires is None:
@@ -425,10 +427,12 @@ def _validate_temporal_order(value: Any, path: str, errors: list[str]) -> None:
             elif observed > expires:
                 errors.append(f"{path}: observedAt은 expiresAt보다 늦을 수 없습니다.")
         for key, child in value.items():
-            _validate_temporal_order(child, f"{path}.{key}", errors)
+            _validate_temporal_order(
+                child, f"{path}.{key}", errors, enforce_order=key != "nearbyStops"
+            )
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            _validate_temporal_order(child, f"{path}[{index}]", errors)
+            _validate_temporal_order(child, f"{path}[{index}]", errors, enforce_order)
 
 
 def _endpoint_problem_tuples(endpoint: dict[str, Any]) -> set[tuple[int, str, str]]:

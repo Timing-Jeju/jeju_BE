@@ -255,7 +255,7 @@ class PlacesContractTest(unittest.TestCase):
     def test_rejects_expires_at_before_observed_at(self):
         self.assert_fixture_rejected(
             "success",
-            lambda fixture: fixture["detail"]["nearbyStops"][0].update(
+            lambda fixture: fixture["detail"]["images"][0].update(
                 expiresAt="2026-08-02T09:00:00+09:00"
             ),
             "observedAt",
@@ -412,9 +412,18 @@ class PlacesContractTest(unittest.TestCase):
                 )
                 self.assertEqual([], errors)
 
-        self.assert_fixture_rejected(
+        errors = self.fixture_errors(
             "success",
             lambda fixture: fixture["detail"]["nearbyStops"][0].update(
+                observedAt="2026-08-04t00:00:00z",
+                expiresAt="2026-08-03T23:59:59Z",
+            ),
+        )
+        self.assertEqual([], errors)
+
+        self.assert_fixture_rejected(
+            "success",
+            lambda fixture: fixture["detail"]["images"][0].update(
                 observedAt="2026-08-04t00:00:00z",
                 expiresAt="2026-08-03T23:59:59Z",
             ),
@@ -487,6 +496,16 @@ class PlacesContractTest(unittest.TestCase):
             schema["properties"]["provider"],
         )
         self.assertEqual("postgis:tago", fixture["provider"])
+
+        catalog = json.loads((ROOT / "docs/contracts/rest/catalog.json").read_text())
+        detail = next(
+            endpoint
+            for endpoint in catalog["endpoints"]
+            if endpoint["path"] == "/api/v1/places/{placeId}"
+        )
+        self.assertNotIn("until #66", detail["dataLineage"])
+        self.assertIn("maximum 5", detail["dataLineage"])
+        self.assertIn("effective expiry", detail["dataLineage"])
 
     def test_query_is_trimmed_before_one_to_one_hundred_character_validation(self):
         contract = self.contract()

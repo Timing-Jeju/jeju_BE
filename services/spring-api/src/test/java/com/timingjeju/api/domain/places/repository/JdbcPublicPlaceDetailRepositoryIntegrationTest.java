@@ -1,9 +1,11 @@
 package com.timingjeju.api.domain.places.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.timingjeju.api.domain.places.config.PlaceNearbyStopsProperties;
 import com.timingjeju.api.domain.places.dto.response.PlaceDetailResponse;
+import com.timingjeju.api.domain.places.exception.PlaceDetailException;
 import com.timingjeju.api.domain.places.model.PlaceDetailNearbyStopRow;
 import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import com.timingjeju.api.domain.places.service.PlaceDetailService;
@@ -12,6 +14,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -249,6 +252,45 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
   }
 
   @Test
+  void stop_staleAt이_더_늦은_link_observedAt보다_과거여도_상세은_effective_expiry로_반환한다() {
+    Instant linkObservedAt = Instant.now().minusSeconds(3600).truncatedTo(ChronoUnit.MICROS);
+    Instant olderStopStaleAt = linkObservedAt.minusSeconds(3600);
+    UUID stop =
+        stop(118, 100, 2, linkObservedAt, linkObservedAt.plusSeconds(7200), olderStopStaleAt);
+
+    PlaceDetailResponse response = service.detail(PLACE, Optional.empty());
+
+    assertThat(response.nearbyStops())
+        .singleElement()
+        .satisfies(
+            nearby -> {
+              assertThat(nearby.stopId()).isEqualTo(stop);
+              assertThat(nearby.observedAt()).isEqualTo(linkObservedAt);
+              assertThat(nearby.expiresAt()).isEqualTo(olderStopStaleAt);
+              assertThat(nearby.stale()).isTrue();
+            });
+  }
+
+  @Test
+  void legacy_DB의_128_code_point초과_provider는_raw값없이_typed503으로_닫는다() {
+    UUID stop = stop(119, 100, 2, Instant.now().plusSeconds(7200), null);
+    String invalidProvider = "🍊".repeat(129);
+    jdbc.update(
+        "update public.place_stop_links set source_provider=? where place_id=? and stop_id=?",
+        invalidProvider,
+        PLACE,
+        stop);
+
+    Throwable failure = catchThrowable(() -> service.detail(PLACE, Optional.empty()));
+
+    assertThat(failure)
+        .isInstanceOf(PlaceDetailException.class)
+        .extracting("code")
+        .isEqualTo("PLACE_DATA_UNAVAILABLE");
+    assertThat(failure).hasMessageNotContaining(invalidProvider);
+  }
+
+  @Test
   void 상세_query는_place_PK와_image_order_index_plan을_사용한다() {
     jdbc.execute("set local enable_seqscan=off");
     String plan =
@@ -322,6 +364,22 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
 
   private UUID stop(
       int suffix, int distanceMeters, int walkMinutes, Instant linkExpiresAt, Instant staleAt) {
+    return stop(
+        suffix,
+        distanceMeters,
+        walkMinutes,
+        Instant.parse("2026-08-21T00:00:00Z"),
+        linkExpiresAt,
+        staleAt);
+  }
+
+  private UUID stop(
+      int suffix,
+      int distanceMeters,
+      int walkMinutes,
+      Instant linkObservedAt,
+      Instant linkExpiresAt,
+      Instant staleAt) {
     UUID stopId = UUID.fromString("66000000-0000-0000-0000-" + String.format("%012d", suffix));
     jdbc.update(
         "insert into public.bus_stops(id,node_id,node_name,location,source_provider,source_service,city_code,last_seen_at,stale_at) values (?,?,?,ST_SetSRID(ST_MakePoint(126.941,33.458),4326)::geography,'fixture','fixture','39',?,?)",
@@ -336,7 +394,7 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
         stopId,
         distanceMeters,
         walkMinutes,
-        Timestamp.from(Instant.parse("2026-08-21T00:00:00Z")),
+        Timestamp.from(linkObservedAt),
         Timestamp.from(linkExpiresAt));
     return stopId;
   }
