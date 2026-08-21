@@ -29,7 +29,7 @@ const TARGET_PLACES = [
     fallbackName: "성산일출봉",
     fallbackLat: 33.4581,
     fallbackLng: 126.9425,
-    category: "tourist_attraction",
+    category: "VE",
     fallbackStopKeywords: ["성산일출봉", "성산일출봉입구"],
   },
   {
@@ -38,7 +38,7 @@ const TARGET_PLACES = [
     fallbackName: "섭지코지",
     fallbackLat: 33.4239,
     fallbackLng: 126.9305,
-    category: "tourist_attraction",
+    category: "VE",
     fallbackStopKeywords: ["섭지코지", "신양리"],
   },
 ];

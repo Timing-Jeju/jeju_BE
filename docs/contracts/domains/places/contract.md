@@ -33,21 +33,24 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 | 필드 | 필수 | null | 생략 | 계약 |
 | --- | --- | --- | --- | --- |
 | `query` | 아니오 | 불가 | 전체 이름·별칭 | 앞뒤 공백 허용, trim 후 1~100자 |
-| `category` | 아니오 | 불가 | 모든 카테고리 | `^[a-z][a-z0-9_]{0,49}$` |
+| `category` | 아니오 | 불가 | 모든 카테고리 | `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$` |
 | `regionCode` | 아니오 | 불가 | 모든 제주 지역 | `^[a-z0-9][a-z0-9_-]{0,49}$` |
-| `lat` | 아니오 | 불가 | 거리 정렬 미사용 | -90~90, `lng`와 함께 입력 |
-| `lng` | 아니오 | 불가 | 거리 정렬 미사용 | -180~180, `lat`와 함께 입력 |
+| `lat` | 아니오 | 불가 | 거리 정렬 미사용 | 제주 bounding box 33~34, `lng`와 함께 입력 |
+| `lng` | 아니오 | 불가 | 거리 정렬 미사용 | 제주 bounding box 126~127, `lat`와 함께 입력 |
 | `radiusMeters` | 아니오 | 불가 | 좌표가 있으면 10000 | 100~50000, 좌표와 함께 입력 |
 | `cursor` | 아니오 | 불가 | 첫 page | 최대 2048자의 opaque 값 |
 | `size` | 아니오 | 불가 | 20 | 1~100 |
+| `savedOnly` | 아니오 | 불가 | false | true이면 현재 사용자의 저장 장소만 조회, 익명은 401 |
 
-`query`는 요청의 앞뒤 공백을 허용하지만 서버가 trim한 값으로 검색하고 길이를 검사합니다. 공백만 있는 값은 거부하며 정규화한 값이 1~100자여야 합니다. cursor fingerprint에도 같은 정규화 값을 사용합니다.
+`category`는 TourAPI `lclsSystm1`의 trim된 uppercase code(예: `VE`)를 우선하고, 값이 없을 때만 `content-type:<digits>` fallback을 사용합니다. 필터는 이 source-preserving token을 exact match하며 목록·상세·저장 응답도 같은 token을 그대로 반환합니다.
+
+`query`는 요청의 앞뒤 공백을 허용하지만 서버가 trim한 값으로 검색하고 길이를 검사합니다. 공백만 있는 값은 거부하며 정규화한 값이 1~100자여야 합니다. `savedOnly`를 포함한 모든 검색 조건은 cursor fingerprint에도 같은 정규화 값을 사용합니다.
 
 좌표가 있으면 `distanceMeters ASC NULLS LAST, normalizedName ASC, placeId ASC`, 없으면 `normalizedName ASC, placeId ASC`로 정렬합니다. 고유 tie-breaker는 항상 `placeId ASC`입니다. cursor에는 정규화한 query와 category/regionCode/lat/lng/radiusMeters/size/sort profile fingerprint가 귀속됩니다. cursor 발급 뒤 하나라도 바뀌면 재사용하지 않고 `400 CURSOR_CONTEXT_MISMATCH`를 반환합니다.
 
 ### 목록 shape
 
-목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `operationsSummary`, `dataFreshness`, 개인화 `saved/memo/tags`를 포함합니다. `recommendedStayMinutes`, 대표 이미지와 운영 요약은 상세과 같은 read snapshot을 사용합니다. 값이 없으면 `recommendedStayMinutes`, `thumbnailUrl`, `operationsSummary`, `memo`는 null이며 임의 기본값을 만들지 않습니다. 이 필드들은 응답에서 생략하지 않습니다.
+목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `recommendedStaySource`, `recommendedStayPolicyVersion`, `recommendedStayEffectiveAt`, `recommendedStayUpdatedAt`, `operationsSummary`, `dataFreshness`, 개인화 `saved/memo/tags`를 포함합니다. 추천 체류시간은 #65 `StayPolicyResolver`의 place override→category default→unavailable 결과와 provenance를 상세과 동일하게 반환합니다. 값이 없으면 minutes/version/effectiveAt/updatedAt은 null이고 source는 `unavailable`이며, `thumbnailUrl`, `operationsSummary`, `memo`도 원천 값이 없으면 null입니다. 임의 기본값을 만들거나 필드를 생략하지 않습니다.
 
 `dataFreshness`는 목록 item마다 반드시 존재하는 닫힌 객체입니다.
 

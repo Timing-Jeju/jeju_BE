@@ -34,6 +34,10 @@ EXPECTED_LIST_FIELDS = {
     "location",
     "thumbnailUrl",
     "recommendedStayMinutes",
+    "recommendedStaySource",
+    "recommendedStayPolicyVersion",
+    "recommendedStayEffectiveAt",
+    "recommendedStayUpdatedAt",
     "operationsSummary",
     "distanceMeters",
     "dataFreshness",
@@ -100,6 +104,8 @@ EXPECTED_SCHEMA_REQUIRED = {
     "PlaceDetailResponse": {
         "placeId", "contentId", "name", "category", "regionCode", "regionLabel",
         "address", "location", "thumbnailUrl", "recommendedStayMinutes",
+        "recommendedStaySource", "recommendedStayPolicyVersion",
+        "recommendedStayEffectiveAt", "recommendedStayUpdatedAt",
         "operationsSummary", "saved", "overview", "contact", "operations", "images",
         "nearbyStops",
     },
@@ -109,15 +115,15 @@ EXPECTED_SCHEMA_REQUIRED = {
 EXPECTED_SCHEMA_PROPERTIES = {
     **EXPECTED_SCHEMA_REQUIRED,
     "PlacesListRequest": {
-        "query", "category", "regionCode", "lat", "lng", "radiusMeters", "cursor", "size"
+        "query", "category", "regionCode", "lat", "lng", "radiusMeters", "cursor", "size", "savedOnly"
     },
 }
 EXPECTED_SCHEMA_DIGESTS = {
-    "PlacesListRequest": "4db973e821257e484c5e11716a5c0f34253ee7603947b67a08e4f34f757213a8",
+    "PlacesListRequest": "e10118c0d8fe0f6f4da2a210dbb5c9e9aa81e00eff53e5ce9fcd45718f520056",
     "PlaceDetailPath": "2c80be1c2604a34033256df7c54f900caf2e8d11bc80a67827bf8dc4ce44aa22",
     "Location": "5d545fbf900382f1c8259038886baf3925845243a8ac6de18165a25afaabc38a",
     "DataFreshness": "132bfa40d554d4cd63bc3e5ad57af66881f61946c97f4505af5bf022d7832321",
-    "PlaceListItem": "656662a870917f1c5a938a6ae834d2fbbc1e690353f9d77178fde6c04085ea45",
+    "PlaceListItem": "d9177a3629b49001b3d0ff8c2966e53ffb61295d9b48362de6174055125840cb",
     "CursorPage": "86db2725e30ba15baae804f4844b8e3aea6650ba0f029a03c5151e20f2b91efb",
     "PlacesListResponse": "a26ed8eb8b7fd70d23df5be2357cbbcfd3d5318342e7714f9854eed20b0a55b7",
     "SavedPlaceState": "fa15ccc8bd4177995c3525ed02a6d08914ac810f984ec57e686bd467874d116b",
@@ -125,7 +131,7 @@ EXPECTED_SCHEMA_DIGESTS = {
     "Operations": "4f32334aba9cd22586cfad076e7fef6005bbae089436dbb286523a6c0d844960",
     "PlaceImage": "f414a74fac5626c9c8f68e6a4629c6c97980be973e3f017c09c2b69cd25c102e",
     "NearbyStop": "e25fbd42367a7feca16d141112df511633190aebcff900b5a95631b441e71049",
-    "PlaceDetailResponse": "07bef1fee73f8052b7a4818f78888152283f272e0c92c9e02ae210f71ff16e39",
+    "PlaceDetailResponse": "45079c2680cf21e2a365429de2f65ec722783e664d83f1d2a0e9db7710fde3c9",
     "FieldError": "5fb09356a2a56dfab89fa6a47fa5eb2498bfb4faa42f567810b4430cd301fddc",
     "ProblemDetails": "c25c20be66d088f93b5b196c0e4a4dd16c3f90593b9045d425a24240a86903ac",
 }
@@ -538,11 +544,11 @@ def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
         query.get("radiusMeters", {}),
     )
     valid_geo = (
-        geo[0].get("minimum") == -90
-        and geo[0].get("maximum") == 90
+        geo[0].get("minimum") == 33
+        and geo[0].get("maximum") == 34
         and geo[0].get("pairedWith") == "lng"
-        and geo[1].get("minimum") == -180
-        and geo[1].get("maximum") == 180
+        and geo[1].get("minimum") == 126
+        and geo[1].get("maximum") == 127
         and geo[1].get("pairedWith") == "lat"
         and geo[2].get("minimum") == 100
         and geo[2].get("maximum") == 50000
@@ -553,11 +559,14 @@ def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
 
     size = query.get("size", {})
     cursor_query = query.get("cursor", {})
+    saved_only = query.get("savedOnly", {})
     _expect(
         size.get("minimum") == 1
         and size.get("maximum") == 100
         and size.get("default") == 20
-        and cursor_query.get("type") == "opaque string",
+        and cursor_query.get("type") == "opaque string"
+        and saved_only
+        == {"required": False, "nullable": False, "type": "boolean", "default": False},
         "cursor/size query 계약이 다릅니다.",
         errors,
     )
@@ -570,6 +579,7 @@ def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
         "lng",
         "radiusMeters",
         "size",
+        "savedOnly",
         "sortProfile",
     ]
     _expect(
@@ -608,7 +618,7 @@ def _validate_response(contract: dict[str, Any], errors: list[str]) -> None:
         and EXPECTED_DETAIL_SHARED_FIELDS.issubset(set(detail_fields))
         and {"images", "operations", "nearbyStops"}.issubset(set(detail_fields))
         and set(response.get("rules", {}))
-        == {"recommendedStayMinutes", "thumbnailUrl", "operationsSummary", "dataFreshness"},
+        == {"recommendedStayMinutes", "recommendedStayProvenance", "thumbnailUrl", "operationsSummary", "dataFreshness"},
         "recommendedStayMinutes·이미지·운영정보의 목록/상세 일관성 계약이 다릅니다.",
         errors,
     )

@@ -22,6 +22,11 @@ public final class JsonAuthenticationEntryPoint implements AuthenticationEntryPo
       HttpServletResponse response,
       AuthenticationException authenticationException)
       throws IOException, ServletException {
-    responseWriter.write(request, response, "AUTH_TOKEN_INVALID");
+    boolean placesList =
+        "GET".equals(request.getMethod())
+            && "/api/v1/places"
+                .equals(request.getRequestURI().substring(request.getContextPath().length()));
+    responseWriter.write(
+        request, response, placesList ? "INVALID_ACCESS_TOKEN" : "AUTH_TOKEN_INVALID");
   }
 }

@@ -8,7 +8,7 @@ UTF-8 CSV header는 정확히 `scope,category,placeId,minutes`입니다. quoting
 
 ```csv
 scope,category,placeId,minutes
-category_default,tourist_attraction,,75
+category_default,VE,,75
 place_override,,20000000-0000-0000-0000-000000000002,70
 ```
 

@@ -25,6 +25,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -126,6 +127,7 @@ public class SecurityConfig {
           if (swaggerUiEnabled) {
             requests.requestMatchers("/swagger-ui.html", "/swagger-ui/**").permitAll();
           }
+          requests.requestMatchers(HttpMethod.GET, "/api/v1/places").permitAll();
           requests.requestMatchers("/api/v1/**").authenticated();
           requests.anyRequest().denyAll();
         });

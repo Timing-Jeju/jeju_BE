@@ -28,7 +28,7 @@
     "Category": {
       "type": "string",
       "nullable": false,
-      "pattern": "^[a-z][a-z0-9_]{0,49}$"
+      "pattern": "^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"
     },
     "RegionCode": {
       "type": "string",

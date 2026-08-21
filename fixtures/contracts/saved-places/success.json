@@ -9,7 +9,7 @@
       {
         "placeId": "20000000-0000-0000-0000-000000000003",
         "name": "성산일출봉",
-        "category": "tourist_attraction",
+        "category": "VE",
         "recommendedStayMinutes": 60,
         "regionLabel": "성산",
         "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
@@ -42,7 +42,7 @@
     "body": {
       "placeId": "20000000-0000-0000-0000-000000000003",
       "name": "성산일출봉",
-      "category": "tourist_attraction",
+      "category": "VE",
       "recommendedStayMinutes": 60,
       "regionLabel": "성산",
       "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
@@ -86,7 +86,7 @@
     "body": {
       "placeId": "20000000-0000-0000-0000-000000000003",
       "name": "성산일출봉",
-      "category": "tourist_attraction",
+      "category": "VE",
       "recommendedStayMinutes": 60,
       "regionLabel": "성산",
       "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
