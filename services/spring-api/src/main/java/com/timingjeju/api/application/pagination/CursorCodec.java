@@ -69,11 +69,13 @@ public final class CursorCodec {
         || !suppliedSignature.equals(hmacSha256Hex(canonicalJson(payload)))) {
       throw new CursorInvalidException();
     }
-    if (!String.valueOf(VERSION).equals(payload.get("v"))
-        || !expectedContext.endpoint().equals(payload.get("endpoint"))
+    if (!String.valueOf(VERSION).equals(payload.get("v"))) {
+      throw new CursorInvalidException();
+    }
+    if (!expectedContext.endpoint().equals(payload.get("endpoint"))
         || !expectedContext.sort().token().equals(payload.get("sort"))
         || !expectedContext.normalizedFilterFingerprint().equals(payload.get("filter"))) {
-      throw new CursorInvalidException();
+      throw new CursorContextMismatchException();
     }
     String sortValue = payload.get("sortValue");
     String tieBreaker = payload.get("tieBreaker");

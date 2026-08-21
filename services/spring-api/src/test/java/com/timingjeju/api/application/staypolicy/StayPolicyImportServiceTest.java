@@ -87,18 +87,18 @@ class StayPolicyImportServiceTest {
                 service.importPolicy(
                     payload(
                         List.of(
-                            StayPolicyCandidate.categoryDefault("UNKNOWN", 90),
+                            StayPolicyCandidate.categoryDefault("AC", 90),
                             StayPolicyCandidate.placeOverride(PLACE, 120))),
                     false))
         .isInstanceOf(StayPolicyValidationException.class)
-        .hasMessageContaining("UNKNOWN")
+        .hasMessageContaining("AC")
         .hasMessageContaining(PLACE.toString());
     assertThat(store.publishCalls).isZero();
   }
 
   @Test
-  void unicode_NFC로_정규화한_target_duplicate를_거부한다() {
-    RecordingStore store = new RecordingStore(Set.of("Å"), Set.of());
+  void category는_source_preserving_canonical_token만_허용하고_공백과_credential_like를_거부한다() {
+    RecordingStore store = new RecordingStore(Set.of("VE", "content-type:99"), Set.of());
     StayPolicyImportService service = service(store);
 
     assertThatThrownBy(
@@ -106,11 +106,12 @@ class StayPolicyImportServiceTest {
                 service.importPolicy(
                     payload(
                         List.of(
-                            StayPolicyCandidate.categoryDefault("A\u030A", 90),
-                            StayPolicyCandidate.categoryDefault("Å", 120))),
+                            StayPolicyCandidate.categoryDefault(" VE ", 90),
+                            StayPolicyCandidate.categoryDefault("API_KEY", 120),
+                            StayPolicyCandidate.categoryDefault("tourist_attraction", 60))),
                     false))
         .isInstanceOf(StayPolicyValidationException.class)
-        .hasMessageContaining("duplicate policy target: category:Å");
+        .hasMessageContaining("category must be a canonical code");
     assertThat(store.publishCalls).isZero();
   }
 

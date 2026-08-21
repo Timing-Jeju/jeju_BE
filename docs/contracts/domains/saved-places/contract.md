@@ -26,7 +26,7 @@ Issue #84가 확정하는 Spring 공개 API 계약입니다. machine 기준은 �
 `tag`, `category`, `regionCode`, `sort`, `cursor`, `size`는 optional이지만 입력하면 null일 수 없습니다.
 
 - `tag`: trim+Unicode NFC 후 1~50자이며 배열 원소 exact membership으로 필터합니다.
-- `category`: 소문자 snake case이며 `tour_places.category`와 exact match합니다.
+- `category`: TourAPI `lclsSystm1`의 trim된 uppercase code(예: `VE`)를 우선하고, 없으면 `content-type:<digits>`를 사용하며 `tour_places.category`와 exact match합니다.
 - `regionCode`: 소문자 kebab case의 안정 식별자이며 `tour_places.region_code`와 exact match합니다. 화면 표시용 `regionLabel`을 식별자로 사용하지 않습니다.
 - `sort`: `saved_at_desc`(기본), `priority_desc`, `target_day_asc`만 허용합니다.
 - `cursor`: 1~2048자의 opaque 값입니다. 내부 구현·offset을 노출하지 않습니다.

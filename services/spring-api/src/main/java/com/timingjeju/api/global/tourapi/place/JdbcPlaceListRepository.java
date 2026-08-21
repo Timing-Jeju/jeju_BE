@@ -11,6 +11,7 @@ import com.timingjeju.api.application.tourapi.place.PlaceListUpsertCommand;
 import com.timingjeju.api.application.tourapi.place.PlaceListUpsertResult;
 import com.timingjeju.api.application.tourapi.place.PlaceListWrite;
 import com.timingjeju.api.application.tourapi.place.TourPlace;
+import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -395,9 +396,7 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
   }
 
   private static String category(TourPlace place) {
-    return place.lclsSystm1() == null
-        ? "content-type:" + place.contentTypeId()
-        : place.lclsSystm1();
+    return CanonicalPlaceCategory.fromSource(place.lclsSystm1(), place.contentTypeId());
   }
 
   private static String regionCode(TourPlace place) {

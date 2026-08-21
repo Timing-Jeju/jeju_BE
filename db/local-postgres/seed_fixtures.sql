@@ -194,7 +194,7 @@ insert into tour_places (
   '20000000-0000-0000-0000-000000000002',
   'place_seongsan_ilchulbong', '126435', '12',
   '성산일출봉 [유네스코 세계자연유산]', '성산일출봉',
-  'tourist_attraction', 'seongsan', '성산',
+  'VE', 'seongsan', '성산',
   '제주특별자치도 서귀포시 성산읍 일출로 284-12',
   st_setsrid(st_makepoint(126.9415156012, 33.4581111174), 4326)::geography,
   'https://example.local/images/seongsan.jpg',
@@ -207,7 +207,7 @@ insert into tour_places (
 (
   '20000000-0000-0000-0000-000000000003',
   'place_seopjikoji', '127813', '12', '섭지코지', '섭지코지',
-  'tourist_attraction', 'seongsan', '성산',
+  'VE', 'seongsan', '성산',
   '제주특별자치도 서귀포시 성산읍 섭지코지로 107',
   st_setsrid(st_makepoint(126.9280674087, 33.4302500880), 4326)::geography,
   'https://example.local/images/seopjikoji.jpg',
@@ -238,7 +238,7 @@ insert into tour_places (
 (
   '20000000-0000-0000-0000-000000000006',
   'place_seongsan_cafe', null, null, '성산 바다 카페', '성산바다카페',
-  'cafe', 'seongsan', '성산',
+  'content-type:39', 'seongsan', '성산',
   '제주특별자치도 서귀포시 성산읍 해맞이해안로 3',
   st_setsrid(st_makepoint(126.9300, 33.4410), 4326)::geography,
   null, null, '빈 시간 추천 검증용 카페', 45,
@@ -929,7 +929,7 @@ insert into place_stay_policies (
   version, scope, category, place_id, minutes, source, updated_at
 ) values
 (
-  'fixture-v1', 'category_default', 'tourist_attraction', null,
+  'fixture-v1', 'category_default', 'VE', null,
   75, 'app_curation', now()
 ),
 (

@@ -8,6 +8,7 @@ import com.timingjeju.api.application.staypolicy.RecommendedStaySource;
 import com.timingjeju.api.application.staypolicy.StayPolicyCandidate;
 import com.timingjeju.api.application.staypolicy.StayPolicyPublicationStore;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
+import com.timingjeju.api.application.staypolicy.StayPolicySubject;
 import com.timingjeju.api.application.staypolicy.StayPolicyTargetCatalog;
 import com.timingjeju.api.application.staypolicy.ValidatedStayPolicyPayload;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
@@ -66,7 +67,7 @@ class JdbcStayPolicyRepositoryIntegrationTest {
     insertPlace(OVERRIDE_PLACE, "VE", false, null, 77);
     insertPlace(CATEGORY_PLACE, "VE", false, null, 66);
     insertPlace(UNAVAILABLE_PLACE, "content-type:99", false, null, 55);
-    insertPlace(MUTATING_PLACE, "MUTABLE", false, null, 45);
+    insertPlace(MUTATING_PLACE, "AC", false, null, 45);
   }
 
   @AfterEach
@@ -110,6 +111,31 @@ class JdbcStayPolicyRepositoryIntegrationTest {
   }
 
   @Test
+  void 목록용_batch_resolver는_override_category_unavailable을_한_snapshot으로_반환한다() {
+    store.publish(
+        payload(
+            "v1", null, V1_EFFECTIVE, List.of(category("VE", 90), override(OVERRIDE_PLACE, 120))),
+        IMPORTED);
+
+    var resolved =
+        resolver.resolveAll(
+            List.of(
+                new StayPolicySubject(OVERRIDE_PLACE, "VE"),
+                new StayPolicySubject(CATEGORY_PLACE, "VE"),
+                new StayPolicySubject(UNAVAILABLE_PLACE, "content-type:99")));
+
+    assertThat(resolved.get(OVERRIDE_PLACE).source())
+        .isEqualTo(RecommendedStaySource.PLACE_OVERRIDE);
+    assertThat(resolved.get(CATEGORY_PLACE).source())
+        .isEqualTo(RecommendedStaySource.CATEGORY_DEFAULT);
+    assertThat(resolved.get(UNAVAILABLE_PLACE)).isEqualTo(RecommendedStay.unavailable());
+    assertThat(resolved.values())
+        .filteredOn(stay -> stay.source() != RecommendedStaySource.UNAVAILABLE)
+        .extracting(RecommendedStay::policyVersion)
+        .containsOnly("v1");
+  }
+
+  @Test
   void stale_CAS는_새_version_row없이_실패하고_이전_active를_유지한다() {
     store.publish(payload("v1", null, V1_EFFECTIVE, List.of(category("VE", 80))), IMPORTED);
 
@@ -133,12 +159,12 @@ class JdbcStayPolicyRepositoryIntegrationTest {
   void target_catalog는_live_category와_place만_인정하고_publish는_tour_place_lineage를_변경하지_않는다() {
     UUID stale = UUID.fromString("65000000-0000-0000-0000-000000000004");
     UUID tombstoned = UUID.fromString("65000000-0000-0000-0000-000000000005");
-    insertPlace(stale, "STALE", true, null, 44);
-    insertPlace(tombstoned, "DELETED", false, IMPORTED, 33);
+    insertPlace(stale, "FD", true, null, 44);
+    insertPlace(tombstoned, "EX", false, IMPORTED, 33);
 
     var targets =
         catalog.validateTargets(
-            Set.of("VE", "STALE", "DELETED"), Set.of(OVERRIDE_PLACE, stale, tombstoned));
+            Set.of("VE", "FD", "EX"), Set.of(OVERRIDE_PLACE, stale, tombstoned));
     String before = placeFingerprint(OVERRIDE_PLACE);
     store.publish(
         payload("v1", null, V1_EFFECTIVE, List.of(override(OVERRIDE_PLACE, 120))), IMPORTED);
@@ -209,15 +235,15 @@ class JdbcStayPolicyRepositoryIntegrationTest {
       throws Exception {
     StayPolicyCandidate candidate =
         mutation == TargetMutation.CATEGORY_CHANGE
-            ? category("MUTABLE", 90)
+            ? category("AC", 90)
             : override(MUTATING_PLACE, 90);
     var preflight =
         catalog.validateTargets(
-            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("MUTABLE") : Set.of(),
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("AC") : Set.of(),
             mutation == TargetMutation.CATEGORY_CHANGE ? Set.of() : Set.of(MUTATING_PLACE));
     assertThat(preflight.liveCategories())
         .containsExactlyElementsOf(
-            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("MUTABLE") : Set.of());
+            mutation == TargetMutation.CATEGORY_CHANGE ? Set.of("AC") : Set.of());
     assertThat(preflight.livePlaceIds())
         .containsExactlyElementsOf(
             mutation == TargetMutation.CATEGORY_CHANGE ? Set.of() : Set.of(MUTATING_PLACE));
