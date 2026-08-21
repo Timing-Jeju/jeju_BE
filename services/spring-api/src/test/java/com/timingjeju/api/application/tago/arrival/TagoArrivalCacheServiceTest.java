@@ -9,11 +9,14 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -143,6 +146,147 @@ class TagoArrivalCacheServiceTest {
     assertThat(loads).hasValue(1);
   }
 
+  @Test
+  void 서로_다른_두_instance의_동시_20요청도_distributed_lock후_history를_재확인해_loader는_한번이다() throws Exception {
+    MutableClock clock = new MutableClock(NOW);
+    AtomicInteger loads = new AtomicInteger();
+    AtomicReference<TagoArrivalSnapshot> persisted = new AtomicReference<>();
+    SharedCoordinator coordinator = new SharedCoordinator();
+    TagoArrivalLoader loader =
+        key -> {
+          loads.incrementAndGet();
+          TagoArrivalSnapshot loaded = snapshot(clock.instant());
+          persisted.set(loaded);
+          return loaded;
+        };
+    TagoArrivalHistory history = key -> Optional.ofNullable(persisted.get());
+    List<TagoArrivalCacheService> instances =
+        List.of(
+            new TagoArrivalCacheService(
+                loader, history, coordinator, clock, Duration.ofSeconds(25), Duration.ofMinutes(2)),
+            new TagoArrivalCacheService(
+                loader,
+                history,
+                coordinator,
+                clock,
+                Duration.ofSeconds(25),
+                Duration.ofMinutes(2)));
+
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var futures =
+          java.util.stream.IntStream.range(0, 20)
+              .mapToObj(
+                  index -> executor.submit(() -> instances.get(index % instances.size()).get(KEY)))
+              .toList();
+      for (var future : futures) assertThat(future.get()).isEqualTo(snapshot(NOW));
+    }
+
+    assertThat(loads).hasValue(1);
+    assertThat(instances).allSatisfy(instance -> assertThat(instance.inFlightCount()).isZero());
+  }
+
+  @Test
+  void 요청시작_119초였어도_timeout완료가_121초면_stale을_거부한다() {
+    MutableClock clock = new MutableClock(NOW.plusSeconds(119));
+    TagoArrivalCacheService service =
+        new TagoArrivalCacheService(
+            key -> {
+              clock.advance(Duration.ofSeconds(2));
+              throw TagoArrivalException.timeout();
+            },
+            key -> Optional.of(snapshot(NOW)),
+            new SharedCoordinator(),
+            clock,
+            Duration.ofSeconds(25),
+            Duration.ofMinutes(2));
+
+    assertThatThrownBy(() -> service.get(KEY))
+        .isInstanceOfSatisfying(
+            TagoArrivalException.class,
+            failure -> assertThat(failure.code()).isEqualTo(TagoArrivalException.Code.TIMEOUT));
+  }
+
+  @Test
+  void 공식_EMPTY_RESULT는_90초_history가_있어도_stale로_대체하지_않는다() {
+    TagoArrivalCacheService service =
+        serviceWithFailure(TagoArrivalException.emptyResult(), NOW.plusSeconds(90));
+
+    assertThatThrownBy(() -> service.get(KEY))
+        .isInstanceOfSatisfying(
+            TagoArrivalException.class,
+            failure ->
+                assertThat(failure.code()).isEqualTo(TagoArrivalException.Code.EMPTY_RESULT));
+  }
+
+  @Test
+  void timeout_rateLimit_providerUnavailable만_120초이하_stale_fallback을_허용한다() {
+    for (TagoArrivalException failure :
+        List.of(
+            TagoArrivalException.timeout(),
+            TagoArrivalException.rateLimited(),
+            TagoArrivalException.providerUnavailable())) {
+      assertThat(serviceWithFailure(failure, NOW.plusSeconds(90)).get(KEY).stale()).isTrue();
+    }
+  }
+
+  @Test
+  void history_DATA_UNAVAILABLE는_stable_code만_노출하고_provider를_호출하지_않는다() {
+    AtomicInteger loads = new AtomicInteger();
+    TagoArrivalCacheService service =
+        new TagoArrivalCacheService(
+            key -> {
+              loads.incrementAndGet();
+              return snapshot(NOW);
+            },
+            key -> {
+              throw TagoArrivalException.dataUnavailable();
+            },
+            new SharedCoordinator(),
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            Duration.ofSeconds(25),
+            Duration.ofMinutes(2));
+
+    assertThatThrownBy(() -> service.get(KEY))
+        .isInstanceOfSatisfying(
+            TagoArrivalException.class,
+            failure -> {
+              assertThat(failure.code()).isEqualTo(TagoArrivalException.Code.DATA_UNAVAILABLE);
+              assertThat(failure.getMessage()).isEqualTo("DATA_UNAVAILABLE");
+              assertThat(failure.getCause()).isNull();
+            });
+    assertThat(loads).hasValue(0);
+  }
+
+  @Test
+  void loader의_programmer_bug는_PROVIDER_UNAVAILABLE로_숨기지_않는다() {
+    IllegalStateException programmerBug = new IllegalStateException("serialization bug");
+    TagoArrivalCacheService service =
+        new TagoArrivalCacheService(
+            key -> {
+              throw programmerBug;
+            },
+            key -> Optional.of(snapshot(NOW)),
+            new SharedCoordinator(),
+            Clock.fixed(NOW.plusSeconds(90), ZoneOffset.UTC),
+            Duration.ofSeconds(25),
+            Duration.ofMinutes(2));
+
+    assertThatThrownBy(() -> service.get(KEY)).isSameAs(programmerBug);
+  }
+
+  private static TagoArrivalCacheService serviceWithFailure(
+      TagoArrivalException failure, Instant now) {
+    return new TagoArrivalCacheService(
+        key -> {
+          throw failure;
+        },
+        key -> Optional.of(snapshot(NOW)),
+        new SharedCoordinator(),
+        Clock.fixed(now, ZoneOffset.UTC),
+        Duration.ofSeconds(25),
+        Duration.ofMinutes(2));
+  }
+
   private static TagoArrivalSnapshot snapshot(Instant observedAt) {
     return new TagoArrivalSnapshot(
         List.of(new TagoArrival("JER001", "201", "간선버스", "일반차량", 321, 4)),
@@ -186,6 +330,21 @@ class TagoArrivalCacheServiceTest {
     @Override
     public Instant instant() {
       return now;
+    }
+  }
+
+  private static final class SharedCoordinator implements TagoArrivalFlightCoordinator {
+    private final ReentrantLock lock = new ReentrantLock();
+
+    @Override
+    public TagoArrivalSnapshot coalesce(
+        TagoArrivalCacheKey key, Supplier<TagoArrivalSnapshot> action) {
+      lock.lock();
+      try {
+        return action.get();
+      } finally {
+        lock.unlock();
+      }
     }
   }
 }

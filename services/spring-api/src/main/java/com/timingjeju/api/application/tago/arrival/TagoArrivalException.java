@@ -7,7 +7,8 @@ public final class TagoArrivalException extends RuntimeException {
     EMPTY_RESULT,
     RATE_LIMITED,
     TIMEOUT,
-    PROVIDER_UNAVAILABLE
+    PROVIDER_UNAVAILABLE,
+    DATA_UNAVAILABLE
   }
 
   private final Code code;
@@ -43,5 +44,9 @@ public final class TagoArrivalException extends RuntimeException {
 
   public static TagoArrivalException providerUnavailable() {
     return new TagoArrivalException(Code.PROVIDER_UNAVAILABLE);
+  }
+
+  public static TagoArrivalException dataUnavailable() {
+    return new TagoArrivalException(Code.DATA_UNAVAILABLE);
   }
 }

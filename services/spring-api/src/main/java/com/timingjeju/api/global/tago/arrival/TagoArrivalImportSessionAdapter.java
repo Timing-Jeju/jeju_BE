@@ -54,7 +54,8 @@ public final class TagoArrivalImportSessionAdapter implements TagoArrivalImportS
   public void fail(ImportRunLease lease, TagoArrivalException.Code code) {
     ImportRunFailure failure =
         switch (code) {
-          case RATE_LIMITED, TIMEOUT, PROVIDER_UNAVAILABLE -> ImportRunFailure.PROVIDER_UNAVAILABLE;
+          case RATE_LIMITED, TIMEOUT, PROVIDER_UNAVAILABLE, DATA_UNAVAILABLE ->
+              ImportRunFailure.PROVIDER_UNAVAILABLE;
           case EMPTY_RESULT, INVALID_PROVIDER_RESPONSE, INVALID_REQUEST ->
               ImportRunFailure.INVALID_PROVIDER_RESPONSE;
         };

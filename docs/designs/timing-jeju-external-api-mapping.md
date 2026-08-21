@@ -254,16 +254,21 @@ GET http://apis.data.go.kr/1613000/ArvlInfoInqireService/getSttnAcctoArvlPrearng
 | 앱 TTL | `expires_at` |
 
 도착 API의 동시 호출 제한과 쿼터를 고려해 같은 정류소 요청을 합치고 20~30초 single-flight cache를 적용한다.
-cache key는 `(provider, service, stop_id, city_code, node_id)` 전체이며 실패한 future는 즉시 제거한다.
+cache key는 `(provider, service, city_code, stop_id, node_id)` 전체이며 길이 구분 canonical fingerprint의
+PostgreSQL session advisory lock으로 여러 Spring instance도 합친다. winner는 lock 직후 DB history를 다시
+조회하고 loser는 DB connection을 반납한 뒤 monotonic deadline 안에서만 기다린다. deadline 이후 외부
+호출을 중복하지 않으며 성공·실패 모두 advisory lock과 local future를 정리한다.
 정상 응답의 압축 해제된 원문 bytes를 먼저 snapshot으로 저장하고 parser가 같은 bytes를 읽는다.
 `resultCode=97`은 원문을 `rejected`로 남기지만 HTTP 429·timeout처럼 응답 bytes가 없는 transport
 실패에는 snapshot을 만들지 않는다. 성공한 batch만 같은 transaction에서 snapshot `parsed`,
 `bus_arrival_snapshots` append, import run 성공으로 전환한다.
 
-fresh cache가 만료된 뒤 provider가 실패하면 마지막 DB snapshot의 `observed_at`을 기준으로 정확히
-120초 이하인 경우에만 stale 결과를 반환한다. stale 응답의 `observed_at`·`expires_at`은 원 관측값을
-그대로 유지하고 새 normalized row나 새 성공 run을 만들지 않는다. 120초를 넘거나 공식 empty 응답이면
-fallback하지 않는다. `arrtime`은 0~86400초, `arrprevstationcnt`는 0~10000 범위만 허용한다.
+fresh cache가 만료된 뒤 `RATE_LIMITED`, `TIMEOUT`, `PROVIDER_UNAVAILABLE`이면 provider 실패가 완료된
+시각에 마지막 DB snapshot의 `observed_at`을 다시 비교해 정확히 120초 이하인 경우에만 stale 결과를
+반환한다. stale 응답의 `observed_at`·`expires_at`은 원 관측값을 그대로 유지하고 새 normalized row나
+새 성공 run을 만들지 않는다. 120초를 넘거나 공식 `EMPTY_RESULT`, DB `DATA_UNAVAILABLE`, 계약 오류이면
+fallback하지 않는다. DB read/mapping 오류는 raw SQL·cause 없는 stable code로 변환하되 programmer bug는
+숨기지 않는다. `arrtime`은 0~86400초, `arrprevstationcnt`는 0~10000 범위만 허용한다.
 
 ### 4.5 TAGO가 보장하지 않는 값
 

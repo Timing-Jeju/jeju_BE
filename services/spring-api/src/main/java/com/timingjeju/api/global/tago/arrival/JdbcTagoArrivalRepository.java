@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -78,6 +79,14 @@ public class JdbcTagoArrivalRepository implements TagoArrivalRepository {
 
   @Override
   public Optional<TagoArrivalSnapshot> findLatest(TagoArrivalCacheKey key) {
+    try {
+      return findLatestInternal(key);
+    } catch (DataAccessException failure) {
+      throw TagoArrivalException.dataUnavailable();
+    }
+  }
+
+  private Optional<TagoArrivalSnapshot> findLatestInternal(TagoArrivalCacheKey key) {
     List<Lineage> latest =
         jdbcTemplate.query(
             """
@@ -92,12 +101,7 @@ public class JdbcTagoArrivalRepository implements TagoArrivalRepository {
             order by observed_at desc, source_snapshot_id desc
             limit 1
             """,
-            (resultSet, rowNumber) ->
-                new Lineage(
-                    resultSet.getTimestamp("observed_at").toInstant(),
-                    resultSet.getTimestamp("expires_at").toInstant(),
-                    resultSet.getObject("import_run_id", UUID.class),
-                    resultSet.getObject("source_snapshot_id", UUID.class)),
+            (resultSet, rowNumber) -> mapLineage(resultSet),
             key.provider(),
             key.service(),
             key.stopId());
@@ -115,14 +119,7 @@ public class JdbcTagoArrivalRepository implements TagoArrivalRepository {
               and arrival.import_run_id=? and arrival.source_snapshot_id=?
             order by arrival.estimated_arrival_seconds, arrival.route_no, arrival.id
             """,
-            (resultSet, rowNumber) ->
-                new TagoArrival(
-                    resultSet.getString("external_route_id"),
-                    resultSet.getString("route_no"),
-                    resultSet.getString("route_type"),
-                    resultSet.getString("vehicle_type"),
-                    resultSet.getInt("estimated_arrival_seconds"),
-                    resultSet.getInt("remaining_stops")),
+            (resultSet, rowNumber) -> mapArrival(resultSet),
             key.provider(),
             key.service(),
             key.stopId(),
@@ -141,6 +138,35 @@ public class JdbcTagoArrivalRepository implements TagoArrivalRepository {
             lineage.sourceSnapshotId()));
   }
 
-  private record Lineage(
-      Instant observedAt, Instant expiresAt, UUID importRunId, UUID sourceSnapshotId) {}
+  static Lineage mapLineage(java.sql.ResultSet resultSet) throws java.sql.SQLException {
+    Timestamp observedAt = resultSet.getTimestamp("observed_at");
+    Timestamp expiresAt = resultSet.getTimestamp("expires_at");
+    UUID importRunId = resultSet.getObject("import_run_id", UUID.class);
+    UUID sourceSnapshotId = resultSet.getObject("source_snapshot_id", UUID.class);
+    if (observedAt == null
+        || expiresAt == null
+        || importRunId == null
+        || sourceSnapshotId == null) {
+      throw TagoArrivalException.dataUnavailable();
+    }
+    if (expiresAt.before(observedAt)) throw TagoArrivalException.dataUnavailable();
+    return new Lineage(
+        observedAt.toInstant(), expiresAt.toInstant(), importRunId, sourceSnapshotId);
+  }
+
+  static TagoArrival mapArrival(java.sql.ResultSet resultSet) throws java.sql.SQLException {
+    try {
+      return new TagoArrival(
+          resultSet.getString("external_route_id"),
+          resultSet.getString("route_no"),
+          resultSet.getString("route_type"),
+          resultSet.getString("vehicle_type"),
+          resultSet.getInt("estimated_arrival_seconds"),
+          resultSet.getInt("remaining_stops"));
+    } catch (IllegalArgumentException | TagoArrivalException mappingFailure) {
+      throw TagoArrivalException.dataUnavailable();
+    }
+  }
+
+  record Lineage(Instant observedAt, Instant expiresAt, UUID importRunId, UUID sourceSnapshotId) {}
 }

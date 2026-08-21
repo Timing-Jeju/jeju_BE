@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class TagoArrivalCacheService {
   private final TagoArrivalLoader loader;
   private final TagoArrivalHistory history;
+  private final TagoArrivalFlightCoordinator coordinator;
   private final Clock clock;
   private final Duration freshTtl;
   private final Duration staleWindow;
@@ -21,7 +22,13 @@ public final class TagoArrivalCacheService {
 
   public TagoArrivalCacheService(
       TagoArrivalLoader loader, Clock clock, Duration freshTtl, Duration staleWindow) {
-    this(loader, key -> java.util.Optional.empty(), clock, freshTtl, staleWindow);
+    this(
+        loader,
+        key -> java.util.Optional.empty(),
+        (key, action) -> action.get(),
+        clock,
+        freshTtl,
+        staleWindow);
   }
 
   public TagoArrivalCacheService(
@@ -30,8 +37,19 @@ public final class TagoArrivalCacheService {
       Clock clock,
       Duration freshTtl,
       Duration staleWindow) {
+    this(loader, history, (key, action) -> action.get(), clock, freshTtl, staleWindow);
+  }
+
+  public TagoArrivalCacheService(
+      TagoArrivalLoader loader,
+      TagoArrivalHistory history,
+      TagoArrivalFlightCoordinator coordinator,
+      Clock clock,
+      Duration freshTtl,
+      Duration staleWindow) {
     this.loader = Objects.requireNonNull(loader, "loader는 필수입니다.");
     this.history = Objects.requireNonNull(history, "history는 필수입니다.");
+    this.coordinator = Objects.requireNonNull(coordinator, "coordinator는 필수입니다.");
     this.clock = Objects.requireNonNull(clock, "clock은 필수입니다.");
     this.freshTtl = requireDuration(freshTtl, Duration.ofSeconds(20), Duration.ofSeconds(30));
     this.staleWindow = requireDuration(staleWindow, Duration.ofMinutes(2), Duration.ofMinutes(2));
@@ -50,8 +68,10 @@ public final class TagoArrivalCacheService {
     try {
       return loadSingleFlight(key);
     } catch (TagoArrivalException failure) {
+      if (!allowsStaleFallback(failure.code())) throw failure;
       TagoArrivalSnapshot fallback = cache.get(key);
-      if (fallback != null && !now.isAfter(fallback.observedAt().plus(staleWindow))) {
+      Instant failedAt = clock.instant();
+      if (fallback != null && !failedAt.isAfter(fallback.observedAt().plus(staleWindow))) {
         return fallback.asStale();
       }
       throw failure;
@@ -81,33 +101,47 @@ public final class TagoArrivalCacheService {
     if (active != null) return join(active);
 
     try {
-      TagoArrivalSnapshot loaded =
-          Objects.requireNonNull(loader.load(key), "loader result는 필수입니다.");
-      if (!loaded.expiresAt().equals(loaded.observedAt().plus(freshTtl)) || loaded.stale()) {
-        throw TagoArrivalException.invalidResponse();
-      }
-      cache.put(key, loaded);
-      leader.complete(loaded);
-      return loaded;
+      TagoArrivalSnapshot coordinated = coordinator.coalesce(key, () -> loadAfterLock(key));
+      leader.complete(coordinated);
+      return coordinated;
     } catch (RuntimeException failure) {
       leader.completeExceptionally(failure);
-      throw classify(failure);
+      throw failure;
     } finally {
       inFlight.remove(key, leader);
     }
+  }
+
+  private TagoArrivalSnapshot loadAfterLock(TagoArrivalCacheKey key) {
+    TagoArrivalSnapshot latest = history.findLatest(key).orElse(null);
+    Instant now = clock.instant();
+    if (latest != null) {
+      cache.put(key, latest);
+      if (now.isBefore(latest.expiresAt())) return latest;
+    }
+
+    TagoArrivalSnapshot loaded = Objects.requireNonNull(loader.load(key), "loader result는 필수입니다.");
+    if (!loaded.expiresAt().equals(loaded.observedAt().plus(freshTtl)) || loaded.stale()) {
+      throw TagoArrivalException.invalidResponse();
+    }
+    cache.put(key, loaded);
+    return loaded;
   }
 
   private static TagoArrivalSnapshot join(CompletableFuture<TagoArrivalSnapshot> future) {
     try {
       return future.join();
     } catch (CompletionException failure) {
-      throw classify(failure.getCause());
+      if (failure.getCause() instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+      throw failure;
     }
   }
 
-  private static TagoArrivalException classify(Throwable failure) {
-    if (failure instanceof TagoArrivalException arrivalFailure) return arrivalFailure;
-    return TagoArrivalException.providerUnavailable();
+  private static boolean allowsStaleFallback(TagoArrivalException.Code code) {
+    return switch (code) {
+      case RATE_LIMITED, TIMEOUT, PROVIDER_UNAVAILABLE -> true;
+      case INVALID_REQUEST, INVALID_PROVIDER_RESPONSE, EMPTY_RESULT, DATA_UNAVAILABLE -> false;
+    };
   }
 
   private static Duration requireDuration(Duration value, Duration minimum, Duration maximum) {

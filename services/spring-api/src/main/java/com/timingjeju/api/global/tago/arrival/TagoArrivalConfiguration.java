@@ -2,6 +2,7 @@ package com.timingjeju.api.global.tago.arrival;
 
 import com.timingjeju.api.application.tago.arrival.TagoArrivalCacheService;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalCommitter;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightCoordinator;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalImportSession;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalLoadService;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalPayloadParser;
@@ -32,7 +33,11 @@ public class TagoArrivalConfiguration {
 
   @Bean
   TagoArrivalCacheService tagoArrivalCacheService(
-      TagoArrivalLoadService loader, TagoArrivalRepository repository, Clock clock) {
-    return new TagoArrivalCacheService(loader, repository, clock, FRESH_TTL, STALE_WINDOW);
+      TagoArrivalLoadService loader,
+      TagoArrivalRepository repository,
+      TagoArrivalFlightCoordinator coordinator,
+      Clock clock) {
+    return new TagoArrivalCacheService(
+        loader, repository, coordinator, clock, FRESH_TTL, STALE_WINDOW);
   }
 }
