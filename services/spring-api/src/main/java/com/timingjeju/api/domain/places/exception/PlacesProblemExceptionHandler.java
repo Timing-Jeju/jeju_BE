@@ -41,6 +41,13 @@ public class PlacesProblemExceptionHandler {
     writer.write(request, response, exception.code());
   }
 
+  @ExceptionHandler(PlaceDetailException.class)
+  void handleDetail(
+      PlaceDetailException exception, HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    writer.write(request, response, exception.code());
+  }
+
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)
   void handleType(
       MethodArgumentTypeMismatchException exception,

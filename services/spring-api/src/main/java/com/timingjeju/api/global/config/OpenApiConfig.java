@@ -51,6 +51,7 @@ public class OpenApiConfig {
       clearSecurity(openApi, "/api/v1/auth/social/providers");
       clearSecurity(openApi, "/api/v1/auth/social/naver/userinfo");
       optionalSecurity(openApi, "/api/v1/places");
+      optionalSecurity(openApi, "/api/v1/places/{placeId}");
     };
   }
 

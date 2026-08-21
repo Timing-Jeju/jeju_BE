@@ -12,9 +12,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.domain.places.dto.response.PlaceCursorPage;
 import com.timingjeju.api.domain.places.dto.response.PlacesListResponse;
+import com.timingjeju.api.domain.places.service.PlaceDetailService;
 import com.timingjeju.api.domain.places.service.PlaceListService;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -26,11 +28,14 @@ class PlacesControllerTest {
   @Test
   void query와_savedOnly를_정규화해_service에_전달하고_닫힌_page_shape를_반환한다() throws Exception {
     PlaceListService service = mock(PlaceListService.class);
+    PlaceDetailService detailService = mock(PlaceDetailService.class);
     CurrentUserAccessor users = mock(CurrentUserAccessor.class);
     when(users.getOptional()).thenReturn(Optional.empty());
     when(service.list(org.mockito.ArgumentMatchers.any(), eq(Optional.empty())))
         .thenReturn(new PlacesListResponse(List.of(), new PlaceCursorPage(100, false, null)));
-    MockMvc mvc = MockMvcBuilders.standaloneSetup(new PlacesController(service, users)).build();
+    MockMvc mvc =
+        MockMvcBuilders.standaloneSetup(new PlacesController(service, detailService, users))
+            .build();
 
     mvc.perform(get("/api/v1/places").queryParam("query", " 성산 ").queryParam("size", "100"))
         .andExpect(status().isOk())
@@ -43,5 +48,21 @@ class PlacesControllerTest {
         .list(
             argThat(query -> "성산".equals(query.query()) && query.size() == 100),
             eq(Optional.empty()));
+  }
+
+  @Test
+  void canonical_placeId와_optional_user를_detail_service에_전달한다() throws Exception {
+    PlaceListService listService = mock(PlaceListService.class);
+    PlaceDetailService detailService = mock(PlaceDetailService.class);
+    CurrentUserAccessor users = mock(CurrentUserAccessor.class);
+    when(users.getOptional()).thenReturn(Optional.empty());
+    MockMvc mvc =
+        MockMvcBuilders.standaloneSetup(new PlacesController(listService, detailService, users))
+            .build();
+    UUID placeId = UUID.fromString("20000000-0000-0000-0000-000000000002");
+
+    mvc.perform(get("/api/v1/places/{placeId}", placeId)).andExpect(status().isOk());
+
+    verify(detailService).detail(placeId, Optional.empty());
   }
 }

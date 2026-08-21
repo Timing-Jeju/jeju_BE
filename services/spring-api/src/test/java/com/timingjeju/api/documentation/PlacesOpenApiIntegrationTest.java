@@ -91,6 +91,41 @@ class PlacesOpenApiIntegrationTest {
             jsonPath("$.components.schemas.PlaceDataFreshness.additionalProperties").value(false));
   }
 
+  @Test
+  void place_detail은_canonical_UUID_optional_bearer_닫힌_DTO와_오류를_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.security.length()").value(2))
+        .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.security[0]").isEmpty())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places/{placeId}'].get.security[1].bearerAuth").isArray())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/places/{placeId}'].get.parameters[?(@.name=='placeId')].required")
+                .value(true))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/places/{placeId}'].get.parameters[?(@.name=='placeId')].schema.pattern")
+                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+        .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['400']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['401']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['404']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['503']").exists())
+        .andExpect(
+            jsonPath("$.components.schemas.PlaceDetailResponse.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceState.additionalProperties").value(false))
+        .andExpect(jsonPath("$.components.schemas.Contact.additionalProperties").value(false))
+        .andExpect(jsonPath("$.components.schemas.Operations.additionalProperties").value(false))
+        .andExpect(jsonPath("$.components.schemas.PlaceImage.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.PlaceDetailResponse.required")
+                .value(
+                    org.hamcrest.Matchers.hasItems(
+                        "saved", "contact", "operations", "images", "nearbyStops")));
+  }
+
   private static String randomKey() {
     byte[] bytes = new byte[32];
     new SecureRandom().nextBytes(bytes);

@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.places.controller.docs;
 
+import com.timingjeju.api.domain.places.dto.response.PlaceDetailResponse;
 import com.timingjeju.api.domain.places.dto.response.PlacesListResponse;
 import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import com.timingjeju.api.global.error.ApiProblemDetails;
@@ -17,6 +18,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public interface PlacesApiDocs {
+
+  String CANONICAL_UUID_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
 
   @Operation(
       summary = "관광지 검색·필터 목록",
@@ -65,4 +68,44 @@ public interface PlacesApiDocs {
       @Size(min = 1, max = 2048) String cursor,
       @Min(1) @Max(100) Integer size,
       Boolean savedOnly);
+
+  @Operation(
+      summary = "관광지 상세·운영정보 조회",
+      description = "active 정규화 장소의 상세, 이미지, 운영정보와 저장 상태를 조회합니다.")
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        description = "관광지 상세",
+        content = @Content(schema = @Schema(implementation = PlaceDetailResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        description = "canonical UUID 형식 오류",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        description = "유효하지 않은 token",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        description = "장소가 없거나 공개할 수 없음",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "503",
+        description = "안전한 정규화 장소 상세 사용 불가",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
+  PlaceDetailResponse read(
+      @Parameter(required = true) @Pattern(regexp = CANONICAL_UUID_PATTERN) String placeId);
 }

@@ -28,6 +28,7 @@ public class PlacesProblemDefinitions implements ProblemDefinitionContributor {
         problem("PLACE_QUERY_CONSTRAINT_VIOLATION", "검색 조건을 처리할 수 없습니다", 422, "검색 조건 조합을 변경해 주세요."),
         problem("INVALID_ACCESS_TOKEN", "인증에 실패했습니다", 401, "인증 토큰이 유효하지 않습니다."),
         problem("AUTHENTICATION_REQUIRED", "인증이 필요합니다", 401, "저장한 장소만 조회하려면 로그인해 주세요."),
+        problem("PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", 404, "장소가 없거나 공개할 수 없습니다."),
         problem("PLACE_DATA_UNAVAILABLE", "장소 데이터를 사용할 수 없습니다", 503, "잠시 후 다시 시도해 주세요."));
   }
 

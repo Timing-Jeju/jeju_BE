@@ -2,7 +2,7 @@
 
 이 문서는 Issue #83이 소유하는 `GET /api/v1/places`와 `GET /api/v1/places/{placeId}`의 구현 전 기준입니다. machine-readable 기준은 같은 디렉터리의 [`contract.json`](contract.json)이며 공통 envelope·Authorization·cursor·Problem Details는 `timing-jeju-rest-contract/v1`(contract version `1.0.0`)을 상속합니다. 기존 Notion 명세와 이 문서의 source spec revision은 `v1.1`입니다. 두 버전은 역할이 다르므로 서로 치환하지 않습니다.
 
-Controller·Service·Repository·OpenAPI 구현 소유자는 #66이고 이 문서는 schema나 Flyway를 추가하지 않습니다. Spring이 공개 API와 DB 조회를 소유하며 요청 시 TourAPI·TAGO·FastAPI를 호출하지 않습니다.
+목록 구현은 #32, 주변 정류장을 제외한 상세 기반 구현은 #33, `nearbyStops` 실제 조회 확장은 #66이 소유합니다. 이 문서는 schema나 Flyway를 추가하지 않습니다. Spring이 공개 API와 DB 조회를 소유하며 요청 시 TourAPI·TAGO·FastAPI를 호출하지 않습니다.
 
 ## 추적성
 
@@ -68,6 +68,8 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 ## `GET /api/v1/places/{placeId}`
 
 `placeId`는 canonical UUID이며 path field는 required/non-null입니다. 장소가 없으면 `404 PLACE_NOT_FOUND`입니다. 상세은 장소 공통 필드와 `overview`, `contact`, `operations`, `images`, `nearbyStops`, 개인화 `saved` 객체를 추가합니다.
+
+#33은 active `tour_places`와 active detail/image, 현재 사용자의 `saved_places`만 단일 bounded SQL projection으로 읽습니다. detail/image/detail item이 없는 active 장소도 `200`이며 nullable 필드와 빈 배열을 생략하지 않습니다. `nearbyStops`는 #66 전까지 required `[]`이고 place-stop query를 실행하지 않습니다. DB read와 stay-policy의 typed resolution 실패만 `503 PLACE_DATA_UNAVAILABLE`로 닫으며 raw SQL·provider payload·내부 lineage를 응답하지 않습니다.
 
 - `recommendedStayMinutes`: TourAPI 원천이 아니라 Timing Jeju curated 값입니다.
 - `thumbnailUrl`: `images`의 가장 앞선 display order thumbnail과 같거나 둘 다 null입니다.
@@ -140,7 +142,7 @@ eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at`
 
 정렬은 `stale ASC`, `distanceMeters ASC`, `walkMinutes ASC NULLS LAST`, `stopId ASC`이며 stopId당 한 번, 전체 최대 5개입니다. 별도 freshness reason 필드는 만들지 않습니다. 기존 consumer가 알 수 없는 additive field를 무시할 수 있어야 합니다.
 
-#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. complete와 partial은 모두 `(place, provider)` observation/fingerprint watermark를 원자 compare/persist하되 partial은 누락 link를 tombstone하지 않습니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 단일화합니다.
+#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. complete와 partial은 모두 `(place, provider)` observation/fingerprint watermark를 원자 compare/persist하되 partial은 누락 link를 tombstone하지 않습니다. #66은 이를 상세 기반 응답에 read-only로 연결하고 nearbyStop Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 전체 places contract 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 유지합니다.
 
 ## endpoint별 오류 matrix
 

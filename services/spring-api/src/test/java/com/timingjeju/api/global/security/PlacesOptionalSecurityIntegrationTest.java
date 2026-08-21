@@ -15,9 +15,12 @@ import com.timingjeju.api.application.staypolicy.RecommendedStay;
 import com.timingjeju.api.application.staypolicy.StayPolicyResolver;
 import com.timingjeju.api.application.staypolicy.StayPolicySubject;
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
+import com.timingjeju.api.domain.places.exception.PlaceDetailUnavailableException;
 import com.timingjeju.api.domain.places.exception.PlaceSearchUnavailableException;
+import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import com.timingjeju.api.domain.places.model.PlaceSearchPosition;
 import com.timingjeju.api.domain.places.model.PlaceSearchRow;
+import com.timingjeju.api.domain.places.repository.PlaceDetailRepository;
 import com.timingjeju.api.domain.places.repository.PlaceSearchRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -65,10 +68,13 @@ class PlacesOptionalSecurityIntegrationTest {
 
   @Autowired private MockMvc mvc;
   @Autowired private FakePlaceSearchRepository repository;
+  @Autowired private FakePlaceDetailRepository detailRepository;
 
   @BeforeEach
   void resetRepository() {
     repository.failure.set(null);
+    detailRepository.failure.set(null);
+    detailRepository.lastUser.set(Optional.empty());
   }
 
   @DynamicPropertySource
@@ -83,6 +89,8 @@ class PlacesOptionalSecurityIntegrationTest {
         .andExpect(jsonPath("$.items").isEmpty());
 
     mvc.perform(post("/api/v1/places")).andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-000000000002/nested-regression"))
+        .andExpect(status().isUnauthorized());
     mvc.perform(get("/api/v1/security-regression")).andExpect(status().isUnauthorized());
   }
 
@@ -91,6 +99,49 @@ class PlacesOptionalSecurityIntegrationTest {
     mvc.perform(get("/api/v1/places").header(HttpHeaders.AUTHORIZATION, "Bearer invalid-token"))
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"));
+
+    mvc.perform(
+            get("/api/v1/places/20000000-0000-0000-0000-000000000002")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer invalid-token"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"));
+  }
+
+  @Test
+  void exact_GET_place_detail은_optional_auth이고_익명_saved_shape를_고정한다() throws Exception {
+    mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-000000000002"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.saved.value").value(false))
+        .andExpect(jsonPath("$.saved.memo").value((Object) null))
+        .andExpect(jsonPath("$.saved.tags").isEmpty())
+        .andExpect(jsonPath("$.images").isEmpty())
+        .andExpect(jsonPath("$.nearbyStops").isEmpty());
+  }
+
+  @Test
+  void detail의_noncanonical_UUID와_missing_place는_닫힌_Problem_Details다() throws Exception {
+    mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-00000000000A"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_QUERY_PARAMETER"));
+
+    mvc.perform(get("/api/v1/places/00000000-0000-0000-0000-000000000000"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("PLACE_NOT_FOUND"))
+        .andExpect(
+            jsonPath("$.traceId").value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{32}")));
+  }
+
+  @Test
+  void detail의_typed_DB_failure는_raw_message없는_503이다() throws Exception {
+    detailRepository.failure.set(new PlaceDetailUnavailableException());
+
+    mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-000000000002"))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.code").value("PLACE_DATA_UNAVAILABLE"))
+        .andExpect(
+            jsonPath("$.traceId").value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{32}")))
+        .andExpect(jsonPath("$.message").doesNotExist())
+        .andExpect(jsonPath("$.sql").doesNotExist());
   }
 
   @Test
@@ -99,8 +150,13 @@ class PlacesOptionalSecurityIntegrationTest {
 
     mvc.perform(get("/api/v1/places").header(HttpHeaders.AUTHORIZATION, "Bearer " + token(userId)))
         .andExpect(status().isOk());
+    mvc.perform(
+            get("/api/v1/places/20000000-0000-0000-0000-000000000002")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(userId)))
+        .andExpect(status().isOk());
 
     assertThat(repository.lastUser.get()).contains(userId);
+    assertThat(detailRepository.lastUser.get()).contains(userId);
   }
 
   @Test
@@ -175,6 +231,12 @@ class PlacesOptionalSecurityIntegrationTest {
 
     @Bean
     @Primary
+    FakePlaceDetailRepository fakePlaceDetailRepository() {
+      return new FakePlaceDetailRepository();
+    }
+
+    @Bean
+    @Primary
     StayPolicyResolver fakeStayPolicyResolver() {
       return new StayPolicyResolver() {
         @Override
@@ -208,6 +270,46 @@ class PlacesOptionalSecurityIntegrationTest {
       }
       lastUser.set(currentUserId);
       return List.of();
+    }
+  }
+
+  static final class FakePlaceDetailRepository implements PlaceDetailRepository {
+    private static final UUID MISSING = new UUID(0, 0);
+    private final AtomicReference<Optional<UUID>> lastUser =
+        new AtomicReference<>(Optional.empty());
+    private final AtomicReference<RuntimeException> failure = new AtomicReference<>();
+
+    @Override
+    public Optional<PlaceDetailSnapshot> find(UUID placeId, Optional<UUID> currentUserId) {
+      if (failure.get() != null) {
+        throw failure.get();
+      }
+      lastUser.set(currentUserId);
+      if (MISSING.equals(placeId)) {
+        return Optional.empty();
+      }
+      return Optional.of(
+          new PlaceDetailSnapshot(
+              placeId,
+              "126435",
+              "성산일출봉",
+              "VE",
+              "seongsan",
+              null,
+              null,
+              33.458,
+              126.941,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              List.of(),
+              false,
+              null,
+              List.of()));
     }
   }
 
