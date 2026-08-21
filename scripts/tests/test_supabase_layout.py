@@ -209,6 +209,41 @@ class SupabaseLayoutTest(unittest.TestCase):
             with self.subTest(contract=expected):
                 self.assertIn(expected, dbml)
 
+    def test_public_place_tombstone_migration_is_additive_and_mounted_last(self):
+        migration_name = "20260825000000_public_place_tombstone.sql"
+        migration = SUPABASE / "migrations" / migration_name
+        self.assertTrue(migration.is_file())
+        self.assertGreater(migration_name[:14], "20260824000000")
+        sql = migration.read_text(encoding="utf-8").lower()
+        self.assertRegex(
+            sql,
+            r"alter\s+table\s+public\.tour_places\s+add\s+column\s+tombstoned_at\s+timestamptz",
+        )
+        self.assertNotRegex(sql, r"\b(?:insert|update|delete)\b")
+        self.assertNotIn("create index", sql)
+
+        dbml = (
+            ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
+        ).read_text(encoding="utf-8")
+        tour_places = re.search(r"Table tour_places \{(?P<body>.*?)\n\}", dbml, re.DOTALL)
+        tour_place_sources = re.search(
+            r"Table tour_place_sources \{(?P<body>.*?)\n\}", dbml, re.DOTALL
+        )
+        self.assertIsNotNone(tour_places)
+        self.assertIsNotNone(tour_place_sources)
+        self.assertEqual(1, tour_places.group("body").count("tombstoned_at timestamptz"))
+        self.assertEqual(
+            1, tour_place_sources.group("body").count("tombstoned_at timestamptz")
+        )
+
+        source = f"./supabase/migrations/{migration_name}"
+        target = "/docker-entrypoint-initdb.d/023_public_place_tombstone.sql"
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
+            compose = (ROOT / compose_name).read_text(encoding="utf-8")
+            with self.subTest(compose=compose_name):
+                self.assertIn(f"{source}:{target}:ro", compose)
+                self.assertLess(compose.index(target), compose.index("099_seed_fixtures.sql"))
+
     def test_flyway_is_not_added_as_a_second_migration_system(self):
         self.assertFalse((ROOT / "db" / "migration").exists())
         spring_files = (

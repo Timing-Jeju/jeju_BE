@@ -127,7 +127,9 @@ public class SecurityConfig {
           if (swaggerUiEnabled) {
             requests.requestMatchers("/swagger-ui.html", "/swagger-ui/**").permitAll();
           }
-          requests.requestMatchers(HttpMethod.GET, "/api/v1/places").permitAll();
+          requests
+              .requestMatchers(HttpMethod.GET, "/api/v1/places", "/api/v1/places/*")
+              .permitAll();
           requests.requestMatchers("/api/v1/**").authenticated();
           requests.anyRequest().denyAll();
         });

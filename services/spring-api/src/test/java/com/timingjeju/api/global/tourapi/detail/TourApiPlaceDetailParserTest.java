@@ -6,6 +6,7 @@ import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailImportException;
+import com.timingjeju.api.global.text.JsoupPublicPlainTextNormalizer;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -16,9 +17,12 @@ import tools.jackson.databind.ObjectMapper;
 @Tag("unit")
 class TourApiPlaceDetailParserTest {
 
+  private final JsoupPublicPlainTextNormalizer publicText = new JsoupPublicPlainTextNormalizer();
   private final TourApiDetailCommonParser common =
-      new TourApiDetailCommonParser(new ObjectMapper(), new OverviewPlainTextSanitizer());
-  private final TourApiDetailIntroParser intro = new TourApiDetailIntroParser(new ObjectMapper());
+      new TourApiDetailCommonParser(
+          new ObjectMapper(), new OverviewPlainTextSanitizer(), publicText);
+  private final TourApiDetailIntroParser intro =
+      new TourApiDetailIntroParser(new ObjectMapper(), publicText);
 
   @Test
   void common은_overview_원문을_보존하고_allowlist_plain_text만_노출한다() {
@@ -70,6 +74,37 @@ class TourApiPlaceDetailParserTest {
     assertThat(attraction.introAttributes()).containsEntry("expguide", "해설 운영");
     assertThat(lodging.introAttributes()).containsEntry("roomcount", "20");
     assertThat(food.introAttributes()).containsEntry("firstmenu", "갈치조림");
+  }
+
+  @Test
+  void 외부_detail의_공개_text는_ingestion에서_plain_text_1000_code_point로_정규화한다() {
+    String dangerous =
+        "<script>secret()</script><style>.x{}</style><b onclick='evil()'>운영&nbsp; 안내</b>"
+            + "\u0000  오전\n 9시 "
+            + "🍊".repeat(1000);
+    String fields =
+        jsonFields(
+            Map.of(
+                "infocenter", dangerous,
+                "usetime", dangerous,
+                "restdate", dangerous,
+                "parking", dangerous));
+
+    var parsed = intro.parse(SnapshotPayloadFormat.JSON, bytes(introEnvelope("12", fields)));
+    var commonParsed =
+        common.parse(
+            SnapshotPayloadFormat.JSON,
+            bytes(
+                envelope(
+                    "\"contentid\":\"100\",\"contenttypeid\":\"12\",\"tel\":\""
+                        + json(dangerous)
+                        + "\",\"overview\":\"안내\"")));
+
+    assertThat(parsed.phone()).startsWith("운영 안내 오전 9시").doesNotContain("secret", "onclick");
+    assertThat(parsed.operatingHoursText()).isEqualTo(parsed.phone());
+    assertThat(parsed.introAttributes().get("infocenter")).isEqualTo(parsed.phone());
+    assertThat(parsed.phone().codePointCount(0, parsed.phone().length())).isEqualTo(1000);
+    assertThat(commonParsed.phone()).isEqualTo(parsed.phone());
   }
 
   @Test
@@ -224,7 +259,11 @@ class TourApiPlaceDetailParserTest {
   }
 
   private static String json(String value) {
-    return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+    return value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\u0000", "\\u0000")
+        .replace("\n", "\\n");
   }
 
   private static byte[] bytes(String value) {

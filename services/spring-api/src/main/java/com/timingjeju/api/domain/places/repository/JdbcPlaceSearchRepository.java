@@ -55,6 +55,7 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
           limit 1
         ) image on true
         where p.source_deleted_at is null
+          and p.tombstoned_at is null
           and p.content_id is not null and btrim(p.content_id) <> ''
           and p.region_code is not null
           and (:category is null or p.category=:category)

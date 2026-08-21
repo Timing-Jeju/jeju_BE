@@ -2,7 +2,7 @@
 
 이 문서는 Issue #83이 소유하는 `GET /api/v1/places`와 `GET /api/v1/places/{placeId}`의 구현 전 기준입니다. machine-readable 기준은 같은 디렉터리의 [`contract.json`](contract.json)이며 공통 envelope·Authorization·cursor·Problem Details는 `timing-jeju-rest-contract/v1`(contract version `1.0.0`)을 상속합니다. 기존 Notion 명세와 이 문서의 source spec revision은 `v1.1`입니다. 두 버전은 역할이 다르므로 서로 치환하지 않습니다.
 
-Controller·Service·Repository·OpenAPI 구현 소유자는 #66이고 이 문서는 schema나 Flyway를 추가하지 않습니다. Spring이 공개 API와 DB 조회를 소유하며 요청 시 TourAPI·TAGO·FastAPI를 호출하지 않습니다.
+목록 구현은 #32, 주변 정류장을 제외한 상세 기반 구현은 #33, `nearbyStops` 실제 조회 확장은 #66이 소유합니다. 이 문서는 schema나 Flyway를 추가하지 않습니다. Spring이 공개 API와 DB 조회를 소유하며 요청 시 TourAPI·TAGO·FastAPI를 호출하지 않습니다.
 
 ## 추적성
 
@@ -52,6 +52,8 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 
 목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `recommendedStaySource`, `recommendedStayPolicyVersion`, `recommendedStayEffectiveAt`, `recommendedStayUpdatedAt`, `operationsSummary`, `dataFreshness`, 개인화 `saved/memo/tags`를 포함합니다. 추천 체류시간은 #65 `StayPolicyResolver`의 place override→category default→unavailable 결과와 provenance를 상세과 동일하게 반환합니다. 값이 없으면 minutes/version/effectiveAt/updatedAt은 null이고 source는 `unavailable`이며, `thumbnailUrl`, `operationsSummary`, `memo`도 원천 값이 없으면 null입니다. 임의 기본값을 만들거나 필드를 생략하지 않습니다.
 
+공개 목록은 `source_deleted_at IS NULL AND tombstoned_at IS NULL`인 장소만 검색·필터 결과에 포함합니다. freshness가 stale인 장소는 제외하지 않고 `dataFreshness.stale=true`로 명시하여 기존 목록 의미를 유지합니다.
+
 `dataFreshness`는 목록 item마다 반드시 존재하는 닫힌 객체입니다.
 
 ```json
@@ -68,6 +70,10 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 ## `GET /api/v1/places/{placeId}`
 
 `placeId`는 canonical UUID이며 path field는 required/non-null입니다. 장소가 없으면 `404 PLACE_NOT_FOUND`입니다. 상세은 장소 공통 필드와 `overview`, `contact`, `operations`, `images`, `nearbyStops`, 개인화 `saved` 객체를 추가합니다.
+
+#33은 `source_deleted_at IS NULL`, `tombstoned_at IS NULL`, `stale=false`, `stale_at IS NULL OR stale_at > now()`를 모두 만족하는 active `tour_places`와 active detail/image, 현재 사용자의 `saved_places`만 단일 bounded SQL projection으로 읽습니다. detail/image/detail item이 없는 active 장소도 `200`이며 nullable 필드와 빈 배열을 생략하지 않습니다. 이미지는 tombstone 제외 후 `display_order, id` 순서로 DB에서 최대 20개만 materialize합니다. `nearbyStops`는 #66 전까지 required `[]`이고 place-stop query를 실행하지 않습니다. DB read와 stay-policy의 typed resolution 실패만 `503 PLACE_DATA_UNAVAILABLE`로 닫으며 raw SQL·provider payload·내부 lineage를 응답하지 않습니다.
+
+외부 detail의 phone·hours·closed days·parking·fee 등 공개 normalized text는 ingestion과 legacy projection 양쪽에서 HTML element/attribute, script/style content, entity, control character를 안전하게 제거·decode하고 whitespace를 접은 plain text입니다. 각 값은 Unicode code point 기준 최대 1000이며 raw HTML을 공개하지 않습니다.
 
 - `recommendedStayMinutes`: TourAPI 원천이 아니라 Timing Jeju curated 값입니다.
 - `thumbnailUrl`: `images`의 가장 앞선 display order thumbnail과 같거나 둘 다 null입니다.
@@ -140,7 +146,7 @@ eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at`
 
 정렬은 `stale ASC`, `distanceMeters ASC`, `walkMinutes ASC NULLS LAST`, `stopId ASC`이며 stopId당 한 번, 전체 최대 5개입니다. 별도 freshness reason 필드는 만들지 않습니다. 기존 consumer가 알 수 없는 additive field를 무시할 수 있어야 합니다.
 
-#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. complete와 partial은 모두 `(place, provider)` observation/fingerprint watermark를 원자 compare/persist하되 partial은 누락 link를 tombstone하지 않습니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 단일화합니다.
+#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. complete와 partial은 모두 `(place, provider)` observation/fingerprint watermark를 원자 compare/persist하되 partial은 누락 link를 tombstone하지 않습니다. #66은 이를 상세 기반 응답에 read-only로 연결하고 nearbyStop Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 전체 places contract 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 유지합니다.
 
 ## endpoint별 오류 matrix
 

@@ -30,6 +30,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
   private static final UUID PLACE_B = UUID.fromString("32000000-0000-0000-0000-000000000012");
   private static final UUID PLACE_C = UUID.fromString("32000000-0000-0000-0000-000000000013");
   private static final UUID DELETED = UUID.fromString("32000000-0000-0000-0000-000000000014");
+  private static final UUID TOMBSTONED = UUID.fromString("32000000-0000-0000-0000-000000000015");
 
   @Autowired private JdbcPlaceSearchRepository repository;
   @Autowired private JdbcTemplate jdbc;
@@ -63,6 +64,18 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         33.5,
         false,
         Instant.now());
+    insertPlace(
+        TOMBSTONED,
+        "content-tombstoned",
+        "숨김 장소",
+        "숨김 장소",
+        "VE",
+        "seongsan",
+        126.5,
+        33.5,
+        false,
+        null);
+    jdbc.update("update public.tour_places set tombstoned_at=now() where id=?", TOMBSTONED);
     jdbc.update(
         "insert into public.place_aliases(place_id,alias,normalized_alias,alias_type) values (?,?,?,'user_query')",
         PLACE_A,
@@ -105,7 +118,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
     assertThat(rows.getFirst().thumbnailUrl()).isEqualTo("https://images.example.test/first.jpg");
     assertThat(rows.getFirst().operationsSummary()).isEqualTo("09:00~18:00 · 월요일");
     assertThat(rows.get(1).stale()).isTrue();
-    assertThat(rows).extracting(PlaceSearchRow::placeId).doesNotContain(DELETED);
+    assertThat(rows).extracting(PlaceSearchRow::placeId).doesNotContain(DELETED, TOMBSTONED);
   }
 
   @Test
@@ -126,7 +139,12 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         .andExpect(jsonPath("$.items[0].category").value("VE"))
         .andExpect(jsonPath("$.items[0].recommendedStayMinutes").value(90))
         .andExpect(jsonPath("$.items[0].recommendedStaySource").value("category_default"))
-        .andExpect(jsonPath("$.items[0].recommendedStayPolicyVersion").value("places-v1"));
+        .andExpect(jsonPath("$.items[0].recommendedStayPolicyVersion").value("places-v1"))
+        .andExpect(
+            jsonPath("$.items[*].placeId")
+                .value(
+                    org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.hasItem(TOMBSTONED.toString()))));
 
     mvc.perform(get("/api/v1/places").queryParam("category", "content-type:99"))
         .andExpect(status().isOk())
