@@ -255,7 +255,7 @@ class PlacesContractTest(unittest.TestCase):
     def test_rejects_expires_at_before_observed_at(self):
         self.assert_fixture_rejected(
             "success",
-            lambda fixture: fixture["detail"]["nearbyStops"][0].update(
+            lambda fixture: fixture["detail"]["images"][0].update(
                 expiresAt="2026-08-02T09:00:00+09:00"
             ),
             "observedAt",
@@ -412,9 +412,18 @@ class PlacesContractTest(unittest.TestCase):
                 )
                 self.assertEqual([], errors)
 
-        self.assert_fixture_rejected(
+        errors = self.fixture_errors(
             "success",
             lambda fixture: fixture["detail"]["nearbyStops"][0].update(
+                observedAt="2026-08-04t00:00:00z",
+                expiresAt="2026-08-03T23:59:59Z",
+            ),
+        )
+        self.assertEqual([], errors)
+
+        self.assert_fixture_rejected(
+            "success",
+            lambda fixture: fixture["detail"]["images"][0].update(
                 observedAt="2026-08-04t00:00:00z",
                 expiresAt="2026-08-03T23:59:59Z",
             ),
@@ -455,6 +464,48 @@ class PlacesContractTest(unittest.TestCase):
             )
             errors = validator.validate_contract(contract, temporary_root)
             self.assertTrue(any("readiness 문서" in error for error in errors), errors)
+
+    def test_nearby_stop_projection_pins_effective_expiry_distance_config_and_source_fields(self):
+        contract = self.contract()
+        nearby = contract["nearbyStops"]
+        schema = contract["schemas"]["NearbyStop"]
+        fixture = json.loads(
+            (ROOT / "fixtures/contracts/places/success.json").read_text(encoding="utf-8")
+        )["detail"]["nearbyStops"][0]
+
+        self.assertEqual(
+            "least(place_stop_links.expires_at, non-null bus_stops.stale_at)",
+            nearby["effectiveExpiresAt"],
+        )
+        self.assertEqual(
+            {
+                "property": "app.places.nearby-stops.max-distance-meters",
+                "default": 500,
+                "minimum": 1,
+                "maximum": 500,
+                "inclusive": True,
+            },
+            nearby["distancePolicy"],
+        )
+        self.assertEqual(
+            ["spatial_radius", "fixture", "manual", "api_nearby"],
+            schema["properties"]["linkMethod"]["enum"],
+        )
+        self.assertEqual(
+            {"type": "string", "nullable": False, "minLength": 1, "maxLength": 128},
+            schema["properties"]["provider"],
+        )
+        self.assertEqual("postgis:tago", fixture["provider"])
+
+        catalog = json.loads((ROOT / "docs/contracts/rest/catalog.json").read_text())
+        detail = next(
+            endpoint
+            for endpoint in catalog["endpoints"]
+            if endpoint["path"] == "/api/v1/places/{placeId}"
+        )
+        self.assertNotIn("until #66", detail["dataLineage"])
+        self.assertIn("maximum 5", detail["dataLineage"])
+        self.assertIn("effective expiry", detail["dataLineage"])
 
     def test_query_is_trimmed_before_one_to_one_hundred_character_validation(self):
         contract = self.contract()
@@ -615,6 +666,14 @@ class PlacesContractTest(unittest.TestCase):
             (
                 lambda c: c["nearbyStops"]["itemFields"].remove("expiresAt"),
                 "nearbyStops itemFields",
+            ),
+            (
+                lambda c: c["nearbyStops"].update(effectiveExpiresAt="link only"),
+                "effective expiresAt",
+            ),
+            (
+                lambda c: c["nearbyStops"]["distancePolicy"].update(default=501),
+                "validated distance config",
             ),
             (
                 lambda c: c["nearbyStops"].update(emptyWhen="stale-only"),

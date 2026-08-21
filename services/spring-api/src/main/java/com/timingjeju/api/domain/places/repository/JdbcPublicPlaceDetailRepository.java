@@ -1,13 +1,18 @@
 package com.timingjeju.api.domain.places.repository;
 
+import com.timingjeju.api.domain.places.config.PlaceNearbyStopsProperties;
 import com.timingjeju.api.domain.places.exception.PlaceDetailUnavailableException;
 import com.timingjeju.api.domain.places.model.PlaceDetailImageRow;
+import com.timingjeju.api.domain.places.model.PlaceDetailNearbyStopRow;
 import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -62,10 +67,40 @@ public class JdbcPublicPlaceDetailRepository implements PlaceDetailRepository {
       order by image.display_order asc nulls last, image.id asc nulls last
       """;
 
-  private final NamedParameterJdbcTemplate jdbc;
+  static final String SELECT_NEARBY_STOPS =
+      """
+      select link.stop_id, stop.node_name as stop_name,
+             link.distance_meters, link.walk_minutes, link.link_method,
+             link.source_provider,
+             link.observed_at,
+             least(link.expires_at, coalesce(stop.stale_at, link.expires_at))
+               as effective_expires_at,
+             least(link.expires_at, coalesce(stop.stale_at, link.expires_at)) > :now
+               as fresh
+      from public.place_stop_links link
+      join public.bus_stops stop on stop.id=link.stop_id
+      where link.place_id=:placeId
+        and link.enabled
+        and link.tombstoned_at is null
+        and stop.tombstoned_at is null
+        and stop.source_deleted_at is null
+        and link.distance_meters <= :maxDistanceMeters
+      order by fresh desc, link.distance_meters asc,
+               link.walk_minutes asc nulls last, link.stop_id asc
+      limit 5
+      """;
 
-  public JdbcPublicPlaceDetailRepository(NamedParameterJdbcTemplate jdbc) {
+  private final NamedParameterJdbcTemplate jdbc;
+  private final PlaceNearbyStopsProperties nearbyStopsProperties;
+  private final Clock clock;
+
+  public JdbcPublicPlaceDetailRepository(
+      NamedParameterJdbcTemplate jdbc,
+      PlaceNearbyStopsProperties nearbyStopsProperties,
+      Clock clock) {
     this.jdbc = jdbc;
+    this.nearbyStopsProperties = nearbyStopsProperties;
+    this.clock = clock;
   }
 
   @Override
@@ -82,10 +117,37 @@ public class JdbcPublicPlaceDetailRepository implements PlaceDetailRepository {
       PlaceDetailRowRepository first = rows.getFirst();
       List<PlaceDetailImageRow> images =
           rows.stream().map(PlaceDetailRowRepository::image).flatMap(Optional::stream).toList();
-      return Optional.of(first.snapshot(images));
-    } catch (DataAccessException failure) {
+      return Optional.of(first.snapshot(images, nearbyStops(placeId)));
+    } catch (DataAccessException | IllegalArgumentException failure) {
       throw new PlaceDetailUnavailableException();
     }
+  }
+
+  private List<PlaceDetailNearbyStopRow> nearbyStops(UUID placeId) {
+    return jdbc.query(
+        SELECT_NEARBY_STOPS,
+        nearbyStopParameters(placeId),
+        (resultSet, rowNumber) ->
+            new PlaceDetailNearbyStopRow(
+                resultSet.getObject("stop_id", UUID.class),
+                resultSet.getString("stop_name"),
+                resultSet.getLong("distance_meters"),
+                resultSet.getObject("walk_minutes", Integer.class),
+                resultSet.getString("link_method"),
+                resultSet.getString("source_provider"),
+                instant(resultSet, "observed_at"),
+                instant(resultSet, "effective_expires_at"),
+                !resultSet.getBoolean("fresh")));
+  }
+
+  MapSqlParameterSource nearbyStopParameters(UUID placeId) {
+    return new MapSqlParameterSource()
+        .addValue("placeId", placeId, Types.OTHER)
+        .addValue("maxDistanceMeters", nearbyStopsProperties.maxDistanceMeters())
+        .addValue(
+            "now",
+            OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC),
+            Types.TIMESTAMP_WITH_TIMEZONE);
   }
 
   private PlaceDetailRowRepository map(ResultSet resultSet, int rowNumber) throws SQLException {
@@ -168,7 +230,8 @@ public class JdbcPublicPlaceDetailRepository implements PlaceDetailRepository {
       String memo,
       List<String> tags) {
 
-    PlaceDetailSnapshot snapshot(List<PlaceDetailImageRow> images) {
+    PlaceDetailSnapshot snapshot(
+        List<PlaceDetailImageRow> images, List<PlaceDetailNearbyStopRow> nearbyStops) {
       return new PlaceDetailSnapshot(
           placeId,
           contentId,
@@ -187,6 +250,7 @@ public class JdbcPublicPlaceDetailRepository implements PlaceDetailRepository {
           parkingText,
           admissionFeeText,
           images,
+          nearbyStops,
           saved,
           memo,
           tags);

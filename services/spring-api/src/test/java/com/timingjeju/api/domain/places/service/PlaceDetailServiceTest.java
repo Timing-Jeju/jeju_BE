@@ -13,6 +13,7 @@ import com.timingjeju.api.domain.places.dto.response.PlaceDetailResponse;
 import com.timingjeju.api.domain.places.exception.PlaceDetailException;
 import com.timingjeju.api.domain.places.exception.PlaceDetailUnavailableException;
 import com.timingjeju.api.domain.places.model.PlaceDetailImageRow;
+import com.timingjeju.api.domain.places.model.PlaceDetailNearbyStopRow;
 import com.timingjeju.api.domain.places.model.PlaceDetailSnapshot;
 import com.timingjeju.api.domain.places.repository.PlaceDetailRepository;
 import com.timingjeju.api.global.text.JsoupPublicPlainTextNormalizer;
@@ -65,6 +66,50 @@ class PlaceDetailServiceTest {
         .containsExactly(
             "https://images.example.test/first.jpg", "https://images.example.test/second.jpg");
     assertThat(response.nearbyStops()).isEmpty();
+  }
+
+  @Test
+  void 주변정류장은_저장된_provenance와_effective_expiry_stale을_그대로_투영한다() {
+    PlaceDetailRepository repository = mock(PlaceDetailRepository.class);
+    StayPolicyResolver stayPolicies = mock(StayPolicyResolver.class);
+    PlaceDetailSnapshot snapshot =
+        fullSnapshot(
+            false,
+            null,
+            List.of(),
+            List.of(
+                new PlaceDetailNearbyStopRow(
+                    UUID.fromString("30000000-0000-0000-0000-000000000001"),
+                    "성산일출봉입구",
+                    280,
+                    null,
+                    "spatial_radius",
+                    "postgis:tago",
+                    Instant.parse("2026-08-03T00:00:00Z"),
+                    Instant.parse("2026-08-03T01:00:00Z"),
+                    true)));
+    when(repository.find(PLACE_ID, Optional.empty())).thenReturn(Optional.of(snapshot));
+    when(stayPolicies.resolve(PLACE_ID, "VE")).thenReturn(RecommendedStay.unavailable());
+
+    PlaceDetailResponse response =
+        new PlaceDetailService(repository, stayPolicies, PUBLIC_TEXT)
+            .detail(PLACE_ID, Optional.empty());
+
+    assertThat(response.nearbyStops())
+        .singleElement()
+        .satisfies(
+            stop -> {
+              assertThat(stop.stopId())
+                  .isEqualTo(UUID.fromString("30000000-0000-0000-0000-000000000001"));
+              assertThat(stop.stopName()).isEqualTo("성산일출봉입구");
+              assertThat(stop.distanceMeters()).isEqualTo(280);
+              assertThat(stop.walkMinutes()).isNull();
+              assertThat(stop.linkMethod()).isEqualTo("spatial_radius");
+              assertThat(stop.provider()).isEqualTo("postgis:tago");
+              assertThat(stop.observedAt()).isEqualTo(Instant.parse("2026-08-03T00:00:00Z"));
+              assertThat(stop.expiresAt()).isEqualTo(Instant.parse("2026-08-03T01:00:00Z"));
+              assertThat(stop.stale()).isTrue();
+            });
   }
 
   @Test
@@ -163,6 +208,7 @@ class PlaceDetailServiceTest {
             dangerous,
             dangerous,
             List.of(),
+            List.of(),
             false,
             null,
             List.of());
@@ -186,6 +232,11 @@ class PlaceDetailServiceTest {
   }
 
   private static PlaceDetailSnapshot fullSnapshot(boolean saved, String memo, List<String> tags) {
+    return fullSnapshot(saved, memo, tags, List.of());
+  }
+
+  private static PlaceDetailSnapshot fullSnapshot(
+      boolean saved, String memo, List<String> tags, List<PlaceDetailNearbyStopRow> nearbyStops) {
     return new PlaceDetailSnapshot(
         PLACE_ID,
         "126435",
@@ -212,6 +263,7 @@ class PlaceDetailServiceTest {
                 "32000000-0000-0000-0000-000000000002",
                 "https://images.example.test/second.jpg",
                 null)),
+        nearbyStops,
         saved,
         memo,
         tags);
@@ -235,6 +287,7 @@ class PlaceDetailServiceTest {
         null,
         null,
         null,
+        List.of(),
         List.of(),
         false,
         null,

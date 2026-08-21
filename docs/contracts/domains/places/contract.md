@@ -71,7 +71,7 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 
 `placeId`는 canonical UUID이며 path field는 required/non-null입니다. 장소가 없으면 `404 PLACE_NOT_FOUND`입니다. 상세은 장소 공통 필드와 `overview`, `contact`, `operations`, `images`, `nearbyStops`, 개인화 `saved` 객체를 추가합니다.
 
-#33은 `source_deleted_at IS NULL`, `tombstoned_at IS NULL`, `stale=false`, `stale_at IS NULL OR stale_at > now()`를 모두 만족하는 active `tour_places`와 active detail/image, 현재 사용자의 `saved_places`만 단일 bounded SQL projection으로 읽습니다. detail/image/detail item이 없는 active 장소도 `200`이며 nullable 필드와 빈 배열을 생략하지 않습니다. 이미지는 tombstone 제외 후 `display_order, id` 순서로 DB에서 최대 20개만 materialize합니다. `nearbyStops`는 #66 전까지 required `[]`이고 place-stop query를 실행하지 않습니다. DB read와 stay-policy의 typed resolution 실패만 `503 PLACE_DATA_UNAVAILABLE`로 닫으며 raw SQL·provider payload·내부 lineage를 응답하지 않습니다.
+#33은 `source_deleted_at IS NULL`, `tombstoned_at IS NULL`, `stale=false`, `stale_at IS NULL OR stale_at > now()`를 모두 만족하는 active `tour_places`와 active detail/image, 현재 사용자의 `saved_places`만 단일 bounded SQL projection으로 읽습니다. detail/image/detail item이 없는 active 장소도 `200`이며 nullable 필드와 빈 배열을 생략하지 않습니다. 이미지는 tombstone 제외 후 `display_order, id` 순서로 DB에서 최대 20개만 materialize합니다. #66의 `nearbyStops`는 별도 bounded query로 최대 5개를 읽습니다. DB read와 stay-policy의 typed resolution 실패만 `503 PLACE_DATA_UNAVAILABLE`로 닫으며 raw SQL·provider payload·내부 lineage를 응답하지 않습니다.
 
 외부 detail의 phone·hours·closed days·parking·fee 등 공개 normalized text는 ingestion과 legacy projection 양쪽에서 HTML element/attribute, script/style content, entity, control character를 안전하게 제거·decode하고 whitespace를 접은 plain text입니다. 각 값은 Unicode code point 기준 최대 1000이며 raw HTML을 공개하지 않습니다.
 
@@ -97,7 +97,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
 | `PlaceImage`, `NearbyStop` | 중첩 배열 item | 닫힌 item, 타입·시각 format·enum·범위 고정 |
 | `ProblemDetails`, `FieldError` | 오류 | RFC 9457 필드와 code/type/status 대응을 고정 |
 
-목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다. 모든 JSON 숫자는 유한해야 하며 JSON 표준 밖의 `NaN`, `Infinity`, `-Infinity`를 허용하지 않습니다. `date-time`은 timezone을 포함한 RFC 3339 형식만, `uri`는 공백이나 잘못된 percent escape가 없는 RFC 3986 절대 URI만 허용합니다. canonical schema 전체 제약을 고정하고, freshness 객체의 `expiresAt`이 null이 아니면 `observedAt`보다 빠르지 않은지도 검사합니다.
+목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다. 모든 JSON 숫자는 유한해야 하며 JSON 표준 밖의 `NaN`, `Infinity`, `-Infinity`를 허용하지 않습니다. `date-time`은 timezone을 포함한 RFC 3339 형식만, `uri`는 공백이나 잘못된 percent escape가 없는 RFC 3986 절대 URI만 허용합니다. 일반 freshness 객체는 `expiresAt`이 null이 아니면 `observedAt`보다 빠르지 않아야 합니다. 다만 주변 정류장의 effective expiry는 서로 다른 lineage의 link expiry와 stop stale_at 중 최솟값이므로 link `observedAt`보다 앞설 수 있습니다.
 
 ## 필드 소유권과 freshness
 
@@ -123,7 +123,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
   "distanceMeters": 280,
   "walkMinutes": 4,
   "linkMethod": "spatial_radius",
-  "provider": "TAGO",
+  "provider": "postgis:tago",
   "observedAt": "2026-08-03T09:00:00+09:00",
   "expiresAt": "2026-08-04T09:00:00+09:00",
   "stale": false
@@ -140,7 +140,9 @@ eligible 조건은 아래를 모두 만족해야 합니다.
 4. 연결된 `bus_stops.source_deleted_at IS NULL`
 5. configured 거리 상한 이내
 
-eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at` 중 이른 시각입니다. 이 값이 `now()`보다 뒤면 fresh, 같거나 앞이면 stale이며 stale-only도 `stale=true`로 포함합니다. freshness cutoff나 `stale_at` 만료만으로 active link를 tombstone하지 않습니다. disabled·tombstoned·out-of-radius와 tombstoned/source-deleted stop은 limit 전에 제외합니다. eligible fresh/stale이 하나도 없을 때만 상세 `200`과 `nearbyStops: []`를 반환합니다.
+eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at` 중 이른 시각입니다. stop과 link의 관측 lineage가 다르므로 stop `stale_at`이 이후 link `observedAt`보다 과거여도 유효하며, 이 경우 해당 exact effective expiry와 `stale=true`를 반환합니다. 이 값이 `now()`보다 뒤면 fresh, 같거나 앞이면 stale이며 stale-only도 포함합니다. freshness cutoff나 `stale_at` 만료만으로 active link를 tombstone하지 않습니다. disabled·tombstoned·out-of-radius와 tombstoned/source-deleted stop은 limit 전에 제외합니다. eligible fresh/stale이 하나도 없을 때만 상세 `200`과 `nearbyStops: []`를 반환합니다.
+
+거리 상한은 validated property `app.places.nearby-stops.max-distance-meters`로 주입하며 기본값은 500m, 허용 범위는 1..500m입니다. SQL predicate는 경계를 포함하는 `distance_meters <= configured max`입니다. `provider`, `observedAt`, `linkMethod`는 link row 값을 변환하지 않고 투영하고, 공개 `expiresAt`만 위 effective expiry를 사용합니다.
 
 장소 또는 정류장 좌표가 바뀌면 이미 만료된 geometric candidate라도 기존 active link의 `distance_meters`와 `walk_minutes`는 scope watermark transaction 안에서 갱신합니다. 이 metrics-only 갱신은 link의 provider·observedAt·expiresAt·lifecycle을 바꾸지 않으며, 만료된 신규 link를 만들거나 policy-disabled/tombstoned link를 재활성화하지 않습니다.
 

@@ -147,8 +147,8 @@
         "stopName": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200},
         "distanceMeters": {"type": "integer", "nullable": false, "minimum": 0},
         "walkMinutes": {"type": "integer", "nullable": true, "minimum": 0},
-        "linkMethod": {"type": "string", "nullable": false, "enum": ["spatial_radius", "manual", "provider_mapping"]},
-        "provider": {"type": "string", "nullable": false, "enum": ["TAGO", "TIMING_JEJU"]},
+        "linkMethod": {"type": "string", "nullable": false, "enum": ["spatial_radius", "fixture", "manual", "api_nearby"]},
+        "provider": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 128},
         "observedAt": {"type": "string", "nullable": false, "format": "date-time"},
         "expiresAt": {"type": "string", "nullable": false, "format": "date-time"},
         "stale": {"type": "boolean", "nullable": false}
@@ -470,6 +470,14 @@
   },
   "nearbyStops": {
     "presence": "required non-null array from #66 contract version",
+    "effectiveExpiresAt": "least(place_stop_links.expires_at, non-null bus_stops.stale_at)",
+    "distancePolicy": {
+      "property": "app.places.nearby-stops.max-distance-meters",
+      "default": 500,
+      "minimum": 1,
+      "maximum": 500,
+      "inclusive": true
+    },
     "itemFields": [
       "stopId",
       "stopName",
@@ -511,8 +519,8 @@
       "status": 200,
       "nearbyStops": []
     },
-    "freshBoundary": "expiresAt > now()",
-    "staleBoundary": "expiresAt <= now()",
+    "freshBoundary": "effective expiresAt > now()",
+    "staleBoundary": "effective expiresAt <= now()",
     "sort": [
       "stale ASC",
       "distanceMeters ASC",
