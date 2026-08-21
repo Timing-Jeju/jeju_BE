@@ -83,6 +83,12 @@ insert into data_import_runs (
   'weather_api', 'KMA 단기예보 fixture', 'getVilageFcst', 'fixture-v1.1',
   'succeeded', now(), 1, '{"domain":"weather-forecast","fixture":true}'::jsonb,
   'KMA', '기상청 단기예보', 'fixture:kma-forecast'
+),
+(
+  '00000000-0000-0000-0000-000000000033',
+  'weather_api', 'KMA 초단기예보 fixture', 'getUltraSrtFcst', 'fixture-v1.1',
+  'succeeded', now(), 1, '{"domain":"weather-ultra-forecast","fixture":true}'::jsonb,
+  'KMA', '기상청 단기예보', 'fixture:kma-ultra-forecast'
 );
 
 insert into external_api_snapshots (
@@ -98,7 +104,8 @@ insert into external_api_snapshots (
 ('00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023', 'TAGO', 'fixture timetable', 'timetable', 'fixture:tago-timetable', repeat('6', 64), 'fixture-parser-v1', repeat('f', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
 ('00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-000000000024', 'TAGO', '버스도착정보 API', 'getSttnAcctoArvlPrearngeInfoList', 'fixture:tago-arrival', repeat('7', 64), 'fixture-parser-v1', repeat('0', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
 ('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000031', 'KMA', '기상청 단기예보', 'getUltraSrtNcst', 'fixture:kma-observation', repeat('8', 64), 'fixture-parser-v1', repeat('1', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
-('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000032', 'KMA', '기상청 단기예보', 'getVilageFcst', 'fixture:kma-forecast', repeat('9', 64), 'fixture-parser-v1', repeat('2', 64), '{"fixture":true}'::jsonb, 'parsed', now());
+('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000032', 'KMA', '기상청 단기예보', 'getVilageFcst', 'fixture:kma-forecast', repeat('9', 64), 'fixture-parser-v1', repeat('2', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000303', '00000000-0000-0000-0000-000000000033', 'KMA', '기상청 단기예보', 'getUltraSrtFcst', 'fixture:kma-ultra-forecast', repeat('a', 64), 'fixture-parser-v1', repeat('3', 64), '{"fixture":true}'::jsonb, 'parsed', now());
 
 insert into auth.users (
   id, email, raw_app_meta_data, raw_user_meta_data, last_sign_in_at
@@ -420,17 +427,26 @@ insert into weather_observations (
 );
 
 insert into weather_forecasts (
-  id, grid_point_id, forecasted_at, valid_at, forecast_type, sky_code,
+  id, grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version, sky_code,
   precipitation_type, precipitation_probability_percent, precipitation_amount_mm,
   temperature_c, humidity_percent, wind_speed_mps, source_operation,
   source_snapshot_id, import_run_id, raw_payload
-) values (
+) values
+(
   '35200000-0000-0000-0000-000000000001',
   '35000000-0000-0000-0000-000000000001',
-  current_date + time '08:00', current_date + time '14:00', 'short', 'cloudy',
+  current_date + time '08:00', current_date + time '14:00', 'short', '202608160800', 'cloudy',
   'rain', 60, 1.5, 25.8, 76, 6.1, 'getVilageFcst',
   '00000000-0000-0000-0000-000000000302',
   '00000000-0000-0000-0000-000000000032', '{"fixture":true}'::jsonb
+),
+(
+  '35200000-0000-0000-0000-000000000002',
+  '35000000-0000-0000-0000-000000000001',
+  current_date + time '08:30', current_date + time '14:00', 'ultra_short', null, 'cloudy',
+  'none', null, 0.0, 25.8, 76, 6.1, 'getUltraSrtFcst',
+  '00000000-0000-0000-0000-000000000303',
+  '00000000-0000-0000-0000-000000000033', '{"fixture":true}'::jsonb
 );
 
 insert into mobility_route_snapshots (

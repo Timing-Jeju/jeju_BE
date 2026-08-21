@@ -5,23 +5,37 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.importing.ImportCheckpointError;
 import com.timingjeju.api.application.importing.ImportCheckpointException;
+import com.timingjeju.api.application.importing.ImportCheckpointService;
 import com.timingjeju.api.application.importing.ImportRunLease;
+import com.timingjeju.api.application.importing.ImportRunLifecycleService;
 import com.timingjeju.api.application.importing.ImportRunScope;
+import com.timingjeju.api.application.kma.KmaWeatherBaseTimeResolver;
 import com.timingjeju.api.application.kma.KmaWeatherBatch;
 import com.timingjeju.api.application.kma.KmaWeatherCommitCommand;
 import com.timingjeju.api.application.kma.KmaWeatherCommitter;
 import com.timingjeju.api.application.kma.KmaWeatherForecast;
+import com.timingjeju.api.application.kma.KmaWeatherImportCommand;
+import com.timingjeju.api.application.kma.KmaWeatherImportException;
+import com.timingjeju.api.application.kma.KmaWeatherImportService;
 import com.timingjeju.api.application.kma.KmaWeatherLineage;
 import com.timingjeju.api.application.kma.KmaWeatherObservation;
+import com.timingjeju.api.application.kma.KmaWeatherOperation;
+import com.timingjeju.api.application.kma.KmaWeatherParser;
 import com.timingjeju.api.application.kma.KmaWeatherRepository;
 import com.timingjeju.api.application.kma.KmaWeatherUpsertCommand;
+import com.timingjeju.api.application.snapshot.SnapshotStoreService;
 import com.timingjeju.api.domain.weather.ForecastBaseTime;
+import com.timingjeju.api.global.externalapi.ExternalApiOperation;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -29,6 +43,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -54,6 +70,9 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
   @Autowired private KmaWeatherCommitter committer;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private PlatformTransactionManager transactionManager;
+  @Autowired private SnapshotStoreService snapshotStore;
+  @Autowired private ImportCheckpointService checkpoints;
+  @Autowired private ImportRunLifecycleService runs;
 
   @BeforeEach
   void setUp() {
@@ -120,6 +139,158 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
     assertThat(
             jdbc.queryForObject("select import_run_id from public.weather_forecasts", UUID.class))
         .isEqualTo(second.run());
+  }
+
+  @Test
+  void villageForecastPersistsVersionAndEveryNormalizedCategoryWithSingleLineage() {
+    Fixture fixture = fixture(21, "getVilageFcst");
+    KmaWeatherForecast forecast =
+        new KmaWeatherForecast(
+            Instant.parse("2026-08-15T20:00:00Z"),
+            Instant.parse("2026-08-15T21:00:00Z"),
+            "short",
+            "202608160500",
+            "3",
+            "1",
+            30,
+            new BigDecimal("0.5"),
+            new BigDecimal("23.0"),
+            new BigDecimal("19.0"),
+            new BigDecimal("28.0"),
+            80,
+            new BigDecimal("2.4"));
+    KmaWeatherBatch batch =
+        new KmaWeatherBatch(52, 38, 9, forecast.validAt(), List.of(), List.of(forecast));
+
+    repository.upsert(new KmaWeatherUpsertCommand(GRID, batch, fixture.lineage()));
+
+    assertThat(
+            jdbc.queryForMap(
+                "select forecast_version, precipitation_probability_percent, min_temperature_c, max_temperature_c, source_snapshot_id, import_run_id from public.weather_forecasts"))
+        .containsEntry("forecast_version", "202608160500")
+        .containsEntry("precipitation_probability_percent", 30)
+        .containsEntry("min_temperature_c", new BigDecimal("19.00"))
+        .containsEntry("max_temperature_c", new BigDecimal("28.00"))
+        .containsEntry("source_snapshot_id", fixture.snapshot())
+        .containsEntry("import_run_id", fixture.run());
+  }
+
+  @Test
+  void extendedVillageForecastRoundTripsQualitativeCodesWithoutPhysicalUnits() {
+    Fixture fixture = fixture(22, "getVilageFcst");
+    KmaWeatherForecast forecast =
+        new KmaWeatherForecast(
+            Instant.parse("2026-08-15T20:00:00Z"),
+            Instant.parse("2026-08-18T15:00:00Z"),
+            "short",
+            "202608160500",
+            "3",
+            "1",
+            30,
+            null,
+            new BigDecimal("23.0"),
+            null,
+            null,
+            80,
+            null,
+            2,
+            3);
+    KmaWeatherBatch batch =
+        new KmaWeatherBatch(52, 38, 8, forecast.validAt(), List.of(), List.of(forecast));
+
+    repository.upsert(new KmaWeatherUpsertCommand(GRID, batch, fixture.lineage()));
+
+    assertThat(
+            jdbc.queryForMap(
+                "select precipitation_amount_mm, wind_speed_mps, precipitation_intensity_code, wind_strength_code from public.weather_forecasts"))
+        .containsEntry("precipitation_amount_mm", null)
+        .containsEntry("wind_speed_mps", null)
+        .containsEntry("precipitation_intensity_code", 2)
+        .containsEntry("wind_strength_code", 3);
+  }
+
+  @ParameterizedTest(name = "{0} transport failure persists prior exact KMA responses as rejected")
+  @ValueSource(strings = {"page2", "version"})
+  void transportFailurePersistsPriorExactResponsesAndRejectedManifestWithoutNormalization(
+      String failurePoint) {
+    byte[] pageOne = villagePage(1).getBytes(StandardCharsets.UTF_8);
+    byte[] pageTwo = villagePage(2).getBytes(StandardCharsets.UTF_8);
+    KmaWeatherClient client =
+        new KmaWeatherClient(
+            request -> {
+              if ("page2".equals(failurePoint)
+                  && "2".equals(request.queryParameters().get("pageNo"))) {
+                throw new IllegalStateException("page2 transport failed");
+              }
+              if ("version".equals(failurePoint)
+                  && request.operation() == ExternalApiOperation.KMA_FORECAST_VERSION) {
+                throw new IllegalStateException("version transport failed");
+              }
+              return "2".equals(request.queryParameters().get("pageNo")) ? pageTwo : pageOne;
+            });
+    KmaWeatherParser parser = org.mockito.Mockito.mock(KmaWeatherParser.class);
+    KmaWeatherImportService service =
+        new KmaWeatherImportService(
+            client,
+            new SnapshottingKmaWeatherGateway(snapshotStore, Clock.systemUTC()),
+            parser,
+            checkpoints,
+            runs,
+            committer,
+            new KmaWeatherBaseTimeResolver(
+                Clock.fixed(Instant.parse("2026-08-15T15:45:00Z"), java.time.ZoneOffset.UTC)));
+
+    assertThatThrownBy(
+            () ->
+                service.importVillageForecast(
+                    new KmaWeatherImportCommand(
+                        GRID, 52, 38, "transport-" + failurePoint + "-audit")))
+        .isInstanceOf(KmaWeatherImportException.class);
+
+    List<String> expectedKeys =
+        "page2".equals(failurePoint)
+            ? List.of("getVilageFcst:1", "manifest", "getVilageFcst:1", "manifest")
+            : List.of(
+                "getVilageFcst:1",
+                "getVilageFcst:2",
+                "manifest",
+                "getVilageFcst:1",
+                "getVilageFcst:2",
+                "manifest");
+    assertThat(
+            jdbc.queryForList(
+                "select page_key from public.external_api_snapshots where source_operation='getVilageFcst' order by fetched_at,id",
+                String.class))
+        .containsExactlyElementsOf(expectedKeys);
+    assertThat(
+            jdbc.queryForList(
+                "select parse_status from public.external_api_snapshots where source_operation='getVilageFcst'",
+                String.class))
+        .hasSize(expectedKeys.size())
+        .containsOnly("rejected");
+    assertThat(
+            jdbc.queryForList(
+                "select payload_hash from public.external_api_snapshots where source_operation='getVilageFcst' and page_key='getVilageFcst:1'",
+                String.class))
+        .containsOnly(sha256(pageOne));
+    if ("version".equals(failurePoint)) {
+      assertThat(
+              jdbc.queryForList(
+                  "select payload_hash from public.external_api_snapshots where source_operation='getVilageFcst' and page_key='getVilageFcst:2'",
+                  String.class))
+          .containsOnly(sha256(pageTwo));
+    }
+    assertThat(jdbc.queryForObject("select count(*) from public.weather_forecasts", Integer.class))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.data_import_checkpoints where source_operation='getVilageFcst'",
+                Integer.class))
+        .isZero();
+    org.mockito.Mockito.verify(parser, org.mockito.Mockito.never())
+        .parse(
+            org.mockito.ArgumentMatchers.any(KmaWeatherOperation.class),
+            org.mockito.ArgumentMatchers.any(byte[].class));
   }
 
   @Test
@@ -305,6 +476,21 @@ class JdbcKmaWeatherRepositoryIntegrationTest {
         "update public.data_import_runs set status='succeeded', finished_at=? where id=?",
         Timestamp.from(fixture.fetchedAt().plusSeconds(1)),
         fixture.run());
+  }
+
+  private static String villagePage(int page) {
+    return "{\"response\":{\"header\":{\"resultCode\":\"00\"},\"body\":{\"dataType\":\"JSON\","
+        + "\"pageNo\":"
+        + page
+        + ",\"numOfRows\":1000,\"totalCount\":1001,\"items\":{\"item\":[]}}}}";
+  }
+
+  private static String sha256(byte[] bytes) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+    } catch (Exception impossible) {
+      throw new AssertionError(impossible);
+    }
   }
 
   private void clean() {
