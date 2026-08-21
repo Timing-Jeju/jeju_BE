@@ -52,6 +52,8 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 
 목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `recommendedStaySource`, `recommendedStayPolicyVersion`, `recommendedStayEffectiveAt`, `recommendedStayUpdatedAt`, `operationsSummary`, `dataFreshness`, 개인화 `saved/memo/tags`를 포함합니다. 추천 체류시간은 #65 `StayPolicyResolver`의 place override→category default→unavailable 결과와 provenance를 상세과 동일하게 반환합니다. 값이 없으면 minutes/version/effectiveAt/updatedAt은 null이고 source는 `unavailable`이며, `thumbnailUrl`, `operationsSummary`, `memo`도 원천 값이 없으면 null입니다. 임의 기본값을 만들거나 필드를 생략하지 않습니다.
 
+공개 목록은 `source_deleted_at IS NULL AND tombstoned_at IS NULL`인 장소만 검색·필터 결과에 포함합니다. freshness가 stale인 장소는 제외하지 않고 `dataFreshness.stale=true`로 명시하여 기존 목록 의미를 유지합니다.
+
 `dataFreshness`는 목록 item마다 반드시 존재하는 닫힌 객체입니다.
 
 ```json
