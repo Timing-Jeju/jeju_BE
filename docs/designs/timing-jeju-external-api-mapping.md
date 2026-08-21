@@ -368,12 +368,27 @@ Issue #42의 `KmaGridConverter`는 외부 호출 없이 WGS84 위경도를 KMA D
 | --- | --- |
 | `TMP`, `T1H` | `temperature_c` |
 | `POP` | `precipitation_probability_percent` |
-| `PCP`, `RN1` | `precipitation_amount_mm` |
+| `PCP`, `RN1` | 정규 시간대는 `precipitation_amount_mm`; 확장 시간대 PCP code는 `precipitation_intensity_code` |
 | `PTY` | `precipitation_type` |
 | `SKY` | `sky_code` |
 | `REH` | `humidity_percent` |
-| `WSD` | `wind_speed_mps` |
+| `WSD` | 정규 시간대는 `wind_speed_mps`; 확장 시간대 WSD code는 `wind_strength_code` |
 | `TMN`, `TMX` | min/max temperature |
+
+단기예보 importer는 `numOfRows=1000`으로 `totalCount`가 가리키는 모든 page를 순서대로
+수집하고 `getFcstVersion(ftype=SHRT, basedatetime=<base>)`까지 각 HTTP 응답의 압축 해제된 byte를
+재직렬화 없이 개별 snapshot으로 먼저 보존한다. ordered manifest에는 snapshot ID, payload hash,
+operation/page metadata만 저장하며 provider 원문을 복제하지 않는다. page/version 오류도 terminal
+`rejected` audit로 남고 정규화 행과 checkpoint는 원자적으로 바뀌지 않는다.
+
+2024-11-28 기상청 공식 단기예보 서비스 변경 공지 이후 02·05·08·11·14시 발표는 발표 다음
+정시부터 발표일+4일 00시 전까지 1시간 간격이고, +4일은 00·03·06·09·12·15·18·21시의
+3시간 간격이다. 공식 slot 수는 각각 101·98·95·92·89개다. 17·20·23시 발표는 같은 규칙의
+확장일이 발표일+5일이며 공식 slot 수는 각각 110·107·104개다. 각 시간대는
+`TMP/POP/PCP/PTY/SKY/REH/WSD`가 완전해야 하며 응답 전체에는 `TMN/TMX`가 모두 있어야 한다.
+경계 누락, 중복 category, 비공식 간격은 거부한다. 확장 시간대의 PCP/SNO/WSD 정수는 물리량이
+아닌 정성 code이므로 PCP와 WSD는 별도 code 컬럼에 저장하고 mm/mps 컬럼은 null로 둔다.
+공식 부가 category와 SNO 원문은 raw snapshot에 보존한다.
 
 강수량은 `강수없음`, `1mm 미만` 같은 문자열일 수 있으므로 parser 버전과 원문 category를 보존한다.
 

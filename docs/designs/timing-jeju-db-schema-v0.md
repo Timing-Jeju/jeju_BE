@@ -19,6 +19,7 @@
 - [외부 적재 계보·유효기간 강화](../../supabase/migrations/20260730020000_ingestion_consistency_hardening.sql)
 - [일정 Day 무결성 강화](../../supabase/migrations/20260730030000_schedule_consistency_hardening.sql)
 - [import run 계보 보존](../../supabase/migrations/20260730040000_import_run_lineage_retention.sql)
+- [KMA 단기예보 version](../../supabase/migrations/20260820000001_kma_village_forecast_version.sql)
 - [스키마 계약 검사](../../db/queries/schema_contract.sql)
 - [음수 무결성 계약](../../db/queries/database_negative_constraints.sql)
 - [자동 스모크 검사](../../db/queries/smoke_check.sql)
@@ -186,10 +187,15 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | --- | --- | --- |
 | `weather_grid_points` | 위경도와 KMA `nx`,`ny` 매핑 | app/KMA grid |
 | `weather_observations` | 초단기실황 snapshot | KMA |
-| `weather_forecasts` | 초단기/단기예보 snapshot | KMA |
+| `weather_forecasts` | 초단기/단기예보 snapshot과 단기 `forecast_version` | KMA |
 | `trip_weather_impacts` | 특정 일정 버전에 대한 날씨 영향 | FastAPI computed |
 
 예보와 영향은 반드시 분리한다. 예보가 갱신되어도 과거 계산이 어떤 forecast를 사용했는지 FK로 추적한다.
+단기예보 신규 행은 `getFcstVersion`의 `SHRT` 파일 version(`yyyyMMddHHmm`)을 반드시 저장하고,
+초단기예보에는 이 값을 혼합하지 않는다.
+2024-11-28 이후 확장 시간대의 PCP/WSD 정성 code는 각각
+`precipitation_intensity_code`/`wind_strength_code`에 저장하며, 같은 행의
+`precipitation_amount_mm`/`wind_speed_mps`는 null이어야 한다.
 
 ### 4.5 Trip Input
 

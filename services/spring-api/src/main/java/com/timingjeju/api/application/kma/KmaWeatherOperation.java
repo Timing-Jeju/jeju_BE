@@ -2,7 +2,8 @@ package com.timingjeju.api.application.kma;
 
 public enum KmaWeatherOperation {
   ULTRA_CURRENT("getUltraSrtNcst"),
-  ULTRA_FORECAST("getUltraSrtFcst");
+  ULTRA_FORECAST("getUltraSrtFcst"),
+  VILLAGE_FORECAST("getVilageFcst");
 
   private final String providerOperation;
 

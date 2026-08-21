@@ -22,11 +22,12 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 
-public final class KmaWeatherImportService {
+public final class KmaWeatherImportService implements KmaVillageForecastImporter {
 
   public static final String PROVIDER = "kma";
   public static final String SERVICE = "VilageFcstInfoService_2.0";
   public static final String PARSER_VERSION = "kma-ultra-weather-v1";
+  public static final String VILLAGE_PARSER_VERSION = "kma-village-weather-v2";
 
   private final KmaWeatherSource source;
   private final KmaWeatherSnapshotGateway snapshots;
@@ -81,6 +82,11 @@ public final class KmaWeatherImportService {
     }
   }
 
+  @Override
+  public KmaWeatherImportResult importVillageForecast(KmaWeatherImportCommand command) {
+    return importWeather(command, KmaWeatherOperation.VILLAGE_FORECAST);
+  }
+
   private KmaWeatherImportResult importWithFallback(
       KmaWeatherImportCommand command,
       KmaWeatherOperation operation,
@@ -120,6 +126,10 @@ public final class KmaWeatherImportService {
 
     SavedKmaWeatherSnapshot snapshot =
         snapshots.capture(lease.runId(), operation, base, command, response);
+    if (response.transportFailed()) {
+      snapshots.markRejected(snapshot);
+      throw retry(KmaWeatherImportException.providerUnavailable());
+    }
     requireParsable(snapshot);
     KmaWeatherBatch batch;
     try {
@@ -156,8 +166,10 @@ public final class KmaWeatherImportService {
   }
 
   private static void requireParsable(SavedKmaWeatherSnapshot snapshot) {
-    if (snapshot.status() == SnapshotStatus.RECEIVED) return;
-    if (snapshot.replayed() && snapshot.status() == SnapshotStatus.PARSED) return;
+    if (snapshot.attemptSnapshots().stream()
+        .allMatch(saved -> saved.status() == SnapshotStatus.RECEIVED)) return;
+    if (snapshot.attemptSnapshots().stream()
+        .allMatch(saved -> saved.replayed() && saved.status() == SnapshotStatus.PARSED)) return;
     throw KmaWeatherImportException.invalidResponse();
   }
 
@@ -176,7 +188,7 @@ public final class KmaWeatherImportService {
                   && batch.forecasts().isEmpty()
                   && batch.observations().getFirst().baseDate().equals(base.baseDate())
                   && batch.observations().getFirst().baseTime().equals(base.baseTime());
-          case ULTRA_FORECAST ->
+          case ULTRA_FORECAST, VILLAGE_FORECAST ->
               batch.observations().isEmpty()
                   && !batch.forecasts().isEmpty()
                   && batch.forecasts().stream()
@@ -221,8 +233,8 @@ public final class KmaWeatherImportService {
         "KMA " + operation.providerOperation(),
         scope,
         "2607",
-        PARSER_VERSION,
-        "kma-ultra-weather-v1",
+        parserVersion(operation),
+        parserVersion(operation),
         ImportSyncMode.SNAPSHOT,
         sha256(operation.providerOperation() + ':' + command.nx() + ':' + command.ny()),
         command.idempotencyKey(),
@@ -232,6 +244,12 @@ public final class KmaWeatherImportService {
   public static ImportRunScope scope(KmaWeatherOperation operation, int nx, int ny) {
     return new ImportRunScope(
         PROVIDER, SERVICE, operation.providerOperation(), "nx=" + nx + ";ny=" + ny);
+  }
+
+  public static String parserVersion(KmaWeatherOperation operation) {
+    return operation == KmaWeatherOperation.VILLAGE_FORECAST
+        ? VILLAGE_PARSER_VERSION
+        : PARSER_VERSION;
   }
 
   private static ImportRunFailure importFailure(KmaWeatherImportException failure) {

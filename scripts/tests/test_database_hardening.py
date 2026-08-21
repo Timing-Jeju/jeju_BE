@@ -174,6 +174,46 @@ class DatabaseHardeningTest(unittest.TestCase):
                 )
                 self.assertEqual(sorted(positions), positions)
 
+    def test_kma_village_migration_is_applied_by_every_smoke_upgrade_sequence(self):
+        smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")
+
+        for unrelated_tago_migration in (
+            "/docker-entrypoint-initdb.d/016_tago_stop_import.sql",
+            "/docker-entrypoint-initdb.d/017_tago_route_stops_import.sql",
+        ):
+            self.assertNotIn(
+                unrelated_tago_migration,
+                smoke,
+                "KMA legacy loops must not replay unrelated TAGO migrations",
+            )
+
+        self.assertIn(
+            "/docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql",
+            smoke,
+        )
+        self.assertGreaterEqual(
+            smoke.count("/docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql"),
+            2,
+            "latest KMA migration must be applied by upgrade and concurrency sequences",
+        )
+
+    def test_kma_seed_distinguishes_short_version_and_ultra_short_null_version(self):
+        seed = compact_sql(
+            (ROOT / "db" / "local-postgres" / "seed_fixtures.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        negative = compact_sql(
+            (ROOT / "db" / "queries" / "database_negative_constraints.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertRegex(seed, r"'short'[^;]+'[0-9]{12}'")
+        self.assertRegex(seed, r"'ultra_short'[^;]+null")
+        self.assertIn("precipitation_intensity_code", negative)
+        self.assertIn("wind_strength_code", negative)
+
     def test_tourapi_discovery_import_seeds_checkpoints_and_keyword_lookup_index(self):
         migration = self.read_migration(TOUR_API_DISCOVERY_MIGRATION)
 
