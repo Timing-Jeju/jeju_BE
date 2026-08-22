@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -110,19 +112,25 @@ class JdbcTagoArrivalFlightStoreTest {
     assertThat(jdbc.args).containsExactly(FINGERPRINT, 32);
   }
 
-  @Test
-  void success_retain은_source_expires와_replay_window중_이른값이고_이미만료면_publish하지않는다() {
+  @ParameterizedTest
+  @CsvSource({
+    "2026-08-22T00:00:25.657613854Z, 2026-08-22T00:00:25.657613Z",
+    "2026-08-22T00:00:25.657613Z, 2026-08-22T00:00:25.657613Z"
+  })
+  void success_retain은_source_expires를_DB_microsecond로_floor_bind한다(
+      String sourceExpires, String expectedBound) {
     RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate(1);
     JdbcTagoArrivalFlightStore store = new JdbcTagoArrivalFlightStore(jdbc);
     TagoArrivalFlightLease lease = new TagoArrivalFlightLease(FINGERPRINT, 7, OWNER);
-    Instant sourceExpiresAt = Instant.parse("2026-08-22T00:00:25Z");
+    Instant sourceExpiresAt = Instant.parse(sourceExpires);
+    Instant expected = Instant.parse(expectedBound);
 
     assertThat(store.completeSuccess(lease, sourceExpiresAt, Duration.ofSeconds(25))).isTrue();
 
     assertThat(jdbc.sql)
         .contains("least(?::timestamptz")
         .contains("?::timestamptz > clock_timestamp()");
-    assertThat(jdbc.args).contains(java.sql.Timestamp.from(sourceExpiresAt));
+    assertThat(jdbc.args).contains(java.sql.Timestamp.from(expected));
   }
 
   @Test

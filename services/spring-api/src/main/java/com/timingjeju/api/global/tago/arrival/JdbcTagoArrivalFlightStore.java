@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -213,6 +214,8 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
       String outcome,
       Instant sourceExpiresAt,
       Duration retain) {
+    Instant databaseSourceExpiresAt =
+        sourceExpiresAt == null ? null : sourceExpiresAt.truncatedTo(ChronoUnit.MICROS);
     try {
       int updated =
           jdbc.update(
@@ -230,15 +233,15 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
               """,
               state,
               outcome,
-              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt),
+              databaseSourceExpiresAt == null ? null : Timestamp.from(databaseSourceExpiresAt),
               retain.toMillis(),
-              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt),
+              databaseSourceExpiresAt == null ? null : Timestamp.from(databaseSourceExpiresAt),
               retain.toMillis(),
               lease.fingerprint(),
               lease.generation(),
               lease.ownerToken(),
-              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt),
-              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt));
+              databaseSourceExpiresAt == null ? null : Timestamp.from(databaseSourceExpiresAt),
+              databaseSourceExpiresAt == null ? null : Timestamp.from(databaseSourceExpiresAt));
       if (updated == 1) return true;
       Integer exact =
           jdbc.queryForObject(

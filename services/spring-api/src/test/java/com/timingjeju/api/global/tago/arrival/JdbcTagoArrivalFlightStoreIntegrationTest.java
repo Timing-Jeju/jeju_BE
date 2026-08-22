@@ -26,6 +26,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
@@ -197,7 +198,8 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
   void success_retain은_source_expiry를_넘지않고_이미만료된_source는_publish하지않는다() {
     TagoArrivalFlightDecision leader =
         store.observeOrClaim(FINGERPRINT, new UUID(39L, 1L), LEASE, QUARANTINE);
-    Instant sourceExpiresAt = Instant.now().plusSeconds(2);
+    Instant sourceExpiresAt = databaseNow().plusSeconds(2).plusNanos(854);
+    Instant expectedRetainedUntil = sourceExpiresAt.truncatedTo(ChronoUnit.MICROS);
 
     assertThat(store.completeSuccess(leader.lease(), sourceExpiresAt, RETAIN)).isTrue();
     Instant retainedUntil =
@@ -206,7 +208,7 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
                 java.sql.Timestamp.class,
                 FINGERPRINT)
             .toInstant();
-    assertThat(retainedUntil).isBeforeOrEqualTo(sourceExpiresAt);
+    assertThat(retainedUntil).isEqualTo(expectedRetainedUntil).isBeforeOrEqualTo(sourceExpiresAt);
 
     jdbc.update("delete from public.tago_arrival_flights");
     TagoArrivalFlightDecision expired =
