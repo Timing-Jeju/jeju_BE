@@ -176,6 +176,7 @@ erDiagram
 | `route_stops` | 노선 방향별 정류장 순서 | TAGO |
 | `timetable_entries` | 확보된 정적 시간표 | 보조 source; TAGO 보장 아님 |
 | `bus_arrival_snapshots` | 정류장별 실시간 도착 snapshot | TAGO, 짧은 TTL |
+| `tago_arrival_flights` | 다중 Spring instance의 도착 요청 generation·lease·terminal outcome | 내부 service role 전용, 원문 미저장 |
 | `mobility_route_snapshots` | 도보/대중교통/차량/택시 경로 cache | TMAP 등 provider |
 
 `trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. 원천 route cache는 `mobility_route_snapshots`에 분리한다.

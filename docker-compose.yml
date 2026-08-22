@@ -33,6 +33,7 @@ services:
       - ./supabase/migrations/20260824000000_tourapi_discovery_import_checkpoints.sql:/docker-entrypoint-initdb.d/022_tourapi_discovery_import_checkpoints.sql:ro
       - ./supabase/migrations/20260825000000_public_place_tombstone.sql:/docker-entrypoint-initdb.d/023_public_place_tombstone.sql:ro
       - ./supabase/migrations/20260826000000_tago_arrival_cache.sql:/docker-entrypoint-initdb.d/024_tago_arrival_cache.sql:ro
+      - ./supabase/migrations/20260827000000_tago_arrival_flight_state.sql:/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

@@ -2,7 +2,10 @@ package com.timingjeju.api.global.tago.arrival;
 
 import com.timingjeju.api.application.tago.arrival.TagoArrivalCacheService;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalCommitter;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalDistributedFlightCoordinator;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightCoordinator;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightPolicy;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightStore;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalImportSession;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalLoadService;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalPayloadParser;
@@ -18,6 +21,19 @@ import org.springframework.context.annotation.Configuration;
 public class TagoArrivalConfiguration {
   static final Duration FRESH_TTL = Duration.ofSeconds(25);
   static final Duration STALE_WINDOW = Duration.ofMinutes(2);
+  static final TagoArrivalFlightPolicy FLIGHT_POLICY =
+      new TagoArrivalFlightPolicy(
+          Duration.ofSeconds(10),
+          Duration.ofMillis(25),
+          Duration.ofSeconds(8),
+          Duration.ofSeconds(12),
+          Duration.ofSeconds(25),
+          Duration.ofSeconds(12));
+
+  @Bean
+  TagoArrivalFlightCoordinator tagoArrivalFlightCoordinator(TagoArrivalFlightStore store) {
+    return new TagoArrivalDistributedFlightCoordinator(store, FLIGHT_POLICY);
+  }
 
   @Bean
   TagoArrivalLoadService tagoArrivalLoadService(

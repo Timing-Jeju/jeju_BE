@@ -255,9 +255,11 @@ GET http://apis.data.go.kr/1613000/ArvlInfoInqireService/getSttnAcctoArvlPrearng
 
 도착 API의 동시 호출 제한과 쿼터를 고려해 같은 정류소 요청을 합치고 20~30초 single-flight cache를 적용한다.
 cache key는 `(provider, service, city_code, stop_id, node_id)` 전체이며 길이 구분 canonical fingerprint의
-PostgreSQL session advisory lock으로 여러 Spring instance도 합친다. winner는 lock 직후 DB history를 다시
-조회하고 loser는 DB connection을 반납한 뒤 monotonic deadline 안에서만 기다린다. deadline 이후 외부
-호출을 중복하지 않으며 성공·실패 모두 advisory lock과 local future를 정리한다.
+flight generation·owner fencing·lease·terminal outcome으로 여러 Spring instance도 합친다. claim/read/CAS
+SQL은 main pool connection을 즉시 반환하고 외부 callback 동안 connection이나 transaction을 보유하지 않는다.
+winner는 claim 직후 DB history를 다시 조회하고 loser는 monotonic deadline 안에서만 bounded poll한다.
+expired RUNNING은 즉시 steal하지 않고 quarantine 동안 `DATA_UNAVAILABLE`로 fail-closed하며, retain 만료 뒤
+새 generation만 허용한다. deadline 이후 외부 호출을 시작하지 않고 성공·exact 실패와 local future를 공유한다.
 정상 응답의 압축 해제된 원문 bytes를 먼저 snapshot으로 저장하고 parser가 같은 bytes를 읽는다.
 `resultCode=97`은 원문을 `rejected`로 남기지만 HTTP 429·timeout처럼 응답 bytes가 없는 transport
 실패에는 snapshot을 만들지 않는다. 성공한 batch만 같은 transaction에서 snapshot `parsed`,

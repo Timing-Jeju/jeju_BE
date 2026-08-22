@@ -49,4 +49,8 @@ public final class TagoArrivalException extends RuntimeException {
   public static TagoArrivalException dataUnavailable() {
     return new TagoArrivalException(Code.DATA_UNAVAILABLE);
   }
+
+  public static TagoArrivalException fromCode(Code code) {
+    return new TagoArrivalException(code);
+  }
 }

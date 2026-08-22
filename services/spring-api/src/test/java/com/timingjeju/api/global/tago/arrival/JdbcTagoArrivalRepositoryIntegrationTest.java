@@ -19,9 +19,6 @@ import com.timingjeju.api.application.tago.arrival.TagoArrivalSnapshot;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalSourceResponse;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
@@ -33,7 +30,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -77,7 +73,6 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
   @Autowired private TagoArrivalCommitter committer;
   @Autowired private TagoArrivalFlightCoordinator coordinator;
   @Autowired private JdbcTemplate jdbcTemplate;
-  @Autowired private DataSource dataSource;
 
   @BeforeEach
   void setUp() {
@@ -218,73 +213,6 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
   }
 
   @Test
-  void advisory_lock은_action동안_다른_connection을_막고_성공후_해제한다() throws Exception {
-    try (Connection observer = dataSource.getConnection()) {
-      TagoArrivalSnapshot result =
-          coordinator.coalesce(
-              KEY,
-              () -> {
-                assertThat(tryLock(observer)).isFalse();
-                return new TagoArrivalSnapshot(
-                    List.of(ARRIVAL), NOW, NOW.plusSeconds(25), false, RUN, SNAPSHOT);
-              });
-
-      assertThat(result.arrivals()).containsExactly(ARRIVAL);
-      assertThat(tryLock(observer)).isTrue();
-      assertThat(unlock(observer)).isTrue();
-    }
-  }
-
-  @Test
-  void advisory_lock은_action_error후에도_해제한다() throws Exception {
-    IllegalStateException actionFailure = new IllegalStateException("programmer failure");
-    try (Connection observer = dataSource.getConnection()) {
-      assertThatThrownBy(
-              () ->
-                  coordinator.coalesce(
-                      KEY,
-                      () -> {
-                        throw actionFailure;
-                      }))
-          .isSameAs(actionFailure);
-
-      assertThat(tryLock(observer)).isTrue();
-      assertThat(unlock(observer)).isTrue();
-    }
-  }
-
-  @Test
-  void advisory_lock_deadline의_loser는_provider_action을_중복_호출하지_않는다() throws Exception {
-    AtomicInteger actions = new AtomicInteger();
-    try (Connection blocker = dataSource.getConnection()) {
-      assertThat(tryLock(blocker)).isTrue();
-      JdbcTagoArrivalFlightCoordinator shortDeadline =
-          new JdbcTagoArrivalFlightCoordinator(
-              dataSource,
-              System::nanoTime,
-              java.util.concurrent.locks.LockSupport::parkNanos,
-              Duration.ofMillis(20),
-              Duration.ofMillis(5));
-
-      assertThatThrownBy(
-              () ->
-                  shortDeadline.coalesce(
-                      KEY,
-                      () -> {
-                        actions.incrementAndGet();
-                        return new TagoArrivalSnapshot(
-                            List.of(ARRIVAL), NOW, NOW.plusSeconds(25), false, RUN, SNAPSHOT);
-                      }))
-          .isInstanceOfSatisfying(
-              TagoArrivalException.class,
-              failure ->
-                  assertThat(failure.code()).isEqualTo(TagoArrivalException.Code.DATA_UNAVAILABLE));
-      assertThat(actions).hasValue(0);
-      assertThat(unlock(blocker)).isTrue();
-    }
-  }
-
-  @Test
   void newer와_older_batch가_공존해도_latest는_newer이고_같은_observed의_다른_lineage는_거부한다() {
     removeUnusedDefaultArrivalContext();
     parsedContext(NEW_RUN, NEW_SNAPSHOT, NOW.plusSeconds(10));
@@ -414,32 +342,6 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
         REF_RUN,
         REF_SNAPSHOT,
         Timestamp.from(NOW));
-  }
-
-  private static boolean tryLock(Connection connection) {
-    return advisoryBoolean(
-        connection,
-        "select pg_try_advisory_lock(hashtextextended(?, 0))",
-        JdbcTagoArrivalFlightCoordinator.fingerprint(KEY));
-  }
-
-  private static boolean unlock(Connection connection) {
-    return advisoryBoolean(
-        connection,
-        "select pg_advisory_unlock(hashtextextended(?, 0))",
-        JdbcTagoArrivalFlightCoordinator.fingerprint(KEY));
-  }
-
-  private static boolean advisoryBoolean(Connection connection, String sql, String fingerprint) {
-    try (PreparedStatement statement = connection.prepareStatement(sql)) {
-      statement.setString(1, fingerprint);
-      try (ResultSet result = statement.executeQuery()) {
-        assertThat(result.next()).isTrue();
-        return result.getBoolean(1);
-      }
-    } catch (java.sql.SQLException failure) {
-      throw new AssertionError("advisory lock fixture failure", failure);
-    }
   }
 
   private void insertArrivalRunAndSnapshot() {

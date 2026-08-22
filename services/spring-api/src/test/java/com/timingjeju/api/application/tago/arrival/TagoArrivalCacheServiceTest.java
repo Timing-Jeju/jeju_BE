@@ -11,8 +11,10 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -45,14 +47,28 @@ class TagoArrivalCacheServiceTest {
             Duration.ofSeconds(25),
             Duration.ofMinutes(2));
 
-    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      var futures =
-          java.util.stream.IntStream.range(0, 20)
-              .mapToObj(ignored -> executor.submit(() -> service.get(KEY)))
+    try (var executor = Executors.newFixedThreadPool(20)) {
+      var leader = executor.submit(() -> service.get(KEY));
+      assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+      var followerThreads = new ConcurrentLinkedQueue<Thread>();
+      CountDownLatch followersStarted = new CountDownLatch(19);
+      var followers =
+          java.util.stream.IntStream.range(0, 19)
+              .mapToObj(
+                  ignored ->
+                      executor.submit(
+                          () -> {
+                            followerThreads.add(Thread.currentThread());
+                            followersStarted.countDown();
+                            return service.get(KEY);
+                          }))
               .toList();
-      entered.await();
+      assertThat(followersStarted.await(5, TimeUnit.SECONDS)).isTrue();
+      assertThat(awaitAllFollowersJoin(followerThreads, 19)).isTrue();
+      assertThat(calls).hasValue(1);
       release.countDown();
-      for (var future : futures) {
+      assertThat(leader.get()).isEqualTo(snapshot(NOW));
+      for (var future : followers) {
         assertThat(future.get()).isEqualTo(snapshot(NOW));
       }
     }
@@ -274,6 +290,29 @@ class TagoArrivalCacheServiceTest {
     assertThatThrownBy(() -> service.get(KEY)).isSameAs(programmerBug);
   }
 
+  @Test
+  void initial_history_freshness는_query가_끝난뒤_clock으로_판단한다() {
+    MutableClock clock = new MutableClock(NOW);
+    AtomicInteger loads = new AtomicInteger();
+    AtomicInteger historyReads = new AtomicInteger();
+    TagoArrivalCacheService service =
+        new TagoArrivalCacheService(
+            key -> {
+              loads.incrementAndGet();
+              return snapshot(clock.instant());
+            },
+            key -> {
+              if (historyReads.getAndIncrement() == 0) clock.advance(Duration.ofSeconds(26));
+              return Optional.of(snapshot(NOW));
+            },
+            clock,
+            Duration.ofSeconds(25),
+            Duration.ofMinutes(2));
+
+    assertThat(service.get(KEY).observedAt()).isEqualTo(NOW.plusSeconds(26));
+    assertThat(loads).hasValue(1);
+  }
+
   private static TagoArrivalCacheService serviceWithFailure(
       TagoArrivalException failure, Instant now) {
     return new TagoArrivalCacheService(
@@ -304,6 +343,32 @@ class TagoArrivalCacheServiceTest {
       Thread.currentThread().interrupt();
       throw new IllegalStateException(interrupted);
     }
+  }
+
+  private static boolean awaitAllFollowersJoin(
+      ConcurrentLinkedQueue<Thread> followerThreads, int expected) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      if (followerThreads.size() == expected
+          && followerThreads.stream().allMatch(TagoArrivalCacheServiceTest::isWaitingInJoin)) {
+        return true;
+      }
+      try {
+        TimeUnit.MILLISECONDS.sleep(10);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isWaitingInJoin(Thread thread) {
+    return java.util.Arrays.stream(thread.getStackTrace())
+        .anyMatch(
+            frame ->
+                frame.getClassName().equals(TagoArrivalCacheService.class.getName())
+                    && frame.getMethodName().equals("join"));
   }
 
   private static final class MutableClock extends Clock {
