@@ -145,16 +145,28 @@ class SupabaseLayoutTest(unittest.TestCase):
                         "/docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql",
                     ),
                     (
-                        "20260821000000_tago_arrival_cache.sql",
-                        "/docker-entrypoint-initdb.d/019_tago_arrival_cache.sql",
-                    ),
-                    (
                         "20260822000000_place_stop_postgis_links.sql",
                         "/docker-entrypoint-initdb.d/020_place_stop_postgis_links.sql",
                     ),
                     (
                         migration_name,
                         "/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql",
+                    ),
+                    (
+                        "20260824000000_tourapi_discovery_import_checkpoints.sql",
+                        "/docker-entrypoint-initdb.d/022_tourapi_discovery_import_checkpoints.sql",
+                    ),
+                    (
+                        "20260825000000_public_place_tombstone.sql",
+                        "/docker-entrypoint-initdb.d/023_public_place_tombstone.sql",
+                    ),
+                    (
+                        "20260826000000_tago_arrival_cache.sql",
+                        "/docker-entrypoint-initdb.d/024_tago_arrival_cache.sql",
+                    ),
+                    (
+                        "20260827000000_tago_arrival_flight_state.sql",
+                        "/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql",
                     ),
                 ]
                 positions = []
@@ -174,13 +186,35 @@ class SupabaseLayoutTest(unittest.TestCase):
             2,
         )
 
+    def test_tago_arrival_flight_migration_mount_is_canonical_and_seed_remains_last(self):
+        migration_name = "20260827000000_tago_arrival_flight_state.sql"
+        migration = SUPABASE / "migrations" / migration_name
+        self.assertTrue(migration.is_file())
+        mount = (
+            f"./supabase/migrations/{migration_name}:"
+            "/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql:ro"
+        )
+
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
+            compose = (ROOT / compose_name).read_text(encoding="utf-8")
+            with self.subTest(compose=compose_name):
+                self.assertEqual(1, compose.count(mount))
+                self.assertLess(
+                    compose.index("/docker-entrypoint-initdb.d/024_tago_arrival_cache.sql"),
+                    compose.index("/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql"),
+                )
+                self.assertLess(
+                    compose.index("/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql"),
+                    compose.index("/docker-entrypoint-initdb.d/099_seed_fixtures.sql"),
+                )
+
     def test_recommended_stay_policy_dbml_matches_canonical_migration(self):
         dbml = (
             ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
         ).read_text(encoding="utf-8")
 
         expected_contracts = (
-            "#37 place-link `/020`, #65 stay-policy `/021`, seed `/099`",
+            "#37 place-link `/020`, #65 stay-policy `/021`, #39 arrival `/024`, #39 flight-state `/025`, seed `/099`",
             "Table place_stay_policy_versions {",
             "version text [pk]",
             "status text [not null, note: \"draft, active, retired\"]",

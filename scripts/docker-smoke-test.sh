@@ -195,6 +195,8 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/015_tour_api_incremental_sync.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
   /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
+  /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
+  /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -358,6 +360,8 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/015_tour_api_incremental_sync.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
   /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
+  /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
+  /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

@@ -17,6 +17,10 @@ Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 type
 | TMAP | `TMAP_ENABLED` | `TMAP_API_KEY` | `TMAP_BASE_URL` | `TMAP_CONNECT_TIMEOUT` | `TMAP_READ_TIMEOUT` |
 | KMA | `KMA_ENABLED` | `KMA_API_KEY` | `KMA_BASE_URL` | `KMA_CONNECT_TIMEOUT` | `KMA_READ_TIMEOUT` |
 
+TAGO 정류장 도착정보 importer도 위 TAGO 설정을 공유한다. 별도 key나 URL 환경변수를 만들지 않으며
+`ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList` operation은 코드 allowlist에 고정한다.
+20~30초 cache TTL과 최대 120초 stale 허용 범위는 application 계약이며 환경변수로 완화하지 않는다.
+
 - 기본 활성값은 모두 `false`입니다. 비활성 provider는 key 없이 시작하고 client 설정 bean을 만들지 않습니다.
 - provider를 활성화하면 API key와 정확한 provider Base URL이 필수입니다. 공백, `changeme`, `replace-me`, `your-*`, `<...>`, `${...}` placeholder는 실제 key로 인정하지 않습니다.
 - TourAPI·TAGO·KMA의 `*_API_KEY`에는 공공데이터포털에서 제공하는 **decoded 원문 key**만 넣습니다. `%2B`, `%2F`, `%3D`처럼 이미 percent-encoded된 입력은 시작 시 거부합니다. 후속 query adapter는 typed credential 경계의 UTF-8 encoder를 사용해 `+`, `/`, `=`를 각각 `%2B`, `%2F`, `%3D`로 **정확히 한 번 percent-encoding**한 값을 `serviceKey` query에 조립해야 하며, 반환된 값을 다시 인코딩하면 안 됩니다.

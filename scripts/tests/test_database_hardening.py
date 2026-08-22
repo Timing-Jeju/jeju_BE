@@ -40,7 +40,8 @@ TOUR_API_DISCOVERY_MIGRATION = (
 )
 TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_import.sql"
 KMA_FORECAST_MIGRATION = MIGRATIONS / "20260820000001_kma_village_forecast_version.sql"
-TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260821000000_tago_arrival_cache.sql"
+TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260826000000_tago_arrival_cache.sql"
+TAGO_ARRIVAL_FLIGHT_MIGRATION = MIGRATIONS / "20260827000000_tago_arrival_flight_state.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -108,7 +109,10 @@ class DatabaseHardeningTest(unittest.TestCase):
         ]
         versions = [name[:14] for name in migration_names]
 
-        required_migrations = set(baseline) | {"20260824000000_tourapi_discovery_import_checkpoints.sql"}
+        required_migrations = set(baseline) | {
+            "20260824000000_tourapi_discovery_import_checkpoints.sql",
+            TAGO_ARRIVAL_CACHE_MIGRATION.name,
+        }
         self.assertTrue(required_migrations.issubset(migration_names))
 
         self.assertEqual(sorted(migration_names), migration_names)
@@ -138,20 +142,10 @@ class DatabaseHardeningTest(unittest.TestCase):
                 migration_names.index(KMA_FORECAST_MIGRATION.name),
                 migration_names.index("20260822000000_place_stop_postgis_links.sql"),
             )
-        if TAGO_ARRIVAL_CACHE_MIGRATION.name in migration_names:
-            self.assertLess(
-                migration_names.index("20260820000000_tago_route_stops_import.sql"),
-                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
-            )
-            if KMA_FORECAST_MIGRATION.name in migration_names:
-                self.assertLess(
-                    migration_names.index(KMA_FORECAST_MIGRATION.name),
-                    migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
-                )
-            self.assertLess(
-                migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
-                migration_names.index("20260822000000_place_stop_postgis_links.sql"),
-            )
+        self.assertGreater(
+            migration_names.index(TAGO_ARRIVAL_CACHE_MIGRATION.name),
+            migration_names.index("20260825000000_public_place_tombstone.sql"),
+        )
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
         migration_mounts = [
@@ -1621,6 +1615,70 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("idx_external_reference_codes_source_scope_name", migration)
         self.assertIn("alter table public.bus_stops enable row level security", migration)
         self.assertIn("revoke all on public.bus_stops from anon, authenticated", migration)
+
+    def test_tago_arrival_cache_has_service_lineage_bounds_freshness_and_rls_contract(self):
+        migration = self.read_migration(TAGO_ARRIVAL_CACHE_MIGRATION)
+
+        for fragment in (
+            "alter table public.bus_arrival_snapshots add column source_service text",
+            "add column route_type text",
+            "source_service = snapshot.source_service",
+            "alter column source_service set not null",
+            "estimated_arrival_seconds between 0 and 86400",
+            "remaining_stops between 0 and 10000",
+            "validate_bus_arrival_observation_lineage",
+            "bus arrival observation has conflicting lineage",
+            "pg_advisory_xact_lock",
+            "idx_bus_arrivals_source_stop_freshness",
+            "source_provider, source_service, stop_id, observed_at desc",
+            "include (expires_at, source_snapshot_id, import_run_id)",
+            "alter table public.bus_arrival_snapshots enable row level security",
+            "revoke all on public.bus_arrival_snapshots from anon, authenticated",
+        ):
+            self.assertIn(fragment, migration)
+
+    def test_docker_smoke_upgrade_sequences_apply_arrival_after_latest_dependencies(self):
+        smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")
+        arrival = "/docker-entrypoint-initdb.d/024_tago_arrival_cache.sql"
+
+        self.assertIn(arrival, smoke)
+        self.assertGreaterEqual(smoke.count(arrival), 2)
+        self.assertLess(
+            smoke.find("/docker-entrypoint-initdb.d/021_recommended_stay_policy.sql"),
+            smoke.find(arrival),
+        )
+
+    def test_tago_arrival_flight_state_is_fenced_bounded_private_and_cleanup_indexed(self):
+        migration = self.read_migration(TAGO_ARRIVAL_FLIGHT_MIGRATION)
+
+        for fragment in (
+            "create table public.tago_arrival_flights",
+            "fingerprint character(64) primary key",
+            "generation bigint not null",
+            "owner_token uuid not null",
+            "lease_expires_at timestamptz not null",
+            "state text not null",
+            "outcome_code text",
+            "retain_until timestamptz not null",
+            "running', 'succeeded', 'failed', 'abandoned",
+            "'rate_limited', 'timeout', 'provider_unavailable', 'empty_result'",
+            "'invalid_provider_response', 'invalid_request', 'data_unavailable'",
+            "idx_tago_arrival_flights_cleanup",
+            "alter table public.tago_arrival_flights enable row level security",
+            "revoke all on public.tago_arrival_flights from anon, authenticated",
+            "grant select, insert, update, delete on public.tago_arrival_flights to service_role",
+        ):
+            self.assertIn(fragment, migration)
+
+        self.assertNotRegex(migration, r"(?i)raw_payload|provider_body|credential|password|service_key")
+
+    def test_docker_smoke_sequences_apply_flight_state_after_arrival_and_before_seed(self):
+        smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")
+        arrival = "/docker-entrypoint-initdb.d/024_tago_arrival_cache.sql"
+        flight = "/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql"
+
+        self.assertGreaterEqual(smoke.count(flight), 2)
+        self.assertLess(smoke.find(arrival), smoke.find(flight))
 
     def test_tago_route_import_has_checkpoint_sequence_guard_rls_and_scope_indexes(self):
         migration = self.read_migration(TAGO_ROUTE_IMPORT_MIGRATION)

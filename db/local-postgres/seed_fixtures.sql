@@ -392,13 +392,13 @@ insert into timetable_entries (
 insert into bus_arrival_snapshots (
   id, stop_id, route_id, external_route_id, route_no, direction_name,
   estimated_arrival_seconds, remaining_stops, observed_at, expires_at,
-  source_provider, source_operation, source_snapshot_id, import_run_id, raw_payload
+  source_provider, source_service, source_operation, source_snapshot_id, import_run_id, raw_payload
 ) values (
   '42000000-0000-0000-0000-000000000001',
   '30000000-0000-0000-0000-000000000002',
   '40000000-0000-0000-0000-000000000001',
   'JEB405320112', '201', '섭지코지 방면', 2520, 18,
-  now(), now() + interval '30 seconds', 'TAGO',
+  now(), now() + interval '30 seconds', 'TAGO', '버스도착정보 API',
   'getSttnAcctoArvlPrearngeInfoList',
   '00000000-0000-0000-0000-000000000204',
   '00000000-0000-0000-0000-000000000024',

@@ -31,6 +31,9 @@ JSON은 key 정렬 후 JSONB로 저장합니다. XML은 namespace-aware parser�
 - 저장과 전환은 각각 한 SQL statement로 처리하여 부분 행이나 중간 marker를 남기지 않습니다.
 - parsed/tombstoned payload는 전환 시점부터 30일, rejected/ignored/received payload는 7일 보존 metadata를 가집니다.
 - 후속 retention 작업은 `purge_after` 이후에만 `raw_payload=NULL`, `purged_at`을 같은 statement로 기록합니다. scope, hash, parser/redaction version, payload size와 상태 감사 정보는 유지합니다.
+- TAGO 도착정보는 HTTP response의 압축 해제된 exact bytes를 snapshot store에 한 번 전달하고 parser도
+  같은 byte 배열을 소비합니다. provider 오류 `97`처럼 body가 있는 실패는 `rejected`로 감사하지만,
+  timeout·HTTP 429처럼 response body를 받지 못한 실패에는 가짜 오류 payload를 만들지 않습니다.
 - migration 이전 legacy 행의 `payload_size_bytes`는 당시 JSONB text 표현의 UTF-8 크기로 backfill하고 `redaction_version=legacy-unversioned`, `payload_format=LEGACY_UNKNOWN`으로 구분합니다. 현재 상태·오류는 `initial_parse_status`·`initial_error_code`로 보수적으로 backfill합니다. 신규 행만 transport의 decompressed byte-exact 크기와 최초 분류를 보장합니다.
 
 ## DB와 권한
