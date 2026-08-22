@@ -125,6 +125,30 @@ class JdbcTagoArrivalFlightStoreTest {
     assertThat(jdbc.args).contains(java.sql.Timestamp.from(sourceExpiresAt));
   }
 
+  @Test
+  void observe는_existing_row를_쓰지않고_insert_reclaim_skip_locked_MVCC_read로_분리한다() throws Exception {
+    ObserveJdbcTemplate jdbc = new ObserveJdbcTemplate();
+    JdbcTagoArrivalFlightStore store = new JdbcTagoArrivalFlightStore(jdbc);
+
+    assertThat(
+            store.observeOrClaim(
+                FINGERPRINT, OWNER, Duration.ofSeconds(12), Duration.ofSeconds(12)))
+        .extracting(TagoArrivalFlightDecision::status)
+        .isEqualTo(TagoArrivalFlightStatus.RUNNING);
+
+    assertThat(jdbc.queries).hasSize(3);
+    assertThat(jdbc.queries.get(0))
+        .contains("on conflict (fingerprint) do nothing")
+        .doesNotContain("do update set");
+    assertThat(jdbc.queries.get(1))
+        .contains("for update skip locked")
+        .contains("update public.tago_arrival_flights")
+        .contains("returning");
+    assertThat(jdbc.queries.get(2))
+        .contains("select state, outcome_code, owner_token, generation")
+        .doesNotContain("for update");
+  }
+
   private static ResultSet row(String state, String outcome, UUID owner, long generation)
       throws Exception {
     ResultSet resultSet = mock(ResultSet.class);
@@ -187,6 +211,29 @@ class JdbcTagoArrivalFlightStoreTest {
       this.sql = sql;
       this.args = args;
       return result == 1 ? List.of((T) Integer.valueOf(1)) : List.of();
+    }
+  }
+
+  private static final class ObserveJdbcTemplate extends JdbcTemplate {
+    private final List<String> queries = new java.util.ArrayList<>();
+
+    @Override
+    public int update(String sql, Object... args) {
+      return 0;
+    }
+
+    @Override
+    public <T> List<T> query(String sql, RowMapper<T> rowMapper, Object... args) {
+      queries.add(sql);
+      if (queries.size() < 3) return List.of();
+      try {
+        return List.of(
+            rowMapper.mapRow(
+                row("running", null, UUID.fromString("39000000-0000-0000-0000-000000000002"), 3),
+                0));
+      } catch (Exception failure) {
+        throw new AssertionError(failure);
+      }
     }
   }
 }

@@ -18,11 +18,15 @@ import com.timingjeju.api.application.tago.arrival.TagoArrivalSourceResponse;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -39,6 +43,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Tag("integration")
 @SpringBootTest
@@ -53,6 +58,7 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
   @Autowired private JdbcTagoArrivalFlightStore store;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private HikariDataSource primaryDataSource;
+  @Autowired private TransactionTemplate transactions;
 
   @BeforeEach
   @AfterEach
@@ -318,6 +324,89 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
     assertThat(activeDuringFetch).hasValue(0);
   }
 
+  @Test
+  void processor_row_lock중_same_fingerprint_followers는_pool을_막지않고_deadline내_action0이다()
+      throws Exception {
+    TagoArrivalCacheKey key = TagoArrivalCacheKey.tago(new UUID(39L, 500L), "39", "LOCKED-NODE");
+    String lockedFingerprint = fingerprint(key);
+    TagoArrivalFlightDecision leader =
+        store.observeOrClaim(lockedFingerprint, new UUID(39L, 1L), LEASE, QUARANTINE);
+    CountDownLatch locked = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    HikariConfig config = new HikariConfig();
+    config.setJdbcUrl(primaryDataSource.getJdbcUrl());
+    config.setUsername(primaryDataSource.getUsername());
+    config.setPassword(primaryDataSource.getPassword());
+    config.setMaximumPoolSize(2);
+    config.setMinimumIdle(0);
+
+    try (HikariDataSource pool = new HikariDataSource(config);
+        var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var lockHolder =
+          executor.submit(
+              () ->
+                  transactions.executeWithoutResult(
+                      ignored -> {
+                        store.lockCurrent(leader.lease());
+                        locked.countDown();
+                        await(release);
+                      }));
+      assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+      JdbcTagoArrivalFlightStore followerStore =
+          new JdbcTagoArrivalFlightStore(new JdbcTemplate(pool));
+      try {
+        var observers =
+            IntStream.range(0, 20)
+                .mapToObj(
+                    index ->
+                        executor.submit(
+                            () ->
+                                followerStore.observeOrClaim(
+                                    lockedFingerprint,
+                                    new UUID(39L, index + 100L),
+                                    LEASE,
+                                    QUARANTINE)))
+                .toList();
+        for (var observer : observers) {
+          assertThat(observer.get(1, TimeUnit.SECONDS).status())
+              .isEqualTo(TagoArrivalFlightStatus.RUNNING);
+        }
+        assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+
+        AtomicInteger actions = new AtomicInteger();
+        TagoArrivalDistributedFlightCoordinator coordinator =
+            new TagoArrivalDistributedFlightCoordinator(
+                followerStore,
+                new TagoArrivalFlightPolicy(
+                    Duration.ofMillis(250),
+                    Duration.ofMillis(20),
+                    Duration.ofMillis(100),
+                    Duration.ofSeconds(1),
+                    Duration.ofSeconds(1),
+                    Duration.ofSeconds(1)));
+        long startedAt = System.nanoTime();
+        try {
+          coordinator.coalesce(
+              key,
+              () -> {
+                actions.incrementAndGet();
+                return snapshot(500, databaseNow());
+              });
+          throw new AssertionError("deadline 뒤 DATA_UNAVAILABLE이어야 합니다.");
+        } catch (TagoArrivalException failure) {
+          assertThat(failure.code()).isEqualTo(TagoArrivalException.Code.DATA_UNAVAILABLE);
+        }
+        assertThat(Duration.ofNanos(System.nanoTime() - startedAt))
+            .isBetween(Duration.ofMillis(200), Duration.ofSeconds(1));
+        assertThat(actions).hasValue(0);
+        assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+      } finally {
+        release.countDown();
+        lockHolder.get(5, TimeUnit.SECONDS);
+      }
+    }
+  }
+
   private static TagoArrivalSnapshot snapshot(int index) {
     Instant observedAt = Instant.parse("2026-08-21T00:00:00Z");
     return snapshot(index, observedAt);
@@ -335,6 +424,28 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
 
   private Instant databaseNow() {
     return jdbc.queryForObject("select clock_timestamp()", Timestamp.class).toInstant();
+  }
+
+  private static String fingerprint(TagoArrivalCacheKey key) {
+    String canonical =
+        component(key.provider())
+            + component(key.service())
+            + component(key.cityCode())
+            + component(key.stopId().toString())
+            + component(key.nodeId());
+    try {
+      return HexFormat.of()
+          .formatHex(
+              MessageDigest.getInstance("SHA-256")
+                  .digest(canonical.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException impossible) {
+      throw new AssertionError(impossible);
+    }
+  }
+
+  private static String component(String value) {
+    byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+    return bytes.length + ":" + value;
   }
 
   private static <T> T get(java.util.concurrent.Future<T> future) {

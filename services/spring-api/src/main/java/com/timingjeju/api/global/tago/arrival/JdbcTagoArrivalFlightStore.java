@@ -19,7 +19,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
-  private static final String OBSERVE_OR_CLAIM_SQL =
+  private static final String INSERT_CLAIM_SQL =
       """
       insert into public.tago_arrival_flights (
         fingerprint, generation, owner_token, lease_expires_at, state, outcome_code,
@@ -27,41 +27,47 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
       ) values (?, 1, ?, statement_timestamp() + (? * interval '1 millisecond'),
                 'running', null,
                 statement_timestamp() + (? * interval '1 millisecond'), statement_timestamp())
-      on conflict (fingerprint) do update set
-        generation = case
-          when tago_arrival_flights.state <> 'running'
-            and tago_arrival_flights.retain_until <= statement_timestamp()
-          then tago_arrival_flights.generation + 1 else tago_arrival_flights.generation end,
-        owner_token = case
-          when tago_arrival_flights.state <> 'running'
-            and tago_arrival_flights.retain_until <= statement_timestamp()
-          then excluded.owner_token else tago_arrival_flights.owner_token end,
-        lease_expires_at = case
-          when tago_arrival_flights.state <> 'running'
-            and tago_arrival_flights.retain_until <= statement_timestamp()
-          then excluded.lease_expires_at else tago_arrival_flights.lease_expires_at end,
-        state = case
-          when tago_arrival_flights.state = 'running'
-            and tago_arrival_flights.lease_expires_at <= statement_timestamp() then 'abandoned'
-          when tago_arrival_flights.state <> 'running'
-            and tago_arrival_flights.retain_until <= statement_timestamp() then 'running'
-          else tago_arrival_flights.state end,
-        outcome_code = case
-          when tago_arrival_flights.state = 'running'
-            and tago_arrival_flights.lease_expires_at <= statement_timestamp()
-          then 'data_unavailable'
-          when tago_arrival_flights.state <> 'running'
-            and tago_arrival_flights.retain_until <= statement_timestamp() then null
-          else tago_arrival_flights.outcome_code end,
-        retain_until = case
-          when tago_arrival_flights.state = 'running'
-            and tago_arrival_flights.lease_expires_at <= statement_timestamp()
-          then statement_timestamp() + (? * interval '1 millisecond')
-          when tago_arrival_flights.state <> 'running'
-            and tago_arrival_flights.retain_until <= statement_timestamp()
-          then excluded.retain_until else tago_arrival_flights.retain_until end,
-        updated_at = statement_timestamp()
+      on conflict (fingerprint) do nothing
       returning state, outcome_code, owner_token, generation
+      """;
+
+  private static final String RECLAIM_SQL =
+      """
+      with candidate as (
+        select fingerprint, state
+        from public.tago_arrival_flights
+        where fingerprint=?
+          and ((state='running' and lease_expires_at <= statement_timestamp())
+            or (state <> 'running' and retain_until <= statement_timestamp()))
+        for update skip locked
+      )
+      update public.tago_arrival_flights target set
+        generation = case when candidate.state <> 'running'
+          then target.generation + 1 else target.generation end,
+        owner_token = case when candidate.state <> 'running'
+          then ? else target.owner_token end,
+        lease_expires_at = case when candidate.state <> 'running'
+          then statement_timestamp() + (? * interval '1 millisecond')
+          else target.lease_expires_at end,
+        state = case
+          when candidate.state = 'running' then 'abandoned' else 'running' end,
+        outcome_code = case
+          when candidate.state = 'running' then 'data_unavailable' else null end,
+        retain_until = case
+          when candidate.state = 'running'
+          then statement_timestamp() + (? * interval '1 millisecond')
+          else statement_timestamp() + (? * interval '1 millisecond') end,
+        updated_at = statement_timestamp()
+      from candidate
+      where target.fingerprint=candidate.fingerprint
+      returning target.state, target.outcome_code, target.owner_token, target.generation
+      """;
+
+  private static final String OBSERVE_SQL =
+      """
+      select state, outcome_code, owner_token, generation
+      from public.tago_arrival_flights
+      where fingerprint=?
       """;
 
   private final JdbcTemplate jdbc;
@@ -75,20 +81,41 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
       String fingerprint, UUID proposedOwner, Duration lease, Duration quarantine) {
     try {
       cleanupExpiredTerminals(fingerprint, 32);
-      List<TagoArrivalFlightDecision> rows =
+      List<TagoArrivalFlightDecision> inserted =
           jdbc.query(
-              OBSERVE_OR_CLAIM_SQL,
+              INSERT_CLAIM_SQL,
               (resultSet, rowNumber) -> mapDecision(resultSet, fingerprint, proposedOwner),
               fingerprint,
               proposedOwner,
               lease.toMillis(),
+              lease.toMillis());
+      if (!inserted.isEmpty()) return exactlyOne(inserted);
+
+      List<TagoArrivalFlightDecision> reclaimed =
+          jdbc.query(
+              RECLAIM_SQL,
+              (resultSet, rowNumber) -> mapDecision(resultSet, fingerprint, proposedOwner),
+              fingerprint,
+              proposedOwner,
               lease.toMillis(),
-              quarantine.toMillis());
-      if (rows.size() != 1) throw TagoArrivalException.dataUnavailable();
-      return rows.getFirst();
+              quarantine.toMillis(),
+              lease.toMillis());
+      if (!reclaimed.isEmpty()) return exactlyOne(reclaimed);
+
+      List<TagoArrivalFlightDecision> observed =
+          jdbc.query(
+              OBSERVE_SQL,
+              (resultSet, rowNumber) -> mapDecision(resultSet, fingerprint, proposedOwner),
+              fingerprint);
+      return exactlyOne(observed);
     } catch (DataAccessException failure) {
       throw TagoArrivalException.dataUnavailable();
     }
+  }
+
+  private static TagoArrivalFlightDecision exactlyOne(List<TagoArrivalFlightDecision> rows) {
+    if (rows.size() != 1) throw TagoArrivalException.dataUnavailable();
+    return rows.getFirst();
   }
 
   @Override
