@@ -10,7 +10,9 @@ public record TagoArrivalFlightDecision(
     TagoArrivalException.Code rawOutcome) {
   public TagoArrivalFlightDecision {
     Objects.requireNonNull(status, "flight status는 필수입니다.");
-    Objects.requireNonNull(lease, "flight lease는 필수입니다.");
+    if ((status == TagoArrivalFlightStatus.CONTENDED) != (lease == null)) {
+      throw new IllegalArgumentException("CONTENDED만 flight lease가 없습니다.");
+    }
     if ((status == TagoArrivalFlightStatus.FAILED || status == TagoArrivalFlightStatus.ABANDONED)
         != (rawOutcome != null)) {
       throw new IllegalArgumentException("flight outcome 조합이 올바르지 않습니다.");
@@ -45,5 +47,9 @@ public record TagoArrivalFlightDecision(
   public static TagoArrivalFlightDecision abandoned(TagoArrivalFlightLease lease) {
     return new TagoArrivalFlightDecision(
         TagoArrivalFlightStatus.ABANDONED, lease, TagoArrivalException.Code.DATA_UNAVAILABLE);
+  }
+
+  public static TagoArrivalFlightDecision contended() {
+    return new TagoArrivalFlightDecision(TagoArrivalFlightStatus.CONTENDED, null, null);
   }
 }

@@ -5,5 +5,6 @@ public enum TagoArrivalFlightStatus {
   RUNNING,
   SUCCEEDED,
   FAILED,
-  ABANDONED
+  ABANDONED,
+  CONTENDED
 }

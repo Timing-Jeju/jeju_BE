@@ -146,7 +146,22 @@ class JdbcTagoArrivalFlightStoreTest {
         .contains("returning");
     assertThat(jdbc.queries.get(2))
         .contains("select state, outcome_code, owner_token, generation")
+        .contains("state='running'")
+        .contains("retain_until > clock_timestamp()")
         .doesNotContain("for update");
+  }
+
+  @Test
+  void reclaim_contention이나_cleanup_race로_observe가_0행이면_CONTENDED다() {
+    ObserveJdbcTemplate jdbc = new ObserveJdbcTemplate(false);
+    JdbcTagoArrivalFlightStore store = new JdbcTagoArrivalFlightStore(jdbc);
+
+    assertThat(
+            store.observeOrClaim(
+                FINGERPRINT, OWNER, Duration.ofSeconds(12), Duration.ofSeconds(12)))
+        .extracting(TagoArrivalFlightDecision::status)
+        .isEqualTo(TagoArrivalFlightStatus.CONTENDED);
+    assertThat(jdbc.queries).hasSize(3);
   }
 
   private static ResultSet row(String state, String outcome, UUID owner, long generation)
@@ -216,6 +231,15 @@ class JdbcTagoArrivalFlightStoreTest {
 
   private static final class ObserveJdbcTemplate extends JdbcTemplate {
     private final List<String> queries = new java.util.ArrayList<>();
+    private final boolean currentRow;
+
+    private ObserveJdbcTemplate() {
+      this(true);
+    }
+
+    private ObserveJdbcTemplate(boolean currentRow) {
+      this.currentRow = currentRow;
+    }
 
     @Override
     public int update(String sql, Object... args) {
@@ -225,7 +249,7 @@ class JdbcTagoArrivalFlightStoreTest {
     @Override
     public <T> List<T> query(String sql, RowMapper<T> rowMapper, Object... args) {
       queries.add(sql);
-      if (queries.size() < 3) return List.of();
+      if (queries.size() < 3 || !currentRow) return List.of();
       try {
         return List.of(
             rowMapper.mapRow(

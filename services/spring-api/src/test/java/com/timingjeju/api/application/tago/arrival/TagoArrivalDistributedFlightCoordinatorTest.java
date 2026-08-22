@@ -215,6 +215,61 @@ class TagoArrivalDistributedFlightCoordinatorTest {
   }
 
   @Test
+  void CONTENDED는_bounded_backoff후_reobserve하고_deadline과_interrupt에서_action0이다() {
+    AtomicLong nanos = new AtomicLong();
+    AtomicInteger observes = new AtomicInteger();
+    AtomicInteger actions = new AtomicInteger();
+    TagoArrivalFlightStore contended =
+        new SharedStore() {
+          @Override
+          public synchronized TagoArrivalFlightDecision observeOrClaim(
+              String fingerprint, UUID proposedOwner, Duration lease, Duration quarantine) {
+            observes.incrementAndGet();
+            return TagoArrivalFlightDecision.contended();
+          }
+        };
+    TagoArrivalDistributedFlightCoordinator coordinator =
+        coordinator(contended, nanos, nanos::addAndGet);
+
+    assertDataUnavailable(
+        () ->
+            coordinator.coalesce(
+                KEY,
+                () -> {
+                  actions.incrementAndGet();
+                  return snapshot();
+                }));
+    assertThat(observes).hasValueGreaterThan(1);
+    assertThat(actions).hasValue(0);
+
+    AtomicInteger interruptedActions = new AtomicInteger();
+    TagoArrivalFlightStore interrupted =
+        new SharedStore() {
+          @Override
+          public synchronized TagoArrivalFlightDecision observeOrClaim(
+              String fingerprint, UUID proposedOwner, Duration lease, Duration quarantine) {
+            Thread.currentThread().interrupt();
+            return TagoArrivalFlightDecision.contended();
+          }
+        };
+    try {
+      assertDataUnavailable(
+          () ->
+              coordinator(interrupted)
+                  .coalesce(
+                      KEY,
+                      () -> {
+                        interruptedActions.incrementAndGet();
+                        return snapshot();
+                      }));
+      assertThat(interruptedActions).hasValue(0);
+      assertThat(Thread.currentThread().isInterrupted()).isTrue();
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
   void lease_retain_quarantine은_provider_hard_timeout보다_커야한다() {
     assertThatThrownBy(
             () ->

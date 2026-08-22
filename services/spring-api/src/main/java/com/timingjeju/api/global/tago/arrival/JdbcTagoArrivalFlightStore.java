@@ -68,6 +68,8 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
       select state, outcome_code, owner_token, generation
       from public.tago_arrival_flights
       where fingerprint=?
+        and (state='running'
+          or (state <> 'running' and retain_until > clock_timestamp()))
       """;
 
   private final JdbcTemplate jdbc;
@@ -107,6 +109,7 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
               OBSERVE_SQL,
               (resultSet, rowNumber) -> mapDecision(resultSet, fingerprint, proposedOwner),
               fingerprint);
+      if (observed.isEmpty()) return TagoArrivalFlightDecision.contended();
       return exactlyOne(observed);
     } catch (DataAccessException failure) {
       throw TagoArrivalException.dataUnavailable();

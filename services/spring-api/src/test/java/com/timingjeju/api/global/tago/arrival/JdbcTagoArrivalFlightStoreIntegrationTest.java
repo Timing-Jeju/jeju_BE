@@ -407,6 +407,102 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
     }
   }
 
+  @Test
+  void expired_FAILED_ABANDONED_reclaim_lock중_old_outcome없이_retry해_generation2_provider1이다()
+      throws Exception {
+    for (TagoArrivalFlightStatus terminal :
+        List.of(TagoArrivalFlightStatus.FAILED, TagoArrivalFlightStatus.ABANDONED)) {
+      clean();
+      TagoArrivalCacheKey key =
+          TagoArrivalCacheKey.tago(
+              new UUID(39L, terminal == TagoArrivalFlightStatus.FAILED ? 600L : 601L),
+              "39",
+              "RECLAIM-" + terminal);
+      String lockedFingerprint = fingerprint(key);
+      TagoArrivalFlightDecision first =
+          store.observeOrClaim(lockedFingerprint, new UUID(39L, 1L), LEASE, QUARANTINE);
+      if (terminal == TagoArrivalFlightStatus.FAILED) {
+        assertThat(
+                store.completeFailure(
+                    first.lease(), TagoArrivalException.Code.EMPTY_RESULT, RETAIN))
+            .isTrue();
+      } else {
+        assertThat(store.abandon(first.lease(), QUARANTINE)).isTrue();
+      }
+      jdbc.update(
+          """
+          update public.tago_arrival_flights
+          set updated_at=clock_timestamp()-interval '2 seconds',
+              retain_until=clock_timestamp()-interval '1 second'
+          where fingerprint=?
+          """,
+          lockedFingerprint);
+
+      CountDownLatch locked = new CountDownLatch(1);
+      CountDownLatch release = new CountDownLatch(1);
+      AtomicInteger providers = new AtomicInteger();
+      TagoArrivalSnapshot fresh = snapshot(terminal.ordinal() + 600, databaseNow());
+      try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        var lockHolder =
+            executor.submit(
+                () ->
+                    transactions.executeWithoutResult(
+                        ignored -> {
+                          jdbc.queryForObject(
+                              "select generation from public.tago_arrival_flights where fingerprint=? for update",
+                              Long.class,
+                              lockedFingerprint);
+                          locked.countDown();
+                          await(release);
+                        }));
+        assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(
+                store
+                    .observeOrClaim(lockedFingerprint, new UUID(39L, 2L), LEASE, QUARANTINE)
+                    .status())
+            .isEqualTo(TagoArrivalFlightStatus.CONTENDED);
+
+        var requests =
+            IntStream.range(0, 20)
+                .mapToObj(
+                    index ->
+                        executor.submit(
+                            () ->
+                                new TagoArrivalDistributedFlightCoordinator(
+                                        store,
+                                        new TagoArrivalFlightPolicy(
+                                            Duration.ofSeconds(2),
+                                            Duration.ofMillis(10),
+                                            Duration.ofSeconds(1),
+                                            LEASE,
+                                            RETAIN,
+                                            QUARANTINE))
+                                    .coalesce(
+                                        key,
+                                        ignored -> {
+                                          providers.incrementAndGet();
+                                          return fresh;
+                                        },
+                                        () -> fresh)))
+                .toList();
+        try {
+          Thread.sleep(100);
+        } finally {
+          release.countDown();
+          lockHolder.get(5, TimeUnit.SECONDS);
+        }
+        for (var request : requests) assertThat(request.get(5, TimeUnit.SECONDS)).isEqualTo(fresh);
+      }
+      assertThat(providers).hasValue(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select generation from public.tago_arrival_flights where fingerprint=?",
+                  Long.class,
+                  lockedFingerprint))
+          .isEqualTo(2L);
+    }
+  }
+
   private static TagoArrivalSnapshot snapshot(int index) {
     Instant observedAt = Instant.parse("2026-08-21T00:00:00Z");
     return snapshot(index, observedAt);

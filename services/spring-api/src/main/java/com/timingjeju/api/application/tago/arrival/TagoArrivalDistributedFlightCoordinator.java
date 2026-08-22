@@ -100,7 +100,7 @@ public final class TagoArrivalDistributedFlightCoordinator implements TagoArriva
           break;
         case FAILED, ABANDONED:
           throw TagoArrivalException.fromCode(decision.outcome().orElseThrow());
-        case RUNNING:
+        case RUNNING, CONTENDED:
           long remaining = policy.deadline().toNanos() - elapsed(startedAt);
           if (remaining <= 0) throw TagoArrivalException.dataUnavailable();
           pause.accept(Math.min(policy.backoff().toNanos(), remaining));
