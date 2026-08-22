@@ -12,6 +12,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -109,6 +110,57 @@ class TagoArrivalDistributedFlightCoordinatorTest {
   }
 
   @Test
+  void claim이_반환한_lease를_action에_전달한다() {
+    SharedStore store = new SharedStore();
+    AtomicReference<TagoArrivalFlightLease> observed = new AtomicReference<>();
+
+    coordinator(store)
+        .coalesce(
+            KEY,
+            lease -> {
+              observed.set(lease);
+              return snapshot();
+            },
+            TagoArrivalDistributedFlightCoordinatorTest::snapshot);
+
+    assertThat(observed.get()).isEqualTo(store.state.lease());
+    assertThat(store.sourceExpiresAt).isEqualTo(snapshot().expiresAt());
+  }
+
+  @Test
+  void claim_반환직후_interrupt면_action0_leader_abandon하고_interrupt를_보존한다() {
+    AtomicInteger actions = new AtomicInteger();
+    SharedStore store =
+        new SharedStore() {
+          @Override
+          public synchronized TagoArrivalFlightDecision observeOrClaim(
+              String fingerprint, UUID proposedOwner, Duration lease, Duration quarantine) {
+            TagoArrivalFlightDecision decision =
+                super.observeOrClaim(fingerprint, proposedOwner, lease, quarantine);
+            Thread.currentThread().interrupt();
+            return decision;
+          }
+        };
+    try {
+      assertDataUnavailable(
+          () ->
+              coordinator(store)
+                  .coalesce(
+                      KEY,
+                      lease -> {
+                        actions.incrementAndGet();
+                        return snapshot();
+                      },
+                      TagoArrivalDistributedFlightCoordinatorTest::snapshot));
+      assertThat(actions).hasValue(0);
+      assertThat(store.abandoned).isTrue();
+      assertThat(Thread.currentThread().isInterrupted()).isTrue();
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
   void programmer_bug는_leader에_원형전파하고_follower에는_stable_DATA_UNAVAILABLE다() {
     SharedStore store = new SharedStore();
     IllegalStateException programmerBug = new IllegalStateException("serializer bug");
@@ -125,6 +177,41 @@ class TagoArrivalDistributedFlightCoordinatorTest {
         .isSameAs(programmerBug);
     assertDataUnavailable(
         () -> follower.coalesce(KEY, TagoArrivalDistributedFlightCoordinatorTest::snapshot));
+  }
+
+  @Test
+  void SUCCEEDED_replay가_source_expired면_bounded_reobserve후_새_generation을_claim한다() {
+    AtomicInteger observes = new AtomicInteger();
+    AtomicInteger actions = new AtomicInteger();
+    TagoArrivalFlightLease old = new TagoArrivalFlightLease("a".repeat(64), 1, new UUID(0, 10));
+    TagoArrivalFlightStore store =
+        new SharedStore() {
+          @Override
+          public synchronized TagoArrivalFlightDecision observeOrClaim(
+              String fingerprint, UUID proposedOwner, Duration lease, Duration quarantine) {
+            if (observes.getAndIncrement() == 0) {
+              return TagoArrivalFlightDecision.succeeded(old);
+            }
+            return TagoArrivalFlightDecision.leader(fingerprint, 2, proposedOwner);
+          }
+        };
+
+    TagoArrivalSnapshot result =
+        coordinator(store)
+            .coalesce(
+                KEY,
+                lease -> {
+                  actions.incrementAndGet();
+                  assertThat(lease.generation()).isEqualTo(2);
+                  return snapshot();
+                },
+                () -> {
+                  throw TagoArrivalReplayExpiredException.create();
+                });
+
+    assertThat(result).isEqualTo(snapshot());
+    assertThat(observes).hasValue(2);
+    assertThat(actions).hasValue(1);
   }
 
   @Test
@@ -207,6 +294,7 @@ class TagoArrivalDistributedFlightCoordinatorTest {
   private static class SharedStore implements TagoArrivalFlightStore {
     private TagoArrivalFlightDecision state;
     private boolean abandoned;
+    private Instant sourceExpiresAt;
 
     @Override
     public synchronized TagoArrivalFlightDecision observeOrClaim(
@@ -224,6 +312,13 @@ class TagoArrivalDistributedFlightCoordinatorTest {
     public synchronized boolean completeSuccess(TagoArrivalFlightLease lease, Duration retain) {
       state = TagoArrivalFlightDecision.succeeded(lease);
       return true;
+    }
+
+    @Override
+    public synchronized boolean completeSuccess(
+        TagoArrivalFlightLease lease, Instant expiresAt, Duration retain) {
+      sourceExpiresAt = expiresAt;
+      return completeSuccess(lease, retain);
     }
 
     @Override

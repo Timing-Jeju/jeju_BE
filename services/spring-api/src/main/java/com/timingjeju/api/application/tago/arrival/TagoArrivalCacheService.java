@@ -102,7 +102,8 @@ public final class TagoArrivalCacheService {
 
     try {
       TagoArrivalSnapshot coordinated =
-          coordinator.coalesce(key, () -> loadAfterClaim(key), () -> replayAfterSuccess(key));
+          coordinator.coalesce(
+              key, lease -> loadAfterClaim(key, lease), () -> replayAfterSuccess(key));
       leader.complete(coordinated);
       return coordinated;
     } catch (RuntimeException failure) {
@@ -113,7 +114,8 @@ public final class TagoArrivalCacheService {
     }
   }
 
-  private TagoArrivalSnapshot loadAfterClaim(TagoArrivalCacheKey key) {
+  private TagoArrivalSnapshot loadAfterClaim(
+      TagoArrivalCacheKey key, TagoArrivalFlightLease flight) {
     TagoArrivalSnapshot latest = history.findLatest(key).orElse(null);
     Instant now = clock.instant();
     if (latest != null) {
@@ -121,7 +123,8 @@ public final class TagoArrivalCacheService {
       if (now.isBefore(latest.expiresAt())) return latest;
     }
 
-    TagoArrivalSnapshot loaded = Objects.requireNonNull(loader.load(key), "loader result는 필수입니다.");
+    TagoArrivalSnapshot loaded =
+        Objects.requireNonNull(loader.load(key, flight), "loader result는 필수입니다.");
     if (!loaded.expiresAt().equals(loaded.observedAt().plus(freshTtl)) || loaded.stale()) {
       throw TagoArrivalException.invalidResponse();
     }
@@ -133,7 +136,7 @@ public final class TagoArrivalCacheService {
     TagoArrivalSnapshot latest =
         history.findLatest(key).orElseThrow(TagoArrivalException::dataUnavailable);
     Instant now = clock.instant();
-    if (!now.isBefore(latest.expiresAt())) throw TagoArrivalException.dataUnavailable();
+    if (!now.isBefore(latest.expiresAt())) throw TagoArrivalReplayExpiredException.create();
     cache.put(key, latest);
     return latest;
   }

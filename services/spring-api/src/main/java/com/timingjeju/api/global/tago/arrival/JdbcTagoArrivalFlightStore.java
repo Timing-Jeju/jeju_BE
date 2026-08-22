@@ -6,7 +6,9 @@ import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightLease;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightStore;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -72,6 +74,7 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
   public TagoArrivalFlightDecision observeOrClaim(
       String fingerprint, UUID proposedOwner, Duration lease, Duration quarantine) {
     try {
+      cleanupExpiredTerminals(fingerprint, 32);
       List<TagoArrivalFlightDecision> rows =
           jdbc.query(
               OBSERVE_OR_CLAIM_SQL,
@@ -90,13 +93,67 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
 
   @Override
   public boolean completeSuccess(TagoArrivalFlightLease lease, Duration retain) {
-    return terminal(lease, "succeeded", null, retain);
+    return terminal(lease, "succeeded", null, null, retain);
+  }
+
+  @Override
+  public boolean completeSuccess(
+      TagoArrivalFlightLease lease, Instant sourceExpiresAt, Duration retain) {
+    return terminal(lease, "succeeded", null, sourceExpiresAt, retain);
   }
 
   @Override
   public boolean completeFailure(
       TagoArrivalFlightLease lease, TagoArrivalException.Code code, Duration retain) {
-    return terminal(lease, "failed", databaseCode(code), retain);
+    return terminal(lease, "failed", databaseCode(code), null, retain);
+  }
+
+  @Override
+  public void lockCurrent(TagoArrivalFlightLease lease) {
+    try {
+      List<Integer> rows =
+          jdbc.query(
+              """
+              select 1
+              from public.tago_arrival_flights
+              where fingerprint=? and generation=? and owner_token=? and state='running'
+                and lease_expires_at > clock_timestamp()
+              for update
+              """,
+              (resultSet, rowNumber) -> 1,
+              lease.fingerprint(),
+              lease.generation(),
+              lease.ownerToken());
+      if (rows.size() != 1) throw TagoArrivalException.dataUnavailable();
+    } catch (DataAccessException failure) {
+      throw TagoArrivalException.dataUnavailable();
+    }
+  }
+
+  @Override
+  public int cleanupExpiredTerminals(String currentFingerprint, int limit) {
+    if (limit < 1 || limit > 32) throw new IllegalArgumentException("cleanup limit은 1~32입니다.");
+    try {
+      return jdbc.update(
+          """
+          with expired as (
+            select fingerprint
+            from public.tago_arrival_flights
+            where state <> 'running' and retain_until <= clock_timestamp()
+              and fingerprint <> ?
+            order by retain_until, fingerprint
+            for update skip locked
+            limit ?
+          )
+          delete from public.tago_arrival_flights target
+          using expired
+          where target.fingerprint=expired.fingerprint
+          """,
+          currentFingerprint,
+          limit);
+    } catch (DataAccessException failure) {
+      throw TagoArrivalException.dataUnavailable();
+    }
   }
 
   @Override
@@ -121,24 +178,53 @@ public class JdbcTagoArrivalFlightStore implements TagoArrivalFlightStore {
   }
 
   private boolean terminal(
-      TagoArrivalFlightLease lease, String state, String outcome, Duration retain) {
+      TagoArrivalFlightLease lease,
+      String state,
+      String outcome,
+      Instant sourceExpiresAt,
+      Duration retain) {
     try {
-      return jdbc.update(
+      int updated =
+          jdbc.update(
               """
               update public.tago_arrival_flights
               set state=?, outcome_code=?,
-                  retain_until=statement_timestamp() + (? * interval '1 millisecond'),
-                  updated_at=statement_timestamp()
+                  retain_until=case when ?::timestamptz is null
+                    then clock_timestamp() + (? * interval '1 millisecond')
+                    else least(?::timestamptz,
+                      clock_timestamp() + (? * interval '1 millisecond')) end,
+                  updated_at=clock_timestamp()
               where fingerprint=? and generation=? and owner_token=? and state='running'
-                and lease_expires_at > statement_timestamp()
+                and lease_expires_at > clock_timestamp()
+                and (?::timestamptz is null or ?::timestamptz > clock_timestamp())
               """,
               state,
               outcome,
+              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt),
+              retain.toMillis(),
+              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt),
               retain.toMillis(),
               lease.fingerprint(),
               lease.generation(),
-              lease.ownerToken())
-          == 1;
+              lease.ownerToken(),
+              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt),
+              sourceExpiresAt == null ? null : Timestamp.from(sourceExpiresAt));
+      if (updated == 1) return true;
+      Integer exact =
+          jdbc.queryForObject(
+              """
+              select count(*)
+              from public.tago_arrival_flights
+              where fingerprint=? and generation=? and owner_token=? and state=?
+                and outcome_code is not distinct from ? and retain_until > clock_timestamp()
+              """,
+              Integer.class,
+              lease.fingerprint(),
+              lease.generation(),
+              lease.ownerToken(),
+              state,
+              outcome);
+      return exact != null && exact == 1;
     } catch (DataAccessException failure) {
       throw TagoArrivalException.dataUnavailable();
     }

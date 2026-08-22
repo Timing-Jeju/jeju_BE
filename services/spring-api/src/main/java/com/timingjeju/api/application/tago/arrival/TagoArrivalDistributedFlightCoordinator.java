@@ -7,6 +7,7 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -44,13 +45,21 @@ public final class TagoArrivalDistributedFlightCoordinator implements TagoArriva
   @Override
   public TagoArrivalSnapshot coalesce(
       TagoArrivalCacheKey key, Supplier<TagoArrivalSnapshot> coordinatedAction) {
-    return coalesce(key, coordinatedAction, coordinatedAction);
+    return coalesce(key, ignored -> coordinatedAction.get(), coordinatedAction);
   }
 
   @Override
   public TagoArrivalSnapshot coalesce(
       TagoArrivalCacheKey key,
       Supplier<TagoArrivalSnapshot> leaderAction,
+      Supplier<TagoArrivalSnapshot> replayAction) {
+    return coalesce(key, ignored -> leaderAction.get(), replayAction);
+  }
+
+  @Override
+  public TagoArrivalSnapshot coalesce(
+      TagoArrivalCacheKey key,
+      Function<TagoArrivalFlightLease, TagoArrivalSnapshot> leaderAction,
       Supplier<TagoArrivalSnapshot> replayAction) {
     Objects.requireNonNull(key, "key는 필수입니다.");
     Objects.requireNonNull(leaderAction, "leaderAction은 필수입니다.");
@@ -63,6 +72,12 @@ public final class TagoArrivalDistributedFlightCoordinator implements TagoArriva
       UUID proposedOwner = Objects.requireNonNull(owners.get(), "owner는 필수입니다.");
       TagoArrivalFlightDecision decision =
           store.observeOrClaim(fingerprint, proposedOwner, policy.lease(), policy.quarantine());
+      if (Thread.currentThread().isInterrupted()) {
+        if (decision.status() == TagoArrivalFlightStatus.LEADER) {
+          requireMutation(store.abandon(decision.lease(), policy.quarantine()));
+        }
+        throw TagoArrivalException.dataUnavailable();
+      }
       if (elapsed(startedAt) >= policy.deadline().toNanos()) {
         if (decision.status() == TagoArrivalFlightStatus.LEADER) {
           requireMutation(store.abandon(decision.lease(), policy.quarantine()));
@@ -74,7 +89,15 @@ public final class TagoArrivalDistributedFlightCoordinator implements TagoArriva
         case LEADER:
           return executeLeader(decision.lease(), leaderAction);
         case SUCCEEDED:
-          return replayAction.get();
+          try {
+            return replayAction.get();
+          } catch (TagoArrivalReplayExpiredException expired) {
+            long remaining = policy.deadline().toNanos() - elapsed(startedAt);
+            if (remaining <= 0) throw TagoArrivalException.dataUnavailable();
+            pause.accept(Math.min(policy.backoff().toNanos(), remaining));
+            requireNotInterrupted();
+          }
+          break;
         case FAILED, ABANDONED:
           throw TagoArrivalException.fromCode(decision.outcome().orElseThrow());
         case RUNNING:
@@ -104,11 +127,11 @@ public final class TagoArrivalDistributedFlightCoordinator implements TagoArriva
   }
 
   private TagoArrivalSnapshot executeLeader(
-      TagoArrivalFlightLease lease, Supplier<TagoArrivalSnapshot> action) {
+      TagoArrivalFlightLease lease, Function<TagoArrivalFlightLease, TagoArrivalSnapshot> action) {
     try {
       TagoArrivalSnapshot result =
-          Objects.requireNonNull(action.get(), "flight action result는 필수입니다.");
-      requireMutation(store.completeSuccess(lease, policy.retain()));
+          Objects.requireNonNull(action.apply(lease), "flight action result는 필수입니다.");
+      requireMutation(store.completeSuccess(lease, result.expiresAt(), policy.retain()));
       return result;
     } catch (TagoArrivalException failure) {
       requireMutation(store.completeFailure(lease, failure.code(), policy.retain()));

@@ -14,6 +14,8 @@ import com.timingjeju.api.application.tago.arrival.TagoArrivalCommitCommand;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalCommitter;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalException;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightCoordinator;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightDecision;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightStore;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalRepository;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalSnapshot;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalSourceResponse;
@@ -40,6 +42,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Tag("integration")
 @SpringBootTest
@@ -72,7 +75,9 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
   @Autowired private TagoArrivalRepository repository;
   @Autowired private TagoArrivalCommitter committer;
   @Autowired private TagoArrivalFlightCoordinator coordinator;
+  @Autowired private TagoArrivalFlightStore flightStore;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private TransactionTemplate transactions;
 
   @BeforeEach
   void setUp() {
@@ -168,6 +173,7 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
 
   @Test
   void 서로_다른_instance의_동시_20요청도_DB_lock후_history를_재확인해_append는_한번이다() throws Exception {
+    Instant databaseNow = databaseNow();
     AtomicInteger loads = new AtomicInteger();
     CountDownLatch entered = new CountDownLatch(1);
     CountDownLatch release = new CountDownLatch(1);
@@ -177,9 +183,9 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
               loads.incrementAndGet();
               entered.countDown();
               await(release);
-              committer.commit(command());
+              committer.commit(commandAt(databaseNow));
               return new TagoArrivalSnapshot(
-                  List.of(ARRIVAL), NOW, NOW.plusSeconds(25), false, RUN, SNAPSHOT);
+                  List.of(ARRIVAL), databaseNow, databaseNow.plusSeconds(25), false, RUN, SNAPSHOT);
             };
     List<TagoArrivalCacheService> caches =
         List.of(
@@ -187,14 +193,14 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
                 loader,
                 repository,
                 coordinator,
-                Clock.fixed(NOW, ZoneOffset.UTC),
+                Clock.fixed(databaseNow, ZoneOffset.UTC),
                 Duration.ofSeconds(25),
                 Duration.ofMinutes(2)),
             new TagoArrivalCacheService(
                 loader,
                 repository,
                 coordinator,
-                Clock.fixed(NOW, ZoneOffset.UTC),
+                Clock.fixed(databaseNow, ZoneOffset.UTC),
                 Duration.ofSeconds(25),
                 Duration.ofMinutes(2)));
 
@@ -284,12 +290,50 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
     }
   }
 
+  @Test
+  void nested_commit후_final_flight_CAS가_0이면_snapshot_run_arrival이_전부_rollback된다() {
+    String fingerprint = "d".repeat(64);
+    TagoArrivalFlightDecision leader =
+        flightStore.observeOrClaim(
+            fingerprint, new UUID(39L, 90L), Duration.ofSeconds(12), Duration.ofSeconds(12));
+
+    assertThatThrownBy(
+            () ->
+                transactions.executeWithoutResult(
+                    ignored -> {
+                      flightStore.lockCurrent(leader.lease());
+                      committer.commit(command());
+                      jdbcTemplate.update(
+                          """
+                          update public.tago_arrival_flights
+                          set lease_expires_at=clock_timestamp()-interval '1 second',
+                              updated_at=clock_timestamp()-interval '2 seconds'
+                          where fingerprint=?
+                          """,
+                          fingerprint);
+                      if (!flightStore.completeSuccess(
+                          leader.lease(), NOW.plusSeconds(25), Duration.ofSeconds(25))) {
+                        throw TagoArrivalException.dataUnavailable();
+                      }
+                    }))
+        .isInstanceOf(TagoArrivalException.class);
+
+    assertThat(rowCount()).isZero();
+    assertThat(status("external_api_snapshots", "parse_status", SNAPSHOT)).isEqualTo("received");
+    assertThat(status("data_import_runs", "status", RUN)).isEqualTo("running");
+  }
+
   private TagoArrivalCommitCommand command() {
     return command(List.of(ARRIVAL));
   }
 
   private TagoArrivalCommitCommand command(List<TagoArrival> arrivals) {
     return new TagoArrivalCommitCommand(LEASE, KEY, arrivals, saved(), NOW, NOW.plusSeconds(25));
+  }
+
+  private TagoArrivalCommitCommand commandAt(Instant observedAt) {
+    return new TagoArrivalCommitCommand(
+        LEASE, KEY, List.of(ARRIVAL), savedAt(observedAt), observedAt, observedAt.plusSeconds(25));
   }
 
   private TagoArrivalCommitCommand command(
@@ -309,14 +353,22 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
   }
 
   private SavedTagoArrivalSnapshot saved() {
+    return savedAt(NOW);
+  }
+
+  private SavedTagoArrivalSnapshot savedAt(Instant observedAt) {
     return new SavedTagoArrivalSnapshot(
         new TagoArrivalSourceResponse(EXACT, SnapshotPayloadFormat.JSON),
         SNAPSHOT,
         "a".repeat(64),
-        NOW,
-        NOW.plusSeconds(25),
+        observedAt,
+        observedAt.plusSeconds(25),
         false,
         SnapshotStatus.RECEIVED);
+  }
+
+  private Instant databaseNow() {
+    return jdbcTemplate.queryForObject("select clock_timestamp()", Timestamp.class).toInstant();
   }
 
   private void insertStopReference() {
@@ -485,6 +537,7 @@ class JdbcTagoArrivalRepositoryIntegrationTest {
   }
 
   private void clean() {
+    jdbcTemplate.update("delete from public.tago_arrival_flights");
     jdbcTemplate.update("delete from public.bus_arrival_snapshots where stop_id=?", STOP);
     jdbcTemplate.update("delete from public.bus_stops where id=?", STOP);
     jdbcTemplate.update(

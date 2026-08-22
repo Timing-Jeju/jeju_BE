@@ -9,6 +9,7 @@ import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightStore;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalImportSession;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalLoadService;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalPayloadParser;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalProcessor;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalRepository;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalSnapshotGateway;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalSource;
@@ -37,14 +38,19 @@ public class TagoArrivalConfiguration {
 
   @Bean
   TagoArrivalLoadService tagoArrivalLoadService(
-      TagoArrivalSource source,
+      TagoArrivalSource source, TagoArrivalProcessor processor, Clock clock) {
+    return new TagoArrivalLoadService(source, processor, clock, FRESH_TTL);
+  }
+
+  @Bean
+  TagoArrivalProcessor tagoArrivalProcessor(
       TagoArrivalPayloadParser parser,
       TagoArrivalImportSession session,
       TagoArrivalSnapshotGateway snapshots,
       TagoArrivalCommitter committer,
-      Clock clock) {
-    return new TagoArrivalLoadService(
-        source, parser, session, snapshots, committer, clock, FRESH_TTL);
+      TagoArrivalFlightStore flights) {
+    return new TransactionalTagoArrivalProcessor(
+        parser, session, snapshots, committer, flights, FLIGHT_POLICY.retain());
   }
 
   @Bean

@@ -7,9 +7,11 @@ import static org.mockito.Mockito.when;
 
 import com.timingjeju.api.application.tago.arrival.TagoArrivalException;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightDecision;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightLease;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightStatus;
 import java.sql.ResultSet;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
@@ -82,6 +84,47 @@ class JdbcTagoArrivalFlightStoreTest {
         .isSameAs(programmerBug);
   }
 
+  @Test
+  void current_fence는_owner_generation_RUNNING_DB_lease를_모두_검증한다() {
+    RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate(1);
+    JdbcTagoArrivalFlightStore store = new JdbcTagoArrivalFlightStore(jdbc);
+
+    store.lockCurrent(new TagoArrivalFlightLease(FINGERPRINT, 7, OWNER));
+
+    assertThat(jdbc.sql).contains("for update").contains("lease_expires_at > clock_timestamp()");
+    assertThat(jdbc.args).containsExactly(FINGERPRINT, 7L, OWNER);
+  }
+
+  @Test
+  void cleanup은_batch32_current_fingerprint를_제외하고_SKIP_LOCKED한다() {
+    RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate(32);
+    JdbcTagoArrivalFlightStore store = new JdbcTagoArrivalFlightStore(jdbc);
+
+    assertThat(store.cleanupExpiredTerminals(FINGERPRINT, 32)).isEqualTo(32);
+
+    assertThat(jdbc.sql)
+        .contains("state <> 'running'")
+        .contains("fingerprint <> ?")
+        .contains("for update skip locked")
+        .contains("limit ?");
+    assertThat(jdbc.args).containsExactly(FINGERPRINT, 32);
+  }
+
+  @Test
+  void success_retain은_source_expires와_replay_window중_이른값이고_이미만료면_publish하지않는다() {
+    RecordingJdbcTemplate jdbc = new RecordingJdbcTemplate(1);
+    JdbcTagoArrivalFlightStore store = new JdbcTagoArrivalFlightStore(jdbc);
+    TagoArrivalFlightLease lease = new TagoArrivalFlightLease(FINGERPRINT, 7, OWNER);
+    Instant sourceExpiresAt = Instant.parse("2026-08-22T00:00:25Z");
+
+    assertThat(store.completeSuccess(lease, sourceExpiresAt, Duration.ofSeconds(25))).isTrue();
+
+    assertThat(jdbc.sql)
+        .contains("least(?::timestamptz")
+        .contains("?::timestamptz > clock_timestamp()");
+    assertThat(jdbc.args).contains(java.sql.Timestamp.from(sourceExpiresAt));
+  }
+
   private static ResultSet row(String state, String outcome, UUID owner, long generation)
       throws Exception {
     ResultSet resultSet = mock(ResultSet.class);
@@ -114,6 +157,36 @@ class JdbcTagoArrivalFlightStoreTest {
     @Override
     public <T> List<T> query(String sql, RowMapper<T> rowMapper, Object... args) {
       throw failure;
+    }
+
+    @Override
+    public int update(String sql, Object... args) {
+      return 0;
+    }
+  }
+
+  private static final class RecordingJdbcTemplate extends JdbcTemplate {
+    private final int result;
+    private String sql;
+    private Object[] args;
+
+    private RecordingJdbcTemplate(int result) {
+      this.result = result;
+    }
+
+    @Override
+    public int update(String sql, Object... args) {
+      this.sql = sql;
+      this.args = args;
+      return result;
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> List<T> query(String sql, RowMapper<T> rowMapper, Object... args) {
+      this.sql = sql;
+      this.args = args;
+      return result == 1 ? List.of((T) Integer.valueOf(1)) : List.of();
     }
   }
 }

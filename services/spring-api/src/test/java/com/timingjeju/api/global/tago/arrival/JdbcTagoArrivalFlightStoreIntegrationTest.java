@@ -2,6 +2,7 @@ package com.timingjeju.api.global.tago.arrival;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.tago.arrival.TagoArrival;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalCacheKey;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalDistributedFlightCoordinator;
@@ -9,12 +10,19 @@ import com.timingjeju.api.application.tago.arrival.TagoArrivalException;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightDecision;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightPolicy;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalFlightStatus;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalLoadService;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalProcessResult;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalProcessor;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalSnapshot;
+import com.timingjeju.api.application.tago.arrival.TagoArrivalSourceResponse;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -129,6 +137,7 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
 
   @Test
   void main_pool_size2여도_서로다른20_stop_callback은_connection을_점유하지_않고_모두_진입한다() throws Exception {
+    Instant databaseNow = databaseNow();
     HikariConfig config = new HikariConfig();
     config.setJdbcUrl(primaryDataSource.getJdbcUrl());
     config.setUsername(primaryDataSource.getUsername());
@@ -166,7 +175,7 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
                                       actions.incrementAndGet();
                                       entered.countDown();
                                       await(release);
-                                      return snapshot(index);
+                                      return snapshot(index, databaseNow);
                                     })))
                 .toList();
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
@@ -178,8 +187,143 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
     }
   }
 
+  @Test
+  void success_retain은_source_expiry를_넘지않고_이미만료된_source는_publish하지않는다() {
+    TagoArrivalFlightDecision leader =
+        store.observeOrClaim(FINGERPRINT, new UUID(39L, 1L), LEASE, QUARANTINE);
+    Instant sourceExpiresAt = Instant.now().plusSeconds(2);
+
+    assertThat(store.completeSuccess(leader.lease(), sourceExpiresAt, RETAIN)).isTrue();
+    Instant retainedUntil =
+        jdbc.queryForObject(
+                "select retain_until from public.tago_arrival_flights where fingerprint=?",
+                java.sql.Timestamp.class,
+                FINGERPRINT)
+            .toInstant();
+    assertThat(retainedUntil).isBeforeOrEqualTo(sourceExpiresAt);
+
+    jdbc.update("delete from public.tago_arrival_flights");
+    TagoArrivalFlightDecision expired =
+        store.observeOrClaim(FINGERPRINT, new UUID(39L, 2L), LEASE, QUARANTINE);
+    assertThat(store.completeSuccess(expired.lease(), Instant.now().minusSeconds(1), RETAIN))
+        .isFalse();
+    assertThat(
+            jdbc.queryForObject(
+                "select state from public.tago_arrival_flights where fingerprint=?",
+                String.class,
+                FINGERPRINT))
+        .isEqualTo("running");
+  }
+
+  @Test
+  void expired_terminal_cleanup은_current_retained_RUNNING을_보존하고_batch32와_index를_쓴다() {
+    jdbc.update(
+        """
+        insert into public.tago_arrival_flights (
+          fingerprint,generation,owner_token,lease_expires_at,state,outcome_code,
+          retain_until,updated_at
+        )
+        select lpad(to_hex(value),64,'0'),1,gen_random_uuid(),clock_timestamp()-interval '2 seconds',
+               'failed','timeout',clock_timestamp()-interval '1 second',
+               clock_timestamp()-interval '3 seconds'
+        from generate_series(1,100) value
+        """);
+    TagoArrivalFlightDecision current =
+        store.observeOrClaim(FINGERPRINT, new UUID(39L, 3L), LEASE, QUARANTINE);
+    String retained = "b".repeat(64);
+    jdbc.update(
+        """
+        insert into public.tago_arrival_flights (
+          fingerprint,generation,owner_token,lease_expires_at,state,outcome_code,
+          retain_until,updated_at
+        ) values (?,1,gen_random_uuid(),clock_timestamp()+interval '12 seconds',
+                  'failed','timeout',clock_timestamp()+interval '25 seconds',clock_timestamp())
+        """,
+        retained);
+
+    assertThat(store.cleanupExpiredTerminals(current.lease().fingerprint(), 32)).isEqualTo(32);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tago_arrival_flights where state <> 'running' and retain_until <= clock_timestamp()",
+                Integer.class))
+        .isEqualTo(36);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.tago_arrival_flights where fingerprint in (?,?)",
+                Integer.class,
+                FINGERPRINT,
+                retained))
+        .isEqualTo(2);
+
+    jdbc.execute("set enable_seqscan=off");
+    try {
+      String plan =
+          String.join(
+              "\n",
+              jdbc.queryForList(
+                  """
+                  explain (costs off)
+                  select fingerprint from public.tago_arrival_flights
+                  where state <> 'running' and retain_until <= clock_timestamp()
+                  order by retain_until,fingerprint limit 32
+                  """,
+                  String.class));
+      assertThat(plan).contains("idx_tago_arrival_flights_cleanup");
+    } finally {
+      jdbc.execute("reset enable_seqscan");
+    }
+  }
+
+  @Test
+  void source_fetch_callback동안_main_Hikari_active_connection은_0이다() {
+    AtomicInteger activeDuringFetch = new AtomicInteger(-1);
+    TagoArrivalSnapshot expected = snapshot(39);
+    TagoArrivalProcessor processor =
+        new TagoArrivalProcessor() {
+          @Override
+          public TagoArrivalProcessResult process(
+              com.timingjeju.api.application.tago.arrival.TagoArrivalFlightLease flight,
+              TagoArrivalCacheKey key,
+              TagoArrivalSourceResponse response,
+              Instant observedAt,
+              Instant expiresAt) {
+            return TagoArrivalProcessResult.success(expected);
+          }
+
+          @Override
+          public TagoArrivalException.Code recordTransportFailure(
+              com.timingjeju.api.application.tago.arrival.TagoArrivalFlightLease flight,
+              TagoArrivalCacheKey key,
+              Instant observedAt,
+              TagoArrivalException.Code code) {
+            throw new AssertionError("success fixture");
+          }
+        };
+    TagoArrivalLoadService loader =
+        new TagoArrivalLoadService(
+            (city, node) -> {
+              activeDuringFetch.set(primaryDataSource.getHikariPoolMXBean().getActiveConnections());
+              return new TagoArrivalSourceResponse("{}".getBytes(), SnapshotPayloadFormat.JSON);
+            },
+            processor,
+            Clock.fixed(expected.observedAt(), ZoneOffset.UTC),
+            Duration.ofSeconds(25));
+
+    assertThat(
+            loader.load(
+                TagoArrivalCacheKey.tago(new UUID(39, 39), "39", "NODE-39"),
+                new com.timingjeju.api.application.tago.arrival.TagoArrivalFlightLease(
+                    "e".repeat(64), 1, new UUID(39, 40))))
+        .isEqualTo(expected);
+    assertThat(activeDuringFetch).hasValue(0);
+  }
+
   private static TagoArrivalSnapshot snapshot(int index) {
     Instant observedAt = Instant.parse("2026-08-21T00:00:00Z");
+    return snapshot(index, observedAt);
+  }
+
+  private static TagoArrivalSnapshot snapshot(int index, Instant observedAt) {
     return new TagoArrivalSnapshot(
         List.of(new TagoArrival("ROUTE-" + index, "201", null, null, 60, 1)),
         observedAt,
@@ -187,6 +331,10 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
         false,
         new UUID(39L, index + 1000L),
         new UUID(39L, index + 2000L));
+  }
+
+  private Instant databaseNow() {
+    return jdbc.queryForObject("select clock_timestamp()", Timestamp.class).toInstant();
   }
 
   private static <T> T get(java.util.concurrent.Future<T> future) {

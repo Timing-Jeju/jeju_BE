@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Tag("unit")
 class TagoArrivalLoadServiceTest {
@@ -114,6 +115,51 @@ class TagoArrivalLoadServiceTest {
             failure -> assertThat(failure.code()).isEqualTo(TagoArrivalException.Code.TIMEOUT));
     assertThat(snapshots.events).isEmpty();
     assertThat(session.events).containsExactly("start", "fail:TIMEOUT");
+  }
+
+  @Test
+  void source_fetch동안_Spring_transaction이_없고_claim_lease를_processor에_그대로_전달한다() {
+    AtomicBoolean transactionDuringFetch = new AtomicBoolean(true);
+    AtomicReference<TagoArrivalFlightLease> processedFlight = new AtomicReference<>();
+    TagoArrivalFlightLease flight = new TagoArrivalFlightLease("c".repeat(64), 7, new UUID(39, 70));
+    TagoArrivalSnapshot expected =
+        new TagoArrivalSnapshot(List.of(ARRIVAL), NOW, NOW.plusSeconds(25), false, RUN, SNAPSHOT);
+    TagoArrivalProcessor processor =
+        new TagoArrivalProcessor() {
+          @Override
+          public TagoArrivalProcessResult process(
+              TagoArrivalFlightLease observedFlight,
+              TagoArrivalCacheKey key,
+              TagoArrivalSourceResponse response,
+              Instant observedAt,
+              Instant expiresAt) {
+            processedFlight.set(observedFlight);
+            return TagoArrivalProcessResult.success(expected);
+          }
+
+          @Override
+          public TagoArrivalException.Code recordTransportFailure(
+              TagoArrivalFlightLease observedFlight,
+              TagoArrivalCacheKey key,
+              Instant observedAt,
+              TagoArrivalException.Code code) {
+            throw new AssertionError("success fixture");
+          }
+        };
+    TagoArrivalLoadService service =
+        new TagoArrivalLoadService(
+            (city, node) -> {
+              transactionDuringFetch.set(
+                  TransactionSynchronizationManager.isActualTransactionActive());
+              return new TagoArrivalSourceResponse(EXACT, SnapshotPayloadFormat.JSON);
+            },
+            processor,
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            java.time.Duration.ofSeconds(25));
+
+    assertThat(service.load(KEY, flight)).isEqualTo(expected);
+    assertThat(transactionDuringFetch).isFalse();
+    assertThat(processedFlight.get()).isEqualTo(flight);
   }
 
   private static TagoArrivalLoadService service(
