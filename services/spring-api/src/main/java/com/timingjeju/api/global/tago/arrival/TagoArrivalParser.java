@@ -4,6 +4,7 @@ import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.tago.arrival.TagoArrival;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalException;
 import com.timingjeju.api.application.tago.arrival.TagoArrivalPayloadParser;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -65,11 +66,11 @@ public final class TagoArrivalParser implements TagoArrivalPayloadParser {
     if (!item.isObject()) throw TagoArrivalException.invalidResponse();
     return new TagoArrival(
         text(item, "routeid"),
-        text(item, "routeno"),
+        routeNumber(item, "routeno"),
         optionalText(item, "routetp"),
         optionalText(item, "vehicletp"),
-        integerText(item, "arrtime"),
-        integerText(item, "arrprevstationcnt"));
+        boundedInteger(item, "arrtime", 0, 86_400),
+        boundedInteger(item, "arrprevstationcnt", 0, 10_000));
   }
 
   private static JsonNode object(JsonNode parent, String name) {
@@ -93,12 +94,28 @@ public final class TagoArrivalParser implements TagoArrivalPayloadParser {
     return value.asString().isBlank() ? null : value.asString().strip();
   }
 
-  private static int integerText(JsonNode parent, String name) {
+  private static String routeNumber(JsonNode parent, String name) {
+    JsonNode value = parent.path(name);
+    if (value.isTextual()) return text(parent, name);
+    if (!value.isIntegralNumber()) throw TagoArrivalException.invalidResponse();
+    return value.asBigInteger().toString();
+  }
+
+  private static int boundedInteger(JsonNode parent, String name, int minimum, int maximum) {
+    JsonNode value = parent.path(name);
+    BigInteger integer;
     try {
-      return Integer.parseInt(text(parent, name));
+      if (value.isTextual()) integer = new BigInteger(text(parent, name));
+      else if (value.isIntegralNumber()) integer = value.asBigInteger();
+      else throw TagoArrivalException.invalidResponse();
     } catch (NumberFormatException failure) {
       throw TagoArrivalException.invalidResponse();
     }
+    if (integer.compareTo(BigInteger.valueOf(minimum)) < 0
+        || integer.compareTo(BigInteger.valueOf(maximum)) > 0) {
+      throw TagoArrivalException.invalidResponse();
+    }
+    return integer.intValueExact();
   }
 
   private static int nonNegative(JsonNode parent, String name) {

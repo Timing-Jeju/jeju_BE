@@ -277,6 +277,10 @@ fresh cache가 만료된 뒤 `RATE_LIMITED`, `TIMEOUT`, `PROVIDER_UNAVAILABLE`�
 새 성공 run을 만들지 않는다. 120초를 넘거나 공식 `EMPTY_RESULT`, DB `DATA_UNAVAILABLE`, 계약 오류이면
 fallback하지 않는다. DB read/mapping 오류는 raw SQL·cause 없는 stable code로 변환하되 programmer bug는
 숨기지 않는다. `arrtime`은 0~86400초, `arrprevstationcnt`는 0~10000 범위만 허용한다.
+공식 JSON이 `routeno`, `arrtime`, `arrprevstationcnt`를 따옴표 없는 정수로 반환하는 경우도 손실 없이
+수용한다. 숫자형 `routeno`는 canonical 10진 문자열로 정규화하고 기존 문자열형 영숫자 노선번호도
+호환한다. 도착 초와 남은 정류장은 문자열형 정수도 호환하되 fraction, boolean, object, null과 범위 초과
+정수는 원문 계약 위반으로 거부한다.
 
 ### 4.5 TAGO가 보장하지 않는 값
 

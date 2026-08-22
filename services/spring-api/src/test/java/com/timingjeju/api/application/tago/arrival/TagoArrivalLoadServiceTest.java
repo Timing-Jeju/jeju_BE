@@ -6,7 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.snapshot.SnapshotStatus;
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -29,8 +30,7 @@ class TagoArrivalLoadServiceTest {
   private static final TagoArrivalCacheKey KEY =
       TagoArrivalCacheKey.tago(
           UUID.fromString("39000000-0000-0000-0000-000000000001"), "39", "JEP123");
-  private static final byte[] EXACT =
-      " {\"response\": {\"body\": {\"arrtime\":1.00}}} \n".getBytes(StandardCharsets.UTF_8);
+  private static final byte[] EXACT = recordedNumericFixture();
   private static final TagoArrival ARRIVAL =
       new TagoArrival("JER001", "201", "간선버스", "일반차량", 321, 4);
 
@@ -219,6 +219,17 @@ class TagoArrivalLoadServiceTest {
     @Override
     public void reject(SavedTagoArrivalSnapshot snapshot, TagoArrivalException.Code code) {
       events.add("reject:" + code);
+    }
+  }
+
+  private static byte[] recordedNumericFixture() {
+    try (var input =
+        TagoArrivalLoadServiceTest.class.getResourceAsStream(
+            "/fixtures/tago/get-station-arrivals-numeric.json")) {
+      if (input == null) throw new IOException("recorded TAGO arrival fixture가 없습니다.");
+      return input.readAllBytes();
+    } catch (IOException failure) {
+      throw new UncheckedIOException(failure);
     }
   }
 }
