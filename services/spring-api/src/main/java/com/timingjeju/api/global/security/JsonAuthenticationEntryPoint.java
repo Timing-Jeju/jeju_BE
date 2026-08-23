@@ -23,9 +23,11 @@ public final class JsonAuthenticationEntryPoint implements AuthenticationEntryPo
       AuthenticationException authenticationException)
       throws IOException, ServletException {
     String path = request.getRequestURI().substring(request.getContextPath().length());
-    boolean optionalPlacesGet = "GET".equals(request.getMethod()) && isOptionalPlacesPath(path);
+    boolean optionalPublicGet =
+        "GET".equals(request.getMethod())
+            && (isOptionalPlacesPath(path) || "/api/v1/weather/forecast".equals(path));
     responseWriter.write(
-        request, response, optionalPlacesGet ? "INVALID_ACCESS_TOKEN" : "AUTH_TOKEN_INVALID");
+        request, response, optionalPublicGet ? "INVALID_ACCESS_TOKEN" : "AUTH_TOKEN_INVALID");
   }
 
   private static boolean isOptionalPlacesPath(String path) {

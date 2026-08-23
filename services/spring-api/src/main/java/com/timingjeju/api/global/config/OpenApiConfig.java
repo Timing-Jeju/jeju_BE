@@ -13,6 +13,7 @@ import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import org.springdoc.core.customizers.OpenApiCustomizer;
@@ -52,6 +53,8 @@ public class OpenApiConfig {
       clearSecurity(openApi, "/api/v1/auth/social/naver/userinfo");
       optionalSecurity(openApi, "/api/v1/places");
       optionalSecurity(openApi, "/api/v1/places/{placeId}");
+      optionalSecurity(openApi, "/api/v1/weather/forecast");
+      weatherCoordinateBounds(openApi);
     };
   }
 
@@ -163,5 +166,22 @@ public class OpenApiConfig {
 
   private static boolean requiresAuthentication(List<SecurityRequirement> security) {
     return security == null || (!security.isEmpty() && security.stream().noneMatch(Map::isEmpty));
+  }
+
+  private static void weatherCoordinateBounds(OpenAPI openApi) {
+    if (openApi.getPaths() == null
+        || openApi.getPaths().get("/api/v1/weather/forecast") == null
+        || openApi.getPaths().get("/api/v1/weather/forecast").getGet() == null) {
+      return;
+    }
+    openApi.getPaths().get("/api/v1/weather/forecast").getGet().getParameters().stream()
+        .filter(parameter -> "lat".equals(parameter.getName()))
+        .forEach(
+            parameter -> {
+              parameter.getSchema().setMinimum(null);
+              parameter.getSchema().setMaximum(null);
+              parameter.getSchema().setExclusiveMinimumValue(BigDecimal.valueOf(-90));
+              parameter.getSchema().setExclusiveMaximumValue(BigDecimal.valueOf(90));
+            });
   }
 }

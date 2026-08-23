@@ -128,7 +128,8 @@ public class SecurityConfig {
             requests.requestMatchers("/swagger-ui.html", "/swagger-ui/**").permitAll();
           }
           requests
-              .requestMatchers(HttpMethod.GET, "/api/v1/places", "/api/v1/places/*")
+              .requestMatchers(
+                  HttpMethod.GET, "/api/v1/places", "/api/v1/places/*", "/api/v1/weather/forecast")
               .permitAll();
           requests.requestMatchers("/api/v1/**").authenticated();
           requests.anyRequest().denyAll();
