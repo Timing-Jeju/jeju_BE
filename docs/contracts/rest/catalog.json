@@ -367,7 +367,7 @@
       "dbOwner": "Spring read-only weather_grid_points/weather_forecasts/external snapshot lineage; implementation #67",
       "requestTimeCall": "none; request reads normalized stored forecast and never calls KMA or private MCP",
       "dataLineage": "KMA versioned snapshot -> import run -> normalized weather_forecasts; raw provider payload is never projected",
-      "figma": {"node": "not-observed", "action": "날씨 예보 조회 소비 화면 근거 미확인", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "figma": {"node": "1291:8816", "action": "1291:8819", "loading": "1291:8820", "empty": "1291:8822", "error": "1291:8823"},
       "contractVersion": "1.0.0",
       "idempotency": {"required": false, "header": "none"},
       "pagination": {"type": "none"}
@@ -389,6 +389,6 @@
     {"issue": 91, "domain": "spare-time", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}}},
     {"issue": 92, "domain": "recovery", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}}},
     {"issue": 93, "domain": "live", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}}},
-    {"issue": 94, "domain": "weather", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}}}
+    {"issue": 94, "domain": "weather-forecast", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "1.0.0", "figma": "1.0.0"}, "readiness": {"metadata": {"status": "ready", "evidence": {"localDocument": "docs/contracts/domains/weather-forecast/contract.md", "notionPage": {"url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c", "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c"}, "figmaNode": {"url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816", "fileKey": "4mKep38zm17iupVSQVsSJW", "nodeId": "1291:8816"}}}, "example": {"status": "ready", "evidence": {"requestFixture": "fixtures/contracts/weather-forecast/request.json", "successFixture": "fixtures/contracts/weather-forecast/success.json", "problemFixture": "fixtures/contracts/weather-forecast/problem.json"}}, "implementation": {"status": "not-ready", "evidence": null}}}
   ]
 }

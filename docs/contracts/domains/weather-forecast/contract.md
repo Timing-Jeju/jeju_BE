@@ -6,8 +6,9 @@ Issue #94가 확정하는 Spring 공개 API `GET /api/v1/weather/forecast`의 ca
 
 - Spring Boot만 공개 endpoint, optional Supabase JWT 검증, 정규화 DB 조회와 응답을 소유합니다. FastAPI는 endpoint·DB·JWT·KMA key를 소유하지 않습니다.
 - 날씨는 사용자 소유 리소스가 아닙니다. Authorization 생략은 anonymous, 전달한 token이 invalid/expired이면 401입니다. 권한 판단이 필요한 미래 확장은 canonical JWT `sub`만 사용합니다.
-- Notion page `3a40a87c-7ce5-816b-a8f7-ed2027e94b8c`는 같은 GET path, version `v1.1`, Spec Status `Ready`, Auth `Optional`, 화면 `장소 상세 / 일정 날씨`, DB `weather_grid_points/weather_forecasts`를 기록하지만 response가 `grid, forecastedAt, validAt, temp, POP, precipitation, wind, dataFreshness`만 가진 오래된 부분 계약이라 로컬 `1.0.0`과 일치하지 않습니다. 따라서 상태는 `drift-blocked`이며 PM/user 권한으로 Notion을 정렬하기 전 readiness를 승격하지 않습니다.
-- Figma file `4mKep38zm17iupVSQVsSJW`에는 section node `622:10382` 근처 intent node `622:19945`의 “여행 당일에 날씨 정보를 보고 일정을 바꿀 수 있게”만 확인됐습니다. 실제 response field와 loading/empty/error node 연결은 없으므로 `not-ready/not-linked`를 유지합니다.
+- PM 결정 [issuecomment-5387038123](https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123)에 따라 [Notion page](https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c) `3a40a87c-7ce5-816b-a8f7-ed2027e94b8c`는 Contract Version `1.0.0`, Spec Status `Ready`이며 로컬 response·error·fallback·security 계약과 정렬됐습니다. 화면 근거는 Figma contract node `1291:8816`을 포함합니다.
+- [Figma file](https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816) `4mKep38zm17iupVSQVsSJW`의 contract `1291:8816`, action `1291:8819`, loading `1291:8820`, success `1291:8821`, empty `1291:8822`, error `1291:8823`을 exact evidence로 고정합니다.
+- 위 근거와 저장소의 request/success/problem fixture가 검증되므로 metadata/example readiness는 `ready`입니다. 실제 Controller/OpenAPI/contract test를 소유하는 Issue #67이 완료되기 전 implementation readiness는 `not-ready`로 유지합니다.
 
 ## 요청과 시간 경계
 

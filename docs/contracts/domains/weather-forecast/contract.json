@@ -1,7 +1,7 @@
 {
   "schemaVersion": "timing-jeju-weather-forecast-contract/v1",
   "contractVersion": "1.0.0",
-  "sourceSpecVersion": "v1.1",
+  "sourceSpecVersion": "1.0.0",
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 94,
   "implementationIssues": [67],
@@ -89,7 +89,7 @@
       "dbOwner": "Spring read-only weather_grid_points/weather_forecasts/external snapshot lineage; implementation #67",
       "requestTimeCall": "none; request reads normalized stored forecast and never calls KMA or private MCP",
       "dataLineage": "KMA versioned snapshot -> import run -> normalized weather_forecasts; raw provider payload is never projected",
-      "figma": {"node": "not-observed", "action": "날씨 예보 조회 소비 화면 근거 미확인", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "figma": {"node": "1291:8816", "action": "1291:8819", "loading": "1291:8820", "empty": "1291:8822", "error": "1291:8823"},
       "contractVersion": "1.0.0"
     }
   ],
@@ -175,8 +175,8 @@
   ],
   "externalTraceability": {
     "notion": {
-      "status": "drift-blocked",
-      "contractVersion": "v1.1",
+      "status": "ready",
+      "contractVersion": "1.0.0",
       "evidence": {
         "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
         "pageUrl": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
@@ -184,30 +184,46 @@
         "path": "/api/v1/weather/forecast",
         "specStatus": "Ready",
         "auth": "Optional",
-        "screen": "장소 상세 / 일정 날씨",
+        "screen": "장소 상세 / 일정 날씨 · Figma 1291:8816",
         "db": ["weather_grid_points", "weather_forecasts"],
-        "observedResponseFields": ["grid", "forecastedAt", "validAt", "temp", "POP", "precipitation", "wind", "dataFreshness"],
-        "drift": "local 1.0.0 response is not aligned with older partial Notion v1.1 response"
+        "alignedScope": ["response", "errors", "fallback", "security"],
+        "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123"
       },
-      "ownerFollowUp": "PM/user authority must align the Notion row to local 1.0.0 fields and contractVersion before readiness promotion."
+      "ownerFollowUp": null
     },
     "figma": {
-      "status": "not-ready",
-      "contractVersion": "not-linked",
+      "status": "ready",
+      "contractVersion": "1.0.0",
       "evidence": {
         "fileKey": "4mKep38zm17iupVSQVsSJW",
-        "intentNode": "622:19945",
-        "intent": "여행 당일에 날씨 정보를 보고 일정을 바꿀 수 있게",
-        "sectionNode": "622:10382",
-        "section": "04. 일별 가능성 결과",
-        "missingLinkage": ["responseFields", "loading", "empty", "error"]
+        "contractNode": "1291:8816",
+        "actionNode": "1291:8819",
+        "loadingNode": "1291:8820",
+        "successNode": "1291:8821",
+        "emptyNode": "1291:8822",
+        "errorNode": "1291:8823",
+        "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123"
       },
-      "ownerFollowUp": "PM/design authority must link actual weather response fields and loading/empty/error nodes before readiness promotion."
+      "ownerFollowUp": null
     }
   },
   "readiness": {
-    "metadata": {"status": "not-ready", "evidence": null},
-    "example": {"status": "not-ready", "evidence": null},
+    "metadata": {
+      "status": "ready",
+      "evidence": {
+        "localDocument": "docs/contracts/domains/weather-forecast/contract.md",
+        "notionPage": {"url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c", "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c"},
+        "figmaNode": {"url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816", "fileKey": "4mKep38zm17iupVSQVsSJW", "nodeId": "1291:8816"}
+      }
+    },
+    "example": {
+      "status": "ready",
+      "evidence": {
+        "requestFixture": "fixtures/contracts/weather-forecast/request.json",
+        "successFixture": "fixtures/contracts/weather-forecast/success.json",
+        "problemFixture": "fixtures/contracts/weather-forecast/problem.json"
+      }
+    },
     "implementation": {"status": "not-ready", "evidence": null}
   },
   "schemaGap": [

@@ -31,6 +31,7 @@ class WeatherForecastContractTest(unittest.TestCase):
     def test_identity_endpoint_and_common_inheritance_are_exact(self) -> None:
         self.assertEqual("timing-jeju-weather-forecast-contract/v1", self.contract["schemaVersion"])
         self.assertEqual("1.0.0", self.contract["contractVersion"])
+        self.assertEqual("1.0.0", self.contract["sourceSpecVersion"])
         self.assertEqual("timing-jeju-rest-contract/v1", self.contract["inherits"])
         self.assertEqual(94, self.contract["ownerIssue"])
         self.assertEqual([67], self.contract["implementationIssues"])
@@ -153,27 +154,130 @@ class WeatherForecastContractTest(unittest.TestCase):
         self.assertIn("contractVersion: `1.0.0`", rdb)
         self.assertIn("WEATHER_FORECAST_UNAVAILABLE", rdb)
 
-    def test_external_evidence_pins_drift_without_claiming_readiness(self) -> None:
+    def test_external_evidence_is_exact_and_only_implementation_remains_not_ready(self) -> None:
         external = self.contract["externalTraceability"]
         notion = external["notion"]
-        self.assertEqual("drift-blocked", notion["status"])
-        self.assertEqual("v1.1", notion["contractVersion"])
-        self.assertEqual("3a40a87c-7ce5-816b-a8f7-ed2027e94b8c", notion["evidence"]["pageId"])
-        self.assertEqual("Ready", notion["evidence"]["specStatus"])
-        self.assertEqual("Optional", notion["evidence"]["auth"])
-        self.assertEqual("장소 상세 / 일정 날씨", notion["evidence"]["screen"])
-        self.assertEqual(["weather_grid_points", "weather_forecasts"], notion["evidence"]["db"])
-        self.assertEqual("local 1.0.0 response is not aligned with older partial Notion v1.1 response", notion["evidence"]["drift"])
+        self.assertEqual(
+            {
+                "status": "ready",
+                "contractVersion": "1.0.0",
+                "evidence": {
+                    "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
+                    "pageUrl": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
+                    "method": "GET",
+                    "path": "/api/v1/weather/forecast",
+                    "specStatus": "Ready",
+                    "auth": "Optional",
+                    "screen": "장소 상세 / 일정 날씨 · Figma 1291:8816",
+                    "db": ["weather_grid_points", "weather_forecasts"],
+                    "alignedScope": ["response", "errors", "fallback", "security"],
+                    "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123",
+                },
+                "ownerFollowUp": None,
+            },
+            notion,
+        )
         figma = external["figma"]
-        self.assertEqual("not-ready", figma["status"])
-        self.assertEqual("not-linked", figma["contractVersion"])
-        self.assertEqual("622:19945", figma["evidence"]["intentNode"])
-        self.assertEqual("622:10382", figma["evidence"]["sectionNode"])
-        self.assertEqual(["responseFields", "loading", "empty", "error"], figma["evidence"]["missingLinkage"])
-        for source in (notion, figma):
-            self.assertTrue(source["ownerFollowUp"])
-        for stage in self.contract["readiness"].values():
-            self.assertEqual({"status": "not-ready", "evidence": None}, stage)
+        self.assertEqual(
+            {
+                "status": "ready",
+                "contractVersion": "1.0.0",
+                "evidence": {
+                    "fileKey": "4mKep38zm17iupVSQVsSJW",
+                    "contractNode": "1291:8816",
+                    "actionNode": "1291:8819",
+                    "loadingNode": "1291:8820",
+                    "successNode": "1291:8821",
+                    "emptyNode": "1291:8822",
+                    "errorNode": "1291:8823",
+                    "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123",
+                },
+                "ownerFollowUp": None,
+            },
+            figma,
+        )
+        self.assertEqual(
+            {
+                "metadata": {
+                    "status": "ready",
+                    "evidence": {
+                        "localDocument": "docs/contracts/domains/weather-forecast/contract.md",
+                        "notionPage": {
+                            "url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
+                            "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
+                        },
+                        "figmaNode": {
+                            "url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816",
+                            "fileKey": "4mKep38zm17iupVSQVsSJW",
+                            "nodeId": "1291:8816",
+                        },
+                    },
+                },
+                "example": {
+                    "status": "ready",
+                    "evidence": {
+                        "requestFixture": "fixtures/contracts/weather-forecast/request.json",
+                        "successFixture": "fixtures/contracts/weather-forecast/success.json",
+                        "problemFixture": "fixtures/contracts/weather-forecast/problem.json",
+                    },
+                },
+                "implementation": {"status": "not-ready", "evidence": None},
+            },
+            self.contract["readiness"],
+        )
+        self.assertEqual(
+            {
+                "node": "1291:8816",
+                "action": "1291:8819",
+                "loading": "1291:8820",
+                "empty": "1291:8822",
+                "error": "1291:8823",
+            },
+            self.contract["endpoints"][0]["figma"],
+        )
+
+    def test_external_and_readiness_reject_paired_authoritative_lineage_mutation(self) -> None:
+        candidate = copy.deepcopy(self.contract)
+        wrong_page_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        wrong_page_url = "https://app.notion.com/p/ffffffffffffffffffffffffffffffff"
+        candidate["externalTraceability"]["notion"]["evidence"].update(
+            pageId=wrong_page_id,
+            pageUrl=wrong_page_url,
+        )
+        candidate["readiness"]["metadata"]["evidence"]["notionPage"] = {
+            "url": wrong_page_url,
+            "pageId": wrong_page_id,
+        }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate_path = Path(temporary) / "contract.json"
+            candidate_path.write_text(
+                json.dumps(candidate, ensure_ascii=False), encoding="utf-8"
+            )
+            with mock.patch.object(self.validator, "DEFAULT_CONTRACT", candidate_path):
+                errors = self.validator.validate(candidate, skip_catalog_fixtures=True)
+
+        self.assertTrue(any("authoritative lineage" in error for error in errors), errors)
+
+    def test_external_and_readiness_reject_figma_file_and_node_mismatch(self) -> None:
+        mutations = (
+            {"fileKey": "WrongFileKey"},
+            {
+                "url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-9999",
+                "nodeId": "1291:9999",
+            },
+        )
+        for updates in mutations:
+            with self.subTest(updates=updates):
+                candidate = copy.deepcopy(self.contract)
+                candidate["readiness"]["metadata"]["evidence"]["figmaNode"].update(
+                    updates
+                )
+                errors = self.validator.validate(candidate, skip_catalog_fixtures=True)
+                self.assertTrue(
+                    any("Figma authoritative lineage" in error for error in errors),
+                    errors,
+                )
 
     def test_validator_rejects_contract_drift(self) -> None:
         mutations = (
@@ -184,9 +288,9 @@ class WeatherForecastContractTest(unittest.TestCase):
             ("category", lambda value: value["categoryPolicy"].update(omitted="allowed")),
             ("fallback", lambda value: value["freshnessPolicy"].update(fallbackLimit="unbounded")),
             ("problem", lambda value: value["errorConditions"][0]["example"].update(message="forbidden")),
-            ("external readiness", lambda value: value["externalTraceability"]["notion"].update(status="ready")),
+            ("external readiness", lambda value: value["externalTraceability"]["notion"].update(status="drift-blocked")),
             ("external readiness", lambda value: value["externalTraceability"]["notion"]["evidence"].update(pageId="drift")),
-            ("external readiness", lambda value: value["externalTraceability"]["figma"].update(status="ready")),
+            ("external readiness", lambda value: value["externalTraceability"]["figma"].update(status="not-ready")),
             ("response schema", lambda value: value["schemas"]["WeatherForecastResponse"]["properties"]["providerApiVersion"].update(const="drift")),
             ("endpoint canonical", lambda value: value["endpoints"][0].update(dbOwner="drift")),
             ("schemaGap exact", lambda value: value["schemaGap"].__setitem__(0, "drift")),

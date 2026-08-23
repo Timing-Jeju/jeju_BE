@@ -152,6 +152,10 @@ class RestContractReadinessTest(unittest.TestCase):
             Path("fixtures/contracts/places/request.json"),
             Path("fixtures/contracts/places/success.json"),
             Path("fixtures/contracts/places/problem.json"),
+            Path("docs/contracts/domains/weather-forecast/contract.md"),
+            Path("fixtures/contracts/weather-forecast/request.json"),
+            Path("fixtures/contracts/weather-forecast/success.json"),
+            Path("fixtures/contracts/weather-forecast/problem.json"),
         ):
             target = repo_root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1133,6 +1137,46 @@ class RestContractReadinessTest(unittest.TestCase):
                     )
                     self.assertTrue(any("Figma linkage" in error for error in errors), errors)
 
+    def test_issue94_authoritative_link_forms_are_exact(self):
+        catalog = copy.deepcopy(self.catalog)
+        weather = next(item for item in catalog["domainContracts"] if item["issue"] == 94)
+        metadata = weather["readiness"]["metadata"]["evidence"]
+        self.assertEqual(
+            {
+                "url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
+                "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
+            },
+            metadata["notionPage"],
+        )
+        self.assertEqual(
+            {
+                "url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816",
+                "fileKey": "4mKep38zm17iupVSQVsSJW",
+                "nodeId": "1291:8816",
+            },
+            metadata["figmaNode"],
+        )
+        mutations = (
+            ("Notion", "notionPage", "url", "https://evil.example/p/3a40a87c7ce5816ba8f7ed2027e94b8c"),
+            ("Notion", "notionPage", "url", "https://app.notion.com/x/3a40a87c7ce5816ba8f7ed2027e94b8c"),
+            ("Notion", "notionPage", "url", "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c?view=full"),
+            ("Notion", "notionPage", "pageId", "ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            ("Figma", "figmaNode", "url", "https://figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816"),
+            ("Figma", "figmaNode", "url", "https://www.figma.com/file/4mKep38zm17iupVSQVsSJW?node-id=1291-8816"),
+            ("Figma", "figmaNode", "url", "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816&t=1"),
+            ("Figma", "figmaNode", "fileKey", "WrongFileKey"),
+            ("Figma", "figmaNode", "nodeId", "1291:9999"),
+        )
+        for label, linkage, field, value in mutations:
+            with self.subTest(label=label, field=field, value=value):
+                mutated = copy.deepcopy(catalog)
+                target = next(
+                    item for item in mutated["domainContracts"] if item["issue"] == 94
+                )["readiness"]["metadata"]["evidence"][linkage]
+                target[field] = value
+                errors = self.validator.validate_catalog(mutated)
+                self.assertTrue(any(f"{label} linkage" in error for error in errors), errors)
+
     def test_response_status_sets_are_unique_disjoint_and_strict_integers(self):
         response_cases = (
             {"success": [200], "errors": [200, 400]},
@@ -1349,6 +1393,46 @@ class RestContractReadinessTest(unittest.TestCase):
                         mutated, repo_root=repo_root
                     )
                     self.assertTrue(any("Notion linkage" in error for error in errors), errors)
+
+    def test_generic_ready_domain_requires_exact_app_notion_p_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo_root = Path(directory)
+            catalog = copy.deepcopy(self.catalog)
+            first = catalog["domainContracts"][0]
+            self.assertNotEqual(94, first["issue"])
+            first["versions"] = {
+                "local": catalog["contractVersion"],
+                "notion": catalog["contractVersion"],
+                "figma": catalog["contractVersion"],
+            }
+            first["readiness"] = self.create_ready_evidence(repo_root)
+            page_id = "0123456789abcdef0123456789abcdef"
+            valid = {
+                "url": f"https://app.notion.com/p/{page_id}",
+                "pageId": page_id,
+            }
+            first["readiness"]["metadata"]["evidence"]["notionPage"] = valid
+            self.assertEqual(
+                [], self.validator.validate_catalog(catalog, repo_root=repo_root)
+            )
+
+            invalid_urls = (
+                f"https://app.notion.com/x/{page_id}",
+                f"https://app.notion.com/{page_id}",
+                f"https://app.notion.com/p/team/{page_id}",
+            )
+            for url in invalid_urls:
+                with self.subTest(url=url):
+                    mutated = copy.deepcopy(catalog)
+                    mutated["domainContracts"][0]["readiness"]["metadata"][
+                        "evidence"
+                    ]["notionPage"]["url"] = url
+                    errors = self.validator.validate_catalog(
+                        mutated, repo_root=repo_root
+                    )
+                    self.assertTrue(
+                        any("Notion linkage" in error for error in errors), errors
+                    )
 
     def test_malformed_linkage_urls_fail_cli_without_parser_exception_details(self):
         cases = (

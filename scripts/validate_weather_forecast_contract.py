@@ -42,6 +42,16 @@ EXPECTED_ERROR_MATRIX = {
     "422": ["WEATHER_LOCATION_NOT_SUPPORTED", "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED"],
     "503": ["WEATHER_FORECAST_UNAVAILABLE"],
 }
+AUTHORITATIVE_NOTION_LINK = {
+    "url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
+    "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
+}
+AUTHORITATIVE_FIGMA_LINK = {
+    "url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816",
+    "fileKey": "4mKep38zm17iupVSQVsSJW",
+    "nodeId": "1291:8816",
+}
+AUTHORITATIVE_DECISION = "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123"
 
 
 class DuplicateKey(ValueError):
@@ -76,7 +86,7 @@ def _validate_identity(contract: dict[str, Any], errors: list[str]) -> None:
     expected = {
         "schemaVersion": "timing-jeju-weather-forecast-contract/v1",
         "contractVersion": "1.0.0",
-        "sourceSpecVersion": "v1.1",
+        "sourceSpecVersion": "1.0.0",
         "inherits": "timing-jeju-rest-contract/v1",
         "ownerIssue": 94,
         "implementationIssues": [67],
@@ -135,8 +145,8 @@ def _validate_endpoint(contract: dict[str, Any], errors: list[str]) -> None:
     if endpoint.get("contractVersion") != contract.get("contractVersion"):
         errors.append("endpoint/local contract version drift가 있습니다.")
     figma = endpoint.get("figma")
-    if figma != {"node": "not-observed", "action": "날씨 예보 조회 소비 화면 근거 미확인", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}:
-        errors.append("endpoint Figma 근거를 추측할 수 없습니다.")
+    if figma != {"node": "1291:8816", "action": "1291:8819", "loading": "1291:8820", "empty": "1291:8822", "error": "1291:8823"}:
+        errors.append("endpoint Figma contract/state node 근거가 다릅니다.")
     if endpoint != _load(DEFAULT_CONTRACT)["endpoints"][0]:
         errors.append("endpoint canonical contract가 다릅니다.")
 
@@ -187,15 +197,48 @@ def _validate_external(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("external readiness/evidence/owner follow-up exact 계약이 다릅니다.")
     notion = external.get("notion", {})
     notion_evidence = notion.get("evidence", {})
-    if notion.get("status") != "drift-blocked" or notion.get("contractVersion") != "v1.1" or notion_evidence.get("specStatus") != "Ready" or not notion.get("ownerFollowUp"):
-        errors.append("external readiness notion drift를 aligned로 승격할 수 없습니다.")
+    readiness = contract.get("readiness", {})
+    metadata_evidence = readiness.get("metadata", {}).get("evidence", {}) if isinstance(readiness, dict) else {}
+    if (
+        notion.get("status") != "ready"
+        or notion.get("contractVersion") != "1.0.0"
+        or notion_evidence.get("specStatus") != "Ready"
+        or notion_evidence.get("screen") != "장소 상세 / 일정 날씨 · Figma 1291:8816"
+        or notion_evidence.get("alignedScope") != ["response", "errors", "fallback", "security"]
+        or notion_evidence.get("decisionComment") != AUTHORITATIVE_DECISION
+        or notion.get("ownerFollowUp") is not None
+    ):
+        errors.append("external readiness notion exact aligned 근거가 다릅니다.")
+    external_notion_link = {
+        "url": notion_evidence.get("pageUrl"),
+        "pageId": notion_evidence.get("pageId"),
+    }
+    readiness_notion_link = metadata_evidence.get("notionPage") if isinstance(metadata_evidence, dict) else None
+    if external_notion_link != AUTHORITATIVE_NOTION_LINK or readiness_notion_link != AUTHORITATIVE_NOTION_LINK:
+        errors.append("external/readiness Notion authoritative lineage가 다릅니다.")
     figma = external.get("figma", {})
     figma_evidence = figma.get("evidence", {})
-    if figma.get("status") != "not-ready" or figma.get("contractVersion") != "not-linked" or figma_evidence.get("missingLinkage") != ["responseFields", "loading", "empty", "error"] or not figma.get("ownerFollowUp"):
-        errors.append("external readiness figma를 field/state linkage 없이 승격할 수 없습니다.")
-    expected_readiness = {stage: {"status": "not-ready", "evidence": None} for stage in ("metadata", "example", "implementation")}
+    if (
+        figma.get("status") != "ready"
+        or figma.get("contractVersion") != "1.0.0"
+        or figma_evidence.get("fileKey") != "4mKep38zm17iupVSQVsSJW"
+        or [figma_evidence.get(field) for field in ("contractNode", "actionNode", "loadingNode", "successNode", "emptyNode", "errorNode")]
+        != ["1291:8816", "1291:8819", "1291:8820", "1291:8821", "1291:8822", "1291:8823"]
+        or figma_evidence.get("decisionComment") != AUTHORITATIVE_DECISION
+        or figma.get("ownerFollowUp") is not None
+    ):
+        errors.append("external readiness figma exact field/state linkage가 다릅니다.")
+    external_figma_link = {
+        "url": AUTHORITATIVE_FIGMA_LINK["url"],
+        "fileKey": figma_evidence.get("fileKey"),
+        "nodeId": figma_evidence.get("contractNode"),
+    }
+    readiness_figma_link = metadata_evidence.get("figmaNode") if isinstance(metadata_evidence, dict) else None
+    if external_figma_link != AUTHORITATIVE_FIGMA_LINK or readiness_figma_link != AUTHORITATIVE_FIGMA_LINK:
+        errors.append("external/readiness Figma authoritative lineage가 다릅니다.")
+    expected_readiness = _load(DEFAULT_CONTRACT)["readiness"]
     if contract.get("readiness") != expected_readiness:
-        errors.append("external readiness는 모두 not-ready여야 합니다.")
+        errors.append("external metadata/example ready와 implementation not-ready 경계가 다릅니다.")
 
 
 def catalog_projection(endpoint: dict[str, Any]) -> dict[str, Any]:
@@ -231,10 +274,10 @@ def _validate_projection(contract: dict[str, Any], errors: list[str]) -> None:
     domain = next((item for item in catalog.get("domainContracts", []) if item.get("issue") == 94), None)
     expected_domain = {
         "issue": 94,
-        "domain": "weather",
+        "domain": "weather-forecast",
         "inherits": "timing-jeju-rest-contract/v1",
-        "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"},
-        "readiness": {stage: {"status": "not-ready", "evidence": None} for stage in ("metadata", "example", "implementation")},
+        "versions": {"local": "1.0.0", "notion": "1.0.0", "figma": "1.0.0"},
+        "readiness": contract["readiness"],
     }
     if domain != expected_domain:
         errors.append("catalog domain readiness/version projection이 다릅니다.")
