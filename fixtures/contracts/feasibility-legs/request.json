@@ -1,0 +1,22 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": {
+    "intake": {
+      "method": "POST",
+      "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001/feasibility-runs",
+      "headers": {
+        "Authorization": "Bearer fixture.invalid.token",
+        "Idempotency-Key": "018f6f2a-60a0-7f5b-8c61-8f548f34bc31"
+      },
+      "body": {"refreshExternalFacts": false}
+    },
+    "poll": {
+      "method": "GET",
+      "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001/feasibility-runs/63000000-0000-0000-0000-000000000001"
+    },
+    "leg": {
+      "method": "GET",
+      "path": "/api/v1/trips/50000000-0000-0000-0000-000000000001/schedule-versions/60000000-0000-0000-0000-000000000001/legs/62000000-0000-0000-0000-000000000002"
+    }
+  }
+}
