@@ -47,6 +47,12 @@ TAGO 정류장 도착정보 importer도 위 TAGO 설정을 공유한다. 별도 
 
 설정 객체와 client 설정 객체의 문자열 표현은 key를 `[REDACTED]`로 가립니다. 애플리케이션 오류, 로그, Actuator와 문서에 실제 key, `Authorization` 값 또는 `serviceKey` query를 기록하지 않습니다.
 
+## 완료 공급자 Actuator 상태 요약
+
+`APP_DATA_HEALTH_ACTUATOR_ENABLED`의 기본값은 `false`입니다. 명시적으로 `true`인 운영 환경만 완료된 TourAPI·TAGO·KMA 집계 결과를 기존 `/actuator/health`의 aggregate `UP`/`DOWN`에 반영합니다. TMAP·mobility 상태는 이 요약의 범위가 아닙니다.
+
+공개 health 응답은 `show-details=never`, `show-components=never`를 유지하므로 provider·operation·시각·reason·원천 오류를 노출하지 않습니다. 활성화된 probe는 요청마다 bounded 집계를 한 번 수행하며 datasource `connection-timeout`의 영향을 받습니다. 운영 probe 주기와 timeout은 서로 겹쳐 요청이 누적되지 않도록 여유 있게 구성해야 합니다. 별도 cache나 background scheduler는 사용하지 않습니다.
+
 ## 공통 HTTP 실행 계약
 
 - 연결 timeout 기본값은 2초, 응답 timeout 기본값은 5초이며 한 논리 호출의 전체 budget은 8초입니다. 전체 budget에는 최대 3회의 시도와 retry 대기가 모두 포함됩니다.

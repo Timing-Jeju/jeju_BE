@@ -126,6 +126,20 @@ class ArchitectureTest {
   }
 
   @Test
+  void 완료_공급자_Actuator_adapter는_application_service_방향을_유지한다() {
+    classes()
+        .that()
+        .haveSimpleName("CompletedProviderDataHealthIndicator")
+        .should()
+        .resideInAPackage("..global.datahealth..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.datahealth..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void TourAPI_provenance_application_port는_Spring과_JDBC_adapter에_의존하지_않는다() {
     noClasses()
         .that()
