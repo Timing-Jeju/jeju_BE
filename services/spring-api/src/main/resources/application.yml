@@ -17,6 +17,7 @@ management:
   endpoint:
     health:
       show-details: never
+      show-components: never
     info:
       enabled: true
 
@@ -33,6 +34,9 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  data-health:
+    actuator:
+      enabled: ${APP_DATA_HEALTH_ACTUATOR_ENABLED:false}
   places:
     cursor-signing-key: ${APP_PLACES_CURSOR_SIGNING_KEY:}
   external-api:
