@@ -38,7 +38,7 @@ class CompletedProviderDataHealthServiceTest {
   }
 
   @Test
-  void failed_attempt만_있으면_NEVER_SYNCED이지만_lastAttemptAt은_보존한다() {
+  void failed_attempt만_있으면_NO_RECENT_VALID_FACTS이고_lastAttemptAt을_보존한다() {
     ProviderDataHealthHistory history =
         history(TOUR_API, NOW.minusSeconds(10), ProviderDataHealthAttemptStatus.FAILED, null, null);
 
