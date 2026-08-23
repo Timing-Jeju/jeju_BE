@@ -114,6 +114,18 @@ class ArchitectureTest {
   }
 
   @Test
+  void 완료_공급자_data_health_application은_Spring과_JDBC_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.datahealth..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global.datahealth..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void TourAPI_provenance_application_port는_Spring과_JDBC_adapter에_의존하지_않는다() {
     noClasses()
         .that()
