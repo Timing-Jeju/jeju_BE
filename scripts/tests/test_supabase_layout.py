@@ -208,13 +208,61 @@ class SupabaseLayoutTest(unittest.TestCase):
                     compose.index("/docker-entrypoint-initdb.d/099_seed_fixtures.sql"),
                 )
 
+    def test_completed_provider_health_index_is_additive_covering_and_canonically_mounted(self):
+        migration_name = "20260828000000_completed_provider_data_health_index.sql"
+        migration = SUPABASE / "migrations" / migration_name
+        self.assertTrue(migration.is_file())
+        sql = migration.read_text(encoding="utf-8").lower()
+
+        self.assertIn("create index idx_data_import_runs_completed_health_latest", sql)
+        self.assertRegex(
+            sql,
+            r"source_provider\s*,\s*source_service\s*,\s*source_operation\s*,"
+            r"\s*started_at\s+desc\s*,\s*id\s+desc",
+        )
+        self.assertRegex(sql, r"include\s*\(\s*status\s*,\s*finished_at\s*\)")
+        for predicate in (
+            "idempotency_key is not null",
+            "idempotency_enforced",
+            "running_scope_enforced",
+            "status in ('succeeded', 'failed', 'partial', 'cancelled')",
+            "finished_at is not null",
+        ):
+            self.assertIn(predicate, sql)
+        self.assertNotRegex(sql, r"\b(?:alter\s+table|insert|update|delete)\b")
+
+        source = f"./supabase/migrations/{migration_name}"
+        target = "/docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql"
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
+            compose = (ROOT / compose_name).read_text(encoding="utf-8")
+            with self.subTest(compose=compose_name):
+                self.assertEqual(1, compose.count(f"{source}:{target}:ro"))
+                self.assertLess(
+                    compose.index("/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql"),
+                    compose.index(target),
+                )
+                self.assertLess(
+                    compose.index(target),
+                    compose.index("/docker-entrypoint-initdb.d/099_seed_fixtures.sql"),
+                )
+
+        smoke_test = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(smoke_test.count(target), 2)
+        database_docs = (
+            ROOT / "docs" / "designs" / "timing-jeju-db-schema-v0.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(migration_name, database_docs)
+        self.assertIn("idx_data_import_runs_completed_health_latest", database_docs)
+
     def test_recommended_stay_policy_dbml_matches_canonical_migration(self):
         dbml = (
             ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
         ).read_text(encoding="utf-8")
 
         expected_contracts = (
-            "#37 place-link `/020`, #65 stay-policy `/021`, #39 arrival `/024`, #39 flight-state `/025`, seed `/099`",
+            "#37 place-link `/020`, #65 stay-policy `/021`, #39 arrival `/024`, #39 flight-state `/025`, #160 completed-health index `/026`, seed `/099`",
             "Table place_stay_policy_versions {",
             "version text [pk]",
             "status text [not null, note: \"draft, active, retired\"]",

@@ -21,6 +21,7 @@
 - [import run 계보 보존](../../supabase/migrations/20260730040000_import_run_lineage_retention.sql)
 - [KMA 단기예보 version](../../supabase/migrations/20260820000001_kma_village_forecast_version.sql)
 - [공개 장소 tombstone](../../supabase/migrations/20260825000000_public_place_tombstone.sql)
+- [완료 공급자 데이터 상태 조회 인덱스](../../supabase/migrations/20260828000000_completed_provider_data_health_index.sql)
 - [스키마 계약 검사](../../db/queries/schema_contract.sql)
 - [음수 무결성 계약](../../db/queries/database_negative_constraints.sql)
 - [자동 스모크 검사](../../db/queries/smoke_check.sql)
@@ -140,6 +141,8 @@ erDiagram
 `areaBasedSyncList2`의 canonical 범위는 `(tour-api, KorService2, areaBasedSyncList2, jeju)`이고 `20260818000000` migration이 `modifiedTime=1970-01-01T00:00:00Z` version 0 checkpoint를 기존 값을 덮어쓰지 않는 방식으로 seed한다. 증분 importer는 page snapshot 검증과 add/update/delete normalized write, run 성공, 이 checkpoint의 CAS 전진을 한 transaction으로 묶는다. CAS `40001`이면 normalized row와 run 성공 전이까지 함께 rollback하며, 삭제는 source row를 남긴 채 stale→tombstone 두 단계만 허용한다.
 
 `external_api_snapshots.raw_payload`에는 API key, Authorization 헤더, 원문 요청 URL과 PII를 저장하지 않는다. source identity뿐 아니라 request hash, parser version, payload hash와 raw payload 같은 감사 필드는 생성 후 바꿀 수 없고 `parsed`/`tombstoned` 상태를 미파싱 상태로 되돌릴 수 없다. 공개 API와 계산 계층은 이 테이블을 직접 읽지 않는다. 수집 내부 테이블 5개는 RLS를 켜되 `anon`·`authenticated` policy와 직접 grant를 두지 않는다.
+
+완료 공급자 데이터 상태 집계는 `data_import_runs`의 canonical provider/service/operation과 lifecycle predicate를 기준으로 최근 terminal history를 `(started_at DESC, id DESC)` 순서로 최대 32건만 읽는다. 이 window 안의 same-lineage `parsed` snapshot을 가진 최신 succeeded run만 valid facts로 사용한다. terminal이 없으면 `NEVER_SYNCED`, terminal은 있지만 32건 안에 valid facts가 없으면 `NO_RECENT_VALID_FACTS / VALID_FACTS_WINDOW_EXHAUSTED`이며 33번째 이전 facts를 현재 상태로 추정하지 않는다. append-only `20260828000000_completed_provider_data_health_index.sql`의 `idx_data_import_runs_completed_health_latest`가 `(source_provider, source_service, source_operation, started_at DESC, id DESC)` 순서를 지원하며 status와 finished_at만 covering한다. 원문 payload, 오류 메시지, credential 및 내부 request metadata는 projection하지 않는다.
 
 `service_role`은 필요한 앱 DML과 허용된 RPC만 사용하며, 행 trigger를 우회하는 `TRUNCATE` 권한은 기존·향후 public 앱 테이블에서 제거한다. `spatial_ref_sys` 같은 확장 관리 객체는 확장 소유자의 ACL 경계이므로 앱 테이블 권한 검사에서 제외한다. 파괴적 앱 테이블 초기화는 통제된 migration owner 경로로 제한한다.
 
