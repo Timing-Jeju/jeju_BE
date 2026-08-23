@@ -156,6 +156,12 @@ class RestContractReadinessTest(unittest.TestCase):
             Path("fixtures/contracts/weather-forecast/request.json"),
             Path("fixtures/contracts/weather-forecast/success.json"),
             Path("fixtures/contracts/weather-forecast/problem.json"),
+            Path("services/spring-api/src/main/java/com/timingjeju/api/domain/weather/controller/WeatherForecastController.java"),
+            Path("services/spring-api/src/test/java/com/timingjeju/api/domain/weather/controller/WeatherForecastControllerTest.java"),
+            Path("services/spring-api/src/test/java/com/timingjeju/api/domain/weather/service/WeatherForecastQueryServiceTest.java"),
+            Path("services/spring-api/src/test/java/com/timingjeju/api/global/weather/JdbcWeatherForecastRepositoryIntegrationTest.java"),
+            Path("services/spring-api/src/test/java/com/timingjeju/api/documentation/WeatherForecastOpenApiIntegrationTest.java"),
+            Path("scripts/tests/test_weather_forecast_contract.py"),
         ):
             target = repo_root / relative
             target.parent.mkdir(parents=True, exist_ok=True)

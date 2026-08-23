@@ -224,7 +224,17 @@
         "problemFixture": "fixtures/contracts/weather-forecast/problem.json"
       }
     },
-    "implementation": {"status": "not-ready", "evidence": null}
+    "implementation": {
+      "status": "ready",
+      "evidence": {
+        "controller": "services/spring-api/src/main/java/com/timingjeju/api/domain/weather/controller/WeatherForecastController.java",
+        "controllerTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/controller/WeatherForecastControllerTest.java",
+        "serviceTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/service/WeatherForecastQueryServiceTest.java",
+        "repositoryTest": "services/spring-api/src/test/java/com/timingjeju/api/global/weather/JdbcWeatherForecastRepositoryIntegrationTest.java",
+        "openApiTest": "services/spring-api/src/test/java/com/timingjeju/api/documentation/WeatherForecastOpenApiIntegrationTest.java",
+        "contractTest": "scripts/tests/test_weather_forecast_contract.py"
+      }
+    }
   },
   "schemaGap": [
     "weather_forecasts has no expires_at column; Issue #67 must derive expiry from snapshot fetched_at/base policy or add an explicit migration",

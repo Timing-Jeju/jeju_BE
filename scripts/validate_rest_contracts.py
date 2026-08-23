@@ -87,6 +87,14 @@ READINESS_EVIDENCE_FIELDS = {
     "example": {"requestFixture", "successFixture", "problemFixture"},
     "implementation": {"controller", "openApiTest", "contractTest"},
 }
+ISSUE_94_WEATHER_IMPLEMENTATION_EVIDENCE = {
+    "controller": "services/spring-api/src/main/java/com/timingjeju/api/domain/weather/controller/WeatherForecastController.java",
+    "controllerTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/controller/WeatherForecastControllerTest.java",
+    "serviceTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/service/WeatherForecastQueryServiceTest.java",
+    "repositoryTest": "services/spring-api/src/test/java/com/timingjeju/api/global/weather/JdbcWeatherForecastRepositoryIntegrationTest.java",
+    "openApiTest": "services/spring-api/src/test/java/com/timingjeju/api/documentation/WeatherForecastOpenApiIntegrationTest.java",
+    "contractTest": "scripts/tests/test_weather_forecast_contract.py",
+}
 TEMPLATE_DEFAULTS = {
     "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
     "idempotency": {"required": False, "header": "none"},
@@ -832,6 +840,25 @@ def _validate_ready_evidence(
     repo_root: Path,
     errors: list[str],
 ) -> None:
+    if stage == "implementation" and issue == 94 and domain == "weather-forecast":
+        if evidence != ISSUE_94_WEATHER_IMPLEMENTATION_EVIDENCE:
+            errors.append(
+                "도메인 계약 #94의 Implementation Ready canonical evidence가 다릅니다."
+            )
+            return
+        for field, value in evidence.items():
+            candidate = repo_root / value
+            try:
+                resolved = candidate.resolve(strict=True)
+                resolved.relative_to(repo_root)
+            except (OSError, ValueError):
+                errors.append(
+                    f"도메인 계약 #94의 {field} evidence 경로가 없거나 저장소 밖입니다."
+                )
+                continue
+            if not resolved.is_file():
+                errors.append(f"도메인 계약 #94의 {field} evidence는 실제 파일이어야 합니다.")
+        return
     domain_token = str(domain).replace("-", "")
     if stage == "metadata":
         _validate_evidence_path(
@@ -909,9 +936,14 @@ def _validate_domain_readiness(
             continue
         status = entry.get("status")
         evidence = entry.get("evidence")
+        expected_evidence_fields = (
+            set(ISSUE_94_WEATHER_IMPLEMENTATION_EVIDENCE)
+            if stage == "implementation" and issue == 94 and domain == "weather-forecast"
+            else READINESS_EVIDENCE_FIELDS[stage]
+        )
         _reject_unknown_fields(
             evidence,
-            READINESS_EVIDENCE_FIELDS[stage],
+            expected_evidence_fields,
             f"도메인 계약 #{issue}.readiness.{stage}.evidence",
             errors,
         )
@@ -921,7 +953,7 @@ def _validate_domain_readiness(
         elif status == "not-ready" and evidence is not None:
             errors.append(f"도메인 계약 #{issue}의 not-ready {stage} evidence는 null이어야 합니다.")
         elif status == "ready":
-            if not isinstance(evidence, dict) or set(evidence) != READINESS_EVIDENCE_FIELDS[stage]:
+            if not isinstance(evidence, dict) or set(evidence) != expected_evidence_fields:
                 label = "Implementation Ready" if stage == "implementation" else stage
                 errors.append(
                     f"도메인 계약 #{issue}의 {label} evidence는 구조화 정확 집합이어야 합니다."

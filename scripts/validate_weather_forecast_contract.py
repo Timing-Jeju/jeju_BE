@@ -238,7 +238,7 @@ def _validate_external(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("external/readiness Figma authoritative lineage가 다릅니다.")
     expected_readiness = _load(DEFAULT_CONTRACT)["readiness"]
     if contract.get("readiness") != expected_readiness:
-        errors.append("external metadata/example ready와 implementation not-ready 경계가 다릅니다.")
+        errors.append("external metadata/example/implementation ready evidence 경계가 다릅니다.")
 
 
 def catalog_projection(endpoint: dict[str, Any]) -> dict[str, Any]:

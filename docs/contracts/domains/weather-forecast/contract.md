@@ -8,7 +8,7 @@ Issue #94가 확정하는 Spring 공개 API `GET /api/v1/weather/forecast`의 ca
 - 날씨는 사용자 소유 리소스가 아닙니다. Authorization 생략은 anonymous, 전달한 token이 invalid/expired이면 401입니다. 권한 판단이 필요한 미래 확장은 canonical JWT `sub`만 사용합니다.
 - PM 결정 [issuecomment-5387038123](https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123)에 따라 [Notion page](https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c) `3a40a87c-7ce5-816b-a8f7-ed2027e94b8c`는 Contract Version `1.0.0`, Spec Status `Ready`이며 로컬 response·error·fallback·security 계약과 정렬됐습니다. 화면 근거는 Figma contract node `1291:8816`을 포함합니다.
 - [Figma file](https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816) `4mKep38zm17iupVSQVsSJW`의 contract `1291:8816`, action `1291:8819`, loading `1291:8820`, success `1291:8821`, empty `1291:8822`, error `1291:8823`을 exact evidence로 고정합니다.
-- 위 근거와 저장소의 request/success/problem fixture가 검증되므로 metadata/example readiness는 `ready`입니다. 실제 Controller/OpenAPI/contract test를 소유하는 Issue #67이 완료되기 전 implementation readiness는 `not-ready`로 유지합니다.
+- 위 근거와 저장소의 request/success/problem fixture가 검증되므로 metadata/example readiness는 `ready`입니다. Issue #67의 실제 Controller, Controller/Service/PostgreSQL repository test, OpenAPI integration test와 Python contract test 경로를 canonical evidence로 검증하므로 implementation readiness도 `ready`입니다. 경로 누락·교체·변조는 공통 validator가 fail-closed로 거부합니다.
 
 ## 요청과 시간 경계
 
