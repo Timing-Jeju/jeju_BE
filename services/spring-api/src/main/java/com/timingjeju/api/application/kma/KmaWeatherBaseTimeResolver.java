@@ -18,16 +18,17 @@ public final class KmaWeatherBaseTimeResolver {
 
   public KmaWeatherBaseTimeResolver(Clock clock) {
     this.clock = Objects.requireNonNull(clock, "clock은 필수입니다.");
-    this.forecastResolver = new ForecastBaseTimeResolver(clock);
+    this.forecastResolver = new ForecastBaseTimeResolver();
   }
 
   public ForecastBaseTime latest(KmaWeatherOperation operation) {
     Objects.requireNonNull(operation, "operation은 필수입니다.");
+    java.time.Instant evaluatedAt = clock.instant();
     if (operation == KmaWeatherOperation.ULTRA_FORECAST)
-      return forecastResolver.resolve(ForecastType.ULTRA_SHORT);
+      return forecastResolver.resolve(ForecastType.ULTRA_SHORT, evaluatedAt);
     if (operation == KmaWeatherOperation.VILLAGE_FORECAST)
-      return forecastResolver.resolve(ForecastType.VILLAGE);
-    LocalDateTime eligible = clock.instant().atZone(KOREA).toLocalDateTime().minusMinutes(10);
+      return forecastResolver.resolve(ForecastType.VILLAGE, evaluatedAt);
+    LocalDateTime eligible = evaluatedAt.atZone(KOREA).toLocalDateTime().minusMinutes(10);
     return new ForecastBaseTime(eligible.toLocalDate(), LocalTime.of(eligible.getHour(), 0));
   }
 
@@ -35,9 +36,7 @@ public final class KmaWeatherBaseTimeResolver {
     Objects.requireNonNull(operation, "operation은 필수입니다.");
     Objects.requireNonNull(base, "base는 필수입니다.");
     if (operation == KmaWeatherOperation.VILLAGE_FORECAST) {
-      LocalDateTime justBefore = LocalDateTime.of(base.baseDate(), base.baseTime()).minusNanos(1);
-      Clock previousClock = Clock.fixed(justBefore.atZone(KOREA).toInstant(), KOREA);
-      return new ForecastBaseTimeResolver(previousClock).resolve(ForecastType.VILLAGE);
+      return forecastResolver.previous(ForecastType.VILLAGE, base);
     }
     LocalDateTime previous =
         LocalDateTime.of(base.baseDate(), base.baseTime()).minus(Duration.ofHours(1));

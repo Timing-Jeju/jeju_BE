@@ -15,6 +15,7 @@ CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 TEMPLATE = ROOT / "docs/contracts/rest/endpoint-template.json"
 FIXTURES = ROOT / "fixtures/contracts/weather-forecast"
 VALIDATOR = ROOT / "scripts/validate_weather_forecast_contract.py"
+COMMON_VALIDATOR = ROOT / "scripts/validate_rest_contracts.py"
 RDB_SPEC = ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md"
 INITIAL_SCHEMA = ROOT / "supabase/migrations/20260728000000_initial_public_schema.sql"
 
@@ -27,6 +28,12 @@ class WeatherForecastContractTest(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         cls.validator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.validator)
+        common_spec = importlib.util.spec_from_file_location(
+            "weather_common_contract_validator", COMMON_VALIDATOR
+        )
+        assert common_spec is not None and common_spec.loader is not None
+        cls.common_validator = importlib.util.module_from_spec(common_spec)
+        common_spec.loader.exec_module(cls.common_validator)
 
     def test_identity_endpoint_and_common_inheritance_are_exact(self) -> None:
         self.assertEqual("timing-jeju-weather-forecast-contract/v1", self.contract["schemaVersion"])
@@ -154,7 +161,7 @@ class WeatherForecastContractTest(unittest.TestCase):
         self.assertIn("contractVersion: `1.0.0`", rdb)
         self.assertIn("WEATHER_FORECAST_UNAVAILABLE", rdb)
 
-    def test_external_evidence_is_exact_and_only_implementation_remains_not_ready(self) -> None:
+    def test_external_and_actual_implementation_evidence_are_exact_and_ready(self) -> None:
         external = self.contract["externalTraceability"]
         notion = external["notion"]
         self.assertEqual(
@@ -221,10 +228,54 @@ class WeatherForecastContractTest(unittest.TestCase):
                         "problemFixture": "fixtures/contracts/weather-forecast/problem.json",
                     },
                 },
-                "implementation": {"status": "not-ready", "evidence": None},
+                "implementation": {
+                    "status": "ready",
+                    "evidence": {
+                        "controller": "services/spring-api/src/main/java/com/timingjeju/api/domain/weather/controller/WeatherForecastController.java",
+                        "controllerTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/controller/WeatherForecastControllerTest.java",
+                        "serviceTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/service/WeatherForecastQueryServiceTest.java",
+                        "repositoryTest": "services/spring-api/src/test/java/com/timingjeju/api/global/weather/JdbcWeatherForecastRepositoryIntegrationTest.java",
+                        "openApiTest": "services/spring-api/src/test/java/com/timingjeju/api/documentation/WeatherForecastOpenApiIntegrationTest.java",
+                        "contractTest": "scripts/tests/test_weather_forecast_contract.py",
+                    },
+                },
             },
             self.contract["readiness"],
         )
+
+    def test_issue94_implementation_evidence_missing_wrong_or_tampered_path_fails(self) -> None:
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        weather = next(item for item in catalog["domainContracts"] if item["issue"] == 94)
+        evidence = {
+            "controller": "services/spring-api/src/main/java/com/timingjeju/api/domain/weather/controller/WeatherForecastController.java",
+            "controllerTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/controller/WeatherForecastControllerTest.java",
+            "serviceTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/service/WeatherForecastQueryServiceTest.java",
+            "repositoryTest": "services/spring-api/src/test/java/com/timingjeju/api/global/weather/JdbcWeatherForecastRepositoryIntegrationTest.java",
+            "openApiTest": "services/spring-api/src/test/java/com/timingjeju/api/documentation/WeatherForecastOpenApiIntegrationTest.java",
+            "contractTest": "scripts/tests/test_weather_forecast_contract.py",
+        }
+        weather["readiness"]["implementation"] = {
+            "status": "ready",
+            "evidence": evidence,
+        }
+        self.assertEqual([], self.common_validator.validate_catalog(catalog))
+
+        mutations = (
+            ("missing", lambda value: value.pop("serviceTest")),
+            ("wrong", lambda value: value.update(controllerTest=value["serviceTest"])),
+            ("tampered", lambda value: value.update(contractTest="scripts/tests/test_contract_suite_integration.py")),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                candidate = copy.deepcopy(catalog)
+                candidate_weather = next(
+                    item for item in candidate["domainContracts"] if item["issue"] == 94
+                )
+                mutate(candidate_weather["readiness"]["implementation"]["evidence"])
+                errors = self.common_validator.validate_catalog(candidate)
+                self.assertTrue(
+                    any("Implementation Ready" in error for error in errors), errors
+                )
         self.assertEqual(
             {
                 "node": "1291:8816",
