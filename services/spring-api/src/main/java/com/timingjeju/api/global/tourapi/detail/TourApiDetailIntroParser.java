@@ -1,12 +1,14 @@
 package com.timingjeju.api.global.tourapi.detail;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
+import com.timingjeju.api.application.text.PublicPlainTextNormalizer;
 import com.timingjeju.api.application.tourapi.detail.DetailIntroParser;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailImportException;
 import com.timingjeju.api.application.tourapi.detail.PlaceDetailIntro;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -83,9 +85,11 @@ public final class TourApiDetailIntroParser implements DetailIntroParser {
               "packing",
               "kidsfacility"));
   private final TourApiDetailJson json;
+  private final PublicPlainTextNormalizer publicText;
 
-  public TourApiDetailIntroParser(ObjectMapper objectMapper) {
+  public TourApiDetailIntroParser(ObjectMapper objectMapper, PublicPlainTextNormalizer publicText) {
     json = new TourApiDetailJson(objectMapper);
+    this.publicText = Objects.requireNonNull(publicText);
   }
 
   @Override
@@ -184,8 +188,8 @@ public final class TourApiDetailIntroParser implements DetailIntroParser {
     return left + separator + right;
   }
 
-  private static void put(Map<String, String> target, JsonNode item, String field) {
-    String value = TourApiDetailJson.optionalText(item, field);
+  private void put(Map<String, String> target, JsonNode item, String field) {
+    String value = publicText.normalize(TourApiDetailJson.optionalText(item, field));
     if (value != null) target.put(field, value);
   }
 }

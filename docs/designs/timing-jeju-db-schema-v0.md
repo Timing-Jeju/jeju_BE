@@ -19,6 +19,8 @@
 - [외부 적재 계보·유효기간 강화](../../supabase/migrations/20260730020000_ingestion_consistency_hardening.sql)
 - [일정 Day 무결성 강화](../../supabase/migrations/20260730030000_schedule_consistency_hardening.sql)
 - [import run 계보 보존](../../supabase/migrations/20260730040000_import_run_lineage_retention.sql)
+- [KMA 단기예보 version](../../supabase/migrations/20260820000001_kma_village_forecast_version.sql)
+- [공개 장소 tombstone](../../supabase/migrations/20260825000000_public_place_tombstone.sql)
 - [스키마 계약 검사](../../db/queries/schema_contract.sql)
 - [음수 무결성 계약](../../db/queries/database_negative_constraints.sql)
 - [자동 스모크 검사](../../db/queries/smoke_check.sql)
@@ -155,8 +157,10 @@ erDiagram
 | `place_aliases` | 검색/장소명 매칭 별칭 | TourAPI, app |
 | `place_images` | 외부 이미지 ID·저작권·출처를 보존한 반복 이미지 목록 | TourAPI/admin |
 | `saved_places` | 관심 장소/메모/태그 | user input |
+| `place_stay_policy_versions` | 앱 큐레이션 payload version과 active 원자 교체 | versioned CSV import |
+| `place_stay_policies` | category default 또는 place override | app curation |
 
-`recommended_stay_minutes`는 TourAPI 원천값이 아니다. 큐레이션 또는 계산 결과이며 장소 row에 앱 기준값으로 저장한다.
+`tour_places.recommended_stay_minutes`는 TourAPI 원천값이 아니며 legacy read 호환으로만 유지한다. 신규 큐레이션은 장소 row나 외부 snapshot lineage를 수정하지 않고 `place_stay_policy_versions`와 `place_stay_policies`에만 저장한다. policy row는 category 또는 place 중 정확히 하나를 대상으로 하며 resolver는 active place override → active category default → unavailable 순서로 결정한다. provenance는 source=`app_curation`, version, effective/imported 시각으로 재현한다.
 
 `tour_places`는 앱의 통합 장소 read model이고 외부 natural key는 `tour_place_sources`의 `(source_provider, source_service, external_id)`가 소유한다. TourAPI KorService2의 최신 법정동·분류 원문은 `l_dong_regn_cd`, `l_dong_signgu_cd`, `lcls_systm1`, `lcls_systm2`, `lcls_systm3`에 보존하며 기존 컬럼은 legacy 호환 필드다. `place_detail_items`는 provider/service/item key로 멱등 upsert한다. 영업시간은 같은 요일뿐 아니라 익일 첫 구간·휴무와도 겹칠 수 없고 정확히 `00:00`에 끝나는 구간은 다음 날을 점유하지 않는다. 교차 요일 검사는 같은 장소 행에 MVCC 쓰기 펜스를 세워 직렬화하고 오래된 `REPEATABLE READ` writer는 `40001`로 중단한다. 충돌하는 legacy 조합은 자동 수정하지 않고 migration을 중단한다. 신규 이미지와 URL 변경은 trigger가 길이 prefix를 포함한 `(place_id, source_provider, source_service, image_url)`의 SHA-256 digest를 `source_url_key`로 계산한다. declarative unique `(place_id, source_url_key)`가 `ON CONFLICT` 기준이며 advisory lock과 원본 비교가 digest collision을 차단한다. `source_image_id`가 있으면 별도 unique도 적용하고, v1의 기존 중복 URL만 `source_url_key=NULL`로 보존한다.
 
@@ -172,9 +176,17 @@ erDiagram
 | `route_stops` | 노선 방향별 정류장 순서 | TAGO |
 | `timetable_entries` | 확보된 정적 시간표 | 보조 source; TAGO 보장 아님 |
 | `bus_arrival_snapshots` | 정류장별 실시간 도착 snapshot | TAGO, 짧은 TTL |
+| `tago_arrival_flights` | 다중 Spring instance의 도착 요청 generation·lease·terminal outcome | 내부 service role 전용, 원문 미저장 |
 | `mobility_route_snapshots` | 도보/대중교통/차량/택시 경로 cache | TMAP 등 provider |
 
 `trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. 원천 route cache는 `mobility_route_snapshots`에 분리한다.
+
+`bus_arrival_snapshots` 신규 행은 `source_service`, `source_snapshot_id`, `import_run_id`를 함께 가져야
+하며 TAGO 정류장 reference의 provider/service/city/node 범위와 일치해야 한다. 같은
+`(provider, service, stop, observed_at)`에서 서로 다른 run/snapshot/expires lineage는 advisory-lock
+trigger가 거부하고, 같은 lineage의 여러 노선 행은 허용한다. 최신 조회는 bounded provider/service와
+유효한 도착·잔여 정류장 범위만 대상으로 `observed_at DESC, source_snapshot_id DESC` 순서를 사용한다.
+`idx_bus_arrivals_source_stop_freshness`가 이 lookup을 지원하고 anon/authenticated 직접 접근은 차단한다.
 
 TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취급하지 않는다. 정류장과 노선은 provider/service/city 범위로 식별한다. `route_stops`도 provider와 city를 소유해 다른 공급자·도시의 노선과 정류장을 섞지 못한다. UUID FK는 route/stop 존재와 삭제 전파를 담당하고, source scope trigger가 route·stop·route_stop의 provider/city 조합을 잠금과 함께 정확히 검증한다. `timetable_entries.city_code`는 legacy의 경유지 누락·provider 불일치 행을 보존하기 위해 물리적으로 nullable이다. 신규·관련 컬럼 변경에는 trigger가 non-null provider/city와 동일 route/direction/stop/provider/city의 유효한 route_stop을 요구한다. lineage 없는 legacy 행은 그대로 변경할 수 없지만 `parsed`/`tombstoned` snapshot과 일치 run을 함께 연결해 유효 범위로 복구할 수 있다. 같은 source record의 유효기간은 GiST exclusion으로 겹칠 수 없다.
 
@@ -184,12 +196,17 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | --- | --- | --- |
 | `weather_grid_points` | 위경도와 KMA `nx`,`ny` 매핑 | app/KMA grid |
 | `weather_observations` | 초단기실황 snapshot | KMA |
-| `weather_forecasts` | 초단기/단기예보 snapshot | KMA |
+| `weather_forecasts` | 초단기/단기예보 snapshot과 단기 `forecast_version` | KMA |
 | `trip_weather_impacts` | 특정 일정 버전에 대한 날씨 영향 | FastAPI computed |
 
 `weather_forecasts.forecast_type`의 canonical 저장 enum은 `ultra_short | short`다. 공개 날씨 API 계약 #94는 `ultra_short | village`를 사용하므로 구현 #67이 `short`를 `village`로 읽기 projection하며, 저장 enum을 공개 응답에 직접 노출하지 않는다.
 
 예보와 영향은 반드시 분리한다. 예보가 갱신되어도 과거 계산이 어떤 forecast를 사용했는지 FK로 추적한다.
+단기예보 신규 행은 `getFcstVersion`의 `SHRT` 파일 version(`yyyyMMddHHmm`)을 반드시 저장하고,
+초단기예보에는 이 값을 혼합하지 않는다.
+2024-11-28 이후 확장 시간대의 PCP/WSD 정성 code는 각각
+`precipitation_intensity_code`/`wind_strength_code`에 저장하며, 같은 행의
+`precipitation_amount_mm`/`wind_speed_mps`는 null이어야 한다.
 
 ### 4.5 Trip Input
 

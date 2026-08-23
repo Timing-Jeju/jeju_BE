@@ -87,6 +87,9 @@ run_common_checks() {
   stage "날씨 예보 API 계약 검사"
   python3 scripts/validate_weather_forecast_contract.py
 
+  stage "가능성 계산·이동 구간 계약 검사"
+  python3 scripts/validate_feasibility_legs_contract.py
+
   stage "저장소 자동화 테스트"
   python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
   python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'

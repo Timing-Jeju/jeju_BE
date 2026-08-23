@@ -35,6 +35,8 @@ if ($Scope -in @("all", "common")) {
   py -3 scripts/validate_schedules_contract.py
   Write-Stage "날씨 예보 API 계약 검사"
   py -3 scripts/validate_weather_forecast_contract.py
+
+  py -3 scripts/validate_feasibility_legs_contract.py
   py -3 -m unittest discover -s .codex/hooks/tests -p test_*.py
   py -3 -m unittest discover -s scripts/git-hooks/tests -p test_*.py
   py -3 -m unittest discover -s scripts/tests -p test_*.py

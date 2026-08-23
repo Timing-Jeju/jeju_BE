@@ -105,21 +105,22 @@ public final class PlaceImageImportService {
       int requestedPage,
       int expectedTotal,
       int fetched) {
-    if (!command.contentId().equals(page.contentId())
-        || page.pageNo() != requestedPage
-        || page.numOfRows() != DetailImageRequestContract.PAGE_SIZE) {
+    if (!command.contentId().equals(page.contentId()) || page.pageNo() != requestedPage) {
       throw PlaceImageImportException.invalidResponse();
     }
     int total = expectedTotal < 0 ? page.totalCount() : expectedTotal;
+    int remaining = total - fetched;
+    if (remaining <= 0) {
+      throw PlaceImageImportException.invalidResponse();
+    }
+    int expectedRows = Math.min(DetailImageRequestContract.PAGE_SIZE, remaining);
+    if (page.numOfRows() != expectedRows || page.rawItemCount() != expectedRows) {
+      throw PlaceImageImportException.invalidResponse();
+    }
     if (page.totalCount() != total || fetched + page.rawItemCount() > total) {
       throw PlaceImageImportException.invalidResponse();
     }
-    int remaining = total - fetched;
     if (remaining > 0 && page.rawItemCount() == 0) {
-      throw PlaceImageImportException.invalidResponse();
-    }
-    if (remaining > DetailImageRequestContract.PAGE_SIZE
-        && page.rawItemCount() != DetailImageRequestContract.PAGE_SIZE) {
       throw PlaceImageImportException.invalidResponse();
     }
     return total;

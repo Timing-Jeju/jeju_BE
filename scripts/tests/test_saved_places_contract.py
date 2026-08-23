@@ -112,6 +112,11 @@ class SavedPlacesContractTest(unittest.TestCase):
         query = schemas["SavedPlacesListQuery"]
         list_endpoint = contract["endpoints"][0]
 
+        self.assertEqual(
+            "^(?:[A-Z]{2}|content-type:[0-9]{1,10})$",
+            schemas["Category"]["pattern"],
+        )
+
         self.assertIn("recommendedStayMinutes", saved_place["required"])
         self.assertEqual(
             {

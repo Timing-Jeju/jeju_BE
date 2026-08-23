@@ -83,6 +83,12 @@ insert into data_import_runs (
   'weather_api', 'KMA 단기예보 fixture', 'getVilageFcst', 'fixture-v1.1',
   'succeeded', now(), 1, '{"domain":"weather-forecast","fixture":true}'::jsonb,
   'KMA', '기상청 단기예보', 'fixture:kma-forecast'
+),
+(
+  '00000000-0000-0000-0000-000000000033',
+  'weather_api', 'KMA 초단기예보 fixture', 'getUltraSrtFcst', 'fixture-v1.1',
+  'succeeded', now(), 1, '{"domain":"weather-ultra-forecast","fixture":true}'::jsonb,
+  'KMA', '기상청 단기예보', 'fixture:kma-ultra-forecast'
 );
 
 insert into external_api_snapshots (
@@ -98,7 +104,8 @@ insert into external_api_snapshots (
 ('00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023', 'TAGO', 'fixture timetable', 'timetable', 'fixture:tago-timetable', repeat('6', 64), 'fixture-parser-v1', repeat('f', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
 ('00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-000000000024', 'TAGO', '버스도착정보 API', 'getSttnAcctoArvlPrearngeInfoList', 'fixture:tago-arrival', repeat('7', 64), 'fixture-parser-v1', repeat('0', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
 ('00000000-0000-0000-0000-000000000301', '00000000-0000-0000-0000-000000000031', 'KMA', '기상청 단기예보', 'getUltraSrtNcst', 'fixture:kma-observation', repeat('8', 64), 'fixture-parser-v1', repeat('1', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
-('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000032', 'KMA', '기상청 단기예보', 'getVilageFcst', 'fixture:kma-forecast', repeat('9', 64), 'fixture-parser-v1', repeat('2', 64), '{"fixture":true}'::jsonb, 'parsed', now());
+('00000000-0000-0000-0000-000000000302', '00000000-0000-0000-0000-000000000032', 'KMA', '기상청 단기예보', 'getVilageFcst', 'fixture:kma-forecast', repeat('9', 64), 'fixture-parser-v1', repeat('2', 64), '{"fixture":true}'::jsonb, 'parsed', now()),
+('00000000-0000-0000-0000-000000000303', '00000000-0000-0000-0000-000000000033', 'KMA', '기상청 단기예보', 'getUltraSrtFcst', 'fixture:kma-ultra-forecast', repeat('a', 64), 'fixture-parser-v1', repeat('3', 64), '{"fixture":true}'::jsonb, 'parsed', now());
 
 insert into auth.users (
   id, email, raw_app_meta_data, raw_user_meta_data, last_sign_in_at
@@ -187,7 +194,7 @@ insert into tour_places (
   '20000000-0000-0000-0000-000000000002',
   'place_seongsan_ilchulbong', '126435', '12',
   '성산일출봉 [유네스코 세계자연유산]', '성산일출봉',
-  'tourist_attraction', 'seongsan', '성산',
+  'VE', 'seongsan', '성산',
   '제주특별자치도 서귀포시 성산읍 일출로 284-12',
   st_setsrid(st_makepoint(126.9415156012, 33.4581111174), 4326)::geography,
   'https://example.local/images/seongsan.jpg',
@@ -200,7 +207,7 @@ insert into tour_places (
 (
   '20000000-0000-0000-0000-000000000003',
   'place_seopjikoji', '127813', '12', '섭지코지', '섭지코지',
-  'tourist_attraction', 'seongsan', '성산',
+  'VE', 'seongsan', '성산',
   '제주특별자치도 서귀포시 성산읍 섭지코지로 107',
   st_setsrid(st_makepoint(126.9280674087, 33.4302500880), 4326)::geography,
   'https://example.local/images/seopjikoji.jpg',
@@ -231,7 +238,7 @@ insert into tour_places (
 (
   '20000000-0000-0000-0000-000000000006',
   'place_seongsan_cafe', null, null, '성산 바다 카페', '성산바다카페',
-  'cafe', 'seongsan', '성산',
+  'content-type:39', 'seongsan', '성산',
   '제주특별자치도 서귀포시 성산읍 해맞이해안로 3',
   st_setsrid(st_makepoint(126.9300, 33.4410), 4326)::geography,
   null, null, '빈 시간 추천 검증용 카페', 45,
@@ -347,12 +354,13 @@ insert into bus_stops (
 );
 
 insert into place_stop_links (
-  place_id, stop_id, distance_meters, walk_minutes, link_method
+  place_id, stop_id, distance_meters, walk_minutes, link_method,
+  source_provider, observed_at, expires_at
 ) values
-('20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 40, 1, 'fixture'),
-('20000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000002', 939, 14, 'fixture'),
-('20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003', 905, 13, 'fixture'),
-('20000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000004', 80, 2, 'fixture');
+('20000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 40, 1, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z'),
+('20000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000002', 939, 14, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z'),
+('20000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000003', 905, 13, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z'),
+('20000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000004', 80, 2, 'fixture', 'fixture', '2026-07-28T00:00:00Z', '2099-12-31T00:00:00Z');
 
 insert into bus_routes (
   id, external_route_id, route_no, route_type, direction_name,
@@ -384,13 +392,13 @@ insert into timetable_entries (
 insert into bus_arrival_snapshots (
   id, stop_id, route_id, external_route_id, route_no, direction_name,
   estimated_arrival_seconds, remaining_stops, observed_at, expires_at,
-  source_provider, source_operation, source_snapshot_id, import_run_id, raw_payload
+  source_provider, source_service, source_operation, source_snapshot_id, import_run_id, raw_payload
 ) values (
   '42000000-0000-0000-0000-000000000001',
   '30000000-0000-0000-0000-000000000002',
   '40000000-0000-0000-0000-000000000001',
   'JEB405320112', '201', '섭지코지 방면', 2520, 18,
-  now(), now() + interval '30 seconds', 'TAGO',
+  now(), now() + interval '30 seconds', 'TAGO', '버스도착정보 API',
   'getSttnAcctoArvlPrearngeInfoList',
   '00000000-0000-0000-0000-000000000204',
   '00000000-0000-0000-0000-000000000024',
@@ -419,17 +427,26 @@ insert into weather_observations (
 );
 
 insert into weather_forecasts (
-  id, grid_point_id, forecasted_at, valid_at, forecast_type, sky_code,
+  id, grid_point_id, forecasted_at, valid_at, forecast_type, forecast_version, sky_code,
   precipitation_type, precipitation_probability_percent, precipitation_amount_mm,
   temperature_c, humidity_percent, wind_speed_mps, source_operation,
   source_snapshot_id, import_run_id, raw_payload
-) values (
+) values
+(
   '35200000-0000-0000-0000-000000000001',
   '35000000-0000-0000-0000-000000000001',
-  current_date + time '08:00', current_date + time '14:00', 'short', 'cloudy',
+  current_date + time '08:00', current_date + time '14:00', 'short', '202608160800', 'cloudy',
   'rain', 60, 1.5, 25.8, 76, 6.1, 'getVilageFcst',
   '00000000-0000-0000-0000-000000000302',
   '00000000-0000-0000-0000-000000000032', '{"fixture":true}'::jsonb
+),
+(
+  '35200000-0000-0000-0000-000000000002',
+  '35000000-0000-0000-0000-000000000001',
+  current_date + time '08:30', current_date + time '14:00', 'ultra_short', null, 'cloudy',
+  'none', null, 0.0, 25.8, 76, 6.1, 'getUltraSrtFcst',
+  '00000000-0000-0000-0000-000000000303',
+  '00000000-0000-0000-0000-000000000033', '{"fixture":true}'::jsonb
 );
 
 insert into mobility_route_snapshots (
@@ -901,5 +918,24 @@ set
   status = 'planned',
   updated_at = now()
 where id = '50000000-0000-0000-0000-000000000001';
+
+insert into place_stay_policy_versions (
+  version, status, payload_hash, effective_at, imported_at
+) values (
+  'fixture-v1', 'active', repeat('65', 32), now(), now()
+);
+
+insert into place_stay_policies (
+  version, scope, category, place_id, minutes, source, updated_at
+) values
+(
+  'fixture-v1', 'category_default', 'VE', null,
+  75, 'app_curation', now()
+),
+(
+  'fixture-v1', 'place_override', null,
+  '20000000-0000-0000-0000-000000000002',
+  70, 'app_curation', now()
+);
 
 commit;

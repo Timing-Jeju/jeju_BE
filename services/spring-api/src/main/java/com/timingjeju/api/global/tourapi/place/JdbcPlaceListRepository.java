@@ -3,6 +3,7 @@ package com.timingjeju.api.global.tourapi.place;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceCommand;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceException;
 import com.timingjeju.api.application.tourapi.TourApiProvenanceWriter;
+import com.timingjeju.api.application.tourapi.place.PlaceAliasWrite;
 import com.timingjeju.api.application.tourapi.place.PlaceLineage;
 import com.timingjeju.api.application.tourapi.place.PlaceListImportException;
 import com.timingjeju.api.application.tourapi.place.PlaceListRepository;
@@ -10,6 +11,7 @@ import com.timingjeju.api.application.tourapi.place.PlaceListUpsertCommand;
 import com.timingjeju.api.application.tourapi.place.PlaceListUpsertResult;
 import com.timingjeju.api.application.tourapi.place.PlaceListWrite;
 import com.timingjeju.api.application.tourapi.place.TourPlace;
+import com.timingjeju.api.domain.places.model.CanonicalPlaceCategory;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -76,7 +78,9 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
     UUID placeId =
         existing == null ? deterministicId("place", place.contentId()) : existing.placeId();
     UUID sourceId =
-        existing == null ? deterministicId("source", place.contentId()) : existing.sourceId();
+        existing == null || existing.sourceId() == null
+            ? deterministicId("source", place.contentId())
+            : existing.sourceId();
     AtomicReference<WriteOutcome> outcome = new AtomicReference<>();
     provenanceWriter.write(
         provenance("tour_places", placeId, place.contentTypeId(), write.lineage()),
@@ -85,6 +89,9 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
           provenanceWriter.write(
               provenance("tour_place_sources", sourceId, place.contentTypeId(), write.lineage()),
               () -> writeSource(existing, sourceId, placeId, write));
+          write
+              .aliases()
+              .forEach(alias -> writeAlias(placeId, place.contentTypeId(), alias, write));
         });
     return Objects.requireNonNull(outcome.get(), "write outcome이 누락되었습니다.");
   }
@@ -103,7 +110,7 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
 
   private void writeSource(
       StoredPlace existing, UUID sourceId, UUID placeId, PlaceListWrite write) {
-    if (existing == null) {
+    if (existing == null || existing.sourceId() == null) {
       insertSource(sourceId, placeId, write);
     } else if (!existing.sameValue(write)) {
       updateSource(sourceId, write);
@@ -131,10 +138,14 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
                    s.l_dong_regn_cd, s.l_dong_signgu_cd,
                    s.lcls_systm1, s.lcls_systm2, s.lcls_systm3,
                    s.source_snapshot_id as source_snapshot_id, s.last_import_run_id
-            from public.tour_place_sources s
-            join public.tour_places p on p.id=s.place_id
-            where s.source_provider=? and s.source_service=? and s.external_id=?
-            for update of p, s
+            from public.tour_places p
+            left join public.tour_place_sources s
+              on s.place_id=p.id
+             and s.source_provider=?
+             and s.source_service=?
+             and s.external_id=p.content_id
+            where p.content_id=?
+            for update of p
             """,
             (resultSet, rowNumber) -> map(resultSet),
             PROVIDER,
@@ -186,7 +197,7 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
             """
             update public.tour_places
             set content_type_id=?, name=?, normalized_name=?, category=?, region_code=?,
-                address=?, address_detail=?,
+                address=?, address_detail=?, source_provider=?, source_service=?,
                 location=ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
                 image_url=?, thumbnail_url=?, source_modified_at=?, import_run_id=?,
                 source_snapshot_id=?, last_seen_at=?, stale=false, stale_at=null,
@@ -200,6 +211,8 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
             regionCode(place),
             place.address(),
             place.addressDetail(),
+            PROVIDER,
+            SERVICE,
             place.longitude(),
             place.latitude(),
             place.imageUrl(),
@@ -269,6 +282,71 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
     requireOne(changed);
   }
 
+  private void writeAlias(
+      UUID placeId, String contentTypeId, PlaceAliasWrite alias, PlaceListWrite write) {
+    UUID aliasId = findAliasId(placeId, alias.normalizedAlias());
+    boolean existing = aliasId != null;
+    if (!existing) {
+      aliasId = deterministicId("alias", placeId + "\u001f" + alias.normalizedAlias());
+    }
+    UUID normalizedRowId = aliasId;
+    provenanceWriter.write(
+        provenance("place_aliases", normalizedRowId, contentTypeId, write.lineage()),
+        () -> {
+          int changed =
+              existing
+                  ? jdbcTemplate.update(
+                      """
+                      update public.place_aliases
+                      set alias=?, source_snapshot_id=?, import_run_id=?, last_seen_at=?,
+                          stale_at=null, tombstoned_at=null
+                      where id=?
+                        and (alias, source_snapshot_id, import_run_id, last_seen_at, stale_at, tombstoned_at)
+                          is distinct from (?, ?, ?, ?, null, null)
+                      """,
+                      alias.alias(),
+                      write.lineage().snapshotId(),
+                      write.lineage().importRunId(),
+                      Timestamp.from(write.seenAt()),
+                      normalizedRowId,
+                      alias.alias(),
+                      write.lineage().snapshotId(),
+                      write.lineage().importRunId(),
+                      Timestamp.from(write.seenAt()))
+                  : jdbcTemplate.update(
+                      """
+                      insert into public.place_aliases (
+                        id, place_id, alias, normalized_alias, alias_type, confidence,
+                        source_snapshot_id, import_run_id, last_seen_at
+                      ) values (?, ?, ?, ?, 'keyword', 1.000, ?, ?, ?)
+                      """,
+                      normalizedRowId,
+                      placeId,
+                      alias.alias(),
+                      alias.normalizedAlias(),
+                      write.lineage().snapshotId(),
+                      write.lineage().importRunId(),
+                      Timestamp.from(write.seenAt()));
+          if ((!existing && changed != 1) || (existing && changed > 1)) {
+            throw PlaceListImportException.storageFailure();
+          }
+        });
+  }
+
+  private UUID findAliasId(UUID placeId, String normalizedAlias) {
+    List<UUID> rows =
+        jdbcTemplate.query(
+            """
+            select id from public.place_aliases
+            where place_id=? and normalized_alias=? and alias_type='keyword'
+            for update
+            """,
+            (resultSet, rowNumber) -> resultSet.getObject("id", UUID.class),
+            placeId,
+            normalizedAlias);
+    return rows.isEmpty() ? null : rows.getFirst();
+  }
+
   private static TourApiProvenanceCommand provenance(
       String entityType, UUID rowId, String contentTypeId, PlaceLineage lineage) {
     return new TourApiProvenanceCommand(
@@ -318,9 +396,7 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
   }
 
   private static String category(TourPlace place) {
-    return place.lclsSystm1() == null
-        ? "content-type:" + place.contentTypeId()
-        : place.lclsSystm1();
+    return CanonicalPlaceCategory.fromSource(place.lclsSystm1(), place.contentTypeId());
   }
 
   private static String regionCode(TourPlace place) {
@@ -408,15 +484,15 @@ public class JdbcPlaceListRepository implements PlaceListRepository {
           && Objects.equals(imageUrl, place.imageUrl())
           && Objects.equals(thumbnailUrl, place.thumbnailUrl())
           && Objects.equals(sourceModifiedAt, place.sourceModifiedAt())
-          && placeSnapshotId.equals(write.lineage().snapshotId())
-          && placeRunId.equals(write.lineage().importRunId())
+          && Objects.equals(placeSnapshotId, write.lineage().snapshotId())
+          && Objects.equals(placeRunId, write.lineage().importRunId())
           && Objects.equals(lDongRegnCd, place.lDongRegnCd())
           && Objects.equals(lDongSignguCd, place.lDongSignguCd())
           && Objects.equals(lclsSystm1, place.lclsSystm1())
           && Objects.equals(lclsSystm2, place.lclsSystm2())
           && Objects.equals(lclsSystm3, place.lclsSystm3())
-          && sourceSnapshotId.equals(write.lineage().snapshotId())
-          && sourceRunId.equals(write.lineage().importRunId());
+          && Objects.equals(sourceSnapshotId, write.lineage().snapshotId())
+          && Objects.equals(sourceRunId, write.lineage().importRunId());
     }
   }
 }

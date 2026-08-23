@@ -4,6 +4,7 @@ import com.timingjeju.api.application.kma.KmaWeatherImportCommand;
 import com.timingjeju.api.application.kma.KmaWeatherImportException;
 import com.timingjeju.api.application.kma.KmaWeatherImportService;
 import com.timingjeju.api.application.kma.KmaWeatherOperation;
+import com.timingjeju.api.application.kma.KmaWeatherResponsePart;
 import com.timingjeju.api.application.kma.KmaWeatherSnapshotGateway;
 import com.timingjeju.api.application.kma.KmaWeatherSourceResponse;
 import com.timingjeju.api.application.kma.SavedKmaWeatherSnapshot;
@@ -15,9 +16,12 @@ import com.timingjeju.api.application.snapshot.SnapshotStatus;
 import com.timingjeju.api.application.snapshot.SnapshotStoreService;
 import com.timingjeju.api.application.snapshot.SnapshotTransitionCommand;
 import com.timingjeju.api.domain.weather.ForecastBaseTime;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -59,27 +63,59 @@ public final class SnapshottingKmaWeatherGateway implements KmaWeatherSnapshotGa
     metadata.put("base_time", baseTime);
     metadata.put("nx", Integer.toString(command.nx()));
     metadata.put("ny", Integer.toString(command.ny()));
-    SnapshotSaveResult saved =
-        snapshots.save(
-            new SnapshotSaveCommand(
+    if (operation == KmaWeatherOperation.VILLAGE_FORECAST) {
+      metadata.put("versionEndpoint", "/getFcstVersion");
+      metadata.put("versionFtype", "SHRT");
+      metadata.put("versionBasedatetime", baseDate + baseTime);
+    }
+    SnapshotScope scope =
+        new SnapshotScope(
+            KmaWeatherImportService.PROVIDER,
+            KmaWeatherImportService.SERVICE,
+            operation.providerOperation(),
+            "nx=" + command.nx() + ";ny=" + command.ny());
+    List<SnapshotSaveResult> attemptSnapshots = new ArrayList<>();
+    SnapshotSaveResult saved;
+    if (operation == KmaWeatherOperation.VILLAGE_FORECAST) {
+      for (KmaWeatherResponsePart part : response.parts()) {
+        Map<String, Object> partMetadata = new LinkedHashMap<>(metadata);
+        partMetadata.put("responseOperation", part.providerOperation());
+        partMetadata.put("responsePage", Integer.toString(part.pageNumber()));
+        SnapshotSaveResult partSaved =
+            save(
                 runId,
-                new SnapshotScope(
-                    KmaWeatherImportService.PROVIDER,
-                    KmaWeatherImportService.SERVICE,
-                    operation.providerOperation(),
-                    "nx=" + command.nx() + ";ny=" + command.ny()),
-                null,
-                baseDate + baseTime,
-                200,
-                null,
-                clock.instant(),
-                null,
-                null,
-                KmaWeatherImportService.PARSER_VERSION,
-                response.format(),
-                "UTF-8",
-                response.payload(),
-                metadata));
+                scope,
+                part.providerOperation() + ":" + part.pageNumber(),
+                part.format(),
+                part.payload(),
+                partMetadata,
+                operation);
+        attemptSnapshots.add(partSaved);
+      }
+      Map<String, Object> manifestMetadata = new LinkedHashMap<>(metadata);
+      manifestMetadata.put("manifest", "ordered-response-snapshots-v1");
+      saved =
+          save(
+              runId,
+              scope,
+              "manifest",
+              com.timingjeju.api.application.snapshot.SnapshotPayloadFormat.JSON,
+              manifest(attemptSnapshots, response.parts()),
+              manifestMetadata,
+              operation);
+      attemptSnapshots.add(saved);
+    } else {
+      saved =
+          save(
+              runId,
+              scope,
+              baseDate + baseTime,
+              response.format(),
+              response.payload(),
+              metadata,
+              operation);
+      attemptSnapshots.add(saved);
+    }
     return new SavedKmaWeatherSnapshot(
         response,
         saved.snapshotId(),
@@ -87,24 +123,75 @@ public final class SnapshottingKmaWeatherGateway implements KmaWeatherSnapshotGa
         saved.payloadHash(),
         saved.fetchedAt(),
         saved.replayed(),
-        saved.status());
+        saved.status(),
+        attemptSnapshots);
+  }
+
+  private SnapshotSaveResult save(
+      UUID runId,
+      SnapshotScope scope,
+      String pageKey,
+      com.timingjeju.api.application.snapshot.SnapshotPayloadFormat format,
+      byte[] payload,
+      Map<String, Object> metadata,
+      KmaWeatherOperation operation) {
+    return snapshots.save(
+        new SnapshotSaveCommand(
+            runId,
+            scope,
+            null,
+            pageKey,
+            200,
+            null,
+            clock.instant(),
+            null,
+            null,
+            KmaWeatherImportService.parserVersion(operation),
+            format,
+            "UTF-8",
+            payload,
+            metadata));
+  }
+
+  private static byte[] manifest(
+      List<SnapshotSaveResult> snapshots, List<KmaWeatherResponsePart> parts) {
+    StringBuilder json = new StringBuilder("{\"schema\":\"kma-response-manifest-v1\",\"parts\":[");
+    for (int index = 0; index < snapshots.size(); index++) {
+      if (index > 0) json.append(',');
+      SnapshotSaveResult snapshot = snapshots.get(index);
+      KmaWeatherResponsePart part = parts.get(index);
+      json.append("{\"snapshotId\":\"")
+          .append(snapshot.snapshotId())
+          .append("\",\"payloadHash\":\"")
+          .append(snapshot.payloadHash())
+          .append("\",\"operation\":\"")
+          .append(part.providerOperation())
+          .append("\",\"page\":")
+          .append(part.pageNumber())
+          .append('}');
+    }
+    return json.append("]}").toString().getBytes(StandardCharsets.UTF_8);
   }
 
   @Override
   public void markParsed(SavedKmaWeatherSnapshot snapshot) {
-    if (snapshot.replayed() && snapshot.status() == SnapshotStatus.PARSED) return;
-    if (snapshot.status() != SnapshotStatus.RECEIVED) {
-      throw KmaWeatherImportException.invalidResponse();
+    for (SnapshotSaveResult saved : snapshot.attemptSnapshots()) {
+      if (saved.replayed() && saved.status() == SnapshotStatus.PARSED) continue;
+      if (saved.status() != SnapshotStatus.RECEIVED) {
+        throw KmaWeatherImportException.invalidResponse();
+      }
+      snapshots.transition(
+          new SnapshotTransitionCommand(saved.snapshotId(), SnapshotStatus.PARSED, null));
     }
-    snapshots.transition(
-        new SnapshotTransitionCommand(snapshot.snapshotId(), SnapshotStatus.PARSED, null));
   }
 
   @Override
   public void markRejected(SavedKmaWeatherSnapshot snapshot) {
-    if (snapshot.status() != SnapshotStatus.RECEIVED) return;
-    snapshots.transition(
-        new SnapshotTransitionCommand(
-            snapshot.snapshotId(), SnapshotStatus.REJECTED, SnapshotFailure.PARSE_REJECTED));
+    for (SnapshotSaveResult saved : snapshot.attemptSnapshots()) {
+      if (saved.status() != SnapshotStatus.RECEIVED) continue;
+      snapshots.transition(
+          new SnapshotTransitionCommand(
+              saved.snapshotId(), SnapshotStatus.REJECTED, SnapshotFailure.PARSE_REJECTED));
+    }
   }
 }

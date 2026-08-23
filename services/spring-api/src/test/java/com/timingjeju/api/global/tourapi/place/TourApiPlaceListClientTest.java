@@ -26,7 +26,7 @@ class TourApiPlaceListClientTest {
 
     assertThat(response.format()).isEqualTo(SnapshotPayloadFormat.JSON);
     assertThat(captured.get().operation()).isEqualTo(ExternalApiOperation.TOUR_AREA_BASED_LIST);
-    assertThat(captured.get().relativePath()).isEqualTo("/areaBasedList2");
+    assertThat(captured.get().relativePath()).isEqualTo("areaBasedList2");
     assertThat(captured.get().queryParameters())
         .containsEntry("pageNo", "2")
         .containsEntry("numOfRows", "100")

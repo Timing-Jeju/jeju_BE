@@ -52,7 +52,7 @@ class SnapshottingDetailInfoPageGatewayTest {
     assertThat(command.getValue().scope().scopeKey()).isEqualTo("content:100");
     assertThat(command.getValue().pageKey()).isEqualTo("2");
     assertThat(command.getValue().requestMetadata())
-        .containsEntry("endpoint", "/detailInfo2")
+        .containsEntry("endpoint", "detailInfo2")
         .containsEntry("contentId", "100")
         .containsEntry("contentTypeId", "12")
         .containsEntry("numOfRows", "100");

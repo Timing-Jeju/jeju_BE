@@ -18,6 +18,7 @@ import com.timingjeju.api.application.importing.ImportRunExecutionStatus;
 import com.timingjeju.api.application.importing.ImportRunLease;
 import com.timingjeju.api.application.importing.ImportRunLifecycleService;
 import com.timingjeju.api.application.importing.ImportRunScope;
+import com.timingjeju.api.application.importing.ImportRunStartCommand;
 import com.timingjeju.api.application.importing.ImportRunStartResult;
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.snapshot.SnapshotStatus;
@@ -132,6 +133,30 @@ class KmaWeatherImportServiceTest {
   }
 
   @Test
+  void villageForecastFallsBackToExactlyOnePreviousOfficialPublication() {
+    when(source.fetch(any(), any(), any(Integer.class), any(Integer.class)))
+        .thenThrow(KmaWeatherImportException.providerUnavailable())
+        .thenReturn(response("previous-village"));
+    org.mockito.Mockito.doReturn(villageBatchAt("2026-08-15T11:00:00Z"))
+        .when(parser)
+        .parse(any(), any());
+
+    KmaWeatherImportResult result = service.importVillageForecast(command());
+
+    ArgumentCaptor<ForecastBaseTime> bases = ArgumentCaptor.forClass(ForecastBaseTime.class);
+    verify(source, times(2)).fetch(any(), bases.capture(), any(Integer.class), any(Integer.class));
+    assertThat(bases.getAllValues())
+        .containsExactly(base("2026-08-15", "23:00"), base("2026-08-15", "20:00"));
+    assertThat(result.freshness()).isEqualTo(KmaWeatherFreshness.STALE_WEATHER_DATA);
+    ArgumentCaptor<ImportRunStartCommand> started =
+        ArgumentCaptor.forClass(ImportRunStartCommand.class);
+    verify(runs).start(started.capture());
+    assertThat(started.getValue().parserVersion())
+        .isEqualTo(KmaWeatherImportService.VILLAGE_PARSER_VERSION);
+    assertThat(started.getValue().scope().operation()).isEqualTo("getVilageFcst");
+  }
+
+  @Test
   void stopsAfterPreviousBaseFailureAndDoesNotCommitCheckpoint() {
     when(source.fetch(any(), any(), any(Integer.class), any(Integer.class)))
         .thenThrow(KmaWeatherImportException.providerUnavailable());
@@ -142,6 +167,27 @@ class KmaWeatherImportServiceTest {
     verify(source, times(2)).fetch(any(), any(), any(Integer.class), any(Integer.class));
     verify(committer, never()).commit(any());
     verify(runs).fail(any(), any());
+  }
+
+  @Test
+  void currentAndPreviousFirstTransportFailuresRemainProviderUnavailableWithoutSideEffects() {
+    when(source.fetch(any(), any(), any(Integer.class), any(Integer.class)))
+        .thenThrow(new IllegalStateException("transport unavailable"));
+
+    assertThatThrownBy(() -> service.importVillageForecast(command()))
+        .isInstanceOf(KmaWeatherImportException.class)
+        .extracting(failure -> ((KmaWeatherImportException) failure).code())
+        .isEqualTo(KmaWeatherImportError.PROVIDER_UNAVAILABLE);
+
+    verify(source, times(2)).fetch(any(), any(), any(Integer.class), any(Integer.class));
+    verify(snapshots, never()).capture(any(), any(), any(), any(), any());
+    verify(snapshots, never()).markParsed(any());
+    verify(snapshots, never()).markRejected(any());
+    verify(parser, never()).parse(any(), any());
+    verify(committer, never()).commit(any());
+    verify(runs)
+        .fail(
+            lease, com.timingjeju.api.application.importing.ImportRunFailure.PROVIDER_UNAVAILABLE);
   }
 
   @Test
@@ -157,6 +203,22 @@ class KmaWeatherImportServiceTest {
 
     verify(snapshots).markRejected(any());
     verify(snapshots).markParsed(any());
+  }
+
+  @Test
+  void pageTwoAndVersionErrorsRemainRejectedAuditWithoutNormalizedRowsOrCheckpointCommit() {
+    when(source.fetch(any(), any(), any(Integer.class), any(Integer.class)))
+        .thenReturn(response("page-two-provider-error"), response("version-provider-error"));
+    reset(parser);
+    when(parser.parse(any(), any())).thenThrow(KmaWeatherImportException.invalidResponse());
+
+    assertThatThrownBy(() -> service.importVillageForecast(command()))
+        .isInstanceOf(KmaWeatherImportException.class);
+
+    verify(snapshots, times(2)).capture(any(), any(), any(), any(), any());
+    verify(snapshots, times(2)).markRejected(any());
+    verify(snapshots, never()).markParsed(any());
+    verify(committer, never()).commit(any());
   }
 
   @Test
@@ -251,6 +313,31 @@ class KmaWeatherImportServiceTest {
                 "0",
                 java.math.BigDecimal.ZERO,
                 new java.math.BigDecimal("25"),
+                70,
+                new java.math.BigDecimal("2"))));
+  }
+
+  private static KmaWeatherBatch villageBatchAt(String forecastedAtValue) {
+    Instant forecastedAt = Instant.parse(forecastedAtValue);
+    return new KmaWeatherBatch(
+        52,
+        38,
+        9,
+        forecastedAt.plusSeconds(3600),
+        List.of(),
+        List.of(
+            new KmaWeatherForecast(
+                forecastedAt,
+                forecastedAt.plusSeconds(3600),
+                "short",
+                "202608152000",
+                "1",
+                "0",
+                10,
+                java.math.BigDecimal.ZERO,
+                new java.math.BigDecimal("25"),
+                new java.math.BigDecimal("20"),
+                new java.math.BigDecimal("28"),
                 70,
                 new java.math.BigDecimal("2"))));
   }

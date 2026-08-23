@@ -61,7 +61,7 @@ public class SnapshottingDetailInfoPageGateway implements DetailInfoSnapshotGate
                 storedBytes,
                 Map.of(
                     "endpoint",
-                    "/detailInfo2",
+                    "detailInfo2",
                     "contentId",
                     contentId,
                     "contentTypeId",

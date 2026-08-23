@@ -2,7 +2,7 @@
 
 이 문서는 Issue #83이 소유하는 `GET /api/v1/places`와 `GET /api/v1/places/{placeId}`의 구현 전 기준입니다. machine-readable 기준은 같은 디렉터리의 [`contract.json`](contract.json)이며 공통 envelope·Authorization·cursor·Problem Details는 `timing-jeju-rest-contract/v1`(contract version `1.0.0`)을 상속합니다. 기존 Notion 명세와 이 문서의 source spec revision은 `v1.1`입니다. 두 버전은 역할이 다르므로 서로 치환하지 않습니다.
 
-Controller·Service·Repository·OpenAPI 구현 소유자는 #66이고 이 문서는 schema나 Flyway를 추가하지 않습니다. Spring이 공개 API와 DB 조회를 소유하며 요청 시 TourAPI·TAGO·FastAPI를 호출하지 않습니다.
+목록 구현은 #32, 주변 정류장을 제외한 상세 기반 구현은 #33, `nearbyStops` 실제 조회 확장은 #66이 소유합니다. 이 문서는 schema나 Flyway를 추가하지 않습니다. Spring이 공개 API와 DB 조회를 소유하며 요청 시 TourAPI·TAGO·FastAPI를 호출하지 않습니다.
 
 ## 추적성
 
@@ -33,21 +33,26 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 | 필드 | 필수 | null | 생략 | 계약 |
 | --- | --- | --- | --- | --- |
 | `query` | 아니오 | 불가 | 전체 이름·별칭 | 앞뒤 공백 허용, trim 후 1~100자 |
-| `category` | 아니오 | 불가 | 모든 카테고리 | `^[a-z][a-z0-9_]{0,49}$` |
+| `category` | 아니오 | 불가 | 모든 카테고리 | `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$` |
 | `regionCode` | 아니오 | 불가 | 모든 제주 지역 | `^[a-z0-9][a-z0-9_-]{0,49}$` |
-| `lat` | 아니오 | 불가 | 거리 정렬 미사용 | -90~90, `lng`와 함께 입력 |
-| `lng` | 아니오 | 불가 | 거리 정렬 미사용 | -180~180, `lat`와 함께 입력 |
+| `lat` | 아니오 | 불가 | 거리 정렬 미사용 | 제주 bounding box 33~34, `lng`와 함께 입력 |
+| `lng` | 아니오 | 불가 | 거리 정렬 미사용 | 제주 bounding box 126~127, `lat`와 함께 입력 |
 | `radiusMeters` | 아니오 | 불가 | 좌표가 있으면 10000 | 100~50000, 좌표와 함께 입력 |
 | `cursor` | 아니오 | 불가 | 첫 page | 최대 2048자의 opaque 값 |
 | `size` | 아니오 | 불가 | 20 | 1~100 |
+| `savedOnly` | 아니오 | 불가 | false | true이면 현재 사용자의 저장 장소만 조회, 익명은 401 |
 
-`query`는 요청의 앞뒤 공백을 허용하지만 서버가 trim한 값으로 검색하고 길이를 검사합니다. 공백만 있는 값은 거부하며 정규화한 값이 1~100자여야 합니다. cursor fingerprint에도 같은 정규화 값을 사용합니다.
+`category`는 TourAPI `lclsSystm1`의 trim된 uppercase code(예: `VE`)를 우선하고, 값이 없을 때만 `content-type:<digits>` fallback을 사용합니다. 필터는 이 source-preserving token을 exact match하며 목록·상세·저장 응답도 같은 token을 그대로 반환합니다.
+
+`query`는 요청의 앞뒤 공백을 허용하지만 서버가 trim한 값으로 검색하고 길이를 검사합니다. 공백만 있는 값은 거부하며 정규화한 값이 1~100자여야 합니다. `savedOnly`를 포함한 모든 검색 조건은 cursor fingerprint에도 같은 정규화 값을 사용합니다.
 
 좌표가 있으면 `distanceMeters ASC NULLS LAST, normalizedName ASC, placeId ASC`, 없으면 `normalizedName ASC, placeId ASC`로 정렬합니다. 고유 tie-breaker는 항상 `placeId ASC`입니다. cursor에는 정규화한 query와 category/regionCode/lat/lng/radiusMeters/size/sort profile fingerprint가 귀속됩니다. cursor 발급 뒤 하나라도 바뀌면 재사용하지 않고 `400 CURSOR_CONTEXT_MISMATCH`를 반환합니다.
 
 ### 목록 shape
 
-목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `operationsSummary`, `dataFreshness`, 개인화 `saved/memo/tags`를 포함합니다. `recommendedStayMinutes`, 대표 이미지와 운영 요약은 상세과 같은 read snapshot을 사용합니다. 값이 없으면 `recommendedStayMinutes`, `thumbnailUrl`, `operationsSummary`, `memo`는 null이며 임의 기본값을 만들지 않습니다. 이 필드들은 응답에서 생략하지 않습니다.
+목록 카드는 `placeId`, 이름·category·region, location, `thumbnailUrl`, `recommendedStayMinutes`, `recommendedStaySource`, `recommendedStayPolicyVersion`, `recommendedStayEffectiveAt`, `recommendedStayUpdatedAt`, `operationsSummary`, `dataFreshness`, 개인화 `saved/memo/tags`를 포함합니다. 추천 체류시간은 #65 `StayPolicyResolver`의 place override→category default→unavailable 결과와 provenance를 상세과 동일하게 반환합니다. 값이 없으면 minutes/version/effectiveAt/updatedAt은 null이고 source는 `unavailable`이며, `thumbnailUrl`, `operationsSummary`, `memo`도 원천 값이 없으면 null입니다. 임의 기본값을 만들거나 필드를 생략하지 않습니다.
+
+공개 목록은 `source_deleted_at IS NULL AND tombstoned_at IS NULL`인 장소만 검색·필터 결과에 포함합니다. freshness가 stale인 장소는 제외하지 않고 `dataFreshness.stale=true`로 명시하여 기존 목록 의미를 유지합니다.
 
 `dataFreshness`는 목록 item마다 반드시 존재하는 닫힌 객체입니다.
 
@@ -65,6 +70,10 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 ## `GET /api/v1/places/{placeId}`
 
 `placeId`는 canonical UUID이며 path field는 required/non-null입니다. 장소가 없으면 `404 PLACE_NOT_FOUND`입니다. 상세은 장소 공통 필드와 `overview`, `contact`, `operations`, `images`, `nearbyStops`, 개인화 `saved` 객체를 추가합니다.
+
+#33은 `source_deleted_at IS NULL`, `tombstoned_at IS NULL`, `stale=false`, `stale_at IS NULL OR stale_at > now()`를 모두 만족하는 active `tour_places`와 active detail/image, 현재 사용자의 `saved_places`만 단일 bounded SQL projection으로 읽습니다. detail/image/detail item이 없는 active 장소도 `200`이며 nullable 필드와 빈 배열을 생략하지 않습니다. 이미지는 tombstone 제외 후 `display_order, id` 순서로 DB에서 최대 20개만 materialize합니다. #66의 `nearbyStops`는 별도 bounded query로 최대 5개를 읽습니다. DB read와 stay-policy의 typed resolution 실패만 `503 PLACE_DATA_UNAVAILABLE`로 닫으며 raw SQL·provider payload·내부 lineage를 응답하지 않습니다.
+
+외부 detail의 phone·hours·closed days·parking·fee 등 공개 normalized text는 ingestion과 legacy projection 양쪽에서 HTML element/attribute, script/style content, entity, control character를 안전하게 제거·decode하고 whitespace를 접은 plain text입니다. 각 값은 Unicode code point 기준 최대 1000이며 raw HTML을 공개하지 않습니다.
 
 - `recommendedStayMinutes`: TourAPI 원천이 아니라 Timing Jeju curated 값입니다.
 - `thumbnailUrl`: `images`의 가장 앞선 display order thumbnail과 같거나 둘 다 null입니다.
@@ -88,7 +97,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
 | `PlaceImage`, `NearbyStop` | 중첩 배열 item | 닫힌 item, 타입·시각 format·enum·범위 고정 |
 | `ProblemDetails`, `FieldError` | 오류 | RFC 9457 필드와 code/type/status 대응을 고정 |
 
-목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다. 모든 JSON 숫자는 유한해야 하며 JSON 표준 밖의 `NaN`, `Infinity`, `-Infinity`를 허용하지 않습니다. `date-time`은 timezone을 포함한 RFC 3339 형식만, `uri`는 공백이나 잘못된 percent escape가 없는 RFC 3986 절대 URI만 허용합니다. canonical schema 전체 제약을 고정하고, freshness 객체의 `expiresAt`이 null이 아니면 `observedAt`보다 빠르지 않은지도 검사합니다.
+목록 item, page, contact, operations, images, nearbyStops 중첩 객체/배열에도 같은 규칙을 적용합니다. 계약 validator는 fixture를 이 schema로 실제 재귀 검증하며 필수 필드 삭제, 추가 필드, 잘못된 타입/null/format/range/enum을 실패시킵니다. 모든 JSON 숫자는 유한해야 하며 JSON 표준 밖의 `NaN`, `Infinity`, `-Infinity`를 허용하지 않습니다. `date-time`은 timezone을 포함한 RFC 3339 형식만, `uri`는 공백이나 잘못된 percent escape가 없는 RFC 3986 절대 URI만 허용합니다. 일반 freshness 객체는 `expiresAt`이 null이 아니면 `observedAt`보다 빠르지 않아야 합니다. 다만 주변 정류장의 effective expiry는 서로 다른 lineage의 link expiry와 stop stale_at 중 최솟값이므로 link `observedAt`보다 앞설 수 있습니다.
 
 ## 필드 소유권과 freshness
 
@@ -99,7 +108,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
 | 이미지 | TourAPI 정규화 | `place_images.source_provider` | `created_at` | 부모 장소 freshness 투영 | 부모 장소 stale 투영 |
 | 운영정보 | TourAPI 정규화 | `place_details.source_provider` | `source_updated_at` 또는 `fetched_at` | 부모 장소 freshness 투영 | 부모 장소 stale 투영 |
 | saved/memo/tags | 사용자 입력 | `TIMING_JEJU` | `saved_places.updated_at` | null | false |
-| 주변 정류장 | TAGO 정류장 + 앱 link | `place_stop_links.source_provider` | `observed_at` | `expires_at` | `expires_at <= now()` |
+| 주변 정류장 | TAGO 정류장 + 앱 link | `place_stop_links.source_provider` | `observed_at` | `least(place_stop_links.expires_at, bus_stops.stale_at)` | effective expiresAt `<= now()` |
 
 공개 응답은 정규화 값만 반환합니다. 원천 response payload를 노출하지 않습니다.
 
@@ -114,7 +123,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
   "distanceMeters": 280,
   "walkMinutes": 4,
   "linkMethod": "spatial_radius",
-  "provider": "TAGO",
+  "provider": "postgis:tago",
   "observedAt": "2026-08-03T09:00:00+09:00",
   "expiresAt": "2026-08-04T09:00:00+09:00",
   "stale": false
@@ -131,11 +140,15 @@ eligible 조건은 아래를 모두 만족해야 합니다.
 4. 연결된 `bus_stops.source_deleted_at IS NULL`
 5. configured 거리 상한 이내
 
-eligible 행은 `expiresAt > now()`이면 fresh, `expiresAt <= now()`이면 stale입니다. stale-only도 `stale=true`로 포함합니다. disabled·tombstoned·out-of-radius와 tombstoned/source-deleted stop은 limit 전에 제외합니다. eligible fresh/stale이 하나도 없을 때만 상세 `200`과 `nearbyStops: []`를 반환합니다.
+eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at` 중 이른 시각입니다. stop과 link의 관측 lineage가 다르므로 stop `stale_at`이 이후 link `observedAt`보다 과거여도 유효하며, 이 경우 해당 exact effective expiry와 `stale=true`를 반환합니다. 이 값이 `now()`보다 뒤면 fresh, 같거나 앞이면 stale이며 stale-only도 포함합니다. freshness cutoff나 `stale_at` 만료만으로 active link를 tombstone하지 않습니다. disabled·tombstoned·out-of-radius와 tombstoned/source-deleted stop은 limit 전에 제외합니다. eligible fresh/stale이 하나도 없을 때만 상세 `200`과 `nearbyStops: []`를 반환합니다.
+
+거리 상한은 validated property `app.places.nearby-stops.max-distance-meters`로 주입하며 기본값은 500m, 허용 범위는 1..500m입니다. SQL predicate는 경계를 포함하는 `distance_meters <= configured max`입니다. `provider`, `observedAt`, `linkMethod`는 link row 값을 변환하지 않고 투영하고, 공개 `expiresAt`만 위 effective expiry를 사용합니다.
+
+장소 또는 정류장 좌표가 바뀌면 이미 만료된 geometric candidate라도 기존 active link의 `distance_meters`와 `walk_minutes`는 scope watermark transaction 안에서 갱신합니다. 이 metrics-only 갱신은 link의 provider·observedAt·expiresAt·lifecycle을 바꾸지 않으며, 만료된 신규 link를 만들거나 policy-disabled/tombstoned link를 재활성화하지 않습니다.
 
 정렬은 `stale ASC`, `distanceMeters ASC`, `walkMinutes ASC NULLS LAST`, `stopId ASC`이며 stopId당 한 번, 전체 최대 5개입니다. 별도 freshness reason 필드는 만들지 않습니다. 기존 consumer가 알 수 없는 additive field를 무시할 수 있어야 합니다.
 
-#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. #66은 이를 read-only로 투영하고 Controller·Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 단일화합니다.
+#37은 `place_stop_links.enabled/source_provider/observed_at/expires_at/tombstoned_at`, lifecycle check, partial index와 batch writer를 소유합니다. complete와 partial은 모두 `(place, provider)` observation/fingerprint watermark를 원자 compare/persist하되 partial은 누락 link를 tombstone하지 않습니다. #66은 이를 상세 기반 응답에 read-only로 연결하고 nearbyStop Repository·OpenAPI·통합 테스트를 소유합니다. 외부 계약 연결과 #66 구현 증거가 모두 갖춰지기 전 전체 places contract 상태는 `readiness: metadata=not-ready, example=not-ready, implementation=not-ready`로 유지합니다.
 
 ## endpoint별 오류 matrix
 

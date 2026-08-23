@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "timing-jeju-feasibility-legs-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "timing-jeju-backend-rdb-api-spec/2026-08-23",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 90,
+  "implementationIssues": [55, 97, 56],
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/feasibility-runs",
+      "ownerIssue": 55,
+      "successHeaders": {"Location": "required concrete poll URL", "Retry-After": "required integer seconds 1..60"},
+      "operation": "compute",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub",
+      "crossOwnerStatus": 404,
+      "schemas": {"path": "TripPath", "query": "none", "headers": "FeasibilityRunHeaders", "body": "FeasibilityRunRequest"},
+      "presence": "refreshExternalFacts required non-null boolean; server resolves active schedule version; unknown fields rejected",
+      "responses": {"success": [202], "errors": [400, 401, 404, 409, 422, 429, 503]},
+      "dbOwner": "Spring compute_runs/idempotency registry/compute_run_inputs; implementation #55",
+      "requestTimeCall": "none; intake transaction never invokes worker, MCP, TAGO, TMAP or KMA",
+      "dataLineage": "active schedule version + feasibility.command.v1 canonical input snapshot",
+      "figma": {"node": "not-linked", "action": "가능성 계산 접수", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0",
+      "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonical sub + method + normalized path + tripId", "ttl": "24 hours from COMPLETED", "replay": "COMPLETED same hash replays the original 202 status and body without creating a run", "payloadConflict": "different canonical request hash returns 409 IDEMPOTENCY_KEY_REUSED", "concurrentRequest": "PROCESSING active lease returns 409 with Retry-After and never creates another run"},
+      "pagination": {"type": "none"}
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}/feasibility-runs/{runId}",
+      "ownerIssue": 97,
+      "operation": "read",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub",
+      "crossOwnerStatus": 404,
+      "schemas": {"path": "FeasibilityRunPath", "query": "none", "headers": "CommonHeaders", "body": "none"},
+      "presence": "all states require startedAt/factsSnapshotAt/sourceDataVersion/provenance/result/failure keys; queued/running use result=null,failure=null; succeeded requires result and failure=null; failed/cancelled require failure object and result=null",
+      "responses": {"success": [200], "errors": [400, 401, 404, 503]},
+      "dbOwner": "Spring read-only compute_runs/risk_events/trip_weather_impacts; implementation #97",
+      "requestTimeCall": "none; stored state and normalized result only",
+      "dataLineage": "compute run + schedule version + stored feasibility result provenance",
+      "figma": {"node": "not-linked", "action": "가능성 계산 상태와 결과 조회", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0",
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "none"}
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}",
+      "ownerIssue": 56,
+      "operation": "read",
+      "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
+      "owner": "canonical JWT sub",
+      "crossOwnerStatus": 404,
+      "schemas": {"path": "ScheduleLegPath", "query": "none", "headers": "CommonHeaders", "body": "none"},
+      "presence": "fare nullable when provider has no fare; stop and route fields nullable only for non-transit modes; freshness objects required for every used snapshot",
+      "responses": {"success": [200], "errors": [400, 401, 404, 503]},
+      "dbOwner": "Spring read-only trip_legs/risk_events and normalized mobility/TAGO snapshots; implementation #56",
+      "requestTimeCall": "none; no route recalculation or provider call",
+      "dataLineage": "immutable schedule version leg + mobility route/TAGO arrival snapshot provenance",
+      "figma": {"node": "not-linked", "action": "이동 구간 상세 조회", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"},
+      "contractVersion": "1.0.0",
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "none"}
+    }
+  ],
+  "schemas": {
+    "TripPath": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["tripId"], "properties": {"tripId": {"type": "string", "nullable": false, "format": "uuid"}}},
+    "FeasibilityRunPath": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["tripId", "runId"], "properties": {"tripId": {"type": "string", "nullable": false, "format": "uuid"}, "runId": {"type": "string", "nullable": false, "format": "uuid"}}},
+    "ScheduleLegPath": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["tripId", "versionId", "legId"], "properties": {"tripId": {"type": "string", "nullable": false, "format": "uuid"}, "versionId": {"type": "string", "nullable": false, "format": "uuid"}, "legId": {"type": "string", "nullable": false, "format": "uuid"}}},
+    "FeasibilityRunHeaders": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["Authorization", "Idempotency-Key"], "properties": {"Authorization": {"type": "string", "nullable": false, "minLength": 8, "maxLength": 2055, "pattern": "^Bearer [^\\s]+$"}, "Idempotency-Key": {"type": "string", "nullable": false, "format": "uuid"}}},
+    "FeasibilityRunRequest": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["refreshExternalFacts"], "properties": {"refreshExternalFacts": {"type": "boolean", "nullable": false}}},
+    "FeasibilityRunAccepted": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["runId", "status", "pollUrl", "requestedAt"], "properties": {"runId": {"type": "string", "nullable": false, "format": "uuid"}, "status": {"type": "string", "nullable": false, "enum": ["queued"]}, "pollUrl": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 500}, "requestedAt": {"type": "string", "nullable": false, "format": "date-time"}}},
+    "Failure": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["code", "detail", "retryable"], "properties": {"code": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100, "pattern": "^[A-Z][A-Z0-9_]*$"}, "detail": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 500}, "retryable": {"type": "boolean", "nullable": false}}},
+    "RunProvenance": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["algorithmVersion", "contractVersion", "commandInputHash", "mcpInputHash", "confidence"], "properties": {"algorithmVersion": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100}, "contractVersion": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100}, "commandInputHash": {"type": "string", "nullable": false, "pattern": "^sha256:[0-9a-f]{64}$"}, "mcpInputHash": {"type": "string", "nullable": true, "pattern": "^sha256:[0-9a-f]{64}$"}, "confidence": {"type": "string", "nullable": true, "enum": ["high", "medium", "low"]}}},
+    "SnapshotFreshness": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["provider", "observedAt", "expiresAt", "stale"], "properties": {"provider": {"type": "string", "nullable": false, "enum": ["TAGO", "TMAP"]}, "observedAt": {"type": "string", "nullable": false, "format": "date-time"}, "expiresAt": {"type": "string", "nullable": false, "format": "date-time"}, "stale": {"type": "boolean", "nullable": false}}},
+    "FeasibilityResult": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["resultSource", "stale", "expiresAt", "totalScore", "overallStatus", "reasonCodes", "snapshots"], "properties": {"resultSource": {"type": "string", "nullable": false, "enum": ["computed", "fallback"]}, "stale": {"type": "boolean", "nullable": false}, "expiresAt": {"type": "string", "nullable": false, "format": "date-time"}, "totalScore": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 100}, "overallStatus": {"type": "string", "nullable": false, "enum": ["safe", "caution", "danger"]}, "reasonCodes": {"type": "array", "nullable": false, "maxItems": 100, "items": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100}}, "snapshots": {"type": "array", "nullable": false, "maxItems": 20, "items": {"$ref": "SnapshotFreshness", "nullable": false}}}},
+    "FeasibilityRunResponse": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["runId", "status", "tripId", "scheduleVersionId", "requestedAt", "responseTime", "startedAt", "factsSnapshotAt", "sourceDataVersion", "provenance", "result", "failure"], "properties": {"runId": {"type": "string", "nullable": false, "format": "uuid"}, "status": {"type": "string", "nullable": false, "enum": ["queued", "running", "succeeded", "failed", "cancelled"]}, "tripId": {"type": "string", "nullable": false, "format": "uuid"}, "scheduleVersionId": {"type": "string", "nullable": false, "format": "uuid"}, "requestedAt": {"type": "string", "nullable": false, "format": "date-time"}, "responseTime": {"type": "string", "nullable": false, "format": "date-time"}, "startedAt": {"type": "string", "nullable": true, "format": "date-time"}, "factsSnapshotAt": {"type": "string", "nullable": true, "format": "date-time"}, "sourceDataVersion": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 200}, "provenance": {"$ref": "RunProvenance", "nullable": false}, "result": {"$ref": "FeasibilityResult", "nullable": true}, "failure": {"$ref": "Failure", "nullable": true}}},
+    "LegEndpoint": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["itemId", "placeName", "stopId", "stopName", "walkMinutes"], "properties": {"itemId": {"type": "string", "nullable": false, "format": "uuid"}, "placeName": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200}, "stopId": {"type": "string", "nullable": true, "format": "uuid"}, "stopName": {"type": "string", "nullable": true, "minLength": 1, "maxLength": 200}, "walkMinutes": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1440}}},
+    "TransferStop": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["sequence", "stopId", "stopName", "arrivalAt", "departureAt"], "properties": {"sequence": {"type": "integer", "nullable": false, "minimum": 1, "maximum": 20}, "stopId": {"type": "string", "nullable": false, "format": "uuid"}, "stopName": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200}, "arrivalAt": {"type": "string", "nullable": false, "format": "date-time"}, "departureAt": {"type": "string", "nullable": false, "format": "date-time"}}},
+    "Risk": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["status", "reasonCodes"], "properties": {"status": {"type": "string", "nullable": false, "enum": ["safe", "caution", "danger"]}, "reasonCodes": {"type": "array", "nullable": false, "maxItems": 100, "items": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100}}}},
+    "TransitRoute": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["transportMode", "routeNo", "departureStopId", "arrivalStopId"], "properties": {"transportMode": {"type": "string", "nullable": false, "enum": ["public_transit"]}, "routeNo": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 30}, "departureStopId": {"type": "string", "nullable": false, "format": "uuid"}, "arrivalStopId": {"type": "string", "nullable": false, "format": "uuid"}}},
+    "CarRoute": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["transportMode", "distanceMeters", "tollFare"], "properties": {"transportMode": {"type": "string", "nullable": false, "enum": ["car"]}, "distanceMeters": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1000000}, "tollFare": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 10000000}}},
+    "WalkRoute": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["transportMode", "distanceMeters"], "properties": {"transportMode": {"type": "string", "nullable": false, "enum": ["walk"]}, "distanceMeters": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1000000}}},
+    "LegDetailResponse": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["legId", "scheduleVersionId", "responseTime", "transportMode", "from", "to", "route", "transferStops", "remainingStops", "additionalCost", "risk", "departureAt", "arrivalAt", "walkMinutes", "waitMinutes", "rideMinutes", "transferMinutes", "totalMinutes", "fare", "snapshots"], "properties": {"legId": {"type": "string", "nullable": false, "format": "uuid"}, "scheduleVersionId": {"type": "string", "nullable": false, "format": "uuid"}, "responseTime": {"type": "string", "nullable": false, "format": "date-time"}, "transportMode": {"type": "string", "nullable": false, "enum": ["public_transit", "car", "walk"]}, "from": {"$ref": "LegEndpoint", "nullable": false}, "to": {"$ref": "LegEndpoint", "nullable": false}, "route": {"oneOf": [{"$ref": "TransitRoute"}, {"$ref": "CarRoute"}, {"$ref": "WalkRoute"}], "nullable": false}, "transferStops": {"type": "array", "nullable": false, "maxItems": 20, "items": {"$ref": "TransferStop", "nullable": false}}, "remainingStops": {"type": "integer", "nullable": true, "minimum": 0, "maximum": 10000}, "additionalCost": {"type": "integer", "nullable": true, "minimum": 0, "maximum": 10000000}, "risk": {"$ref": "Risk", "nullable": false}, "departureAt": {"type": "string", "nullable": false, "format": "date-time"}, "arrivalAt": {"type": "string", "nullable": false, "format": "date-time"}, "walkMinutes": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1440}, "waitMinutes": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1440}, "rideMinutes": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1440}, "transferMinutes": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1440}, "totalMinutes": {"type": "integer", "nullable": false, "minimum": 0, "maximum": 1440}, "fare": {"type": "integer", "nullable": true, "minimum": 0, "maximum": 10000000}, "snapshots": {"type": "array", "nullable": false, "maxItems": 20, "items": {"$ref": "SnapshotFreshness", "nullable": false}}}},
+    "ProblemDetails": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"], "properties": {"type": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200, "pattern": "^https://api\\.timing-jeju\\.com/problems/[a-z0-9-]+$"}, "title": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200}, "status": {"type": "integer", "nullable": false, "minimum": 400, "maximum": 599}, "detail": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 500}, "instance": {"type": "string", "nullable": false, "pattern": "^urn:timing-jeju:problem:[0-9a-f]{32}$"}, "code": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 100, "pattern": "^[A-Z][A-Z0-9_]*$"}, "traceId": {"type": "string", "nullable": false, "pattern": "^[0-9a-f]{32}$"}, "fieldErrors": {"type": "array", "nullable": false, "maxItems": 100, "items": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["field", "message"], "properties": {"field": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 200}, "message": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 500}}}}}}
+  },
+  "runPolicy": {
+    "statuses": ["queued", "running", "succeeded", "failed", "cancelled"],
+    "presence": "state-dependent required/null/omitted fields are closed by schemas and fixtures",
+    "expired": "not a run status; expiry belongs to result/facts fields"
+  },
+  "provenancePolicy": {
+    "required": ["algorithmVersion", "contractVersion", "commandInputHash", "mcpInputHash", "confidence"],
+    "hashExclusions": ["access token", "PII", "raw provider payload"]
+  },
+  "freshnessPolicy": {
+    "requiredPerSnapshot": ["provider", "observedAt", "expiresAt", "stale"],
+    "staleResultRepresentation": "field",
+    "staleRead": "never 409 solely because stale=true",
+    "providers": ["TAGO", "TMAP"]
+  },
+  "durationPolicy": {
+    "components": ["walkMinutes", "waitMinutes", "rideMinutes", "transferMinutes"],
+    "totalMinutes": "sum(components)",
+    "elapsedMinutes": "arrivalAt - departureAt",
+    "requireTotalsToMatch": true
+  },
+  "presencePolicy": "every field is required, optional, nullable, or omitted by state; additional properties rejected",
+  "securityPolicy": {
+    "forbiddenResponseFields": ["rawProviderPayload", "providerMessage", "token", "email", "userMetadata"],
+    "problemDetails": ["type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"]
+  },
+  "errorConditions": [
+    {"name": "invalidRequest", "code": "INVALID_REQUEST", "status": 400, "type": "https://api.timing-jeju.com/problems/invalid-request", "fixture": "400_invalid_request", "endpoints": ["/api/v1/trips/{tripId}/feasibility-runs", "/api/v1/trips/{tripId}/feasibility-runs/{runId}", "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}"], "condition": "malformed UUID/header/body or closed-schema violation"},
+    {"name": "authenticationRequired", "code": "AUTHENTICATION_REQUIRED", "status": 401, "type": "https://api.timing-jeju.com/problems/authentication-required", "fixture": "401_authentication_required", "endpoints": ["/api/v1/trips/{tripId}/feasibility-runs", "/api/v1/trips/{tripId}/feasibility-runs/{runId}", "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}"], "condition": "missing or invalid bearer credentials"},
+    {"name": "resourceNotFound", "code": "RESOURCE_NOT_FOUND", "status": 404, "type": "https://api.timing-jeju.com/problems/resource-not-found", "fixture": "404_resource_not_found", "endpoints": ["/api/v1/trips/{tripId}/feasibility-runs", "/api/v1/trips/{tripId}/feasibility-runs/{runId}", "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}"], "condition": "missing, wrong-owner, wrong-trip, wrong-version, or wrong-lineage resource"},
+    {"name": "idempotencyKeyReused", "code": "IDEMPOTENCY_KEY_REUSED", "status": 409, "type": "https://api.timing-jeju.com/problems/idempotency-key-reused", "fixture": "409_idempotency_key_reused", "endpoints": ["/api/v1/trips/{tripId}/feasibility-runs"], "condition": "same key with a different canonical request hash"},
+    {"name": "constraintViolation", "code": "FEASIBILITY_CONSTRAINT_VIOLATION", "status": 422, "type": "https://api.timing-jeju.com/problems/feasibility-constraint-violation", "fixture": "422_constraint_violation", "endpoints": ["/api/v1/trips/{tripId}/feasibility-runs"], "condition": "active schedule or duration/domain invariant is not satisfied"},
+    {"name": "runLimited", "code": "FEASIBILITY_RUN_LIMITED", "status": 429, "type": "https://api.timing-jeju.com/problems/feasibility-run-limited", "fixture": "429_run_limited", "endpoints": ["/api/v1/trips/{tripId}/feasibility-runs"], "condition": "same active scope already has a run or external refresh quota is unavailable"},
+    {"name": "dataUnavailable", "code": "FEASIBILITY_DATA_UNAVAILABLE", "status": 503, "type": "https://api.timing-jeju.com/problems/feasibility-data-unavailable", "fixture": "503_data_unavailable", "endpoints": ["/api/v1/trips/{tripId}/feasibility-runs", "/api/v1/trips/{tripId}/feasibility-runs/{runId}", "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}"], "condition": "required normalized facts or stored result cannot be read safely"}
+  ],
+  "externalTraceability": {
+    "notion": {"status": "not-linked", "url": null},
+    "figma": {"status": "not-linked", "url": null}
+  },
+  "readiness": {
+    "metadata": {"status": "not-ready", "evidence": null},
+    "example": {"status": "not-ready", "evidence": null},
+    "implementation": {"status": "not-ready", "evidence": null}
+  },
+  "pathCompatibility": {
+    "canonical": "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}",
+    "issue56LegacyDraft": "/api/v1/trips/{tripId}/legs/{legId}",
+    "policy": "#56 implementation must adopt the canonical version-scoped path; no compatibility endpoint or redirect is created by #90"
+  },
+  "schemaGap": "documentation only; #90 changes no Controller, service, repository, migration, or DB schema"
+}

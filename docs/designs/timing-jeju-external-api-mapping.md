@@ -73,6 +73,10 @@ Spring에는 공개 Controller가 없는 import run 생명주기 application por
 | `detailImage2` | 이미지 목록/저작권 코드 | `external_api_snapshots` -> `place_images` |
 | `areaBasedSyncList2` | 변경분 동기화 | `data_import_runs` -> `external_api_snapshots` -> place upsert -> checkpoint CAS |
 
+`locationBasedList2`, `searchKeyword2`, `searchStay2` 후보 보강의 구현·쿼터·transaction 계약은
+[TourAPI 후보 보강 importer](../TOURAPI_DISCOVERY_IMPORT.md)를 따른다. 세 operation은 같은 contentid를
+한 장소로 병합하지만 operation/request fingerprint/snapshot provenance는 append-only로 각각 보존한다.
+
 정확한 operation suffix와 필수 파라미터는 발급받은 최신 Swagger/활용 매뉴얼로 integration test에서 다시 고정한다.
 
 ### 3.3 필드 매핑
@@ -174,6 +178,40 @@ GET http://apis.data.go.kr/1613000/BusSttnInfoInqireService/getCrdntPrxmtSttnLis
 
 ### 4.3 노선과 경유 정류장
 
+노선 importer는 공식 `BusRouteInfoInqireService`의 세 operation만 호출한다. 노선번호
+목록은 `getRouteNoList`에 `cityCode`, `routeNo`, 고정 `numOfRows=100`, 증가하는
+`pageNo`를 전달하고, 목록에서 얻은 각 `routeId`를 `getRouteInfoIem` 상세와
+`getRouteAcctoThrghSttnList` 경유 목록에 전달한다. 인증키는 공통 credential 경계에서만
+주입하며 importer query, snapshot metadata와 로그에는 남기지 않는다. JSON/XML 모두
+`response/header/resultCode=00`과 `body/items/item` envelope를 검증한다. page 누락,
+`totalCount` 변동, route 또는 sequence 중복, 1부터 연속하지 않는 순번, 다른 도시·공급자
+정류장과 선행 #35 정류장에 없는 `nodeid`는 정규화 쓰기 전에 거부한다.
+
+`routeId`는 TAGO에서 방향별 운행을 식별하는 안정 키로 사용하고 `route_stops.direction_key`에
+같은 값을 저장한다. 따라서 101/201처럼 같은 노선번호의 양방향 `routeId`를 합치지 않으며,
+노선은 `(source_provider, source_service, city_code, external_route_id)`, 경유 순서는
+`(route_id, direction_key, stop_sequence)` natural key를 유지한다.
+
+```http
+GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteNoList
+  ?serviceKey=<percent-encoded-decoded-service-key>
+  &_type=json
+  &cityCode=<discovered-city-code>
+  &routeNo=101
+  &numOfRows=100
+  &pageNo=1
+```
+
+```http
+GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteAcctoThrghSttnList
+  ?serviceKey=<percent-encoded-decoded-service-key>
+  &_type=json
+  &cityCode=<discovered-city-code>
+  &routeId=<route-id>
+  &numOfRows=100
+  &pageNo=1
+```
+
 ```http
 GET http://apis.data.go.kr/1613000/BusRouteInfoInqireService/getRouteInfoIem
   ?serviceKey=<percent-encoded-decoded-service-key>
@@ -216,6 +254,33 @@ GET http://apis.data.go.kr/1613000/ArvlInfoInqireService/getSttnAcctoArvlPrearng
 | 앱 TTL | `expires_at` |
 
 도착 API의 동시 호출 제한과 쿼터를 고려해 같은 정류소 요청을 합치고 20~30초 single-flight cache를 적용한다.
+cache key는 `(provider, service, city_code, stop_id, node_id)` 전체이며 길이 구분 canonical fingerprint의
+flight generation·owner fencing·lease·terminal outcome으로 여러 Spring instance도 합친다. provider 자체
+idempotency가 없으므로 임의 JVM pause까지 외부 호출 exactly-once는 보장하지 않고 current fence의 DB publish만
+보장한다. claim/read SQL은 main pool connection을 즉시 반환하고 `source.fetch` 동안 connection이나 Spring
+transaction을 보유하지 않는다. 응답 processor는 write 전 current row를 잠그고 snapshot/run/arrival 뒤 같은
+transaction의 DB-clock terminal CAS를 마지막에 수행해 stale owner의 전체 변경을 rollback한다. winner는 claim
+직후 DB history를 다시 조회하고 loser는 monotonic deadline 안에서만 bounded poll한다.
+expired RUNNING은 즉시 steal하지 않고 quarantine 동안 `DATA_UNAVAILABLE`로 fail-closed하며, retain 만료 뒤
+새 generation만 허용한다. success retain은 source expiry와 replay window 중 이른 시각이고 expired replay는
+bounded re-observe 뒤 새 generation으로 refresh한다. expired terminal cleanup은 partial index와 `SKIP LOCKED`
+batch 32를 사용해 current/retained/RUNNING을 제외한다. deadline 이후 외부 호출을 시작하지 않고 성공·exact
+실패와 local future를 공유하며 flight row에는 raw body/message·credential·PII를 저장하지 않는다.
+정상 응답의 압축 해제된 원문 bytes를 먼저 snapshot으로 저장하고 parser가 같은 bytes를 읽는다.
+`resultCode=97`은 원문을 `rejected`로 남기지만 HTTP 429·timeout처럼 응답 bytes가 없는 transport
+실패에는 snapshot을 만들지 않는다. 성공한 batch만 같은 transaction에서 snapshot `parsed`,
+`bus_arrival_snapshots` append, import run 성공으로 전환한다.
+
+fresh cache가 만료된 뒤 `RATE_LIMITED`, `TIMEOUT`, `PROVIDER_UNAVAILABLE`이면 provider 실패가 완료된
+시각에 마지막 DB snapshot의 `observed_at`을 다시 비교해 정확히 120초 이하인 경우에만 stale 결과를
+반환한다. stale 응답의 `observed_at`·`expires_at`은 원 관측값을 그대로 유지하고 새 normalized row나
+새 성공 run을 만들지 않는다. 120초를 넘거나 공식 `EMPTY_RESULT`, DB `DATA_UNAVAILABLE`, 계약 오류이면
+fallback하지 않는다. DB read/mapping 오류는 raw SQL·cause 없는 stable code로 변환하되 programmer bug는
+숨기지 않는다. `arrtime`은 0~86400초, `arrprevstationcnt`는 0~10000 범위만 허용한다.
+공식 JSON이 `routeno`, `arrtime`, `arrprevstationcnt`를 따옴표 없는 정수로 반환하는 경우도 손실 없이
+수용한다. 숫자형 `routeno`는 canonical 10진 문자열로 정규화하고 기존 문자열형 영숫자 노선번호도
+호환한다. 도착 초와 남은 정류장은 문자열형 정수도 호환하되 fraction, boolean, object, null과 범위 초과
+정수는 원문 계약 위반으로 거부한다.
 
 ### 4.5 TAGO가 보장하지 않는 값
 
@@ -330,12 +395,27 @@ Issue #42의 `KmaGridConverter`는 외부 호출 없이 WGS84 위경도를 KMA D
 | --- | --- |
 | `TMP`, `T1H` | `temperature_c` |
 | `POP` | `precipitation_probability_percent` |
-| `PCP`, `RN1` | `precipitation_amount_mm` |
+| `PCP`, `RN1` | 정규 시간대는 `precipitation_amount_mm`; 확장 시간대 PCP code는 `precipitation_intensity_code` |
 | `PTY` | `precipitation_type` |
 | `SKY` | `sky_code` |
 | `REH` | `humidity_percent` |
-| `WSD` | `wind_speed_mps` |
+| `WSD` | 정규 시간대는 `wind_speed_mps`; 확장 시간대 WSD code는 `wind_strength_code` |
 | `TMN`, `TMX` | min/max temperature |
+
+단기예보 importer는 `numOfRows=1000`으로 `totalCount`가 가리키는 모든 page를 순서대로
+수집하고 `getFcstVersion(ftype=SHRT, basedatetime=<base>)`까지 각 HTTP 응답의 압축 해제된 byte를
+재직렬화 없이 개별 snapshot으로 먼저 보존한다. ordered manifest에는 snapshot ID, payload hash,
+operation/page metadata만 저장하며 provider 원문을 복제하지 않는다. page/version 오류도 terminal
+`rejected` audit로 남고 정규화 행과 checkpoint는 원자적으로 바뀌지 않는다.
+
+2024-11-28 기상청 공식 단기예보 서비스 변경 공지 이후 02·05·08·11·14시 발표는 발표 다음
+정시부터 발표일+4일 00시 전까지 1시간 간격이고, +4일은 00·03·06·09·12·15·18·21시의
+3시간 간격이다. 공식 slot 수는 각각 101·98·95·92·89개다. 17·20·23시 발표는 같은 규칙의
+확장일이 발표일+5일이며 공식 slot 수는 각각 110·107·104개다. 각 시간대는
+`TMP/POP/PCP/PTY/SKY/REH/WSD`가 완전해야 하며 응답 전체에는 `TMN/TMX`가 모두 있어야 한다.
+경계 누락, 중복 category, 비공식 간격은 거부한다. 확장 시간대의 PCP/SNO/WSD 정수는 물리량이
+아닌 정성 code이므로 PCP와 WSD는 별도 code 컬럼에 저장하고 mm/mps 컬럼은 null로 둔다.
+공식 부가 category와 SNO 원문은 raw snapshot에 보존한다.
 
 강수량은 `강수없음`, `1mm 미만` 같은 문자열일 수 있으므로 parser 버전과 원문 category를 보존한다.
 
