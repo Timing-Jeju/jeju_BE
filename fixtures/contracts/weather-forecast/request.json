@@ -1,0 +1,8 @@
+{
+  "contractVersion": "1.0.0",
+  "method": "GET",
+  "path": "/api/v1/weather/forecast",
+  "headers": {},
+  "query": {"lat": 33.458111, "lng": 126.941516, "dateTime": "2026-08-03T14:00:00+09:00"},
+  "body": null
+}

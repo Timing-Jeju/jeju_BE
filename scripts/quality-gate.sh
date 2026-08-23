@@ -84,6 +84,9 @@ run_common_checks() {
   stage "불변 일정 조회·편집 계약 검사"
   python3 scripts/validate_schedules_contract.py
 
+  stage "날씨 예보 API 계약 검사"
+  python3 scripts/validate_weather_forecast_contract.py
+
   stage "가능성 계산·이동 구간 계약 검사"
   python3 scripts/validate_feasibility_legs_contract.py
 

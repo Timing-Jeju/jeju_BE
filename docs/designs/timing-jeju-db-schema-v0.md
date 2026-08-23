@@ -199,6 +199,8 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | `weather_forecasts` | 초단기/단기예보 snapshot과 단기 `forecast_version` | KMA |
 | `trip_weather_impacts` | 특정 일정 버전에 대한 날씨 영향 | FastAPI computed |
 
+`weather_forecasts.forecast_type`의 canonical 저장 enum은 `ultra_short | short`다. 공개 날씨 API 계약 #94는 `ultra_short | village`를 사용하므로 구현 #67이 `short`를 `village`로 읽기 projection하며, 저장 enum을 공개 응답에 직접 노출하지 않는다.
+
 예보와 영향은 반드시 분리한다. 예보가 갱신되어도 과거 계산이 어떤 forecast를 사용했는지 FK로 추적한다.
 단기예보 신규 행은 `getFcstVersion`의 `SHRT` 파일 version(`yyyyMMddHHmm`)을 반드시 저장하고,
 초단기예보에는 이 값을 혼합하지 않는다.

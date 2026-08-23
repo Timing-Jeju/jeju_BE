@@ -35,7 +35,7 @@ DOMAIN_CONTRACTS = {
     91: "spare-time",
     92: "recovery",
     93: "live",
-    94: "weather",
+    94: "weather-forecast",
 }
 DOMAIN_ISSUES = set(DOMAIN_CONTRACTS)
 PATH_PATTERN = re.compile(
@@ -148,6 +148,15 @@ TEMPLATE_DEFAULT_FIELDS = {"auth", "idempotency", "pagination"}
 RESOURCE_HIDING = "소유 리소스는 정책에 따라 403 또는 404로 은닉"
 NOTION_LINK_FIELDS = {"url", "pageId"}
 FIGMA_LINK_FIELDS = {"url", "fileKey", "nodeId"}
+ISSUE_94_NOTION_LINK = {
+    "url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
+    "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
+}
+ISSUE_94_FIGMA_LINK = {
+    "url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816",
+    "fileKey": "4mKep38zm17iupVSQVsSJW",
+    "nodeId": "1291:8816",
+}
 NOTION_PAGE_ID = (
     r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
@@ -749,16 +758,24 @@ def _validate_notion_link(value: Any, issue: Any, errors: list[str]) -> None:
         or parsed.password is not None
         or not parsed.hostname
         or not (
-            parsed.hostname == "notion.so" or parsed.hostname.endswith(".notion.so")
+            parsed.hostname == "notion.so"
+            or parsed.hostname.endswith(".notion.so")
+            or parsed.hostname == "app.notion.com"
         )
         or bool(parsed.params)
         or bool(parsed.query)
         or bool(parsed.fragment)
         or not normalized_id
         or path_id != normalized_id
+        or (
+            parsed.hostname == "app.notion.com"
+            and path_segments != ["p", normalized_id]
+        )
         or url != canonical_url
     ):
         errors.append(f"도메인 계약 #{issue}의 Notion linkage URL/identifier가 일치하지 않습니다.")
+    elif issue == 94 and value != ISSUE_94_NOTION_LINK:
+        errors.append(f"도메인 계약 #{issue}의 Notion linkage authoritative lineage가 다릅니다.")
 
 
 def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
@@ -779,9 +796,8 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
         f"node-id={ascii_node_id.replace(':', '-')}" if ascii_node_id else ""
     )
     canonical_url = (
-        f"https://{parsed.hostname}/{path_segments[1]}/{path_segments[2]}/"
-        f"{path_segments[3]}?{expected_query}"
-        if parsed and parsed.hostname and len(path_segments) == 4 and expected_query
+        f"https://{parsed.hostname}/{'/'.join(path_segments[1:])}?{expected_query}"
+        if parsed and parsed.hostname and len(path_segments) in {3, 4} and expected_query
         else ""
     )
     if (
@@ -795,15 +811,17 @@ def _validate_figma_link(value: Any, issue: Any, errors: list[str]) -> None:
         or bool(parsed.fragment)
         or not _non_empty(file_key)
         or not re.fullmatch(r"[A-Za-z0-9_-]+", file_key)
-        or len(path_segments) != 4
+        or len(path_segments) not in {3, 4}
         or path_segments[1] not in {"design", "file"}
         or path_segments[2] != file_key
-        or not re.fullmatch(r"[A-Za-z0-9_-]+", path_segments[3])
+        or (len(path_segments) == 4 and not re.fullmatch(r"[A-Za-z0-9_-]+", path_segments[3]))
         or not ascii_node_id
         or parsed.query != expected_query
         or url != canonical_url
     ):
         errors.append(f"도메인 계약 #{issue}의 Figma linkage URL/identifier가 일치하지 않습니다.")
+    elif issue == 94 and value != ISSUE_94_FIGMA_LINK:
+        errors.append(f"도메인 계약 #{issue}의 Figma linkage authoritative lineage가 다릅니다.")
 
 
 def _validate_ready_evidence(

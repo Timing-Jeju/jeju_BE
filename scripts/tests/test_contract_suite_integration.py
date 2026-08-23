@@ -33,6 +33,7 @@ EXPECTED_ENDPOINTS = {
     ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"),
     ("PUT", "/api/v1/trips/{tripId}/schedule-order"),
     ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move"),
+    ("GET", "/api/v1/weather/forecast"),
     ("POST", "/api/v1/trips/{tripId}/feasibility-runs"),
     ("GET", "/api/v1/trips/{tripId}/feasibility-runs/{runId}"),
     (
@@ -48,6 +49,7 @@ EXPECTED_VALIDATORS = (
     "validate_preferences_transport_contract.py",
     "validate_accommodations_contract.py",
     "validate_schedules_contract.py",
+    "validate_weather_forecast_contract.py",
     "validate_feasibility_legs_contract.py",
 )
 
@@ -66,7 +68,7 @@ class ContractSuiteIntegrationTest(unittest.TestCase):
         actual = {(endpoint["method"], endpoint["path"]) for endpoint in catalog["endpoints"]}
 
         self.assertEqual(EXPECTED_ENDPOINTS, actual)
-        self.assertEqual(27, len(catalog["endpoints"]))
+        self.assertEqual(28, len(catalog["endpoints"]))
 
     def test_quality_gates_execute_all_contract_validators(self) -> None:
         shell_commands = _active_commands(SHELL_GATE.read_text(encoding="utf-8"), "python3 scripts/")
