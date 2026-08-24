@@ -19,6 +19,10 @@ SHELL_GATE = ROOT / "scripts/quality-gate.sh"
 POWERSHELL_GATE = ROOT / "scripts/quality-gate.ps1"
 
 
+def _powershell_gate_toolchain_available(runtime: str | None, launcher: str | None) -> bool:
+    return runtime is not None and launcher is not None
+
+
 class LocationRetentionPolicyContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -304,8 +308,9 @@ class LocationRetentionPolicyContractTest(unittest.TestCase):
         source = POWERSHELL_GATE.read_text(encoding="utf-8")
         self.assertIn("function Write-Stage", source)
         runtime = shutil.which("pwsh") or shutil.which("powershell")
-        if runtime is None:
-            self.skipTest("PowerShell runtime이 없는 개발 환경입니다.")
+        launcher = shutil.which("py")
+        if not _powershell_gate_toolchain_available(runtime, launcher):
+            self.skipTest("PowerShell 또는 Windows py launcher가 없는 개발 환경입니다.")
         environment = os.environ.copy()
         environment["TIMING_JEJU_POWERSHELL_GATE_CHILD"] = "1"
         completed = subprocess.run(
@@ -319,6 +324,12 @@ class LocationRetentionPolicyContractTest(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         self.assertIn("위치정보 수집·보존·삭제 정책 계약 검사", completed.stdout)
         self.assertIn("위치정보 보존 정책 계약 검증 성공", completed.stdout)
+
+    def test_powershell_runtime_matrix_requires_windows_py_launcher(self) -> None:
+        self.assertFalse(_powershell_gate_toolchain_available(None, None))
+        self.assertFalse(_powershell_gate_toolchain_available("pwsh", None))
+        self.assertFalse(_powershell_gate_toolchain_available(None, "py"))
+        self.assertTrue(_powershell_gate_toolchain_available("pwsh", "py"))
 
     def test_powershell_native_validator_failure_makes_gate_fail_fast(self) -> None:
         if os.environ.get("TIMING_JEJU_POWERSHELL_GATE_CHILD") == "1":
@@ -335,7 +346,7 @@ class LocationRetentionPolicyContractTest(unittest.TestCase):
 
         runtime = shutil.which("pwsh") or shutil.which("powershell")
         launcher = shutil.which("py")
-        if runtime is None or launcher is None:
+        if not _powershell_gate_toolchain_available(runtime, launcher):
             self.skipTest("PowerShell 또는 Windows py launcher가 없는 개발 환경입니다.")
         environment = os.environ.copy()
         environment["TIMING_JEJU_POWERSHELL_GATE_CHILD"] = "1"
