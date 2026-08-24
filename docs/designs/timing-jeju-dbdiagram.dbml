@@ -811,6 +811,7 @@ Table trip_plans {
   active_schedule_version_id uuid [ref: > trip_schedule_versions.id]
   created_at timestamptz [not null]
   updated_at timestamptz [not null]
+  trip_ended_at timestamptz [note: "DB-recorded one-shot timestamp on first completed transition; immutable"]
   expires_at timestamptz
 
   Note: "candidate 또는 active 일정 버전이 존재하면 start_date와 end_date를 변경할 수 없다."
@@ -1025,6 +1026,41 @@ Table schedule_revision_runs {
 Ref: schedule_revision_runs.(trip_plan_id, owner_user_id) > trip_plans.(id, user_id) [delete: cascade]
 Ref: schedule_revision_runs.(base_schedule_version_id, trip_plan_id) > trip_schedule_versions.(id, trip_plan_id)
 Ref: schedule_revision_runs.(target_trip_day_id, trip_plan_id) > trip_days.(id, trip_plan_id)
+
+Table compute_run_inputs {
+  id uuid [pk]
+  compute_run_id uuid [ref: > compute_runs.id]
+  generation_run_id uuid [ref: > itinerary_generation_runs.id]
+  schedule_revision_run_id uuid [ref: > schedule_revision_runs.id]
+  owner_user_id uuid [not null]
+  trip_plan_id uuid [not null]
+  base_schedule_version_id uuid
+  run_type varchar(32) [not null]
+  schema_version smallint [not null, note: "supported: 1"]
+  contract_version varchar(64) [not null]
+  algorithm_version varchar(64) [not null]
+  structured_input jsonb [not null, note: "canonical object; sensitive/raw location keys forbidden"]
+  command_input_hash char(64) [not null, note: "canonical lowercase SHA-256; immutable"]
+  location_supplied boolean [not null]
+  coarse_location jsonb [note: "GRID_100M|PLACE|STOP closed union"]
+  location_precision_meters integer
+  location_policy_version varchar(64)
+  location_observed_at timestamptz
+  location_expires_at timestamptz
+  location_redacted_at timestamptz
+  created_at timestamptz [not null]
+
+  indexes {
+    compute_run_id [unique, note: "partial: non-null"]
+    generation_run_id [unique, note: "partial: non-null"]
+    schedule_revision_run_id [unique, note: "partial: non-null"]
+  }
+
+  Note: "parent exact-one, immutable durable command. 일반 UPDATE 금지; expiry는 restricted monotonic-shortening function만 사용."
+}
+
+Ref: compute_run_inputs.(trip_plan_id, owner_user_id) > trip_plans.(id, user_id) [delete: cascade]
+Ref: compute_run_inputs.(base_schedule_version_id, trip_plan_id) > trip_schedule_versions.(id, trip_plan_id)
 
 Table itinerary_generation_candidates {
   id uuid [pk]
