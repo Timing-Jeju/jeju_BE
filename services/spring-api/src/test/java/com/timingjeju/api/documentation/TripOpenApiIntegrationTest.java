@@ -1,5 +1,6 @@
 package com.timingjeju.api.documentation;
 
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -64,7 +65,170 @@ class TripOpenApiIntegrationTest {
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips/{tripId}'].get.parameters[?(@.name=='tripId')].schema.pattern")
-                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"));
+                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.required")
+                .value(containsInAnyOrder("title", "startDate", "endDate")))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.title.minLength").value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.title.maxLength")
+                .value(100))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.timezone.default")
+                .value("Asia/Seoul"))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.timezone.enum[0]")
+                .value("Asia/Seoul"))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.userPace.default")
+                .value("normal"))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.userPace.enum")
+                .value(containsInAnyOrder("slow", "normal", "fast")))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.transportModes.nullable")
+                .doesNotExist())
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.CreateTripRequest.properties.transportModes.default[0].mode")
+                .value("public_transit"))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.CreateTripRequest.properties.transportModes.default[0].priority")
+                .value(1))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.CreateTripRequest.properties.transportModes.default[0].primary")
+                .value(true))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.transportModes.minItems")
+                .value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.CreateTripRequest.properties.transportModes.maxItems")
+                .value(3))
+        .andExpect(jsonPath("$.components.schemas.TransportMode.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportMode.required")
+                .value(containsInAnyOrder("mode", "priority", "primary")))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportMode.properties.mode.enum")
+                .value(containsInAnyOrder("public_transit", "rental_car", "taxi")))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportMode.properties.priority.minimum").value(1))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportMode.properties.priority.maximum").value(3))
+        .andExpect(jsonPath("$.components.schemas.TripDetail.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.required")
+                .value(
+                    containsInAnyOrder(
+                        "tripId",
+                        "title",
+                        "status",
+                        "startDate",
+                        "endDate",
+                        "timezone",
+                        "userPace",
+                        "transportModes",
+                        "days",
+                        "activeScheduleVersionId",
+                        "totalScore",
+                        "scoreProvenance",
+                        "scheduleEffect",
+                        "regenerationRequired",
+                        "createdAt",
+                        "updatedAt")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.status.enum")
+                .value(
+                    containsInAnyOrder(
+                        "draft",
+                        "generating",
+                        "planned",
+                        "live",
+                        "completed",
+                        "cancelled",
+                        "failed")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.scheduleEffect.enum")
+                .value(containsInAnyOrder("none", "maintained", "invalidated")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.activeScheduleVersionId.type")
+                .value(containsInAnyOrder("string", "null")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.totalScore.type")
+                .value(containsInAnyOrder("integer", "null")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.scoreProvenance.type")
+                .value(containsInAnyOrder("object", "null")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.totalScore.minimum").value(0))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.totalScore.maximum").value(100))
+        .andExpect(jsonPath("$.components.schemas.TripDay.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDay.required")
+                .value(containsInAnyOrder("dayId", "dayNo", "date")))
+        .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.minimum").value(1))
+        .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.maximum").value(30))
+        .andExpect(
+            jsonPath("$.components.schemas.ScoreProvenance.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.ScoreProvenance.required")
+                .value(
+                    containsInAnyOrder(
+                        "source",
+                        "runId",
+                        "scheduleVersionId",
+                        "calculatedAt",
+                        "observedAt",
+                        "expiresAt",
+                        "stale")))
+        .andExpect(
+            jsonPath("$.components.schemas.ScoreProvenance.properties.source.enum[0]")
+                .value("feasibility_run"))
+        .andExpect(jsonPath("$.components.schemas.TripSummary.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.TripSummary.required")
+                .value(
+                    containsInAnyOrder(
+                        "tripId",
+                        "title",
+                        "status",
+                        "startDate",
+                        "endDate",
+                        "timezone",
+                        "activeScheduleVersionId",
+                        "totalScore",
+                        "scoreProvenance",
+                        "createdAt",
+                        "updatedAt")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripSummary.properties.activeScheduleVersionId.type")
+                .value(containsInAnyOrder("string", "null")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripSummary.properties.totalScore.type")
+                .value(containsInAnyOrder("integer", "null")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripsListResponse.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.TripsListResponse.required")
+                .value(containsInAnyOrder("items", "page")))
+        .andExpect(jsonPath("$.components.schemas.CursorPage.additionalProperties").value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.CursorPage.required")
+                .value(containsInAnyOrder("size", "hasNext", "nextCursor")))
+        .andExpect(jsonPath("$.components.schemas.CursorPage.properties.size.minimum").value(1))
+        .andExpect(jsonPath("$.components.schemas.CursorPage.properties.size.maximum").value(50))
+        .andExpect(
+            jsonPath("$.components.schemas.CursorPage.properties.nextCursor.type")
+                .value(containsInAnyOrder("string", "null")))
+        .andExpect(
+            jsonPath("$.components.schemas.CursorPage.properties.nextCursor.maxLength")
+                .value(2048));
   }
 
   private static String randomKey() {

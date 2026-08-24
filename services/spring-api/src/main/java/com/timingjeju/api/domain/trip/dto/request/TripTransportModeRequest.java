@@ -4,10 +4,19 @@ import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripTransportMode;
+import io.swagger.v3.oas.annotations.media.Schema;
 
+@Schema(name = "TransportMode", additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public final class TripTransportModeRequest {
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      allowableValues = {"public_transit", "rental_car", "taxi"})
   private String mode;
+
+  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "3")
   private Integer priority;
+
+  @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
   private Boolean primary;
 
   public TripTransportModeRequest() {}

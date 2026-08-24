@@ -70,8 +70,13 @@ public class TripController implements TripApiDocs {
       @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
       @RequestBody byte[] body) {
     CurrentUser user = currentUsers.getRequired();
-    IdempotencyRequest request =
-        IdempotencyRequest.create(user.userId(), "POST", "/api/v1/trips", idempotencyKey, body);
+    IdempotencyRequest request;
+    try {
+      request =
+          IdempotencyRequest.create(user.userId(), "POST", "/api/v1/trips", idempotencyKey, body);
+    } catch (IllegalArgumentException failure) {
+      throw TripException.invalidRequest();
+    }
     AtomicBoolean replayed = new AtomicBoolean(true);
     IdempotencyResponse result =
         idempotency.execute(

@@ -14,6 +14,7 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.timingjeju.api.application.idempotency.IdempotencyRequest;
 import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripDay;
@@ -23,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
@@ -200,6 +202,53 @@ class TripControllerRedIntegrationTest {
                     """))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+  }
+
+  @Test
+  void POST_trips는_transportModes_생략만_default하고_explicit_null은_거부한다() throws Exception {
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "44000000-0000-0000-0000-000000000047")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"title":"제주","startDate":"2026-08-03","endDate":"2026-08-05","transportModes":null}
+                    """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+  }
+
+  @Test
+  void POST_trips는_body_exact_1MiB를_허용하고_max_plus_1은_INVALID_REQUEST다() throws Exception {
+    byte[] exactMax = requestBody(IdempotencyRequest.MAX_BODY_BYTES);
+    byte[] overMax = requestBody(IdempotencyRequest.MAX_BODY_BYTES + 1);
+
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "44000000-0000-0000-0000-000000000048")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(exactMax))
+        .andExpect(status().isCreated());
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "44000000-0000-0000-0000-000000000049")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(overMax))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+  }
+
+  private static byte[] requestBody(int size) {
+    byte[] json =
+        "{\"title\":\"Jeju\",\"startDate\":\"2026-08-03\",\"endDate\":\"2026-08-05\"}"
+            .getBytes(StandardCharsets.UTF_8);
+    byte[] body = new byte[size];
+    Arrays.fill(body, (byte) ' ');
+    System.arraycopy(json, 0, body, 0, json.length);
+    return body;
   }
 
   private static TripAggregate aggregate() {
