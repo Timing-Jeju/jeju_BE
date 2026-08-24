@@ -4,6 +4,8 @@
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 82,
   "implementationIssues": [
+    18,
+    19,
     61,
     106
   ],
@@ -274,7 +276,7 @@
               "version": {
                 "type": "string",
                 "nullable": false,
-                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+                "pattern": "^(?:[0-9]+\\.[0-9]+\\.[0-9]+|[0-9]{4}-[0-9]{2}-[0-9]{2}\\.v[1-9][0-9]*)$"
               },
               "title": {
                 "type": "string",
@@ -514,7 +516,7 @@
       "path": "/api/v1/me",
       "operation": "read",
       "catalogKind": "core",
-      "implementationIssue": 61,
+      "implementationIssue": 18,
       "successSchema": "ProfileResponse",
       "auth": {
         "mode": "required",
@@ -547,7 +549,7 @@
           "PROFILE_DATA_UNAVAILABLE"
         ]
       },
-      "dbOwner": "Spring user_profiles and social_accounts read; implementation Issue #61",
+      "dbOwner": "Spring user_profiles and social_accounts read; implementation Issue #18",
       "requestTimeCall": "none",
       "dataLineage": "verified JWT sub -> user profile and linked social providers; raw provider profile excluded",
       "figma": {
@@ -571,7 +573,7 @@
       "path": "/api/v1/me",
       "operation": "update",
       "catalogKind": "core",
-      "implementationIssue": 61,
+      "implementationIssue": 18,
       "successSchema": "ProfileResponse",
       "auth": {
         "mode": "required",
@@ -612,7 +614,7 @@
           "PROFILE_DATA_UNAVAILABLE"
         ]
       },
-      "dbOwner": "Spring user_profiles update; implementation Issue #61",
+      "dbOwner": "Spring user_profiles update; implementation Issue #18",
       "requestTimeCall": "none",
       "dataLineage": "validated nickname/locale -> canonical profile row; provider image URL is read-only and never accepted",
       "figma": {
@@ -716,7 +718,7 @@
       "path": "/api/v1/legal-documents",
       "operation": "read",
       "catalogKind": "core",
-      "implementationIssue": 61,
+      "implementationIssue": 19,
       "successSchema": "LegalDocumentsResponse",
       "auth": {
         "mode": "optional",
@@ -752,8 +754,8 @@
           "PROFILE_DATA_UNAVAILABLE"
         ]
       },
-      "dbOwner": "Spring legal_documents read; implementation Issue #61",
-      "requestTimeCall": "none",
+      "dbOwner": "Spring legal_documents read; implementation/migration Issue #19",
+      "requestTimeCall": "single server Clock instant captured for legal document evaluation",
       "dataLineage": "active legal document versions selected at one server instant",
       "figma": {
         "node": "not-linked",
@@ -776,7 +778,7 @@
       "path": "/api/v1/me/consents",
       "operation": "update",
       "catalogKind": "core",
-      "implementationIssue": 61,
+      "implementationIssue": 19,
       "successSchema": "ConsentResponse",
       "auth": {
         "mode": "required",
@@ -815,14 +817,14 @@
           "PROFILE_CONFLICT"
         ],
         "422": [
-          "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED"
+          "LEGAL_CONSENT_REQUIRED"
         ],
         "503": [
           "PROFILE_DATA_UNAVAILABLE"
         ]
       },
-      "dbOwner": "Spring user_consents/legal_documents atomic update; implementation Issue #61",
-      "requestTimeCall": "none",
+      "dbOwner": "Spring user_consents/legal_documents atomic update; implementation/migration Issue #19",
+      "requestTimeCall": "decision instant plus post-profile-lock active-document evaluation instant; stored decisions use monotonic greatest semantics",
       "dataLineage": "verified JWT sub + active document version -> consent decision",
       "figma": {
         "node": "not-linked",
@@ -1110,7 +1112,7 @@
     "effectiveAtEquality": "eligible and wins over older versions"
   },
   "consentPolicy": {
-    "requiredWithdrawal": "reject false with 422 REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+    "requiredWithdrawal": "reject false or missing latest required document with 422 LEGAL_CONSENT_REQUIRED",
     "updateSemantics": "replace specified document decisions atomically",
     "duplicates": "reject duplicate documentId"
   },
@@ -1148,7 +1150,7 @@
     "workerAuthSubject": "preserve through token expiry and late retries; remove only after Auth success or safe terminalization",
     "tokenCiphertextRetention": "remove status-token ciphertext/keyVersion at replayCutoff; preserve verifier hash and worker auth subject",
     "tokenVerifierRetention": "retain irreversible hash until verifierCutoff for 410, then delete at equality",
-    "migrationScope": "no schema change; Issues #61 and #106 own discovered gaps"
+    "migrationScope": "Issue #19 owns locale-versioned legal documents and atomic user consents; Issues #61 and #106 own account deletion gaps"
   },
   "errorConditions": [
     {
@@ -1248,17 +1250,17 @@
       }
     },
     {
-      "code": "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+      "code": "LEGAL_CONSENT_REQUIRED",
       "status": 422,
-      "condition": "required active consent set false",
+      "condition": "latest required consent is false or missing",
       "endpoints": ["PUT /api/v1/me/consents"],
       "example": {
-        "type": "https://api.timing-jeju.com/problems/required-consent-withdrawal-not-allowed",
-        "title": "필수 동의 철회 불가",
+        "type": "https://api.timing-jeju.com/problems/legal-consent-required",
+        "title": "필수 동의 필요",
         "status": 422,
-        "detail": "필수 동의는 철회할 수 없습니다.",
+        "detail": "현재 시행 중인 필수 법정 문서에 모두 동의해야 합니다.",
         "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
-        "code": "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+        "code": "LEGAL_CONSENT_REQUIRED",
         "traceId": "0123456789abcdef0123456789abcdef",
         "fieldErrors": []
       }
@@ -1344,6 +1346,10 @@
     "implementation": {
       "status": "not-ready",
       "evidence": null,
+      "implementedBy": [
+        18,
+        19
+      ],
       "blockedBy": [
         61,
         106

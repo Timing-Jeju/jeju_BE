@@ -78,7 +78,7 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
         or contract.get("contractVersion") != "1.0.0"
         or contract.get("inherits") != "timing-jeju-rest-contract/v1"
         or contract.get("ownerIssue") != 82
-        or contract.get("implementationIssues") != [61, 106]
+        or contract.get("implementationIssues") != [18, 19, 61, 106]
     ):
         errors.append("계약 identity/version/owner가 다릅니다.")
     endpoints = contract.get("endpoints")
@@ -90,11 +90,12 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
     elif len({(item["method"], item["path"]) for item in endpoints}) != 6:
         errors.append("endpoint method/path가 중복됐습니다.")
     else:
+        implementation_owners = [18, 18, 61, 19, 19, 61]
         for index, endpoint in enumerate(endpoints):
             if endpoint.get("contractVersion") != "1.0.0":
                 errors.append("endpoint contractVersion drift가 있습니다.")
-            if endpoint.get("implementationIssue") != 61:
-                errors.append("profile/legal/deletion API implementation owner는 #61이어야 합니다.")
+            if endpoint.get("implementationIssue") != implementation_owners[index]:
+                errors.append("profile/legal/deletion API implementation owner가 endpoint별 계약과 다릅니다.")
             if set(catalog_projection(endpoint)) != CATALOG_FIELDS:
                 errors.append("endpoint catalog projection 필드가 다릅니다.")
             expected_scheme = "deletion-status-token/v1" if index == 5 else "bearer-jwt/v1"
@@ -109,8 +110,13 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
         if readiness.get("metadata") != {"status": "not-ready", "evidence": None}:
             errors.append("metadata readiness는 외부 lineage 전 not-ready여야 합니다.")
         implementation = readiness.get("implementation")
-        if implementation != {"status": "not-ready", "evidence": None, "blockedBy": [61, 106]}:
-            errors.append("implementation readiness는 #61/#106 완료 전 not-ready여야 합니다.")
+        if implementation != {
+            "status": "not-ready",
+            "evidence": None,
+            "implementedBy": [18, 19],
+            "blockedBy": [61, 106],
+        }:
+            errors.append("implementation readiness는 #18/#19 완료와 #61/#106 잔여 범위를 분리해야 합니다.")
     states = contract.get("deletionStatusPolicy", {}).get("states")
     if states != ["queued", "running", "succeeded", "failed", "cancelled"]:
         errors.append("삭제 상태 five-state 계약이 다릅니다.")
@@ -636,7 +642,12 @@ def _validate_catalog(contract: dict[str, Any], errors: list[str]) -> None:
     domains = [item for item in catalog.get("domainContracts", []) if item.get("issue") == 82]
     if len(domains) != 1 or domains[0].get("versions") != {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}:
         errors.append("catalog #82 version/readiness lineage가 다릅니다.")
-    elif domains[0].get("readiness", {}).get("implementation") != {"status": "not-ready", "evidence": None}:
+    elif domains[0].get("readiness", {}).get("implementation") != {
+        "status": "not-ready",
+        "evidence": None,
+        "implementedBy": [18, 19],
+        "blockedBy": [61, 106],
+    }:
         errors.append("catalog implementation readiness를 승격할 수 없습니다.")
 
 

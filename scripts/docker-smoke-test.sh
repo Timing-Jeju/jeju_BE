@@ -201,6 +201,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/027_completed_provider_snapshot_retention_index.sql \
   /docker-entrypoint-initdb.d/028_schedule_revision_run_foundation.sql \
   /docker-entrypoint-initdb.d/029_compute_run_input_snapshot.sql \
+  /docker-entrypoint-initdb.d/030_legal_documents_consents.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -370,6 +371,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/027_completed_provider_snapshot_retention_index.sql \
   /docker-entrypoint-initdb.d/028_schedule_revision_run_foundation.sql \
   /docker-entrypoint-initdb.d/029_compute_run_input_snapshot.sql \
+  /docker-entrypoint-initdb.d/030_legal_documents_consents.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

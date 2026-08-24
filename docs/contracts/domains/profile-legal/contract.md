@@ -1,16 +1,16 @@
 # 프로필·법정 문서 API 계약
 
-Issue #82의 local contract version은 `1.0.0`이며 공통 REST 계약 #72와 위치정보 정책 #73을 상속한다. 범위는 core 5개와 삭제 상태 extension 1개다. Spring Controller·Service·Repository 또는 DB schema는 이 문서 Issue에서 구현하지 않는다.
+Issue #82의 local contract version은 `1.0.0`이며 공통 REST 계약 #72와 위치정보 정책 #73을 상속한다. 범위는 core 5개와 삭제 상태 extension 1개다. 프로필 GET/PATCH는 #18, 법정 문서 GET과 동의 PUT 및 migration은 #19가 구현하며 계정 삭제 API·암호화는 #61, worker는 #106이 계속 소유한다.
 
 ## Endpoint와 owner
 
 | 구분 | Method | Path | Auth | 구현 owner |
 | --- | --- | --- | --- | --- |
-| core | GET | `/api/v1/me` | required JWT | #61 |
-| core | PATCH | `/api/v1/me` | required JWT | #61 |
+| core | GET | `/api/v1/me` | required JWT | #18 |
+| core | PATCH | `/api/v1/me` | required JWT | #18 |
 | core | DELETE | `/api/v1/me` | required JWT + recent reauth + Idempotency-Key | #61 |
-| core | GET | `/api/v1/legal-documents` | anonymous 또는 optional Bearer JWT | #61 |
-| core | PUT | `/api/v1/me/consents` | required JWT | #61 |
+| core | GET | `/api/v1/legal-documents` | anonymous 또는 optional Bearer JWT | #19 |
+| core | PUT | `/api/v1/me/consents` | required JWT | #19 |
 | extension | GET | `/api/v1/account-deletion-requests/{deletionRequestId}` | `X-Deletion-Status-Token` only; JWT는 ownership 근거가 아님 | #61 API, #106 worker |
 
 PATCH는 `nickname`, `locale`만 받으며 omitted와 null을 구분한다. 두 필드의 omitted는 기존 값을 보존하고 null은 거부한다. `email`, `providers`, provider `profileImageUrl`은 read-only이며 이미지 업로드·변경은 #78이 소유한다. 커밋 fixture의 Bearer 값은 secret scanner가 허용하는 `Bearer <fixture-access-token>`만 사용하고, validator가 이 exact placeholder만 실제 wire grammar 검증용 생성값으로 치환한다.
@@ -23,10 +23,10 @@ DELETE는 공통 #72의 command-like `apply` 연산으로 `202` deletion request
 
 프로필의 공개 `providers`는 `google`, `kakao`, `custom:naver`만 허용한다. 저장값을 trim 후 ASCII lowercase로 정규화하고 정규화 뒤 중복을 제거한 다음 이 canonical 순서로 투영한다. `email` identity는 공개 provider가 아니므로 제외하며, email-only 사용자는 닫힌 빈 배열 `providers: []`로 투영한다. 임의 provider 문자열은 공개 응답에 포함하지 않는다.
 
-법정 문서는 `(type, requestedLocale)`별로 하나의 서버 평가 시각에서 `effectiveAt <= evaluatedAt`인 후보를 선택한다. 해당 type에 요청 locale 후보가 하나라도 있으면 그 locale만 사용하고, 없을 때만 `ko-KR`로 fallback한다. 정렬은 `effectiveAt DESC`, semantic version DESC, documentId ASC이며 equality 후보도 eligible하다. 필수 문서 동의를 false로 바꾸면 `422 REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED`다.
+법정 문서는 `(type, requestedLocale)`별로 하나의 서버 평가 시각에서 `effectiveAt <= evaluatedAt`인 후보를 선택한다. 해당 type에 요청 locale 후보가 하나라도 있으면 그 locale만 사용하고, 없을 때만 `ko-KR`로 fallback한다. 정렬은 `effectiveAt DESC`, semantic version DESC, documentId ASC이며 equality 후보도 eligible하다. 필수 최신 문서의 거부·누락은 `422 LEGAL_CONSENT_REQUIRED`다.
 
 ## Readiness
 
-Issue 본문에는 canonical Notion page ID/URL과 Figma file/node 근거가 없으므로 `not-linked`를 유지한다. 공통 readiness 선행 규칙에 따라 metadata, example, implementation을 모두 `not-ready`로 유지한다. 로컬 fixture는 계약 검증용 증거지만 외부 metadata lineage 없이 Example Ready로 승격하지 않는다. #61의 API·DB·암호화·OpenAPI와 #106 worker가 완료되기 전 implementation readiness를 승격하지 않는다.
+Issue 본문에는 canonical Notion page ID/URL과 Figma file/node 근거가 없으므로 `not-linked`를 유지한다. 공통 readiness 선행 규칙에 따라 metadata, example, 전체 domain implementation은 `not-ready`를 유지한다. 다만 #18의 프로필 GET/PATCH와 #19의 법정 문서 GET·동의 PUT·DB migration은 구현된 owner로 기록한다. 계정 삭제 API·암호화 #61과 worker #106이 남아 있으므로 전체 implementation readiness를 승격하지 않는다.
 
-DB migration은 만들지 않는다. 발견된 `account_deletion_requests` nullable lineage, encrypted token/auth subject와 retention gap은 #61/#106이 append-only migration으로 소유한다.
+#19는 locale별 canonical 법정 문서와 사용자 동의를 위한 append-only migration을 소유한다. `account_deletion_requests` nullable lineage, encrypted token/auth subject와 retention gap은 계속 #61/#106의 후속 append-only migration 범위다.

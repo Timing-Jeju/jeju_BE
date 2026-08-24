@@ -65,6 +65,24 @@
             "contentUrl": "https://timing-jeju.example/legal/terms/1.0.0",
             "required": true,
             "effectiveAt": "2026-08-01T00:00:00+09:00"
+          },
+          {
+            "documentId": "09200000-0000-0000-0000-000000000002",
+            "type": "privacy",
+            "version": "1.0.0",
+            "title": "개인정보 처리방침",
+            "contentUrl": "https://timing-jeju.example/legal/privacy/1.0.0",
+            "required": true,
+            "effectiveAt": "2026-08-01T00:00:00+09:00"
+          },
+          {
+            "documentId": "09200000-0000-0000-0000-000000000003",
+            "type": "location",
+            "version": "2026-08-11.v1",
+            "title": "위치기반서비스 이용약관",
+            "contentUrl": "https://timing-jeju.example/legal/location/2026-08-11.v1",
+            "required": true,
+            "effectiveAt": "2026-08-11T00:00:00+09:00"
           }
         ]
       }
