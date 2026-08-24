@@ -17,6 +17,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class JdbcProfileProvisioningStore implements ProfileProvisioningStore {
 
+  private static final String CLAIM_PROFILE_SQL =
+      """
+      insert into public.user_profiles (
+        id, created_at, updated_at, last_login_at
+      ) values (?, ?, ?, ?)
+      on conflict (id) do nothing
+      """;
+
   private static final String EMAIL_CONFLICT_SQL =
       """
       select exists (
@@ -80,6 +88,7 @@ public class JdbcProfileProvisioningStore implements ProfileProvisioningStore {
   public ProvisionedCurrentUser provision(ProfileProvisioningRequest request) {
     Objects.requireNonNull(request, "request must not be null");
     try {
+      claimProfile(request);
       rejectEmailOwnedByAnotherUser(request.email(), request.userId());
       upsertProfile(request);
       for (ProvisioningSocialAccount account : request.socialAccounts()) {
@@ -96,11 +105,17 @@ public class JdbcProfileProvisioningStore implements ProfileProvisioningStore {
   static String contractSql() {
     return String.join(
         "\n",
+        CLAIM_PROFILE_SQL,
         EMAIL_CONFLICT_SQL,
         UPSERT_PROFILE_SQL,
         SUBJECT_OWNER_CONFLICT_SQL,
         USER_PROVIDER_SUBJECT_SQL,
         UPSERT_SOCIAL_SQL);
+  }
+
+  private void claimProfile(ProfileProvisioningRequest request) {
+    Timestamp requestedAt = Timestamp.from(request.requestedAt());
+    jdbc.update(CLAIM_PROFILE_SQL, request.userId(), requestedAt, requestedAt, requestedAt);
   }
 
   private void rejectEmailOwnedByAnotherUser(String email, UUID userId) {

@@ -204,6 +204,19 @@ class JdbcProfileProvisioningStoreIntegrationTest
 
     assertThat(count("public.user_profiles", USER_A)).isOne();
     assertThat(count("public.social_accounts", USER_A)).isOne();
+    assertThat(
+            jdbc.queryForObject(
+                """
+                select count(*) from public.user_profiles
+                where id = ?
+                  and email is not null
+                  and nickname is not null
+                  and profile_image_url is not null
+                  and last_login_at is not null
+                """,
+                Integer.class,
+                USER_A))
+        .isOne();
   }
 
   private ProvisionedCurrentUser provisionAfter(CountDownLatch start, UUID userId) {

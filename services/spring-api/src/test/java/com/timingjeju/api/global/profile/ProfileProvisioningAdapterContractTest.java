@@ -66,6 +66,31 @@ class ProfileProvisioningAdapterContractTest {
   }
 
   @Test
+  void profile_store는_email_없는_id_claim으로_동일_user를_먼저_직렬화한다() {
+    String sql = JdbcProfileProvisioningStore.contractSql().toLowerCase();
+    String claim =
+        """
+        insert into public.user_profiles (
+          id, created_at, updated_at, last_login_at
+        ) values (?, ?, ?, ?)
+        on conflict (id) do nothing
+        """
+            .strip();
+    String emailConflict = "select 1 from public.user_profiles where email = ? and id <> ?";
+    String profileUpsert =
+        """
+        insert into public.user_profiles (
+          id, email, nickname, profile_image_url, created_at, updated_at, last_login_at
+        )
+        """
+            .strip();
+
+    assertThat(sql).contains(claim, emailConflict, profileUpsert);
+    assertThat(sql.indexOf(claim)).isLessThan(sql.indexOf(emailConflict));
+    assertThat(sql.indexOf(claim)).isLessThan(sql.indexOf(profileUpsert));
+  }
+
+  @Test
   void PostgreSQL_constraint_metadata만_known_충돌로_분류하고_raw_detail을_버린다() {
     assertStableFailure(
         failure("user_profiles_email_key"),
