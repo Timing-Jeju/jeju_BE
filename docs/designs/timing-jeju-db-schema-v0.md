@@ -239,6 +239,7 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | `itinerary_generation_runs` | 비동기 Day 생성 실행 | Spring orchestration |
 | `itinerary_generation_candidates` | 실행별 후보 버전 순위 | Spring persists MCP output |
 | `schedule_revision_runs` | 일정 보정 identity/lifecycle 부모 | Spring orchestration; queued/running/terminal |
+| `compute_run_inputs` | compute/generation/revision immutable command snapshot | Spring intake writer / worker reader |
 | `ai_conversations` | Phase 2 대화 | Spring |
 | `ai_messages` | Phase 2 메시지 | Spring |
 
@@ -249,6 +250,8 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 일정 버전의 `version_no`는 생성 후 바꿀 수 없고 `base_schedule_version_id`는 같은 여행의 더 작은 번호만 참조한다. `candidate` 또는 `active` 봉인은 장소/좌표, 시간, Day 순번·범위, 인접 leg의 완전성을 검사한다. 봉인과 Day/여행 날짜 변경은 같은 `trip_plan` 행에 MVCC 쓰기 펜스를 세워 동시 write-skew를 차단한다. `READ COMMITTED`에서는 대기 후 최신 상태를 다시 검사하고 오래된 `REPEATABLE READ` writer는 `40001`로 중단한다. migration 당시 이미 봉인된 legacy 일정도 audit한다. 항목의 시작과 종료는 모두 같은 제주 현지 Day에 있어야 하며 leg의 시간차와 구성 시간 합계가 일치해야 한다. 관심 장소처럼 시간 없는 데이터는 `saved_places`에 둘 수 있지만 일정 버전으로는 봉인할 수 없다.
 
 `schedule_revision_runs`는 generation/compute 실행과 별도 테이블을 사용한다. `(trip_plan_id, owner_user_id)`, `(base_schedule_version_id, trip_plan_id)`, `(target_trip_day_id, trip_plan_id)` 실제 복합 FK가 owner·base·Day 혼합을 막는다. 새 run은 queued로만 생성하며 active base/Day scope와 사용자·여행 idempotency key는 각각 DB unique arbiter로 경쟁을 직렬화한다. contract/algorithm version, request hash와 lineage는 불변이고 terminal 상태는 running으로 돌아갈 수 없다. 최초 queued와 running/succeeded에는 failure code가 없고 retry queued와 failed/cancelled에는 1~100자 stable code가 필수다. claim과 만료 lease reclaim만 attempt/fencing을 정확히 1씩 증가시키며 heartbeat는 live lease owner와 counters를, retry/terminal은 counters를 보존한다. 5번째 attempt는 retry할 수 없고 만료된 5번째 running만 counters를 보존한 `ASYNC_RUN_RETRY_EXHAUSTED` failed로 fencing-safe 복구한다. HTTP 요청, immutable structured input과 `mcp_compute_call_logs` 확장은 이 foundation의 범위가 아니다.
+
+`compute_run_inputs`는 generic compute, generation, revision parent 중 정확히 하나만 참조하고 parent마다 한 행만 허용한다. owner·trip·base schedule·run type은 parent와 일치해야 하며 canonical structured input과 command SHA-256은 생성 후 불변이다. schema version 1은 run type별 exact field/type projection을 사용하고 unknown, alias, nested raw object를 허용하지 않는다. optional 위치는 `GRID_100M(gridX,gridY)`, `PLACE(placeId)`, `STOP(stopId)` closed union이며 raw 위경도/accuracy는 저장하지 않는다. DB가 최초 `completed` 여행 전이에 기록해 이후 일반 update에도 불변인 `trip_plans.trip_ended_at`과 실제 parent terminal `completed_at`을 도착 anchor로 삼고, 제한 함수가 +24시간 후보 중 earliest로 expiry를 단조 단축해 `expires_at <= evaluated_at`부터 due다. legacy completed 여행은 알 수 없는 과거 시각을 추측하지 않고 migration DB 시각으로 보수 backfill한다. `service_role`도 snapshot DELETE나 일반 UPDATE를 할 수 없다. MCP input hash/call log와 due redaction job은 별도 소유권이다.
 
 ### 4.7 Compute/Recovery
 

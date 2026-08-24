@@ -1348,4 +1348,65 @@ begin
 end;
 $$;
 
+do $$
+declare
+  parent_fk_count integer;
+  parent_unique_count integer;
+begin
+  if to_regclass('public.compute_run_inputs') is null then
+    raise exception 'compute_run_inputs table is missing';
+  end if;
+  select count(*) into parent_fk_count
+  from pg_catalog.pg_constraint
+  where conrelid = 'public.compute_run_inputs'::regclass
+    and contype = 'f'
+    and conname in (
+      'fk_compute_run_inputs_compute_parent',
+      'fk_compute_run_inputs_generation_parent',
+      'fk_compute_run_inputs_revision_parent'
+    );
+  if parent_fk_count <> 3 then
+    raise exception 'compute_run_inputs exact parent FK count differs: %', parent_fk_count;
+  end if;
+  select count(*) into parent_unique_count
+  from pg_catalog.pg_indexes
+  where schemaname = 'public'
+    and tablename = 'compute_run_inputs'
+    and indexname in (
+      'uq_compute_run_inputs_compute_parent',
+      'uq_compute_run_inputs_generation_parent',
+      'uq_compute_run_inputs_revision_parent'
+    )
+    and indexdef ilike '%unique%where%is not null%';
+  if parent_unique_count <> 3 then
+    raise exception 'compute_run_inputs per-parent unique count differs: %', parent_unique_count;
+  end if;
+  if not (select relrowsecurity from pg_catalog.pg_class
+          where oid = 'public.compute_run_inputs'::regclass)
+     or exists (
+       select 1 from pg_catalog.pg_policies
+       where schemaname = 'public' and tablename = 'compute_run_inputs'
+     ) then
+    raise exception 'compute_run_inputs RLS/client policy boundary is invalid';
+  end if;
+  if exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role')
+     and (
+       not has_table_privilege('service_role', 'public.compute_run_inputs', 'SELECT')
+       or not has_table_privilege('service_role', 'public.compute_run_inputs', 'INSERT')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'UPDATE')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'DELETE')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRUNCATE')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'REFERENCES')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRIGGER')
+       or not has_function_privilege(
+         'service_role',
+         'public.shorten_compute_run_input_location_expiry(uuid,timestamptz)',
+         'EXECUTE'
+       )
+     ) then
+    raise exception 'compute_run_inputs service-only transition privileges are invalid';
+  end if;
+end;
+$$;
+
 select 'schema_contract' as check_name, 'PASS' as result;
