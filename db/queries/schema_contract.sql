@@ -1395,6 +1395,9 @@ begin
        or not has_table_privilege('service_role', 'public.compute_run_inputs', 'INSERT')
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'UPDATE')
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'DELETE')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRUNCATE')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'REFERENCES')
+       or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRIGGER')
        or not has_function_privilege(
          'service_role',
          'public.shorten_compute_run_input_location_expiry(uuid,timestamptz)',

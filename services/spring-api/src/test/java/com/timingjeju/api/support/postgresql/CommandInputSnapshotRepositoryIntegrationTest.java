@@ -444,6 +444,33 @@ class CommandInputSnapshotRepositoryIntegrationTest {
             });
   }
 
+  @Test
+  void service_role은_SELECT와_INSERT만_가능하고_모든_schema_mutation은_금지된다() {
+    for (String allowed : List.of("SELECT", "INSERT")) {
+      assertThat(
+              jdbc.queryForObject(
+                  "select has_table_privilege('service_role', 'public.compute_run_inputs', ?)",
+                  Boolean.class,
+                  allowed))
+          .as(allowed)
+          .isTrue();
+    }
+    for (String denied : List.of("UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER")) {
+      assertThat(
+              jdbc.queryForObject(
+                  "select has_table_privilege('service_role', 'public.compute_run_inputs', ?)",
+                  Boolean.class,
+                  denied))
+          .as(denied)
+          .isFalse();
+    }
+    assertThat(
+            jdbc.queryForObject(
+                "select has_function_privilege('service_role', 'public.shorten_compute_run_input_location_expiry(uuid,timestamptz)', 'EXECUTE')",
+                Boolean.class))
+        .isTrue();
+  }
+
   private void activateScheduleVersion() {
     jdbc.execute(
         (ConnectionCallback<Void>)

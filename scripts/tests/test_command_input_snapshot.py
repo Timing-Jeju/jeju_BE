@@ -174,7 +174,10 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         self.assertIn("anchor_at <= evaluated_at", migration)
         self.assertIn("least(input_row.location_expires_at, candidate_expiry)", migration)
         self.assertIn("location_expires_at <= evaluated_at", migration)
-        self.assertIn("revoke update on public.compute_run_inputs from service_role", migration)
+        self.assertIn(
+            "revoke all privileges on table public.compute_run_inputs from service_role",
+            migration,
+        )
         self.assertIn(
             "grant execute on function public.shorten_compute_run_input_location_expiry(uuid, timestamptz)",
             migration,
@@ -196,13 +199,19 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         self.assertNotIn("create policy", migration)
         self.assertIn("revoke all on public.compute_run_inputs from anon", migration)
         self.assertIn("revoke all on public.compute_run_inputs from authenticated", migration)
+        self.assertIn(
+            "revoke all privileges on table public.compute_run_inputs from service_role",
+            migration,
+        )
         self.assertIn("grant select, insert on public.compute_run_inputs to service_role", migration)
         self.assertNotIn("grant select, insert, delete on public.compute_run_inputs", migration)
         schema_contract = (ROOT / "db/queries/schema_contract.sql").read_text(encoding="utf-8").lower()
-        self.assertIn(
-            "has_table_privilege('service_role', 'public.compute_run_inputs', 'delete')",
-            schema_contract,
-        )
+        for privilege in ("select", "insert", "update", "delete", "truncate", "references", "trigger"):
+            with self.subTest(privilege=privilege):
+                self.assertIn(
+                    f"has_table_privilege('service_role', 'public.compute_run_inputs', '{privilege}')",
+                    schema_contract,
+                )
         for path in (
             ROOT / "db/queries/schema_contract.sql",
             ROOT / "db/queries/smoke_check.sql",

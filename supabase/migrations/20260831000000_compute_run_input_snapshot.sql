@@ -708,8 +708,8 @@ begin
     execute 'revoke all on public.compute_run_inputs from authenticated';
   end if;
   if exists (select 1 from pg_roles where rolname = 'service_role') then
+    execute 'revoke all privileges on table public.compute_run_inputs from service_role';
     execute 'grant select, insert on public.compute_run_inputs to service_role';
-    execute 'revoke update on public.compute_run_inputs from service_role';
     execute 'grant execute on function public.command_jsonb_object_size(jsonb) to service_role';
     execute 'grant execute on function public.command_input_rfc3339_timestamp_is_valid(text) to service_role';
     execute 'grant execute on function public.command_input_rfc3339_timestamp_sort_key(text) to service_role';
