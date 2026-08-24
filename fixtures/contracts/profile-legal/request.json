@@ -1,0 +1,70 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": [
+    {
+      "method": "GET",
+      "contractPath": "/api/v1/me",
+      "path": "/api/v1/me",
+      "headers": {
+        "Authorization": "Bearer <fixture-access-token>"
+      }
+    },
+    {
+      "method": "PATCH",
+      "contractPath": "/api/v1/me",
+      "path": "/api/v1/me",
+      "headers": {
+        "Authorization": "Bearer <fixture-access-token>"
+      },
+      "body": {
+        "nickname": "제주여행자",
+        "profileImageObjectKey": "profiles/user/avatar.webp",
+        "locale": "ko-KR"
+      }
+    },
+    {
+      "method": "DELETE",
+      "contractPath": "/api/v1/me",
+      "path": "/api/v1/me",
+      "headers": {
+        "Authorization": "Bearer <fixture-access-token>",
+        "Idempotency-Key": "00000000-0000-4000-8000-000000000082"
+      },
+      "body": {
+        "confirmation": "DELETE_MY_ACCOUNT"
+      }
+    },
+    {
+      "method": "GET",
+      "contractPath": "/api/v1/legal-documents",
+      "path": "/api/v1/legal-documents",
+      "query": {
+        "locale": "ko-KR"
+      }
+    },
+    {
+      "method": "PUT",
+      "contractPath": "/api/v1/me/consents",
+      "path": "/api/v1/me/consents",
+      "headers": {
+        "Authorization": "Bearer <fixture-access-token>"
+      },
+      "body": {
+        "consents": [
+          {
+            "documentId": "09200000-0000-0000-0000-000000000001",
+            "agreed": true
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "contractPath": "/api/v1/account-deletion-requests/{deletionRequestId}",
+      "path": "/api/v1/account-deletion-requests/01JZQ3CM4C9N6N5S7XJ9W1FB08",
+      "headers": {
+        "X-Deletion-Status-Token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    }
+  ]
+}

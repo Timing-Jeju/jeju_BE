@@ -1,0 +1,1361 @@
+{
+  "schemaVersion": "timing-jeju-profile-legal-contract/v1",
+  "contractVersion": "1.0.0",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 82,
+  "implementationIssues": [
+    61,
+    106
+  ],
+  "schemas": {
+    "CommonHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Authorization"
+      ],
+      "properties": {
+        "Authorization": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^Bearer [A-Za-z0-9._~-]{16,4096}$"
+        }
+      }
+    },
+    "OptionalAuthorizationHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "Authorization": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^Bearer [A-Za-z0-9._~-]{16,4096}$"
+        }
+      }
+    },
+    "ProfileResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "userId",
+        "email",
+        "nickname",
+        "profileImageObjectKey",
+        "locale",
+        "providers",
+        "onboardingCompleted",
+        "updatedAt"
+      ],
+      "properties": {
+        "userId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "email": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "nickname": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "profileImageObjectKey": {
+          "type": "string",
+          "nullable": true,
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "locale": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "ko-KR"
+          ]
+        },
+        "providers": {
+          "type": "array",
+          "nullable": false,
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "nullable": false,
+            "enum": [
+              "google",
+              "kakao",
+              "custom:naver"
+            ]
+          }
+        },
+        "onboardingCompleted": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": false
+        }
+      }
+    },
+    "ProfilePatchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "nickname": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "profileImageObjectKey": {
+          "type": "string",
+          "nullable": true,
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!https?://)(?!.*(?:^|/)\\.\\.?(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$"
+        },
+        "locale": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "ko-KR"
+          ]
+        }
+      }
+    },
+    "DeleteAccountRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confirmation"
+      ],
+      "properties": {
+        "confirmation": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "DELETE_MY_ACCOUNT"
+          ]
+        }
+      }
+    },
+    "DeleteAccountHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Authorization",
+        "Idempotency-Key"
+      ],
+      "properties": {
+        "Authorization": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^Bearer [A-Za-z0-9._~-]{16,4096}$"
+        },
+        "Idempotency-Key": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        }
+      }
+    },
+    "DeleteAcceptedResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deletionRequestId",
+        "statusToken",
+        "statusTokenExpiresAt",
+        "pollUrl",
+        "requestedAt"
+      ],
+      "properties": {
+        "deletionRequestId": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "statusToken": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "statusTokenExpiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": false
+        },
+        "pollUrl": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^/api/v1/account-deletion-requests/[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "requestedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": false
+        }
+      }
+    },
+    "LegalDocumentsQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "locale": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "ko-KR"
+          ]
+        }
+      }
+    },
+    "LegalDocumentsResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluatedAt",
+        "locale",
+        "items"
+      ],
+      "properties": {
+        "evaluatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": false
+        },
+        "locale": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "ko-KR"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "nullable": false,
+          "minItems": 0,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "documentId",
+              "type",
+              "version",
+              "title",
+              "contentUrl",
+              "required",
+              "effectiveAt"
+            ],
+            "properties": {
+              "documentId": {
+                "type": "string",
+                "format": "uuid",
+                "nullable": false
+              },
+              "type": {
+                "type": "string",
+                "nullable": false,
+                "enum": [
+                  "terms",
+                  "privacy",
+                  "location"
+                ]
+              },
+              "version": {
+                "type": "string",
+                "nullable": false,
+                "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+              },
+              "title": {
+                "type": "string",
+                "nullable": false,
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "contentUrl": {
+                "type": "string",
+                "nullable": false,
+                "pattern": "^https://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]{1,2040}$"
+              },
+              "required": {
+                "type": "boolean",
+                "nullable": false
+              },
+              "effectiveAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "ConsentRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "consents"
+      ],
+      "properties": {
+        "consents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "documentId",
+              "agreed"
+            ],
+            "properties": {
+              "documentId": {
+                "type": "string",
+                "format": "uuid",
+                "nullable": false
+              },
+              "agreed": {
+                "type": "boolean",
+                "nullable": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "ConsentResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiredConsentsSatisfied",
+        "updatedAt"
+      ],
+      "properties": {
+        "requiredConsentsSatisfied": {
+          "type": "boolean",
+          "nullable": false
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": false
+        }
+      }
+    },
+    "DeletionRequestPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deletionRequestId"
+      ],
+      "properties": {
+        "deletionRequestId": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      }
+    },
+    "DeletionStatusHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "X-Deletion-Status-Token"
+      ],
+      "properties": {
+        "X-Deletion-Status-Token": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    "DeletionStatusResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deletionRequestId",
+        "status",
+        "currentStep",
+        "nextRetryAt",
+        "completedAt"
+      ],
+      "properties": {
+        "deletionRequestId": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "status": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "currentStep": {
+          "type": "string",
+          "nullable": true,
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "nextRetryAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": true
+        }
+      }
+    },
+    "DeletionStatus": {
+      "type": "string",
+      "nullable": false,
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "ProblemDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "title",
+        "status",
+        "detail",
+        "instance",
+        "code",
+        "traceId",
+        "fieldErrors"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "title": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "status": {
+          "type": "integer",
+          "nullable": false,
+          "minimum": 400,
+          "maximum": 599
+        },
+        "detail": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "instance": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "code": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^[A-Z][A-Z0-9_]{2,63}$"
+        },
+        "traceId": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "fieldErrors": {
+          "type": "array",
+          "nullable": false,
+          "minItems": 0,
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "nullable": false,
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/v1/me",
+      "operation": "read",
+      "catalogKind": "core",
+      "implementationIssue": 61,
+      "successSchema": "ProfileResponse",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical Supabase JWT sub owner only",
+      "schemas": {
+        "path": "none",
+        "query": "none",
+        "headers": "CommonHeaders",
+        "body": "none"
+      },
+      "presence": "all response fields required; profileImageObjectKey nullable; providers stable unique order",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          401,
+          503
+        ]
+      },
+      "errorMatrix": {
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "503": [
+          "PROFILE_DATA_UNAVAILABLE"
+        ]
+      },
+      "dbOwner": "Spring user_profiles and social_accounts read; implementation Issue #61",
+      "requestTimeCall": "none",
+      "dataLineage": "verified JWT sub -> user profile and linked social providers; raw provider profile excluded",
+      "figma": {
+        "node": "not-linked",
+        "action": "profile view",
+        "loading": "not-linked",
+        "empty": "not-linked",
+        "error": "not-linked"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/me",
+      "operation": "update",
+      "catalogKind": "core",
+      "implementationIssue": 61,
+      "successSchema": "ProfileResponse",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical Supabase JWT sub owner only",
+      "schemas": {
+        "path": "none",
+        "query": "none",
+        "headers": "CommonHeaders",
+        "body": "ProfilePatchRequest"
+      },
+      "presence": "nickname/locale omitted preserve and null reject; profileImageObjectKey omitted preserve and null clears",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          409,
+          503
+        ]
+      },
+      "errorMatrix": {
+        "400": [
+          "INVALID_PROFILE_LEGAL_REQUEST"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "409": [
+          "PROFILE_CONFLICT"
+        ],
+        "503": [
+          "PROFILE_DATA_UNAVAILABLE"
+        ]
+      },
+      "dbOwner": "Spring user_profiles update; implementation Issue #61",
+      "requestTimeCall": "none",
+      "dataLineage": "validated request -> canonical profile row; provider URL is never accepted",
+      "figma": {
+        "node": "not-linked",
+        "action": "profile edit",
+        "loading": "not-linked",
+        "empty": "not-linked",
+        "error": "not-linked"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/me",
+      "operation": "apply",
+      "catalogKind": "core",
+      "implementationIssue": 61,
+      "successSchema": "DeleteAcceptedResponse",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical Supabase JWT sub owner only with recent reauthentication",
+      "schemas": {
+        "path": "none",
+        "query": "none",
+        "headers": "DeleteAccountHeaders",
+        "body": "DeleteAccountRequest"
+      },
+      "presence": "confirmation and Idempotency-Key required; 202 returns deletionRequestId/statusToken/statusTokenExpiresAt/pollUrl",
+      "responses": {
+        "success": [
+          202
+        ],
+        "errors": [
+          400,
+          401,
+          409,
+          428,
+          429,
+          503
+        ]
+      },
+      "errorMatrix": {
+        "400": [
+          "INVALID_PROFILE_LEGAL_REQUEST"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "409": [
+          "PROFILE_CONFLICT",
+          "IDEMPOTENCY_PAYLOAD_CONFLICT",
+          "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+        ],
+        "428": [
+          "RECENT_REAUTHENTICATION_REQUIRED"
+        ],
+        "429": [
+          "PROFILE_RATE_LIMITED"
+        ],
+        "503": [
+          "PROFILE_DATA_UNAVAILABLE"
+        ]
+      },
+      "dbOwner": "Spring account_deletion_requests command; API/crypto owner #61 and worker #106",
+      "requestTimeCall": "none",
+      "dataLineage": "verified JWT sub -> encrypted deletion command; plaintext token/auth subject excluded",
+      "figma": {
+        "node": "not-linked",
+        "action": "account deletion confirmation",
+        "loading": "not-linked",
+        "empty": "not-linked",
+        "error": "not-linked"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonical JWT sub + DELETE /api/v1/me + key",
+        "ttl": "until statusTokenExpiresAt",
+        "replay": "same canonical body returns original 202 body including exact statusToken",
+        "payloadConflict": "409 IDEMPOTENCY_PAYLOAD_CONFLICT",
+        "concurrentRequest": "409 IDEMPOTENCY_REQUEST_IN_PROGRESS"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/legal-documents",
+      "operation": "read",
+      "catalogKind": "core",
+      "implementationIssue": 61,
+      "successSchema": "LegalDocumentsResponse",
+      "auth": {
+        "mode": "optional",
+        "missingToken": "anonymous",
+        "invalidToken": 401
+      },
+      "owner": "public active legal documents; optional principal does not change selection",
+      "schemas": {
+        "path": "none",
+        "query": "LegalDocumentsQuery",
+        "headers": "OptionalAuthorizationHeaders",
+        "body": "none"
+      },
+      "presence": "locale optional non-null; response items required and may be empty",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          503
+        ]
+      },
+      "errorMatrix": {
+        "400": [
+          "INVALID_PROFILE_LEGAL_REQUEST"
+        ],
+        "401": [
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "503": [
+          "PROFILE_DATA_UNAVAILABLE"
+        ]
+      },
+      "dbOwner": "Spring legal_documents read; implementation Issue #61",
+      "requestTimeCall": "none",
+      "dataLineage": "active legal document versions selected at one server instant",
+      "figma": {
+        "node": "not-linked",
+        "action": "legal document view",
+        "loading": "not-linked",
+        "empty": "not-linked",
+        "error": "not-linked"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/me/consents",
+      "operation": "update",
+      "catalogKind": "core",
+      "implementationIssue": 61,
+      "successSchema": "ConsentResponse",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical Supabase JWT sub owner only",
+      "schemas": {
+        "path": "none",
+        "query": "none",
+        "headers": "CommonHeaders",
+        "body": "ConsentRequest"
+      },
+      "presence": "consents required non-empty; documentId unique; agreed required boolean",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          409,
+          422,
+          503
+        ]
+      },
+      "errorMatrix": {
+        "400": [
+          "INVALID_PROFILE_LEGAL_REQUEST"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "409": [
+          "PROFILE_CONFLICT"
+        ],
+        "422": [
+          "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED"
+        ],
+        "503": [
+          "PROFILE_DATA_UNAVAILABLE"
+        ]
+      },
+      "dbOwner": "Spring user_consents/legal_documents atomic update; implementation Issue #61",
+      "requestTimeCall": "none",
+      "dataLineage": "verified JWT sub + active document version -> consent decision",
+      "figma": {
+        "node": "not-linked",
+        "action": "consent update",
+        "loading": "not-linked",
+        "empty": "not-linked",
+        "error": "not-linked"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/account-deletion-requests/{deletionRequestId}",
+      "operation": "read",
+      "catalogKind": "extension",
+      "implementationIssue": 61,
+      "successSchema": "DeletionStatusResponse",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401,
+        "scheme": "deletion-status-token/v1"
+      },
+      "owner": "valid opaque deletion status token; JWT ownership is not required after Auth deletion",
+      "schemas": {
+        "path": "DeletionRequestPath",
+        "query": "none",
+        "headers": "DeletionStatusHeaders",
+        "body": "none"
+      },
+      "presence": "X-Deletion-Status-Token required; currentStep/nextRetryAt/completedAt state-dependent nullable",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          403,
+          404,
+          410,
+          429,
+          503
+        ]
+      },
+      "errorMatrix": {
+        "400": [
+          "INVALID_PROFILE_LEGAL_REQUEST"
+        ],
+        "401": [
+          "INVALID_DELETION_STATUS_TOKEN"
+        ],
+        "403": [
+          "DELETION_STATUS_FORBIDDEN"
+        ],
+        "404": [
+          "PROFILE_RESOURCE_NOT_FOUND"
+        ],
+        "410": [
+          "DELETION_STATUS_TOKEN_EXPIRED"
+        ],
+        "429": [
+          "PROFILE_RATE_LIMITED"
+        ],
+        "503": [
+          "PROFILE_DATA_UNAVAILABLE"
+        ]
+      },
+      "dbOwner": "Spring account_deletion_requests retained status read; implementation Issue #61, worker #106",
+      "requestTimeCall": "none",
+      "dataLineage": "opaque token hash verification -> retained non-PII deletion status",
+      "figma": {
+        "node": "not-linked",
+        "action": "deletion status polling",
+        "loading": "not-linked",
+        "empty": "not-linked",
+        "error": "not-linked"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    }
+  ],
+  "profileProviderPolicy": {
+    "allowed": [
+      "google",
+      "kakao",
+      "custom:naver"
+    ],
+    "normalization": "trim then Unicode-independent ASCII lowercase",
+    "deduplication": "deduplicate after normalization",
+    "stableOrder": [
+      "google",
+      "kakao",
+      "custom:naver"
+    ],
+    "unknown": "reject; never project free-form identity provider"
+  },
+  "profilePatchPolicy": {
+    "nickname": {
+      "omitted": "preserve",
+      "null": "reject"
+    },
+    "locale": {
+      "omitted": "preserve",
+      "null": "reject"
+    },
+    "profileImageObjectKey": {
+      "omitted": "preserve",
+      "null": "clear",
+      "meaning": "private object key; never a provider URL"
+    },
+    "requestConstraint": "at least one mutable field"
+  },
+  "deletionPolicy": {
+    "confirmation": "DELETE_MY_ACCOUNT",
+    "acceptedStatus": 202,
+    "idempotencyHeader": "Idempotency-Key",
+    "replayScope": "same user + key + canonical body",
+    "sameReplay": "return original deletionRequestId and exact original statusToken",
+    "workerIssue": 106,
+    "statusToken": {
+      "entropyBits": 256,
+      "header": "X-Deletion-Status-Token",
+      "use": "status verification until expiresAt; replay only before replayCutoff",
+      "expiredStatus": 410,
+      "persistence": "never plaintext"
+    },
+    "tokenLifecycle": {
+      "ttlSeconds": 86400,
+      "terminalRetentionSeconds": 86400,
+      "replayCutoff": "nonterminal=statusTokenExpiresAt; terminal=min(statusTokenExpiresAt, terminalAt + 24h)",
+      "replayGuarantee": "replay allowed iff now < replayCutoff; equality is not replayable",
+      "replayCutoffAction": "delete status-token ciphertext and keyVersion; preserve irreversible verifier hash and encryptedAuthSubject",
+      "verifierCutoff": "statusTokenExpiresAt + 24h",
+      "verifierCutoffAction": "delete irreversible verifier hash and retained status; subsequent token is invalid 401",
+      "expiryClassification": "expiresAt <= now < verifierCutoff returns 410; equality at verifierCutoff deletes hash and is invalid 401",
+      "boundaryCases": [
+        {
+          "case": "nonterminal-before-expiry",
+          "now": "statusTokenExpiresAt - 1 microsecond",
+          "replay": true,
+          "status": 200
+        },
+        {
+          "case": "nonterminal-expiry-equality",
+          "now": "statusTokenExpiresAt",
+          "replay": false,
+          "status": 410
+        },
+        {
+          "case": "terminal-replay-cutoff-equality",
+          "now": "min(statusTokenExpiresAt, terminalAt + 24h)",
+          "replay": false,
+          "verifierHash": "preserved until verifierCutoff"
+        },
+        {
+          "case": "verifier-cutoff-equality",
+          "now": "statusTokenExpiresAt + 24h",
+          "replay": false,
+          "status": 401
+        }
+      ],
+      "keyRotation": "decrypt current keyVersion; re-encrypt with active key on successful replay",
+      "cryptoFailure": "fail closed 503 without new token or raw crypto/provider cause"
+    },
+    "workerAuthSubjectLifecycle": {
+      "tokenCleanupIndependence": "never deleted by status token replayCutoff or verifierCutoff",
+      "nonterminalTokenExpiry": "preserve",
+      "lateWorker": "preserve for late worker Auth retry",
+      "deleteOnlyWhen": [
+        "Auth deletion succeeded",
+        "safe terminalization guarantees no future Auth retry"
+      ],
+      "deleteAction": "remove encryptedAuthSubject in the same committed worker transition"
+    }
+  },
+  "deletionStatusPolicy": {
+    "states": [
+      "queued",
+      "running",
+      "succeeded",
+      "failed",
+      "cancelled"
+    ],
+    "responseFields": [
+      "deletionRequestId",
+      "status",
+      "currentStep",
+      "nextRetryAt",
+      "completedAt"
+    ],
+    "statePresence": {
+      "queued": {
+        "currentStep": null,
+        "nextRetryAt": "nullable",
+        "completedAt": null
+      },
+      "running": {
+        "currentStep": "required",
+        "nextRetryAt": "nullable",
+        "completedAt": null
+      },
+      "succeeded": {
+        "currentStep": null,
+        "nextRetryAt": null,
+        "completedAt": "required"
+      },
+      "failed": {
+        "currentStep": null,
+        "nextRetryAt": "nullable",
+        "completedAt": "required"
+      },
+      "cancelled": {
+        "currentStep": null,
+        "nextRetryAt": null,
+        "completedAt": "required"
+      }
+    },
+    "forbiddenFields": [
+      "email",
+      "nickname",
+      "providerError",
+      "authSubject"
+    ],
+    "capabilityAuthorization": {
+      "verification": "verifier hash lookup first; constant-time compare; dummy compare on no hash row",
+      "precedence": [
+        {
+          "case": "missing-or-malformed-token",
+          "status": 401,
+          "code": "INVALID_DELETION_STATUS_TOKEN",
+          "lookup": "no identifier existence result"
+        },
+        {
+          "case": "unknown-token-hash",
+          "status": 401,
+          "code": "INVALID_DELETION_STATUS_TOKEN",
+          "lookup": "dummy constant-time verification"
+        },
+        {
+          "case": "valid-token-mismatched-or-missing-id",
+          "status": 403,
+          "code": "DELETION_STATUS_FORBIDDEN",
+          "lookup": "do not reveal identifier existence"
+        },
+        {
+          "case": "valid-token-matching-id-status-missing",
+          "status": 404,
+          "code": "PROFILE_RESOURCE_NOT_FOUND",
+          "lookup": "capability already proves identifier knowledge"
+        }
+      ],
+      "existenceConcealment": "same observable result for any unproven deletionRequestId"
+    }
+  },
+  "legalDocumentPolicy": {
+    "localeSelection": "requested locale then ko-KR fallback",
+    "activeVersionSelection": "greatest effectiveAt <= evaluatedAt; version tie-break",
+    "evaluatedAt": "single captured server instant",
+    "types": [
+      "terms",
+      "privacy",
+      "location"
+    ],
+    "partition": [
+      "type",
+      "requestedLocale"
+    ],
+    "fallback": "requested locale if any eligible row exists for that type, otherwise ko-KR",
+    "eligibility": "effectiveAt <= evaluatedAt",
+    "order": [
+      "effectiveAt DESC",
+      "semanticVersion DESC",
+      "documentId ASC"
+    ],
+    "effectiveAtEquality": "eligible and wins over older versions"
+  },
+  "consentPolicy": {
+    "requiredWithdrawal": "reject false with 422 REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+    "updateSemantics": "replace specified document decisions atomically",
+    "duplicates": "reject duplicate documentId"
+  },
+  "securityPolicy": {
+    "principal": "canonical Supabase JWT sub",
+    "forbiddenPersistence": [
+      "plaintext deletion status token",
+      "plaintext worker Auth subject"
+    ],
+    "forbiddenResponse": [
+      "user_metadata",
+      "raw token",
+      "email after Auth deletion",
+      "provider payload",
+      "internal provider error"
+    ],
+    "forbiddenLogging": [
+      "status token",
+      "JWT",
+      "auth subject",
+      "provider payload",
+      "credential"
+    ]
+  },
+  "storagePolicy": {
+    "tables": [
+      "user_profiles",
+      "social_accounts",
+      "user_consents",
+      "legal_documents",
+      "account_deletion_requests"
+    ],
+    "accountDeletionUserProfileId": "nullable ON DELETE SET NULL",
+    "statusToken": "hash plus encrypted ciphertext, key version and expiry",
+    "workerAuthSubject": "preserve through token expiry and late retries; remove only after Auth success or safe terminalization",
+    "tokenCiphertextRetention": "remove status-token ciphertext/keyVersion at replayCutoff; preserve verifier hash and worker auth subject",
+    "tokenVerifierRetention": "retain irreversible hash until verifierCutoff for 410, then delete at equality",
+    "migrationScope": "no schema change; Issues #61 and #106 own discovered gaps"
+  },
+  "errorConditions": [
+    {
+      "code": "INVALID_PROFILE_LEGAL_REQUEST",
+      "status": 400,
+      "condition": "request format/type/presence invalid",
+      "endpoints": ["PATCH /api/v1/me", "DELETE /api/v1/me", "GET /api/v1/legal-documents", "PUT /api/v1/me/consents", "GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/invalid-profile-legal-request",
+        "title": "요청 형식 오류",
+        "status": 400,
+        "detail": "요청 형식이 올바르지 않습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "INVALID_PROFILE_LEGAL_REQUEST",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "AUTHENTICATION_REQUIRED",
+      "status": 401,
+      "condition": "required bearer JWT missing",
+      "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "PUT /api/v1/me/consents"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/authentication-required",
+        "title": "인증 필요",
+        "status": 401,
+        "detail": "유효한 인증 정보가 필요합니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "AUTHENTICATION_REQUIRED",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "DELETION_STATUS_FORBIDDEN",
+      "status": 403,
+      "condition": "status token scope does not match request",
+      "endpoints": ["GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/deletion-status-forbidden",
+        "title": "조회 권한 없음",
+        "status": 403,
+        "detail": "삭제 요청 상태를 조회할 수 없습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "DELETION_STATUS_FORBIDDEN",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "PROFILE_RESOURCE_NOT_FOUND",
+      "status": 404,
+      "condition": "deletion request missing or concealed",
+      "endpoints": ["GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/profile-resource-not-found",
+        "title": "리소스 없음",
+        "status": 404,
+        "detail": "요청한 리소스를 찾을 수 없습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "PROFILE_RESOURCE_NOT_FOUND",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "PROFILE_CONFLICT",
+      "status": 409,
+      "condition": "profile, consent or command version conflict",
+      "endpoints": ["PATCH /api/v1/me", "DELETE /api/v1/me", "PUT /api/v1/me/consents"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/profile-conflict",
+        "title": "요청 충돌",
+        "status": 409,
+        "detail": "동일 요청과 충돌했습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "PROFILE_CONFLICT",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "DELETION_STATUS_TOKEN_EXPIRED",
+      "status": 410,
+      "condition": "deletion status token expired",
+      "endpoints": ["GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/deletion-status-token-expired",
+        "title": "토큰 만료",
+        "status": 410,
+        "detail": "삭제 상태 조회 토큰이 만료됐습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "DELETION_STATUS_TOKEN_EXPIRED",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+      "status": 422,
+      "condition": "required active consent set false",
+      "endpoints": ["PUT /api/v1/me/consents"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/required-consent-withdrawal-not-allowed",
+        "title": "필수 동의 철회 불가",
+        "status": 422,
+        "detail": "필수 동의는 철회할 수 없습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "RECENT_REAUTHENTICATION_REQUIRED",
+      "status": 428,
+      "condition": "account deletion lacks recent reauthentication",
+      "endpoints": ["DELETE /api/v1/me"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/recent-reauthentication-required",
+        "title": "재인증 필요",
+        "status": 428,
+        "detail": "계정 삭제 전에 다시 인증해 주세요.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "RECENT_REAUTHENTICATION_REQUIRED",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "PROFILE_RATE_LIMITED",
+      "status": 429,
+      "condition": "deletion or status polling quota exceeded",
+      "endpoints": ["DELETE /api/v1/me", "GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/profile-rate-limited",
+        "title": "요청 한도 초과",
+        "status": 429,
+        "detail": "잠시 후 다시 시도해 주세요.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "PROFILE_RATE_LIMITED",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "code": "INVALID_ACCESS_TOKEN", "status": 401, "condition": "bearer JWT present but invalid", "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "GET /api/v1/legal-documents", "PUT /api/v1/me/consents"],
+      "example": {"type": "https://api.timing-jeju.com/problems/invalid-access-token", "title": "인증 토큰 오류", "status": 401, "detail": "접근 토큰이 올바르지 않습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "INVALID_ACCESS_TOKEN", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "INVALID_DELETION_STATUS_TOKEN", "status": 401, "condition": "deletion status token missing, malformed or unverifiable", "endpoints": ["GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "example": {"type": "https://api.timing-jeju.com/problems/invalid-deletion-status-token", "title": "삭제 상태 토큰 오류", "status": 401, "detail": "삭제 상태 조회 토큰이 올바르지 않습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "INVALID_DELETION_STATUS_TOKEN", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "IDEMPOTENCY_PAYLOAD_CONFLICT", "status": 409, "condition": "same idempotency scope and key with different canonical body", "endpoints": ["DELETE /api/v1/me"],
+      "example": {"type": "https://api.timing-jeju.com/problems/idempotency-payload-conflict", "title": "멱등 요청 충돌", "status": 409, "detail": "같은 멱등성 키의 요청 본문이 다릅니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "IDEMPOTENCY_PAYLOAD_CONFLICT", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "IDEMPOTENCY_REQUEST_IN_PROGRESS", "status": 409, "condition": "same idempotency command is still in progress", "endpoints": ["DELETE /api/v1/me"],
+      "example": {"type": "https://api.timing-jeju.com/problems/idempotency-request-in-progress", "title": "멱등 요청 처리 중", "status": 409, "detail": "동일한 요청이 처리 중입니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "IDEMPOTENCY_REQUEST_IN_PROGRESS", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "PROFILE_DATA_UNAVAILABLE",
+      "status": 503,
+      "condition": "required storage/dependency unavailable",
+      "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "GET /api/v1/legal-documents", "PUT /api/v1/me/consents", "GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "example": {
+        "type": "https://api.timing-jeju.com/problems/profile-data-unavailable",
+        "title": "데이터 조회 불가",
+        "status": 503,
+        "detail": "프로필 또는 법정 문서 데이터를 불러올 수 없습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "PROFILE_DATA_UNAVAILABLE",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    }
+  ],
+  "externalTraceability": {
+    "notion": "not-linked",
+    "figma": "not-linked"
+  },
+  "readiness": {
+    "metadata": {
+      "status": "not-ready",
+      "evidence": null
+    },
+    "example": {
+      "status": "not-ready",
+      "evidence": null
+    },
+    "implementation": {
+      "status": "not-ready",
+      "evidence": null,
+      "blockedBy": [
+        61,
+        106
+      ]
+    }
+  }
+}

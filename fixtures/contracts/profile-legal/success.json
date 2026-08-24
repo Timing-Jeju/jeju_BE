@@ -1,0 +1,147 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": [
+    {
+      "method": "GET",
+      "contractPath": "/api/v1/me",
+      "path": "/api/v1/me",
+      "status": 200,
+      "body": {
+        "userId": "09000000-0000-0000-0000-000000000001",
+        "email": "masked@example.invalid",
+        "nickname": "제주여행자",
+        "profileImageObjectKey": null,
+        "locale": "ko-KR",
+        "providers": [
+          "google",
+          "custom:naver"
+        ],
+        "onboardingCompleted": true,
+        "updatedAt": "2026-08-24T09:00:00+09:00"
+      }
+    },
+    {
+      "method": "PATCH",
+      "contractPath": "/api/v1/me",
+      "path": "/api/v1/me",
+      "status": 200,
+      "body": {
+        "userId": "09000000-0000-0000-0000-000000000001",
+        "email": "masked@example.invalid",
+        "nickname": "제주여행자",
+        "profileImageObjectKey": "profiles/user/avatar.webp",
+        "locale": "ko-KR",
+        "providers": [
+          "google",
+          "kakao"
+        ],
+        "onboardingCompleted": true,
+        "updatedAt": "2026-08-24T09:30:00+09:00"
+      }
+    },
+    {
+      "method": "DELETE",
+      "contractPath": "/api/v1/me",
+      "path": "/api/v1/me",
+      "status": 202,
+      "body": {
+        "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "statusToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "statusTokenExpiresAt": "2026-08-25T10:00:00+09:00",
+        "pollUrl": "/api/v1/account-deletion-requests/01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "requestedAt": "2026-08-24T10:00:00+09:00"
+      }
+    },
+    {
+      "method": "GET",
+      "contractPath": "/api/v1/legal-documents",
+      "path": "/api/v1/legal-documents",
+      "status": 200,
+      "body": {
+        "evaluatedAt": "2026-08-24T10:00:00+09:00",
+        "locale": "ko-KR",
+        "items": [
+          {
+            "documentId": "09200000-0000-0000-0000-000000000001",
+            "type": "terms",
+            "version": "1.0.0",
+            "title": "서비스 이용약관",
+            "contentUrl": "https://timing-jeju.example/legal/terms/1.0.0",
+            "required": true,
+            "effectiveAt": "2026-08-01T00:00:00+09:00"
+          }
+        ]
+      }
+    },
+    {
+      "method": "PUT",
+      "contractPath": "/api/v1/me/consents",
+      "path": "/api/v1/me/consents",
+      "status": 200,
+      "body": {
+        "requiredConsentsSatisfied": true,
+        "updatedAt": "2026-08-24T10:01:00+09:00"
+      }
+    },
+    {
+      "method": "GET",
+      "contractPath": "/api/v1/account-deletion-requests/{deletionRequestId}",
+      "path": "/api/v1/account-deletion-requests/01JZQ3CM4C9N6N5S7XJ9W1FB08",
+      "status": 200,
+      "body": {
+        "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "status": "running",
+        "currentStep": "delete_owned_data",
+        "nextRetryAt": null,
+        "completedAt": null
+      }
+    }
+  ],
+  "deletionStatusExamples": [
+    {
+      "body": {
+        "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "status": "queued",
+        "currentStep": null,
+        "nextRetryAt": null,
+        "completedAt": null
+      }
+    },
+    {
+      "body": {
+        "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "status": "running",
+        "currentStep": "delete_owned_data",
+        "nextRetryAt": null,
+        "completedAt": null
+      }
+    },
+    {
+      "body": {
+        "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "status": "succeeded",
+        "currentStep": null,
+        "nextRetryAt": null,
+        "completedAt": "2026-08-24T10:02:00+09:00"
+      }
+    },
+    {
+      "body": {
+        "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "status": "failed",
+        "currentStep": null,
+        "nextRetryAt": "2026-08-24T10:03:00+09:00",
+        "completedAt": "2026-08-24T10:02:00+09:00"
+      }
+    },
+    {
+      "body": {
+        "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "status": "cancelled",
+        "currentStep": null,
+        "nextRetryAt": null,
+        "completedAt": "2026-08-24T10:02:00+09:00"
+      }
+    }
+  ]
+}
