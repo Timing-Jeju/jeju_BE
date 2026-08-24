@@ -1,0 +1,156 @@
+{
+  "schemaVersion": "timing-jeju-location-retention-policy/v1",
+  "contractVersion": "1.0.0",
+  "ownerIssue": 73,
+  "excludedScope": [
+    "government filing",
+    "app-store submission",
+    "TTL job",
+    "public location API",
+    "continuous tracking"
+  ],
+  "releaseGate": {
+    "developmentAllowed": true,
+    "internalQaAllowed": true,
+    "productionDefaultEnabled": false,
+    "releaseIssue": 168,
+    "privacyLegalCompleted": false,
+    "governmentFilingCompleted": false,
+    "activationRule": "all Issue #168 evidence must be complete before production enable"
+  },
+  "consentPolicy": {
+    "documentType": "location",
+    "initialVersion": "2026-08-11.v1",
+    "requiredFor": [
+      "live_state",
+      "execution_event",
+      "idle_time_recommendation",
+      "recovery_option",
+      "live_recalculation",
+      "departure_notification"
+    ],
+    "availableWithoutConsent": [
+      "place_search",
+      "place_detail",
+      "trip_manual_crud",
+      "schedule_manual_crud"
+    ],
+    "missingConsentError": "LOCATION_CONSENT_REQUIRED",
+    "withdrawal": "block new location processing immediately and schedule redaction"
+  },
+  "processingPolicies": [
+    {
+      "id": "trip_execution_event_location",
+      "target": "trip_execution_events.location",
+      "purpose": "validate arrival, departure and missed execution events",
+      "storage": "allowed",
+      "precision": "WGS84 point; accuracy at most 100m",
+      "retention": {
+        "mode": "earliestOf",
+        "rules": [
+          {"anchor": "tripEndedAt", "duration": "P7D"},
+          {"anchor": "lastEventAt", "duration": "P14D"}
+        ]
+      },
+      "deletionTriggers": ["consent_withdrawal", "account_deletion", "trip_deletion", "retention_cutoff"],
+      "disposition": "redact coordinates and preserve non-location event lineage"
+    },
+    {
+      "id": "live_state_current_location",
+      "target": "live_state_snapshots.current_location",
+      "purpose": "derive current state and recalculation need",
+      "storage": "allowed",
+      "precision": "WGS84 point; accuracy at most 100m",
+      "retention": {
+        "mode": "earliestOf",
+        "rules": [
+          {"anchor": "tripEndedAt", "duration": "PT24H"},
+          {"anchor": "createdAt", "duration": "PT72H"}
+        ]
+      },
+      "deletionTriggers": ["consent_withdrawal", "account_deletion", "trip_deletion", "retention_cutoff"],
+      "disposition": "redact current location or delete the snapshot"
+    },
+    {
+      "id": "async_command_location",
+      "target": "asynchronous command snapshot location",
+      "purpose": "reproduce retry input without retaining precise coordinates",
+      "storage": "limited",
+      "precision": "100m grid or place/stop id preferred",
+      "retention": {
+        "mode": "earliestOf",
+        "rules": [
+          {"anchor": "terminalAt", "duration": "PT24H"},
+          {"anchor": "tripEndedAt", "duration": "PT24H"}
+        ]
+      },
+      "deletionTriggers": ["consent_withdrawal", "account_deletion", "retention_cutoff"],
+      "disposition": "remove location fields and preserve run id, status and hash"
+    },
+    {
+      "id": "fastapi_mcp_location",
+      "target": "FastAPI MCP input",
+      "purpose": "provide bounded recommendation and recovery facts",
+      "storage": "forbidden",
+      "precision": "100m grid or place/stop id or travel facts",
+      "retention": {"mode": "none", "rules": []},
+      "deletionTriggers": ["request_end"],
+      "disposition": "do not persist raw prompt or completion; allow redacted call log only"
+    },
+    {
+      "id": "observability_location",
+      "target": "logs, metrics, traces and Problem Details",
+      "purpose": "operational observability without location data",
+      "storage": "forbidden",
+      "precision": "no coordinates, accuracy or original location payload",
+      "retention": {"mode": "none", "rules": []},
+      "deletionTriggers": ["before_emit"],
+      "disposition": "reject sensitive fields before emission"
+    }
+  ],
+  "deletionWorkflows": {
+    "consentWithdrawal": ["record_withdrawal", "disable_location_features", "reject_new_location", "redact_live", "redact_events", "redact_commands", "preserve_non_location_audit"],
+    "tripEnd": ["end_trip", "redact_live_within_24h", "redact_event_location_by_7d", "preserve_non_location_progress"],
+    "tripDeletion": ["block_location", "redact_or_delete_owned_location", "preserve_external_shared_facts", "preserve_redacted_run_lineage"],
+    "accountDeletion": ["block_new_requests", "redact_location_first", "delete_owned_aggregates", "delete_auth_user", "preserve_minimal_non_location_job_status"]
+  },
+  "deletionFieldActions": {
+    "consentWithdrawal": {
+      "redact": ["trip_execution_events.location", "live_state_snapshots.current_location", "async_command_snapshot.location_fields", "mcp_compute_call_logs.location_fields"],
+      "delete": [],
+      "preserve": ["userId", "runId", "tripId", "scheduleVersionId", "eventType", "status", "policyVersion", "retentionRule", "redactedAt", "errorCode", "traceId"]
+    },
+    "tripEnd": {
+      "redact": ["live_state_snapshots.current_location", "trip_execution_events.location"],
+      "delete": [],
+      "preserve": ["tripId", "scheduleVersionId", "eventType", "occurredAt", "runId", "status", "policyVersion", "redactedAt"]
+    },
+    "tripDeletion": {
+      "redact": ["async_command_snapshot.location_fields", "mcp_compute_call_logs.location_fields"],
+      "delete": ["trip_execution_events.*", "live_state_snapshots.*"],
+      "preserve": ["runId", "status", "policyVersion", "redactedAt", "externalSnapshotHash", "errorCode", "traceId"]
+    },
+    "accountDeletion": {
+      "redact": ["async_command_snapshot.location_fields", "mcp_compute_call_logs.location_fields"],
+      "delete": ["trip_execution_events.*", "live_state_snapshots.*", "user_owned_trip_aggregates.*", "auth.users.id"],
+      "preserve": ["deletionJobId", "status", "policyVersion", "redactedAt", "errorCode", "traceId"]
+    }
+  },
+  "auditPolicy": {
+    "allowedNonLocationFields": ["userId", "runId", "tripId", "scheduleVersionId", "eventType", "occurredAt", "deletionJobId", "status", "policyVersion", "retentionRule", "redactedAt", "externalSnapshotHash", "errorCode", "traceId"],
+    "forbiddenValues": ["precise coordinates", "movement path", "raw prompt", "raw completion", "JWT", "provider credential", "original location payload"]
+  },
+  "securityPolicy": {
+    "prohibitedFixtureKeys": ["lat", "lng", "latitude", "longitude", "coordinates", "accuracyMeters", "accessToken", "providerToken", "apiKey", "prompt", "completion", "rawPayload"],
+    "prohibitedOutputs": ["precise coordinates", "accuracy", "movement path", "raw location payload", "JWT", "provider token", "prompt", "completion"],
+    "migrationOwnedByIssue": null,
+    "publicApiOwnedByIssue": null
+  },
+  "accessPolicy": {
+    "publicDatabaseDirectAccess": "forbidden",
+    "springApi": "canonical JWT sub and owned trip authorization required before location processing",
+    "serviceRole": "server-only redaction and retention jobs",
+    "fastApi": "no database, JWT or credential access; bounded redacted facts only",
+    "crossUserAccess": "forbidden"
+  }
+}
