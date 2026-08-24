@@ -59,6 +59,11 @@ class ProfileLegalContractTest(unittest.TestCase):
             expected_mode = "optional" if identity == ("GET", "/api/v1/legal-documents") else "required"
             self.assertEqual(expected_mode, endpoint["auth"]["mode"])
             self.assertEqual(401, endpoint["auth"]["invalidToken"])
+        self.assertEqual([18, 19, 61, 106], contract["implementationIssues"])
+        self.assertEqual(18, endpoints[("GET", "/api/v1/me")]["implementationIssue"])
+        self.assertEqual(18, endpoints[("PATCH", "/api/v1/me")]["implementationIssue"])
+        self.assertEqual(19, endpoints[("GET", "/api/v1/legal-documents")]["implementationIssue"])
+        self.assertEqual(19, endpoints[("PUT", "/api/v1/me/consents")]["implementationIssue"])
         self.assertEqual(61, endpoints[("DELETE", "/api/v1/me")]["implementationIssue"])
         self.assertEqual(
             61,
@@ -68,6 +73,22 @@ class ProfileLegalContractTest(unittest.TestCase):
         )
         self.assertEqual(106, contract["deletionPolicy"]["workerIssue"])
         self.assertEqual("canonical Supabase JWT sub", contract["securityPolicy"]["principal"])
+        self.assertEqual(
+            {"status": "not-ready", "evidence": None},
+            contract["readiness"]["implementation"],
+        )
+
+    def test_legal_db_owner_and_canonical_api_example_are_issue_19_aligned(self) -> None:
+        contract = self._contract()
+        endpoints = {(item["method"], item["path"]): item for item in contract["endpoints"]}
+        self.assertIn("#19", endpoints[("GET", "/api/v1/legal-documents")]["dbOwner"])
+        self.assertIn("#19", endpoints[("PUT", "/api/v1/me/consents")]["dbOwner"])
+        spec = (ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md").read_text(encoding="utf-8")
+        legal_example = spec.split("### 9.4", 1)[1].split("### 9.5", 1)[0]
+        self.assertIn('"evaluatedAt"', legal_example)
+        self.assertIn('"locale": "ko-KR"', legal_example)
+        self.assertIn('"version": "2026-08-11.v1"', legal_example)
+        self.assertIn('"documentId": "09200000-0000-0000-0000-000000000003"', legal_example)
 
     def test_patch_is_nickname_locale_only_and_provider_image_is_read_only(self) -> None:
         contract = self._contract()
@@ -156,7 +177,10 @@ class ProfileLegalContractTest(unittest.TestCase):
         self.assertEqual("greatest effectiveAt <= evaluatedAt; version tie-break", legal["activeVersionSelection"])
         self.assertEqual("single captured server instant", legal["evaluatedAt"])
         self.assertEqual(["terms", "privacy", "location"], legal["types"])
-        self.assertEqual("reject false with 422 REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED", consent["requiredWithdrawal"])
+        self.assertEqual(
+            "reject false or missing latest required document with 422 LEGAL_CONSENT_REQUIRED",
+            consent["requiredWithdrawal"],
+        )
         self.assertEqual("replace specified document decisions atomically", consent["updateSemantics"])
         self.assertEqual("reject duplicate documentId", consent["duplicates"])
 
@@ -186,21 +210,53 @@ class ProfileLegalContractTest(unittest.TestCase):
         self.assertEqual("preserve through token expiry and late retries; remove only after Auth success or safe terminalization", storage["workerAuthSubject"])
         self.assertEqual("remove status-token ciphertext/keyVersion at replayCutoff; preserve verifier hash and worker auth subject", storage["tokenCiphertextRetention"])
         self.assertEqual("retain irreversible hash until verifierCutoff for 410, then delete at equality", storage["tokenVerifierRetention"])
-        self.assertEqual("no schema change; Issues #61 and #106 own discovered gaps", storage["migrationScope"])
+        self.assertEqual(
+            "Issue #19 owns locale-versioned legal documents and atomic user consents; Issues #61 and #106 own account deletion gaps",
+            storage["migrationScope"],
+        )
 
     def test_external_readiness_is_truthful_and_implementation_not_ready(self) -> None:
         contract = self._contract()
+        not_ready = {"status": "not-ready", "evidence": None}
 
         self.assertEqual(
             {"notion": "not-linked", "figma": "not-linked"},
             contract["externalTraceability"],
         )
-        self.assertEqual("not-ready", contract["readiness"]["metadata"]["status"])
-        self.assertIsNone(contract["readiness"]["metadata"]["evidence"])
-        self.assertEqual("not-ready", contract["readiness"]["example"]["status"])
-        self.assertIsNone(contract["readiness"]["example"]["evidence"])
-        self.assertEqual("not-ready", contract["readiness"]["implementation"]["status"])
-        self.assertEqual([61, 106], contract["readiness"]["implementation"]["blockedBy"])
+        self.assertEqual(
+            {"metadata", "example", "implementation"}, set(contract["readiness"])
+        )
+        for stage in ("metadata", "example", "implementation"):
+            with self.subTest(stage=stage):
+                self.assertEqual(not_ready, contract["readiness"][stage])
+        contract_doc = (ROOT / "docs/contracts/domains/profile-legal/contract.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("#18의 프로필 GET/PATCH", contract_doc)
+        self.assertIn("#19의 법정 문서 GET·동의 PUT·DB migration", contract_doc)
+        self.assertIn("계정 삭제 API·암호화 #61과 worker #106", contract_doc)
+
+    def test_readiness_rejects_unknown_root_stage_and_stage_extensions(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_readiness", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+
+        extra_root_stage = copy.deepcopy(self._contract())
+        extra_root_stage["readiness"]["deployment"] = {
+            "status": "not-ready",
+            "evidence": None,
+        }
+        extended_example = copy.deepcopy(self._contract())
+        extended_example["readiness"]["example"]["implementedBy"] = [19]
+
+        mutations = {
+            "extra root stage": extra_root_stage,
+            "extended example stage": extended_example,
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(label=label):
+                self.assertTrue(validator.validate_contract_value(mutation))
 
     def test_fixtures_catalog_validator_and_quality_wiring_exist(self) -> None:
         contract = self._contract()

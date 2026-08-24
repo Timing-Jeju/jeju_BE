@@ -4,12 +4,12 @@
     {
       "endpoint": "PUT /api/v1/me/consents",
       "body": {
-        "type": "https://api.timing-jeju.com/problems/required-consent-withdrawal-not-allowed",
-        "title": "필수 동의 철회 불가",
+        "type": "https://api.timing-jeju.com/problems/legal-consent-required",
+        "title": "필수 동의 필요",
         "status": 422,
-        "detail": "필수 동의는 철회할 수 없습니다.",
+        "detail": "현재 시행 중인 필수 법정 문서에 모두 동의해야 합니다.",
         "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
-        "code": "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+        "code": "LEGAL_CONSENT_REQUIRED",
         "traceId": "0123456789abcdef0123456789abcdef",
         "fieldErrors": []
       }

@@ -152,22 +152,6 @@ values (
   '타이밍제주 데모'
 );
 
-insert into legal_documents (
-  id, document_type, version, title, content_url, required, effective_at
-) values
-(
-  '09200000-0000-0000-0000-000000000001',
-  'terms', '1.0', '서비스 이용약관', 'https://example.local/legal/terms/1.0', true, now()
-),
-(
-  '09200000-0000-0000-0000-000000000002',
-  'privacy', '1.0', '개인정보 처리방침', 'https://example.local/legal/privacy/1.0', true, now()
-),
-(
-  '09200000-0000-0000-0000-000000000003',
-  'location', '1.0', '위치기반서비스 이용약관', 'https://example.local/legal/location/1.0', true, now()
-);
-
 insert into user_consents (user_id, legal_document_id, agreed, source)
 select
   '09000000-0000-0000-0000-000000000001'::uuid,

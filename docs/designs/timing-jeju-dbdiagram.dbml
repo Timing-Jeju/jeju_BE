@@ -280,6 +280,7 @@ Table social_accounts {
 Table legal_documents {
   id uuid [pk]
   document_type text [not null]
+  locale text [not null]
   version text [not null]
   title text [not null]
   content_url text [not null]
@@ -289,7 +290,7 @@ Table legal_documents {
   created_at timestamptz [not null]
 
   indexes {
-    (document_type, version) [unique]
+    (document_type, locale, version) [unique]
   }
 }
 

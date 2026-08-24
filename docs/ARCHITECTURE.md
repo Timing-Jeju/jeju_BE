@@ -87,6 +87,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 ## 데이터베이스 마이그레이션 경계
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
+- 법정 문서는 `(document_type, locale, version)`으로 버전을 보존하고 Spring이 한 평가 시각의 최신 시행 문서만 조회합니다. 사용자 동의는 canonical JWT sub에만 귀속하며 다건 갱신과 필수 최신 문서 검증을 한 트랜잭션으로 처리합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
 - 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재, `20260820000000` `#36` 노선-정류장 적재, `20260820000001` `#76` KMA 예보, `20260822000000` `#37` 관광지-정류장 후보 link, `20260823000000` `#65` 추천 체류시간 정책, `20260824000000` `#75` TourAPI discovery checkpoint, `20260825000000` `#33` 공개 장소 tombstone, `20260826000000` `#39` TAGO 도착정보, `20260827000000` `#39` 도착 요청 flight state, `20260830000000` `#170` schedule revision run foundation 순으로 누적 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.

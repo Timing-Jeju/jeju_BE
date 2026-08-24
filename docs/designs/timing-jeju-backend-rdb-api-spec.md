@@ -338,15 +338,17 @@ Response `200`:
 
 ```json
 {
+  "evaluatedAt": "2026-08-24T10:00:00+09:00",
+  "locale": "ko-KR",
   "items": [
     {
-      "documentId": "09200000-0000-0000-0000-000000000001",
-      "type": "terms",
-      "version": "1.0",
-      "title": "서비스 이용약관",
-      "contentUrl": "https://timing-jeju.example/legal/terms/1.0",
+      "documentId": "09200000-0000-0000-0000-000000000003",
+      "type": "location",
+      "version": "2026-08-11.v1",
+      "title": "위치기반서비스 이용약관",
+      "contentUrl": "https://timing-jeju.example/legal/location/2026-08-11.v1",
       "required": true,
-      "effectiveAt": "2026-08-01T00:00:00+09:00"
+      "effectiveAt": "2026-08-11T00:00:00+09:00"
     }
   ]
 }

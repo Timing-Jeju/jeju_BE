@@ -54,6 +54,7 @@ public class OpenApiConfig {
       optionalSecurity(openApi, "/api/v1/places");
       optionalSecurity(openApi, "/api/v1/places/{placeId}");
       optionalSecurity(openApi, "/api/v1/weather/forecast");
+      optionalSecurity(openApi, "/api/v1/legal-documents");
       weatherCoordinateBounds(openApi);
     };
   }

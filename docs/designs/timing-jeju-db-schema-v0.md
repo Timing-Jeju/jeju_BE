@@ -129,7 +129,7 @@ erDiagram
 | `app_sessions` | 비회원/데모/공유 세션 | Spring | public token unique |
 | `user_profiles` | 앱 프로필 | Spring | `auth.users`와 1:1 |
 | `social_accounts` | provider 프로필 캐시 | Spring/Auth hook | provider token 저장 금지 |
-| `legal_documents` | 약관 버전 | Admin/Spring | type+version unique |
+| `legal_documents` | locale별 약관 버전 | Admin/Spring | type+locale+version unique, 시행 전/retired 제외 |
 | `user_consents` | 사용자별 약관 동의 | Spring | user+document unique |
 
 소셜 provider는 `kakao`, `naver`, `google`이다. 이메일/비밀번호 사용자는 `social_accounts` 행이 없어도 정상이다.
