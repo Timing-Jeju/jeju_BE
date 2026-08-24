@@ -60,6 +60,28 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         )
         self.assertNotIn("schedule_revision_run_id uuid", migration)
 
+    def test_owner_trip_foreign_key_has_an_exact_nonunique_leading_index(self):
+        migration = self.migration()
+        schema_contract = compact_sql(
+            (ROOT / "db/queries/schema_contract.sql").read_text(encoding="utf-8")
+        )
+
+        self.assertIn(
+            "create index idx_schedule_revision_runs_trip_owner_fk "
+            "on public.schedule_revision_runs (trip_plan_id, owner_user_id)",
+            migration,
+        )
+        self.assertNotIn(
+            "create unique index idx_schedule_revision_runs_trip_owner_fk", migration
+        )
+        self.assertIn("foreign keys without a leading index", schema_contract)
+        self.assertIn("revoke all on public.schedule_revision_runs from anon", migration)
+        self.assertIn("revoke all on public.schedule_revision_runs from authenticated", migration)
+        self.assertIn(
+            "grant select, insert, update, delete on public.schedule_revision_runs to service_role",
+            migration,
+        )
+
     def test_lifecycle_is_closed_and_worker_runtime_columns_are_bundled(self):
         migration = self.migration()
 

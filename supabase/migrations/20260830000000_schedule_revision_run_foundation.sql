@@ -122,6 +122,9 @@ create unique index uq_schedule_revision_runs_active_scope
     (owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id)
   where status in ('queued', 'running');
 
+create index idx_schedule_revision_runs_trip_owner_fk
+  on public.schedule_revision_runs (trip_plan_id, owner_user_id);
+
 create index idx_schedule_revision_runs_worker_claim
   on public.schedule_revision_runs (next_attempt_at, created_at, id)
   where status = 'queued' and attempt_count < 5;
