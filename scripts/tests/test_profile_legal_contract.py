@@ -410,6 +410,54 @@ class ProfileLegalContractTest(unittest.TestCase):
         for mutation in (status_mutation, code_mutation, endpoint_mutation):
             self.assertTrue(validator.validate_contract_value(mutation))
 
+    def test_deletion_status_problem_fixtures_match_canonical_examples_exactly(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_problem_examples", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        contract = self._contract()
+        problem = json.loads((FIXTURES / "problem.json").read_text(encoding="utf-8"))
+        conditions = {item["code"]: item for item in contract["errorConditions"]}
+        target_codes = {
+            "INVALID_DELETION_STATUS_TOKEN",
+            "DELETION_STATUS_FORBIDDEN",
+            "PROFILE_RESOURCE_NOT_FOUND",
+        }
+
+        for fixture in problem["examples"]:
+            code = fixture["body"]["code"]
+            if code not in target_codes:
+                continue
+            with self.subTest(code=code):
+                canonical = conditions[code]["example"]
+                self.assertEqual(canonical, fixture["body"])
+                self.assertEqual("0123456789abcdef0123456789abcdef", canonical["traceId"])
+                self.assertEqual(
+                    f"urn:timing-jeju:problem:{canonical['traceId']}",
+                    canonical["instance"],
+                )
+
+        canonical_fixture = copy.deepcopy(problem)
+        for fixture in canonical_fixture["examples"]:
+            code = fixture["body"]["code"]
+            if code in target_codes:
+                fixture["body"] = copy.deepcopy(conditions[code]["example"])
+        target_index = next(
+            index
+            for index, fixture in enumerate(canonical_fixture["examples"])
+            if fixture["body"]["code"] == "INVALID_DELETION_STATUS_TOKEN"
+        )
+        for field, drifted in (
+            ("type", "https://api.timing-jeju.com/problems/arbitrary"),
+            ("title", "임의 오류"),
+            ("detail", "임의 상세입니다."),
+        ):
+            mutation = copy.deepcopy(canonical_fixture)
+            mutation["examples"][target_index]["body"][field] = drifted
+            with self.subTest(field=field):
+                errors = validator.validate_fixture_value("problem", mutation, contract)
+                self.assertTrue(any("canonical example" in error for error in errors), errors)
+
     def test_deletion_state_discriminator_rejects_invalid_presence(self) -> None:
         spec = importlib.util.spec_from_file_location("profile_legal_validator_states", VALIDATOR)
         assert spec is not None and spec.loader is not None

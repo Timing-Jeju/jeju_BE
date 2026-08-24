@@ -27,6 +27,8 @@ IDENTITIES = [
     ("GET", "/api/v1/account-deletion-requests/{deletionRequestId}", "extension"),
 ]
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
+CANONICAL_PROBLEM_TRACE_ID = "0123456789abcdef0123456789abcdef"
+CANONICAL_PROBLEM_INSTANCE = f"urn:timing-jeju:problem:{CANONICAL_PROBLEM_TRACE_ID}"
 CATALOG_FIELDS = {
     "method", "path", "operation", "auth", "owner", "schemas", "presence", "responses",
     "dbOwner", "requestTimeCall", "dataLineage", "figma", "contractVersion", "idempotency", "pagination", "catalogKind",
@@ -175,6 +177,11 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
                 errors.append("Problem Details 8-field closed example이 필요합니다.")
             elif item.get("status") != example.get("status") or item.get("code") != example.get("code"):
                 errors.append("Problem Details status/code mapping이 다릅니다.")
+            elif (
+                example.get("traceId") != CANONICAL_PROBLEM_TRACE_ID
+                or example.get("instance") != CANONICAL_PROBLEM_INSTANCE
+            ):
+                errors.append("Problem Details canonical traceId/instance placeholder가 다릅니다.")
 
 
 def _validate_schema_value(value: Any, schema: dict[str, Any], path: str, errors: list[str]) -> None:
@@ -473,6 +480,8 @@ def validate_fixture_value(kind: str, fixture: Any, contract: dict[str, Any]) ->
             condition = condition_by_code.get(body.get("code")) if isinstance(body, dict) else None
             if condition is None or example["endpoint"] not in condition.get("endpoints", []):
                 errors.append(f"problem[{index}] endpoint/code mapping이 다릅니다.")
+            elif body != condition.get("example"):
+                errors.append(f"problem[{index}] canonical example exact fields가 다릅니다.")
             endpoint = endpoint_by_identity.get(example["endpoint"])
             if endpoint is None or not isinstance(body, dict) or body.get("status") not in endpoint["responses"]["errors"]:
                 errors.append(f"problem[{index}] status가 endpoint errors에 없습니다.")
@@ -609,6 +618,8 @@ def _validate_fixtures(errors: list[str]) -> None:
         matching = [condition for condition in contract["errorConditions"] if condition["code"] == item["body"].get("code")]
         if len(matching) != 1 or item["endpoint"] not in matching[0]["endpoints"]:
             errors.append("problem fixture endpoint/code mapping이 다릅니다.")
+        elif item["body"] != matching[0].get("example"):
+            errors.append("problem fixture canonical example exact fields가 다릅니다.")
         _validate_schema_value(item["body"], contract["schemas"]["ProblemDetails"], "problem.body", errors)
 
 
