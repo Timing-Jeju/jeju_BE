@@ -4,7 +4,7 @@
 
 ## 공통 상속 규칙
 
-- 인증은 `required` 또는 `optional`만 사용합니다. 권한 판단은 검증된 JWT의 canonical `sub`만 사용하고 `user_metadata`는 사용하지 않습니다. required 요청의 token 없음은 401, optional 요청의 token 없음은 익명 흐름이고, invalid token은 두 mode 모두 401입니다. token 없음과 invalid token은 서로 다른 `code`로 분류합니다. 소유 리소스는 도메인 정책에 따라 403 또는 404로 은닉합니다.
+- 인증은 `required` 또는 `optional`만 사용합니다. endpoint의 scheme 생략은 하위 호환 `bearer-jwt/v1`이며, 이 scheme의 권한 판단은 검증된 JWT canonical `sub`만 사용하고 `user_metadata`는 사용하지 않습니다. required 요청의 token 없음은 401, optional 요청의 token 없음은 익명 흐름이고, invalid token은 두 mode 모두 `401 INVALID_ACCESS_TOKEN`입니다. `deletion-status-token/v1`은 `X-Deletion-Status-Token` opaque capability만 사용하고 JWT를 ownership 근거로 사용하지 않으며 missing/invalid 모두 `401 INVALID_DELETION_STATUS_TOKEN`입니다. 임의 scheme·free-form alternate auth는 허용하지 않습니다. 소유 리소스는 도메인 정책에 따라 403 또는 404로 은닉합니다.
 - 생성·계산·적용 요청은 `Idempotency-Key`의 scope, TTL, replay, payload conflict, 동시 요청 규칙을 모두 명시합니다.
 - 목록은 opaque cursor, 정수 size(`1 <= default <= max <= 100`, boolean 제외), stable sort와 고유 tie-breaker를 함께 명시합니다.
 - 오류 본문은 `application/problem+json`의 `type,title,status,detail,instance,code,traceId,fieldErrors`만 사용합니다. `message`, `violations`, token, PII, command payload, raw provider payload를 응답·로그·metric tag에 남기지 않습니다.

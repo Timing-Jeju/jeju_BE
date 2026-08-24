@@ -123,6 +123,24 @@ AUTHORIZATION_FIELDS = {
     "missingTokenCode",
     "invalidTokenCode",
     "resourceHiding",
+    "schemes",
+}
+AUTH_SCHEMES = {
+    "bearer-jwt/v1": {
+        "type": "http-bearer-jwt",
+        "header": "Authorization",
+        "principal": "canonical JWT sub",
+        "missing": "mode-dependent",
+        "invalid": "401 INVALID_ACCESS_TOKEN",
+    },
+    "deletion-status-token/v1": {
+        "type": "opaque-header-capability",
+        "header": "X-Deletion-Status-Token",
+        "principal": "deletion request capability",
+        "jwt": "ignored and not an ownership source",
+        "missing": "401 INVALID_DELETION_STATUS_TOKEN",
+        "invalid": "401 INVALID_DELETION_STATUS_TOKEN",
+    },
 }
 COMMON_IDEMPOTENCY_FIELDS = {"header", "requiredFor", "requires"}
 CURSOR_RULE_FIELDS = {"cursor", "requires"}
@@ -306,6 +324,8 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
             errors.append(f"공통 인증 {field}는 {expected}이어야 합니다.")
     if authorization.get("resourceHiding") != RESOURCE_HIDING:
         errors.append(f"공통 인증 resourceHiding은 '{RESOURCE_HIDING}'이어야 합니다.")
+    if authorization.get("schemes") != AUTH_SCHEMES:
+        errors.append("공통 auth schemes는 versioned bearer-jwt/status-token 정확 계약이어야 합니다.")
 
     idempotency = _object(rules.get("idempotency"), "commonRules.idempotency", errors)
     _reject_unknown_fields(
@@ -420,7 +440,14 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
         missing = REQUIRED_ENDPOINT_FIELDS - endpoint_fields
         for field in sorted(missing):
             errors.append(f"{label}에 필수 계약 필드 {field}가 없습니다.")
-        _reject_unknown_fields(endpoint, REQUIRED_ENDPOINT_FIELDS, label, errors)
+        _reject_unknown_fields(
+            endpoint,
+            REQUIRED_ENDPOINT_FIELDS | {"catalogKind"},
+            label,
+            errors,
+        )
+        if "catalogKind" in endpoint and endpoint.get("catalogKind") not in {"core", "extension"}:
+            errors.append(f"{label}.catalogKind는 core 또는 extension이어야 합니다.")
 
         method = endpoint.get("method")
         path = endpoint.get("path")
@@ -459,11 +486,17 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
 
 def _validate_endpoint_auth(auth: Any, label: str, errors: list[str]) -> None:
     _reject_unknown_fields(
-        auth, {"mode", "missingToken", "invalidToken"}, f"{label}.auth", errors
+        auth, {"mode", "missingToken", "invalidToken", "scheme"}, f"{label}.auth", errors
     )
-    if not isinstance(auth, dict) or set(auth) != {"mode", "missingToken", "invalidToken"}:
+    if not isinstance(auth, dict) or set(auth) not in (
+        {"mode", "missingToken", "invalidToken"},
+        {"mode", "missingToken", "invalidToken", "scheme"},
+    ):
         errors.append(f"{label}의 auth schema가 정확하지 않습니다.")
         return
+    scheme = auth.get("scheme", "bearer-jwt/v1")
+    if scheme not in AUTH_SCHEMES:
+        errors.append(f"{label}의 auth scheme이 허용되지 않습니다.")
     mode = auth.get("mode")
     if not _allowed_string(mode, AUTH_MODES):
         errors.append(f"{label}의 인증 mode는 required 또는 optional이어야 합니다.")
