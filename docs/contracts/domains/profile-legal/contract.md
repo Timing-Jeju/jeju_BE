@@ -27,6 +27,6 @@ DELETE는 공통 #72의 command-like `apply` 연산으로 `202` deletion request
 
 ## Readiness
 
-Issue 본문에는 canonical Notion page ID/URL과 Figma file/node 근거가 없으므로 `not-linked`를 유지한다. 공통 readiness 선행 규칙에 따라 metadata, example, 전체 domain implementation은 `not-ready`를 유지한다. 다만 #18의 프로필 GET/PATCH와 #19의 법정 문서 GET·동의 PUT·DB migration은 구현된 owner로 기록한다. 계정 삭제 API·암호화 #61과 worker #106이 남아 있으므로 전체 implementation readiness를 승격하지 않는다.
+Issue 본문에는 canonical Notion page ID/URL과 Figma file/node 근거가 없으므로 `not-linked`를 유지한다. 공통 readiness 선행 규칙에 따라 metadata, example, 전체 domain implementation은 canonical `{status, evidence}` 구조의 `not-ready`를 유지한다. #18의 프로필 GET/PATCH와 #19의 법정 문서 GET·동의 PUT·DB migration 구현 증거는 endpoint `implementationIssue`·`dbOwner`와 `migrationScope`에 기록하며, 계정 삭제 API·암호화 #61과 worker #106이 남아 있으므로 전체 implementation readiness를 승격하지 않는다.
 
 #19는 locale별 canonical 법정 문서와 사용자 동의를 위한 append-only migration을 소유한다. `account_deletion_requests` nullable lineage, encrypted token/auth subject와 retention gap은 계속 #61/#106의 후속 append-only migration 범위다.

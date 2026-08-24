@@ -104,19 +104,16 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
     if contract.get("externalTraceability") != {"notion": "not-linked", "figma": "not-linked"}:
         errors.append("근거 없는 Notion/Figma readiness 승격을 허용하지 않습니다.")
     readiness = contract.get("readiness")
-    if not isinstance(readiness, dict):
-        errors.append("readiness가 필요합니다.")
-    else:
-        if readiness.get("metadata") != {"status": "not-ready", "evidence": None}:
-            errors.append("metadata readiness는 외부 lineage 전 not-ready여야 합니다.")
-        implementation = readiness.get("implementation")
-        if implementation != {
-            "status": "not-ready",
-            "evidence": None,
-            "implementedBy": [18, 19],
-            "blockedBy": [61, 106],
-        }:
-            errors.append("implementation readiness는 #18/#19 완료와 #61/#106 잔여 범위를 분리해야 합니다.")
+    not_ready = {"status": "not-ready", "evidence": None}
+    expected_readiness = {
+        "metadata": not_ready,
+        "example": not_ready,
+        "implementation": not_ready,
+    }
+    if readiness != expected_readiness:
+        errors.append(
+            "readiness는 metadata/example/implementation exact key와 canonical not-ready stage 구조여야 합니다."
+        )
     states = contract.get("deletionStatusPolicy", {}).get("states")
     if states != ["queued", "running", "succeeded", "failed", "cancelled"]:
         errors.append("삭제 상태 five-state 계약이 다릅니다.")
@@ -645,8 +642,6 @@ def _validate_catalog(contract: dict[str, Any], errors: list[str]) -> None:
     elif domains[0].get("readiness", {}).get("implementation") != {
         "status": "not-ready",
         "evidence": None,
-        "implementedBy": [18, 19],
-        "blockedBy": [61, 106],
     }:
         errors.append("catalog implementation readiness를 승격할 수 없습니다.")
 

@@ -74,12 +74,7 @@ class ProfileLegalContractTest(unittest.TestCase):
         self.assertEqual(106, contract["deletionPolicy"]["workerIssue"])
         self.assertEqual("canonical Supabase JWT sub", contract["securityPolicy"]["principal"])
         self.assertEqual(
-            {
-                "status": "not-ready",
-                "evidence": None,
-                "implementedBy": [18, 19],
-                "blockedBy": [61, 106],
-            },
+            {"status": "not-ready", "evidence": None},
             contract["readiness"]["implementation"],
         )
 
@@ -222,17 +217,46 @@ class ProfileLegalContractTest(unittest.TestCase):
 
     def test_external_readiness_is_truthful_and_implementation_not_ready(self) -> None:
         contract = self._contract()
+        not_ready = {"status": "not-ready", "evidence": None}
 
         self.assertEqual(
             {"notion": "not-linked", "figma": "not-linked"},
             contract["externalTraceability"],
         )
-        self.assertEqual("not-ready", contract["readiness"]["metadata"]["status"])
-        self.assertIsNone(contract["readiness"]["metadata"]["evidence"])
-        self.assertEqual("not-ready", contract["readiness"]["example"]["status"])
-        self.assertIsNone(contract["readiness"]["example"]["evidence"])
-        self.assertEqual("not-ready", contract["readiness"]["implementation"]["status"])
-        self.assertEqual([61, 106], contract["readiness"]["implementation"]["blockedBy"])
+        self.assertEqual(
+            {"metadata", "example", "implementation"}, set(contract["readiness"])
+        )
+        for stage in ("metadata", "example", "implementation"):
+            with self.subTest(stage=stage):
+                self.assertEqual(not_ready, contract["readiness"][stage])
+        contract_doc = (ROOT / "docs/contracts/domains/profile-legal/contract.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("#18의 프로필 GET/PATCH", contract_doc)
+        self.assertIn("#19의 법정 문서 GET·동의 PUT·DB migration", contract_doc)
+        self.assertIn("계정 삭제 API·암호화 #61과 worker #106", contract_doc)
+
+    def test_readiness_rejects_unknown_root_stage_and_stage_extensions(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_readiness", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+
+        extra_root_stage = copy.deepcopy(self._contract())
+        extra_root_stage["readiness"]["deployment"] = {
+            "status": "not-ready",
+            "evidence": None,
+        }
+        extended_example = copy.deepcopy(self._contract())
+        extended_example["readiness"]["example"]["implementedBy"] = [19]
+
+        mutations = {
+            "extra root stage": extra_root_stage,
+            "extended example stage": extended_example,
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(label=label):
+                self.assertTrue(validator.validate_contract_value(mutation))
 
     def test_fixtures_catalog_validator_and_quality_wiring_exist(self) -> None:
         contract = self._contract()

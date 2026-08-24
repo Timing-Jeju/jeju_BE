@@ -1345,15 +1345,7 @@
     },
     "implementation": {
       "status": "not-ready",
-      "evidence": null,
-      "implementedBy": [
-        18,
-        19
-      ],
-      "blockedBy": [
-        61,
-        106
-      ]
+      "evidence": null
     }
   }
 }
