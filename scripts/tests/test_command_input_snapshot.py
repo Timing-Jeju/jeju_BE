@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unittest
+from collections import Counter
 from pathlib import Path
 
 
@@ -13,6 +14,8 @@ ACTUAL_PG_TEST = (
     / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql"
     / "CommandInputSnapshotRepositoryIntegrationTest.java"
 )
+OTHER_SCRIPT_TEST = ROOT / "scripts/tests/test_backend_layout.py"
+SELF = Path(__file__).resolve()
 
 
 def repository_raw_sql_sources() -> tuple[Path, ...]:
@@ -22,7 +25,7 @@ def repository_raw_sql_sources() -> tuple[Path, ...]:
         sources.update(
             path
             for path in (ROOT / "scripts").rglob(pattern)
-            if "tests" not in path.relative_to(ROOT / "scripts").parts
+            if path.resolve() != SELF
         )
     for source_set in ("main", "test"):
         sources.update(
@@ -47,18 +50,33 @@ EXACT_COMMAND_INPUT_HASH_CALL = re.compile(
     r"(?:null|'[^']*'|\?)::jsonb\s*\)"
 )
 HASH_CALL = re.compile(r"public\.compute_command_input_hash\(")
-
-
-def intentional_migration_hash_occurrence(contents: str, start: int) -> str | None:
-    prefix = contents[max(0, start - 40) : start]
-    arguments = contents[start + len("public.compute_command_input_hash(") :].lstrip()
-    if prefix.endswith("create function "):
-        return "function definition"
-    if prefix.endswith("revoke all on function "):
-        return "function privilege signature"
-    if arguments.startswith("new.run_type,"):
-        return "typed trigger-column call"
-    return None
+MIGRATION_HASH_DEFINITION = re.compile(
+    r"public\.compute_command_input_hash\(\s*"
+    r"input_run_type text,\s*input_schema_version smallint,\s*"
+    r"input_contract_version text,\s*input_algorithm_version text,\s*"
+    r"input_base_schedule_version_id uuid,\s*input_structured_input jsonb,\s*"
+    r"input_location_supplied boolean,\s*input_coarse_location jsonb\s*\)"
+)
+MIGRATION_HASH_PRIVILEGE_SIGNATURE = re.compile(
+    r"public\.compute_command_input_hash\("
+    r"text, smallint, text, text, uuid, jsonb, boolean, jsonb"
+    r"\) from public"
+)
+MIGRATION_TYPED_INTERNAL_HASH_CALL = re.compile(
+    r"public\.compute_command_input_hash\(\s*"
+    r"new\.run_type,\s*new\.schema_version,\s*"
+    r"new\.contract_version,\s*new\.algorithm_version,\s*"
+    r"new\.base_schedule_version_id,\s*new\.structured_input,\s*"
+    r"new\.location_supplied,\s*new\.coarse_location\s*\)"
+)
+EXPECTED_HASH_OCCURRENCE_COUNTS = Counter(
+    {
+        "direct exact": 2,
+        "migration definition": 1,
+        "migration privilege signature": 1,
+        "migration typed internal": 1,
+    }
+)
 
 
 def invalid_direct_hash_calls(contents: str) -> list[int]:
@@ -67,6 +85,54 @@ def invalid_direct_hash_calls(contents: str) -> list[int]:
         match.start()
         for match in HASH_CALL.finditer(source)
         if EXACT_COMMAND_INPUT_HASH_CALL.match(source, match.start()) is None
+    ]
+
+
+def classify_hash_occurrence(path: Path, contents: str, start: int) -> str:
+    prefix = contents[max(0, start - 40) : start]
+    if path == MIGRATION:
+        if prefix.endswith("create function ") and MIGRATION_HASH_DEFINITION.match(
+            contents, start
+        ):
+            return "migration definition"
+        if prefix.endswith(
+            "revoke all on function "
+        ) and MIGRATION_HASH_PRIVILEGE_SIGNATURE.match(contents, start):
+            return "migration privilege signature"
+        if MIGRATION_TYPED_INTERNAL_HASH_CALL.match(contents, start):
+            return "migration typed internal"
+    if EXACT_COMMAND_INPUT_HASH_CALL.match(contents, start):
+        return "direct exact"
+    return "invalid"
+
+
+def repository_hash_occurrence_counts(
+    overrides: dict[Path, str] | None = None,
+) -> Counter[str]:
+    override_contents = overrides or {}
+    paths = set(repository_raw_sql_sources()) | set(override_contents)
+    counts: Counter[str] = Counter()
+    for path in paths:
+        contents = compact_sql(
+            override_contents.get(path, path.read_text(encoding="utf-8"))
+        )
+        for occurrence in HASH_CALL.finditer(contents):
+            counts[classify_hash_occurrence(path, contents, occurrence.start())] += 1
+    return counts
+
+
+def repository_hash_contract_violations(
+    overrides: dict[Path, str] | None = None,
+) -> list[str]:
+    actual = repository_hash_occurrence_counts(overrides)
+    return [
+        f"{classification}: expected {expected}, actual {actual[classification]}"
+        for classification, expected in EXPECTED_HASH_OCCURRENCE_COUNTS.items()
+        if actual[classification] != expected
+    ] + [
+        f"{classification}: expected 0, actual {count}"
+        for classification, count in actual.items()
+        if classification not in EXPECTED_HASH_OCCURRENCE_COUNTS and count != 0
     ]
 
 
@@ -171,40 +237,11 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         )
 
     def test_repository_direct_hash_calls_use_all_exact_declared_types(self):
-        direct_call_sources = set()
-        migration_exclusions = set()
-        occurrence_count = 0
-        for path in repository_raw_sql_sources():
-            self.assertTrue(path.is_file(), f"SQL 계약 소스가 없습니다: {path}")
-            source = compact_sql(path.read_text(encoding="utf-8"))
-            for direct_call in HASH_CALL.finditer(source):
-                occurrence_count += 1
-                exclusion = (
-                    intentional_migration_hash_occurrence(source, direct_call.start())
-                    if path == MIGRATION
-                    else None
-                )
-                if exclusion is not None:
-                    migration_exclusions.add(exclusion)
-                    continue
-                direct_call_sources.add(path)
-                with self.subTest(path=path.relative_to(ROOT)):
-                    self.assertIsNotNone(
-                        EXACT_COMMAND_INPUT_HASH_CALL.match(source, direct_call.start())
-                    )
-        self.assertGreaterEqual(5, occurrence_count)
         self.assertEqual(
-            {
-                "function definition",
-                "function privilege signature",
-                "typed trigger-column call",
-            },
-            migration_exclusions,
+            EXPECTED_HASH_OCCURRENCE_COUNTS,
+            repository_hash_occurrence_counts(),
         )
-        self.assertTrue(
-            {ROOT / "db/queries/database_negative_constraints.sql", ACTUAL_PG_TEST}
-            <= direct_call_sources
-        )
+        self.assertFalse(repository_hash_contract_violations())
 
     def test_repository_hash_call_guard_rejects_uncast_placeholder_first_argument(self):
         valid_call = """
@@ -216,6 +253,54 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         """
         mutated_call = valid_call.replace("'feasibility'::text", "?")
         self.assertEqual(1, len(invalid_direct_hash_calls(mutated_call)))
+
+    def test_repository_hash_call_inventory_rejects_removed_known_call(self):
+        contents = (ROOT / "db/queries/database_negative_constraints.sql").read_text(
+            encoding="utf-8"
+        )
+        removed = contents.replace(
+            "public.compute_command_input_hash(", "public.removed_command_input_hash(", 1
+        )
+        self.assertTrue(
+            repository_hash_contract_violations(
+                {ROOT / "db/queries/database_negative_constraints.sql": removed}
+            )
+        )
+
+    def test_repository_hash_call_inventory_rejects_added_valid_call(self):
+        contents = OTHER_SCRIPT_TEST.read_text(encoding="utf-8")
+        added = contents + """
+        # raw SQL fixture:
+        # select public.compute_command_input_hash(
+        #   ?::text, ?::smallint, ?::text, ?::text,
+        #   ?::uuid, ?::jsonb, ?::boolean, ?::jsonb
+        # )
+        """
+        self.assertTrue(repository_hash_contract_violations({OTHER_SCRIPT_TEST: added}))
+
+    def test_repository_hash_call_inventory_validates_all_typed_internal_arguments(self):
+        contents = MIGRATION.read_text(encoding="utf-8")
+        mutated = contents.replace(
+            "    new.location_supplied,\n    new.coarse_location\n  ) then",
+            "    new.location_supplied,\n    untyped_coarse_location\n  ) then",
+            1,
+        )
+        self.assertNotEqual(contents, mutated)
+        self.assertTrue(repository_hash_contract_violations({MIGRATION: mutated}))
+
+    def test_repository_hash_call_inventory_scans_other_script_tests(self):
+        self.assertIn(OTHER_SCRIPT_TEST, repository_raw_sql_sources())
+        contents = OTHER_SCRIPT_TEST.read_text(encoding="utf-8")
+        injected = contents + """
+        # raw SQL fixture with uncast first argument:
+        # select public.compute_command_input_hash(
+        #   ?, 1::smallint, 'command/v1'::text, 'algorithm/v1'::text,
+        #   ?::uuid, '{}'::jsonb, false::boolean, null::jsonb
+        # )
+        """
+        self.assertTrue(
+            repository_hash_contract_violations({OTHER_SCRIPT_TEST: injected})
+        )
 
     def test_actual_pg_completed_trip_fixture_satisfies_schedule_sealing_contract(self):
         source = compact_sql(ACTUAL_PG_TEST.read_text(encoding="utf-8"))
