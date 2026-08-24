@@ -1,6 +1,7 @@
 package com.timingjeju.api.domain.trip;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,8 +38,21 @@ class TripMigrationContractTest {
 
   @Test
   void compose는_새_migration을_seed보다_먼저_031로_mount한다() throws Exception {
+    assertMigrationMount(Files.readString(repositoryRoot().resolve("docker-compose.yml")));
     assertMigrationMount(Files.readString(repositoryRoot().resolve("compose.yml")));
     assertMigrationMount(Files.readString(repositoryRoot().resolve("compose.test.yml")));
+  }
+
+  @Test
+  void compose_mount_guard는_030과_031의_순서_변이를_거부한다() {
+    String mutated =
+        """
+        ./supabase/migrations/20260902000000_trip_create_contract.sql:/docker-entrypoint-initdb.d/031_trip_create_contract.sql:ro
+        ./supabase/migrations/20260901000000_legal_documents_consents.sql:/docker-entrypoint-initdb.d/030_legal_documents_consents.sql:ro
+        ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
+        """;
+
+    assertThatThrownBy(() -> assertMigrationMount(mutated)).isInstanceOf(AssertionError.class);
   }
 
   @Test
@@ -137,14 +151,21 @@ class TripMigrationContractTest {
   }
 
   private static void assertMigrationMount(String compose) {
+    String legalMount =
+        "./supabase/migrations/20260901000000_legal_documents_consents.sql:/docker-entrypoint-initdb.d/030_legal_documents_consents.sql:ro";
+    String tripMount =
+        "./supabase/migrations/"
+            + MIGRATION
+            + ":/docker-entrypoint-initdb.d/031_trip_create_contract.sql:ro";
+    String fixtureMount =
+        "./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro";
+
     assertThat(compose)
-        .contains(
-            "./supabase/migrations/"
-                + MIGRATION
-                + ":/docker-entrypoint-initdb.d/031_trip_create_contract.sql:ro")
-        .contains("/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro");
-    assertThat(compose.indexOf("031_trip_create_contract.sql"))
-        .isLessThan(compose.indexOf("099_seed_fixtures.sql"));
+        .contains(legalMount)
+        .contains(tripMount)
+        .contains(fixtureMount);
+    assertThat(compose.indexOf(legalMount)).isLessThan(compose.indexOf(tripMount));
+    assertThat(compose.indexOf(tripMount)).isLessThan(compose.indexOf(fixtureMount));
   }
 
   private static Path repositoryRoot() {
