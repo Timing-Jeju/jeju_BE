@@ -455,6 +455,60 @@ begin
   end if;
 end $$;
 
+do $$
+declare
+  revision_run_id constant uuid := '51700000-0000-0000-0000-000000000001';
+  immutable_blocked boolean := false;
+  rollback_blocked boolean := false;
+begin
+  insert into public.schedule_revision_runs (
+    id, owner_user_id, trip_plan_id, base_schedule_version_id,
+    target_trip_day_id, status, contract_version, algorithm_version,
+    idempotency_key, request_hash, next_attempt_at
+  ) values (
+    revision_run_id,
+    '09000000-0000-0000-0000-000000000001',
+    '50000000-0000-0000-0000-000000000001',
+    '60000000-0000-0000-0000-000000000001',
+    '51000000-0000-0000-0000-000000000001',
+    'queued', 'revision-v1', 'fixture-algorithm-v1',
+    '51710000-0000-0000-0000-000000000001', repeat('a', 64), now()
+  );
+
+  begin
+    update public.schedule_revision_runs
+    set request_hash = repeat('b', 64)
+    where id = revision_run_id;
+  exception
+    when check_violation then
+      immutable_blocked := true;
+  end;
+  if not immutable_blocked then
+    raise exception 'schedule revision run immutable identity update was accepted';
+  end if;
+
+  update public.schedule_revision_runs
+  set status = 'cancelled', next_attempt_at = null, completed_at = now(),
+      failure_code = 'SMOKE_CANCELLED'
+  where id = revision_run_id;
+
+  begin
+    update public.schedule_revision_runs
+    set status = 'running', attempt_count = 1, fencing_token = 1,
+        lease_owner = 'smoke-worker', heartbeat_at = now(),
+        lease_expires_at = now() + interval '30 seconds', started_at = now()
+    where id = revision_run_id;
+  exception
+    when check_violation then
+      rollback_blocked := true;
+  end;
+  if not rollback_blocked then
+    raise exception 'schedule revision run terminal rollback was accepted';
+  end if;
+
+  delete from public.schedule_revision_runs where id = revision_run_id;
+end $$;
+
 select 'schema_contract' as check_name, 'PASS' as result;
 select 'negative_constraints' as check_name, 'PASS' as result;
 
