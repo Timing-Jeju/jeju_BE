@@ -44,6 +44,7 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260822000000_place_stop_postgis_links.sql`: PostGIS 관광지-정류장 후보 link lifecycle·freshness와 complete/partial 공통 scope watermark 계약
 - `supabase/migrations/20260826000000_tago_arrival_cache.sql`: TAGO 도착 snapshot 계보·범위·freshness와 동시 관측 충돌 방지 계약
 - `supabase/migrations/20260829000000_completed_provider_snapshot_retention_index.sql`: 완료 공급자 due snapshot payload one-shot batch의 `(purge_after, id)` partial ordered index
+- `supabase/migrations/20260830000000_schedule_revision_run_foundation.sql`: 일정 보정 run의 canonical owner/trip/base/Day identity, 멱등·active scope와 lease/fencing lifecycle 계약
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터
@@ -123,7 +124,9 @@ supabase db reset
 
 Spring Repository 통합 테스트는 `services/spring-api`의 Testcontainers 공통 기반을 사용합니다. 이 경로는 PostGIS 16 격리 컨테이너에 `auth_compat.sql`과 timestamp순 canonical migration만 적용하고 로컬 seed fixture는 적용하지 않습니다. 테스트 연결은 Spring Boot service connection이 임의 포트와 실행별 비밀번호로 제공하며, 각 테스트 트랜잭션과 컨테이너는 실행 후 자동 정리됩니다. PostgreSQL 17은 실제 Supabase CLI reset/smoke 경로에서 별도로 검증합니다.
 
-일반 PostgreSQL 초기화 순서는 Auth 호환 객체 → 최초 public 스키마 → 기본 무결성 강화 → 외부 적재 기반 → 적재 일관성 강화 → 일정 일관성 강화 → 로컬 fixture입니다. fixture보다 앞에서 모든 운영 마이그레이션을 적용하므로 fixture가 신규 제약과 동일한 경로를 검증합니다.
+일반 PostgreSQL 초기화 순서는 Auth 호환 객체 → 최초 public 스키마 → 누적 무결성/적재/일정 migration → schedule revision run foundation → 로컬 fixture입니다. fixture보다 앞에서 모든 운영 마이그레이션을 적용하므로 fixture가 신규 제약과 동일한 경로를 검증합니다.
+
+`schedule_revision_runs`는 사용자 UUID와 여행, base 일정 버전, target Day를 복합 FK로 함께 검증합니다. 새 행은 `queued`로만 생성되고 `queued|running|succeeded|failed|cancelled` 외 상태를 허용하지 않습니다. 같은 사용자·여행의 idempotency key와 같은 base/Day의 active run은 각각 하나뿐입니다. identity/version/hash는 생성 후 불변이고 terminal 상태는 되돌릴 수 없습니다. 최초 queued와 running/succeeded는 failure code가 없고 retry queued와 failed/cancelled는 1~100자 stable code가 필수입니다. claim/reclaim만 attempt와 fencing token을 정확히 1씩 올리며 heartbeat, retry와 terminal 전이는 현재 live lease와 기존 counters를 보존합니다. 5번째 attempt는 다시 queued로 예약할 수 없고, 만료된 5번째 running lease만 counters를 유지한 채 `ASYNC_RUN_RETRY_EXHAUSTED` failed로 복구할 수 있습니다. 테이블은 RLS를 켜되 client policy를 두지 않으며 `anon`·`authenticated` 직접 접근을 회수하고 `service_role` DML만 허용합니다. raw 요청, structured input, 정밀 위치와 MCP call log는 이 테이블에 저장하지 않습니다.
 
 ```bash
 docker compose up -d postgres

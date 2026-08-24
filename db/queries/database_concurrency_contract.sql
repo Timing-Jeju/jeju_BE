@@ -1176,4 +1176,131 @@ $$;
 select public.dblink_disconnect('provenance_a');
 select public.dblink_disconnect('provenance_b');
 
+create function concurrency_contract.try_schedule_revision_insert(target_run_id uuid)
+returns integer
+language plpgsql
+as $$
+declare
+  inserted_count integer;
+begin
+  insert into public.schedule_revision_runs (
+    id, owner_user_id, trip_plan_id, base_schedule_version_id,
+    target_trip_day_id, contract_version, algorithm_version,
+    idempotency_key, request_hash
+  ) values (
+    target_run_id,
+    'fc600000-0000-0000-0000-000000000001',
+    'fc610000-0000-0000-0000-000000000001',
+    'fc630000-0000-0000-0000-000000000001',
+    'fc620000-0000-0000-0000-000000000001',
+    'revision-v1', 'algorithm-v1',
+    'fc650000-0000-0000-0000-000000000001', repeat('a', 64)
+  ) on conflict do nothing;
+  get diagnostics inserted_count = row_count;
+  return inserted_count;
+end;
+$$;
+
+insert into auth.users (id, email)
+values ('fc600000-0000-0000-0000-000000000001', 'revision@concurrency.test');
+insert into public.user_profiles (id, email)
+values ('fc600000-0000-0000-0000-000000000001', 'revision@concurrency.test');
+insert into public.trip_plans (
+  id, user_id, public_token, start_date, end_date, source_mode, data_version
+) values (
+  'fc610000-0000-0000-0000-000000000001',
+  'fc600000-0000-0000-0000-000000000001',
+  'revision-concurrency-trip', current_date, current_date, 'fixture', 'contract-v1'
+);
+insert into public.trip_days (id, trip_plan_id, day_no, trip_date)
+values (
+  'fc620000-0000-0000-0000-000000000001',
+  'fc610000-0000-0000-0000-000000000001', 1, current_date
+);
+insert into public.trip_schedule_versions (
+  id, trip_plan_id, version_no, status, source_type, created_by_user_id
+) values (
+  'fc630000-0000-0000-0000-000000000001',
+  'fc610000-0000-0000-0000-000000000001', 1, 'draft', 'initial',
+  'fc600000-0000-0000-0000-000000000001'
+);
+
+select public.dblink_connect('schedule_revision_a', pg_catalog.format(
+  'dbname=%L user=%L application_name=%L', current_database(), current_user,
+  'timing-jeju-schedule-revision-a'));
+select public.dblink_connect('schedule_revision_b', pg_catalog.format(
+  'dbname=%L user=%L application_name=%L', current_database(), current_user,
+  'timing-jeju-schedule-revision-b'));
+insert into concurrency_contract.connection_pids
+select 'schedule_revision_idempotency', 'a', remote.backend_pid
+from public.dblink('schedule_revision_a', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+insert into concurrency_contract.connection_pids
+select 'schedule_revision_idempotency', 'b', remote.backend_pid
+from public.dblink('schedule_revision_b', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+
+select public.dblink_exec('schedule_revision_a', 'begin');
+
+do $$
+declare
+  inserted_count integer;
+begin
+  select remote.inserted_count into inserted_count
+  from public.dblink(
+    'schedule_revision_a',
+    $query$
+      select concurrency_contract.try_schedule_revision_insert(
+        'fc640000-0000-0000-0000-000000000001'
+      )
+    $query$
+  ) as remote(inserted_count integer);
+  if inserted_count <> 1 then
+    raise exception 'schedule revision first idempotency insert failed';
+  end if;
+
+  if public.dblink_send_query(
+    'schedule_revision_b',
+    $query$
+      select concurrency_contract.try_schedule_revision_insert(
+        'fc640000-0000-0000-0000-000000000002'
+      )
+    $query$
+  ) <> 1 then
+    raise exception 'schedule revision concurrent query was not dispatched';
+  end if;
+end;
+$$;
+
+select concurrency_contract.assert_connection_is_blocked(
+  'schedule_revision_idempotency', 'a', 'b', 'schedule_revision_b');
+select public.dblink_exec('schedule_revision_a', 'commit');
+
+do $$
+declare
+  inserted_count integer;
+  canonical_count integer;
+begin
+  select remote.inserted_count into inserted_count
+  from public.dblink_get_result('schedule_revision_b')
+    as remote(inserted_count integer);
+  if inserted_count <> 0 then
+    raise exception 'schedule revision concurrent idempotency did not canonicalize';
+  end if;
+  perform concurrency_contract.drain_async_result('schedule_revision_b');
+
+  select count(*) into canonical_count
+  from public.schedule_revision_runs
+  where owner_user_id = 'fc600000-0000-0000-0000-000000000001'
+    and trip_plan_id = 'fc610000-0000-0000-0000-000000000001'
+    and idempotency_key = 'fc650000-0000-0000-0000-000000000001';
+  if canonical_count <> 1 then
+    raise exception 'schedule revision concurrent idempotency did not canonicalize';
+  end if;
+end;
+$$;
+
+select public.dblink_disconnect('schedule_revision_a');
+select public.dblink_disconnect('schedule_revision_b');
+
 select 'database_concurrency_contract PASS' as result;

@@ -88,7 +88,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재, `20260820000000` `#36` 노선-정류장 적재, `20260820000001` `#76` KMA 예보, `20260822000000` `#37` 관광지-정류장 후보 link, `20260823000000` `#65` 추천 체류시간 정책, `20260824000000` `#75` TourAPI discovery checkpoint, `20260825000000` `#33` 공개 장소 tombstone, `20260826000000` `#39` TAGO 도착정보, `20260827000000` `#39` 도착 요청 flight state 순으로 누적 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재, `20260820000000` `#36` 노선-정류장 적재, `20260820000001` `#76` KMA 예보, `20260822000000` `#37` 관광지-정류장 후보 link, `20260823000000` `#65` 추천 체류시간 정책, `20260824000000` `#75` TourAPI discovery checkpoint, `20260825000000` `#33` 공개 장소 tombstone, `20260826000000` `#39` TAGO 도착정보, `20260827000000` `#39` 도착 요청 flight state, `20260830000000` `#170` schedule revision run foundation 순으로 누적 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -111,6 +111,8 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 `application.asyncrun`은 도메인 payload를 모르는 worker lifecycle 계약을 소유합니다. `AsyncRunWorker`는 claim과 terminal/retry 상태 조정만 담당하고, `RunExecutionPolicy`는 30초 lease·10초 heartbeat·50개 claim·최대 5회·1초 기반 60초 상한 full jitter·60초 deadline을 고정합니다. `ThreadedRunExecutionSupervisor`는 deadline, 주기 heartbeat와 graceful drain을 담당하며 lease/fencing 권한을 잃은 실행을 interrupt한 뒤 terminal 상태를 쓰지 않습니다.
 
 `global.asyncrun`의 JDBC adapter는 `FOR UPDATE SKIP LOCKED`로 queued 또는 lease가 만료된 running run을 경쟁 없이 claim합니다. 모든 heartbeat, retry와 terminal 갱신은 증가하는 fencing token을 조건으로 수행합니다. durable command input과 위치 정리는 이 경계에 포함하지 않으며 각각 별도 Issue가 소유합니다.
+
+`schedule_revision_runs`는 generation/compute run과 discriminator 없이 분리된 일정 보정 identity/lifecycle 부모입니다. canonical 사용자·여행·base 일정·target Day를 실제 복합 FK로 고정하고 같은 사용자/여행의 idempotency identity와 active base/Day scope를 DB unique로 직렬화합니다. 이 foundation은 queued 생성, lease/fencing 호환 상태와 terminal 불변성만 소유하며 HTTP 접수, structured command input, MCP call log와 결과 후보는 후속 Issue가 소유합니다.
 
 ## 외부 데이터 적재 경계
 

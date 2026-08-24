@@ -990,6 +990,42 @@ Table itinerary_generation_runs {
   }
 }
 
+Table schedule_revision_runs {
+  id uuid [pk]
+  owner_user_id uuid [not null]
+  trip_plan_id uuid [not null]
+  base_schedule_version_id uuid [not null]
+  target_trip_day_id uuid [not null]
+  status text [not null, note: "queued|running|succeeded|failed|cancelled"]
+  contract_version text [not null]
+  algorithm_version text [not null]
+  idempotency_key uuid [not null]
+  request_hash char(64) [not null, note: "canonical lowercase SHA-256; raw request 미저장"]
+  failure_code varchar(100) [note: "retry queued와 failed/cancelled에 필수인 stable nonblank code"]
+  attempt_count integer [not null]
+  fencing_token bigint [not null]
+  lease_owner text
+  lease_expires_at timestamptz
+  heartbeat_at timestamptz
+  next_attempt_at timestamptz
+  started_at timestamptz
+  completed_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (id, owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id) [unique]
+    (owner_user_id, trip_plan_id, idempotency_key) [unique]
+    (owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id) [unique, note: "queued/running partial unique"]
+  }
+
+  Note: "generation/compute와 분리된 일정 보정 identity/lifecycle 부모. HTTP/input snapshot/MCP call log는 후속 Issue 소유이며 RLS client policy가 없다."
+}
+
+Ref: schedule_revision_runs.(trip_plan_id, owner_user_id) > trip_plans.(id, user_id) [delete: cascade]
+Ref: schedule_revision_runs.(base_schedule_version_id, trip_plan_id) > trip_schedule_versions.(id, trip_plan_id)
+Ref: schedule_revision_runs.(target_trip_day_id, trip_plan_id) > trip_days.(id, trip_plan_id)
+
 Table itinerary_generation_candidates {
   id uuid [pk]
   trip_plan_id uuid [not null, ref: > trip_plans.id]
