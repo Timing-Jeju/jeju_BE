@@ -29,6 +29,8 @@ Spring API는 Supabase Auth가 발급한 access token을 OAuth2 Resource Server�
 
 `anon`, `service_role`, 잘못된 audience/issuer와 UUID가 아닌 `sub`는 401로 거부합니다. `user_metadata`, 이메일과 nickname은 인증·소유권 판단에 사용하지 않습니다. 검증된 신원은 Spring 비의존 `application.security.CurrentUser` 값 객체로 변환합니다. 도메인은 `CurrentUserAccessor` 계약만 사용할 수 있고 `global.security`, Spring Security `Jwt` 또는 `SecurityContext`에 의존하지 않습니다.
 
+`GET /me`의 lazy provisioning은 [인증 사용자 프로필 provisioning](PROFILE_PROVISIONING.md) 계약을 사용합니다. canonical JWT `sub`만 public profile 소유권으로 사용하고, Supabase 소유 `auth.identities`는 SELECT 전용 adapter로 읽습니다. `user_metadata`나 같은 이메일을 계정 연결 근거로 사용하지 않습니다.
+
 인증 실패는 `401 AUTH_TOKEN_INVALID`, 인증된 사용자의 접근 거부와 CORS 거부는 `403 AUTH_ACCESS_DENIED`입니다. 알려진 unknown `kid`와 네트워크 접근 실패 또는 JWKS endpoint의 HTTP 5xx 같은 원격 가용성 장애는 token을 노출하지 않고 401로 종료합니다. HTTP 200 응답의 malformed/invalid JWKS payload처럼 provider protocol을 신뢰할 수 없는 경우와 예상하지 못한 decoder/provider 내부 장애는 401로 숨기지 않고 `500 AUTH_INTERNAL_ERROR`로 분류합니다. 모든 보안 오류는 `application/problem+json`이며 `type`, `title`, `status`, `detail`, `instance`, `code`, 요청 단위 `traceId`, `fieldErrors`를 반환합니다. validation이 아니면 `fieldErrors=[]`이고 `message` 필드는 사용하지 않습니다. 분류는 예외 message가 아니라 원인 타입을 사용합니다. `instance`는 `X-Trace-Id` 헤더와 body의 `traceId`에 쓴 32자리 소문자 hex 값을 포함한 occurrence URI `urn:timing-jeju:problem:<traceId>`이며 raw path를 반사하지 않습니다. Spring Boot가 관리하는 Jackson 3 mapper bean과 공통 writer로 직렬화하며 token, JWT payload, JWKS body, URL query, 예외 message와 개인정보를 응답이나 애플리케이션 로그에 기록하지 않습니다.
 
 ## 환경변수
