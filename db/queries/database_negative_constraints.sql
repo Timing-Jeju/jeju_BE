@@ -2834,6 +2834,111 @@ select pg_temp.expect_rejected(
   array['23514']
 );
 
+insert into public.compute_run_inputs (
+  id, compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+  run_type, schema_version, contract_version, algorithm_version,
+  structured_input, command_input_hash
+) values (
+  'f1800000-0000-0000-0000-000000000001',
+  '63000000-0000-0000-0000-000000000001',
+  '09000000-0000-0000-0000-000000000001',
+  '50000000-0000-0000-0000-000000000001',
+  '60000000-0000-0000-0000-000000000001',
+  'feasibility', 1, 'command/v1', 'algorithm/v1', '{"refreshExternalFacts":false}'::jsonb,
+  public.compute_command_input_hash(
+    'feasibility'::text, 1::smallint, 'command/v1'::text, 'algorithm/v1'::text,
+    '60000000-0000-0000-0000-000000000001'::uuid,
+    '{"refreshExternalFacts":false}'::jsonb, false::boolean, null::jsonb
+  )
+);
+
+select pg_temp.expect_rejected(
+  'command input parent missing',
+  $statement$
+    insert into public.compute_run_inputs (
+      owner_user_id, trip_plan_id, base_schedule_version_id,
+      run_type, schema_version, contract_version, algorithm_version,
+      structured_input, command_input_hash
+    ) values (
+      '09000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      'feasibility', 1, 'command/v1', 'algorithm/v1', '{}'::jsonb, repeat('a', 64)
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'command input multiple parents',
+  $statement$
+    insert into public.compute_run_inputs (
+      compute_run_id, generation_run_id, owner_user_id, trip_plan_id,
+      base_schedule_version_id, run_type, schema_version, contract_version,
+      algorithm_version, structured_input, command_input_hash
+    ) values (
+      '63000000-0000-0000-0000-000000000002',
+      '64000000-0000-0000-0000-000000000001',
+      '09000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      'recovery', 1, 'command/v1', 'algorithm/v1',
+      '{"riskEventId":"f1800000-0000-0000-0000-000000000099","optionCount":3}'::jsonb,
+      repeat('a', 64)
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'command input hash mismatch',
+  $statement$
+    insert into public.compute_run_inputs (
+      compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+      run_type, schema_version, contract_version, algorithm_version,
+      structured_input, command_input_hash
+    ) values (
+      '63000000-0000-0000-0000-000000000002',
+      '09000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      'recovery', 1, 'command/v1', 'algorithm/v1',
+      '{"riskEventId":"f1800000-0000-0000-0000-000000000099","optionCount":3}'::jsonb,
+      repeat('a', 64)
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'command input sensitive raw location key',
+  $statement$
+    insert into public.compute_run_inputs (
+      compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+      run_type, schema_version, contract_version, algorithm_version,
+      structured_input, command_input_hash
+    ) values (
+      '63000000-0000-0000-0000-000000000002',
+      '09000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      'recovery', 1, 'command/v1', 'algorithm/v1',
+      '{"nested":{"latitude":33.4}}'::jsonb, repeat('a', 64)
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'command input snapshot immutable',
+  $statement$
+    update public.compute_run_inputs
+    set structured_input = '{"day":2}'::jsonb
+    where id = 'f1800000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
 select 'database_negative_constraints' as check_name, 'PASS' as result;
 
 rollback;

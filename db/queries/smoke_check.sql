@@ -555,3 +555,8 @@ join lateral (
   limit 1
 ) s on true
 where p.id = '20000000-0000-0000-0000-000000000002';
+
+select
+  'compute_run_inputs' as check_name,
+  case when to_regclass('public.compute_run_inputs') is not null then 'PASS' else 'MISSING' end
+  as result;
