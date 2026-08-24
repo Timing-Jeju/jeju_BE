@@ -140,6 +140,28 @@ class ArchitectureTest {
   }
 
   @Test
+  void snapshot_retention_application과_JDBC_adapter는_의존_방향을_유지한다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.retention..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global.retention..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("JdbcSnapshotRetentionRepository")
+        .should()
+        .resideInAPackage("..global.retention..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.retention..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void TourAPI_provenance_application_port는_Spring과_JDBC_adapter에_의존하지_않는다() {
     noClasses()
         .that()

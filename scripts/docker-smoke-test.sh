@@ -198,6 +198,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
   /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql \
+  /docker-entrypoint-initdb.d/027_completed_provider_snapshot_retention_index.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -364,6 +365,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
   /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql \
+  /docker-entrypoint-initdb.d/027_completed_provider_snapshot_retention_index.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

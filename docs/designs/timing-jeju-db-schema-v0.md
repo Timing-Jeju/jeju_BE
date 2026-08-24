@@ -22,6 +22,7 @@
 - [KMA 단기예보 version](../../supabase/migrations/20260820000001_kma_village_forecast_version.sql)
 - [공개 장소 tombstone](../../supabase/migrations/20260825000000_public_place_tombstone.sql)
 - [완료 공급자 데이터 상태 조회 인덱스](../../supabase/migrations/20260828000000_completed_provider_data_health_index.sql)
+- [완료 공급자 snapshot retention 인덱스](../../supabase/migrations/20260829000000_completed_provider_snapshot_retention_index.sql)
 - [스키마 계약 검사](../../db/queries/schema_contract.sql)
 - [음수 무결성 계약](../../db/queries/database_negative_constraints.sql)
 - [자동 스모크 검사](../../db/queries/smoke_check.sql)
@@ -56,7 +57,7 @@ FastAPI 결과도 Spring이 검증 후 저장하므로 DB connection string과 s
   -> 장소·교통·날씨 정규화 read model
 ```
 
-외부 정규화 행은 `import_run_id`와 `source_snapshot_id`로 실행과 원문 snapshot을 함께 가리켜야 한다. DB constraint trigger가 run·snapshot과 provider·service·operation 범위를 일치시키며 `parsed` 또는 삭제 사실을 정상 파싱한 `tombstoned` snapshot만 허용한다. 같은 snapshot/run으로는 내용이 같은 멱등 upsert만 허용하고, 내용 변경은 새 snapshot과 그 snapshot의 matching run을 연결해야 한다. `received`·`rejected`·`ignored` 원문은 반영하지 않는다. `manual`·`fixture`·`admin_upload`는 snapshot 필수성의 명시적 예외이며 이전·새 행이 모두 예외일 때 편집할 수 있다. 외부 lineage 없는 legacy 행과 snapshot-backed 외부 행 모두 marker를 예외 값으로 바꾸면서 lineage를 제거할 수 없다. marker가 이미 예외 값이어도 OLD snapshot과 run의 실제 `source_kind`·provider가 외부이면 살아 있는 snapshot과 run 계보를 제거할 수 없다. 유효한 새 snapshot과 matching run을 동시에 연결하는 정상 재수집 repair/upsert는 허용한다. retention으로 snapshot을 삭제하면 정규화 내용과 run은 유지하고 `source_snapshot_id`만 NULL로 만들며, 새 원문 repair 전에는 내용과 마지막 run을 바꿀 수 없다. `data_import_runs`는 외부·fixture·admin origin을 모두 보존하는 provenance ledger이므로 16개 정규화 테이블 중 하나라도 run을 참조하면 snapshot 유무와 origin에 관계없이 부모 DELETE를 `23503`으로 거부하고 미참조 succeeded·failed·fixture·admin run만 삭제할 수 있다. catalog audit는 정확한 16개 table/column FK mapping을 보장한다. 8개 `NO ACTION`과 8개 `SET NULL`은 유지하되 부모의 `BEFORE DELETE` guard가 FK action보다 먼저 live reference를 검사하므로 정책은 `confdeltype`에 의존하지 않는다. 기존 non-NULL lineage와 snapshot-backed optional marker 불일치도 16개 정규화 테이블에서 실제 run origin까지 소급 감사한다.
+외부 정규화 행은 `import_run_id`와 `source_snapshot_id`로 실행과 원문 snapshot을 함께 가리켜야 한다. DB constraint trigger가 run·snapshot과 provider·service·operation 범위를 일치시키며 `parsed` 또는 삭제 사실을 정상 파싱한 `tombstoned` snapshot만 허용한다. 같은 snapshot/run으로는 내용이 같은 멱등 upsert만 허용하고, 내용 변경은 새 snapshot과 그 snapshot의 matching run을 연결해야 한다. `received`·`rejected`·`ignored` 원문은 반영하지 않는다. `manual`·`fixture`·`admin_upload`는 snapshot 필수성의 명시적 예외이며 이전·새 행이 모두 예외일 때 편집할 수 있다. 외부 lineage 없는 legacy 행과 snapshot-backed 외부 행 모두 marker를 예외 값으로 바꾸면서 lineage를 제거할 수 없다. marker가 이미 예외 값이어도 OLD snapshot과 run의 실제 `source_kind`·provider가 외부이면 살아 있는 snapshot과 run 계보를 제거할 수 없다. 유효한 새 snapshot과 matching run을 동시에 연결하는 정상 재수집 repair/upsert는 허용한다. retention은 snapshot 행과 `source_snapshot_id`를 그대로 보존한 채 due row의 `raw_payload=NULL`, `purged_at=now`만 기록하며 정규화 내용과 import run lineage를 변경하지 않는다. `data_import_runs`는 외부·fixture·admin origin을 모두 보존하는 provenance ledger이므로 16개 정규화 테이블 중 하나라도 run을 참조하면 snapshot 유무와 origin에 관계없이 부모 DELETE를 `23503`으로 거부하고 미참조 succeeded·failed·fixture·admin run만 삭제할 수 있다. catalog audit는 정확한 16개 table/column FK mapping을 보장한다. 8개 `NO ACTION`과 8개 `SET NULL`은 유지하되 부모의 `BEFORE DELETE` guard가 FK action보다 먼저 live reference를 검사하므로 정책은 `confdeltype`에 의존하지 않는다. 기존 non-NULL lineage와 snapshot-backed optional marker 불일치도 16개 정규화 테이블에서 실제 run origin까지 소급 감사한다.
 
 ```mermaid
 erDiagram
@@ -143,6 +144,8 @@ erDiagram
 `external_api_snapshots.raw_payload`에는 API key, Authorization 헤더, 원문 요청 URL과 PII를 저장하지 않는다. source identity뿐 아니라 request hash, parser version, payload hash와 raw payload 같은 감사 필드는 생성 후 바꿀 수 없고 `parsed`/`tombstoned` 상태를 미파싱 상태로 되돌릴 수 없다. 공개 API와 계산 계층은 이 테이블을 직접 읽지 않는다. 수집 내부 테이블 5개는 RLS를 켜되 `anon`·`authenticated` policy와 직접 grant를 두지 않는다.
 
 완료 공급자 데이터 상태 집계는 `data_import_runs`의 canonical provider/service/operation과 lifecycle predicate를 기준으로 최근 terminal history를 `(started_at DESC, id DESC)` 순서로 최대 32건만 읽는다. 이 window 안의 same-lineage `parsed` snapshot을 가진 최신 succeeded run만 valid facts로 사용한다. terminal이 없으면 `NEVER_SYNCED`, terminal은 있지만 32건 안에 valid facts가 없으면 `NO_RECENT_VALID_FACTS / VALID_FACTS_WINDOW_EXHAUSTED`이며 33번째 이전 facts를 현재 상태로 추정하지 않는다. append-only `20260828000000_completed_provider_data_health_index.sql`의 `idx_data_import_runs_completed_health_latest`가 `(source_provider, source_service, source_operation, started_at DESC, id DESC)` 순서를 지원하며 status와 finished_at만 covering한다. 원문 payload, 오류 메시지, credential 및 내부 request metadata는 projection하지 않는다.
+
+완료된 TourAPI·TAGO·KMA snapshot payload의 one-shot retention은 row별 `purge_after <= now`만 따르며 TMAP과 running import run을 제외한다. `(purge_after, id)` stable order와 최대 500건, snapshot·run `FOR UPDATE SKIP LOCKED`를 사용하고 한 transaction에서 `raw_payload=NULL`, `purged_at=now`만 변경한다. `20260829000000_completed_provider_snapshot_retention_index.sql`의 partial `idx_external_api_snapshots_retention_due`가 due candidate 순서를 지원한다. snapshot identity/hash/status, import run, checkpoint와 normalized lineage는 삭제하거나 변경하지 않는다.
 
 `service_role`은 필요한 앱 DML과 허용된 RPC만 사용하며, 행 trigger를 우회하는 `TRUNCATE` 권한은 기존·향후 public 앱 테이블에서 제거한다. `spatial_ref_sys` 같은 확장 관리 객체는 확장 소유자의 ACL 경계이므로 앱 테이블 권한 검사에서 제외한다. 파괴적 앱 테이블 초기화는 통제된 migration owner 경로로 제한한다.
 
@@ -387,7 +390,7 @@ stateDiagram-v2
 - 사용자 탈퇴는 Supabase Auth 삭제와 앱 aggregate 삭제를 Spring job으로 조정한다.
 - `trip_execution_events`, `mcp_compute_call_logs`는 운영 보존 기간과 개인정보 정책을 별도로 정한다.
 - 위치 원문은 최소화하고 필요하면 격자화한다.
-- `external_api_snapshots`는 계산 재현 기간 동안 보존한 뒤 `purge_after` 기준의 별도 retention job으로 정리한다. 삭제 시 정규화 내용과 import run lineage는 유지하고 snapshot 포인터만 NULL로 만들며, 새 원문을 연결하기 전에는 내용과 마지막 run을 바꾸지 않는다. 정규화 행이 run을 참조하는 동안 origin과 관계없이 provenance 부모 run은 삭제할 수 없다.
+- `external_api_snapshots`는 계산 재현 기간 동안 보존한 뒤 `purge_after` 기준의 별도 retention job으로 payload만 정리한다. due row의 `raw_payload=NULL`, `purged_at=now`만 기록하고 snapshot 행·정규화 `source_snapshot_id`·import run lineage는 그대로 보존한다. 정규화 행이 run을 참조하는 동안 origin과 관계없이 provenance 부모 run은 삭제할 수 없다.
 - 장소/노선 기준정보는 hard delete보다 `stale` 표시 후 재검증한다.
 
 ## 11. 데이터 초기화
