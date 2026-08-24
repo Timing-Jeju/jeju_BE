@@ -51,15 +51,21 @@ EXPECTED_VALIDATORS = (
     "validate_schedules_contract.py",
     "validate_weather_forecast_contract.py",
     "validate_feasibility_legs_contract.py",
+    "validate_location_retention_contract.py",
 )
 
 
 def _active_commands(source: str, prefix: str) -> set[str]:
-    return {
-        line.strip()
-        for line in source.splitlines()
-        if line.strip().startswith(prefix) and not line.lstrip().startswith("#")
-    }
+    commands = set()
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or prefix not in stripped:
+            continue
+        command = stripped[stripped.index(prefix):]
+        if command.endswith(" }"):
+            command = command[:-2]
+        commands.add(command)
+    return commands
 
 
 class ContractSuiteIntegrationTest(unittest.TestCase):

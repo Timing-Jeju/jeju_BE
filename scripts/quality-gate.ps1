@@ -6,6 +6,17 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+function Write-Stage([string]$Message) {
+  Write-Host "[품질 게이트] $Message"
+}
+
+function Invoke-Native([string]$Description, [scriptblock]$Command) {
+  & $Command
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Description 실패 (exit code: $LASTEXITCODE)"
+  }
+}
+
 $root = git rev-parse --show-toplevel
 Set-Location $root
 $springDir = Join-Path $root "services/spring-api"
@@ -18,28 +29,30 @@ if ($Scope -in @("all", "common")) {
   git status --short
   if (-not $SetupValidation) {
     if ($Ci -and $branch -in @("main", "develop")) {
-      py -3 scripts/git-hooks/validate-branch.py --allow-protected $branch
+      Invoke-Native "보호 브랜치 검사" { py -3 scripts/git-hooks/validate-branch.py --allow-protected $branch }
     } else {
-      py -3 scripts/git-hooks/validate-branch.py $branch
+      Invoke-Native "브랜치 검사" { py -3 scripts/git-hooks/validate-branch.py $branch }
     }
     if (git status --porcelain) { throw "작업 트리가 깨끗하지 않습니다." }
   }
 
-  py -3 scripts/git-hooks/scan-staged-secrets.py --all-files
-  py -3 scripts/validate_rest_contracts.py
-  py -3 scripts/validate_places_contract.py
-  py -3 scripts/validate_saved_places_contract.py
-  py -3 scripts/validate_trips_contract.py
-  py -3 scripts/validate_preferences_transport_contract.py
-  py -3 scripts/validate_accommodations_contract.py
-  py -3 scripts/validate_schedules_contract.py
+  Invoke-Native "비밀정보 검사" { py -3 scripts/git-hooks/scan-staged-secrets.py --all-files }
+  Invoke-Native "REST 공통 계약 검사" { py -3 scripts/validate_rest_contracts.py }
+  Invoke-Native "관광지 계약 검사" { py -3 scripts/validate_places_contract.py }
+  Invoke-Native "관심 장소 계약 검사" { py -3 scripts/validate_saved_places_contract.py }
+  Invoke-Native "여행 계약 검사" { py -3 scripts/validate_trips_contract.py }
+  Invoke-Native "선호·교통 계약 검사" { py -3 scripts/validate_preferences_transport_contract.py }
+  Invoke-Native "숙소 계약 검사" { py -3 scripts/validate_accommodations_contract.py }
+  Invoke-Native "일정 계약 검사" { py -3 scripts/validate_schedules_contract.py }
   Write-Stage "날씨 예보 API 계약 검사"
-  py -3 scripts/validate_weather_forecast_contract.py
+  Invoke-Native "날씨 예보 계약 검사" { py -3 scripts/validate_weather_forecast_contract.py }
 
-  py -3 scripts/validate_feasibility_legs_contract.py
-  py -3 -m unittest discover -s .codex/hooks/tests -p test_*.py
-  py -3 -m unittest discover -s scripts/git-hooks/tests -p test_*.py
-  py -3 -m unittest discover -s scripts/tests -p test_*.py
+  Invoke-Native "가능성·이동 구간 계약 검사" { py -3 scripts/validate_feasibility_legs_contract.py }
+  Write-Stage "위치정보 수집·보존·삭제 정책 계약 검사"
+  Invoke-Native "위치정보 보존 정책 계약 검사" { py -3 scripts/validate_location_retention_contract.py }
+  Invoke-Native "Codex hook 테스트" { py -3 -m unittest discover -s .codex/hooks/tests -p test_*.py }
+  Invoke-Native "Git hook 테스트" { py -3 -m unittest discover -s scripts/git-hooks/tests -p test_*.py }
+  Invoke-Native "저장소 자동화 테스트" { py -3 -m unittest discover -s scripts/tests -p test_*.py }
 }
 
 if ($Scope -in @("all", "spring")) {

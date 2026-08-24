@@ -1,0 +1,69 @@
+{
+  "contractVersion": "1.0.0",
+  "retentionCases": [
+    {
+      "id": "event_trip_end_wins",
+      "policyId": "trip_execution_event_location",
+      "anchors": {"tripEndedAt": "2026-08-10T00:00:00+00:00", "lastEventAt": "2026-08-05T00:00:00+00:00"},
+      "evaluatedAt": "2026-08-17T00:00:00+00:00",
+      "expectedCutoff": "2026-08-17T00:00:00+00:00",
+      "expectedDue": true
+    },
+    {
+      "id": "event_last_event_wins_while_trip_end_is_future",
+      "policyId": "trip_execution_event_location",
+      "anchors": {"tripEndedAt": "2026-08-30T00:00:00+00:00", "lastEventAt": "2026-08-05T00:00:00+00:00"},
+      "evaluatedAt": "2026-08-19T00:00:00+00:00",
+      "expectedCutoff": "2026-08-19T00:00:00+00:00",
+      "expectedDue": true
+    },
+    {
+      "id": "event_missing_trip_end_uses_last_event",
+      "policyId": "trip_execution_event_location",
+      "anchors": {"tripEndedAt": null, "lastEventAt": "2026-08-06T00:00:00+00:00"},
+      "evaluatedAt": "2026-08-20T00:00:00+00:00",
+      "expectedCutoff": "2026-08-20T00:00:00+00:00",
+      "expectedDue": true
+    },
+    {
+      "id": "event_before_cutoff_is_not_due",
+      "policyId": "trip_execution_event_location",
+      "anchors": {"tripEndedAt": "2026-08-10T00:00:00+00:00", "lastEventAt": "2026-08-05T00:00:00+00:00"},
+      "evaluatedAt": "2026-08-16T23:59:59.999999+00:00",
+      "expectedCutoff": "2026-08-17T00:00:00+00:00",
+      "expectedDue": false
+    },
+    {
+      "id": "live_created_wins_while_trip_end_is_future",
+      "policyId": "live_state_current_location",
+      "anchors": {"tripEndedAt": "2026-08-30T00:00:00+00:00", "createdAt": "2026-08-09T00:00:00+00:00"},
+      "evaluatedAt": "2026-08-12T00:00:00+00:00",
+      "expectedCutoff": "2026-08-12T00:00:00+00:00",
+      "expectedDue": true
+    },
+    {
+      "id": "command_no_arrived_anchor_is_not_due",
+      "policyId": "async_command_location",
+      "anchors": {"terminalAt": null, "tripEndedAt": "2026-08-30T00:00:00+00:00"},
+      "evaluatedAt": "2026-08-20T00:00:00+00:00",
+      "expectedCutoff": null,
+      "expectedDue": false
+    },
+    {
+      "id": "command_terminal_arrival_recomputes",
+      "policyId": "async_command_location",
+      "anchors": {"terminalAt": "2026-08-20T00:00:00+00:00", "tripEndedAt": null},
+      "evaluatedAt": "2026-08-21T00:00:00+00:00",
+      "expectedCutoff": "2026-08-21T00:00:00+00:00",
+      "expectedDue": true
+    },
+    {
+      "id": "command_trip_end_wins_while_terminal_is_future",
+      "policyId": "async_command_location",
+      "anchors": {"terminalAt": "2026-08-30T00:00:00+00:00", "tripEndedAt": "2026-08-20T00:00:00+00:00"},
+      "evaluatedAt": "2026-08-21T00:00:00+00:00",
+      "expectedCutoff": "2026-08-21T00:00:00+00:00",
+      "expectedDue": true
+    }
+  ]
+}
