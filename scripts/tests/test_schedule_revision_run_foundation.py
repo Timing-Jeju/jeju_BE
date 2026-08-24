@@ -366,7 +366,7 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         )
         section = negative.split("select public.create_local_test_user(", 1)[1]
         section = "select public.create_local_test_user(" + section
-        section = section.split("select 'database_negative_constraints'", 1)[0]
+        section = section.split("insert into public.compute_run_inputs", 1)[0]
 
         assert_revision_negative_fixture_is_self_contained(section)
         for seed_mutation in (
