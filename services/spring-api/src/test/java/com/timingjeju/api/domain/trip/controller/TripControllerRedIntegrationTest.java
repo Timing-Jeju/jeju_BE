@@ -1,0 +1,259 @@
+package com.timingjeju.api.domain.trip.controller;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.MACSigner;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
+import com.timingjeju.api.application.trip.TripAggregate;
+import com.timingjeju.api.application.trip.TripDay;
+import com.timingjeju.api.application.trip.TripTransportMode;
+import com.timingjeju.api.application.trip.service.TripService;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Base64;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+@Tag("integration")
+@SpringBootTest(
+    properties = {
+      "spring.profiles.active=local-hs256",
+      "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
+      "app.security.jwt.audience=authenticated",
+      "app.security.jwt.jwks-url=",
+      "app.security.cors.allowed-origins=http://localhost:3000",
+      "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes",
+      "timing-jeju.test.context=trip-controller-red"
+    })
+@AutoConfigureMockMvc
+class TripControllerRedIntegrationTest {
+
+  private static final String ISSUER = "http://127.0.0.1:54321/auth/v1";
+  private static final String SECRET = randomKey();
+  private static final UUID USER_ID = UUID.fromString("44000000-0000-0000-0000-000000000001");
+
+  @Autowired private MockMvc mvc;
+  @MockitoBean private TripService tripService;
+  @MockitoBean private IdempotencyUseCase idempotency;
+
+  @DynamicPropertySource
+  static void jwtKey(DynamicPropertyRegistry registry) {
+    registry.add("app.security.jwt.secret", () -> SECRET);
+  }
+
+  @BeforeEach
+  void setUp() {
+    when(idempotency.execute(any(), any()))
+        .thenAnswer(
+            invocation ->
+                invocation
+                    .<com.timingjeju.api.application.idempotency.IdempotencyOperation>getArgument(1)
+                    .execute());
+    when(tripService.create(any(), any())).thenReturn(aggregate());
+  }
+
+  @Test
+  void POST_trips는_유효한_3일_여행과_날짜별_Day를_원자_생성한다() throws Exception {
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "44000000-0000-0000-0000-000000000044")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "title":"제주 동쪽 2박 3일",
+                      "startDate":"2026-08-03",
+                      "endDate":"2026-08-05"
+                    }
+                    """))
+        .andExpect(status().isCreated())
+        .andExpect(
+            header()
+                .string(
+                    HttpHeaders.ETAG,
+                    org.hamcrest.Matchers.matchesPattern("^\"[A-Za-z0-9._:-]{1,128}\"$")))
+        .andExpect(jsonPath("$.days.length()").value(3))
+        .andExpect(jsonPath("$.days[0].dayNo").value(1))
+        .andExpect(jsonPath("$.days[0].date").value("2026-08-03"))
+        .andExpect(jsonPath("$.days[2].dayNo").value(3))
+        .andExpect(jsonPath("$.days[2].date").value("2026-08-05"));
+  }
+
+  @Test
+  void POST_trips_replay는_저장된_Location_ETag_body를_재사용하고_replayed만_true다() throws Exception {
+    AtomicReference<com.timingjeju.api.application.idempotency.IdempotencyResponse> stored =
+        new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              var existing = stored.get();
+              if (existing != null) {
+                return existing;
+              }
+              var created =
+                  invocation
+                      .<com.timingjeju.api.application.idempotency.IdempotencyOperation>getArgument(
+                          1)
+                      .execute();
+              stored.set(created);
+              return created;
+            })
+        .when(idempotency)
+        .execute(any(), any());
+    String body =
+        """
+        {"title":"제주","startDate":"2026-08-03","endDate":"2026-08-05"}
+        """;
+
+    String firstEtag =
+        mvc.perform(
+                post("/api/v1/trips")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                    .header("Idempotency-Key", "44000000-0000-0000-0000-000000000046")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body))
+            .andExpect(status().isCreated())
+            .andExpect(header().string("Idempotency-Replayed", "false"))
+            .andReturn()
+            .getResponse()
+            .getHeader(HttpHeaders.ETAG);
+
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "44000000-0000-0000-0000-000000000046")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isCreated())
+        .andExpect(header().string(HttpHeaders.ETAG, firstEtag))
+        .andExpect(
+            header()
+                .string(HttpHeaders.LOCATION, "/api/v1/trips/44000000-0000-0000-0000-000000000044"))
+        .andExpect(header().string("Idempotency-Replayed", "true"))
+        .andExpect(jsonPath("$.tripId").value("44000000-0000-0000-0000-000000000044"));
+  }
+
+  @Test
+  void GET_trips는_unknown과_repeated_query_parameter를_거부한다() throws Exception {
+    mvc.perform(
+            get("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .queryParam("unknown", "value"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_QUERY_PARAMETER"));
+    for (String[] repeated :
+        List.of(
+            new String[] {"status", "draft", "planned"},
+            new String[] {"sort", "updated_at_desc", "updated_at_desc"},
+            new String[] {"cursor", "cursor-a", "cursor-b"},
+            new String[] {"size", "10", "20"})) {
+      mvc.perform(
+              get("/api/v1/trips")
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .queryParam(repeated[0], repeated[1], repeated[2]))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_QUERY_PARAMETER"));
+    }
+  }
+
+  @Test
+  void POST_trips는_문자열_title의_잘못된_JSON_type을_INVALID_REQUEST로_거부한다() throws Exception {
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "44000000-0000-0000-0000-000000000045")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "title": 44,
+                      "startDate":"2026-08-03",
+                      "endDate":"2026-08-05"
+                    }
+                    """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+  }
+
+  private static TripAggregate aggregate() {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    Instant createdAt = Instant.parse("2026-08-03T00:05:00Z");
+    return new TripAggregate(
+        tripId,
+        "제주 동쪽 2박 3일",
+        "draft",
+        java.time.LocalDate.parse("2026-08-03"),
+        java.time.LocalDate.parse("2026-08-05"),
+        "Asia/Seoul",
+        "normal",
+        List.of(new TripTransportMode("public_transit", 1, true)),
+        List.of(
+            new TripDay(
+                UUID.fromString("44000000-0000-0000-0001-000000000001"),
+                1,
+                java.time.LocalDate.parse("2026-08-03")),
+            new TripDay(
+                UUID.fromString("44000000-0000-0000-0001-000000000002"),
+                2,
+                java.time.LocalDate.parse("2026-08-04")),
+            new TripDay(
+                UUID.fromString("44000000-0000-0000-0001-000000000003"),
+                3,
+                java.time.LocalDate.parse("2026-08-05"))),
+        null,
+        null,
+        null,
+        createdAt,
+        createdAt);
+  }
+
+  private static String token(UUID userId) throws Exception {
+    Instant now = Instant.now();
+    SignedJWT jwt =
+        new SignedJWT(
+            new JWSHeader(JWSAlgorithm.HS256),
+            new JWTClaimsSet.Builder()
+                .subject(userId.toString())
+                .issuer(ISSUER)
+                .audience("authenticated")
+                .claim("role", "authenticated")
+                .issueTime(Date.from(now.minus(1, ChronoUnit.MINUTES)))
+                .expirationTime(Date.from(now.plus(5, ChronoUnit.MINUTES)))
+                .build());
+    jwt.sign(new MACSigner(SECRET.getBytes(StandardCharsets.UTF_8)));
+    return jwt.serialize();
+  }
+
+  private static String randomKey() {
+    byte[] bytes = new byte[32];
+    new SecureRandom().nextBytes(bytes);
+    return Base64.getEncoder().encodeToString(bytes);
+  }
+}
