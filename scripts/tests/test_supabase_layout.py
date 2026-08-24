@@ -256,13 +256,90 @@ class SupabaseLayoutTest(unittest.TestCase):
         self.assertIn(migration_name, database_docs)
         self.assertIn("idx_data_import_runs_completed_health_latest", database_docs)
 
+    def test_snapshot_retention_index_is_partial_ordered_and_canonically_mounted(self):
+        migration_name = "20260829000000_completed_provider_snapshot_retention_index.sql"
+        migration = SUPABASE / "migrations" / migration_name
+        self.assertTrue(migration.is_file())
+        sql = migration.read_text(encoding="utf-8").lower()
+
+        self.assertIn("create index idx_external_api_snapshots_retention_due", sql)
+        self.assertIn("drop index public.idx_external_api_snapshots_purge", sql)
+        self.assertLess(
+            sql.index("create index idx_external_api_snapshots_retention_due"),
+            sql.index("drop index public.idx_external_api_snapshots_purge"),
+        )
+        self.assertRegex(
+            sql,
+            r"on\s+public\.external_api_snapshots\s*\(\s*purge_after\s*,\s*id\s*\)",
+        )
+        for predicate in (
+            "purge_after is not null",
+            "purged_at is null",
+            "raw_payload is not null",
+        ):
+            self.assertIn(predicate, sql)
+        self.assertNotRegex(sql, r"\b(?:alter\s+table|insert|update|delete)\b")
+
+        source = f"./supabase/migrations/{migration_name}"
+        target = "/docker-entrypoint-initdb.d/027_completed_provider_snapshot_retention_index.sql"
+        for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
+            compose = (ROOT / compose_name).read_text(encoding="utf-8")
+            with self.subTest(compose=compose_name):
+                self.assertEqual(1, compose.count(f"{source}:{target}:ro"))
+                self.assertLess(
+                    compose.index(
+                        "/docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql"
+                    ),
+                    compose.index(target),
+                )
+                self.assertLess(
+                    compose.index(target),
+                    compose.index("/docker-entrypoint-initdb.d/099_seed_fixtures.sql"),
+                )
+
+        smoke_test = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertGreaterEqual(smoke_test.count(target), 2)
+        database_docs = (
+            ROOT / "docs" / "designs" / "timing-jeju-db-schema-v0.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(migration_name, database_docs)
+        self.assertIn("idx_external_api_snapshots_retention_due", database_docs)
+        self.assertNotIn("retention으로 snapshot을 삭제", database_docs)
+        self.assertNotIn("snapshot 포인터만 null", database_docs.lower())
+        self.assertIn("raw_payload=null", database_docs.lower())
+        self.assertIn("purged_at=now", database_docs.lower())
+        dbml = (
+            ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("#164 snapshot retention index `/027`", dbml)
+
+        schema_contract = (ROOT / "db" / "queries" / "schema_contract.sql").read_text(
+            encoding="utf-8"
+        ).lower()
+        legacy_contract = (
+            ROOT / "db" / "queries" / "legacy_v1_upgrade_contract.sql"
+        ).read_text(encoding="utf-8").lower()
+        for contract in (schema_contract, legacy_contract):
+            self.assertIn("idx_external_api_snapshots_retention_due", contract)
+            self.assertIn("idx_external_api_snapshots_purge", contract)
+            self.assertRegex(
+                contract,
+                r"to_regclass\([^\n]+idx_external_api_snapshots_retention_due[^\n]+\)\s+is\s+not\s+null",
+            )
+            self.assertRegex(
+                contract,
+                r"to_regclass\([^\n]+idx_external_api_snapshots_purge[^\n]+\)\s+is\s+null",
+            )
+
     def test_recommended_stay_policy_dbml_matches_canonical_migration(self):
         dbml = (
             ROOT / "docs" / "designs" / "timing-jeju-dbdiagram.dbml"
         ).read_text(encoding="utf-8")
 
         expected_contracts = (
-            "#37 place-link `/020`, #65 stay-policy `/021`, #39 arrival `/024`, #39 flight-state `/025`, #160 completed-health index `/026`, seed `/099`",
+            "#37 place-link `/020`, #65 stay-policy `/021`, #39 arrival `/024`, #39 flight-state `/025`, #160 completed-health index `/026`, #164 snapshot retention index `/027`, seed `/099`",
             "Table place_stay_policy_versions {",
             "version text [pk]",
             "status text [not null, note: \"draft, active, retired\"]",

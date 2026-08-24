@@ -34,6 +34,10 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  snapshot-retention:
+    enabled: ${SNAPSHOT_RETENTION_ENABLED:false}
+    dry-run: ${SNAPSHOT_RETENTION_DRY_RUN:true}
+    batch-size: ${SNAPSHOT_RETENTION_BATCH_SIZE:500}
   data-health:
     actuator:
       enabled: ${APP_DATA_HEALTH_ACTUATOR_ENABLED:false}

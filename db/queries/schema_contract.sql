@@ -1251,4 +1251,13 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if not (to_regclass('public.idx_external_api_snapshots_retention_due') is not null)
+     or not (to_regclass('public.idx_external_api_snapshots_purge') is null) then
+    raise exception 'snapshot retention replacement index contract is invalid';
+  end if;
+end;
+$$;
+
 select 'schema_contract' as check_name, 'PASS' as result;
