@@ -2826,9 +2826,9 @@ insert into public.compute_run_inputs (
   '60000000-0000-0000-0000-000000000001',
   'feasibility', 1, 'command/v1', 'algorithm/v1', '{"refreshExternalFacts":false}'::jsonb,
   public.compute_command_input_hash(
-    'feasibility', 1, 'command/v1', 'algorithm/v1',
-    '60000000-0000-0000-0000-000000000001',
-    '{"refreshExternalFacts":false}'::jsonb, false, null
+    'feasibility'::text, 1::smallint, 'command/v1'::text, 'algorithm/v1'::text,
+    '60000000-0000-0000-0000-000000000001'::uuid,
+    '{"refreshExternalFacts":false}'::jsonb, false::boolean, null::jsonb
   )
 );
 

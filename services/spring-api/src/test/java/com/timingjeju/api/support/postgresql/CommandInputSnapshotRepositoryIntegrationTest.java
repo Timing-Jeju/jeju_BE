@@ -335,7 +335,7 @@ class CommandInputSnapshotRepositoryIntegrationTest {
                               public.compute_command_input_hash(
                                 'feasibility'::text, 1::smallint,
                                 'command/v1'::text, 'algorithm/v1'::text, ?::uuid,
-                                '{\"refreshExternalFacts\":false}'::jsonb, true, '[]'::jsonb
+                                '{\"refreshExternalFacts\":false}'::jsonb, true::boolean, '[]'::jsonb
                               ), true, '[]'::jsonb, '1.0.0', now())
                     """,
                     COMPUTE,

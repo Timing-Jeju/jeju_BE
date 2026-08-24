@@ -13,6 +13,9 @@ ACTUAL_PG_TEST = (
     / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql"
     / "CommandInputSnapshotRepositoryIntegrationTest.java"
 )
+REPOSITORY_SQL_CONTRACT_SOURCES = tuple(sorted((ROOT / "db/queries").glob("*.sql"))) + tuple(
+    sorted((ROOT / "services/spring-api/src/test").rglob("*IntegrationTest.java"))
+)
 
 
 def compact_sql(contents: str) -> str:
@@ -119,11 +122,32 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
             migration,
         )
 
-    def test_actual_pg_direct_function_calls_use_exact_declared_types(self):
-        source = compact_sql(ACTUAL_PG_TEST.read_text(encoding="utf-8"))
-        self.assertNotRegex(source, r"command_input_matches_schema\('[^']+',\s*1,")
-        self.assertNotRegex(source, r"compute_command_input_hash\(\s*'[^']+',\s*1,")
-        self.assertIn("'feasibility'::text, 1::smallint", source)
+    def test_repository_direct_hash_calls_use_all_exact_declared_types(self):
+        exact_call = re.compile(
+            r"public\.compute_command_input_hash\(\s*"
+            r"'[^']+'::text,\s*"
+            r"[0-9]+::smallint,\s*"
+            r"'[^']+'::text,\s*"
+            r"'[^']+'::text,\s*"
+            r"(?:'[^']+'|\?)::uuid,\s*"
+            r"'[^']*'::jsonb,\s*"
+            r"(?:true|false)::boolean,\s*"
+            r"(?:null|'[^']*')::jsonb\s*\)"
+        )
+        direct_call_sources = set()
+        for path in REPOSITORY_SQL_CONTRACT_SOURCES:
+            self.assertTrue(path.is_file(), f"SQL 계약 소스가 없습니다: {path}")
+            source = compact_sql(path.read_text(encoding="utf-8"))
+            for direct_call in re.finditer(
+                r"public\.compute_command_input_hash\(\s*'", source
+            ):
+                direct_call_sources.add(path)
+                with self.subTest(path=path.relative_to(ROOT)):
+                    self.assertIsNotNone(exact_call.match(source, direct_call.start()))
+        self.assertTrue(
+            {ROOT / "db/queries/database_negative_constraints.sql", ACTUAL_PG_TEST}
+            <= direct_call_sources
+        )
 
     def test_actual_pg_completed_trip_fixture_satisfies_schedule_sealing_contract(self):
         source = compact_sql(ACTUAL_PG_TEST.read_text(encoding="utf-8"))
