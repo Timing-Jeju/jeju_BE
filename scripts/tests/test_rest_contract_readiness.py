@@ -293,6 +293,20 @@ class RestContractReadinessTest(unittest.TestCase):
         self.assertFalse(any("token 없음" in error for error in errors))
         self.assertTrue(any("invalid token" in error for error in errors))
 
+    def test_versioned_auth_scheme_extension_preserves_legacy_jwt_and_rejects_unknown(self):
+        self.assertFalse(any("auth scheme" in error for error in self.validate()))
+
+        def explicit_bearer(catalog):
+            catalog["endpoints"][0]["auth"]["scheme"] = "bearer-jwt/v1"
+
+        bearer_errors = self.validate(explicit_bearer)
+        self.assertFalse(any("auth scheme" in error for error in bearer_errors), bearer_errors)
+
+        def unknown(catalog):
+            catalog["endpoints"][0]["auth"]["scheme"] = "free-form/v9"
+
+        self.assertTrue(any("auth scheme" in error for error in self.validate(unknown)))
+
     def test_rejects_common_idempotency_and_cursor_policy_drift(self):
         def mutate(catalog):
             catalog["commonRules"]["idempotency"]["header"] = "X-Idempotency"

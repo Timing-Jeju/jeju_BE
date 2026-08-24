@@ -1,0 +1,70 @@
+{
+  "contractVersion": "1.0.0",
+  "examples": [
+    {
+      "endpoint": "PUT /api/v1/me/consents",
+      "body": {
+        "type": "https://api.timing-jeju.com/problems/required-consent-withdrawal-not-allowed",
+        "title": "필수 동의 철회 불가",
+        "status": 422,
+        "detail": "필수 동의는 철회할 수 없습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "endpoint": "GET /api/v1/account-deletion-requests/{deletionRequestId}",
+      "body": {
+        "type": "https://api.timing-jeju.com/problems/deletion-status-token-expired",
+        "title": "토큰 만료",
+        "status": 410,
+        "detail": "삭제 상태 조회 토큰이 만료됐습니다.",
+        "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+        "code": "DELETION_STATUS_TOKEN_EXPIRED",
+        "traceId": "0123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "endpoint": "GET /api/v1/account-deletion-requests/{deletionRequestId}",
+      "body": {
+        "type": "https://api.timing-jeju.com/problems/invalid-deletion-status-token",
+        "title": "삭제 상태 토큰 오류",
+        "status": 401,
+        "detail": "삭제 상태 조회 토큰이 없거나 올바르지 않습니다.",
+        "instance": "urn:timing-jeju:problem:1123456789abcdef0123456789abcdef",
+        "code": "INVALID_DELETION_STATUS_TOKEN",
+        "traceId": "1123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "endpoint": "GET /api/v1/account-deletion-requests/{deletionRequestId}",
+      "body": {
+        "type": "https://api.timing-jeju.com/problems/deletion-status-forbidden",
+        "title": "삭제 상태 접근 거부",
+        "status": 403,
+        "detail": "이 토큰으로 해당 삭제 상태를 조회할 수 없습니다.",
+        "instance": "urn:timing-jeju:problem:2123456789abcdef0123456789abcdef",
+        "code": "DELETION_STATUS_FORBIDDEN",
+        "traceId": "2123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    },
+    {
+      "endpoint": "GET /api/v1/account-deletion-requests/{deletionRequestId}",
+      "body": {
+        "type": "https://api.timing-jeju.com/problems/profile-resource-not-found",
+        "title": "삭제 상태 없음",
+        "status": 404,
+        "detail": "검증된 요청에 해당하는 삭제 상태를 찾을 수 없습니다.",
+        "instance": "urn:timing-jeju:problem:3123456789abcdef0123456789abcdef",
+        "code": "PROFILE_RESOURCE_NOT_FOUND",
+        "traceId": "3123456789abcdef0123456789abcdef",
+        "fieldErrors": []
+      }
+    }
+  ]
+}
