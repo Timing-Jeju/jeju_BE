@@ -160,10 +160,7 @@ class TripMigrationContractTest {
     String fixtureMount =
         "./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro";
 
-    assertThat(compose)
-        .contains(legalMount)
-        .contains(tripMount)
-        .contains(fixtureMount);
+    assertThat(compose).contains(legalMount).contains(tripMount).contains(fixtureMount);
     assertThat(compose.indexOf(legalMount)).isLessThan(compose.indexOf(tripMount));
     assertThat(compose.indexOf(tripMount)).isLessThan(compose.indexOf(fixtureMount));
   }
