@@ -9,9 +9,17 @@ DOCKER_BIN=${DOCKER_BIN:-docker}
 EXPECTED_CLI_VERSION=2.110.0
 DB_CONTAINER=supabase_db_timing-jeju
 SPRING_DIR="$ROOT/services/spring-api"
+LOCAL_AUTH_FIXTURE_HELPER="$ROOT/db/local-postgres/supabase_smoke_fixture_helper.sql"
+LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=0
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/timing-jeju-supabase-smoke.XXXXXX")
 
 cleanup() {
+  if [ "$LOCAL_AUTH_FIXTURE_HELPER_INSTALLED" = "1" ]; then
+    "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc \
+      --username postgres --dbname postgres \
+      --command "drop function if exists public.create_local_test_user(uuid, text);" \
+      >/dev/null 2>&1 || true
+  fi
   "$SUPABASE_BIN" stop --no-backup >/dev/null 2>&1 || true
   rm -rf "$TEMP_DIR"
 }
@@ -96,30 +104,73 @@ TABLE_COUNT=$(
   exit 1
 }
 
-SEED_PROFILE_COUNT=$(
-  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
-    --username postgres --dbname postgres \
-    --command "select count(*) from public.user_profiles;"
-)
-[ "$SEED_PROFILE_COUNT" = "0" ] || {
-  echo "빈 운영 시드에 예상하지 않은 사용자 프로필이 있습니다." >&2
-  exit 1
-}
-
-INGESTION_SEED_COUNT=$(
+SEED_USER_DATA_COUNT=$(
   "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
     --username postgres --dbname postgres \
     --command "select
-      (select count(*) from public.data_import_checkpoints)
-      + (select count(*) from public.external_api_snapshots)
+      (select count(*) from public.user_profiles)
+      + (select count(*) from public.social_accounts);"
+)
+[ "$SEED_USER_DATA_COUNT" = "0" ] || {
+  echo "빈 운영 시드에 예상하지 않은 사용자 프로필 또는 소셜 계정이 있습니다." >&2
+  exit 1
+}
+
+CANONICAL_BOOTSTRAP_CHECKPOINT_STATE=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "with expected (
+        source_provider, source_service, source_operation, scope_key, checkpoint, source_watermark_at
+      ) as (values
+        ('tour-api', 'KorService2', 'areaBasedSyncList2', 'jeju',
+          '{\"modifiedTime\":\"1970-01-01T00:00:00Z\"}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('TAGO', 'BusSttnInfoInqireService', 'getSttnNoList', 'jeju',
+          '{\"cityCode\":\"unresolved\"}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('TAGO', 'BusRouteInfoInqireService', 'getRouteNoList', 'jeju-routes',
+          '{\"routeCount\":0,\"routeStopCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('tour-api', 'KorService2', 'locationBasedList2', 'jeju',
+          '{\"manifest\":\"uninitialized\",\"pageCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('tour-api', 'KorService2', 'searchKeyword2', 'jeju',
+          '{\"manifest\":\"uninitialized\",\"pageCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('tour-api', 'KorService2', 'searchStay2', 'jeju',
+          '{\"manifest\":\"uninitialized\",\"pageCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz)
+      ), actual as (
+        select source_provider::text, source_service::text, source_operation::text, scope_key::text,
+          checkpoint, source_watermark_at
+        from public.data_import_checkpoints
+      ), missing_or_changed as (
+        select * from expected except select * from actual
+      ), unexpected_or_changed as (
+        select * from actual except select * from expected
+      )
+      select (select count(*) from actual) || '|' ||
+        ((select count(*) from missing_or_changed) + (select count(*) from unexpected_or_changed));"
+)
+[ "$CANONICAL_BOOTSTRAP_CHECKPOINT_STATE" = "6|0" ] || {
+  echo "canonical bootstrap checkpoint identity/count/content가 migration과 다릅니다." >&2
+  exit 1
+}
+
+EXTERNAL_DATA_SEED_COUNT=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "select
+      (select count(*) from public.external_api_snapshots)
       + (select count(*) from public.tour_place_sources)
       + (select count(*) from public.place_detail_items)
       + (select count(*) from public.external_reference_codes);"
 )
-[ "$INGESTION_SEED_COUNT" = "0" ] || {
+[ "$EXTERNAL_DATA_SEED_COUNT" = "0" ] || {
   echo "빈 운영 시드에 예상하지 않은 외부 데이터 적재 행이 있습니다." >&2
   exit 1
 }
+
+echo "[Supabase] local-only Auth fixture helper 설치"
+"$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres --file - \
+  < "$LOCAL_AUTH_FIXTURE_HELPER"
+LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=1
 
 echo "[Supabase] 스키마 계약 검사"
 "$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
@@ -138,6 +189,11 @@ echo "[Supabase] PostgreSQL 17 실제 2세션 동시성 계약 검사"
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username supabase_admin --dbname postgres --file - \
   < "$ROOT/db/queries/database_concurrency_contract.sql"
+
+"$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --command "drop function public.create_local_test_user(uuid, text);"
+LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=0
 
 echo "[Supabase] 로컬 Auth 명령 계약과 실제 access token 검증"
 STATUS_FILE="$TEMP_DIR/status.json"
@@ -336,6 +392,7 @@ if [ "$JWT_ALGORITHM" = "HS256" ]; then
       SUPABASE_JWT_SECRET="$JWT_SECRET" \
       SUPABASE_ACCESS_TOKEN="$ACCESS_TOKEN" \
       SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:54322/postgres \
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver \
       SPRING_DATASOURCE_USERNAME=postgres \
       SPRING_DATASOURCE_PASSWORD=postgres \
       ./gradlew --no-daemon test --tests '*SupabaseLocalAuthIntegrationTest'
@@ -349,6 +406,7 @@ else
       SUPABASE_JWKS_URL="$API_URL/auth/v1/.well-known/jwks.json" \
       SUPABASE_ACCESS_TOKEN="$ACCESS_TOKEN" \
       SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:54322/postgres \
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver \
       SPRING_DATASOURCE_USERNAME=postgres \
       SPRING_DATASOURCE_PASSWORD=postgres \
       ./gradlew --no-daemon test --tests '*SupabaseLocalAuthIntegrationTest'

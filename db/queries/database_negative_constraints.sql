@@ -2693,30 +2693,50 @@ select pg_temp.expect_rejected(
   array['23505']
 );
 
-select auth.create_local_test_user(
+select public.create_local_test_user(
+  'f1600000-0000-0000-0000-000000000001', 'owner@revision-negative.test'
+);
+select public.create_local_test_user(
   'f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test'
 );
 
-insert into public.user_profiles (id, email)
-values ('f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test');
+insert into public.user_profiles (id, email) values
+('f1600000-0000-0000-0000-000000000001', 'owner@revision-negative.test'),
+('f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test');
 
 insert into public.trip_plans (
   id, user_id, public_token, start_date, end_date, source_mode, data_version
-) values (
+) values
+(
+  'f1610000-0000-0000-0000-000000000001',
+  'f1600000-0000-0000-0000-000000000001',
+  'revision-negative-owner-trip', current_date, current_date, 'fixture', 'contract-v1'
+),
+(
   'f1710000-0000-0000-0000-000000000002',
   'f1700000-0000-0000-0000-000000000002',
   'revision-negative-other-trip', current_date, current_date, 'fixture', 'contract-v1'
 );
 
-insert into public.trip_days (id, trip_plan_id, day_no, trip_date)
-values (
+insert into public.trip_days (id, trip_plan_id, day_no, trip_date) values
+(
+  'f1620000-0000-0000-0000-000000000001',
+  'f1610000-0000-0000-0000-000000000001', 1, current_date
+),
+(
   'f1720000-0000-0000-0000-000000000002',
   'f1710000-0000-0000-0000-000000000002', 1, current_date
 );
 
 insert into public.trip_schedule_versions (
   id, trip_plan_id, version_no, status, source_type, created_by_user_id
-) values (
+) values
+(
+  'f1630000-0000-0000-0000-000000000001',
+  'f1610000-0000-0000-0000-000000000001', 1, 'draft', 'initial',
+  'f1600000-0000-0000-0000-000000000001'
+),
+(
   'f1730000-0000-0000-0000-000000000002',
   'f1710000-0000-0000-0000-000000000002', 1, 'draft', 'initial',
   'f1700000-0000-0000-0000-000000000002'
@@ -2727,13 +2747,13 @@ insert into public.schedule_revision_runs (
   target_trip_day_id, contract_version, algorithm_version,
   idempotency_key, request_hash
 ) values (
-  'f1740000-0000-0000-0000-000000000001',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
-  '60000000-0000-0000-0000-000000000001',
-  '51000000-0000-0000-0000-000000000001',
+  'f1640000-0000-0000-0000-000000000001',
+  'f1600000-0000-0000-0000-000000000001',
+  'f1610000-0000-0000-0000-000000000001',
+  'f1630000-0000-0000-0000-000000000001',
+  'f1620000-0000-0000-0000-000000000001',
   'revision-v1', 'algorithm-v1',
-  'f1750000-0000-0000-0000-000000000001', repeat('a', 64)
+  'f1650000-0000-0000-0000-000000000001', repeat('a', 64)
 );
 
 select pg_temp.expect_rejected(
@@ -2744,9 +2764,9 @@ select pg_temp.expect_rejected(
       contract_version, algorithm_version, idempotency_key, request_hash
     ) values (
       'f1700000-0000-0000-0000-000000000002',
-      '50000000-0000-0000-0000-000000000001',
-      '60000000-0000-0000-0000-000000000001',
-      '51000000-0000-0000-0000-000000000001',
+      'f1610000-0000-0000-0000-000000000001',
+      'f1630000-0000-0000-0000-000000000001',
+      'f1620000-0000-0000-0000-000000000001',
       'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('b', 64)
     )
   $statement$,
@@ -2760,10 +2780,10 @@ select pg_temp.expect_rejected(
       owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id,
       contract_version, algorithm_version, idempotency_key, request_hash
     ) values (
-      '09000000-0000-0000-0000-000000000001',
-      '50000000-0000-0000-0000-000000000001',
+      'f1600000-0000-0000-0000-000000000001',
+      'f1610000-0000-0000-0000-000000000001',
       'f1730000-0000-0000-0000-000000000002',
-      '51000000-0000-0000-0000-000000000001',
+      'f1620000-0000-0000-0000-000000000001',
       'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('c', 64)
     )
   $statement$,
@@ -2777,9 +2797,9 @@ select pg_temp.expect_rejected(
       owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id,
       contract_version, algorithm_version, idempotency_key, request_hash
     ) values (
-      '09000000-0000-0000-0000-000000000001',
-      '50000000-0000-0000-0000-000000000001',
-      '60000000-0000-0000-0000-000000000001',
+      'f1600000-0000-0000-0000-000000000001',
+      'f1610000-0000-0000-0000-000000000001',
+      'f1630000-0000-0000-0000-000000000001',
       'f1720000-0000-0000-0000-000000000002',
       'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('d', 64)
     )
@@ -2792,7 +2812,7 @@ select pg_temp.expect_rejected(
   $statement$
     update public.schedule_revision_runs
     set algorithm_version = 'changed'
-    where id = 'f1740000-0000-0000-0000-000000000001'
+    where id = 'f1640000-0000-0000-0000-000000000001'
   $statement$,
   array['23514']
 );
@@ -2800,7 +2820,7 @@ select pg_temp.expect_rejected(
 update public.schedule_revision_runs
 set status = 'cancelled', next_attempt_at = null, completed_at = now(),
     failure_code = 'NEGATIVE_CANCELLED'
-where id = 'f1740000-0000-0000-0000-000000000001';
+where id = 'f1640000-0000-0000-0000-000000000001';
 
 select pg_temp.expect_rejected(
   'schedule revision terminal rollback',
@@ -2809,7 +2829,7 @@ select pg_temp.expect_rejected(
     set status = 'running', attempt_count = 1, fencing_token = 1,
         lease_owner = 'negative-worker', heartbeat_at = now(),
         lease_expires_at = now() + interval '30 seconds', started_at = now()
-    where id = 'f1740000-0000-0000-0000-000000000001'
+    where id = 'f1640000-0000-0000-0000-000000000001'
   $statement$,
   array['23514']
 );

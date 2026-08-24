@@ -42,7 +42,7 @@ create table if not exists auth.identities (
   unique (user_id, provider)
 );
 
-create or replace function auth.create_local_test_user(target_user_id uuid, target_email text)
+create or replace function public.create_local_test_user(target_user_id uuid, target_email text)
 returns void
 language sql
 security invoker
@@ -51,6 +51,8 @@ as $$
   insert into auth.users (id, email)
   values (target_user_id, target_email)
 $$;
+
+revoke execute on function public.create_local_test_user(uuid, text) from public;
 
 create or replace function auth.uid()
 returns uuid

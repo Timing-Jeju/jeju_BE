@@ -14,6 +14,118 @@ def compact_sql(contents: str) -> str:
     return re.sub(r"\s+", " ", contents.lower()).strip()
 
 
+def assert_revision_negative_fixture_is_self_contained(section: str) -> None:
+    seed_only_ids = (
+        "09000000-0000-0000-0000-000000000001",
+        "50000000-0000-0000-0000-000000000001",
+        "51000000-0000-0000-0000-000000000001",
+        "60000000-0000-0000-0000-000000000001",
+    )
+    if any(seed_id in section for seed_id in seed_only_ids):
+        raise AssertionError("schedule revision 음수 계약이 demo seed identity에 의존합니다.")
+    required_lineages = (
+        "f1600000-0000-0000-0000-000000000001",
+        "f1610000-0000-0000-0000-000000000001",
+        "f1620000-0000-0000-0000-000000000001",
+        "f1630000-0000-0000-0000-000000000001",
+        "f1700000-0000-0000-0000-000000000002",
+        "f1710000-0000-0000-0000-000000000002",
+        "f1720000-0000-0000-0000-000000000002",
+        "f1730000-0000-0000-0000-000000000002",
+    )
+    if any(identity not in section for identity in required_lineages):
+        raise AssertionError("schedule revision 음수 계약에는 정확히 두 독립 lineage가 필요합니다.")
+    if section.count("select public.create_local_test_user(") != 2:
+        raise AssertionError("두 lineage의 canonical Auth user fixture가 필요합니다.")
+    expected_structural_tuples = {
+        "lineage-a-trip": (
+            "( 'f1610000-0000-0000-0000-000000000001', "
+            "'f1600000-0000-0000-0000-000000000001', "
+            "'revision-negative-owner-trip', current_date, current_date, 'fixture', 'contract-v1' )"
+        ),
+        "lineage-b-trip": (
+            "( 'f1710000-0000-0000-0000-000000000002', "
+            "'f1700000-0000-0000-0000-000000000002', "
+            "'revision-negative-other-trip', current_date, current_date, 'fixture', 'contract-v1' )"
+        ),
+        "lineage-a-day": (
+            "( 'f1620000-0000-0000-0000-000000000001', "
+            "'f1610000-0000-0000-0000-000000000001', 1, current_date )"
+        ),
+        "lineage-b-day": (
+            "( 'f1720000-0000-0000-0000-000000000002', "
+            "'f1710000-0000-0000-0000-000000000002', 1, current_date )"
+        ),
+        "lineage-a-version": (
+            "( 'f1630000-0000-0000-0000-000000000001', "
+            "'f1610000-0000-0000-0000-000000000001', 1, 'draft', 'initial', "
+            "'f1600000-0000-0000-0000-000000000001' )"
+        ),
+        "lineage-b-version": (
+            "( 'f1730000-0000-0000-0000-000000000002', "
+            "'f1710000-0000-0000-0000-000000000002', 1, 'draft', 'initial', "
+            "'f1700000-0000-0000-0000-000000000002' )"
+        ),
+        "valid-a": (
+            "values ( 'f1640000-0000-0000-0000-000000000001', "
+            "'f1600000-0000-0000-0000-000000000001', "
+            "'f1610000-0000-0000-0000-000000000001', "
+            "'f1630000-0000-0000-0000-000000000001', "
+            "'f1620000-0000-0000-0000-000000000001', 'revision-v1', "
+            "'algorithm-v1', 'f1650000-0000-0000-0000-000000000001', repeat('a', 64) )"
+        ),
+        "owner-only-b": (
+            "'schedule revision owner lineage mismatch', $statement$ insert into "
+            "public.schedule_revision_runs ( owner_user_id, trip_plan_id, "
+            "base_schedule_version_id, target_trip_day_id, contract_version, "
+            "algorithm_version, idempotency_key, request_hash ) values ( "
+            "'f1700000-0000-0000-0000-000000000002', "
+            "'f1610000-0000-0000-0000-000000000001', "
+            "'f1630000-0000-0000-0000-000000000001', "
+            "'f1620000-0000-0000-0000-000000000001'"
+        ),
+        "base-only-b": (
+            "'schedule revision base lineage mismatch', $statement$ insert into "
+            "public.schedule_revision_runs ( owner_user_id, trip_plan_id, "
+            "base_schedule_version_id, target_trip_day_id, contract_version, "
+            "algorithm_version, idempotency_key, request_hash ) values ( "
+            "'f1600000-0000-0000-0000-000000000001', "
+            "'f1610000-0000-0000-0000-000000000001', "
+            "'f1730000-0000-0000-0000-000000000002', "
+            "'f1620000-0000-0000-0000-000000000001'"
+        ),
+        "day-only-b": (
+            "'schedule revision day lineage mismatch', $statement$ insert into "
+            "public.schedule_revision_runs ( owner_user_id, trip_plan_id, "
+            "base_schedule_version_id, target_trip_day_id, contract_version, "
+            "algorithm_version, idempotency_key, request_hash ) values ( "
+            "'f1600000-0000-0000-0000-000000000001', "
+            "'f1610000-0000-0000-0000-000000000001', "
+            "'f1630000-0000-0000-0000-000000000001', "
+            "'f1720000-0000-0000-0000-000000000002'"
+        ),
+    }
+    for label, expected_tuple in expected_structural_tuples.items():
+        if expected_tuple not in section:
+            raise AssertionError(f"schedule revision 구조 tuple drift: {label}")
+    for mismatch_label in (
+        "schedule revision owner lineage mismatch",
+        "schedule revision base lineage mismatch",
+        "schedule revision day lineage mismatch",
+    ):
+        mismatch = section.split(mismatch_label, 1)[1]
+        mismatch = mismatch.split("select pg_temp.expect_rejected", 1)[0]
+        if "array['23503']" not in mismatch:
+            raise AssertionError(f"schedule revision FK SQLSTATE drift: {mismatch_label}")
+
+
+def mutate_after(section: str, marker: str, old: str, new: str) -> str:
+    prefix, found, suffix = section.partition(marker)
+    if not found or old not in suffix:
+        raise AssertionError("mutation target을 찾지 못했습니다.")
+    return prefix + found + suffix.replace(old, new, 1)
+
+
 class ScheduleRevisionRunFoundationTest(unittest.TestCase):
     def migration(self) -> str:
         self.assertTrue(
@@ -246,6 +358,68 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
             concurrency, r"dblink_send_query\(\s*'schedule_revision_b'"
         )
 
+    def test_revision_negative_fixtures_do_not_depend_on_demo_seed(self):
+        negative = compact_sql(
+            (ROOT / "db/queries/database_negative_constraints.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        section = negative.split("select public.create_local_test_user(", 1)[1]
+        section = "select public.create_local_test_user(" + section
+        section = section.split("select 'database_negative_constraints'", 1)[0]
+
+        assert_revision_negative_fixture_is_self_contained(section)
+        for seed_mutation in (
+            section.replace(
+                "f1600000-0000-0000-0000-000000000001",
+                "09000000-0000-0000-0000-000000000001",
+                1,
+            ),
+            section.replace(
+                "f1710000-0000-0000-0000-000000000002",
+                "50000000-0000-0000-0000-000000000001",
+                1,
+            ),
+        ):
+            with self.subTest(seed_mutation=seed_mutation):
+                with self.assertRaisesRegex(AssertionError, "demo seed"):
+                    assert_revision_negative_fixture_is_self_contained(seed_mutation)
+
+        user_a = "f1600000-0000-0000-0000-000000000001"
+        trip_a = "f1610000-0000-0000-0000-000000000001"
+        day_a = "f1620000-0000-0000-0000-000000000001"
+        version_a = "f1630000-0000-0000-0000-000000000001"
+        user_b = "f1700000-0000-0000-0000-000000000002"
+        trip_b = "f1710000-0000-0000-0000-000000000002"
+        day_b = "f1720000-0000-0000-0000-000000000002"
+        version_b = "f1730000-0000-0000-0000-000000000002"
+        non_target_fk_mutations = (
+            ("schedule revision owner lineage mismatch", trip_a, trip_b),
+            ("schedule revision owner lineage mismatch", version_a, version_b),
+            ("schedule revision owner lineage mismatch", day_a, day_b),
+            ("schedule revision base lineage mismatch", user_a, user_b),
+            ("schedule revision base lineage mismatch", trip_a, trip_b),
+            ("schedule revision base lineage mismatch", day_a, day_b),
+            ("schedule revision day lineage mismatch", user_a, user_b),
+            ("schedule revision day lineage mismatch", trip_a, trip_b),
+            ("schedule revision day lineage mismatch", version_a, version_b),
+        )
+        relationship_mutations = (
+            mutate_after(section, "insert into public.trip_plans", user_a, user_b),
+            mutate_after(section, "insert into public.trip_days", trip_a, trip_b),
+            mutate_after(
+                section, "insert into public.trip_schedule_versions", trip_a, trip_b
+            ),
+        )
+        for marker, old, new in non_target_fk_mutations:
+            relationship_mutations += (mutate_after(section, marker, old, new),)
+        for structural_mutation in relationship_mutations:
+            with self.subTest(structural_mutation=structural_mutation):
+                with self.assertRaisesRegex(AssertionError, "구조 tuple"):
+                    assert_revision_negative_fixture_is_self_contained(
+                        structural_mutation
+                    )
+
     def test_database_contracts_use_the_local_auth_fixture_seam(self):
         auth_compat = compact_sql(
             (ROOT / "db/local-postgres/auth_compat.sql").read_text(encoding="utf-8")
@@ -255,12 +429,12 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
             ROOT / "db/queries/database_concurrency_contract.sql",
         )
 
-        self.assertIn("create or replace function auth.create_local_test_user", auth_compat)
+        self.assertIn("create or replace function public.create_local_test_user", auth_compat)
         for contract_path in contract_paths:
             contents = compact_sql(contract_path.read_text(encoding="utf-8"))
             with self.subTest(contract=contract_path.name):
                 self.assertNotRegex(contents, r"insert into auth\.users")
-                self.assertIn("auth.create_local_test_user", contents)
+                self.assertIn("public.create_local_test_user", contents)
 
     def test_scope_does_not_extend_http_input_snapshot_or_mcp_call_log(self):
         migration = self.migration()
