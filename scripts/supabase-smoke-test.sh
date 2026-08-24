@@ -9,9 +9,17 @@ DOCKER_BIN=${DOCKER_BIN:-docker}
 EXPECTED_CLI_VERSION=2.110.0
 DB_CONTAINER=supabase_db_timing-jeju
 SPRING_DIR="$ROOT/services/spring-api"
+LOCAL_AUTH_FIXTURE_HELPER="$ROOT/db/local-postgres/supabase_smoke_fixture_helper.sql"
+LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=0
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/timing-jeju-supabase-smoke.XXXXXX")
 
 cleanup() {
+  if [ "$LOCAL_AUTH_FIXTURE_HELPER_INSTALLED" = "1" ]; then
+    "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc \
+      --username postgres --dbname postgres \
+      --command "drop function if exists public.create_local_test_user(uuid, text);" \
+      >/dev/null 2>&1 || true
+  fi
   "$SUPABASE_BIN" stop --no-backup >/dev/null 2>&1 || true
   rm -rf "$TEMP_DIR"
 }
@@ -96,30 +104,73 @@ TABLE_COUNT=$(
   exit 1
 }
 
-SEED_PROFILE_COUNT=$(
-  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
-    --username postgres --dbname postgres \
-    --command "select count(*) from public.user_profiles;"
-)
-[ "$SEED_PROFILE_COUNT" = "0" ] || {
-  echo "빈 운영 시드에 예상하지 않은 사용자 프로필이 있습니다." >&2
-  exit 1
-}
-
-INGESTION_SEED_COUNT=$(
+SEED_USER_DATA_COUNT=$(
   "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
     --username postgres --dbname postgres \
     --command "select
-      (select count(*) from public.data_import_checkpoints)
-      + (select count(*) from public.external_api_snapshots)
+      (select count(*) from public.user_profiles)
+      + (select count(*) from public.social_accounts);"
+)
+[ "$SEED_USER_DATA_COUNT" = "0" ] || {
+  echo "빈 운영 시드에 예상하지 않은 사용자 프로필 또는 소셜 계정이 있습니다." >&2
+  exit 1
+}
+
+CANONICAL_BOOTSTRAP_CHECKPOINT_STATE=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "with expected (
+        source_provider, source_service, source_operation, scope_key, checkpoint, source_watermark_at
+      ) as (values
+        ('tour-api', 'KorService2', 'areaBasedSyncList2', 'jeju',
+          '{\"modifiedTime\":\"1970-01-01T00:00:00Z\"}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('TAGO', 'BusSttnInfoInqireService', 'getSttnNoList', 'jeju',
+          '{\"cityCode\":\"unresolved\"}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('TAGO', 'BusRouteInfoInqireService', 'getRouteNoList', 'jeju-routes',
+          '{\"routeCount\":0,\"routeStopCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('tour-api', 'KorService2', 'locationBasedList2', 'jeju',
+          '{\"manifest\":\"uninitialized\",\"pageCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('tour-api', 'KorService2', 'searchKeyword2', 'jeju',
+          '{\"manifest\":\"uninitialized\",\"pageCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz),
+        ('tour-api', 'KorService2', 'searchStay2', 'jeju',
+          '{\"manifest\":\"uninitialized\",\"pageCount\":0}'::jsonb, '1970-01-01T00:00:00Z'::timestamptz)
+      ), actual as (
+        select source_provider::text, source_service::text, source_operation::text, scope_key::text,
+          checkpoint, source_watermark_at
+        from public.data_import_checkpoints
+      ), missing_or_changed as (
+        select * from expected except select * from actual
+      ), unexpected_or_changed as (
+        select * from actual except select * from expected
+      )
+      select (select count(*) from actual) || '|' ||
+        ((select count(*) from missing_or_changed) + (select count(*) from unexpected_or_changed));"
+)
+[ "$CANONICAL_BOOTSTRAP_CHECKPOINT_STATE" = "6|0" ] || {
+  echo "canonical bootstrap checkpoint identity/count/content가 migration과 다릅니다." >&2
+  exit 1
+}
+
+EXTERNAL_DATA_SEED_COUNT=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "select
+      (select count(*) from public.external_api_snapshots)
       + (select count(*) from public.tour_place_sources)
       + (select count(*) from public.place_detail_items)
       + (select count(*) from public.external_reference_codes);"
 )
-[ "$INGESTION_SEED_COUNT" = "0" ] || {
+[ "$EXTERNAL_DATA_SEED_COUNT" = "0" ] || {
   echo "빈 운영 시드에 예상하지 않은 외부 데이터 적재 행이 있습니다." >&2
   exit 1
 }
+
+echo "[Supabase] local-only Auth fixture helper 설치"
+"$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres --file - \
+  < "$LOCAL_AUTH_FIXTURE_HELPER"
+LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=1
 
 echo "[Supabase] 스키마 계약 검사"
 "$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
@@ -139,13 +190,20 @@ echo "[Supabase] PostgreSQL 17 실제 2세션 동시성 계약 검사"
   --username supabase_admin --dbname postgres --file - \
   < "$ROOT/db/queries/database_concurrency_contract.sql"
 
+"$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --command "drop function public.create_local_test_user(uuid, text);"
+LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=0
+
 echo "[Supabase] 로컬 Auth 명령 계약과 실제 access token 검증"
 STATUS_FILE="$TEMP_DIR/status.json"
 SIGNUP_PAYLOAD_FILE="$TEMP_DIR/signup-payload.json"
 SIGNUP_RESPONSE_FILE="$TEMP_DIR/signup-response.json"
+LOGIN_RESPONSE_FILE="$TEMP_DIR/login-response.json"
 TOKEN_FILE="$TEMP_DIR/access-token"
 ISSUER_FILE="$TEMP_DIR/issuer"
 ALGORITHM_FILE="$TEMP_DIR/algorithm"
+SUBJECT_FILE="$TEMP_DIR/subject"
 
 umask 077
 "$SUPABASE_BIN" status -o json >"$STATUS_FILE"
@@ -243,13 +301,20 @@ curl --fail --silent --show-error \
   --data-binary "@$SIGNUP_PAYLOAD_FILE" \
   --output "$SIGNUP_RESPONSE_FILE"
 
-python3 - "$SIGNUP_RESPONSE_FILE" "$TOKEN_FILE" "$ISSUER_FILE" "$ALGORITHM_FILE" "$API_URL" <<'PY'
+curl --fail --silent --show-error \
+  --request POST "$API_URL/auth/v1/token?grant_type=password" \
+  --header "apikey: $PUBLIC_KEY" \
+  --header "Content-Type: application/json" \
+  --data-binary "@$SIGNUP_PAYLOAD_FILE" \
+  --output "$LOGIN_RESPONSE_FILE"
+
+python3 - "$SIGNUP_RESPONSE_FILE" "$TOKEN_FILE" "$ISSUER_FILE" "$ALGORITHM_FILE" "$SUBJECT_FILE" "$API_URL" <<'PY'
 import base64
 import json
 import sys
 import uuid
 
-response_path, token_path, issuer_path, algorithm_path, api_url = sys.argv[1:]
+response_path, token_path, issuer_path, algorithm_path, subject_path, api_url = sys.argv[1:]
 with open(response_path, encoding="utf-8") as response_file:
     response = json.load(response_file)
 token = response.get("access_token")
@@ -284,7 +349,35 @@ with open(issuer_path, "w", encoding="utf-8") as issuer_file:
     issuer_file.write(claims["iss"])
 with open(algorithm_path, "w", encoding="utf-8") as algorithm_file:
     algorithm_file.write(algorithm)
+with open(subject_path, "w", encoding="utf-8") as subject_file:
+    subject_file.write(claims["sub"])
 print(f"[Supabase] 실제 token claim 확인: alg={algorithm}, aud=authenticated, role=authenticated, sub=UUID")
+PY
+
+python3 - "$LOGIN_RESPONSE_FILE" "$TOKEN_FILE" "$SUBJECT_FILE" <<'PY'
+import base64
+import json
+import sys
+import uuid
+
+response_path, token_path, subject_path = sys.argv[1:]
+with open(response_path, encoding="utf-8") as response_file:
+    response = json.load(response_file)
+token = response.get("access_token")
+if not isinstance(token, str) or not token:
+    raise SystemExit("로컬 Auth login 응답에 access token이 없습니다.")
+segments = token.split(".")
+if len(segments) != 3:
+    raise SystemExit("로컬 Auth login access token이 JWT 형식이 아닙니다.")
+padded = segments[1] + "=" * (-len(segments[1]) % 4)
+claims = json.loads(base64.urlsafe_b64decode(padded))
+login_subject = str(uuid.UUID(claims.get("sub", "")))
+with open(subject_path, encoding="utf-8") as subject_file:
+    signup_subject = str(uuid.UUID(subject_file.read()))
+if login_subject != signup_subject:
+    raise SystemExit("signup과 login의 canonical sub가 다릅니다.")
+with open(token_path, "w", encoding="utf-8") as token_file:
+    token_file.write(token)
 PY
 
 ACCESS_TOKEN=$(python3 -c 'import sys; print(open(sys.argv[1], encoding="utf-8").read())' "$TOKEN_FILE")
@@ -298,6 +391,10 @@ if [ "$JWT_ALGORITHM" = "HS256" ]; then
       SUPABASE_JWT_AUDIENCE=authenticated \
       SUPABASE_JWT_SECRET="$JWT_SECRET" \
       SUPABASE_ACCESS_TOKEN="$ACCESS_TOKEN" \
+      SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:54322/postgres \
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver \
+      SPRING_DATASOURCE_USERNAME=postgres \
+      SPRING_DATASOURCE_PASSWORD=postgres \
       ./gradlew --no-daemon test --tests '*SupabaseLocalAuthIntegrationTest'
   )
 else
@@ -308,8 +405,28 @@ else
       SUPABASE_JWT_AUDIENCE=authenticated \
       SUPABASE_JWKS_URL="$API_URL/auth/v1/.well-known/jwks.json" \
       SUPABASE_ACCESS_TOKEN="$ACCESS_TOKEN" \
+      SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:54322/postgres \
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver \
+      SPRING_DATASOURCE_USERNAME=postgres \
+      SPRING_DATASOURCE_PASSWORD=postgres \
       ./gradlew --no-daemon test --tests '*SupabaseLocalAuthIntegrationTest'
   )
 fi
 
-echo "[Supabase] Auth·PostGIS·public 스키마·DB 계약·빈 시드·Spring 보호 API 통합 검증 성공"
+SUBJECT=$(python3 -c 'import sys,uuid; print(uuid.UUID(open(sys.argv[1], encoding="utf-8").read()))' "$SUBJECT_FILE")
+PROFILE_PROVISION_COUNT=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "select count(*) from public.user_profiles where id = '$SUBJECT'::uuid;"
+)
+SOCIAL_PROVISION_COUNT=$(
+  "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --tuples-only --no-align \
+    --username postgres --dbname postgres \
+    --command "select count(*) from public.social_accounts where user_id = '$SUBJECT'::uuid;"
+)
+[ "$PROFILE_PROVISION_COUNT" = "1" ] && [ "$SOCIAL_PROVISION_COUNT" = "0" ] || {
+  echo "실제 email signup의 profile-only provisioning 결과가 올바르지 않습니다." >&2
+  exit 1
+}
+
+echo "[Supabase] Auth signup·profile provisioning·PostGIS·public 스키마·DB 계약 통합 검증 성공"

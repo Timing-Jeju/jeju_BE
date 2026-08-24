@@ -1201,7 +1201,7 @@ begin
 end;
 $$;
 
-select auth.create_local_test_user(
+select public.create_local_test_user(
   'fc600000-0000-0000-0000-000000000001', 'revision@concurrency.test'
 );
 insert into public.user_profiles (id, email)

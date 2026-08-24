@@ -4,6 +4,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.timingjeju.api.application.profile.CurrentUserProvisioningService;
+import com.timingjeju.api.application.profile.ProvisionedCurrentUser;
 import com.timingjeju.api.application.security.CurrentUser;
 import com.timingjeju.api.application.security.CurrentUserAccessor;
 import org.junit.jupiter.api.Tag;
@@ -49,6 +51,22 @@ class SupabaseLocalAuthIntegrationTest {
         .andExpect(jsonPath("$.traceId").isNotEmpty());
 
     mockMvc
+        .perform(
+            get("/api/v1/test/local-auth-profile")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.userId").isNotEmpty())
+        .andExpect(jsonPath("$.providers").isEmpty());
+
+    mockMvc
+        .perform(
+            get("/api/v1/test/local-auth-profile")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.userId").isNotEmpty())
+        .andExpect(jsonPath("$.providers").isEmpty());
+
+    mockMvc
         .perform(get("/not-allowed").header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("AUTH_ACCESS_DENIED"))
@@ -64,8 +82,10 @@ class SupabaseLocalAuthIntegrationTest {
   static class LocalAuthEndpointConfig {
 
     @Bean
-    LocalAuthTestController localAuthTestController(CurrentUserAccessor currentUserAccessor) {
-      return new LocalAuthTestController(currentUserAccessor);
+    LocalAuthTestController localAuthTestController(
+        CurrentUserAccessor currentUserAccessor,
+        CurrentUserProvisioningService provisioningService) {
+      return new LocalAuthTestController(currentUserAccessor, provisioningService);
     }
   }
 
@@ -73,14 +93,22 @@ class SupabaseLocalAuthIntegrationTest {
   static class LocalAuthTestController {
 
     private final CurrentUserAccessor currentUserAccessor;
+    private final CurrentUserProvisioningService service;
 
-    LocalAuthTestController(CurrentUserAccessor currentUserAccessor) {
+    LocalAuthTestController(
+        CurrentUserAccessor currentUserAccessor, CurrentUserProvisioningService service) {
       this.currentUserAccessor = currentUserAccessor;
+      this.service = service;
     }
 
     @GetMapping("/api/v1/test/local-auth-user")
     CurrentUser currentUser() {
       return currentUserAccessor.getRequired();
+    }
+
+    @GetMapping("/api/v1/test/local-auth-profile")
+    ProvisionedCurrentUser provisionedProfile() {
+      return service.provision(currentUserAccessor.getRequired());
     }
   }
 }

@@ -28,7 +28,21 @@ create table if not exists auth.users (
   last_sign_in_at timestamptz
 );
 
-create or replace function auth.create_local_test_user(target_user_id uuid, target_email text)
+-- 일반 PostgreSQL 통합 테스트에서 Supabase Auth identity의 읽기 계약만 재현한다.
+-- 운영 Supabase의 auth 스키마에는 이 호환 객체를 적용하지 않는다.
+create table if not exists auth.identities (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  provider text not null,
+  provider_id text not null,
+  identity_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (provider, provider_id),
+  unique (user_id, provider)
+);
+
+create or replace function public.create_local_test_user(target_user_id uuid, target_email text)
 returns void
 language sql
 security invoker
@@ -37,6 +51,8 @@ as $$
   insert into auth.users (id, email)
   values (target_user_id, target_email)
 $$;
+
+revoke execute on function public.create_local_test_user(uuid, text) from public;
 
 create or replace function auth.uid()
 returns uuid
