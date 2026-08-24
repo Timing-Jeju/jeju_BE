@@ -41,7 +41,7 @@
         "userId",
         "email",
         "nickname",
-        "profileImageObjectKey",
+        "profileImageUrl",
         "locale",
         "providers",
         "onboardingCompleted",
@@ -55,19 +55,21 @@
         },
         "email": {
           "type": "string",
-          "nullable": false,
+          "nullable": true,
+          "readOnly": true,
           "minLength": 3,
           "maxLength": 254
         },
         "nickname": {
           "type": "string",
-          "nullable": false,
+          "nullable": true,
           "minLength": 1,
           "maxLength": 50
         },
-        "profileImageObjectKey": {
+        "profileImageUrl": {
           "type": "string",
           "nullable": true,
+          "readOnly": true,
           "minLength": 1,
           "maxLength": 512
         },
@@ -81,6 +83,7 @@
         "providers": {
           "type": "array",
           "nullable": false,
+          "readOnly": true,
           "minItems": 0,
           "maxItems": 10,
           "uniqueItems": true,
@@ -115,13 +118,6 @@
           "nullable": false,
           "minLength": 1,
           "maxLength": 50
-        },
-        "profileImageObjectKey": {
-          "type": "string",
-          "nullable": true,
-          "minLength": 1,
-          "maxLength": 512,
-          "pattern": "^(?!/)(?!https?://)(?!.*(?:^|/)\\.\\.?(?:/|$))[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$"
         },
         "locale": {
           "type": "string",
@@ -532,7 +528,7 @@
         "headers": "CommonHeaders",
         "body": "none"
       },
-      "presence": "all response fields required; profileImageObjectKey nullable; providers stable unique order",
+      "presence": "all response fields required; provider profileImageUrl is nullable read-only; providers stable unique order",
       "responses": {
         "success": [
           200
@@ -589,7 +585,7 @@
         "headers": "CommonHeaders",
         "body": "ProfilePatchRequest"
       },
-      "presence": "nickname/locale omitted preserve and null reject; profileImageObjectKey omitted preserve and null clears",
+      "presence": "nickname/locale only; omitted preserves and null rejects; image/email/providers input rejected",
       "responses": {
         "success": [
           200
@@ -618,7 +614,7 @@
       },
       "dbOwner": "Spring user_profiles update; implementation Issue #61",
       "requestTimeCall": "none",
-      "dataLineage": "validated request -> canonical profile row; provider URL is never accepted",
+      "dataLineage": "validated nickname/locale -> canonical profile row; provider image URL is read-only and never accepted",
       "figma": {
         "node": "not-linked",
         "action": "profile edit",
@@ -946,11 +942,6 @@
     "locale": {
       "omitted": "preserve",
       "null": "reject"
-    },
-    "profileImageObjectKey": {
-      "omitted": "preserve",
-      "null": "clear",
-      "meaning": "private object key; never a provider URL"
     },
     "requestConstraint": "at least one mutable field"
   },

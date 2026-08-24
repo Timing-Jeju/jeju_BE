@@ -15,6 +15,8 @@ CONTRACT = ROOT / "docs/contracts/domains/profile-legal/contract.json"
 FIXTURES = ROOT / "fixtures/contracts/profile-legal"
 VALIDATOR = ROOT / "scripts/validate_profile_legal_contract.py"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
+CONTRACT_DOC = ROOT / "docs/contracts/domains/profile-legal/contract.md"
+API_SPEC = ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md"
 
 
 class ProfileLegalContractTest(unittest.TestCase):
@@ -67,17 +69,46 @@ class ProfileLegalContractTest(unittest.TestCase):
         self.assertEqual(106, contract["deletionPolicy"]["workerIssue"])
         self.assertEqual("canonical Supabase JWT sub", contract["securityPolicy"]["principal"])
 
-    def test_patch_omitted_null_and_object_key_semantics_are_exact(self) -> None:
+    def test_patch_is_nickname_locale_only_and_provider_image_is_read_only(self) -> None:
+        contract = self._contract()
+        schemas = contract["schemas"]
         policy = self._contract()["profilePatchPolicy"]
 
+        self.assertEqual({"nickname", "locale"}, set(policy) - {"requestConstraint"})
         self.assertEqual("preserve", policy["nickname"]["omitted"])
         self.assertEqual("reject", policy["nickname"]["null"])
         self.assertEqual("preserve", policy["locale"]["omitted"])
         self.assertEqual("reject", policy["locale"]["null"])
-        self.assertEqual("preserve", policy["profileImageObjectKey"]["omitted"])
-        self.assertEqual("clear", policy["profileImageObjectKey"]["null"])
-        self.assertEqual("private object key; never a provider URL", policy["profileImageObjectKey"]["meaning"])
         self.assertEqual("at least one mutable field", policy["requestConstraint"])
+        self.assertEqual(
+            {"nickname", "locale"},
+            set(schemas["ProfilePatchRequest"]["properties"]),
+        )
+        self.assertNotIn("profileImageObjectKey", schemas["ProfileResponse"]["properties"])
+        self.assertFalse(schemas["ProfilePatchRequest"]["properties"]["nickname"]["nullable"])
+        self.assertFalse(schemas["ProfilePatchRequest"]["properties"]["locale"]["nullable"])
+        self.assertTrue(schemas["ProfileResponse"]["properties"]["email"]["readOnly"])
+        self.assertTrue(schemas["ProfileResponse"]["properties"]["providers"]["readOnly"])
+        self.assertTrue(schemas["ProfileResponse"]["properties"]["profileImageUrl"]["nullable"])
+        self.assertTrue(
+            schemas["ProfileResponse"]["properties"]["profileImageUrl"]["readOnly"]
+        )
+
+    def test_human_docs_have_no_stale_profile_image_patch_contract(self) -> None:
+        contract_doc = CONTRACT_DOC.read_text(encoding="utf-8")
+        api_spec = API_SPEC.read_text(encoding="utf-8")
+
+        self.assertNotIn("profileImageObjectKey", contract_doc)
+        self.assertIn("PATCH는 `nickname`, `locale`만", contract_doc)
+        self.assertIn("provider `profileImageUrl`은 read-only", contract_doc)
+        self.assertIn(
+            "| 프로필 수정 | `PATCH /api/v1/me` | nickname, locale |",
+            api_spec,
+        )
+        self.assertNotIn(
+            "| 프로필 수정 | `PATCH /api/v1/me` | nickname, image, locale |",
+            api_spec,
+        )
 
     def test_delete_is_202_replay_exact_and_status_token_is_opaque(self) -> None:
         policy = self._contract()["deletionPolicy"]
@@ -338,6 +369,9 @@ class ProfileLegalContractTest(unittest.TestCase):
         widened = copy.deepcopy(contract)
         widened["schemas"]["ProfilePatchRequest"]["properties"]["nickname"]["maxLength"] = 5000
         mutations.append(widened)
+        invalid_read_only = copy.deepcopy(contract)
+        invalid_read_only["schemas"]["ProfileResponse"]["properties"]["profileImageUrl"]["readOnly"] = "true"
+        mutations.append(invalid_read_only)
         missing_nested = copy.deepcopy(contract)
         del missing_nested["schemas"]["LegalDocumentsResponse"]["properties"]["items"]["items"]["properties"]["effectiveAt"]
         mutations.append(missing_nested)
@@ -353,10 +387,9 @@ class ProfileLegalContractTest(unittest.TestCase):
         invalid_problem["examples"][0]["body"]["status"] = "401"
         self.assertTrue(validator.validate_fixture_value("problem", invalid_problem, contract))
 
-    def test_real_bearer_and_private_object_key_grammar_are_strict(self) -> None:
+    def test_real_bearer_and_read_only_provider_image_fixture_are_strict(self) -> None:
         schemas = self._contract()["schemas"]
         bearer = schemas["CommonHeaders"]["properties"]["Authorization"]["pattern"]
-        object_key = schemas["ProfilePatchRequest"]["properties"]["profileImageObjectKey"]["pattern"]
 
         self.assertIsNotNone(re.fullmatch(bearer, "Bearer " + ("a" * 16)))
         self.assertIsNone(re.fullmatch(bearer, "Bearer <redacted>"))
@@ -367,10 +400,17 @@ class ProfileLegalContractTest(unittest.TestCase):
             if "Authorization" in item.get("headers", {})
         ]
         self.assertEqual(["Bearer <fixture-access-token>"] * 4, committed_authorizations)
-        for valid in ("profiles/user/avatar.webp", "a.png"):
-            self.assertIsNotNone(re.fullmatch(object_key, valid))
-        for invalid in ("https://cdn.example/a.png", "/absolute.png", "../secret", "a/../secret", "a\n.png"):
-            self.assertIsNone(re.fullmatch(object_key, invalid))
+        patch = next(
+            item for item in request["examples"] if item["method"] == "PATCH"
+        )
+        self.assertEqual({"nickname", "locale"}, set(patch["body"]))
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+        profile_bodies = [
+            item["body"]
+            for item in success["examples"]
+            if item["contractPath"] == "/api/v1/me" and item["method"] in {"GET", "PATCH"}
+        ]
+        self.assertTrue(all("profileImageUrl" in body for body in profile_bodies))
 
     def test_endpoint_error_matrix_and_global_conditions_are_bidirectional(self) -> None:
         contract = self._contract()
