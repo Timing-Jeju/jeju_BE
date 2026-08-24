@@ -1201,8 +1201,9 @@ begin
 end;
 $$;
 
-insert into auth.users (id, email)
-values ('fc600000-0000-0000-0000-000000000001', 'revision@concurrency.test');
+select auth.create_local_test_user(
+  'fc600000-0000-0000-0000-000000000001', 'revision@concurrency.test'
+);
 insert into public.user_profiles (id, email)
 values ('fc600000-0000-0000-0000-000000000001', 'revision@concurrency.test');
 insert into public.trip_plans (

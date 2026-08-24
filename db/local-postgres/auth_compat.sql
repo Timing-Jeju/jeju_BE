@@ -28,6 +28,16 @@ create table if not exists auth.users (
   last_sign_in_at timestamptz
 );
 
+create or replace function auth.create_local_test_user(target_user_id uuid, target_email text)
+returns void
+language sql
+security invoker
+set search_path = ''
+as $$
+  insert into auth.users (id, email)
+  values (target_user_id, target_email)
+$$;
+
 create or replace function auth.uid()
 returns uuid
 language sql

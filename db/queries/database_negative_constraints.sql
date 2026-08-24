@@ -2693,8 +2693,9 @@ select pg_temp.expect_rejected(
   array['23505']
 );
 
-insert into auth.users (id, email)
-values ('f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test');
+select auth.create_local_test_user(
+  'f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test'
+);
 
 insert into public.user_profiles (id, email)
 values ('f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test');

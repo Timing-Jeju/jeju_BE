@@ -224,6 +224,22 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
             concurrency, r"dblink_send_query\(\s*'schedule_revision_b'"
         )
 
+    def test_database_contracts_use_the_local_auth_fixture_seam(self):
+        auth_compat = compact_sql(
+            (ROOT / "db/local-postgres/auth_compat.sql").read_text(encoding="utf-8")
+        )
+        contract_paths = (
+            ROOT / "db/queries/database_negative_constraints.sql",
+            ROOT / "db/queries/database_concurrency_contract.sql",
+        )
+
+        self.assertIn("create or replace function auth.create_local_test_user", auth_compat)
+        for contract_path in contract_paths:
+            contents = compact_sql(contract_path.read_text(encoding="utf-8"))
+            with self.subTest(contract=contract_path.name):
+                self.assertNotRegex(contents, r"insert into auth\.users")
+                self.assertIn("auth.create_local_test_user", contents)
+
     def test_scope_does_not_extend_http_input_snapshot_or_mcp_call_log(self):
         migration = self.migration()
 
