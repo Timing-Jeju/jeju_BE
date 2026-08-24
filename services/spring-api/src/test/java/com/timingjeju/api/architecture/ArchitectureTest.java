@@ -162,6 +162,28 @@ class ArchitectureTest {
   }
 
   @Test
+  void snapshot_retention_orchestrator는_Spring_Micrometer_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.retention..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "io.micrometer..", "..global.retention..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("SnapshotRetentionScheduler")
+        .should()
+        .resideInAPackage("..global.retention..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.retention..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void TourAPI_provenance_application_port는_Spring과_JDBC_adapter에_의존하지_않는다() {
     noClasses()
         .that()

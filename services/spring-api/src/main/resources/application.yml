@@ -38,6 +38,13 @@ app:
     enabled: ${SNAPSHOT_RETENTION_ENABLED:false}
     dry-run: ${SNAPSHOT_RETENTION_DRY_RUN:true}
     batch-size: ${SNAPSHOT_RETENTION_BATCH_SIZE:500}
+    schedule:
+      enabled: ${SNAPSHOT_RETENTION_SCHEDULE_ENABLED:false}
+      fixed-delay: ${SNAPSHOT_RETENTION_SCHEDULE_FIXED_DELAY:PT24H}
+      initial-delay: ${SNAPSHOT_RETENTION_SCHEDULE_INITIAL_DELAY:PT1M}
+      max-batches: ${SNAPSHOT_RETENTION_SCHEDULE_MAX_BATCHES:10}
+      retry-attempts: ${SNAPSHOT_RETENTION_SCHEDULE_RETRY_ATTEMPTS:3}
+      initial-backoff: ${SNAPSHOT_RETENTION_SCHEDULE_INITIAL_BACKOFF:PT0.25S}
   data-health:
     actuator:
       enabled: ${APP_DATA_HEALTH_ACTUATOR_ENABLED:false}

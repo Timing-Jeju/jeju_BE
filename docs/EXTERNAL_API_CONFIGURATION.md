@@ -53,6 +53,16 @@ TAGO 정류장 도착정보 importer도 위 TAGO 설정을 공유한다. 별도 
 
 공개 health 응답은 `show-details=never`, `show-components=never`를 유지하므로 provider·operation·시각·reason·원천 오류를 노출하지 않습니다. 활성화된 probe는 요청마다 bounded 집계를 한 번 수행하며 datasource `connection-timeout`의 영향을 받습니다. 운영 probe 주기와 timeout은 서로 겹쳐 요청이 누적되지 않도록 여유 있게 구성해야 합니다. 별도 cache나 background scheduler는 사용하지 않습니다.
 
+## 완료 공급자 snapshot retention scheduler
+
+TourAPI·TAGO·KMA의 보존 기한이 지난 snapshot payload 정리는 기본 비활성입니다. 명시적으로 `SNAPSHOT_RETENTION_SCHEDULE_ENABLED=true`를 설정한 환경만 fixed-delay scheduler를 사용합니다. 기존 one-shot의 `SNAPSHOT_RETENTION_ENABLED=true`와 scheduler를 동시에 활성화할 수 없습니다. TMAP과 mobility 데이터는 이 작업의 범위가 아닙니다.
+
+`SNAPSHOT_RETENTION_DRY_RUN=true`가 기본이며 dry-run은 동일 후보를 반복하지 않도록 한 cycle에서 정확히 한 batch만 조회합니다. purge cycle은 batch당 최대 500건, 최대 10 batches로 제한하고 500건보다 적게 정리한 즉시 끝납니다. DB unavailable만 최대 3 attempts로 재시도하며 backoff는 250ms, 500ms입니다. 다른 오류는 application 직접 호출에서 원형으로 전파하되 scheduled 경계에서는 고정된 비식별 문구만 남기고 다음 tick에서 다시 시작합니다.
+
+fixed delay 기본값은 24시간이고 initial delay는 1분입니다. 한 cycle의 제한과 별개로 각 provider hard timeout 및 DB connection timeout을 scheduler thread가 장시간 점유하지 않도록 운영값을 설정해야 합니다. multi-instance 실행은 #164의 `FOR UPDATE SKIP LOCKED`가 같은 row의 동시 변경을 막지만 process 전체의 global exactly-once를 보장하지 않습니다. crash나 실패 batch는 transaction rollback 후 다음 tick이 이어서 처리합니다.
+
+Micrometer는 고정된 mode와 outcome tag, cycle/batch/attempt/candidate/purged count와 전체 monotonic duration만 기록합니다. provider·service·operation·snapshot/run ID·scope·exception/message·원문 payload·SQL·URL/query·token은 로그, metric, trace에 넣지 않습니다.
+
 ## 공통 HTTP 실행 계약
 
 - 연결 timeout 기본값은 2초, 응답 timeout 기본값은 5초이며 한 논리 호출의 전체 budget은 8초입니다. 전체 budget에는 최대 3회의 시도와 retry 대기가 모두 포함됩니다.
