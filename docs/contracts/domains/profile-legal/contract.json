@@ -81,7 +81,7 @@
         "providers": {
           "type": "array",
           "nullable": false,
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 10,
           "uniqueItems": true,
           "items": {
@@ -935,6 +935,7 @@
       "kakao",
       "custom:naver"
     ],
+    "emailIdentity": "exclude; email-only identity projects []",
     "unknown": "reject; never project free-form identity provider"
   },
   "profilePatchPolicy": {
