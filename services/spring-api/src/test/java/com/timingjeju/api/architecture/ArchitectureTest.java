@@ -136,6 +136,28 @@ class ArchitectureTest {
   }
 
   @Test
+  void current_user_profile_application과_JDBC_adapter는_의존_방향을_유지한다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.profile..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global.profile..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("JdbcCurrentUserProfileStore")
+        .should()
+        .resideInAPackage("..global.profile..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.profile..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void 완료_공급자_data_health_application은_Spring과_JDBC_adapter에_의존하지_않는다() {
     noClasses()
         .that()

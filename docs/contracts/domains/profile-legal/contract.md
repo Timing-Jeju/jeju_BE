@@ -13,7 +13,7 @@ Issue #82의 local contract version은 `1.0.0`이며 공통 REST 계약 #72와 �
 | core | PUT | `/api/v1/me/consents` | required JWT | #61 |
 | extension | GET | `/api/v1/account-deletion-requests/{deletionRequestId}` | `X-Deletion-Status-Token` only; JWT는 ownership 근거가 아님 | #61 API, #106 worker |
 
-PATCH는 omitted와 null을 구분한다. nickname/locale omitted는 보존하고 null은 거부한다. `profileImageObjectKey` omitted는 보존하며 null은 이미지를 지운다. 값은 상대 private object key이며 URL, 절대 경로, traversal, control 문자를 거부한다. 커밋 fixture의 Bearer 값은 secret scanner가 허용하는 `Bearer <fixture-access-token>`만 사용하고, validator가 이 exact placeholder만 실제 wire grammar 검증용 생성값으로 치환한다.
+PATCH는 `nickname`, `locale`만 받으며 omitted와 null을 구분한다. 두 필드의 omitted는 기존 값을 보존하고 null은 거부한다. `email`, `providers`, provider `profileImageUrl`은 read-only이며 이미지 업로드·변경은 #78이 소유한다. 커밋 fixture의 Bearer 값은 secret scanner가 허용하는 `Bearer <fixture-access-token>`만 사용하고, validator가 이 exact placeholder만 실제 wire grammar 검증용 생성값으로 치환한다.
 
 DELETE는 공통 #72의 command-like `apply` 연산으로 `202` deletion request를 만든다. scope는 canonical JWT sub + method/path + Idempotency-Key이고, 같은 canonical body replay는 replay cutoff 전 최초 `deletionRequestId`와 동일 status token을 돌려준다. nonterminal cutoff는 token expiry, terminal cutoff는 `min(token expiry, terminalAt + 24h)`이며 equality부터 replay하지 않는다. cutoff에서는 status-token ciphertext/keyVersion만 삭제하고 비가역 verifier hash는 expiry 뒤 24시간까지 보존해 `expiresAt <= now < verifier cutoff`를 410으로 판별한다. verifier cutoff equality부터 hash를 삭제해 invalid 401로 처리한다. worker의 encrypted auth subject는 이 token cleanup과 분리해 nonterminal expiry와 late retry 동안 보존하고, Auth 삭제 성공 또는 미래 Auth retry가 없음을 보장하는 safe terminalization에서만 같은 committed transition으로 제거한다. 평문 저장·로그를 금지하며 keyVersion 기반 rotation 실패는 raw cause 없이 503 fail-closed다.
 

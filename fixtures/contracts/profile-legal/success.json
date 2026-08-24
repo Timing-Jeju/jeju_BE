@@ -10,7 +10,7 @@
         "userId": "09000000-0000-0000-0000-000000000001",
         "email": "masked@example.invalid",
         "nickname": "제주여행자",
-        "profileImageObjectKey": null,
+        "profileImageUrl": null,
         "locale": "ko-KR",
         "providers": [],
         "onboardingCompleted": true,
@@ -26,7 +26,7 @@
         "userId": "09000000-0000-0000-0000-000000000001",
         "email": "masked@example.invalid",
         "nickname": "제주여행자",
-        "profileImageObjectKey": "profiles/user/avatar.webp",
+        "profileImageUrl": "https://images.example.invalid/provider/avatar.webp",
         "locale": "ko-KR",
         "providers": [
           "kakao"

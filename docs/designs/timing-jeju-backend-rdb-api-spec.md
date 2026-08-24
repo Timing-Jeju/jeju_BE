@@ -271,10 +271,10 @@ Response `200`:
   "profileImageUrl": null,
   "locale": "ko-KR",
   "providers": [
-    "email",
     "kakao"
   ],
-  "onboardingCompleted": true
+  "onboardingCompleted": true,
+  "updatedAt": "2026-08-03T00:00:00Z"
 }
 ```
 
@@ -285,7 +285,6 @@ Request:
 ```json
 {
   "nickname": "제주여행자",
-  "profileImageUrl": "https://cdn.example.com/profiles/me.jpg",
   "locale": "ko-KR"
 }
 ```
@@ -295,12 +294,21 @@ Response `200`:
 ```json
 {
   "userId": "09000000-0000-0000-0000-000000000001",
+  "email": "demo@timing-jeju.local",
   "nickname": "제주여행자",
-  "profileImageUrl": "https://cdn.example.com/profiles/me.jpg",
+  "profileImageUrl": null,
   "locale": "ko-KR",
-  "updatedAt": "2026-08-03T09:01:00+09:00"
+  "providers": [
+    "kakao"
+  ],
+  "onboardingCompleted": true,
+  "updatedAt": "2026-08-03T00:01:00Z"
 }
 ```
+
+PATCH는 `nickname`, `locale`만 받는다. 두 필드는 omitted이면 기존 값을 보존하고 명시적
+`null`은 거부한다. `email`, `providers`, provider `profileImageUrl`은 read-only이며 이미지
+업로드·object key 변경은 #78에서 별도 구현한다.
 
 ### 9.3 `DELETE /api/v1/me`
 
@@ -379,7 +387,7 @@ Response `200`:
 | 화면 영역 | API/담당 | 데이터 |
 | --- | --- | --- |
 | 프로필/연결 로그인 | `GET /api/v1/me` | nickname, email, image, providers |
-| 프로필 수정 | `PATCH /api/v1/me` | nickname, image, locale |
+| 프로필 수정 | `PATCH /api/v1/me` | nickname, locale |
 | 내 여행 | `GET /api/v1/trips` | 예정/진행/완료/보관 여행 |
 | 저장한 장소 | `GET /api/v1/saved-places` | 메모, 태그, 희망 Day 포함 |
 | 약관 동의 | `GET /legal-documents`, `PUT /me/consents` | 필수 동의 충족 여부 |

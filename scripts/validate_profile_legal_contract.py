@@ -305,12 +305,14 @@ def _validate_schema_meta(schema: Any, path: str, errors: list[str]) -> None:
         "boolean": {"type", "nullable", "enum"},
         "integer": {"type", "nullable", "minimum", "maximum", "enum"},
         "number": {"type", "nullable", "minimum", "maximum", "enum"},
-    }[kind]
+    }[kind] | {"readOnly"}
     unknown = set(schema) - allowed
     if unknown:
         errors.append(f"{path} schema keyword가 허용되지 않습니다: {sorted(unknown)}")
     if "nullable" in schema and type(schema["nullable"]) is not bool:
         errors.append(f"{path} schema constraint nullable은 boolean이어야 합니다.")
+    if "readOnly" in schema and type(schema["readOnly"]) is not bool:
+        errors.append(f"{path} schema constraint readOnly는 boolean이어야 합니다.")
 
     if kind == "object":
         properties = schema.get("properties")
