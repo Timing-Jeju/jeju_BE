@@ -35,6 +35,7 @@ services:
       - ./supabase/migrations/20260827000000_tago_arrival_flight_state.sql:/docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql:ro
       - ./supabase/migrations/20260828000000_completed_provider_data_health_index.sql:/docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql:ro
       - ./supabase/migrations/20260829000000_completed_provider_snapshot_retention_index.sql:/docker-entrypoint-initdb.d/027_completed_provider_snapshot_retention_index.sql:ro
+      - ./supabase/migrations/20260830000000_schedule_revision_run_foundation.sql:/docker-entrypoint-initdb.d/028_schedule_revision_run_foundation.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

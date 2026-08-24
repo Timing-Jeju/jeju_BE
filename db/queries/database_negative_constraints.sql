@@ -2693,6 +2693,127 @@ select pg_temp.expect_rejected(
   array['23505']
 );
 
+select auth.create_local_test_user(
+  'f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test'
+);
+
+insert into public.user_profiles (id, email)
+values ('f1700000-0000-0000-0000-000000000002', 'other-owner@revision-negative.test');
+
+insert into public.trip_plans (
+  id, user_id, public_token, start_date, end_date, source_mode, data_version
+) values (
+  'f1710000-0000-0000-0000-000000000002',
+  'f1700000-0000-0000-0000-000000000002',
+  'revision-negative-other-trip', current_date, current_date, 'fixture', 'contract-v1'
+);
+
+insert into public.trip_days (id, trip_plan_id, day_no, trip_date)
+values (
+  'f1720000-0000-0000-0000-000000000002',
+  'f1710000-0000-0000-0000-000000000002', 1, current_date
+);
+
+insert into public.trip_schedule_versions (
+  id, trip_plan_id, version_no, status, source_type, created_by_user_id
+) values (
+  'f1730000-0000-0000-0000-000000000002',
+  'f1710000-0000-0000-0000-000000000002', 1, 'draft', 'initial',
+  'f1700000-0000-0000-0000-000000000002'
+);
+
+insert into public.schedule_revision_runs (
+  id, owner_user_id, trip_plan_id, base_schedule_version_id,
+  target_trip_day_id, contract_version, algorithm_version,
+  idempotency_key, request_hash
+) values (
+  'f1740000-0000-0000-0000-000000000001',
+  '09000000-0000-0000-0000-000000000001',
+  '50000000-0000-0000-0000-000000000001',
+  '60000000-0000-0000-0000-000000000001',
+  '51000000-0000-0000-0000-000000000001',
+  'revision-v1', 'algorithm-v1',
+  'f1750000-0000-0000-0000-000000000001', repeat('a', 64)
+);
+
+select pg_temp.expect_rejected(
+  'schedule revision owner lineage mismatch',
+  $statement$
+    insert into public.schedule_revision_runs (
+      owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id,
+      contract_version, algorithm_version, idempotency_key, request_hash
+    ) values (
+      'f1700000-0000-0000-0000-000000000002',
+      '50000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      '51000000-0000-0000-0000-000000000001',
+      'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('b', 64)
+    )
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'schedule revision base lineage mismatch',
+  $statement$
+    insert into public.schedule_revision_runs (
+      owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id,
+      contract_version, algorithm_version, idempotency_key, request_hash
+    ) values (
+      '09000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      'f1730000-0000-0000-0000-000000000002',
+      '51000000-0000-0000-0000-000000000001',
+      'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('c', 64)
+    )
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'schedule revision day lineage mismatch',
+  $statement$
+    insert into public.schedule_revision_runs (
+      owner_user_id, trip_plan_id, base_schedule_version_id, target_trip_day_id,
+      contract_version, algorithm_version, idempotency_key, request_hash
+    ) values (
+      '09000000-0000-0000-0000-000000000001',
+      '50000000-0000-0000-0000-000000000001',
+      '60000000-0000-0000-0000-000000000001',
+      'f1720000-0000-0000-0000-000000000002',
+      'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('d', 64)
+    )
+  $statement$,
+  array['23503']
+);
+
+select pg_temp.expect_rejected(
+  'schedule revision identity is immutable',
+  $statement$
+    update public.schedule_revision_runs
+    set algorithm_version = 'changed'
+    where id = 'f1740000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+update public.schedule_revision_runs
+set status = 'cancelled', next_attempt_at = null, completed_at = now(),
+    failure_code = 'NEGATIVE_CANCELLED'
+where id = 'f1740000-0000-0000-0000-000000000001';
+
+select pg_temp.expect_rejected(
+  'schedule revision terminal rollback',
+  $statement$
+    update public.schedule_revision_runs
+    set status = 'running', attempt_count = 1, fencing_token = 1,
+        lease_owner = 'negative-worker', heartbeat_at = now(),
+        lease_expires_at = now() + interval '30 seconds', started_at = now()
+    where id = 'f1740000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
 select 'database_negative_constraints' as check_name, 'PASS' as result;
 
 rollback;

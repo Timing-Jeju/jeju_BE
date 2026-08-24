@@ -1260,4 +1260,92 @@ begin
 end;
 $$;
 
+do $$
+declare
+  actual_columns text[];
+  expected_columns constant text[] := array[
+    'algorithm_version', 'attempt_count', 'base_schedule_version_id', 'completed_at',
+    'contract_version', 'created_at', 'failure_code', 'fencing_token', 'heartbeat_at',
+    'id', 'idempotency_key', 'lease_expires_at', 'lease_owner', 'next_attempt_at',
+    'owner_user_id', 'request_hash', 'started_at', 'status', 'target_trip_day_id',
+    'trip_plan_id', 'updated_at'
+  ];
+  invalid_count integer;
+begin
+  if to_regclass('public.schedule_revision_runs') is null then
+    raise exception 'schedule_revision_runs foundation table is missing';
+  end if;
+
+  select array_agg(column_name::text order by column_name)
+    into actual_columns
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'schedule_revision_runs';
+
+  if actual_columns is distinct from expected_columns then
+    raise exception 'schedule_revision_runs exact columns differ: %', actual_columns;
+  end if;
+
+  select count(*) into invalid_count
+  from pg_catalog.pg_constraint
+  where conrelid = 'public.schedule_revision_runs'::regclass
+    and contype = 'f'
+    and array_length(conkey, 1) = 2;
+  if invalid_count <> 3 then
+    raise exception 'schedule revision run composite lineage FK count differs: %', invalid_count;
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.schedule_revision_runs'::regclass
+      and conname = 'uq_schedule_revision_runs_idempotency'
+      and contype = 'u'
+  ) or not exists (
+    select 1 from pg_catalog.pg_indexes
+    where schemaname = 'public'
+      and tablename = 'schedule_revision_runs'
+      and indexname = 'uq_schedule_revision_runs_active_scope'
+      and indexdef ilike '%where%status%queued%running%'
+  ) then
+    raise exception 'schedule revision run idempotency or active-scope arbiter is missing';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_trigger
+    where tgrelid = 'public.schedule_revision_runs'::regclass
+      and tgname = 'trg_schedule_revision_runs_lifecycle'
+      and not tgisinternal
+  ) then
+    raise exception 'schedule revision run lifecycle trigger is missing';
+  end if;
+
+  if not (select relrowsecurity from pg_class
+          where oid = 'public.schedule_revision_runs'::regclass)
+     or exists (
+       select 1 from pg_catalog.pg_policies
+       where schemaname = 'public' and tablename = 'schedule_revision_runs'
+     ) then
+    raise exception 'schedule revision run RLS/client policy boundary is invalid';
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'anon')
+     and has_table_privilege('anon', 'public.schedule_revision_runs', 'INSERT') then
+    raise exception 'anon can write schedule revision runs';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated')
+     and has_table_privilege('authenticated', 'public.schedule_revision_runs', 'INSERT') then
+    raise exception 'authenticated can write schedule revision runs directly';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role')
+     and (
+       not has_table_privilege('service_role', 'public.schedule_revision_runs', 'SELECT')
+       or not has_table_privilege('service_role', 'public.schedule_revision_runs', 'INSERT')
+       or not has_table_privilege('service_role', 'public.schedule_revision_runs', 'UPDATE')
+       or not has_table_privilege('service_role', 'public.schedule_revision_runs', 'DELETE')
+       or has_table_privilege('service_role', 'public.schedule_revision_runs', 'TRUNCATE')
+     ) then
+    raise exception 'schedule revision run service boundary privileges are invalid';
+  end if;
+end;
+$$;
+
 select 'schema_contract' as check_name, 'PASS' as result;
