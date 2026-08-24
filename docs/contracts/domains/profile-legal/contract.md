@@ -21,7 +21,7 @@ DELETE는 공통 #72의 command-like `apply` 연산으로 `202` deletion request
 
 삭제 상태 capability 인증은 verifier hash를 먼저 찾고 constant-time 비교하며 hash row가 없을 때도 dummy 비교한다. missing/malformed/unknown token은 ID 존재 여부와 무관하게 401, 검증된 token과 path ID 불일치 또는 missing ID는 동일 403, token이 해당 ID를 증명한 뒤 status row만 없을 때 404다. 따라서 검증되지 않은 path ID의 존재성을 응답으로 추론할 수 없다.
 
-프로필의 공개 `providers`는 `google`, `kakao`, `custom:naver`만 허용한다. 저장값을 trim 후 ASCII lowercase로 정규화하고 정규화 뒤 중복을 제거한 다음 이 canonical 순서로 투영한다. 인증 수단 정의가 없는 `email`이나 임의 provider 문자열은 공개 응답에 포함하지 않는다.
+프로필의 공개 `providers`는 `google`, `kakao`, `custom:naver`만 허용한다. 저장값을 trim 후 ASCII lowercase로 정규화하고 정규화 뒤 중복을 제거한 다음 이 canonical 순서로 투영한다. `email` identity는 공개 provider가 아니므로 제외하며, email-only 사용자는 닫힌 빈 배열 `providers: []`로 투영한다. 임의 provider 문자열은 공개 응답에 포함하지 않는다.
 
 법정 문서는 `(type, requestedLocale)`별로 하나의 서버 평가 시각에서 `effectiveAt <= evaluatedAt`인 후보를 선택한다. 해당 type에 요청 locale 후보가 하나라도 있으면 그 locale만 사용하고, 없을 때만 `ko-KR`로 fallback한다. 정렬은 `effectiveAt DESC`, semantic version DESC, documentId ASC이며 equality 후보도 eligible하다. 필수 문서 동의를 false로 바꾸면 `422 REQUIRED_CONSENT_WITHDRAWAL_NOT_ALLOWED`다.
 

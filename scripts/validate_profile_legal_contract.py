@@ -163,10 +163,23 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
         "normalization": "trim then Unicode-independent ASCII lowercase",
         "deduplication": "deduplicate after normalization",
         "stableOrder": ["google", "kakao", "custom:naver"],
+        "emailIdentity": "exclude; email-only identity projects []",
         "unknown": "reject; never project free-form identity provider",
     }
     if contract.get("profileProviderPolicy") != expected_providers:
         errors.append("profile provider canonical projection 정책이 다릅니다.")
+    provider_schema = (
+        contract.get("schemas", {})
+        .get("ProfileResponse", {})
+        .get("properties", {})
+        .get("providers", {})
+    )
+    if (
+        provider_schema.get("minItems") != 0
+        or provider_schema.get("uniqueItems") is not True
+        or provider_schema.get("items", {}).get("enum") != expected_providers["allowed"]
+    ):
+        errors.append("email-only 공개 providers는 closed unique 빈 배열을 허용해야 합니다.")
     conditions = contract.get("errorConditions")
     if not isinstance(conditions, list) or {item.get("status") for item in conditions if isinstance(item, dict)} != {400, 401, 403, 404, 409, 410, 422, 428, 429, 503}:
         errors.append("오류 status condition matrix가 다릅니다.")
@@ -459,6 +472,36 @@ def validate_deletion_status(body: Any) -> list[str]:
     return errors
 
 
+def _validate_provider_projection_examples(examples: Any, contract: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    expected_cases = ["email-only", "single-oauth", "normalized-deduplicated-multiple"]
+    if not isinstance(examples, list):
+        return ["provider projection fixture가 필요합니다."]
+    cases = [item.get("case") for item in examples if isinstance(item, dict)]
+    if cases != expected_cases or len(examples) != len(expected_cases):
+        errors.append("provider projection fixture는 email-only/single/multiple을 정확히 1회씩 포함해야 합니다.")
+    provider_policy = contract.get("profileProviderPolicy", {})
+    allowed = provider_policy.get("allowed", [])
+    stable_order = provider_policy.get("stableOrder", [])
+    for index, item in enumerate(examples):
+        if not isinstance(item, dict) or set(item) != {"case", "sourceProviders", "providers"}:
+            errors.append(f"provider projection[{index}] exact fixture shape가 다릅니다.")
+            continue
+        source = item.get("sourceProviders")
+        projected = item.get("providers")
+        if not isinstance(source, list) or not source or not all(isinstance(value, str) for value in source):
+            errors.append(f"provider projection[{index}] sourceProviders가 다릅니다.")
+            continue
+        normalized = [value.strip().lower() for value in source if value.isascii()]
+        if len(normalized) != len(source) or any(value not in [*allowed, "email"] for value in normalized):
+            errors.append(f"provider projection[{index}] unknown source provider를 허용하지 않습니다.")
+            continue
+        expected_projection = [value for value in stable_order if value in set(normalized)]
+        if projected != expected_projection:
+            errors.append(f"provider projection[{index}] 공개 providers 정규화/dedupe/stable order가 다릅니다.")
+    return errors
+
+
 def validate_fixture_value(kind: str, fixture: Any, contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(fixture, dict) or not isinstance(fixture.get("examples"), list):
@@ -566,6 +609,7 @@ def validate_fixture_value(kind: str, fixture: Any, contract: dict[str, Any]) ->
     if set(identities) != set(endpoints) or len(identities) != len(endpoints):
         errors.append(f"{kind} fixture는 endpoint마다 정확히 1개여야 합니다.")
     if kind == "success":
+        errors.extend(_validate_provider_projection_examples(fixture.get("providerProjectionExamples"), contract))
         states = []
         for item in fixture.get("deletionStatusExamples", []):
             if not isinstance(item, dict) or set(item) != {"body"}:
@@ -596,7 +640,7 @@ def _validate_catalog(contract: dict[str, Any], errors: list[str]) -> None:
 
 def _validate_fixtures(errors: list[str]) -> None:
     contract = _load(DEFAULT_CONTRACT)
-    expected = {"request": {"contractVersion", "examples"}, "success": {"contractVersion", "examples", "deletionStatusExamples"}, "problem": {"contractVersion", "examples"}}
+    expected = {"request": {"contractVersion", "examples"}, "success": {"contractVersion", "examples", "providerProjectionExamples", "deletionStatusExamples"}, "problem": {"contractVersion", "examples"}}
     for name, fields in expected.items():
         path = FIXTURES / f"{name}.json"
         fixture = _load(path)

@@ -12,10 +12,7 @@
         "nickname": "제주여행자",
         "profileImageObjectKey": null,
         "locale": "ko-KR",
-        "providers": [
-          "google",
-          "custom:naver"
-        ],
+        "providers": [],
         "onboardingCompleted": true,
         "updatedAt": "2026-08-24T09:00:00+09:00"
       }
@@ -32,7 +29,6 @@
         "profileImageObjectKey": "profiles/user/avatar.webp",
         "locale": "ko-KR",
         "providers": [
-          "google",
           "kakao"
         ],
         "onboardingCompleted": true,
@@ -95,6 +91,38 @@
         "nextRetryAt": null,
         "completedAt": null
       }
+    }
+  ],
+  "providerProjectionExamples": [
+    {
+      "case": "email-only",
+      "sourceProviders": [
+        "email"
+      ],
+      "providers": []
+    },
+    {
+      "case": "single-oauth",
+      "sourceProviders": [
+        "email",
+        "kakao"
+      ],
+      "providers": [
+        "kakao"
+      ]
+    },
+    {
+      "case": "normalized-deduplicated-multiple",
+      "sourceProviders": [
+        " custom:naver ",
+        "GOOGLE",
+        "google",
+        "email"
+      ],
+      "providers": [
+        "google",
+        "custom:naver"
+      ]
     }
   ],
   "deletionStatusExamples": [

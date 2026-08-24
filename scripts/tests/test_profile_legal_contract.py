@@ -678,16 +678,76 @@ class ProfileLegalContractTest(unittest.TestCase):
     def test_profile_provider_projection_is_closed_normalized_deduplicated_and_stable(self) -> None:
         contract = self._contract()
         providers = contract["profileProviderPolicy"]
-        schema = contract["schemas"]["ProfileResponse"]["properties"]["providers"]["items"]
+        provider_array = contract["schemas"]["ProfileResponse"]["properties"]["providers"]
+        schema = provider_array["items"]
         success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
 
+        self.assertEqual(0, provider_array["minItems"])
+        self.assertIs(True, provider_array["uniqueItems"])
         self.assertEqual(["google", "kakao", "custom:naver"], providers["allowed"])
         self.assertEqual("trim then Unicode-independent ASCII lowercase", providers["normalization"])
         self.assertEqual("deduplicate after normalization", providers["deduplication"])
         self.assertEqual(["google", "kakao", "custom:naver"], providers["stableOrder"])
+        self.assertEqual("exclude; email-only identity projects []", providers["emailIdentity"])
         self.assertEqual(["google", "kakao", "custom:naver"], schema["enum"])
-        self.assertEqual(["google", "custom:naver"], success["examples"][0]["body"]["providers"])
+        self.assertEqual([], success["examples"][0]["body"]["providers"])
+        self.assertEqual(["kakao"], success["examples"][1]["body"]["providers"])
         self.assertNotIn("email", {provider for item in success["examples"][:2] for provider in item["body"]["providers"]})
+
+    def test_provider_projection_fixtures_cover_email_only_single_and_normalized_multiple(self) -> None:
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            [
+                {
+                    "case": "email-only",
+                    "sourceProviders": ["email"],
+                    "providers": [],
+                },
+                {
+                    "case": "single-oauth",
+                    "sourceProviders": ["email", "kakao"],
+                    "providers": ["kakao"],
+                },
+                {
+                    "case": "normalized-deduplicated-multiple",
+                    "sourceProviders": [" custom:naver ", "GOOGLE", "google", "email"],
+                    "providers": ["google", "custom:naver"],
+                },
+            ],
+            success["providerProjectionExamples"],
+        )
+
+    def test_provider_projection_fixture_mutations_reject_unknown_duplicate_and_unsorted_output(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_provider_projection_validator", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        contract = self._contract()
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+
+        mutations = []
+        unknown = copy.deepcopy(success)
+        unknown["providerProjectionExamples"][1]["providers"] = ["github"]
+        mutations.append(unknown)
+        unknown_source = copy.deepcopy(success)
+        unknown_source["providerProjectionExamples"][1]["sourceProviders"] = ["email", "github"]
+        mutations.append(unknown_source)
+        duplicate = copy.deepcopy(success)
+        duplicate["providerProjectionExamples"][2]["providers"] = ["google", "google", "custom:naver"]
+        mutations.append(duplicate)
+        unsorted = copy.deepcopy(success)
+        unsorted["providerProjectionExamples"][2]["providers"] = ["custom:naver", "google"]
+        mutations.append(unsorted)
+
+        for mutation in mutations:
+            errors = validator.validate_fixture_value("success", mutation, contract)
+            self.assertTrue(any("provider projection" in error for error in errors), errors)
+
+        nonempty_only = copy.deepcopy(contract)
+        nonempty_only["schemas"]["ProfileResponse"]["properties"]["providers"]["minItems"] = 1
+        errors = validator.validate_contract_value(nonempty_only)
+        self.assertTrue(any("email-only" in error for error in errors), errors)
 
     def test_legal_selection_partition_fallback_order_and_equality_are_deterministic(self) -> None:
         selection = self._contract()["legalDocumentPolicy"]
