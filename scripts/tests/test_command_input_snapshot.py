@@ -13,13 +13,61 @@ ACTUAL_PG_TEST = (
     / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql"
     / "CommandInputSnapshotRepositoryIntegrationTest.java"
 )
-REPOSITORY_SQL_CONTRACT_SOURCES = tuple(sorted((ROOT / "db/queries").glob("*.sql"))) + tuple(
-    sorted((ROOT / "services/spring-api/src/test").rglob("*IntegrationTest.java"))
-)
+
+
+def repository_raw_sql_sources() -> tuple[Path, ...]:
+    sources = set((ROOT / "db").rglob("*.sql"))
+    sources.update((ROOT / "supabase/migrations").rglob("*.sql"))
+    for pattern in ("*.py", "*.sh"):
+        sources.update(
+            path
+            for path in (ROOT / "scripts").rglob(pattern)
+            if "tests" not in path.relative_to(ROOT / "scripts").parts
+        )
+    for source_set in ("main", "test"):
+        sources.update(
+            (ROOT / f"services/spring-api/src/{source_set}").rglob("*.java")
+        )
+    return tuple(sorted(sources))
 
 
 def compact_sql(contents: str) -> str:
     return re.sub(r"\s+", " ", contents.lower()).strip()
+
+
+EXACT_COMMAND_INPUT_HASH_CALL = re.compile(
+    r"public\.compute_command_input_hash\(\s*"
+    r"(?:'[^']+'|\?)::text,\s*"
+    r"(?:[0-9]+|\?)::smallint,\s*"
+    r"(?:'[^']+'|\?)::text,\s*"
+    r"(?:'[^']+'|\?)::text,\s*"
+    r"(?:'[^']+'|\?)::uuid,\s*"
+    r"(?:'[^']*'|\?)::jsonb,\s*"
+    r"(?:true|false|\?)::boolean,\s*"
+    r"(?:null|'[^']*'|\?)::jsonb\s*\)"
+)
+HASH_CALL = re.compile(r"public\.compute_command_input_hash\(")
+
+
+def intentional_migration_hash_occurrence(contents: str, start: int) -> str | None:
+    prefix = contents[max(0, start - 40) : start]
+    arguments = contents[start + len("public.compute_command_input_hash(") :].lstrip()
+    if prefix.endswith("create function "):
+        return "function definition"
+    if prefix.endswith("revoke all on function "):
+        return "function privilege signature"
+    if arguments.startswith("new.run_type,"):
+        return "typed trigger-column call"
+    return None
+
+
+def invalid_direct_hash_calls(contents: str) -> list[int]:
+    source = compact_sql(contents)
+    return [
+        match.start()
+        for match in HASH_CALL.finditer(source)
+        if EXACT_COMMAND_INPUT_HASH_CALL.match(source, match.start()) is None
+    ]
 
 
 class CommandInputSnapshotContractTest(unittest.TestCase):
@@ -123,31 +171,51 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         )
 
     def test_repository_direct_hash_calls_use_all_exact_declared_types(self):
-        exact_call = re.compile(
-            r"public\.compute_command_input_hash\(\s*"
-            r"'[^']+'::text,\s*"
-            r"[0-9]+::smallint,\s*"
-            r"'[^']+'::text,\s*"
-            r"'[^']+'::text,\s*"
-            r"(?:'[^']+'|\?)::uuid,\s*"
-            r"'[^']*'::jsonb,\s*"
-            r"(?:true|false)::boolean,\s*"
-            r"(?:null|'[^']*')::jsonb\s*\)"
-        )
         direct_call_sources = set()
-        for path in REPOSITORY_SQL_CONTRACT_SOURCES:
+        migration_exclusions = set()
+        occurrence_count = 0
+        for path in repository_raw_sql_sources():
             self.assertTrue(path.is_file(), f"SQL 계약 소스가 없습니다: {path}")
             source = compact_sql(path.read_text(encoding="utf-8"))
-            for direct_call in re.finditer(
-                r"public\.compute_command_input_hash\(\s*'", source
-            ):
+            for direct_call in HASH_CALL.finditer(source):
+                occurrence_count += 1
+                exclusion = (
+                    intentional_migration_hash_occurrence(source, direct_call.start())
+                    if path == MIGRATION
+                    else None
+                )
+                if exclusion is not None:
+                    migration_exclusions.add(exclusion)
+                    continue
                 direct_call_sources.add(path)
                 with self.subTest(path=path.relative_to(ROOT)):
-                    self.assertIsNotNone(exact_call.match(source, direct_call.start()))
+                    self.assertIsNotNone(
+                        EXACT_COMMAND_INPUT_HASH_CALL.match(source, direct_call.start())
+                    )
+        self.assertGreaterEqual(5, occurrence_count)
+        self.assertEqual(
+            {
+                "function definition",
+                "function privilege signature",
+                "typed trigger-column call",
+            },
+            migration_exclusions,
+        )
         self.assertTrue(
             {ROOT / "db/queries/database_negative_constraints.sql", ACTUAL_PG_TEST}
             <= direct_call_sources
         )
+
+    def test_repository_hash_call_guard_rejects_uncast_placeholder_first_argument(self):
+        valid_call = """
+            select public.compute_command_input_hash(
+              'feasibility'::text, 1::smallint, 'command/v1'::text,
+              'algorithm/v1'::text, ?::uuid, '{}'::jsonb,
+              false::boolean, null::jsonb
+            )
+        """
+        mutated_call = valid_call.replace("'feasibility'::text", "?")
+        self.assertEqual(1, len(invalid_direct_hash_calls(mutated_call)))
 
     def test_actual_pg_completed_trip_fixture_satisfies_schedule_sealing_contract(self):
         source = compact_sql(ACTUAL_PG_TEST.read_text(encoding="utf-8"))
