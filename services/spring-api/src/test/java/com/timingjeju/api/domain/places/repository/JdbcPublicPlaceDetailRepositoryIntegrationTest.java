@@ -106,7 +106,7 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
   @Test
   void anonymous과_authenticated_saved_projection은_current_user별로_격리한다() {
     jdbc.update(
-        "insert into public.saved_places(user_id,place_id,memo,tags) values (?,?,?,array['필수','동쪽'])",
+        "insert into public.saved_places(user_id,place_id,memo,tags) values (?,?,?,array['동쪽','필수'])",
         USER_A,
         PLACE,
         "오전 방문");

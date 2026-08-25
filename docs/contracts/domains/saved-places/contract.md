@@ -115,14 +115,22 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 
 현재 `saved_places`에는 `(user_id, place_id)` partial unique index와 `tags text[]` GIN index가 있습니다. owner scope는 canonical JWT `sub = saved_places.user_id`입니다. session 소유 행은 이번 `/me` API 대상이 아닙니다.
 
-문서 검토에서 다음 drift를 확인했습니다.
+구현 전 문서 검토에서 다음 drift를 확인했고 Issue #34 migration이 이를 닫습니다.
 
 1. owner SELECT RLS만 있고 INSERT/UPDATE/DELETE DML RLS 정책이 없습니다.
 2. `priority`는 NOT NULL/default 0이지만 API의 `priority 0~5` 상한 CHECK가 없습니다.
 3. `target_day`는 양수만 검사하고 API의 365 상한은 없습니다.
 4. `updated_at` 자동 갱신과 ETag용 atomic compare-update 구현을 Issue #34에서 검증해야 합니다.
 
-이 Issue는 schema migration을 만들지 않습니다. 위 항목은 후속 구현 Issue #34의 명시적 migration·repository·통합 테스트 범위입니다. `supabase/migrations`가 단일 기준이며 Flyway는 마지막 안정화 전까지 도입하지 않습니다.
+canonical migration은 `supabase/migrations/20260903000000_saved_places_api.sql`이며 Docker init에서는 미래 #44의 `/031` 다음인 `/032_saved_places_api.sql`에 mount합니다. Flyway는 도입하지 않습니다.
+
+### retention 운영 경계
+
+- POST idempotency marker는 생성 시각부터 정확히 24시간 보존하고 `expires_at <= now()`부터 삭제 대상입니다.
+- legacy memo/tag 원문을 담는 `saved_places_backfill_audit`은 capture 후 최대 30일만 보존하고 `purge_after <= now()`부터 삭제 대상입니다.
+- cleanup은 POST traffic이나 외부 snapshot retention flag에 의존하지 않는 별도 `app.saved-place-retention` scheduler입니다. 한 transaction에서 테이블별 최대 100행을 `SKIP LOCKED`로 지우고, 한 cycle은 최대 10 batches입니다. 기본 fixed delay는 24시간, initial delay는 1분입니다.
+- 정확한 단일 `local`/`local-hs256` profile만 cleanup 비활성화를 허용합니다. no-profile, `staging`, `test`, `prod`, `production`과 그 밖의 non-local 환경은 보안 runtime과 같은 production 분류를 사용하며 cleanup이 비활성화되어 있으면 startup을 fail-fast합니다. 해당 환경은 `SAVED_PLACE_RETENTION_ENABLED=true`를 반드시 설정합니다.
+- snapshot retention의 기본 `dry-run=true`는 saved-place cleanup을 암묵적으로 실행하지 않습니다. 두 lifecycle은 설정과 실행 경계가 완전히 분리됩니다.
 
 ## Figma 추적성
 

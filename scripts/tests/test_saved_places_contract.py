@@ -563,7 +563,7 @@ class SavedPlacesContractTest(unittest.TestCase):
         self.assertEqual("true", replay["headers"]["Idempotency-Replayed"])
         self.assertEqual("create.body", replay["bodyRef"])
 
-    def test_korean_contract_documents_the_schema_drift_without_migration(self) -> None:
+    def test_korean_contract_documents_implemented_schema_and_retention(self) -> None:
         document = (
             REPOSITORY_ROOT
             / "docs"
@@ -578,7 +578,10 @@ class SavedPlacesContractTest(unittest.TestCase):
             "tags text[]",
             "DML RLS",
             "priority 0~5",
-            "후속 구현 Issue",
+            "20260903000000_saved_places_api.sql",
+            "SAVED_PLACE_RETENTION_ENABLED=true",
+            "최대 30일",
+            "정확히 24시간",
             "Flyway",
             "FastAPI",
             "/api/v1/me/saved-places",
