@@ -34,6 +34,10 @@ create table public.saved_places_backfill_audit (
 alter table public.saved_places_backfill_audit enable row level security;
 create index ix_saved_places_backfill_purge
   on public.saved_places_backfill_audit(purge_after);
+create index ix_saved_places_backfill_user_fk
+  on public.saved_places_backfill_audit(user_id);
+create index ix_saved_places_backfill_session_fk
+  on public.saved_places_backfill_audit(session_id);
 
 insert into public.saved_places_backfill_audit(
   saved_place_id,user_id,session_id,original_memo,original_tags,original_priority,

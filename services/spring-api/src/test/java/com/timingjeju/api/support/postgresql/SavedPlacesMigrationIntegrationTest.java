@@ -123,6 +123,30 @@ class SavedPlacesMigrationIntegrationTest {
         .isZero();
   }
 
+  @Test
+  @Order(3)
+  void audit_user와_session_FK는_각각_leading_index를_가진다() {
+    assertThat(
+            jdbc.queryForList(
+                """
+                select constraint_row.conname
+                from pg_catalog.pg_constraint constraint_row
+                where constraint_row.conrelid = 'public.saved_places_backfill_audit'::regclass
+                  and constraint_row.contype = 'f'
+                  and exists (
+                    select 1 from pg_catalog.pg_index index_row
+                    where index_row.indrelid = constraint_row.conrelid
+                      and (index_row.indkey::smallint[])[0:cardinality(constraint_row.conkey)-1]
+                          = constraint_row.conkey
+                  )
+                order by constraint_row.conname
+                """,
+                String.class))
+        .containsExactly(
+            "saved_places_backfill_audit_session_id_fkey",
+            "saved_places_backfill_audit_user_id_fkey");
+  }
+
   private static void legacyRows() {
     jdbc.update(
         "insert into auth.users(id,email) values ('34200000-0000-0000-0000-000000000001','legacy@example.test')");

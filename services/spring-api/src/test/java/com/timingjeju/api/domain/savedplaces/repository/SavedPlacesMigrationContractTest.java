@@ -119,6 +119,10 @@ class SavedPlacesMigrationContractTest {
     assertThat(sql)
         .contains("user_id uuid references public.user_profiles(id) on delete cascade")
         .contains("session_id uuid references public.app_sessions(id) on delete cascade")
+        .contains(
+            "create index ix_saved_places_backfill_user_fk\n  on public.saved_places_backfill_audit(user_id)")
+        .contains(
+            "create index ix_saved_places_backfill_session_fk\n  on public.saved_places_backfill_audit(session_id)")
         .contains("purge_after timestamptz not null")
         .contains("ix_saved_places_backfill_purge")
         .contains("purge_after <= captured_at + interval '30 days'");
