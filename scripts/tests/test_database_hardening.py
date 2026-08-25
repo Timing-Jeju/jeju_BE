@@ -42,6 +42,7 @@ TAGO_ROUTE_IMPORT_MIGRATION = MIGRATIONS / "20260820000000_tago_route_stops_impo
 KMA_FORECAST_MIGRATION = MIGRATIONS / "20260820000001_kma_village_forecast_version.sql"
 TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260826000000_tago_arrival_cache.sql"
 TAGO_ARRIVAL_FLIGHT_MIGRATION = MIGRATIONS / "20260827000000_tago_arrival_flight_state.sql"
+TRIP_CREATE_MIGRATION = MIGRATIONS / "20260902000000_trip_create_contract.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
@@ -167,6 +168,22 @@ class DatabaseHardeningTest(unittest.TestCase):
                     f"{compose_name}에 migration 또는 fixture mount가 누락됐습니다",
                 )
                 self.assertEqual(sorted(positions), positions)
+
+    def test_trip_migration_keeps_client_write_policies_zero_and_service_role_least_privilege(self):
+        migration = compact_sql(TRIP_CREATE_MIGRATION.read_text(encoding="utf-8"))
+        smoke = compact_sql(
+            (ROOT / "db" / "queries" / "smoke_check.sql").read_text(encoding="utf-8")
+        )
+
+        self.assertNotIn("create policy", migration)
+        self.assertIn("from anon, authenticated", migration)
+        self.assertIn("grant select, insert, update, delete on table", migration)
+        self.assertIn("to service_role", migration)
+        self.assertIn("revoke truncate, references, trigger on table", migration)
+        self.assertIn("from service_role", migration)
+        self.assertIn("from pg_policies", smoke)
+        self.assertIn("and cmd <> 'select'", smoke)
+        self.assertIn("client-write rls policies must not exist; found %", smoke)
 
     def test_kma_village_migration_is_applied_by_every_smoke_upgrade_sequence(self):
         smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")

@@ -13,27 +13,43 @@ class TripMigrationContractTest {
   private static final String MIGRATION = "20260902000000_trip_create_contract.sql";
 
   @Test
-  void append_only_migration은_timezone과_owner_create_RLS를_고정한다() throws Exception {
+  void append_only_migration은_timezone과_client_write_policy_제로를_고정한다() throws Exception {
     String sql =
         Files.readString(repositoryRoot().resolve("supabase/migrations").resolve(MIGRATION));
 
+    assertTripAccessContract(sql);
     assertThat(sql)
         .contains("add column timezone text not null default 'Asia/Seoul'")
-        .contains("check (timezone = 'Asia/Seoul')")
-        .contains("revoke all on table")
-        .contains("from anon, authenticated")
-        .doesNotContain("grant select, insert, update, delete on table")
-        .contains("trip_plans_owner_insert")
-        .contains("user_id = (select auth.uid())")
-        .contains("trip_transport_modes_owner_insert")
-        .contains("trip_days_owner_insert")
-        .contains("trip_plans_owner_update")
-        .contains("trip_plans_owner_delete")
-        .contains("trip_transport_modes_owner_update")
-        .contains("trip_transport_modes_owner_delete")
-        .contains("trip_days_owner_update")
-        .contains("trip_days_owner_delete")
-        .contains("public.owns_trip_plan(trip_plan_id)");
+        .contains("check (timezone = 'Asia/Seoul')");
+  }
+
+  @Test
+  void client_write_policy_제로_guard는_policy_재도입_변이를_거부한다() {
+    String mutated =
+        """
+        revoke all on table public.trip_plans, public.trip_transport_modes, public.trip_days
+        from anon, authenticated;
+        grant select, insert, update, delete on table
+          public.trip_plans, public.trip_transport_modes, public.trip_days
+        to service_role;
+        revoke truncate, references, trigger on table
+          public.trip_plans, public.trip_transport_modes, public.trip_days
+        from service_role;
+        create policy trip_plans_owner_insert on public.trip_plans for insert to authenticated
+        with check (true);
+        """;
+
+    assertThatThrownBy(() -> assertTripAccessContract(mutated)).isInstanceOf(AssertionError.class);
+  }
+
+  @Test
+  void smoke_check의_client_write_policy_제로_guard는_약화되지_않는다() throws Exception {
+    String smoke = Files.readString(repositoryRoot().resolve("db/queries/smoke_check.sql"));
+
+    assertThat(smoke)
+        .contains("from pg_policies")
+        .contains("and cmd <> 'SELECT'")
+        .contains("client-write RLS policies must not exist; found %");
   }
 
   @Test
@@ -92,8 +108,7 @@ class TripMigrationContractTest {
   }
 
   @Test
-  void actualPG_RLS_fixture의_trigger_dependency권한은_transaction_local_SELECT후_폐쇄된다()
-      throws Exception {
+  void actualPG_RLS_fixture는_임시_GRANT나_policy를_만들지_않고_client_DML_ACL을_검증한다() throws Exception {
     String source =
         Files.readString(
             repositoryRoot()
@@ -101,16 +116,16 @@ class TripMigrationContractTest {
                     "services/spring-api/src/test/java/com/timingjeju/api/domain/trip/adapter/TripRlsIntegrationTest.java"));
 
     assertThat(source)
-        .contains(
-            "grant select on table public.trip_schedule_versions, public.trip_items to authenticated")
-        .contains("List.of(\"trip_schedule_versions\", \"trip_items\")")
-        .contains("'public.' || ?, 'SELECT'")
-        .doesNotContain(
-            "grant insert, update, delete on table public.trip_schedule_versions, public.trip_items");
+        .contains("assertClientMutationDenied(")
+        .contains("assertTripAggregateUnchanged(")
+        .contains("has_table_privilege(?, 'public.' || ?, ?)")
+        .doesNotContain("grant select, insert, update, delete")
+        .doesNotContain("grant select on table")
+        .doesNotContain("create policy");
   }
 
   @Test
-  void actualPG_RLS_fixture는_trigger_ordering_거부만_허용하고_savepoint후_불변을_검증한다() throws Exception {
+  void actualPG_RLS_fixture는_client_직접_DML_거부후_aggregate_불변을_검증한다() throws Exception {
     String source =
         Files.readString(
             repositoryRoot()
@@ -118,36 +133,14 @@ class TripMigrationContractTest {
                     "services/spring-api/src/test/java/com/timingjeju/api/domain/trip/adapter/TripRlsIntegrationTest.java"));
 
     assertThat(source)
-        .contains("TRIGGER_ORDERED_CHILD_DENIAL_STATES = Set.of(\"42501\", \"P0001\")")
-        .contains("assertTriggerOrderedChildInsertDenied(")
-        .contains("assertOtherTripUnchanged(connection, otherTripXmin)")
+        .contains("for (String role : List.of(\"anon\", \"authenticated\"))")
+        .contains("assertThat(failure.getSQLState()).isEqualTo(\"42501\")")
         .contains("select count(*) from public.trip_days where trip_plan_id = ?")
         .contains("select count(*) from public.trip_transport_modes where trip_plan_id = ?")
         .contains("select xmin::text from public.trip_plans where id = ?")
-        .contains(".doesNotContain(OTHER.toString())")
-        .contains("trip plan <trip-id> does not exist")
-        .doesNotContain("TRIGGER_ORDERED_CHILD_DENIAL_STATES = Set.of(\"42501\", \"P0001\",");
-  }
-
-  @Test
-  void actualPG_RLS_fixture의_crossOwner_day_FK_update는_P0001후_aggregate가_불변이다() throws Exception {
-    String source =
-        Files.readString(
-            repositoryRoot()
-                .resolve(
-                    "services/spring-api/src/test/java/com/timingjeju/api/domain/trip/adapter/TripRlsIntegrationTest.java"));
-
-    assertThat(source)
-        .contains("assertTriggerOrderedChildUpdateDenied(")
-        .contains("assertThat(failure.getSQLState()).isEqualTo(\"P0001\")")
-        .contains("String ownTripXmin =")
-        .contains(
-            "assertTripDayAndRootsUnchanged(connection, ownTrip, ownDay, ownTripXmin, otherTripXmin)")
-        .contains("select count(*) from public.trip_days where id = ? and trip_plan_id = ?")
-        .contains("id = ? and user_id = ? and title = 'own' and xmin::text = ?")
-        .contains("id = ? and user_id = ? and title = 'other' and xmin::text = ?")
-        .doesNotContain(
-            "assertTriggerOrderedChildUpdateDenied(\n            connection,\n            \"update public.trip_transport_modes");
+        .doesNotContain("TRIGGER_ORDERED_CHILD_DENIAL_STATES")
+        .doesNotContain("auth.uid()")
+        .doesNotContain("request.jwt.claim.sub");
   }
 
   private static void assertMigrationMount(String compose) {
@@ -163,6 +156,25 @@ class TripMigrationContractTest {
     assertThat(compose).contains(legalMount).contains(tripMount).contains(fixtureMount);
     assertThat(compose.indexOf(legalMount)).isLessThan(compose.indexOf(tripMount));
     assertThat(compose.indexOf(tripMount)).isLessThan(compose.indexOf(fixtureMount));
+  }
+
+  private static void assertTripAccessContract(String sql) {
+    assertThat(sql)
+        .contains("revoke all on table")
+        .contains("from anon, authenticated")
+        .contains("grant select, insert, update, delete on table")
+        .contains("to service_role")
+        .contains("revoke truncate, references, trigger on table")
+        .doesNotContain("create policy")
+        .doesNotContain("trip_plans_owner_insert")
+        .doesNotContain("trip_plans_owner_update")
+        .doesNotContain("trip_plans_owner_delete")
+        .doesNotContain("trip_transport_modes_owner_insert")
+        .doesNotContain("trip_transport_modes_owner_update")
+        .doesNotContain("trip_transport_modes_owner_delete")
+        .doesNotContain("trip_days_owner_insert")
+        .doesNotContain("trip_days_owner_update")
+        .doesNotContain("trip_days_owner_delete");
   }
 
   private static Path repositoryRoot() {
