@@ -1,7 +1,9 @@
 package com.timingjeju.api.domain.trip.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -16,6 +18,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.timingjeju.api.application.idempotency.IdempotencyRequest;
 import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
+import com.timingjeju.api.application.profile.ProfileProvisioningException;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripDay;
 import com.timingjeju.api.application.trip.TripTransportMode;
@@ -42,6 +45,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 @Tag("integration")
 @SpringBootTest(
@@ -239,6 +243,56 @@ class TripControllerRedIntegrationTest {
                 .content(overMax))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+  }
+
+  @Test
+  void POST_trips의_profile_identity_conflict는_cause없는_PROFILE_CONFLICT_409이다() throws Exception {
+    for (ProfileProvisioningException failure :
+        List.of(
+            ProfileProvisioningException.emailConflict(),
+            ProfileProvisioningException.providerSubjectConflict())) {
+      assertProvisioningProblem(failure, 409, "PROFILE_CONFLICT");
+    }
+  }
+
+  @Test
+  void POST_trips의_invalid_identity와_storage_failure는_cause없는_TRIP_DATA_UNAVAILABLE_503이다()
+      throws Exception {
+    for (ProfileProvisioningException failure :
+        List.of(
+            ProfileProvisioningException.invalidAuthIdentity(),
+            ProfileProvisioningException.storageUnavailable())) {
+      assertProvisioningProblem(failure, 503, "TRIP_DATA_UNAVAILABLE");
+    }
+  }
+
+  private void assertProvisioningProblem(
+      ProfileProvisioningException failure, int expectedStatus, String expectedCode)
+      throws Exception {
+    reset(tripService);
+    when(tripService.create(any(), any())).thenThrow(failure);
+
+    MvcResult result =
+        mvc.perform(
+                post("/api/v1/trips")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        """
+                        {"title":"제주","startDate":"2026-08-03","endDate":"2026-08-05"}
+                        """))
+            .andExpect(status().is(expectedStatus))
+            .andExpect(jsonPath("$.code").value(expectedCode))
+            .andExpect(jsonPath("$.cause").doesNotExist())
+            .andExpect(jsonPath("$.message").doesNotExist())
+            .andExpect(jsonPath("$.providerMessage").doesNotExist())
+            .andReturn();
+
+    assertThat(result.getResponse().getContentAsString())
+        .doesNotContain(failure.getMessage())
+        .doesNotContain(failure.code().name())
+        .doesNotContain("demo@timing-jeju.local");
   }
 
   private static byte[] requestBody(int size) {

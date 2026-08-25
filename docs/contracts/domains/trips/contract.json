@@ -211,7 +211,7 @@
       "properties": {
         "type": {"type": "string", "nullable": false, "format": "uri"},
         "title": {"type": "string", "nullable": false, "minLength": 1},
-        "status": {"type": "integer", "nullable": false, "enum": [400, 401, 404, 409, 422]},
+        "status": {"type": "integer", "nullable": false, "enum": [400, 401, 404, 409, 422, 503]},
         "detail": {"type": "string", "nullable": false, "minLength": 1},
         "instance": {"type": "string", "nullable": false, "format": "urn"},
         "code": {"type": "string", "nullable": false, "pattern": "^[A-Z][A-Z0-9_]+$"},
@@ -244,7 +244,7 @@
       "successSchema": "TripDetail",
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub",
-      "responses": {"success": [201], "errors": [400, 401, 409, 422]},
+      "responses": {"success": [201], "errors": [400, 401, 409, 422, 503]},
       "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonicalSub + POST + /api/v1/trips", "ttl": "24h", "replay": "same key+canonical payload returns original status, Location, ETag and body with Idempotency-Replayed=true", "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED", "concurrentRequest": "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED"},
       "pagination": {"type": "none"},
       "figma": {"node": "182:3248", "action": "여행 기본 조건 저장", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}
@@ -330,7 +330,14 @@
       "totalScore": null,
       "scoreProvenance": null
     },
-    "idempotency": {"header": "Idempotency-Key", "format": "canonical UUID", "ttl": "24h", "missing": "400 IDEMPOTENCY_KEY_REQUIRED", "invalid": "400 IDEMPOTENCY_KEY_INVALID", "samePayload": "replay exact original response", "differentPayload": "409 IDEMPOTENCY_KEY_REUSED", "inProgressOrReused": "409 IDEMPOTENCY_KEY_REUSED"}
+    "idempotency": {"header": "Idempotency-Key", "format": "canonical UUID", "ttl": "24h", "missing": "400 IDEMPOTENCY_KEY_REQUIRED", "invalid": "400 IDEMPOTENCY_KEY_INVALID", "samePayload": "replay exact original response", "differentPayload": "409 IDEMPOTENCY_KEY_REUSED", "inProgressOrReused": "409 IDEMPOTENCY_KEY_REUSED"},
+    "profileProvisioningErrors": {
+      "EMAIL_OWNERSHIP_CONFLICT": "409 PROFILE_CONFLICT",
+      "PROVIDER_SUBJECT_CONFLICT": "409 PROFILE_CONFLICT",
+      "INVALID_AUTH_IDENTITY": "503 TRIP_DATA_UNAVAILABLE",
+      "STORAGE_UNAVAILABLE": "503 TRIP_DATA_UNAVAILABLE",
+      "exposure": "cause-free Problem Details; no raw provider message or PII"
+    }
   },
   "patchSemantics": {
     "concurrency": "required strong If-Match generated from persisted monotonically increasing revision",

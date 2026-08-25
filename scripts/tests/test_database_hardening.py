@@ -44,6 +44,7 @@ TAGO_ARRIVAL_CACHE_MIGRATION = MIGRATIONS / "20260826000000_tago_arrival_cache.s
 TAGO_ARRIVAL_FLIGHT_MIGRATION = MIGRATIONS / "20260827000000_tago_arrival_flight_state.sql"
 TRIP_CREATE_MIGRATION = MIGRATIONS / "20260902000000_trip_create_contract.sql"
 SCHEMA_CONTRACT = ROOT / "db" / "queries" / "schema_contract.sql"
+SMOKE_CHECK = ROOT / "db" / "queries" / "smoke_check.sql"
 NEGATIVE_CONTRACT = ROOT / "db" / "queries" / "database_negative_constraints.sql"
 LEGACY_UPGRADE_FIXTURE = ROOT / "db" / "queries" / "legacy_v1_upgrade_fixture.sql"
 LEGACY_UPGRADE_CONTRACT = ROOT / "db" / "queries" / "legacy_v1_upgrade_contract.sql"
@@ -184,6 +185,71 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("from pg_policies", smoke)
         self.assertIn("and cmd <> 'select'", smoke)
         self.assertIn("client-write rls policies must not exist; found %", smoke)
+
+    def test_demo_auth_user_has_matching_portable_kakao_identity(self):
+        seed = compact_sql(
+            (ROOT / "db" / "local-postgres" / "seed_fixtures.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        auth_compat = compact_sql(
+            (ROOT / "db" / "local-postgres" / "auth_compat.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        demo_user = "09000000-0000-0000-0000-000000000001"
+        provider_id = "demo-kakao-user-001"
+        identity_columns = "id, user_id, provider, provider_id, identity_data"
+        canonical_identity = re.compile(
+            rf"insert into auth\.identities \( {identity_columns} \) values \( "
+            rf"'09200000-0000-0000-0000-000000000001', '{demo_user}', "
+            rf"'kakao', '{provider_id}', "
+            rf"'\{{\"sub\":\"{provider_id}\",\"email\":\"demo@timing-jeju\.local\","
+            rf"\"email_verified\":true,\"nickname\":\"타이밍제주 데모\"\}}'::jsonb \);"
+        )
+
+        self.assertRegex(seed, canonical_identity)
+        for column in identity_columns.split(", "):
+            self.assertRegex(auth_compat, rf"\b{column}\b")
+        production_migrations = "\n".join(
+            migration.read_text(encoding="utf-8").lower()
+            for migration in MIGRATIONS.glob("*.sql")
+        )
+        self.assertNotIn("insert into auth.identities", production_migrations)
+        managed_seed = (ROOT / "supabase" / "seed.sql").read_text(
+            encoding="utf-8"
+        ).lower()
+        self.assertNotIn("insert into auth.users", managed_seed)
+        self.assertNotIn("insert into auth.identities", managed_seed)
+        smoke = compact_sql(SMOKE_CHECK.read_text(encoding="utf-8"))
+        self.assertIn("join auth.identities i on i.user_id = u.id", smoke)
+        self.assertIn("i.identity_data ->> 'sub' = i.provider_id", smoke)
+        self.assertIn("demo auth identity fixture parity failed", smoke)
+
+        mutations = {
+            "other user": seed.replace(
+                f"'09200000-0000-0000-0000-000000000001', '{demo_user}', 'kakao'",
+                "'09200000-0000-0000-0000-000000000001', "
+                "'09000000-0000-0000-0000-000000000099', 'kakao'",
+                1,
+            ),
+            "other provider": seed.replace(
+                "'09200000-0000-0000-0000-000000000001', "
+                f"'{demo_user}', 'kakao', '{provider_id}'",
+                "'09200000-0000-0000-0000-000000000001', "
+                f"'{demo_user}', 'google', '{provider_id}'",
+                1,
+            ),
+            "other subject": seed.replace(
+                '"sub":"demo-kakao-user-001"',
+                '"sub":"other-provider-subject"',
+                1,
+            ),
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(mutation=label):
+                self.assertIsNone(canonical_identity.search(mutation))
 
     def test_kma_village_migration_is_applied_by_every_smoke_upgrade_sequence(self):
         smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")

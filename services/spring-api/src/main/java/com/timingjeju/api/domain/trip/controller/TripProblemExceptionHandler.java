@@ -1,6 +1,7 @@
 package com.timingjeju.api.domain.trip.controller;
 
 import com.timingjeju.api.application.idempotency.IdempotencyException;
+import com.timingjeju.api.application.profile.ProfileProvisioningException;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.global.error.ProblemResponseWriter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -34,5 +35,19 @@ public class TripProblemExceptionHandler {
         .retryAfterSeconds()
         .ifPresent(seconds -> response.setHeader("Retry-After", String.valueOf(seconds)));
     writer.write(request, response, failure.code());
+  }
+
+  @ExceptionHandler(ProfileProvisioningException.class)
+  void handleProvisioning(
+      ProfileProvisioningException failure,
+      HttpServletRequest request,
+      HttpServletResponse response)
+      throws IOException {
+    String publicCode =
+        switch (failure.code()) {
+          case EMAIL_OWNERSHIP_CONFLICT, PROVIDER_SUBJECT_CONFLICT -> "PROFILE_CONFLICT";
+          case INVALID_AUTH_IDENTITY, STORAGE_UNAVAILABLE -> "TRIP_DATA_UNAVAILABLE";
+        };
+    writer.write(request, response, publicCode);
   }
 }

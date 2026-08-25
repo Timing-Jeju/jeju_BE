@@ -40,8 +40,8 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "030c6570dce01e23973e67c717f727fcf5d9ba43556f28908a8ed32a629c9b66"
-CANONICAL_CATALOG_SHA256 = "7e92f1549c6dd0625f91da5bbc89a37e4a7ba800a7941ad7de7a69b5dc3758d0"
+CANONICAL_CONTRACT_SHA256 = "fd4488fae77f1d826fa1c0f54778b058100e0a11b8a50b0a5b57de9f067f5e11"
+CANONICAL_CATALOG_SHA256 = "764faf0c63b64f2b514d997775f6b6db04a692e25077be0a1344dce600a0b60d"
 CONTRACT_FIELDS = {
     "schemaVersion",
     "contractVersion",
@@ -82,11 +82,13 @@ EXPECTED_PROBLEMS = {
     "400_idempotency_key_required": (400, "IDEMPOTENCY_KEY_REQUIRED", "idempotency-key-required"),
     "400_idempotency_key_invalid": (400, "IDEMPOTENCY_KEY_INVALID", "idempotency-key-invalid"),
     "409_idempotency_key_reused": (409, "IDEMPOTENCY_KEY_REUSED", "idempotency-key-reused"),
+    "409_profile_conflict": (409, "PROFILE_CONFLICT", "profile-conflict"),
     "409_trip_version_conflict": (409, "TRIP_VERSION_CONFLICT", "trip-version-conflict"),
     "409_trip_regeneration_required": (409, "TRIP_REGENERATION_REQUIRED", "trip-regeneration-required"),
     "409_trip_terminal_state_conflict": (409, "TRIP_TERMINAL_STATE_CONFLICT", "trip-terminal-state-conflict"),
     "409_trip_delete_conflict": (409, "TRIP_DELETE_CONFLICT", "trip-delete-conflict"),
     "422_trip_constraint_violation": (422, "TRIP_CONSTRAINT_VIOLATION", "trip-constraint-violation"),
+    "503_trip_data_unavailable": (503, "TRIP_DATA_UNAVAILABLE", "trip-data-unavailable"),
 }
 RFC3339 = re.compile(
     r"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$"
@@ -221,6 +223,11 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
             or create_idempotency.get("concurrentRequest") != "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED"
         ):
             errors.append("여행 POST idempotency canonical 계약이 다릅니다.")
+        if endpoints[1].get("responses") != {
+            "success": [201],
+            "errors": [400, 401, 409, 422, 503],
+        }:
+            errors.append("여행 POST error response canonical 계약이 다릅니다.")
         if endpoints[3].get("headersSchema") != "PatchTripHeaders":
             errors.append("여행 PATCH If-Match canonical 계약이 다릅니다.")
 
@@ -241,6 +248,16 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
         or policy.get("timezoneFormat") != "IANA"
     ):
         errors.append("여행 date/timezone semantic canonical 계약이 다릅니다.")
+
+    provisioning_errors = contract.get("createSemantics", {}).get("profileProvisioningErrors")
+    if provisioning_errors != {
+        "EMAIL_OWNERSHIP_CONFLICT": "409 PROFILE_CONFLICT",
+        "PROVIDER_SUBJECT_CONFLICT": "409 PROFILE_CONFLICT",
+        "INVALID_AUTH_IDENTITY": "503 TRIP_DATA_UNAVAILABLE",
+        "STORAGE_UNAVAILABLE": "503 TRIP_DATA_UNAVAILABLE",
+        "exposure": "cause-free Problem Details; no raw provider message or PII",
+    }:
+        errors.append("여행 POST profile provisioning error semantic canonical 계약이 다릅니다.")
 
     patch = contract.get("patchSemantics", {})
     expected_matrix = {
@@ -302,6 +319,10 @@ def _validate_catalog_idempotency_semantics(
     actual = catalog_create.get("idempotency") if isinstance(catalog_create, dict) else None
     if actual != expected:
         errors.append("catalog idempotency semantic: 여행 POST가 canonical 계약과 다릅니다.")
+    expected_responses = contract_create.get("responses") if isinstance(contract_create, dict) else None
+    actual_responses = catalog_create.get("responses") if isinstance(catalog_create, dict) else None
+    if actual_responses != expected_responses:
+        errors.append("catalog response semantic: 여행 POST가 canonical 계약과 다릅니다.")
 
 
 def _validate_common_pagination(

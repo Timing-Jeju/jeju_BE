@@ -118,27 +118,36 @@ class TripsContractTest(unittest.TestCase):
         )
 
     def test_canonical_contract_cannot_be_changed_by_updating_only_the_digest(self) -> None:
-        with self._temporary_repository() as root:
-            path = root / CONTRACT.relative_to(ROOT)
-            contract = self._load(path)
-            contract["ownership"]["crossOwnerConcealment"] = 403
-            self._write(path, contract)
-            validator = root / VALIDATOR.relative_to(ROOT)
-            source = validator.read_text(encoding="utf-8")
-            source = source.replace(
-                source.split('CANONICAL_CONTRACT_SHA256 = "', 1)[1].split('"', 1)[0],
-                self._digest(contract),
-                1,
-            )
-            validator.write_text(source, encoding="utf-8")
-            result = self._run(root)
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("semantic", result.stdout)
+        mutations: dict[str, Callable[[dict[str, Any]], None]] = {
+            "ownership": lambda c: c["ownership"].update({"crossOwnerConcealment": 403}),
+            "profile provisioning": lambda c: c["createSemantics"][
+                "profileProvisioningErrors"
+            ].update({"STORAGE_UNAVAILABLE": "500 INTERNAL_SERVER_ERROR"}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), self._temporary_repository() as root:
+                path = root / CONTRACT.relative_to(ROOT)
+                contract = self._load(path)
+                mutate(contract)
+                self._write(path, contract)
+                validator = root / VALIDATOR.relative_to(ROOT)
+                source = validator.read_text(encoding="utf-8")
+                source = source.replace(
+                    source.split('CANONICAL_CONTRACT_SHA256 = "', 1)[1].split('"', 1)[0],
+                    self._digest(contract),
+                    1,
+                )
+                validator.write_text(source, encoding="utf-8")
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("semantic", result.stdout)
 
     def test_endpoint_semantics_are_independently_enforced(self) -> None:
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "list path": lambda c: c["endpoints"][0].update({"path": "/api/v1/me/trips"}),
             "post idempotency": lambda c: c["endpoints"][1]["idempotency"].update({"required": False}),
+            "post errors": lambda c: c["endpoints"][1]["responses"].update({"errors": [400, 401, 409, 422]}),
+            "profile conflict mapping": lambda c: c["createSemantics"]["profileProvisioningErrors"].update({"EMAIL_OWNERSHIP_CONFLICT": "500 INTERNAL_SERVER_ERROR"}),
             "patch if-match": lambda c: c["endpoints"][3].update({"headersSchema": "CommonHeaders"}),
             "delete repeat": lambda c: c["deleteSemantics"].update({"repeat": "204"}),
             "timezone": lambda c: c["tripPolicy"].update({"timezone": "UTC"}),
@@ -153,6 +162,27 @@ class TripsContractTest(unittest.TestCase):
                 result = self._run(root)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("canonical", result.stdout)
+
+    def test_trip_create_profile_provisioning_error_mapping_is_stable_and_cause_free(self) -> None:
+        contract = self._load(CONTRACT)
+        self.assertEqual(
+            [400, 401, 409, 422, 503], contract["endpoints"][1]["responses"]["errors"]
+        )
+        self.assertEqual(
+            {
+                "EMAIL_OWNERSHIP_CONFLICT": "409 PROFILE_CONFLICT",
+                "PROVIDER_SUBJECT_CONFLICT": "409 PROFILE_CONFLICT",
+                "INVALID_AUTH_IDENTITY": "503 TRIP_DATA_UNAVAILABLE",
+                "STORAGE_UNAVAILABLE": "503 TRIP_DATA_UNAVAILABLE",
+                "exposure": "cause-free Problem Details; no raw provider message or PII",
+            },
+            contract["createSemantics"]["profileProvisioningErrors"],
+        )
+        problems = self._load(FIXTURES / "problem.json")
+        self.assertEqual("PROFILE_CONFLICT", problems["409_profile_conflict"]["code"])
+        self.assertEqual(
+            "TRIP_DATA_UNAVAILABLE", problems["503_trip_data_unavailable"]["code"]
+        )
 
     def test_catalog_projection_is_exact_and_not_falsely_ready(self) -> None:
         with self._temporary_repository() as root:
@@ -180,6 +210,19 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual(
             "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED",
             catalog_create["concurrentRequest"],
+        )
+        contract_create_endpoint = contract["endpoints"][1]
+        catalog_create_endpoint = next(
+            endpoint
+            for endpoint in catalog["endpoints"]
+            if endpoint["method"] == "POST" and endpoint["path"] == "/api/v1/trips"
+        )
+        self.assertEqual(
+            {"success": [201], "errors": [400, 401, 409, 422, 503]},
+            contract_create_endpoint["responses"],
+        )
+        self.assertEqual(
+            contract_create_endpoint["responses"], catalog_create_endpoint["responses"]
         )
 
     def test_catalog_trip_create_rejects_legacy_idempotency_codes_independent_of_digest(self) -> None:

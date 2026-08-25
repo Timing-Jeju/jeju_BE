@@ -31,6 +31,8 @@
 - `trip_plans`, 기본 교통수단, 날짜별 `trip_days`는 한 트랜잭션으로 생성한다.
 - `Idempotency-Key`는 공통 Issue #17 계약과 같은 canonical UUID다. 누락은 `400 IDEMPOTENCY_KEY_REQUIRED`, UUID 형식 오류는 `400 IDEMPOTENCY_KEY_INVALID`다.
 - 키 범위는 canonical sub + method + path이며 보존 시간은 24시간이다. 같은 payload는 최초의 status, `Location`, `ETag`, body를 그대로 재생하고, 다른 payload 또는 처리 중·재사용 상태는 `409 IDEMPOTENCY_KEY_REUSED`다.
+- 인증 프로필 준비 중 이메일 소유권 또는 provider subject 충돌은 원인을 노출하지 않는 `409 PROFILE_CONFLICT`로 응답한다.
+- 인증 identity가 유효하지 않거나 프로필 저장소를 사용할 수 없으면 원천 메시지·PII·cause를 노출하지 않는 `503 TRIP_DATA_UNAVAILABLE`로 응답한다.
 
 ## 목록과 점수 계약
 

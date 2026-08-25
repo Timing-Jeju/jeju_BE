@@ -53,6 +53,8 @@ class TripOpenApiIntegrationTest {
                     "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.$ref")
                 .value("#/components/schemas/CreateTripRequest"))
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['201']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['400']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['401']").exists())
         .andExpect(
             jsonPath("$.paths['/api/v1/trips'].post.responses['201'].headers.Location").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['201'].headers.ETag").exists())
@@ -60,7 +62,17 @@ class TripOpenApiIntegrationTest {
             jsonPath(
                     "$.paths['/api/v1/trips'].post.responses['201'].headers['Idempotency-Replayed']")
                 .exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['409']").exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.responses['409'].content['application/problem+json'].schema.$ref")
+                .value("#/components/schemas/ApiProblemDetails"))
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['422']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['503']").exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.responses['503'].content['application/problem+json'].schema.$ref")
+                .value("#/components/schemas/ApiProblemDetails"))
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].get.responses['404']").exists())
         .andExpect(
             jsonPath(

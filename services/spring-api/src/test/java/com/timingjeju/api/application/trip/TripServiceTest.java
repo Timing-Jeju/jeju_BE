@@ -2,10 +2,12 @@ package com.timingjeju.api.application.trip;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
 import com.timingjeju.api.application.pagination.CursorCodec;
 import com.timingjeju.api.application.profile.CurrentUserProvisioningService;
+import com.timingjeju.api.application.profile.ProfileProvisioningException;
 import com.timingjeju.api.application.security.AuthenticatedRole;
 import com.timingjeju.api.application.security.CurrentUser;
 import com.timingjeju.api.application.trip.service.TripService;
@@ -51,6 +53,32 @@ class TripServiceTest {
             LocalDate.parse("2026-08-03"),
             LocalDate.parse("2026-08-04"),
             LocalDate.parse("2026-08-05"));
+  }
+
+  @Test
+  void create는_profile_provisioning_실패_4종에서_store를_호출하지_않는다() {
+    for (ProfileProvisioningException failure :
+        List.of(
+            ProfileProvisioningException.emailConflict(),
+            ProfileProvisioningException.providerSubjectConflict(),
+            ProfileProvisioningException.invalidAuthIdentity(),
+            ProfileProvisioningException.storageUnavailable())) {
+      CapturingStore store = new CapturingStore();
+      CurrentUserProvisioningService provisioning = mock(CurrentUserProvisioningService.class);
+      doThrow(failure).when(provisioning).provision(USER);
+      TripService service =
+          new TripService(
+              provisioning,
+              store,
+              new SequentialIds(),
+              CursorCodec.hmacSha256("test-only-trip-cursor-key-32-bytes"),
+              Clock.fixed(NOW, ZoneOffset.UTC));
+
+      assertThatThrownBy(() -> service.create(USER, command("2026-08-03", "2026-08-05")))
+          .isSameAs(failure);
+      assertThat(store.createCalls).isZero();
+      assertThat(store.created).isNull();
+    }
   }
 
   @Test

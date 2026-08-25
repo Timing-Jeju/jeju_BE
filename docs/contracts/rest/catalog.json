@@ -177,7 +177,7 @@
       "owner": "Spring Trips domain; contract #85, implementation #44",
       "schemas": {"path": "none", "query": "none", "headers": "CreateTripHeaders", "body": "CreateTripRequest"},
       "presence": "title/startDate/endDate required non-null; timezone/userPace/transportModes optional non-null with canonical defaults",
-      "responses": {"success": [201], "errors": [400, 401, 409, 422]},
+      "responses": {"success": [201], "errors": [400, 401, 409, 422, 503]},
       "dbOwner": "Spring trip_plans/trip_days/trip_transport_modes atomic owner write; implementation/migration #44",
       "requestTimeCall": "none",
       "dataLineage": "authenticated user input; no external provider or MCP input",
