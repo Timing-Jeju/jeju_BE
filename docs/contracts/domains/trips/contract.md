@@ -12,13 +12,13 @@
 
 ## 공통 HTTP 계약
 
-| 작업 | 성공 | 필수 조건 | 외부 호출 |
-|---|---:|---|---|
-| 목록 | 200 | Bearer 인증, cursor pagination | 없음 |
-| 생성 | 201 | Bearer 인증, `Idempotency-Key` | 없음 |
-| 상세 | 200 | Bearer 인증, UUID `tripId` | 없음 |
-| 수정 | 200 | Bearer 인증, strong `If-Match` | 없음 |
-| 삭제 | 204 | Bearer 인증, 응답 body 없음 | 없음 |
+| 작업 | 성공 | 필수 조건 | 오류 | 외부 호출 |
+|---|---:|---|---|---|
+| 목록 | 200 | Bearer 인증, cursor pagination | 400, 401, 저장소 장애 시 `503 TRIP_DATA_UNAVAILABLE` | 없음 |
+| 생성 | 201 | Bearer 인증, `Idempotency-Key` | 400, 401, 409, 422, 503 | 없음 |
+| 상세 | 200 | Bearer 인증, lowercase canonical UUID `tripId` | 잘못된 path는 `400 INVALID_REQUEST`; 401, 404; 저장소 장애는 `503 TRIP_DATA_UNAVAILABLE` | 없음 |
+| 수정 | 200 | Bearer 인증, strong `If-Match` | 400, 401, 404, 409, 422 | 없음 |
+| 삭제 | 204 | Bearer 인증, 응답 body 없음 | 400, 401, 404, 409 | 없음 |
 
 오류는 공통 Problem Details 계약을 사용한다. 닫힌 request/response schema에 없는 필드는 거부하며, nullable로 명시하지 않은 필드에는 `null`을 허용하지 않는다.
 
@@ -33,6 +33,7 @@
 - 키 범위는 canonical sub + method + path이며 보존 시간은 24시간이다. 같은 payload는 최초의 status, `Location`, `ETag`, body를 그대로 재생하고, 다른 payload 또는 처리 중·재사용 상태는 `409 IDEMPOTENCY_KEY_REUSED`다.
 - 인증 프로필 준비 중 이메일 소유권 또는 provider subject 충돌은 원인을 노출하지 않는 `409 PROFILE_CONFLICT`로 응답한다.
 - 인증 identity가 유효하지 않거나 프로필 저장소를 사용할 수 없으면 원천 메시지·PII·cause를 노출하지 않는 `503 TRIP_DATA_UNAVAILABLE`로 응답한다.
+- 목록·상세 조회 중 저장소 접근 실패도 raw SQL, 연결 문자열과 cause를 노출하지 않는 동일한 `503 TRIP_DATA_UNAVAILABLE`로 응답한다.
 
 ## 목록과 점수 계약
 

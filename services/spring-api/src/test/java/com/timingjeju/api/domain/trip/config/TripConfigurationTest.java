@@ -2,12 +2,12 @@ package com.timingjeju.api.domain.trip.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
+import com.timingjeju.api.global.security.SecurityRuntimeEnvironment;
+import com.timingjeju.api.global.security.SecurityRuntimeEnvironmentResolver;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.env.Environment;
+import org.springframework.mock.env.MockEnvironment;
 
 @Tag("unit")
 class TripConfigurationTest {
@@ -15,12 +15,8 @@ class TripConfigurationTest {
 
   @Test
   void trip_cursor는_trip_전용_key로_생성되고_places_codec_type과_충돌하지_않는다() {
-    Environment environment = mock(Environment.class);
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"test"});
-
     TripConfiguration.TripCursorCodec configured =
-        configuration.tripCursorCodec(
-            "issue-44-trip-cursor-signing-key-at-least-32-bytes", environment);
+        configuration.tripCursorCodec("issue-44-trip-cursor-signing-key-at-least-32-bytes", false);
 
     assertThat(configured.value()).isNotNull();
     assertThat(configured)
@@ -28,12 +24,34 @@ class TripConfigurationTest {
   }
 
   @Test
-  void production은_trip_cursor_key가_없으면_fail_closed한다() {
-    Environment environment = mock(Environment.class);
-    when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
+  void non_local_runtime은_trip_cursor_key가_없으면_fail_closed한다() {
+    for (String profile : new String[] {null, "staging", "test", "prod", "production"}) {
+      MockEnvironment environment = new MockEnvironment();
+      if (profile != null) {
+        environment.setActiveProfiles(profile);
+        environment.setProperty("spring.profiles.active", profile);
+      }
 
-    assertThatThrownBy(() -> configuration.tripCursorCodec("", environment))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("APP_TRIPS_CURSOR_SIGNING_KEY");
+      boolean localRuntime =
+          SecurityRuntimeEnvironmentResolver.resolve(environment).environment()
+              == SecurityRuntimeEnvironment.LOCAL;
+      assertThatThrownBy(() -> configuration.tripCursorCodec("", localRuntime))
+          .as(String.valueOf(profile))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("APP_TRIPS_CURSOR_SIGNING_KEY");
+    }
+  }
+
+  @Test
+  void exact_local_runtime만_trip_cursor_key를_안전하게_임시_생성한다() {
+    for (String profile : new String[] {"local", "local-hs256"}) {
+      MockEnvironment environment =
+          new MockEnvironment().withProperty("spring.profiles.active", profile);
+
+      boolean localRuntime =
+          SecurityRuntimeEnvironmentResolver.resolve(environment).environment()
+              == SecurityRuntimeEnvironment.LOCAL;
+      assertThat(configuration.tripCursorCodec("", localRuntime).value()).as(profile).isNotNull();
+    }
   }
 }

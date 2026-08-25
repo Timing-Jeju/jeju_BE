@@ -16,7 +16,9 @@ import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +37,7 @@ import tools.jackson.databind.ObjectMapper;
 @RequestMapping("/api/v1/trips")
 public class TripController implements TripApiDocs {
   private static final Set<String> LIST_PARAMETERS = Set.of("status", "sort", "cursor", "size");
+  private static final Pattern CANONICAL_UUID = Pattern.compile(TripApiDocs.UUID_PATTERN);
   private final TripService trips;
   private final CurrentUserAccessor currentUsers;
   private final IdempotencyUseCase idempotency;
@@ -106,9 +109,20 @@ public class TripController implements TripApiDocs {
   @Override
   @GetMapping("/{tripId}")
   public TripAggregateResponse read(@PathVariable String tripId) {
+    UUID canonicalTripId = parseCanonicalUuid(tripId);
+    return TripAggregateResponse.from(trips.read(currentUsers.getRequired(), canonicalTripId));
+  }
+
+  private static UUID parseCanonicalUuid(String raw) {
+    if (raw == null || !CANONICAL_UUID.matcher(raw).matches()) {
+      throw TripException.invalidRequest();
+    }
     try {
-      return TripAggregateResponse.from(
-          trips.read(currentUsers.getRequired(), java.util.UUID.fromString(tripId)));
+      UUID parsed = UUID.fromString(raw);
+      if (!parsed.toString().equals(raw)) {
+        throw TripException.invalidRequest();
+      }
+      return parsed;
     } catch (IllegalArgumentException failure) {
       throw TripException.invalidRequest();
     }

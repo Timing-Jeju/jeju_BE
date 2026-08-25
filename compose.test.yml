@@ -59,6 +59,7 @@ services:
       SUPABASE_JWKS_URL: https://test.supabase.invalid/auth/v1/.well-known/jwks.json
       APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
       APP_SOCIAL_LOGIN_PROVIDER_IDS: google,kakao,custom:naver
+      APP_TRIPS_CURSOR_SIGNING_KEY: test-only-trip-cursor-signing-key-at-least-32-bytes
       TOUR_API_ENABLED: "false"
       TOUR_API_API_KEY: ""
       TOUR_API_BASE_URL: https://apis.data.go.kr/B551011/KorService2

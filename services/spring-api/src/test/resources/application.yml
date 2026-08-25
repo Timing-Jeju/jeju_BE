@@ -18,6 +18,8 @@ management:
       enabled: false
 
 app:
+  trips:
+    cursor-signing-key: test-only-trip-cursor-signing-key-at-least-32-bytes
   social-login:
     provider-ids: google,kakao,custom:naver
   security:

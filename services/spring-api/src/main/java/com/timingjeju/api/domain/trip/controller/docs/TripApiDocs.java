@@ -12,7 +12,6 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.constraints.Pattern;
 import org.springframework.http.ResponseEntity;
 
 public interface TripApiDocs {
@@ -122,6 +121,12 @@ public interface TripApiDocs {
         responseCode = "200",
         content = @Content(schema = @Schema(implementation = TripAggregateResponse.class))),
     @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
         responseCode = "401",
         content =
             @Content(
@@ -141,5 +146,6 @@ public interface TripApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   TripAggregateResponse read(
-      @Parameter(required = true) @Pattern(regexp = UUID_PATTERN) String tripId);
+      @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
+          String tripId);
 }

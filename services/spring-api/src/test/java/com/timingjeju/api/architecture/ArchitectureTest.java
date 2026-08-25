@@ -38,6 +38,18 @@ class ArchitectureTest {
   }
 
   @Test
+  void controller는_Spring_DAO_예외에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .areAnnotatedWith(RestController.class)
+        .should()
+        .dependOnClassesThat()
+        .resideInAPackage("org.springframework.dao..")
+        .allowEmptyShould(true)
+        .check(classes);
+  }
+
+  @Test
   void controller는_service를_통해_동작한다() {
     classes()
         .that()

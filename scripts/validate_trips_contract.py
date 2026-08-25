@@ -40,8 +40,8 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "fd4488fae77f1d826fa1c0f54778b058100e0a11b8a50b0a5b57de9f067f5e11"
-CANONICAL_CATALOG_SHA256 = "764faf0c63b64f2b514d997775f6b6db04a692e25077be0a1344dce600a0b60d"
+CANONICAL_CONTRACT_SHA256 = "1fb50fe554ed7f1d8341d59c35f8c98466ab3cd2536f328ea2d91826fba37eee"
+CANONICAL_CATALOG_SHA256 = "bedac3e8b9c7e9deac3313a31cff1a697170742ff9d75911fb2cbec22e943faf"
 CONTRACT_FIELDS = {
     "schemaVersion",
     "contractVersion",
@@ -201,6 +201,14 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
         errors.append("여행 endpoint method/path canonical 순서가 다릅니다.")
     if contract.get("schemaVersion") != "timing-jeju-trips-contract/v1":
         errors.append("여행 schemaVersion canonical 값이 다릅니다.")
+    trip_id = contract.get("schemas", {}).get("TripId")
+    if trip_id != {
+        "type": "string",
+        "nullable": False,
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    }:
+        errors.append("여행 tripId lowercase canonical UUID semantic 계약이 다릅니다.")
     if (
         contract.get("contractVersion") != "1.0.0"
         or contract.get("sourceSpecVersion") != "v1.1"
@@ -214,6 +222,11 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
     if len(endpoints) == 5:
         if endpoints[0].get("pagination") != {"type": "cursor", "defaultSize": 20, "maxSize": 50}:
             errors.append("여행 list pagination canonical 계약이 다릅니다.")
+        if endpoints[0].get("responses") != {
+            "success": [200],
+            "errors": [400, 401, 503],
+        }:
+            errors.append("여행 GET list data availability response semantic canonical 계약이 다릅니다.")
         create_idempotency = endpoints[1].get("idempotency", {})
         if not isinstance(create_idempotency, dict) or (
             create_idempotency.get("required") is not True
@@ -228,6 +241,11 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
             "errors": [400, 401, 409, 422, 503],
         }:
             errors.append("여행 POST error response canonical 계약이 다릅니다.")
+        if endpoints[2].get("responses") != {
+            "success": [200],
+            "errors": [400, 401, 404, 503],
+        }:
+            errors.append("여행 GET detail path/data availability response semantic canonical 계약이 다릅니다.")
         if endpoints[3].get("headersSchema") != "PatchTripHeaders":
             errors.append("여행 PATCH If-Match canonical 계약이 다릅니다.")
 
@@ -323,6 +341,33 @@ def _validate_catalog_idempotency_semantics(
     actual_responses = catalog_create.get("responses") if isinstance(catalog_create, dict) else None
     if actual_responses != expected_responses:
         errors.append("catalog response semantic: 여행 POST가 canonical 계약과 다릅니다.")
+    for method, path in EXPECTED_ENDPOINT_IDENTITIES[:3]:
+        contract_endpoint = next(
+            (
+                item
+                for item in contract_endpoints
+                if isinstance(item, dict)
+                and item.get("method") == method
+                and item.get("path") == path
+            ),
+            None,
+        )
+        catalog_endpoint = next(
+            (
+                item
+                for item in catalog_endpoints
+                if isinstance(item, dict)
+                and item.get("method") == method
+                and item.get("path") == path
+            ),
+            None,
+        )
+        if not isinstance(contract_endpoint, dict) or not isinstance(catalog_endpoint, dict):
+            continue
+        if catalog_endpoint.get("responses") != contract_endpoint.get("responses"):
+            errors.append(
+                f"catalog response semantic: 여행 {method} {path}가 canonical 계약과 다릅니다."
+            )
 
 
 def _validate_common_pagination(

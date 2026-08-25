@@ -80,6 +80,13 @@ class TripMigrationContractTest {
         .contains("APP_TRIPS_CURSOR_SIGNING_KEY=");
     assertThat(Files.readString(root.resolve("compose.yml")))
         .contains("APP_TRIPS_CURSOR_SIGNING_KEY: ${APP_TRIPS_CURSOR_SIGNING_KEY:-}");
+    assertThat(Files.readString(root.resolve("compose.test.yml")))
+        .contains(
+            "APP_TRIPS_CURSOR_SIGNING_KEY: test-only-trip-cursor-signing-key-at-least-32-bytes");
+    assertThat(
+            Files.readString(
+                root.resolve("services/spring-api/src/test/resources/application.yml")))
+        .contains("cursor-signing-key: test-only-trip-cursor-signing-key-at-least-32-bytes");
     assertThat(
             Files.readString(
                 root.resolve("services/spring-api/src/main/resources/application.yml")))

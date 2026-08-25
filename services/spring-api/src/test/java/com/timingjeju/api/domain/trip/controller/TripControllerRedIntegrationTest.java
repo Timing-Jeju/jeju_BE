@@ -2,8 +2,12 @@ package com.timingjeju.api.domain.trip.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -21,6 +25,7 @@ import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
 import com.timingjeju.api.application.profile.ProfileProvisioningException;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripDay;
+import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripTransportMode;
 import com.timingjeju.api.application.trip.service.TripService;
 import java.nio.charset.StandardCharsets;
@@ -187,6 +192,68 @@ class TripControllerRedIntegrationTest {
           .andExpect(status().isBadRequest())
           .andExpect(jsonPath("$.code").value("INVALID_QUERY_PARAMETER"));
     }
+  }
+
+  @Test
+  void GET_trip_path는_lowercase_canonical_UUID만_허용하고_그외에는_service를_호출하지_않는다() throws Exception {
+    UUID canonical = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    when(tripService.read(any(), eq(canonical))).thenReturn(aggregate());
+
+    for (String invalid :
+        List.of(
+            "1-1-1-1-1",
+            "44000000-0000-0000-0000-00000000004",
+            "44000000-0000-0000-0000-00000000004Z",
+            "44000000-0000-0000-0000-0000000000AA")) {
+      reset(tripService);
+      mvc.perform(
+              get("/api/v1/trips/{tripId}", invalid)
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+      verifyNoInteractions(tripService);
+    }
+
+    when(tripService.read(any(), eq(canonical))).thenReturn(aggregate());
+    mvc.perform(
+            get("/api/v1/trips/{tripId}", canonical.toString())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.tripId").value(canonical.toString()));
+    verify(tripService).read(any(), eq(canonical));
+  }
+
+  @Test
+  void GET_trip_list와_detail의_data_unavailable은_cause없는_TRIP_DATA_UNAVAILABLE_503이다()
+      throws Exception {
+    TripException listFailure = TripException.dataUnavailable();
+    when(tripService.list(any(), isNull(), isNull(), isNull(), isNull())).thenThrow(listFailure);
+
+    MvcResult listResult =
+        mvc.perform(
+                get("/api/v1/trips").header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(jsonPath("$.code").value("TRIP_DATA_UNAVAILABLE"))
+            .andExpect(jsonPath("$.cause").doesNotExist())
+            .andExpect(jsonPath("$.message").doesNotExist())
+            .andReturn();
+    assertThat(listResult.getResponse().getContentAsString()).doesNotContain("cause");
+
+    reset(tripService);
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    TripException detailFailure = TripException.dataUnavailable();
+    when(tripService.read(any(), eq(tripId))).thenThrow(detailFailure);
+
+    MvcResult detailResult =
+        mvc.perform(
+                get("/api/v1/trips/{tripId}", tripId)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(jsonPath("$.code").value("TRIP_DATA_UNAVAILABLE"))
+            .andExpect(jsonPath("$.cause").doesNotExist())
+            .andExpect(jsonPath("$.message").doesNotExist())
+            .andReturn();
+    assertThat(detailResult.getResponse().getContentAsString()).doesNotContain("cause");
   }
 
   @Test

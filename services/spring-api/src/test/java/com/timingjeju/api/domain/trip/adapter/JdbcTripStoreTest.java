@@ -23,6 +23,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -70,6 +71,25 @@ class JdbcTripStoreTest {
         .contains("p.updated_at < :afterUpdatedAt")
         .contains("p.id < :afterTripId")
         .contains("order by p.updated_at desc, p.id desc");
+  }
+
+  @Test
+  void findOwned와_listOwned의_DAO_failure는_cause없는_data_unavailable로_변환한다() {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    NamedParameterJdbcTemplate named = mock(NamedParameterJdbcTemplate.class);
+    DataAccessResourceFailureException detailFailure =
+        new DataAccessResourceFailureException("jdbc:postgresql://private-user:password@db/trips");
+    when(named.query(anyString(), anyMap(), any(RowMapper.class))).thenThrow(detailFailure);
+    JdbcTripStore store = new JdbcTripStore(jdbc, named);
+
+    assertCauseFreeDataUnavailable(() -> store.findOwned(OWNER, TRIP, NOW), detailFailure);
+
+    DataAccessResourceFailureException listFailure =
+        new DataAccessResourceFailureException("select secret_token from private_trip_table");
+    when(named.query(anyString(), any(MapSqlParameterSource.class), any(RowMapper.class)))
+        .thenThrow(listFailure);
+
+    assertCauseFreeDataUnavailable(() -> store.listOwned(OWNER, null, null, 21, NOW), listFailure);
   }
 
   @Test
@@ -161,5 +181,19 @@ class JdbcTripStoreTest {
             UUID.fromString("44000000-0000-0000-0001-000000000002"),
             UUID.fromString("44000000-0000-0000-0001-000000000003")),
         NOW);
+  }
+
+  private static void assertCauseFreeDataUnavailable(
+      org.assertj.core.api.ThrowableAssert.ThrowingCallable operation,
+      RuntimeException rawFailure) {
+    assertThatThrownBy(operation)
+        .isInstanceOfSatisfying(
+            TripException.class,
+            failure -> {
+              assertThat(failure.code()).isEqualTo("TRIP_DATA_UNAVAILABLE");
+              assertThat(failure.getCause()).isNull();
+              assertThat(failure.getStackTrace()).isEmpty();
+              assertThat(failure.getMessage()).doesNotContain(rawFailure.getMessage());
+            });
   }
 }

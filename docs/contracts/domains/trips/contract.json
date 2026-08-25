@@ -6,7 +6,7 @@
   "ownerIssue": 85,
   "implementationIssues": [44, 45],
   "schemas": {
-    "TripId": {"type": "string", "nullable": false, "format": "uuid"},
+    "TripId": {"type": "string", "nullable": false, "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
     "TripTitle": {"type": "string", "nullable": false, "normalization": "trim+nfc", "minLength": 1, "maxLength": 100},
     "TripDate": {"type": "string", "nullable": false, "format": "date"},
     "TripTimezone": {"type": "string", "nullable": false, "format": "iana-timezone", "enum": ["Asia/Seoul"]},
@@ -230,7 +230,7 @@
       "successSchema": "TripsListResponse",
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub",
-      "responses": {"success": [200], "errors": [400, 401]},
+      "responses": {"success": [200], "errors": [400, 401, 503]},
       "idempotency": {"required": false, "header": "none"},
       "pagination": {"type": "cursor", "defaultSize": 20, "maxSize": 50},
       "figma": {"node": "182:3248", "action": "여행 기본 조건에서 생성된 본인 여행 목록 진입", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}
@@ -258,7 +258,7 @@
       "successSchema": "TripDetail",
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub; cross-owner 404",
-      "responses": {"success": [200], "errors": [400, 401, 404]},
+      "responses": {"success": [200], "errors": [400, 401, 404, 503]},
       "idempotency": {"required": false, "header": "none"},
       "pagination": {"type": "none"},
       "figma": {"node": "182:3248", "action": "여행 기본 조건·상태 확인", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}

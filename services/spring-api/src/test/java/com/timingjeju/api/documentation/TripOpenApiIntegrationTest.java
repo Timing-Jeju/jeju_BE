@@ -73,7 +73,18 @@ class TripOpenApiIntegrationTest {
             jsonPath(
                     "$.paths['/api/v1/trips'].post.responses['503'].content['application/problem+json'].schema.$ref")
                 .value("#/components/schemas/ApiProblemDetails"))
+        .andExpect(jsonPath("$.paths['/api/v1/trips'].get.responses['503']").exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].get.responses['503'].content['application/problem+json'].schema.$ref")
+                .value("#/components/schemas/ApiProblemDetails"))
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].get.responses['404']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].get.responses['503']").exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['503'].content['application/problem+json'].schema.$ref")
+                .value("#/components/schemas/ApiProblemDetails"))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips/{tripId}'].get.parameters[?(@.name=='tripId')].schema.pattern")

@@ -120,6 +120,15 @@ class TripsContractTest(unittest.TestCase):
     def test_canonical_contract_cannot_be_changed_by_updating_only_the_digest(self) -> None:
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "ownership": lambda c: c["ownership"].update({"crossOwnerConcealment": 403}),
+            "trip path canonical UUID": lambda c: c["schemas"]["TripId"].update(
+                {"format": "text"}
+            ),
+            "list data availability": lambda c: c["endpoints"][0]["responses"].update(
+                {"errors": [400, 401]}
+            ),
+            "detail data availability": lambda c: c["endpoints"][2]["responses"].update(
+                {"errors": [400, 401, 404]}
+            ),
             "profile provisioning": lambda c: c["createSemantics"][
                 "profileProvisioningErrors"
             ].update({"STORAGE_UNAVAILABLE": "500 INTERNAL_SERVER_ERROR"}),
@@ -183,6 +192,77 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual(
             "TRIP_DATA_UNAVAILABLE", problems["503_trip_data_unavailable"]["code"]
         )
+
+    def test_trip_reads_expose_stable_data_unavailable_contract(self) -> None:
+        contract = self._load(CONTRACT)
+        catalog = self._load(CATALOG)
+        expected = {
+            ("GET", "/api/v1/trips"): {"success": [200], "errors": [400, 401, 503]},
+            ("GET", "/api/v1/trips/{tripId}"): {
+                "success": [200],
+                "errors": [400, 401, 404, 503],
+            },
+        }
+
+        for identity, responses in expected.items():
+            contract_endpoint = next(
+                item
+                for item in contract["endpoints"]
+                if (item["method"], item["path"]) == identity
+            )
+            catalog_endpoint = next(
+                item
+                for item in catalog["endpoints"]
+                if (item["method"], item["path"]) == identity
+            )
+            self.assertEqual(responses, contract_endpoint["responses"])
+            self.assertEqual(responses, catalog_endpoint["responses"])
+
+        problems = self._load(FIXTURES / "problem.json")
+        self.assertEqual(503, problems["503_trip_data_unavailable"]["status"])
+        self.assertEqual(
+            "TRIP_DATA_UNAVAILABLE", problems["503_trip_data_unavailable"]["code"]
+        )
+
+    def test_trip_id_schema_requires_exact_lowercase_canonical_uuid_pattern(self) -> None:
+        expected_pattern = (
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        )
+        contract = self._load(CONTRACT)
+        self.assertEqual(
+            {
+                "type": "string",
+                "nullable": False,
+                "format": "uuid",
+                "pattern": expected_pattern,
+            },
+            contract["schemas"]["TripId"],
+        )
+
+        mutations: tuple[tuple[str, Callable[[dict[str, Any]], None]], ...] = (
+            ("removed", lambda c: c["schemas"]["TripId"].pop("pattern", None)),
+            (
+                "uppercase allowed",
+                lambda c: c["schemas"]["TripId"].update(
+                    {"pattern": "^[0-9A-Fa-f-]{36}$"}
+                ),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label), self._temporary_repository() as root:
+                path = root / CONTRACT.relative_to(ROOT)
+                value = self._load(path)
+                mutate(value)
+                self._write(path, value)
+                validator = root / VALIDATOR.relative_to(ROOT)
+                source = validator.read_text(encoding="utf-8")
+                old_digest = source.split('CANONICAL_CONTRACT_SHA256 = "', 1)[1].split('"', 1)[0]
+                validator.write_text(
+                    source.replace(old_digest, self._digest(value), 1), encoding="utf-8"
+                )
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("lowercase canonical UUID semantic", result.stdout)
 
     def test_catalog_projection_is_exact_and_not_falsely_ready(self) -> None:
         with self._temporary_repository() as root:
