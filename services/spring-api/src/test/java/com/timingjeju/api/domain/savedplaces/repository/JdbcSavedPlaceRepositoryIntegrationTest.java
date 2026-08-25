@@ -102,6 +102,24 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
   }
 
   @Test
+  void same_key의_memo_null과_literal_null은_idempotency_payload_conflict다() {
+    repository.create(
+        USER_A,
+        "memo-null-conflict",
+        SavedPlaceCommand.create(PLACE_A, null, List.of("동쪽"), 1, null));
+
+    assertThatThrownBy(
+            () ->
+                repository.create(
+                    USER_A,
+                    "memo-null-conflict",
+                    SavedPlaceCommand.create(PLACE_A, "null", List.of("동쪽"), 1, null)))
+        .isInstanceOf(SavedPlaceException.class)
+        .extracting("code")
+        .isEqualTo("IDEMPOTENCY_PAYLOAD_CONFLICT");
+  }
+
+  @Test
   void PATCH는_omitted_null_replace와_stale_ETag_compare_update를_원자적으로_처리한다() {
     var created =
         repository.create(

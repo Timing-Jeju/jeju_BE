@@ -11,20 +11,17 @@ import com.timingjeju.api.domain.savedplaces.model.SavedPlaceCommand;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceCreateResult;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceEtag;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceHttpSnapshot;
+import com.timingjeju.api.domain.savedplaces.model.SavedPlaceIdempotencyFingerprint;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlacePatchCommand;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceUpdateResult;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlacesListResult;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlacesQuery;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Array;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -422,27 +419,7 @@ public class JdbcSavedPlaceRepository implements SavedPlaceRepository {
   }
 
   private static String requestHash(SavedPlaceCommand command) {
-    String canonical =
-        command.placeId()
-            + "\u0000"
-            + command.memo()
-            + "\u0000"
-            + String.join("\u0001", command.tags())
-            + "\u0000"
-            + command.priority()
-            + "\u0000"
-            + command.targetDay();
-    return sha256(canonical);
-  }
-
-  private static String sha256(String value) {
-    try {
-      return HexFormat.of()
-          .formatHex(
-              MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
-    } catch (NoSuchAlgorithmException impossible) {
-      throw new IllegalStateException(impossible);
-    }
+    return SavedPlaceIdempotencyFingerprint.sha256(command);
   }
 
   private record RowRepository(SavedPlace place, long version) {}

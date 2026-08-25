@@ -19,6 +19,7 @@ CONTRACT = (
     / "saved-places"
     / "contract.json"
 )
+CONTRACT_MARKDOWN = CONTRACT.with_name("contract.md")
 CATALOG = REPOSITORY_ROOT / "docs" / "contracts" / "rest" / "catalog.json"
 FIXTURE_ROOT = REPOSITORY_ROOT / "fixtures" / "contracts" / "saved-places"
 
@@ -87,6 +88,14 @@ class SavedPlacesContractTest(unittest.TestCase):
             "SAVED_PLACE_ALREADY_EXISTS",
             semantics["differentKeyDifferentPayload"]["code"],
         )
+
+    def test_idempotency_fingerprint_contract_is_typed_length_framed_utf8_nfc(self) -> None:
+        contract = CONTRACT_MARKDOWN.read_text(encoding="utf-8")
+
+        self.assertIn("type + 4-byte big-endian length + payload", contract)
+        self.assertIn("UTF-8/NFC", contract)
+        self.assertIn("null과 문자열 `\"null\"`", contract)
+        self.assertIn("배열 순서와 원소 경계", contract)
 
     def test_contract_fixates_cursor_sort_tag_and_scope(self) -> None:
         contract = self._load_json(CONTRACT)

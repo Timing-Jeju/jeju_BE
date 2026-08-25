@@ -125,6 +125,31 @@ class SavedPlacesHttpPostgreSqlIntegrationTest {
     assertThat(replay.getResponse().getContentAsByteArray()).isEqualTo(originalBody);
   }
 
+  @Test
+  void same_key의_memo_null과_literal_null은_409다() throws Exception {
+    String prefix =
+        "{\"placeId\":\"34100000-0000-0000-0000-000000000011\",\"tags\":[\"동쪽\"],\"priority\":1,\"memo\":";
+    mvc.perform(
+            post("/api/v1/me/saved-places")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("Idempotency-Key", "memo-null-conflict")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(prefix + "null}"))
+        .andExpect(status().isCreated());
+
+    var conflict =
+        mvc.perform(
+                post("/api/v1/me/saved-places")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                    .header("Idempotency-Key", "memo-null-conflict")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(prefix + "\"null\"}"))
+            .andExpect(status().isConflict())
+            .andReturn();
+    assertThat(conflict.getResponse().getContentAsString())
+        .contains("\"code\":\"IDEMPOTENCY_PAYLOAD_CONFLICT\"");
+  }
+
   private static String token() throws Exception {
     Instant now = Instant.now();
     JWTClaimsSet claims =

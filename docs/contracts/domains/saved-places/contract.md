@@ -63,6 +63,7 @@ POST body에서 `placeId`만 required/non-null입니다.
 - 동시 같은 command는 한 요청만 실행하고 나머지는 대기 후 replay합니다. 서로 다른 key가 같은 owner/place를 만들면 DB unique race 뒤 위 규칙으로 결정합니다.
 
 canonical payload는 `placeId + normalized memo + canonical tags + effective priority + effective targetDay`입니다.
+Idempotency fingerprint는 versioned field order에서 각 값을 `type + 4-byte big-endian length + payload`로 frame한 뒤 SHA-256합니다. UUID와 정수는 고정 폭 big-endian이고 문자열은 UTF-8/NFC이며 배열은 순서, 원소 수, 각 원소의 type·length를 보존합니다. 따라서 null과 문자열 `"null"`, 배열 순서와 원소 경계, 구분자·control 문자를 서로 다른 payload로 취급합니다.
 
 ## PATCH presence·null·replace·동시성
 
