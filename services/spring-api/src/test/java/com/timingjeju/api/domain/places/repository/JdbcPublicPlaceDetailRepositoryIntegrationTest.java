@@ -125,7 +125,7 @@ class JdbcPublicPlaceDetailRepositoryIntegrationTest
     assertThat(anonymous.tags()).isEmpty();
     assertThat(mine.saved()).isTrue();
     assertThat(mine.memo()).isEqualTo("오전 방문");
-    assertThat(mine.tags()).containsExactly("필수", "동쪽");
+    assertThat(mine.tags()).containsExactly("동쪽", "필수");
     assertThat(other.saved()).isFalse();
     assertThat(other.memo()).isNull();
     assertThat(other.tags()).isEmpty();
