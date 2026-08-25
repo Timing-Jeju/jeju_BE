@@ -110,14 +110,6 @@ create index ix_saved_places_owner_target_day
   on public.saved_places(user_id, target_day asc nulls last, created_at desc, place_id)
   where user_id is not null;
 
-create policy saved_places_owner_insert on public.saved_places for insert to authenticated
-  with check (user_id = (select auth.uid()) and session_id is null);
-create policy saved_places_owner_update on public.saved_places for update to authenticated
-  using (user_id = (select auth.uid()))
-  with check (user_id = (select auth.uid()) and session_id is null);
-create policy saved_places_owner_delete on public.saved_places for delete to authenticated
-  using (user_id = (select auth.uid()));
-
 create table public.saved_place_idempotency (
   owner_sub uuid not null references auth.users(id) on delete cascade,
   idempotency_key varchar(128) not null,

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -102,6 +103,10 @@ class SavedPlacesMigrationContractTest {
   @Test
   void ACL은_authenticated를_차단하고_service_role에_최소_DML만_허용한다() throws Exception {
     String sql = Files.readString(MIGRATION);
+    String initial =
+        Files.readString(
+            Path.of("../../supabase/migrations/20260728000000_initial_public_schema.sql"));
+    String smoke = Files.readString(Path.of("../../db/queries/smoke_check.sql"));
     assertThat(sql)
         .contains("revoke all privileges on table public.saved_places from authenticated")
         .contains("revoke all privileges on table public.saved_places from service_role")
@@ -109,8 +114,47 @@ class SavedPlacesMigrationContractTest {
         .contains("revoke all privileges on table public.saved_place_idempotency from service_role")
         .contains(
             "grant select,insert,update,delete on public.saved_place_idempotency to service_role")
+        .doesNotContain("create policy saved_places_owner_insert")
+        .doesNotContain("create policy saved_places_owner_update")
+        .doesNotContain("create policy saved_places_owner_delete")
         .doesNotContain(
             "grant select,insert,update,delete on public.saved_places to authenticated");
+    assertThat(savedPlacesWritePolicies(sql)).isEmpty();
+    assertThat(
+            savedPlacesWritePolicies(
+                sql
+                    + "\ncreate policy mutation_probe on public.saved_places for update to authenticated using (true);"))
+        .containsExactly("update");
+    assertThat(
+            savedPlacesWritePolicies(
+                sql
+                    + "\ncreate policy omitted_for_probe on public.saved_places to authenticated using (true);"))
+        .containsExactly("all");
+    assertThat(initial)
+        .contains("create policy saved_places_owner_select")
+        .contains("on saved_places for select to authenticated");
+    assertThat(smoke)
+        .contains("from pg_policies")
+        .contains("and cmd <> 'SELECT'")
+        .contains("client-write RLS policies must not exist");
+  }
+
+  private static List<String> savedPlacesWritePolicies(String sql) {
+    var matcher =
+        Pattern.compile(
+                "create\\s+policy\\s+\\S+\\s+on\\s+(?:public\\.)?saved_places\\b(?:(?!;).)*?(?:\\bfor\\s+(select|insert|update|delete|all)\\b|;)",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL)
+            .matcher(sql);
+    var commands = new java.util.ArrayList<String>();
+    while (matcher.find()) {
+      String command = matcher.group(1);
+      if (command == null) {
+        commands.add("all");
+      } else if (!command.equalsIgnoreCase("select")) {
+        commands.add(command.toLowerCase(java.util.Locale.ROOT));
+      }
+    }
+    return commands;
   }
 
   @Test

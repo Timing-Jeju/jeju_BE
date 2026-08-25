@@ -392,42 +392,60 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
   }
 
   @Test
-  void authenticated_RLS는_자기행_CRUD만_허용하고_cross_owner를_숨긴다() {
-    jdbc.update(
-        "insert into public.saved_places(user_id,place_id,memo,tags) values (?,?,?,array['동쪽'])",
-        USER_B,
-        PLACE_B,
-        "다른 사용자 행");
-    jdbc.execute("grant select,insert,update,delete on public.saved_places to authenticated");
-    jdbc.execute("set local role authenticated");
-    jdbc.queryForObject(
-        "select set_config('request.jwt.claim.sub',?,true)", String.class, USER_A.toString());
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void authenticated_RLS는_owner_SELECT만_보이고_write는_default_deny다() {
     jdbc.update(
         "insert into public.saved_places(user_id,place_id,memo,tags) values (?,?,?,array['동쪽'])",
         USER_A,
         PLACE_A,
         "자기 행");
-    assertThat(jdbc.queryForObject("select count(*) from public.saved_places", Integer.class))
-        .isEqualTo(1);
+    jdbc.update(
+        "insert into public.saved_places(user_id,place_id,memo,tags) values (?,?,?,array['동쪽'])",
+        USER_B,
+        PLACE_B,
+        "다른 사용자 행");
+    UUID deniedPlace = UUID.randomUUID();
+    place(deniedPlace, "VE", "seongsan", null);
+
+    withTemporaryAuthenticatedGrant(
+        () -> {
+          assertThat(jdbc.queryForObject("select count(*) from public.saved_places", Integer.class))
+              .isEqualTo(1);
+          assertThat(
+                  jdbc.queryForObject(
+                      "select count(*) from public.saved_places where user_id=?",
+                      Integer.class,
+                      USER_B))
+              .isZero();
+          return null;
+        });
+    assertThatThrownBy(
+            () ->
+                withTemporaryAuthenticatedGrant(
+                    () ->
+                        jdbc.update(
+                            "insert into public.saved_places(user_id,place_id,memo,tags) values (?,?,?,array['동쪽'])",
+                            USER_A,
+                            deniedPlace,
+                            "차단")))
+        .isInstanceOf(DataAccessException.class);
     assertThat(
-            jdbc.update(
-                "update public.saved_places set memo='수정' where user_id=? and place_id=?",
-                USER_A,
-                PLACE_A))
-        .isEqualTo(1);
-    assertThat(
-            jdbc.update(
-                "update public.saved_places set memo='수정' where user_id=? and place_id=?",
-                USER_B,
-                PLACE_B))
+            withTemporaryAuthenticatedGrant(
+                () ->
+                    jdbc.update(
+                        "update public.saved_places set memo='차단' where user_id=? and place_id=?",
+                        USER_A,
+                        PLACE_A)))
         .isZero();
-    assertThat(jdbc.update("delete from public.saved_places where user_id=?", USER_B)).isZero();
-    assertThat(jdbc.update("delete from public.saved_places where user_id=?", USER_A)).isEqualTo(1);
+    assertThat(
+            withTemporaryAuthenticatedGrant(
+                () -> jdbc.update("delete from public.saved_places where user_id=?", USER_A)))
+        .isZero();
   }
 
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
-  void DB는_authenticated_direct_DML의_trim_NFC_codepoint_order와_numeric경계를_거부한다() {
+  void DB는_service_role_direct_DML의_trim_NFC_codepoint_order와_numeric경계를_거부한다() {
     assertInvalidDirectInsert("array[' 동쪽']", 0, 1, "memo");
     assertInvalidDirectInsert("array['동쪽']", 0, 1, "memo");
     assertInvalidDirectInsert("array['필수','동쪽']", 0, 1, "memo");
@@ -445,7 +463,12 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
             jdbc.queryForObject(
                 "select count(*) from pg_policies where schemaname='public' and tablename='saved_places' and 'authenticated'=any(roles)",
                 Integer.class))
-        .isEqualTo(4);
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from pg_policies where schemaname='public' and tablename='saved_places' and cmd <> 'SELECT'",
+                Integer.class))
+        .isZero();
     for (String privilege : List.of("SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE")) {
       assertThat(
               jdbc.queryForObject(
@@ -488,13 +511,7 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
             () ->
                 tx(
                     () -> {
-                      jdbc.execute(
-                          "grant select,insert,update,delete on public.saved_places to authenticated");
-                      jdbc.execute("set local role authenticated");
-                      jdbc.queryForObject(
-                          "select set_config('request.jwt.claim.sub',?,true)",
-                          String.class,
-                          USER_A.toString());
+                      jdbc.execute("set local role service_role");
                       jdbc.update(
                           "insert into public.saved_places(user_id,place_id,memo,tags,priority,target_day) values (?,?,?,"
                               + tagsSql
@@ -535,10 +552,7 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
     tx(
         () -> {
           place(candidate, "VE", "seongsan", null);
-          jdbc.execute("grant select,insert,update,delete on public.saved_places to authenticated");
-          jdbc.execute("set local role authenticated");
-          jdbc.queryForObject(
-              "select set_config('request.jwt.claim.sub',?,true)", String.class, USER_A.toString());
+          jdbc.execute("set local role service_role");
           assertThat(
                   jdbc.update(
                       "insert into public.saved_places(user_id,place_id,memo,tags,priority,target_day) values (?,?,?,"
@@ -548,10 +562,26 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
                       candidate,
                       memo))
               .isEqualTo(1);
-          jdbc.execute("reset role");
-          jdbc.execute("revoke all privileges on table public.saved_places from authenticated");
           return null;
         });
+  }
+
+  private <T> T withTemporaryAuthenticatedGrant(java.util.function.Supplier<T> work) {
+    return new TransactionTemplate(transactionManager)
+        .execute(
+            status -> {
+              jdbc.execute(
+                  "grant select,insert,update,delete on public.saved_places to authenticated");
+              jdbc.execute("set local role authenticated");
+              jdbc.queryForObject(
+                  "select set_config('request.jwt.claim.sub',?,true)",
+                  String.class,
+                  USER_A.toString());
+              T result = work.get();
+              jdbc.execute("reset role");
+              jdbc.execute("revoke all privileges on table public.saved_places from authenticated");
+              return result;
+            });
   }
 
   private <T> T tx(java.util.function.Supplier<T> work) {
