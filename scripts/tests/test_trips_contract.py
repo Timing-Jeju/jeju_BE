@@ -31,6 +31,10 @@ CURSOR_PAGE_REQUEST = (
     / "pagination"
     / "CursorPageRequest.java"
 )
+TRIP_CREATE_MIGRATION = (
+    ROOT / "supabase" / "migrations" / "20260902000000_trip_create_contract.sql"
+)
+SMOKE_CHECK = ROOT / "db" / "queries" / "smoke_check.sql"
 
 
 class TripsContractTest(unittest.TestCase):
@@ -48,6 +52,8 @@ class TripsContractTest(unittest.TestCase):
                 ROOT / "docs" / "contracts" / "domains" / "trips" / "contract.md",
                 ROOT / "supabase" / "migrations" / "20260728000000_initial_public_schema.sql",
                 ROOT / "supabase" / "migrations" / "20260810000000_api_idempotency_registry.sql",
+                TRIP_CREATE_MIGRATION,
+                SMOKE_CHECK,
                 ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "application" / "idempotency" / "IdempotencyRequest.java",
                 CURSOR_PAGE_REQUEST,
                 ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "global" / "error" / "StandardProblemCode.java",
@@ -474,14 +480,48 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual("supabase/migrations", storage["migrationSourceOfTruth"])
         self.assertFalse(storage["flywayAllowed"])
         self.assertEqual(
-            ["timezone", "revision", "owner-write-rls"],
+            ["revision"],
             [item["id"] for item in storage["schemaDrift"]],
+        )
+        self.assertEqual(
+            {
+                "soleWriter": "Spring API using service_role",
+                "clientRoles": ["anon", "authenticated"],
+                "clientTablePrivileges": [],
+                "clientWritePolicyCount": 0,
+                "serviceRoleTablePrivileges": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+                "serviceRoleDeniedTablePrivileges": ["TRUNCATE", "REFERENCES", "TRIGGER"],
+                "issue44CreateOwnership": "canonical JWT sub owner predicate and one aggregate transaction",
+                "issue45UpdateDeleteOwnership": "future Spring API owner predicate and transaction",
+                "writeRlsPoliciesRequired": False,
+            },
+            storage["writeAccess"],
         )
         deletion = contract["deleteSemantics"]
         self.assertEqual("cascade", deletion["tripAggregate"])
         self.assertEqual("delete-with-aggregate", deletion["locationAndExecutionHistory"])
         self.assertEqual("preserve", deletion["externalImportLineage"])
         self.assertEqual("preserve", deletion["userAndAuthIdentity"])
+
+    def test_legacy_owner_write_rls_text_cannot_match_zero_policy_migration_and_smoke(self) -> None:
+        with self._temporary_repository() as root:
+            path = root / CONTRACT.relative_to(ROOT)
+            contract = self._load(path)
+            contract["storage"].pop("writeAccess", None)
+            contract["storage"]["schemaDrift"] = [
+                {"id": "timezone", "ownerIssue": 44, "required": "trip_plans.timezone is absent"},
+                {"id": "revision", "ownerIssue": 45, "required": "revision is absent"},
+                {
+                    "id": "owner-write-rls",
+                    "ownerIssue": 44,
+                    "required": "owner INSERT/UPDATE/DELETE RLS policies are absent",
+                },
+            ]
+            self._write(path, contract)
+            result = self._run(root)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("storage writer", result.stdout)
 
     def test_external_traceability_does_not_claim_missing_design_states(self) -> None:
         contract = self._load(CONTRACT)

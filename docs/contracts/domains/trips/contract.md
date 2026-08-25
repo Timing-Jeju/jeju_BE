@@ -62,7 +62,7 @@ PATCH는 저장된 단조 증가 revision으로 만든 strong `If-Match`가 필�
 
 ## DB drift와 migration 경계
 
-현재 스키마에는 `trip_plans.timezone`, strong ETag용 단조 증가 revision, owner write RLS가 없다. timezone과 생성 write RLS는 Issue #44, revision과 수정·삭제 write 검증은 Issue #45가 담당한다. 운영 migration의 단일 기준은 `supabase/migrations`이며 Flyway를 도입하지 않는다.
+Issue #44는 `trip_plans.timezone`의 `Asia/Seoul` default/check를 추가했고, Spring API가 `service_role`로 여행 aggregate를 쓰는 유일한 경로를 확정했다. `anon`과 `authenticated`에는 `trip_plans`, `trip_transport_modes`, `trip_days`의 직접 table 권한이 없고 client INSERT/UPDATE/DELETE RLS policy 수도 0이다. POST는 Spring application에서 canonical JWT sub와 owner predicate를 결합하고 root·mode·day를 한 transaction으로 저장한다. write RLS policy는 요구하지 않으며, Issue #45의 PATCH/DELETE도 같은 Spring owner predicate와 transaction 경계를 사용한다. 남은 schema drift는 strong If-Match/ETag용 단조 증가 revision뿐이다. 운영 migration의 단일 기준은 `supabase/migrations`이며 Flyway를 도입하지 않는다.
 
 ## 외부 문서 추적성
 

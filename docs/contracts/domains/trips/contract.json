@@ -379,10 +379,19 @@
     "migrationSourceOfTruth": "supabase/migrations",
     "flywayAllowed": false,
     "schemaChangesInIssue85": false,
+    "writeAccess": {
+      "soleWriter": "Spring API using service_role",
+      "clientRoles": ["anon", "authenticated"],
+      "clientTablePrivileges": [],
+      "clientWritePolicyCount": 0,
+      "serviceRoleTablePrivileges": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+      "serviceRoleDeniedTablePrivileges": ["TRUNCATE", "REFERENCES", "TRIGGER"],
+      "issue44CreateOwnership": "canonical JWT sub owner predicate and one aggregate transaction",
+      "issue45UpdateDeleteOwnership": "future Spring API owner predicate and transaction",
+      "writeRlsPoliciesRequired": false
+    },
     "schemaDrift": [
-      {"id": "timezone", "ownerIssue": 44, "required": "trip_plans.timezone IANA identifier with Asia/Seoul default/check is absent"},
-      {"id": "revision", "ownerIssue": 45, "required": "monotonic revision for strong If-Match/ETag is absent"},
-      {"id": "owner-write-rls", "ownerIssue": 44, "required": "trip_plans and owned aggregate INSERT/UPDATE/DELETE RLS policies are absent; #45 extends update/delete verification"}
+      {"id": "revision", "ownerIssue": 45, "required": "monotonic revision for strong If-Match/ETag is absent"}
     ],
     "existingConstraints": ["trip date order", "trip_days calendar", "active schedule deferred consistency", "sealed schedule mutation protection", "aggregate foreign-key cascade"],
     "requestTimeExternalCall": "none"
