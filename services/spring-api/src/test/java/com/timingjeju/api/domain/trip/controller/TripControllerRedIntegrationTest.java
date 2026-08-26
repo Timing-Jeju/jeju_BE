@@ -297,6 +297,27 @@ class TripControllerRedIntegrationTest {
   }
 
   @Test
+  void POST_trips의_uppercase_Idempotency_Key는_canonical_invalid_Problem으로_거부한다() throws Exception {
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "018F6F2A-60A0-7F5B-8C61-8F548F34BC31")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"title":"제주","startDate":"2026-08-03","endDate":"2026-08-05"}
+                    """))
+        .andExpect(status().isBadRequest())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.status").value(400))
+        .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_INVALID"))
+        .andExpect(jsonPath("$.cause").doesNotExist())
+        .andExpect(jsonPath("$.message").doesNotExist());
+
+    verifyNoInteractions(idempotency, tripService);
+  }
+
+  @Test
   void POST_trips는_transportModes_생략만_default하고_explicit_null은_거부한다() throws Exception {
     mvc.perform(
             post("/api/v1/trips")
