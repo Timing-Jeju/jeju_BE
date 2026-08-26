@@ -86,6 +86,68 @@ class FirebaseAdminMessagingGatewayRawRequestTest {
   }
 
   @Test
+  void explicit_429는_malformed_body여도_status기반_retryable이고_raw_request_exact1이다() {
+    CountingTransport transport =
+        CountingTransport.responding(
+            new MockLowLevelHttpResponse()
+                .setStatusCode(429)
+                .addHeader("Retry-After", "17")
+                .setContentType("application/json")
+                .setContent("{"));
+
+    FirebaseCallResult call = gateway(transport).send(mappedMessage());
+    com.timingjeju.api.application.push.PushSendResult result =
+        new FirebaseErrorClassifier().classify(call.failure());
+
+    assertThat(transport.rawRequestCount()).isOne();
+    assertThat(call.failure().httpStatus()).isEqualTo(429);
+    assertThat(result)
+        .isEqualTo(
+            new com.timingjeju.api.application.push.PushSendResult.RetryableFailure(
+                com.timingjeju.api.application.push.PushErrorClass.RATE_LIMITED,
+                java.time.Duration.ofSeconds(17)));
+  }
+
+  @Test
+  void explicit_503은_truncated_body여도_status기반_retryable이고_raw_request_exact1이다() {
+    CountingTransport transport =
+        CountingTransport.responding(
+            new MockLowLevelHttpResponse()
+                .setStatusCode(503)
+                .setContentType("application/json")
+                .setContent("{\"error\":{"));
+
+    FirebaseCallResult call = gateway(transport).send(mappedMessage());
+    com.timingjeju.api.application.push.PushSendResult result =
+        new FirebaseErrorClassifier().classify(call.failure());
+
+    assertThat(transport.rawRequestCount()).isOne();
+    assertThat(call.failure().httpStatus()).isEqualTo(503);
+    assertThat(result)
+        .isEqualTo(
+            new com.timingjeju.api.application.push.PushSendResult.RetryableFailure(
+                com.timingjeju.api.application.push.PushErrorClass.SERVER_ERROR, null));
+  }
+
+  @Test
+  void 성공_status의_malformed_body는_acceptance로_오인하지_않고_fail_closed한다() {
+    CountingTransport transport =
+        CountingTransport.responding(
+            new MockLowLevelHttpResponse()
+                .setStatusCode(200)
+                .setContentType("application/json")
+                .setContent("{"));
+
+    FirebaseCallResult call = gateway(transport).send(mappedMessage());
+
+    assertThat(transport.rawRequestCount()).isOne();
+    assertThat(call.accepted()).isFalse();
+    assertThat(call.failure().kind()).isEqualTo(FirebaseFailureKind.PROVIDER_RESPONSE);
+    assertThat(call.failure().httpStatus()).isEqualTo(200);
+    assertThat(call.failure().providerErrorCode()).isEqualTo("MALFORMED_SUCCESS");
+  }
+
+  @Test
   void provider_error_detail의_UNREGISTERED를_token_invalidation으로_연결한다() {
     CountingTransport transport =
         CountingTransport.responding(

@@ -72,9 +72,15 @@ final class FirebaseAdminMessagingGateway implements FirebaseMessagingGateway {
   }
 
   private FirebaseCallResult readResponse(HttpResponse response) {
+    int status = response.getStatusCode();
+    Duration retryAfter = retryAfter(response.getHeaders(), clock);
     try {
-      int status = response.getStatusCode();
-      Map<String, Object> body = parseBody(response);
+      Map<String, Object> body;
+      try {
+        body = parseBody(response);
+      } catch (IOException | RuntimeException malformedBody) {
+        return malformedResponse(status, retryAfter);
+      }
       if (status >= 200 && status <= 299) {
         Object name = body.get("name");
         if (name instanceof String providerMessageId && !providerMessageId.isBlank()) {
@@ -84,10 +90,7 @@ final class FirebaseAdminMessagingGateway implements FirebaseMessagingGateway {
             FirebaseCallFailure.providerResponse(status, "MALFORMED_SUCCESS", null));
       }
       return FirebaseCallResult.failed(
-          FirebaseCallFailure.providerResponse(
-              status, providerErrorCode(body), retryAfter(response.getHeaders(), clock)));
-    } catch (IOException | RuntimeException exception) {
-      return FirebaseCallResult.failed(classifyTransportFailure(exception));
+          FirebaseCallFailure.providerResponse(status, providerErrorCode(body), retryAfter));
     } finally {
       try {
         response.disconnect();
@@ -95,6 +98,12 @@ final class FirebaseAdminMessagingGateway implements FirebaseMessagingGateway {
         // Response evidence has already been reduced to the closed internal outcome.
       }
     }
+  }
+
+  private static FirebaseCallResult malformedResponse(int status, Duration retryAfter) {
+    String errorCode = status >= 200 && status <= 299 ? "MALFORMED_SUCCESS" : "UNKNOWN";
+    return FirebaseCallResult.failed(
+        FirebaseCallFailure.providerResponse(status, errorCode, retryAfter));
   }
 
   @SuppressWarnings("unchecked")
