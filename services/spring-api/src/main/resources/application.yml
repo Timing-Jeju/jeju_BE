@@ -34,6 +34,13 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  push:
+    fcm:
+      enabled: ${FCM_ENABLED:false}
+      project-id: ${FIREBASE_PROJECT_ID:}
+      connect-timeout: ${FCM_CONNECT_TIMEOUT:2s}
+      read-timeout: ${FCM_READ_TIMEOUT:5s}
+      write-timeout: ${FCM_WRITE_TIMEOUT:5s}
   snapshot-retention:
     enabled: ${SNAPSHOT_RETENTION_ENABLED:false}
     dry-run: ${SNAPSHOT_RETENTION_DRY_RUN:true}
