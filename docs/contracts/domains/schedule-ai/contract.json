@@ -1,0 +1,327 @@
+{
+  "schemaVersion": "timing-jeju-schedule-ai-contract/v1",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "1.0.0",
+  "inherits": "timing-jeju-rest-contract/v1",
+  "ownerIssue": 89,
+  "prerequisiteIssues": [72, 108],
+  "endpointGroups": {
+    "ALL_6": ["POST /api/v1/trips/{tripId}/generation-runs","GET /api/v1/trips/{tripId}/generation-runs/{runId}","POST /api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply","POST /api/v1/trips/{tripId}/schedule-revision-runs","GET /api/v1/trips/{tripId}/schedule-revision-runs/{runId}","POST /api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply"],
+    "CREATE_2": ["POST /api/v1/trips/{tripId}/generation-runs","POST /api/v1/trips/{tripId}/schedule-revision-runs"],
+    "GET_2": ["GET /api/v1/trips/{tripId}/generation-runs/{runId}","GET /api/v1/trips/{tripId}/schedule-revision-runs/{runId}"],
+    "APPLY_2": ["POST /api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply","POST /api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply"],
+    "GENERATION_CREATE": ["POST /api/v1/trips/{tripId}/generation-runs"],
+    "REVISION_CREATE": ["POST /api/v1/trips/{tripId}/schedule-revision-runs"]
+  },
+  "implementationOwners": {
+    "generationIntake": 53,
+    "generationResultRead": 95,
+    "generationWorkerAndCandidate": 79,
+    "generationApply": 54,
+    "revisionIntake": 69,
+    "revisionResultRead": 105,
+    "revisionWorkerAndCandidate": 104,
+    "revisionApply": 81,
+    "commandSnapshotMigration": 108,
+    "workerLifecycle": 74
+  },
+  "ownerBindings": {
+    "endpoints": {
+      "POST /api/v1/trips/{tripId}/generation-runs":"generationIntake",
+      "GET /api/v1/trips/{tripId}/generation-runs/{runId}":"generationResultRead",
+      "POST /api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply":"generationApply",
+      "POST /api/v1/trips/{tripId}/schedule-revision-runs":"revisionIntake",
+      "GET /api/v1/trips/{tripId}/schedule-revision-runs/{runId}":"revisionResultRead",
+      "POST /api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply":"revisionApply"
+    },
+    "readback": {"generationResult":"generationResultRead","revisionResult":"revisionResultRead"},
+    "workerCandidates": {"generation":"generationWorkerAndCandidate","revision":"revisionWorkerAndCandidate"}
+  },
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/generation-runs",
+      "operation": "compute",
+      "schemas": {"path": "TripPath", "query": "NoQuery", "headers": "AsyncCreateHeaders", "body": "GenerationRunRequest"},
+      "headers": ["Authorization", "Idempotency-Key"],
+      "request": "GenerationRunRequest",
+      "success": {"status": 202, "schema": "AsyncRunAccepted", "headers": ["Location", "Retry-After"]},
+      "errors": [400, 401, 404, 409, 422, 429, 503],
+      "errorMatrix": {"400":["INVALID_PATH_PARAMETER","INVALID_ASYNC_RUN_REQUEST","IDEMPOTENCY_KEY_REQUIRED","IDEMPOTENCY_KEY_INVALID"],"401":["AUTHENTICATION_REQUIRED","INVALID_ACCESS_TOKEN"],"404":["TRIP_NOT_FOUND"],"409":["IDEMPOTENCY_KEY_REUSED","ACTIVE_RUN_CONFLICT"],"422":["GENERATION_INPUT_CONSTRAINT_VIOLATION"],"429":["ASYNC_RUN_QUOTA_EXCEEDED"],"503":["ASYNC_INTAKE_UNAVAILABLE"]},
+      "owner": "canonical Supabase JWT sub must equal trip_plans.user_id; cross-owner is 404",
+      "pollUrlTemplate": "/api/v1/trips/{tripId}/generation-runs/{runId}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}/generation-runs/{runId}",
+      "operation": "read",
+      "schemas": {"path": "AsyncRunPath", "query": "NoQuery", "headers": "AsyncReadHeaders", "body": "BodyForbidden"},
+      "headers": ["Authorization"],
+      "request": "none",
+      "success": {"status": 200, "schema": "GenerationRunStatus", "headers": ["Retry-After"]},
+      "errors": [400, 401, 404, 410, 429, 503],
+      "errorMatrix": {"400":["INVALID_PATH_PARAMETER"],"401":["AUTHENTICATION_REQUIRED","INVALID_ACCESS_TOKEN"],"404":["TRIP_NOT_FOUND","ASYNC_RUN_NOT_FOUND"],"410":["ASYNC_RESULT_EXPIRED"],"429":["ASYNC_RUN_QUOTA_EXCEEDED"],"503":["ASYNC_RESULT_TEMPORARILY_UNAVAILABLE"]},
+      "owner": "canonical Supabase JWT sub must equal trip_plans.user_id; cross-owner run is 404",
+      "pollUrlTemplate": "/api/v1/trips/{tripId}/generation-runs/{runId}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply",
+      "operation": "apply",
+      "schemas": {"path": "AsyncCandidatePath", "query": "NoQuery", "headers": "AsyncApplyHeaders", "body": "ApplyCandidateRequest"},
+      "headers": ["Authorization", "Idempotency-Key", "If-Match"],
+      "request": "ApplyCandidateRequest",
+      "success": {"status": 200, "schema": "ApplyCandidateResponse", "headers": ["ETag", "Location"]},
+      "errors": [400, 401, 404, 409, 410, 422, 429, 503],
+      "errorMatrix": {"400":["INVALID_PATH_PARAMETER","INVALID_ASYNC_RUN_REQUEST","IDEMPOTENCY_KEY_REQUIRED","IDEMPOTENCY_KEY_INVALID","IF_MATCH_REQUIRED","IF_MATCH_INVALID"],"401":["AUTHENTICATION_REQUIRED","INVALID_ACCESS_TOKEN"],"404":["TRIP_NOT_FOUND","ASYNC_RUN_NOT_FOUND","CANDIDATE_NOT_FOUND"],"409":["IDEMPOTENCY_KEY_REUSED","ACTIVE_SCHEDULE_VERSION_CONFLICT","CANDIDATE_STALE","CANDIDATE_ALREADY_APPLIED"],"410":["CANDIDATE_EXPIRED"],"422":["CANDIDATE_NOT_APPLICABLE"],"429":["ASYNC_RUN_QUOTA_EXCEEDED"],"503":["ASYNC_RESULT_TEMPORARILY_UNAVAILABLE"]},
+      "owner": "canonical Supabase JWT sub must own trip, run and candidate; any mismatch is 404",
+      "pollUrlTemplate": "none"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/schedule-revision-runs",
+      "operation": "compute",
+      "schemas": {"path": "TripPath", "query": "NoQuery", "headers": "AsyncCreateHeaders", "body": "ScheduleRevisionRunRequest"},
+      "headers": ["Authorization", "Idempotency-Key"],
+      "request": "ScheduleRevisionRunRequest",
+      "success": {"status": 202, "schema": "AsyncRunAccepted", "headers": ["Location", "Retry-After"]},
+      "errors": [400, 401, 404, 409, 422, 429, 503],
+      "errorMatrix": {"400":["INVALID_PATH_PARAMETER","INVALID_ASYNC_RUN_REQUEST","IDEMPOTENCY_KEY_REQUIRED","IDEMPOTENCY_KEY_INVALID"],"401":["AUTHENTICATION_REQUIRED","INVALID_ACCESS_TOKEN"],"404":["TRIP_NOT_FOUND"],"409":["IDEMPOTENCY_KEY_REUSED","ACTIVE_RUN_CONFLICT"],"422":["REVISION_INPUT_CONSTRAINT_VIOLATION"],"429":["ASYNC_RUN_QUOTA_EXCEEDED"],"503":["ASYNC_INTAKE_UNAVAILABLE"]},
+      "owner": "canonical Supabase JWT sub must equal schedule_revision_runs.owner_user_id and trip_plans.user_id; cross-owner is 404",
+      "pollUrlTemplate": "/api/v1/trips/{tripId}/schedule-revision-runs/{runId}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}/schedule-revision-runs/{runId}",
+      "operation": "read",
+      "schemas": {"path": "AsyncRunPath", "query": "NoQuery", "headers": "AsyncReadHeaders", "body": "BodyForbidden"},
+      "headers": ["Authorization"],
+      "request": "none",
+      "success": {"status": 200, "schema": "RevisionRunStatus", "headers": ["Retry-After"]},
+      "errors": [400, 401, 404, 410, 429, 503],
+      "errorMatrix": {"400":["INVALID_PATH_PARAMETER"],"401":["AUTHENTICATION_REQUIRED","INVALID_ACCESS_TOKEN"],"404":["TRIP_NOT_FOUND","ASYNC_RUN_NOT_FOUND"],"410":["ASYNC_RESULT_EXPIRED"],"429":["ASYNC_RUN_QUOTA_EXCEEDED"],"503":["ASYNC_RESULT_TEMPORARILY_UNAVAILABLE"]},
+      "owner": "canonical Supabase JWT sub must equal schedule_revision_runs.owner_user_id; cross-owner run is 404",
+      "pollUrlTemplate": "/api/v1/trips/{tripId}/schedule-revision-runs/{runId}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply",
+      "operation": "apply",
+      "schemas": {"path": "AsyncCandidatePath", "query": "NoQuery", "headers": "AsyncApplyHeaders", "body": "ApplyCandidateRequest"},
+      "headers": ["Authorization", "Idempotency-Key", "If-Match"],
+      "request": "ApplyCandidateRequest",
+      "success": {"status": 200, "schema": "ApplyCandidateResponse", "headers": ["ETag", "Location"]},
+      "errors": [400, 401, 404, 409, 410, 422, 429, 503],
+      "errorMatrix": {"400":["INVALID_PATH_PARAMETER","INVALID_ASYNC_RUN_REQUEST","IDEMPOTENCY_KEY_REQUIRED","IDEMPOTENCY_KEY_INVALID","IF_MATCH_REQUIRED","IF_MATCH_INVALID"],"401":["AUTHENTICATION_REQUIRED","INVALID_ACCESS_TOKEN"],"404":["TRIP_NOT_FOUND","ASYNC_RUN_NOT_FOUND","CANDIDATE_NOT_FOUND"],"409":["IDEMPOTENCY_KEY_REUSED","ACTIVE_SCHEDULE_VERSION_CONFLICT","CANDIDATE_STALE","CANDIDATE_ALREADY_APPLIED"],"410":["CANDIDATE_EXPIRED"],"422":["CANDIDATE_NOT_APPLICABLE"],"429":["ASYNC_RUN_QUOTA_EXCEEDED"],"503":["ASYNC_RESULT_TEMPORARILY_UNAVAILABLE"]},
+      "owner": "canonical Supabase JWT sub must own trip, revision run and revision candidate; any mismatch is 404",
+      "pollUrlTemplate": "none"
+    }
+  ],
+  "schemas": {
+    "TripPath": {"type":"object","additionalProperties":false,"required":["tripId"],"properties":{"tripId":{"type":"string","format":"uuid","nullable":false}}},
+    "AsyncRunPath": {"type":"object","additionalProperties":false,"required":["tripId","runId"],"properties":{"tripId":{"type":"string","format":"uuid","nullable":false},"runId":{"type":"string","format":"uuid","nullable":false}}},
+    "AsyncCandidatePath": {"type":"object","additionalProperties":false,"required":["tripId","runId","candidateId"],"properties":{"tripId":{"type":"string","format":"uuid","nullable":false},"runId":{"type":"string","format":"uuid","nullable":false},"candidateId":{"type":"string","format":"uuid","nullable":false}}},
+    "NoQuery": {"type":"object","additionalProperties":false,"required":[],"properties":{}},
+    "BodyForbidden": {"kind":"forbidden","accepts":[]},
+    "AsyncCreateHeaders": {"type":"object","additionalProperties":false,"required":["Authorization","Idempotency-Key"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false},"Idempotency-Key":{"type":"string","format":"uuid","nullable":false}}},
+    "AsyncReadHeaders": {"type":"object","additionalProperties":false,"required":["Authorization"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false}}},
+    "AsyncApplyHeaders": {"type":"object","additionalProperties":false,"required":["Authorization","Idempotency-Key","If-Match"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false},"Idempotency-Key":{"type":"string","format":"uuid","nullable":false},"If-Match":{"type":"string","pattern":"^\"schedule:[0-9a-f-]{36}\"$","nullable":false}}},
+    "GenerationRunRequest": {"type":"object","additionalProperties":false,"required":["targetDayId","candidateCount","refreshExternalFacts"],"properties":{"targetDayId":{"type":"string","format":"uuid","nullable":false},"candidateCount":{"type":"integer","minimum":1,"maximum":10,"nullable":false},"refreshExternalFacts":{"type":"boolean","nullable":false}}},
+    "ScheduleRevisionRunRequest": {"type":"object","additionalProperties":false,"required":["targetDayId","affectedItemIds","instructionCodes"],"properties":{"targetDayId":{"type":"string","format":"uuid","nullable":false},"affectedItemIds":{"type":"array","minItems":0,"maxItems":100,"uniqueItems":true,"nullable":false,"items":{"type":"string","format":"uuid","nullable":false}},"instructionCodes":{"type":"array","minItems":1,"maxItems":32,"uniqueItems":true,"nullable":false,"items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]{0,63}$","nullable":false}}}},
+    "ApplyCandidateRequest": {"type":"object","additionalProperties":false,"required":["expectedActiveScheduleVersionId"],"properties":{"expectedActiveScheduleVersionId":{"type":"string","format":"uuid","nullable":false}}},
+    "AsyncRunAccepted": {"type":"object","additionalProperties":false,"required":["contractVersion","runId","status","pollUrl","commandInputHash","acceptedAt"],"properties":{"contractVersion":{"type":"string","const":"1.0.0","nullable":false},"runId":{"type":"string","format":"uuid","nullable":false},"status":{"type":"string","const":"queued","nullable":false},"pollUrl":{"type":"string","pattern":"^/api/v1/trips/[0-9a-f-]{36}/(?:generation-runs|schedule-revision-runs)/[0-9a-f-]{36}$","nullable":false},"commandInputHash":{"type":"string","pattern":"^[0-9a-f]{64}$","nullable":false},"acceptedAt":{"type":"string","format":"date-time","requiredOffset":"+09:00","nullable":false}}},
+    "AsyncFailure": {"type":"object","additionalProperties":false,"required":["code","detail","retryable"],"properties":{"code":{"type":"string","pattern":"^[A-Z][A-Z0-9_]{0,99}$","nullable":false},"detail":{"type":"string","minLength":1,"maxLength":500,"language":"ko-KR","nullable":false},"retryable":{"type":"boolean","nullable":false}}},
+    "GenerationCandidate": {"type":"object","additionalProperties":false,"required":["candidateId","scheduleVersionId","rank","score","explanation","expiresAt","applyUrl"],"properties":{"candidateId":{"type":"string","format":"uuid","nullable":false},"scheduleVersionId":{"type":"string","format":"uuid","nullable":false},"rank":{"type":"integer","minimum":1,"maximum":10,"nullable":false},"score":{"type":"integer","minimum":0,"maximum":100,"nullable":true},"explanation":{"type":"string","minLength":1,"maxLength":1000,"nullable":true},"expiresAt":{"type":"string","format":"date-time","requiredOffset":"+09:00","nullable":false},"applyUrl":{"type":"string","format":"uri-reference","pattern":"^/api/v1/trips/[0-9a-f-]{36}/generation-runs/[0-9a-f-]{36}/candidates/[0-9a-f-]{36}/apply$","nullable":false}}},
+    "RevisionDiff": {"type":"object","additionalProperties":false,"required":["addedItemIds","removedItemIds","movedItemIds","updatedItemIds"],"properties":{"addedItemIds":{"type":"array","maxItems":100,"uniqueItems":true,"nullable":false,"items":{"type":"string","format":"uuid"}},"removedItemIds":{"type":"array","maxItems":100,"uniqueItems":true,"nullable":false,"items":{"type":"string","format":"uuid"}},"movedItemIds":{"type":"array","maxItems":100,"uniqueItems":true,"nullable":false,"items":{"type":"string","format":"uuid"}},"updatedItemIds":{"type":"array","maxItems":100,"uniqueItems":true,"nullable":false,"items":{"type":"string","format":"uuid"}}}},
+    "RevisionCandidate": {"type":"object","additionalProperties":false,"required":["candidateId","scheduleVersionId","rank","score","explanation","diff","preservedFields","expiresAt","applyUrl"],"properties":{"candidateId":{"type":"string","format":"uuid","nullable":false},"scheduleVersionId":{"type":"string","format":"uuid","nullable":false},"rank":{"type":"integer","minimum":1,"maximum":10,"nullable":false},"score":{"type":"integer","minimum":0,"maximum":100,"nullable":true},"explanation":{"type":"string","minLength":1,"maxLength":1000,"nullable":true},"diff":{"$ref":"RevisionDiff"},"preservedFields":{"type":"array","maxItems":100,"uniqueItems":true,"nullable":false,"items":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9.]{0,127}$"}},"expiresAt":{"type":"string","format":"date-time","requiredOffset":"+09:00","nullable":false},"applyUrl":{"type":"string","format":"uri-reference","pattern":"^/api/v1/trips/[0-9a-f-]{36}/schedule-revision-runs/[0-9a-f-]{36}/candidates/[0-9a-f-]{36}/apply$","nullable":false}}},
+    "GenerationResult": {"type":"object","additionalProperties":false,"required":["baseScheduleVersionId","factsAsOf","stale","resultSource","candidates"],"properties":{"baseScheduleVersionId":{"type":"string","format":"uuid","nullable":false},"factsAsOf":{"type":"string","format":"date-time","requiredOffset":"+09:00","nullable":false},"stale":{"type":"boolean","nullable":false},"resultSource":{"type":"string","enum":["mcp","fallback"],"nullable":false},"candidates":{"type":"array","minItems":1,"maxItems":10,"nullable":false,"items":{"$ref":"GenerationCandidate"}}}},
+    "RevisionResult": {"type":"object","additionalProperties":false,"required":["baseScheduleVersionId","factsAsOf","stale","resultSource","candidates"],"properties":{"baseScheduleVersionId":{"type":"string","format":"uuid","nullable":false},"factsAsOf":{"type":"string","format":"date-time","requiredOffset":"+09:00","nullable":false},"stale":{"type":"boolean","nullable":false},"resultSource":{"type":"string","enum":["mcp","fallback"],"nullable":false},"candidates":{"type":"array","minItems":1,"maxItems":10,"nullable":false,"items":{"$ref":"RevisionCandidate"}}}},
+    "GenerationRunStatus": {"type":"object","additionalProperties":false,"required":["contractVersion","runId","status","pollUrl","commandInputHash","createdAt"],"properties":{"contractVersion":{"type":"string","const":"1.0.0"},"runId":{"type":"string","format":"uuid"},"status":{"type":"string","enum":["queued","running","succeeded","failed","cancelled"]},"pollUrl":{"type":"string"},"commandInputHash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"mcpInputHash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"createdAt":{"type":"string","format":"date-time"},"startedAt":{"type":"string","format":"date-time"},"completedAt":{"type":"string","format":"date-time"},"result":{"$ref":"GenerationResult"},"failure":{"$ref":"AsyncFailure"}}},
+    "RevisionRunStatus": {"type":"object","additionalProperties":false,"required":["contractVersion","runId","status","pollUrl","commandInputHash","createdAt"],"properties":{"contractVersion":{"type":"string","const":"1.0.0"},"runId":{"type":"string","format":"uuid"},"status":{"type":"string","enum":["queued","running","succeeded","failed","cancelled"]},"pollUrl":{"type":"string"},"commandInputHash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"mcpInputHash":{"type":"string","pattern":"^[0-9a-f]{64}$"},"createdAt":{"type":"string","format":"date-time"},"startedAt":{"type":"string","format":"date-time"},"completedAt":{"type":"string","format":"date-time"},"result":{"$ref":"RevisionResult"},"failure":{"$ref":"AsyncFailure"}}},
+    "ApplyCandidateResponse": {"type":"object","additionalProperties":false,"required":["contractVersion","tripId","runId","candidateId","previousScheduleVersionId","activeScheduleVersionId","appliedAt"],"properties":{"contractVersion":{"type":"string","const":"1.0.0","nullable":false},"tripId":{"type":"string","format":"uuid","nullable":false},"runId":{"type":"string","format":"uuid","nullable":false},"candidateId":{"type":"string","format":"uuid","nullable":false},"previousScheduleVersionId":{"type":"string","format":"uuid","nullable":false},"activeScheduleVersionId":{"type":"string","format":"uuid","nullable":false},"appliedAt":{"type":"string","format":"date-time","requiredOffset":"+09:00","nullable":false}}}
+  },
+  "commonAlignment": {"authentication":{"missingTokenCode":"AUTHENTICATION_REQUIRED","invalidTokenCode":"INVALID_ACCESS_TOKEN"},"problemFields":["type","title","status","detail","instance","code","traceId","fieldErrors"],"runStatuses":["queued","running","succeeded","failed","cancelled"],"hashes":["commandInputHash","mcpInputHash"]},
+  "stateResponses": {
+    "queued": {"required":["contractVersion","runId","status","pollUrl","commandInputHash","createdAt"],"nullable":[],"omitted":["startedAt","completedAt","mcpInputHash","result","failure"],"retryAfter":"2"},
+    "running": {"required":["contractVersion","runId","status","pollUrl","commandInputHash","createdAt","startedAt"],"nullable":[],"omitted":["completedAt","result","failure"],"retryAfter":"2","oneOf":["startedPreDispatch","postDispatch"]},
+    "succeeded": {"required":["contractVersion","runId","status","pollUrl","commandInputHash","mcpInputHash","createdAt","startedAt","completedAt","result"],"nullable":[],"omitted":["failure"],"retryAfter":"omitted"},
+    "failed": {"required":["contractVersion","runId","status","pollUrl","commandInputHash","createdAt","completedAt","failure"],"nullable":[],"omitted":["result"],"retryAfter":"omitted","oneOf":["preStart","startedPreDispatch","postDispatch"]},
+    "cancelled": {"required":["contractVersion","runId","status","pollUrl","commandInputHash","createdAt","completedAt","failure"],"nullable":[],"omitted":["result"],"retryAfter":"omitted","oneOf":["preStart","startedPreDispatch","postDispatch"]}
+  },
+  "runningStateVariants": {
+    "discriminator":"DB provenance + startedAt/mcpInputHash presence",
+    "oneOf": {
+      "startedPreDispatch":{"required":["startedAt"],"nullable":[],"omitted":["mcpInputHash"],"provenance":"worker started but no matching #52 MCP call log exists before dispatch"},
+      "postDispatch":{"required":["startedAt","mcpInputHash"],"nullable":[],"omitted":[],"provenance":"matching #52 MCP call log owns the validated exact wire mcpInputHash"}
+    }
+  },
+  "terminalStateVariants": {
+    "discriminator":"DB provenance + startedAt/mcpInputHash presence",
+    "oneOf": {
+      "preStart":{"required":["completedAt","failure"],"nullable":[],"omitted":["startedAt","mcpInputHash"],"provenance":"terminal before worker claim/start; no matching MCP call log"},
+      "startedPreDispatch":{"required":["startedAt"],"nullable":[],"omitted":["mcpInputHash"],"provenance":"worker started but no matching #52 MCP call log exists before dispatch"},
+      "postDispatch":{"required":["startedAt","mcpInputHash"],"nullable":[],"omitted":[],"provenance":"matching #52 MCP call log owns the validated exact wire mcpInputHash"}
+    }
+  },
+  "intakeIsolationPolicy": {
+    "owners":[53,69],
+    "transaction":"queued run, idempotency record and immutable #108 command snapshot persist atomically before 202",
+    "workerUnavailable":"202 queued is durable even when worker or private MCP is unavailable",
+    "create503":"only intake persistence or durable queue admission internal failure before atomic commit",
+    "forbiddenRequestTimeCalls":["worker","private MCP","external API"]
+  },
+  "lifecyclePolicy": {
+    "runStatuses": ["queued", "running", "succeeded", "failed", "cancelled"],
+    "transitions": ["queued->running", "queued->failed", "queued->cancelled", "running->queued", "running->succeeded", "running->failed", "running->cancelled"],
+    "terminalImmutable": ["succeeded", "failed", "cancelled"],
+    "worker": "Spring owns intake, authorization, DB and lifecycle; private FastAPI MCP only computes structuredContent and never receives JWT or accesses DB",
+    "candidateExpiry": "expiresAt is candidate metadata and never a run status",
+    "fallback": "fallback output is succeeded with resultSource=fallback; fallback status is forbidden"
+  },
+  "headerPolicy": {
+    "acceptance": {"Location": "exact concrete pollUrl", "Retry-After": "2"},
+    "poll": {"queued": "Retry-After: 2", "running": "Retry-After: 2", "terminal": "Retry-After omitted"},
+    "apply": {"If-Match": "required strong ETag for expected active schedule version", "ETag": "new strong active schedule version ETag", "Location": "/api/v1/trips/{tripId}/schedule"},
+    "retryAfterSeconds": 2
+  },
+  "problemMatrix": {
+    "400": ["INVALID_PATH_PARAMETER", "INVALID_ASYNC_RUN_REQUEST", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID", "IF_MATCH_REQUIRED", "IF_MATCH_INVALID"],
+    "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+    "404": ["TRIP_NOT_FOUND", "ASYNC_RUN_NOT_FOUND", "CANDIDATE_NOT_FOUND"],
+    "409": ["IDEMPOTENCY_KEY_REUSED", "ACTIVE_RUN_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT", "CANDIDATE_STALE", "CANDIDATE_ALREADY_APPLIED"],
+    "410": ["ASYNC_RESULT_EXPIRED", "CANDIDATE_EXPIRED"],
+    "422": ["GENERATION_INPUT_CONSTRAINT_VIOLATION", "REVISION_INPUT_CONSTRAINT_VIOLATION", "CANDIDATE_NOT_APPLICABLE"],
+    "429": ["ASYNC_RUN_QUOTA_EXCEEDED"],
+    "503": ["ASYNC_INTAKE_UNAVAILABLE", "ASYNC_RESULT_TEMPORARILY_UNAVAILABLE"]
+  },
+  "problemDetailsPolicy": {
+    "mediaType": "application/problem+json",
+    "exactFields": ["type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"],
+    "detailLanguage": "ko-KR",
+    "traceId": "32 lowercase hex generated by Spring; never copied from request",
+    "failureObject": {"requiredFields": ["code", "detail", "retryable"], "detailLanguage": "ko-KR", "forbidden": ["raw exception", "prompt", "MCP payload", "token", "PII"]}
+  },
+  "problemConditions": [
+    {"code":"INVALID_PATH_PARAMETER","status":400,"condition":"tripId, runId or candidateId is missing, non-UUID, non-canonical or has an unknown path value","type":"https://api.timing-jeju.com/problems/invalid-path-parameter","title":"경로 값이 올바르지 않습니다","detail":"요청 경로의 식별자를 올바른 UUID로 입력해 주세요.","fieldErrors":[{"field":"path","reason":"canonical UUID가 필요합니다."}],"endpoints":["ALL_6"],"example":{"type":"https://api.timing-jeju.com/problems/invalid-path-parameter","title":"경로 값이 올바르지 않습니다","status":400,"detail":"요청 경로의 식별자를 올바른 UUID로 입력해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"INVALID_PATH_PARAMETER","traceId":"00000000000000000000000000000089","fieldErrors":[{"field":"path","reason":"canonical UUID가 필요합니다."}]}},
+    {"code":"INVALID_ASYNC_RUN_REQUEST","status":400,"condition":"body is missing, null, wrong type, has unknown fields, or violates required/omitted/null boundaries","type":"https://api.timing-jeju.com/problems/invalid-async-run-request","title":"비동기 요청이 올바르지 않습니다","detail":"요청 필드와 형식을 확인해 주세요.","fieldErrors":[{"field":"body","reason":"closed request schema와 일치해야 합니다."}],"endpoints":["CREATE_2","APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/invalid-async-run-request","title":"비동기 요청이 올바르지 않습니다","status":400,"detail":"요청 필드와 형식을 확인해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"INVALID_ASYNC_RUN_REQUEST","traceId":"00000000000000000000000000000089","fieldErrors":[{"field":"body","reason":"closed request schema와 일치해야 합니다."}]}},
+    {"code":"IDEMPOTENCY_KEY_REQUIRED","status":400,"condition":"create or apply request omits Idempotency-Key","type":"https://api.timing-jeju.com/problems/idempotency-key-required","title":"멱등성 키가 필요합니다","detail":"Idempotency-Key 헤더를 입력해 주세요.","fieldErrors":[{"field":"Idempotency-Key","reason":"필수 헤더입니다."}],"endpoints":["CREATE_2","APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/idempotency-key-required","title":"멱등성 키가 필요합니다","status":400,"detail":"Idempotency-Key 헤더를 입력해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"IDEMPOTENCY_KEY_REQUIRED","traceId":"00000000000000000000000000000089","fieldErrors":[{"field":"Idempotency-Key","reason":"필수 헤더입니다."}]}},
+    {"code":"IDEMPOTENCY_KEY_INVALID","status":400,"condition":"Idempotency-Key is not a canonical UUID","type":"https://api.timing-jeju.com/problems/idempotency-key-invalid","title":"멱등성 키가 올바르지 않습니다","detail":"Idempotency-Key를 canonical UUID로 입력해 주세요.","fieldErrors":[{"field":"Idempotency-Key","reason":"canonical UUID가 필요합니다."}],"endpoints":["CREATE_2","APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/idempotency-key-invalid","title":"멱등성 키가 올바르지 않습니다","status":400,"detail":"Idempotency-Key를 canonical UUID로 입력해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"IDEMPOTENCY_KEY_INVALID","traceId":"00000000000000000000000000000089","fieldErrors":[{"field":"Idempotency-Key","reason":"canonical UUID가 필요합니다."}]}},
+    {"code":"IF_MATCH_REQUIRED","status":400,"condition":"apply request omits If-Match","type":"https://api.timing-jeju.com/problems/if-match-required","title":"일정 버전 조건이 필요합니다","detail":"현재 활성 일정의 strong ETag를 If-Match에 입력해 주세요.","fieldErrors":[{"field":"If-Match","reason":"필수 헤더입니다."}],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/if-match-required","title":"일정 버전 조건이 필요합니다","status":400,"detail":"현재 활성 일정의 strong ETag를 If-Match에 입력해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"IF_MATCH_REQUIRED","traceId":"00000000000000000000000000000089","fieldErrors":[{"field":"If-Match","reason":"필수 헤더입니다."}]}},
+    {"code":"IF_MATCH_INVALID","status":400,"condition":"If-Match is weak, malformed, wildcard, or differs from body expected version identity","type":"https://api.timing-jeju.com/problems/if-match-invalid","title":"일정 버전 조건이 올바르지 않습니다","detail":"현재 활성 일정의 strong ETag와 같은 버전을 입력해 주세요.","fieldErrors":[{"field":"If-Match","reason":"strong schedule ETag가 필요합니다."}],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/if-match-invalid","title":"일정 버전 조건이 올바르지 않습니다","status":400,"detail":"현재 활성 일정의 strong ETag와 같은 버전을 입력해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"IF_MATCH_INVALID","traceId":"00000000000000000000000000000089","fieldErrors":[{"field":"If-Match","reason":"strong schedule ETag가 필요합니다."}]}},
+    {"code":"AUTHENTICATION_REQUIRED","status":401,"condition":"required Authorization bearer token is missing","type":"https://api.timing-jeju.com/problems/authentication-required","title":"인증이 필요합니다","detail":"로그인 후 다시 요청해 주세요.","fieldErrors":[],"endpoints":["ALL_6"],"example":{"type":"https://api.timing-jeju.com/problems/authentication-required","title":"인증이 필요합니다","status":401,"detail":"로그인 후 다시 요청해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"AUTHENTICATION_REQUIRED","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"INVALID_ACCESS_TOKEN","status":401,"condition":"Authorization token is malformed, invalid, expired or unverifiable","type":"https://api.timing-jeju.com/problems/invalid-access-token","title":"인증 정보가 올바르지 않습니다","detail":"유효한 인증 정보로 다시 요청해 주세요.","fieldErrors":[],"endpoints":["ALL_6"],"example":{"type":"https://api.timing-jeju.com/problems/invalid-access-token","title":"인증 정보가 올바르지 않습니다","status":401,"detail":"유효한 인증 정보로 다시 요청해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"INVALID_ACCESS_TOKEN","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"TRIP_NOT_FOUND","status":404,"condition":"trip is absent, deleted, or canonical sub is not its owner","type":"https://api.timing-jeju.com/problems/trip-not-found","title":"여행을 찾을 수 없습니다","detail":"요청한 여행을 찾을 수 없습니다.","fieldErrors":[],"endpoints":["ALL_6"],"example":{"type":"https://api.timing-jeju.com/problems/trip-not-found","title":"여행을 찾을 수 없습니다","status":404,"detail":"요청한 여행을 찾을 수 없습니다.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"TRIP_NOT_FOUND","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"ASYNC_RUN_NOT_FOUND","status":404,"condition":"run is absent, belongs to another trip/domain/owner, or is hidden","type":"https://api.timing-jeju.com/problems/async-run-not-found","title":"실행을 찾을 수 없습니다","detail":"요청한 비동기 실행을 찾을 수 없습니다.","fieldErrors":[],"endpoints":["GET_2","APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/async-run-not-found","title":"실행을 찾을 수 없습니다","status":404,"detail":"요청한 비동기 실행을 찾을 수 없습니다.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"ASYNC_RUN_NOT_FOUND","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"CANDIDATE_NOT_FOUND","status":404,"condition":"candidate is absent, belongs to another run/trip/domain/owner, or is hidden","type":"https://api.timing-jeju.com/problems/candidate-not-found","title":"후보를 찾을 수 없습니다","detail":"요청한 일정 후보를 찾을 수 없습니다.","fieldErrors":[],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/candidate-not-found","title":"후보를 찾을 수 없습니다","status":404,"detail":"요청한 일정 후보를 찾을 수 없습니다.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"CANDIDATE_NOT_FOUND","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"IDEMPOTENCY_KEY_REUSED","status":409,"condition":"same scope/key has another payload hash or an active processing winner","type":"https://api.timing-jeju.com/problems/idempotency-key-reused","title":"멱등성 키를 다시 사용할 수 없습니다","detail":"새 Idempotency-Key로 다시 요청해 주세요.","fieldErrors":[],"endpoints":["CREATE_2","APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/idempotency-key-reused","title":"멱등성 키를 다시 사용할 수 없습니다","status":409,"detail":"새 Idempotency-Key로 다시 요청해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"IDEMPOTENCY_KEY_REUSED","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"ACTIVE_RUN_CONFLICT","status":409,"condition":"another queued/running run owns the same owner+trip+base+targetDay active scope","type":"https://api.timing-jeju.com/problems/active-run-conflict","title":"진행 중인 계산이 있습니다","detail":"기존 계산이 끝난 뒤 다시 요청해 주세요.","fieldErrors":[],"endpoints":["CREATE_2"],"example":{"type":"https://api.timing-jeju.com/problems/active-run-conflict","title":"진행 중인 계산이 있습니다","status":409,"detail":"기존 계산이 끝난 뒤 다시 요청해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"ACTIVE_RUN_CONFLICT","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"ACTIVE_SCHEDULE_VERSION_CONFLICT","status":409,"condition":"If-Match/body expected version is not the locked trip active schedule version","type":"https://api.timing-jeju.com/problems/active-schedule-version-conflict","title":"일정 버전이 변경되었습니다","detail":"최신 일정을 다시 확인한 뒤 후보를 적용해 주세요.","fieldErrors":[],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/active-schedule-version-conflict","title":"일정 버전이 변경되었습니다","status":409,"detail":"최신 일정을 다시 확인한 뒤 후보를 적용해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"ACTIVE_SCHEDULE_VERSION_CONFLICT","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"CANDIDATE_STALE","status":409,"condition":"candidate base schedule is no longer the expected active schedule","type":"https://api.timing-jeju.com/problems/candidate-stale","title":"후보가 최신 일정 기준이 아닙니다","detail":"현재 일정에서 새 후보를 계산해 주세요.","fieldErrors":[],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/candidate-stale","title":"후보가 최신 일정 기준이 아닙니다","status":409,"detail":"현재 일정에서 새 후보를 계산해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"CANDIDATE_STALE","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"CANDIDATE_ALREADY_APPLIED","status":409,"condition":"candidate was selected by an earlier distinct idempotency scope","type":"https://api.timing-jeju.com/problems/candidate-already-applied","title":"이미 적용된 후보입니다","detail":"현재 활성 일정을 확인해 주세요.","fieldErrors":[],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/candidate-already-applied","title":"이미 적용된 후보입니다","status":409,"detail":"현재 활성 일정을 확인해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"CANDIDATE_ALREADY_APPLIED","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"ASYNC_RESULT_EXPIRED","status":410,"condition":"terminal result retention ended at or before request acceptance time","type":"https://api.timing-jeju.com/problems/async-result-expired","title":"계산 결과 보존 기간이 끝났습니다","detail":"새 계산을 요청해 주세요.","fieldErrors":[],"endpoints":["GET_2"],"example":{"type":"https://api.timing-jeju.com/problems/async-result-expired","title":"계산 결과 보존 기간이 끝났습니다","status":410,"detail":"새 계산을 요청해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"ASYNC_RESULT_EXPIRED","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"CANDIDATE_EXPIRED","status":410,"condition":"candidate expiresAt is at or before apply acceptance time","type":"https://api.timing-jeju.com/problems/candidate-expired","title":"후보 적용 기간이 끝났습니다","detail":"새 후보를 계산해 주세요.","fieldErrors":[],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/candidate-expired","title":"후보 적용 기간이 끝났습니다","status":410,"detail":"새 후보를 계산해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"CANDIDATE_EXPIRED","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"GENERATION_INPUT_CONSTRAINT_VIOLATION","status":422,"condition":"targetDay is outside trip or candidateCount/fact refresh conflicts with trip domain state","type":"https://api.timing-jeju.com/problems/generation-input-constraint-violation","title":"일정 생성 조건을 사용할 수 없습니다","detail":"여행 기간과 생성 조건을 확인해 주세요.","fieldErrors":[],"endpoints":["GENERATION_CREATE"],"example":{"type":"https://api.timing-jeju.com/problems/generation-input-constraint-violation","title":"일정 생성 조건을 사용할 수 없습니다","status":422,"detail":"여행 기간과 생성 조건을 확인해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"GENERATION_INPUT_CONSTRAINT_VIOLATION","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"REVISION_INPUT_CONSTRAINT_VIOLATION","status":422,"condition":"targetDay/items/instruction codes do not belong to the active base schedule scope","type":"https://api.timing-jeju.com/problems/revision-input-constraint-violation","title":"일정 보정 조건을 사용할 수 없습니다","detail":"현재 일정의 Day와 항목을 다시 확인해 주세요.","fieldErrors":[],"endpoints":["REVISION_CREATE"],"example":{"type":"https://api.timing-jeju.com/problems/revision-input-constraint-violation","title":"일정 보정 조건을 사용할 수 없습니다","status":422,"detail":"현재 일정의 Day와 항목을 다시 확인해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"REVISION_INPUT_CONSTRAINT_VIOLATION","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"CANDIDATE_NOT_APPLICABLE","status":422,"condition":"run is not succeeded or candidate schedule cannot become active without violating sealed schedule invariants","type":"https://api.timing-jeju.com/problems/candidate-not-applicable","title":"후보를 적용할 수 없습니다","detail":"후보 상태와 현재 일정을 확인해 주세요.","fieldErrors":[],"endpoints":["APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/candidate-not-applicable","title":"후보를 적용할 수 없습니다","status":422,"detail":"후보 상태와 현재 일정을 확인해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"CANDIDATE_NOT_APPLICABLE","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"ASYNC_RUN_QUOTA_EXCEEDED","status":429,"condition":"owner admission quota for create, poll or apply is exhausted","type":"https://api.timing-jeju.com/problems/async-run-quota-exceeded","title":"요청 한도를 초과했습니다","detail":"Retry-After 이후 다시 시도해 주세요.","fieldErrors":[],"endpoints":["ALL_6"],"example":{"type":"https://api.timing-jeju.com/problems/async-run-quota-exceeded","title":"요청 한도를 초과했습니다","status":429,"detail":"Retry-After 이후 다시 시도해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"ASYNC_RUN_QUOTA_EXCEEDED","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"ASYNC_INTAKE_UNAVAILABLE","status":503,"condition":"intake persistence or durable queue admission internal failure prevents atomic queued commit","type":"https://api.timing-jeju.com/problems/async-intake-unavailable","title":"계산 요청을 접수할 수 없습니다","detail":"요청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.","fieldErrors":[],"endpoints":["CREATE_2"],"example":{"type":"https://api.timing-jeju.com/problems/async-intake-unavailable","title":"계산 요청을 접수할 수 없습니다","status":503,"detail":"요청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"ASYNC_INTAKE_UNAVAILABLE","traceId":"00000000000000000000000000000089","fieldErrors":[]}},
+    {"code":"ASYNC_RESULT_TEMPORARILY_UNAVAILABLE","status":503,"condition":"persisted lifecycle/result cannot be read or applied after bounded internal retry","type":"https://api.timing-jeju.com/problems/async-result-temporarily-unavailable","title":"계산 결과를 사용할 수 없습니다","detail":"잠시 후 다시 시도해 주세요.","fieldErrors":[],"endpoints":["GET_2","APPLY_2"],"example":{"type":"https://api.timing-jeju.com/problems/async-result-temporarily-unavailable","title":"계산 결과를 사용할 수 없습니다","status":503,"detail":"잠시 후 다시 시도해 주세요.","instance":"urn:timing-jeju:problem:00000000000000000000000000000089","code":"ASYNC_RESULT_TEMPORARILY_UNAVAILABLE","traceId":"00000000000000000000000000000089","fieldErrors":[]}}
+  ],
+  "securityPolicy": {
+    "principal": "verified Supabase JWT canonical sub only",
+    "crossOwner": "404",
+    "forbiddenAuthorityInputs": ["user_metadata", "email", "provider payload", "raw token"],
+    "fastApiBoundary": "private MCP has no public endpoint, JWT, DB access, provider credential, or ownership decision"
+  },
+  "databasePolicy": {
+    "publicSchemaSource": "supabase/migrations only; no Flyway",
+    "runDiscriminator": {"itineraryGeneration": "itinerary_generation", "scheduleRevision": "schedule_revision"},
+    "generation": {
+      "runTable": "itinerary_generation_runs",
+      "candidateTable": "itinerary_generation_candidates (status/expiry migration owner #79)",
+      "candidateRunFk": "(generation_run_id, trip_plan_id)->itinerary_generation_runs(id, trip_plan_id)",
+      "candidateScheduleFk": "(schedule_version_id, trip_plan_id)->trip_schedule_versions(id, trip_plan_id)",
+      "commandInputParent": "compute_run_inputs.generation_run_id->itinerary_generation_runs.id with exactly one parent"
+    },
+    "revision": {
+      "runTable": "schedule_revision_runs",
+      "candidateTable": "schedule_revision_candidates (missing; migration owner #104)",
+      "runOwnerFk": "(trip_plan_id, owner_user_id)->trip_plans(id, user_id)",
+      "runBaseFk": "(base_schedule_version_id, trip_plan_id)->trip_schedule_versions(id, trip_plan_id)",
+      "runDayFk": "(target_trip_day_id, trip_plan_id)->trip_days(id, trip_plan_id)",
+      "commandInputParent": "compute_run_inputs.schedule_revision_run_id->schedule_revision_runs.id with exactly one parent",
+      "mcpCallLogParent": "mcp_compute_call_logs.schedule_revision_run_id->schedule_revision_runs.id (missing; migration owner #69)"
+    },
+    "terminalProvenance": {
+      "preStart": "run.started_at IS NULL and no matching MCP call log",
+      "startedPreDispatch": "run.started_at IS NOT NULL and no matching MCP call log",
+      "postDispatch": "run.started_at IS NOT NULL and matching #52 MCP call log owns validated mcpInputHash"
+    },
+    "applyAtomicity": "lock trip_plan and candidate; verify owner/run/base/expected active/expiry/unapplied; CAS active_schedule_version_id and selected_at in one transaction",
+    "schemaMutationInIssue89": false
+  },
+  "retentionPolicy": {
+    "runResult": "P7D after completedAt",
+    "candidate": "P24H after succeeded completedAt",
+    "pollAfterRunResultRetention": "410 ASYNC_RESULT_EXPIRED",
+    "applyAtOrAfterExpiresAt": "410 CANDIDATE_EXPIRED",
+    "terminalMetadata": "non-sensitive id/status/timestamps/failure code may remain for audit according to later privacy retention policy"
+  },
+  "idempotencyPolicy": {
+    "requiredOperations": ["generation create", "generation apply", "revision create", "revision apply"],
+    "scope": "canonicalSub + uppercase method + normalized path + Idempotency-Key",
+    "key": "canonical UUID",
+    "ttl": "PT24H after completion",
+    "sameKeySamePayload": "replay exact status, Location/Retry-After or ETag/Location, and body without rerunning worker/apply",
+    "sameKeyDifferentPayload": "409 IDEMPOTENCY_KEY_REUSED",
+    "concurrentSamePayload": "single winner; processing loser gets 409 IDEMPOTENCY_KEY_REUSED and Retry-After: 1",
+    "activeRunConcurrency": "at most one queued/running run for owner+trip+base+targetDay; DB arbiter loser is 409 ACTIVE_RUN_CONFLICT",
+    "applyConcurrency": "trip row lock plus expected active CAS; exactly one candidate can advance the expected version; losers are deterministic 409"
+  },
+  "hashPolicy": {
+    "commandInputHash": "compute_run_inputs.command_input_hash: lowercase SHA-256 of immutable versioned structured command snapshot accepted by Spring",
+    "mcpInputHash": "lowercase SHA-256 of the exact redacted canonical MCP wire input assembled from that snapshot and normalized facts",
+    "separation": "commandInputHash and mcpInputHash are distinct fields with distinct inputs; equality is allowed only by digest coincidence and never by field aliasing",
+    "restart": "worker retry/restart reads only Issue #108 immutable compute_run_inputs snapshot; request body, prompt text and mutable trip state are not reconstructed as command input",
+    "exposure": "both hashes are non-secret lowercase 64-hex provenance; raw command and MCP payload are not returned"
+  },
+  "examples": {
+    "accepted": {"contractVersion": "1.0.0", "runId": "89000000-0000-4000-8000-000000000001", "status": "queued", "pollUrl": "/api/v1/trips/89000000-0000-4000-8000-000000000010/generation-runs/89000000-0000-4000-8000-000000000001", "commandInputHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "acceptedAt": "2026-08-26T12:00:00+09:00"},
+    "failedPreStart": {"contractVersion":"1.0.0","runId":"89000000-0000-4000-8000-000000000001","status":"failed","pollUrl":"/api/v1/trips/89000000-0000-4000-8000-000000000010/generation-runs/89000000-0000-4000-8000-000000000001","commandInputHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","createdAt":"2026-08-26T12:00:00+09:00","completedAt":"2026-08-26T12:00:01+09:00","failure":{"code":"ASYNC_RUN_ADMISSION_FAILED","detail":"계산 작업을 시작하지 못했습니다.","retryable":true}},
+    "cancelledStartedPreDispatch": {"contractVersion":"1.0.0","runId":"89000000-0000-4000-8000-000000000002","status":"cancelled","pollUrl":"/api/v1/trips/89000000-0000-4000-8000-000000000010/schedule-revision-runs/89000000-0000-4000-8000-000000000002","commandInputHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","createdAt":"2026-08-26T12:00:00+09:00","startedAt":"2026-08-26T12:00:02+09:00","completedAt":"2026-08-26T12:00:03+09:00","failure":{"code":"ASYNC_RUN_CANCELLED","detail":"MCP 호출 전에 일정 계산이 취소되었습니다.","retryable":false}},
+    "failedPostDispatch": {"contractVersion":"1.0.0","runId":"89000000-0000-4000-8000-000000000003","status":"failed","pollUrl":"/api/v1/trips/89000000-0000-4000-8000-000000000010/generation-runs/89000000-0000-4000-8000-000000000003","commandInputHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mcpInputHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","createdAt":"2026-08-26T12:00:00+09:00","startedAt":"2026-08-26T12:00:02+09:00","completedAt":"2026-08-26T12:00:10+09:00","failure":{"code":"ASYNC_COMPUTE_UNAVAILABLE","detail":"MCP 호출 후 일정 계산을 완료하지 못했습니다.","retryable":true}},
+    "problem": {"type": "https://api.timing-jeju.com/problems/active-schedule-version-conflict", "title": "일정 버전이 변경되었습니다", "status": 409, "detail": "최신 일정을 다시 확인한 뒤 후보를 적용해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000089", "code": "ACTIVE_SCHEDULE_VERSION_CONFLICT", "traceId": "00000000000000000000000000000089", "fieldErrors": []}
+  },
+  "catalogProjection": [
+    {"method":"POST","path":"/api/v1/trips/{tripId}/generation-runs","operation":"compute","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical Supabase JWT sub; cross-owner trip is 404; contract #89","schemas":{"path":"TripPath","query":"none","headers":"AsyncCreateHeaders","body":"GenerationRunRequest"},"presence":"targetDayId/candidateCount/refreshExternalFacts required non-null; concrete pollUrl and commandInputHash","responses":{"success":[202],"errors":[400,401,404,409,422,429,503]},"dbOwner":"Spring itinerary_generation_runs/compute_run_inputs; intake #53, worker/candidate #79","requestTimeCall":"none; persist queued run and immutable command snapshot only","dataLineage":"owner trip + generation snapshot discriminator itinerary_generation","figma":{"node":"not-linked","action":"일정 생성 접수","loading":"not-linked","empty":"not-linked","error":"not-linked"},"contractVersion":"1.0.0","idempotency":{"required":true,"header":"Idempotency-Key","scope":"canonicalSub + POST + normalized path + key","ttl":"24h after completion","replay":"same key+payload replays exact 202 headers and body","payloadConflict":"409 IDEMPOTENCY_KEY_REUSED","concurrentRequest":"single winner; processing loser 409 Retry-After: 1"},"pagination":{"type":"none"}},
+    {"method":"GET","path":"/api/v1/trips/{tripId}/generation-runs/{runId}","operation":"read","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical Supabase JWT sub; cross-owner run is 404; contract #89","schemas":{"path":"AsyncRunPath","query":"NoQuery","headers":"AsyncReadHeaders","body":"BodyForbidden"},"presence":"five run states only; candidate expiresAt separate; commandInputHash and state-dependent mcpInputHash/failure/result","responses":{"success":[200],"errors":[400,401,404,410,429,503]},"dbOwner":"Spring owner-scoped itinerary_generation_runs/candidates/compute_run_inputs read","requestTimeCall":"none; persisted lifecycle/result only","dataLineage":"generation run + immutable snapshot + MCP result provenance","figma":{"node":"not-linked","action":"일정 생성 polling","loading":"not-linked","empty":"not-linked","error":"not-linked"},"contractVersion":"1.0.0","idempotency":{"required":false,"header":"none"},"pagination":{"type":"none"}},
+    {"method":"POST","path":"/api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply","operation":"apply","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical Supabase JWT sub; cross-owner or wrong-run candidate is 404; contract #89","schemas":{"path":"AsyncCandidatePath","query":"none","headers":"AsyncApplyHeaders","body":"ApplyCandidateRequest"},"presence":"expectedActiveScheduleVersionId required and equals strong If-Match; expiresAt checked","responses":{"success":[200],"errors":[400,401,404,409,410,422,429,503]},"dbOwner":"Spring atomic candidate/trip lock and active-version CAS; candidate #79","requestTimeCall":"none","dataLineage":"owner generation candidate -> trip active schedule CAS","figma":{"node":"not-linked","action":"생성 후보 적용","loading":"not-linked","empty":"not-linked","error":"not-linked"},"contractVersion":"1.0.0","idempotency":{"required":true,"header":"Idempotency-Key","scope":"canonicalSub + POST + normalized path + key","ttl":"24h after completion","replay":"same key+payload replays exact 200 headers and body","payloadConflict":"409 IDEMPOTENCY_KEY_REUSED","concurrentRequest":"trip lock and expected-active CAS allow one winner"},"pagination":{"type":"none"}},
+    {"method":"POST","path":"/api/v1/trips/{tripId}/schedule-revision-runs","operation":"compute","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical Supabase JWT sub equals revision/trip owner; cross-owner 404; contract #89","schemas":{"path":"TripPath","query":"none","headers":"AsyncCreateHeaders","body":"ScheduleRevisionRunRequest"},"presence":"targetDayId/affectedItemIds/instructionCodes required non-null; concrete pollUrl and commandInputHash","responses":{"success":[202],"errors":[400,401,404,409,422,429,503]},"dbOwner":"Spring schedule_revision_runs/compute_run_inputs; intake #69 snapshot #108","requestTimeCall":"none; persist queued run and immutable command snapshot only","dataLineage":"owner trip + revision snapshot discriminator schedule_revision","figma":{"node":"not-linked","action":"AI 보정 접수","loading":"not-linked","empty":"not-linked","error":"not-linked"},"contractVersion":"1.0.0","idempotency":{"required":true,"header":"Idempotency-Key","scope":"canonicalSub + POST + normalized path + key","ttl":"24h after completion","replay":"same key+payload replays exact 202 headers and body","payloadConflict":"409 IDEMPOTENCY_KEY_REUSED","concurrentRequest":"single active-scope/idempotency winner"},"pagination":{"type":"none"}},
+    {"method":"GET","path":"/api/v1/trips/{tripId}/schedule-revision-runs/{runId}","operation":"read","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical Supabase JWT sub equals revision owner; cross-owner 404; contract #89","schemas":{"path":"AsyncRunPath","query":"NoQuery","headers":"AsyncReadHeaders","body":"BodyForbidden"},"presence":"five run states only; candidate expiresAt separate; commandInputHash and state-dependent mcpInputHash/failure/result","responses":{"success":[200],"errors":[400,401,404,410,429,503]},"dbOwner":"Spring owner-scoped schedule_revision_runs/compute_run_inputs/future candidates #104","requestTimeCall":"none; persisted lifecycle/result only","dataLineage":"revision run + immutable snapshot + MCP result provenance","figma":{"node":"not-linked","action":"AI 보정 polling","loading":"not-linked","empty":"not-linked","error":"not-linked"},"contractVersion":"1.0.0","idempotency":{"required":false,"header":"none"},"pagination":{"type":"none"}},
+    {"method":"POST","path":"/api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply","operation":"apply","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical Supabase JWT sub; cross-owner or wrong-run candidate is 404; contract #89","schemas":{"path":"AsyncCandidatePath","query":"none","headers":"AsyncApplyHeaders","body":"ApplyCandidateRequest"},"presence":"expectedActiveScheduleVersionId required and equals strong If-Match; expiresAt checked","responses":{"success":[200],"errors":[400,401,404,409,410,422,429,503]},"dbOwner":"Spring atomic revision candidate/trip lock and active-version CAS; candidate #104","requestTimeCall":"none","dataLineage":"owner revision candidate -> trip active schedule CAS","figma":{"node":"not-linked","action":"보정 후보 적용","loading":"not-linked","empty":"not-linked","error":"not-linked"},"contractVersion":"1.0.0","idempotency":{"required":true,"header":"Idempotency-Key","scope":"canonicalSub + POST + normalized path + key","ttl":"24h after completion","replay":"same key+payload replays exact 200 headers and body","payloadConflict":"409 IDEMPOTENCY_KEY_REUSED","concurrentRequest":"trip lock and expected-active CAS allow one winner"},"pagination":{"type":"none"}}
+  ],
+  "externalTraceability": {
+    "notion": {"status": "not-linked", "contractVersion": "not-linked", "evidence": null, "ownerFollowUp": "Notion API DB owner must link six exact rows and version after external write authorization"},
+    "figma": {"status": "not-linked", "contractVersion": "not-linked", "evidence": null, "ownerFollowUp": "Design owner must link action/loading/empty/error nodes for all six endpoints"},
+    "repositoryEvidenceAudit": {
+      "scope": ["all tracked files under docs", "all tracked files under fixtures", "filenames and contents matching notion/figma/export/schedule-ai/generation/revision"],
+      "notionFinding": "no repository export or canonical pageId/pageUrl/version tuple for any of the six Issue #89 endpoint rows",
+      "figmaFinding": "general fileKey and functional screen mapping exist, but no endpoint-specific node/action/loading/empty/error/contractVersion tuple for the six Issue #89 endpoints",
+      "blockingEvidence": ["six Notion row page IDs and canonical URLs", "each row method/path and contractVersion 1.0.0 readback", "Figma fileKey plus endpoint-specific node IDs", "action/loading/empty/error state nodes and API contractVersion linkage"],
+      "decision": "fail-closed not-linked/not-ready; general design references cannot be promoted to endpoint evidence"
+    }
+  },
+  "readiness": {
+    "local": {"status": "ready", "evidence": {"document": "docs/contracts/domains/schedule-ai/contract.md", "machineContract": "docs/contracts/domains/schedule-ai/contract.json", "validator": "scripts/validate_schedule_ai_contract.py", "contractTest": "scripts/tests/test_schedule_ai_contract.py", "issue": "https://github.com/Timing-Jeju/jeju_BE/issues/89"}},
+    "metadata": {"status": "not-ready", "evidence": null},
+    "example": {"status": "not-ready", "evidence": null},
+    "implementation": {"status": "not-ready", "evidence": null}
+  },
+  "schemaGaps": [
+    "Issue #79 must add generation candidate lifecycle status and expires_at; Issue #89 does not mutate schema.",
+    "Issue #104 owns schedule_revision_candidates identity, owner/run/schedule FKs, expiry and single-apply arbiter; the table is absent.",
+    "Issue #69 owns mcp_compute_call_logs.schedule_revision_run_id FK; the column is absent.",
+    "Existing itinerary_generation_runs does not yet implement the shared lease/fencing runtime shape; worker owner #74 must reconcile without changing this HTTP contract."
+  ],
+  "excludedScope": ["Controller", "Service", "Repository", "Java DTO", "DB migration", "FastAPI source", "Notion write", "Figma write", "approval state", "PR"]
+}

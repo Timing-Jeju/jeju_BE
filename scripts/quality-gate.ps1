@@ -46,6 +46,7 @@ if ($Scope -in @("all", "common")) {
   Invoke-Native "선호·교통 계약 검사" { py -3 scripts/validate_preferences_transport_contract.py }
   Invoke-Native "숙소 계약 검사" { py -3 scripts/validate_accommodations_contract.py }
   Invoke-Native "일정 계약 검사" { py -3 scripts/validate_schedules_contract.py }
+  Invoke-Native "일정 생성·AI 보정 비동기 API 계약 검사" { py -3 scripts/validate_schedule_ai_contract.py }
   Write-Stage "날씨 예보 API 계약 검사"
   Invoke-Native "날씨 예보 계약 검사" { py -3 scripts/validate_weather_forecast_contract.py }
 
