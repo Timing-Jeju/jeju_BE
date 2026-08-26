@@ -12,6 +12,9 @@ MIGRATION = (
     / "migrations"
     / "20260902000000_push_device_notification_preferences.sql"
 )
+NEGATIVE_SQL = ROOT / "db/queries/database_negative_constraints.sql"
+LOCAL_FIXTURE_SQL = ROOT / "db/local-postgres/seed_fixtures.sql"
+FIXTURE_USER = "09000000-0000-0000-0000-000000000001"
 
 
 def compact(value: str) -> str:
@@ -19,6 +22,24 @@ def compact(value: str) -> str:
 
 
 class PushNotificationDatabaseTest(unittest.TestCase):
+    def test_deploy_negative_sql_reuses_local_fixture_owner_without_auth_insert(self):
+        negative = compact(NEGATIVE_SQL.read_text(encoding="utf-8"))
+        fixture = compact(LOCAL_FIXTURE_SQL.read_text(encoding="utf-8"))
+
+        self.assertNotRegex(negative, r"insert\s+into\s+(?:public\.)?auth\.users")
+        self.assertIn(f"insert into auth.users ( id, email", fixture)
+        self.assertIn(FIXTURE_USER, fixture)
+        self.assertGreaterEqual(negative.count(FIXTURE_USER), 4)
+        for case in (
+            "push device fingerprint must be sha-256 length",
+            "active token fingerprint is globally unique",
+            "notification safety buffer below inclusive range",
+            "notification safety buffer above inclusive range",
+        ):
+            with self.subTest(case=case):
+                self.assertIn(case, negative)
+        self.assertTrue(negative.endswith("rollback;"))
+
     def test_tables_constraints_indexes_and_owner_rls_are_explicit(self):
         self.assertTrue(MIGRATION.is_file())
         sql = compact(MIGRATION.read_text(encoding="utf-8"))

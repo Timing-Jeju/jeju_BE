@@ -2939,9 +2939,6 @@ select pg_temp.expect_rejected(
   array['23514']
 );
 
-insert into auth.users (id, email)
-values ('f1130000-0000-0000-0000-000000000001', 'push-negative@issue113.test');
-
 select pg_temp.expect_rejected(
   'push device fingerprint must be SHA-256 length',
   $statement$
@@ -2950,7 +2947,7 @@ select pg_temp.expect_rejected(
       permission_status, app_version, locale, time_zone,
       last_seen_at, created_at, updated_at
     ) values (
-      'f1130000-0000-0000-0000-000000000001',
+      '09000000-0000-0000-0000-000000000001',
       'f1130000-0000-0000-0000-000000000101',
       'IOS', 'ciphertext', decode('01', 'hex'), 'GRANTED', '1.0.0', 'ko-KR',
       'Asia/Seoul', now(), now(), now()
@@ -2964,7 +2961,7 @@ insert into public.push_devices (
   permission_status, app_version, locale, time_zone,
   last_seen_at, created_at, updated_at
 ) values (
-  'f1130000-0000-0000-0000-000000000001',
+  '09000000-0000-0000-0000-000000000001',
   'f1130000-0000-0000-0000-000000000101',
   'IOS', 'ciphertext', digest('active-token', 'sha256'), 'GRANTED', '1.0.0',
   'ko-KR', 'Asia/Seoul', now(), now(), now()
@@ -2978,7 +2975,7 @@ select pg_temp.expect_rejected(
       permission_status, app_version, locale, time_zone,
       last_seen_at, created_at, updated_at
     ) values (
-      'f1130000-0000-0000-0000-000000000001',
+      '09000000-0000-0000-0000-000000000001',
       'f1130000-0000-0000-0000-000000000102',
       'ANDROID', 'other-ciphertext', digest('active-token', 'sha256'), 'GRANTED',
       '1.0.0', 'ko-KR', 'Asia/Seoul', now(), now(), now()
@@ -2994,7 +2991,7 @@ select pg_temp.expect_rejected(
       user_id, next_destination_departure_enabled, safety_buffer_minutes,
       created_at, updated_at
     ) values (
-      'f1130000-0000-0000-0000-000000000001', true, -1, now(), now()
+      '09000000-0000-0000-0000-000000000001', true, -1, now(), now()
     )
   $statement$,
   array['23514']
@@ -3007,7 +3004,7 @@ select pg_temp.expect_rejected(
       user_id, next_destination_departure_enabled, safety_buffer_minutes,
       created_at, updated_at
     ) values (
-      'f1130000-0000-0000-0000-000000000001', true, 121, now(), now()
+      '09000000-0000-0000-0000-000000000001', true, 121, now(), now()
     )
   $statement$,
   array['23514']
