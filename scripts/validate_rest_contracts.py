@@ -38,6 +38,17 @@ DOMAIN_CONTRACTS = {
     94: "weather-forecast",
 }
 DOMAIN_ISSUES = set(DOMAIN_CONTRACTS)
+DOMAIN_LOCAL_VERSION_OVERRIDES = {82: "1.1.0"}
+PROFILE_LEGAL_ENDPOINTS = {
+    ("GET", "/api/v1/me"),
+    ("PATCH", "/api/v1/me"),
+    ("DELETE", "/api/v1/me"),
+    ("GET", "/api/v1/legal-documents"),
+    ("PUT", "/api/v1/me/consents"),
+    ("GET", "/api/v1/account-deletion-requests/{}"),
+    ("GET", "/api/v1/me/profile-image"),
+    ("PUT", "/api/v1/me/profile-image"),
+}
 PATH_PATTERN = re.compile(
     r"^/api/v1(?:/(?:[A-Za-z0-9._~-]+|\{[A-Za-z][A-Za-z0-9]*\}))+?$"
 )
@@ -291,13 +302,31 @@ def validate_catalog(
 
     _validate_common_rules(catalog.get("commonRules"), errors)
     _validate_ownership(catalog.get("ownership"), errors)
-    _validate_endpoints(catalog.get("endpoints"), contract_version, errors)
+    endpoints = catalog.get("endpoints")
+    domains = catalog.get("domainContracts")
+    profile_v11 = (
+        isinstance(domains, list)
+        and any(
+            isinstance(domain, dict)
+            and domain.get("issue") == 82
+            and isinstance(domain.get("versions"), dict)
+            and domain["versions"].get("local") == DOMAIN_LOCAL_VERSION_OVERRIDES[82]
+            for domain in domains
+        )
+    ) or (isinstance(endpoints, list) and any(
+        isinstance(endpoint, dict)
+        and endpoint.get("method") == "PUT"
+        and endpoint.get("path") == "/api/v1/me/profile-image"
+        for endpoint in endpoints
+    ))
+    _validate_endpoints(endpoints, contract_version, errors, profile_v11)
     _validate_domains(
-        catalog.get("domainContracts"),
+        domains,
         contract_version,
         template_id,
         errors,
         repo_root.resolve(),
+        profile_v11,
     )
     return errors
 
@@ -425,7 +454,9 @@ def _validate_ownership(ownership: Any, errors: list[str]) -> None:
             errors.append(f"{name} 구현 소유자는 #{issue}여야 합니다.")
 
 
-def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]) -> None:
+def _validate_endpoints(
+    endpoints: Any, contract_version: Any, errors: list[str], profile_v11: bool = False
+) -> None:
     if not isinstance(endpoints, list):
         errors.append("endpoints 배열이 필요합니다.")
         return
@@ -471,7 +502,12 @@ def _validate_endpoints(endpoints: Any, contract_version: Any, errors: list[str]
         for field in ("owner", "presence", "dbOwner", "requestTimeCall", "dataLineage"):
             if not _non_empty(endpoint.get(field)):
                 errors.append(f"{label}의 필수 계약 필드 {field}는 비어 있을 수 없습니다.")
-        if endpoint.get("contractVersion") != contract_version:
+        expected_endpoint_version = (
+            DOMAIN_LOCAL_VERSION_OVERRIDES[82]
+            if profile_v11 and identity in PROFILE_LEGAL_ENDPOINTS
+            else contract_version
+        )
+        if endpoint.get("contractVersion") != expected_endpoint_version:
             errors.append(f"{label}의 contract version이 공통 버전과 다릅니다.")
 
         _validate_endpoint_auth(endpoint.get("auth"), label, errors)
@@ -633,6 +669,7 @@ def _validate_domains(
     template_id: Any,
     errors: list[str],
     repo_root: Path,
+    profile_v11: bool = False,
 ) -> None:
     if not isinstance(domains, list):
         errors.append("domainContracts 배열이 필요합니다.")
@@ -681,7 +718,9 @@ def _validate_domains(
             errors.append(
                 f"도메인 계약 #{issue}의 canonical issue/domain mapping이 다릅니다."
             )
-        _validate_domain_versions(domain.get("versions"), issue, contract_version, errors)
+        _validate_domain_versions(
+            domain.get("versions"), issue, contract_version, errors, profile_v11
+        )
         _validate_domain_readiness(
             domain.get("readiness"),
             domain.get("versions"),
@@ -693,7 +732,11 @@ def _validate_domains(
 
 
 def _validate_domain_versions(
-    versions: Any, issue: Any, contract_version: Any, errors: list[str]
+    versions: Any,
+    issue: Any,
+    contract_version: Any,
+    errors: list[str],
+    profile_v11: bool = False,
 ) -> None:
     _reject_unknown_fields(
         versions, VERSION_FIELDS, f"도메인 계약 #{issue}.versions", errors
@@ -701,12 +744,17 @@ def _validate_domain_versions(
     if not isinstance(versions, dict) or set(versions) != {"local", "notion", "figma"}:
         errors.append(f"도메인 계약 #{issue}의 versions schema가 정확하지 않습니다.")
         return
-    if versions.get("local") != contract_version:
+    expected_local = (
+        DOMAIN_LOCAL_VERSION_OVERRIDES[82]
+        if profile_v11 and issue == 82
+        else contract_version
+    )
+    if versions.get("local") != expected_local:
         errors.append(f"도메인 계약 #{issue}의 local contract version이 다릅니다.")
     for source in ("notion", "figma"):
         version = versions.get(source)
         if not isinstance(version, str) or version not in (
-            contract_version,
+            expected_local,
             "not-linked",
         ):
             errors.append(

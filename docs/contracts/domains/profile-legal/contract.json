@@ -1,12 +1,13 @@
 {
   "schemaVersion": "timing-jeju-profile-legal-contract/v1",
-  "contractVersion": "1.0.0",
+  "contractVersion": "1.1.0",
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 82,
   "implementationIssues": [
     18,
     19,
     61,
+    78,
     106
   ],
   "schemas": {
@@ -127,6 +128,107 @@
           "enum": [
             "ko-KR"
           ]
+        }
+      }
+    },
+    "ProfileImageQueryHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Authorization"
+      ],
+      "properties": {
+        "Authorization": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^Bearer [A-Za-z0-9._~-]{16,4096}$"
+        }
+      }
+    },
+    "ProfileImageMutationHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match"
+      ],
+      "properties": {
+        "Authorization": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^Bearer [A-Za-z0-9._~-]{16,4096}$"
+        },
+        "Idempotency-Key": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "If-Match": {
+          "type": "string",
+          "format": "profile-image-etag",
+          "nullable": false,
+          "pattern": "^\\\"profile-image-(?:0|[1-9][0-9]*)\\\"$"
+        }
+      }
+    },
+    "ProfileImageRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileImageObjectKey"
+      ],
+      "properties": {
+        "profileImageObjectKey": {
+          "type": "string",
+          "format": "profile-image-object-key",
+          "nullable": true,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/profile/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    "ProfileImageResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profileImageObjectKey",
+        "profileImageUrl",
+        "profileImageSource",
+        "profileImageVersion",
+        "updatedAt"
+      ],
+      "properties": {
+        "profileImageObjectKey": {
+          "type": "string",
+          "format": "profile-image-object-key",
+          "nullable": true,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/profile/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "profileImageUrl": {
+          "type": "string",
+          "nullable": true,
+          "readOnly": true,
+          "pattern": "^https://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]{1,2040}$"
+        },
+        "profileImageSource": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "provider",
+            "storage",
+            "none"
+          ]
+        },
+        "profileImageVersion": {
+          "type": "integer",
+          "nullable": false,
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "nullable": false
         }
       }
     },
@@ -530,7 +632,7 @@
         "headers": "CommonHeaders",
         "body": "none"
       },
-      "presence": "all response fields required; provider profileImageUrl is nullable read-only; providers stable unique order",
+      "presence": "all response fields required; storage-first profileImageUrl is nullable read-only and resolved as storage > provider > none; providers stable unique order",
       "responses": {
         "success": [
           200
@@ -559,7 +661,7 @@
         "empty": "not-linked",
         "error": "not-linked"
       },
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "idempotency": {
         "required": false,
         "header": "none"
@@ -624,7 +726,7 @@
         "empty": "not-linked",
         "error": "not-linked"
       },
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "idempotency": {
         "required": false,
         "header": "none"
@@ -699,7 +801,7 @@
         "empty": "not-linked",
         "error": "not-linked"
       },
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "idempotency": {
         "required": true,
         "header": "Idempotency-Key",
@@ -764,7 +866,7 @@
         "empty": "not-linked",
         "error": "not-linked"
       },
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "idempotency": {
         "required": false,
         "header": "none"
@@ -833,7 +935,7 @@
         "empty": "not-linked",
         "error": "not-linked"
       },
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "idempotency": {
         "required": false,
         "header": "none"
@@ -910,10 +1012,145 @@
         "empty": "not-linked",
         "error": "not-linked"
       },
-      "contractVersion": "1.0.0",
+      "contractVersion": "1.1.0",
       "idempotency": {
         "required": false,
         "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/profile-image",
+      "operation": "read",
+      "catalogKind": "extension",
+      "implementationIssue": 78,
+      "successSchema": "ProfileImageResponse",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical Supabase JWT sub owner only",
+      "schemas": {
+        "path": "none",
+        "query": "none",
+        "headers": "ProfileImageQueryHeaders",
+        "body": "none"
+      },
+      "presence": "current image state always returned; version starts at 0; body and strong ETag are an atomic projection",
+      "responses": {
+        "success": [200],
+        "errors": [401, 503]
+      },
+      "errorMatrix": {
+        "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+        "503": ["PROFILE_DATA_UNAVAILABLE"]
+      },
+      "dbOwner": "Spring user_profiles/social_accounts current state read; implementation/schema Issue #78",
+      "requestTimeCall": "none",
+      "dataLineage": "stored object key/source/version plus provider fallback; Storage ETag remains internal",
+      "figma": {
+        "node": "not-linked",
+        "action": "discover current profile image state and mutation ETag",
+        "loading": "not-linked",
+        "empty": "source none with nullable key/url",
+        "error": "cause-free Problem Details"
+      },
+      "contractVersion": "1.1.0",
+      "idempotency": {"required": false, "header": "none"},
+      "pagination": {"type": "none"}
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/me/profile-image",
+      "operation": "apply",
+      "catalogKind": "extension",
+      "implementationIssue": 78,
+      "successSchema": "ProfileImageResponse",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical Supabase JWT sub owner only; object existence concealed across owners",
+      "schemas": {
+        "path": "none",
+        "query": "none",
+        "headers": "ProfileImageMutationHeaders",
+        "body": "ProfileImageRequest"
+      },
+      "presence": "profileImageObjectKey required; immutable generation key confirms an INSERT-only object; explicit null clears storage selection and restores provider fallback",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          404,
+          409,
+          413,
+          415,
+          503
+        ]
+      },
+      "errorMatrix": {
+        "400": [
+          "INVALID_PROFILE_IMAGE_REQUEST"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "PROFILE_IMAGE_NOT_FOUND"
+        ],
+        "409": [
+          "PROFILE_IMAGE_VERSION_CONFLICT",
+          "IDEMPOTENCY_PAYLOAD_CONFLICT",
+          "IDEMPOTENCY_REQUEST_IN_PROGRESS"
+        ],
+        "413": [
+          "PROFILE_IMAGE_TOO_LARGE"
+        ],
+        "415": [
+          "PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED"
+        ],
+        "503": [
+          "PROFILE_IMAGE_STORAGE_UNAVAILABLE"
+        ]
+      },
+      "dbOwner": "Spring user_profiles metadata transaction; schema/migration/controller/service/storage implementation Issue #78",
+      "requestTimeCall": "read-only Storage metadata/HEAD lookup and immutable object ETag recheck for confirmation; clear does not require object lookup",
+      "dataLineage": "publishable key + user JWT INSERT-only Storage object -> owner/MIME/size/generation/ETag confirmation -> object key/source/storage ETag; URL derived from configuration",
+      "figma": {
+        "node": "not-linked",
+        "action": "profile image confirm or clear",
+        "loading": "not-linked",
+        "empty": "provider fallback or none",
+        "error": "cause-free Problem Details"
+      },
+      "contractVersion": "1.1.0",
+      "idempotency": {
+        "required": true,
+        "header": "Idempotency-Key",
+        "scope": "canonical JWT sub + PUT /api/v1/me/profile-image + key",
+        "ttl": "24h",
+        "replay": "same key + canonical body + original If-Match returns original 200 body and ETag",
+        "payloadConflict": "409 IDEMPOTENCY_PAYLOAD_CONFLICT",
+        "concurrentRequest": "409 IDEMPOTENCY_REQUEST_IN_PROGRESS"
+      },
+      "concurrency": {
+        "header": "If-Match",
+        "precondition": "strong current profile image ETag with canonical decimal version 0|[1-9][0-9]* bounded to 9223372036854775807",
+        "discovery": "GET /api/v1/me/profile-image returns body plus strong ETag; absent persisted version is version 0 with ETag profile-image-0",
+        "response": "GET and successful PUT return strong ETag matching profileImageVersion; completed replay returns the original body and original ETag",
+        "stale": "409 PROFILE_IMAGE_VERSION_CONFLICT; no profile mutation or cleanup enqueue",
+        "ordering": "idempotent replay is resolved before If-Match; new commands compare If-Match under profile row lock",
+        "overflow": "version 9223372036854775807 cannot increment and returns 409 PROFILE_IMAGE_VERSION_CONFLICT"
       },
       "pagination": {
         "type": "none"
@@ -946,6 +1183,158 @@
       "null": "reject"
     },
     "requestConstraint": "at least one mutable field"
+  },
+  "profileImagePolicy": {
+    "contractDecision": "additive v1.1 endpoint; PATCH /api/v1/me remains nickname/locale-only closed schema",
+    "bucket": "profile-images",
+    "objectKey": "{canonicalSub}/profile/{lowercaseGenerationUuid}",
+    "storageIdentity": "profile-images/{canonicalSub}/profile/{lowercaseGenerationUuid}",
+    "canonicalSub": "canonical lowercase UUID JWT sub",
+    "canonicalization": "server validates lowercase canonicalSub and lowercase generation UUID segments byte-for-byte; no trim, percent decoding, Unicode normalization, extension, alternate slash or user-supplied owner",
+    "ownerCheck": "storage.objects.owner_id == canonicalSub",
+    "storageMetadataFields": {
+      "bucket": "storage.objects.bucket_id",
+      "name": "storage.objects.name",
+      "owner": "storage.objects.owner_id",
+      "mime": "storage.objects.metadata.mimetype",
+      "size": "storage.objects.metadata.size integer bytes",
+      "generation": "storage.objects.metadata.generation lowercase UUID equal to key generation",
+      "storageEtag": "immutable Storage HEAD ETag persisted internally and never exposed",
+      "updatedAt": "RFC3339 storage.objects.updated_at for orphan cutoff only",
+      "malformed": "missing, null, wrong type, non-RFC3339 time, missing ETag or key/metadata generation contradiction returns 503 without raw metadata"
+    },
+    "allowedMimeTypes": [
+      "image/jpeg",
+      "image/png",
+      "image/webp"
+    ],
+    "maximumBytes": 5242880,
+    "bucketUploadPolicy": "file_size_limit=5242880 and allowed_mime_types=image/jpeg,image/png,image/webp enforced before INSERT",
+    "sizeBoundary": "bucket rejects greater than 5242880 before INSERT; confirmation additionally requires metadata size integer 1..5242880 inclusive",
+    "clearSemantics": "null clears storage selection",
+    "readPriority": [
+      "storage",
+      "provider",
+      "none"
+    ],
+    "providerFallback": "after clear, choose the first valid HTTPS provider image in google, kakao, custom:naver stable order; otherwise source=none and URL=null",
+    "fixtureSupabaseOrigin": "https://project.example.invalid",
+    "publicUrl": "storage source only: SUPABASE_URL + /storage/v1/object/public/profile-images/ + immutable canonical object key; DB stores no full, signed or environment-specific URL",
+    "cacheVersioning": "immutable generation key changes the public URL on every confirmed replacement; provider fallback URL is returned unchanged",
+    "directUploadBoundary": "client uses publishable key plus current user JWT and Storage RLS INSERT on a fresh generation key; Spring never proxies bytes or uses a service credential for user upload",
+    "directUploadMutation": "authenticated client INSERT only; upsert=false; UPDATE forbidden; DELETE forbidden",
+    "deleteAuthority": "server cleanup worker only via Storage API; Issue #106 uses the same server delete authority before Auth deletion",
+    "coreProfileProjection": "GET /api/v1/me profileImageUrl uses storage > provider > none while preserving the existing response field shape",
+    "storageMetadataBoundary": "Spring performs read-only storage.objects metadata plus Storage HEAD ETag confirmation; storage schema SQL DML is forbidden",
+    "confirmationTransaction": "read metadata and Storage ETag, lock current user_profiles row, resolve replay before strong If-Match, re-read the exact immutable generation/ETag, then atomically store key/source/storage ETag/version, completed response and old-generation cleanup outbox",
+    "replacement": "each replacement uses a new immutable generation key; Storage UPDATE/upsert cannot overwrite confirmed or pending bytes",
+    "clearCleanup": "after clear commit, outbox targets only the former immutable object key plus persisted Storage ETag; worker claims once, locks profile, verifies key is not current and owner/key/Storage ETag still match before delete",
+    "orphanCleanup": "Issue #78 deletes only unreferenced immutable generation keys older than the cutoff after owner/key/generation/Storage ETag validation; current profile reference is rechecked under lock",
+    "failureAtomicity": "validation, Storage lookup, stale If-Match or idempotency conflict leaves profile metadata unchanged and enqueues no cleanup",
+    "legacyCompatibility": "legacy profile_image_url is provider fallback read compatibility only; #78 backfills object key/source and new writers never persist storage public or signed URLs",
+    "accountDeletion": "Issue #106 lists the canonical user prefix, removes only owner_id=canonicalSub objects through Storage API before Auth deletion and retries before safe terminalization"
+  },
+  "profileImagePersistencePolicy": {
+    "migrationOwner": 78,
+    "schemaChangeInIssue181": "none; documentation only",
+    "userProfileColumns": {
+      "profile_image_object_key": "text nullable",
+      "profile_image_source": "text not null provider|storage|none",
+      "profile_image_storage_etag": "text nullable",
+      "profile_image_version": "bigint not null default 0"
+    },
+    "version": {
+      "default": 0,
+      "minimum": 0,
+      "maximum": 9223372036854775807,
+      "increment": "exactly one per committed non-replay confirm or clear",
+      "overflow": "409 PROFILE_IMAGE_VERSION_CONFLICT"
+    },
+    "nullableInvariants": [
+      "source=storage iff object_key and storage_etag are both non-null",
+      "source in provider|none iff object_key and storage_etag are both null"
+    ],
+    "backfill": {
+      "providerUrlPresent": {
+        "profile_image_source": "provider",
+        "profile_image_object_key": null,
+        "profile_image_storage_etag": null,
+        "profile_image_version": 0
+      },
+      "providerUrlAbsent": {
+        "profile_image_source": "none",
+        "profile_image_object_key": null,
+        "profile_image_storage_etag": null,
+        "profile_image_version": 0
+      }
+    },
+    "idempotencyPersistence": {
+      "table": "api_idempotency_records",
+      "schemaOwnerMigration": "20260810000000_api_idempotency_registry.sql",
+      "redefined": false,
+      "primaryKey": [
+        "owner_sub",
+        "http_method",
+        "normalized_path",
+        "idempotency_key"
+      ],
+      "fields": [
+        "owner_sub",
+        "http_method",
+        "normalized_path",
+        "idempotency_key",
+        "request_hash",
+        "attempt_token",
+        "state",
+        "response_status",
+        "response_headers",
+        "response_body",
+        "created_at",
+        "lease_expires_at",
+        "completed_at",
+        "expires_at"
+      ],
+      "states": [
+        "PROCESSING",
+        "COMPLETED"
+      ],
+      "profileImageBinding": "request_hash binds canonical body plus original If-Match; completed response_status, response_headers bytea including Content-Type and ETag, and response_body bytea replay exactly"
+    },
+    "cleanupOutbox": {
+      "table": "profile_image_cleanup_outbox",
+      "fields": [
+        "id",
+        "owner_user_id",
+        "object_key",
+        "storage_etag",
+        "source_profile_version",
+        "reason",
+        "status",
+        "claim_token",
+        "claimed_at",
+        "attempt_count",
+        "next_attempt_at",
+        "completed_at",
+        "created_at"
+      ],
+      "reasons": [
+        "replacement",
+        "clear",
+        "orphan",
+        "account_deletion"
+      ],
+      "states": [
+        "pending",
+        "claimed",
+        "succeeded",
+        "retry"
+      ],
+      "uniqueGeneration": [
+        "object_key",
+        "storage_etag"
+      ],
+      "claim": "SKIP LOCKED lease; retry preserves exact immutable key and Storage ETag target; current profile reference is never deleted"
+    }
   },
   "deletionPolicy": {
     "confirmation": "DELETE_MY_ACCOUNT",
@@ -1173,7 +1562,7 @@
       "code": "AUTHENTICATION_REQUIRED",
       "status": 401,
       "condition": "required bearer JWT missing",
-      "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "PUT /api/v1/me/consents"],
+      "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "PUT /api/v1/me/consents", "GET /api/v1/me/profile-image", "PUT /api/v1/me/profile-image"],
       "example": {
         "type": "https://api.timing-jeju.com/problems/authentication-required",
         "title": "인증 필요",
@@ -1298,7 +1687,7 @@
       }
     },
     {
-      "code": "INVALID_ACCESS_TOKEN", "status": 401, "condition": "bearer JWT present but invalid", "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "GET /api/v1/legal-documents", "PUT /api/v1/me/consents"],
+      "code": "INVALID_ACCESS_TOKEN", "status": 401, "condition": "bearer JWT present but invalid", "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "GET /api/v1/legal-documents", "PUT /api/v1/me/consents", "GET /api/v1/me/profile-image", "PUT /api/v1/me/profile-image"],
       "example": {"type": "https://api.timing-jeju.com/problems/invalid-access-token", "title": "인증 토큰 오류", "status": 401, "detail": "접근 토큰이 올바르지 않습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "INVALID_ACCESS_TOKEN", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
     },
     {
@@ -1306,18 +1695,42 @@
       "example": {"type": "https://api.timing-jeju.com/problems/invalid-deletion-status-token", "title": "삭제 상태 토큰 오류", "status": 401, "detail": "삭제 상태 조회 토큰이 올바르지 않습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "INVALID_DELETION_STATUS_TOKEN", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
     },
     {
-      "code": "IDEMPOTENCY_PAYLOAD_CONFLICT", "status": 409, "condition": "same idempotency scope and key with different canonical body", "endpoints": ["DELETE /api/v1/me"],
+      "code": "IDEMPOTENCY_PAYLOAD_CONFLICT", "status": 409, "condition": "same idempotency scope and key with different canonical body", "endpoints": ["DELETE /api/v1/me", "PUT /api/v1/me/profile-image"],
       "example": {"type": "https://api.timing-jeju.com/problems/idempotency-payload-conflict", "title": "멱등 요청 충돌", "status": 409, "detail": "같은 멱등성 키의 요청 본문이 다릅니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "IDEMPOTENCY_PAYLOAD_CONFLICT", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
     },
     {
-      "code": "IDEMPOTENCY_REQUEST_IN_PROGRESS", "status": 409, "condition": "same idempotency command is still in progress", "endpoints": ["DELETE /api/v1/me"],
+      "code": "IDEMPOTENCY_REQUEST_IN_PROGRESS", "status": 409, "condition": "same idempotency command is still in progress", "endpoints": ["DELETE /api/v1/me", "PUT /api/v1/me/profile-image"],
       "example": {"type": "https://api.timing-jeju.com/problems/idempotency-request-in-progress", "title": "멱등 요청 처리 중", "status": 409, "detail": "동일한 요청이 처리 중입니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "IDEMPOTENCY_REQUEST_IN_PROGRESS", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "INVALID_PROFILE_IMAGE_REQUEST", "status": 400, "condition": "profile image key, If-Match, Idempotency-Key or closed request shape invalid", "endpoints": ["PUT /api/v1/me/profile-image"],
+      "example": {"type": "https://api.timing-jeju.com/problems/invalid-profile-image-request", "title": "프로필 이미지 요청 오류", "status": 400, "detail": "프로필 이미지 요청 형식이 올바르지 않습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "INVALID_PROFILE_IMAGE_REQUEST", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "PROFILE_IMAGE_NOT_FOUND", "status": 404, "condition": "immutable generation object missing, wrong bucket, wrong exact object name, or owner mismatch; all existence-sensitive cases return the same concealed 404", "endpoints": ["PUT /api/v1/me/profile-image"],
+      "example": {"type": "https://api.timing-jeju.com/problems/profile-image-not-found", "title": "프로필 이미지 없음", "status": 404, "detail": "확정할 프로필 이미지를 찾을 수 없습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "PROFILE_IMAGE_NOT_FOUND", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "PROFILE_IMAGE_VERSION_CONFLICT", "status": 409, "condition": "new command If-Match does not equal the locked current profile image version", "endpoints": ["PUT /api/v1/me/profile-image"],
+      "example": {"type": "https://api.timing-jeju.com/problems/profile-image-version-conflict", "title": "프로필 이미지 버전 충돌", "status": 409, "detail": "프로필 이미지 상태가 변경되었습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "PROFILE_IMAGE_VERSION_CONFLICT", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "PROFILE_IMAGE_TOO_LARGE", "status": 413, "condition": "validated metadata size is greater than 5242880 bytes", "endpoints": ["PUT /api/v1/me/profile-image"],
+      "example": {"type": "https://api.timing-jeju.com/problems/profile-image-too-large", "title": "프로필 이미지 용량 초과", "status": 413, "detail": "프로필 이미지는 5 MiB 이하여야 합니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "PROFILE_IMAGE_TOO_LARGE", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED", "status": 415, "condition": "validated metadata MIME is not image/jpeg, image/png or image/webp", "endpoints": ["PUT /api/v1/me/profile-image"],
+      "example": {"type": "https://api.timing-jeju.com/problems/profile-image-media-type-unsupported", "title": "프로필 이미지 형식 오류", "status": 415, "detail": "지원하지 않는 프로필 이미지 형식입니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
+    },
+    {
+      "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE", "status": 503, "condition": "Storage metadata cannot be read or is malformed; raw dependency cause and metadata are suppressed", "endpoints": ["PUT /api/v1/me/profile-image"],
+      "example": {"type": "https://api.timing-jeju.com/problems/profile-image-storage-unavailable", "title": "프로필 이미지 저장소 오류", "status": 503, "detail": "프로필 이미지 저장소를 확인할 수 없습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
     },
     {
       "code": "PROFILE_DATA_UNAVAILABLE",
       "status": 503,
       "condition": "required storage/dependency unavailable",
-      "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "GET /api/v1/legal-documents", "PUT /api/v1/me/consents", "GET /api/v1/account-deletion-requests/{deletionRequestId}"],
+      "endpoints": ["GET /api/v1/me", "PATCH /api/v1/me", "DELETE /api/v1/me", "GET /api/v1/legal-documents", "PUT /api/v1/me/consents", "GET /api/v1/account-deletion-requests/{deletionRequestId}", "GET /api/v1/me/profile-image"],
       "example": {
         "type": "https://api.timing-jeju.com/problems/profile-data-unavailable",
         "title": "데이터 조회 불가",

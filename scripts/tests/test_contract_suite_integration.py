@@ -15,6 +15,8 @@ EXPECTED_ENDPOINTS = {
     ("GET", "/api/v1/legal-documents"),
     ("PUT", "/api/v1/me/consents"),
     ("GET", "/api/v1/account-deletion-requests/{deletionRequestId}"),
+    ("GET", "/api/v1/me/profile-image"),
+    ("PUT", "/api/v1/me/profile-image"),
     ("GET", "/api/v1/places"),
     ("GET", "/api/v1/places/{placeId}"),
     ("GET", "/api/v1/me/saved-places"),
@@ -81,7 +83,7 @@ class ContractSuiteIntegrationTest(unittest.TestCase):
         actual = {(endpoint["method"], endpoint["path"]) for endpoint in catalog["endpoints"]}
 
         self.assertEqual(EXPECTED_ENDPOINTS, actual)
-        self.assertEqual(34, len(catalog["endpoints"]))
+        self.assertEqual(36, len(catalog["endpoints"]))
 
     def test_quality_gates_execute_all_contract_validators(self) -> None:
         shell_commands = _active_commands(SHELL_GATE.read_text(encoding="utf-8"), "python3 scripts/")

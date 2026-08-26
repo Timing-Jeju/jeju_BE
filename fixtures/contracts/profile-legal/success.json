@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "1.1.0",
   "examples": [
     {
       "method": "GET",
@@ -10,7 +10,7 @@
         "userId": "09000000-0000-0000-0000-000000000001",
         "email": "masked@example.invalid",
         "nickname": "제주여행자",
-        "profileImageUrl": null,
+        "profileImageUrl": "https://project.example.invalid/storage/v1/object/public/profile-images/09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675",
         "locale": "ko-KR",
         "providers": [],
         "onboardingCompleted": true,
@@ -88,6 +88,19 @@
       }
     },
     {
+      "method": "GET",
+      "contractPath": "/api/v1/me/profile-image",
+      "path": "/api/v1/me/profile-image",
+      "status": 200,
+      "body": {
+        "profileImageObjectKey": null,
+        "profileImageUrl": null,
+        "profileImageSource": "none",
+        "profileImageVersion": 0,
+        "updatedAt": "2026-08-25T10:58:00+09:00"
+      }
+    },
+    {
       "method": "PUT",
       "contractPath": "/api/v1/me/consents",
       "path": "/api/v1/me/consents",
@@ -109,6 +122,57 @@
         "nextRetryAt": null,
         "completedAt": null
       }
+    },
+    {
+      "method": "PUT",
+      "contractPath": "/api/v1/me/profile-image",
+      "path": "/api/v1/me/profile-image",
+      "status": 200,
+      "body": {
+        "profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675",
+        "profileImageUrl": "https://project.example.invalid/storage/v1/object/public/profile-images/09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675",
+        "profileImageSource": "storage",
+        "profileImageVersion": 1,
+        "updatedAt": "2026-08-25T11:00:00+09:00"
+      }
+    }
+  ],
+  "profileImageResponseHeaderExamples": [
+    {
+      "case": "initial-get",
+      "status": 200,
+      "headers": {"ETag": "\"profile-image-0\""},
+      "body": {"profileImageObjectKey": null, "profileImageUrl": null, "profileImageSource": "none", "profileImageVersion": 0, "updatedAt": "2026-08-25T10:58:00+09:00"}
+    },
+    {
+      "case": "confirm",
+      "status": 200,
+      "headers": {"ETag": "\"profile-image-1\"", "Idempotency-Replayed": "false"},
+      "body": {"profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675", "profileImageUrl": "https://project.example.invalid/storage/v1/object/public/profile-images/09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675", "profileImageSource": "storage", "profileImageVersion": 1, "updatedAt": "2026-08-25T11:00:00+09:00"}
+    },
+    {
+      "case": "clear-provider",
+      "status": 200,
+      "headers": {"ETag": "\"profile-image-2\"", "Idempotency-Replayed": "false"},
+      "body": {"profileImageObjectKey": null, "profileImageUrl": "https://images.example.invalid/provider/avatar.webp", "profileImageSource": "provider", "profileImageVersion": 2, "updatedAt": "2026-08-25T11:01:00+09:00"}
+    },
+    {
+      "case": "clear-none",
+      "status": 200,
+      "headers": {"ETag": "\"profile-image-2\"", "Idempotency-Replayed": "false"},
+      "body": {"profileImageObjectKey": null, "profileImageUrl": null, "profileImageSource": "none", "profileImageVersion": 2, "updatedAt": "2026-08-25T11:01:00+09:00"}
+    },
+    {
+      "case": "replay",
+      "status": 200,
+      "headers": {"ETag": "\"profile-image-1\"", "Idempotency-Replayed": "true"},
+      "body": {"profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675", "profileImageUrl": "https://project.example.invalid/storage/v1/object/public/profile-images/09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675", "profileImageSource": "storage", "profileImageVersion": 1, "updatedAt": "2026-08-25T11:00:00+09:00"}
+    },
+    {
+      "case": "stale",
+      "status": 409,
+      "headers": {"ETag": "\"profile-image-2\""},
+      "body": {"type": "https://api.timing-jeju.com/problems/profile-image-version-conflict", "title": "프로필 이미지 버전 충돌", "status": 409, "detail": "프로필 이미지 상태가 변경되었습니다.", "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef", "code": "PROFILE_IMAGE_VERSION_CONFLICT", "traceId": "0123456789abcdef0123456789abcdef", "fieldErrors": []}
     }
   ],
   "providerProjectionExamples": [
@@ -141,6 +205,38 @@
         "google",
         "custom:naver"
       ]
+    }
+  ],
+  "profileImageStateExamples": [
+    {
+      "case": "storage-confirmed",
+      "body": {
+        "profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675",
+        "profileImageUrl": "https://project.example.invalid/storage/v1/object/public/profile-images/09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675",
+        "profileImageSource": "storage",
+        "profileImageVersion": 1,
+        "updatedAt": "2026-08-25T11:00:00+09:00"
+      }
+    },
+    {
+      "case": "cleared-provider-fallback",
+      "body": {
+        "profileImageObjectKey": null,
+        "profileImageUrl": "https://images.example.invalid/provider/avatar.webp",
+        "profileImageSource": "provider",
+        "profileImageVersion": 2,
+        "updatedAt": "2026-08-25T11:01:00+09:00"
+      }
+    },
+    {
+      "case": "cleared-no-provider",
+      "body": {
+        "profileImageObjectKey": null,
+        "profileImageUrl": null,
+        "profileImageSource": "none",
+        "profileImageVersion": 3,
+        "updatedAt": "2026-08-25T11:02:00+09:00"
+      }
     }
   ],
   "deletionStatusExamples": [

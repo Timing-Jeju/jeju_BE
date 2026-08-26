@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import copy
+import hashlib
 import importlib.util
 import subprocess
 import tempfile
 import re
 import unittest
+import uuid
 from pathlib import Path
 
 
@@ -25,11 +27,612 @@ class ProfileLegalContractTest(unittest.TestCase):
     def _contract(self) -> dict:
         return json.loads(CONTRACT.read_text(encoding="utf-8"))
 
+    @staticmethod
+    def _digest(value: object) -> str:
+        payload = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+    def test_issue_181_adds_separate_profile_image_endpoint_without_opening_patch(self) -> None:
+        contract = self._contract()
+        endpoints = {(item["method"], item["path"]): item for item in contract["endpoints"]}
+
+        self.assertEqual("1.1.0", contract["contractVersion"])
+        self.assertEqual(
+            {"nickname", "locale"},
+            set(contract["schemas"]["ProfilePatchRequest"]["properties"]),
+        )
+        image_get = endpoints[("GET", "/api/v1/me/profile-image")]
+        image_put = endpoints[("PUT", "/api/v1/me/profile-image")]
+        self.assertEqual(78, image_get["implementationIssue"])
+        self.assertEqual("ProfileImageQueryHeaders", image_get["schemas"]["headers"])
+        self.assertEqual("none", image_get["schemas"]["body"])
+        self.assertEqual([200], image_get["responses"]["success"])
+        self.assertEqual(78, image_put["implementationIssue"])
+        self.assertEqual("ProfileImageMutationHeaders", image_put["schemas"]["headers"])
+        self.assertEqual("ProfileImageRequest", image_put["schemas"]["body"])
+        self.assertEqual([200], image_put["responses"]["success"])
+        self.assertEqual([400, 401, 404, 409, 413, 415, 503], image_put["responses"]["errors"])
+        self.assertEqual(
+            {"Authorization", "Idempotency-Key", "If-Match"},
+            set(contract["schemas"]["ProfileImageMutationHeaders"]["required"]),
+        )
+        request_key = contract["schemas"]["ProfileImageRequest"]["properties"]["profileImageObjectKey"]
+        self.assertTrue(request_key["nullable"])
+
+    def test_issue_181_storage_ownership_fallback_and_cleanup_boundaries_are_exact(self) -> None:
+        policy = self._contract()["profileImagePolicy"]
+
+        self.assertEqual("profile-images", policy["bucket"])
+        self.assertEqual("{canonicalSub}/profile/{lowercaseGenerationUuid}", policy["objectKey"])
+        self.assertEqual(
+            "profile-images/{canonicalSub}/profile/{lowercaseGenerationUuid}",
+            policy["storageIdentity"],
+        )
+        self.assertEqual("canonical lowercase UUID JWT sub", policy["canonicalSub"])
+        self.assertEqual("storage.objects.owner_id == canonicalSub", policy["ownerCheck"])
+        self.assertEqual("storage.objects.metadata.mimetype", policy["storageMetadataFields"]["mime"])
+        self.assertEqual("storage.objects.metadata.size integer bytes", policy["storageMetadataFields"]["size"])
+        self.assertIn("orphan cutoff", policy["storageMetadataFields"]["updatedAt"])
+        self.assertEqual(["image/jpeg", "image/png", "image/webp"], policy["allowedMimeTypes"])
+        self.assertEqual(5_242_880, policy["maximumBytes"])
+        self.assertEqual("null clears storage selection", policy["clearSemantics"])
+        self.assertEqual(["storage", "provider", "none"], policy["readPriority"])
+        self.assertIn("read-only", policy["storageMetadataBoundary"])
+        self.assertIn("after clear commit", policy["clearCleanup"])
+        self.assertIn("locks profile", policy["clearCleanup"])
+        self.assertIn("object key plus persisted Storage ETag", policy["clearCleanup"])
+        self.assertIn("older than the cutoff", policy["orphanCleanup"])
+        self.assertIn("unreferenced immutable generation keys", policy["orphanCleanup"])
+        self.assertEqual(
+            "authenticated client INSERT only; upsert=false; UPDATE forbidden; DELETE forbidden",
+            policy["directUploadMutation"],
+        )
+        self.assertEqual(
+            "server cleanup worker only via Storage API; Issue #106 uses the same server delete authority before Auth deletion",
+            policy["deleteAuthority"],
+        )
+        self.assertEqual(
+            "GET /api/v1/me profileImageUrl uses storage > provider > none while preserving the existing response field shape",
+            policy["coreProfileProjection"],
+        )
+        self.assertIn("immutable generation key", policy["replacement"])
+        self.assertIn("Storage ETag", policy["confirmationTransaction"])
+        self.assertNotIn("?v=", policy["publicUrl"])
+        self.assertEqual("https://project.example.invalid", policy["fixtureSupabaseOrigin"])
+        self.assertIn("provider fallback URL is returned unchanged", policy["cacheVersioning"])
+
+    def test_issue_181_get_discovery_etag_replay_and_clear_fixtures_are_exact(self) -> None:
+        request = json.loads((FIXTURES / "request.json").read_text(encoding="utf-8"))
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+        examples = success["profileImageResponseHeaderExamples"]
+
+        self.assertEqual(
+            ["initial-get", "confirm", "clear-provider", "clear-none", "replay", "stale"],
+            [item["case"] for item in examples],
+        )
+        by_case = {item["case"]: item for item in examples}
+        self.assertEqual('"profile-image-0"', by_case["initial-get"]["headers"]["ETag"])
+        self.assertEqual('"profile-image-1"', by_case["confirm"]["headers"]["ETag"])
+        self.assertEqual("false", by_case["confirm"]["headers"]["Idempotency-Replayed"])
+        self.assertIsNone(by_case["clear-provider"]["body"]["profileImageObjectKey"])
+        self.assertEqual("provider", by_case["clear-provider"]["body"]["profileImageSource"])
+        self.assertEqual("none", by_case["clear-none"]["body"]["profileImageSource"])
+        self.assertEqual(by_case["confirm"]["body"], by_case["replay"]["body"])
+        self.assertEqual("true", by_case["replay"]["headers"]["Idempotency-Replayed"])
+        self.assertEqual(409, by_case["stale"]["status"])
+        self.assertEqual("PROFILE_IMAGE_VERSION_CONFLICT", by_case["stale"]["body"]["code"])
+        request_cases = {item["case"]: item for item in request["profileImageRequestExamples"]}
+        self.assertIsNone(request_cases["clear"]["request"]["body"]["profileImageObjectKey"])
+        self.assertEqual(request_cases["confirm"]["request"], request_cases["replay"]["request"])
+        confirmed_generation = request_cases["confirm"]["request"]["body"][
+            "profileImageObjectKey"
+        ].rsplit("/", 1)[1]
+        self.assertEqual(7, uuid.UUID(confirmed_generation).version)
+
+        core_get = next(
+            item
+            for item in success["examples"]
+            if (item["method"], item["contractPath"]) == ("GET", "/api/v1/me")
+        )
+        storage_state = next(
+            item
+            for item in success["profileImageStateExamples"]
+            if item["case"] == "storage-confirmed"
+        )
+        self.assertEqual(
+            storage_state["body"]["profileImageUrl"],
+            core_get["body"]["profileImageUrl"],
+        )
+
+    def test_issue_181_future_database_contract_is_additive_and_overflow_safe(self) -> None:
+        policy = self._contract()["profileImagePersistencePolicy"]
+        self.assertEqual(78, policy["migrationOwner"])
+        self.assertEqual(0, policy["version"]["default"])
+        self.assertEqual(9_223_372_036_854_775_807, policy["version"]["maximum"])
+        self.assertEqual("409 PROFILE_IMAGE_VERSION_CONFLICT", policy["version"]["overflow"])
+        self.assertIn("profile_image_object_key", policy["userProfileColumns"])
+        self.assertIn("profile_image_storage_etag", policy["userProfileColumns"])
+        self.assertEqual(
+            {
+                "table": "api_idempotency_records",
+                "schemaOwnerMigration": "20260810000000_api_idempotency_registry.sql",
+                "redefined": False,
+                "primaryKey": [
+                    "owner_sub",
+                    "http_method",
+                    "normalized_path",
+                    "idempotency_key",
+                ],
+                "fields": [
+                    "owner_sub",
+                    "http_method",
+                    "normalized_path",
+                    "idempotency_key",
+                    "request_hash",
+                    "attempt_token",
+                    "state",
+                    "response_status",
+                    "response_headers",
+                    "response_body",
+                    "created_at",
+                    "lease_expires_at",
+                    "completed_at",
+                    "expires_at",
+                ],
+                "states": ["PROCESSING", "COMPLETED"],
+                "profileImageBinding": "request_hash binds canonical body plus original If-Match; completed response_status, response_headers bytea including Content-Type and ETag, and response_body bytea replay exactly",
+            },
+            policy["idempotencyPersistence"],
+        )
+        self.assertEqual(
+            {
+                "providerUrlPresent": {
+                    "profile_image_source": "provider",
+                    "profile_image_object_key": None,
+                    "profile_image_storage_etag": None,
+                    "profile_image_version": 0,
+                },
+                "providerUrlAbsent": {
+                    "profile_image_source": "none",
+                    "profile_image_object_key": None,
+                    "profile_image_storage_etag": None,
+                    "profile_image_version": 0,
+                },
+            },
+            policy["backfill"],
+        )
+        self.assertEqual(
+            {
+                "table": "profile_image_cleanup_outbox",
+                "fields": [
+                    "id",
+                    "owner_user_id",
+                    "object_key",
+                    "storage_etag",
+                    "source_profile_version",
+                    "reason",
+                    "status",
+                    "claim_token",
+                    "claimed_at",
+                    "attempt_count",
+                    "next_attempt_at",
+                    "completed_at",
+                    "created_at",
+                ],
+                "reasons": ["replacement", "clear", "orphan", "account_deletion"],
+                "states": ["pending", "claimed", "succeeded", "retry"],
+                "uniqueGeneration": ["object_key", "storage_etag"],
+                "claim": "SKIP LOCKED lease; retry preserves exact immutable key and Storage ETag target; current profile reference is never deleted",
+            },
+            policy["cleanupOutbox"],
+        )
+        for path in (
+            ROOT / "docs/designs/timing-jeju-db-schema-v0.md",
+            ROOT / "docs/designs/timing-jeju-dbdiagram.dbml",
+            API_SPEC,
+        ):
+            source = path.read_text(encoding="utf-8")
+            self.assertIn("profile_image_storage_etag", source, path)
+            self.assertIn("profile_image_cleanup_outbox", source, path)
+
+    def test_issue_181_cross_document_persistence_validator_rejects_semantic_mutations(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_documents", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        contract = self._contract()
+        sources = {
+            "dbml": (ROOT / "docs/designs/timing-jeju-dbdiagram.dbml").read_text(encoding="utf-8"),
+            "schema": (ROOT / "docs/designs/timing-jeju-db-schema-v0.md").read_text(encoding="utf-8"),
+            "api": API_SPEC.read_text(encoding="utf-8"),
+            "migration": (ROOT / "supabase/migrations/20260810000000_api_idempotency_registry.sql").read_text(encoding="utf-8"),
+        }
+
+        errors: list[str] = []
+        validator._validate_profile_image_persistence_documents(contract, sources, errors)
+        self.assertEqual([], errors)
+
+        mutations = [
+            ("dbml", "owner_sub uuid [not null]", "canonical_subject uuid [not null]"),
+            ("dbml", "response_headers bytea", "response_headers jsonb"),
+            ("dbml", "source_profile_version bigint [not null]", "storage_generation uuid [not null]"),
+            ("dbml", "pending, claimed, succeeded, retry", "pending, claimed, completed"),
+            ("schema", "authenticated client UPDATE와 DELETE를 허용하지 않는다", "authenticated client DELETE를 허용한다"),
+            ("api", "storage > provider > none", "provider > storage > none"),
+            ("dbml", "  profile_image_storage_etag text", "  rogue_profile_column text\n  profile_image_storage_etag text"),
+            ("dbml", "  email text [unique]\n  nickname text", "  nickname text\n  email text [unique]"),
+            ("dbml", "profile_image_version bigint [not null, default: 0", "profile_image_version bigint [not null, default: 1"),
+            ("dbml", "object_key text [not null]", "object_key text"),
+            ("dbml", "    (status, next_attempt_at)\n", "    (status, next_attempt_at)\n    (reason)\n"),
+            ("schema", "상한에서는 409로 실패한다", "상한에서는 503으로 실패한다"),
+            ("api", "delete authority는 server cleanup worker와 Auth 삭제 전 #106에만", "delete authority는 authenticated client에도"),
+            ("migration", "owner_sub uuid not null", "owner_sub uuid"),
+            (
+                "schema",
+                "authenticated client UPDATE와 DELETE를 허용하지 않는다.",
+                "authenticated client UPDATE와 DELETE를 허용하지 않는다. authenticated DELETE allowed.",
+            ),
+            (
+                "schema",
+                "상한에서는 409로 실패한다.",
+                "상한에서는 409로 실패한다. overflow also returns 503.",
+            ),
+            (
+                "schema",
+                "<!-- timing-jeju-profile-image-canonical:v1:start -->",
+                "",
+            ),
+            (
+                "api",
+                "<!-- timing-jeju-profile-image-canonical:v1:end -->",
+                "",
+            ),
+        ]
+        for target, old, new in mutations:
+            with self.subTest(target=target, mutation=old):
+                mutated = dict(sources)
+                self.assertIn(old, mutated[target])
+                mutated[target] = mutated[target].replace(old, new, 1)
+                mutation_errors: list[str] = []
+                validator._validate_profile_image_persistence_documents(
+                    contract, mutated, mutation_errors
+                )
+                self.assertTrue(mutation_errors)
+
+        unrelated = dict(sources)
+        unrelated["schema"] += "\n\n### unrelated\n비관련 문서 보강은 허용한다.\n"
+        unrelated_errors: list[str] = []
+        validator._validate_profile_image_persistence_documents(
+            contract, unrelated, unrelated_errors
+        )
+        self.assertEqual([], unrelated_errors)
+
+    def test_issue_181_profile_image_response_cross_field_invariants_apply_everywhere(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_response", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        contract = self._contract()
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+        response_bodies = [
+            item["body"]
+            for item in success["examples"]
+            if (item["method"], item["contractPath"])
+            in {
+                ("GET", "/api/v1/me/profile-image"),
+                ("PUT", "/api/v1/me/profile-image"),
+            }
+        ]
+        response_bodies.extend(item["body"] for item in success["profileImageStateExamples"])
+        response_bodies.extend(
+            item["body"]
+            for item in success["profileImageResponseHeaderExamples"]
+            if item["case"] != "stale"
+        )
+        for index, body in enumerate(response_bodies):
+            errors: list[str] = []
+            validator._validate_profile_image_response_body(
+                body, contract, f"response[{index}]", errors
+            )
+            self.assertEqual([], errors, index)
+
+        by_header_case = {
+            item["case"]: item for item in success["profileImageResponseHeaderExamples"]
+        }
+        by_state_case = {item["case"]: item for item in success["profileImageStateExamples"]}
+        mutations = []
+        initial_storage_null = copy.deepcopy(by_header_case["initial-get"]["body"])
+        initial_storage_null["profileImageSource"] = "storage"
+        mutations.append(initial_storage_null)
+        provider_with_key = copy.deepcopy(by_state_case["cleared-provider-fallback"]["body"])
+        provider_with_key["profileImageObjectKey"] = (
+            "09000000-0000-4000-8000-000000000001/profile/"
+            "018f47a1-43d2-7b6e-9fa2-11a1cc32c675"
+        )
+        mutations.append(provider_with_key)
+        storage_without_url = copy.deepcopy(by_state_case["storage-confirmed"]["body"])
+        storage_without_url["profileImageUrl"] = None
+        mutations.append(storage_without_url)
+        none_with_url = copy.deepcopy(by_state_case["cleared-no-provider"]["body"])
+        none_with_url["profileImageUrl"] = "https://images.example.invalid/provider/avatar.webp"
+        mutations.append(none_with_url)
+        for index, body in enumerate(mutations):
+            errors = []
+            validator._validate_profile_image_response_body(
+                body, contract, f"mutation[{index}]", errors
+            )
+            self.assertTrue(errors, index)
+
+    def test_issue_181_storage_response_url_requires_exact_canonical_origin_and_path(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_url", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        contract = self._contract()
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+        canonical = copy.deepcopy(
+            next(
+                item["body"]
+                for item in success["profileImageStateExamples"]
+                if item["case"] == "storage-confirmed"
+            )
+        )
+        key = canonical["profileImageObjectKey"]
+        exact_path = f"/storage/v1/object/public/profile-images/{key}"
+        errors: list[str] = []
+        validator._validate_profile_image_response_body(
+            canonical, contract, "canonical", errors
+        )
+        self.assertEqual([], errors)
+
+        malicious_urls = [
+            "https://attacker.invalid" + exact_path,
+            "https://project.example.invalid/extra" + exact_path,
+            "https://project.example.invalid@attacker.invalid" + exact_path,
+            "https://project.example.invalid/%2Fignored" + exact_path,
+            "https://project.example.invalid//" + exact_path.lstrip("/"),
+            "https://project.example.invalid" + exact_path + "?download=1",
+            "https://project.example.invalid" + exact_path + "#fragment",
+        ]
+        for value in malicious_urls:
+            with self.subTest(url=value):
+                mutated = copy.deepcopy(canonical)
+                mutated["profileImageUrl"] = value
+                mutation_errors: list[str] = []
+                validator._validate_profile_image_response_body(
+                    mutated, contract, "mutation", mutation_errors
+                )
+                self.assertTrue(mutation_errors)
+
+        collection_mutations = []
+        general = copy.deepcopy(success)
+        general_body = next(
+            item["body"]
+            for item in general["examples"]
+            if (item["method"], item["contractPath"])
+            == ("PUT", "/api/v1/me/profile-image")
+        )
+        general_body["profileImageUrl"] = "https://attacker.invalid" + exact_path
+        collection_mutations.append(general)
+        state = copy.deepcopy(success)
+        state_body = next(
+            item["body"]
+            for item in state["profileImageStateExamples"]
+            if item["case"] == "storage-confirmed"
+        )
+        state_body["profileImageUrl"] = (
+            "https://project.example.invalid/extra" + exact_path
+        )
+        collection_mutations.append(state)
+        header = copy.deepcopy(success)
+        header_body = next(
+            item["body"]
+            for item in header["profileImageResponseHeaderExamples"]
+            if item["case"] == "confirm"
+        )
+        header_body["profileImageUrl"] = (
+            "https://project.example.invalid@attacker.invalid" + exact_path
+        )
+        collection_mutations.append(header)
+        for index, fixture in enumerate(collection_mutations):
+            with self.subTest(collection=index):
+                self.assertTrue(
+                    validator.validate_fixture_value("success", fixture, contract)
+                )
+
+    def test_issue_181_uuid_v7_object_key_and_bigint_etag_boundaries_are_exact(self) -> None:
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_key", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        schemas = self._contract()["schemas"]
+        key_schema = schemas["ProfileImageRequest"]["properties"]["profileImageObjectKey"]
+        response_schema = schemas["ProfileImageResponse"]["properties"]
+        header_schema = schemas["ProfileImageMutationHeaders"]["properties"]["If-Match"]
+        valid_v7 = (
+            "09000000-0000-4000-8000-000000000001/profile/"
+            "018f47a1-43d2-7b6e-9fa2-11a1cc32c675"
+        )
+
+        for value in (valid_v7, None):
+            errors: list[str] = []
+            validator._validate_schema_value(value, key_schema, "key", errors)
+            self.assertEqual([], errors, value)
+        for value in (
+            valid_v7.upper(),
+            " " + valid_v7,
+            valid_v7 + ".webp",
+            valid_v7.replace("/profile/", "//profile/"),
+            valid_v7.replace("018f47a1", "notauuid"),
+        ):
+            errors = []
+            validator._validate_schema_value(value, key_schema, "key", errors)
+            self.assertTrue(errors, value)
+
+        self.assertEqual(9_223_372_036_854_775_807, response_schema["profileImageVersion"]["maximum"])
+        for version in (0, 9_223_372_036_854_775_807):
+            errors = []
+            validator._validate_schema_value(
+                version, response_schema["profileImageVersion"], "version", errors
+            )
+            self.assertEqual([], errors, version)
+        errors = []
+        validator._validate_schema_value(
+            9_223_372_036_854_775_808,
+            response_schema["profileImageVersion"],
+            "version",
+            errors,
+        )
+        self.assertTrue(errors)
+
+        for value in ('"profile-image-0"', '"profile-image-9223372036854775807"'):
+            errors = []
+            validator._validate_schema_value(value, header_schema, "If-Match", errors)
+            self.assertEqual([], errors, value)
+        for value in ('"profile-image-01"', '"profile-image-9223372036854775808"'):
+            errors = []
+            validator._validate_schema_value(value, header_schema, "If-Match", errors)
+            self.assertTrue(errors, value)
+
+    def test_issue_181_not_found_condition_is_immutable_generation_concealment(self) -> None:
+        contract = self._contract()
+        condition = next(
+            item for item in contract["errorConditions"] if item["code"] == "PROFILE_IMAGE_NOT_FOUND"
+        )
+        expected = (
+            "immutable generation object missing, wrong bucket, wrong exact object name, or owner mismatch; "
+            "all existence-sensitive cases return the same concealed 404"
+        )
+        self.assertEqual(expected, condition["condition"])
+        self.assertNotIn("fixed-key", json.dumps(contract, ensure_ascii=False))
+
+        mutated = copy.deepcopy(contract)
+        target = next(
+            item for item in mutated["errorConditions"] if item["code"] == "PROFILE_IMAGE_NOT_FOUND"
+        )
+        target["condition"] = "object missing"
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_not_found", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        self.assertTrue(validator.validate_contract_value(mutated))
+
+    def test_issue_181_concurrency_idempotency_and_cause_free_errors_are_closed(self) -> None:
+        endpoint = next(
+            item
+            for item in self._contract()["endpoints"]
+            if (item["method"], item["path"]) == ("PUT", "/api/v1/me/profile-image")
+        )
+
+        self.assertEqual("If-Match", endpoint["concurrency"]["header"])
+        self.assertEqual(
+            "strong current profile image ETag with canonical decimal version 0|[1-9][0-9]* bounded to 9223372036854775807",
+            endpoint["concurrency"]["precondition"],
+        )
+        self.assertEqual("Idempotency-Key", endpoint["idempotency"]["header"])
+        self.assertIn("original 200", endpoint["idempotency"]["replay"])
+        self.assertEqual(
+            {
+                "400": ["INVALID_PROFILE_IMAGE_REQUEST"],
+                "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+                "404": ["PROFILE_IMAGE_NOT_FOUND"],
+                "409": [
+                    "PROFILE_IMAGE_VERSION_CONFLICT",
+                    "IDEMPOTENCY_PAYLOAD_CONFLICT",
+                    "IDEMPOTENCY_REQUEST_IN_PROGRESS",
+                ],
+                "413": ["PROFILE_IMAGE_TOO_LARGE"],
+                "415": ["PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED"],
+                "503": ["PROFILE_IMAGE_STORAGE_UNAVAILABLE"],
+            },
+            endpoint["errorMatrix"],
+        )
+        for code in endpoint["errorMatrix"].values():
+            for value in code:
+                condition = next(
+                    item for item in self._contract()["errorConditions"] if item["code"] == value
+                )
+                self.assertNotIn("cause", condition["example"])
+                self.assertNotIn("metadata", condition["example"])
+
+    def test_issue_181_canonical_digests_are_not_self_attested(self) -> None:
+        contract = self._contract()
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        identities = {(item["method"], item["path"]) for item in contract["endpoints"]}
+        projection = [
+            item
+            for item in catalog["endpoints"]
+            if (item["method"], item["path"]) in identities
+        ]
+        source = VALIDATOR.read_text(encoding="utf-8")
+        contract_digest = source.split('CANONICAL_CONTRACT_SHA256 = "', 1)[1].split('"', 1)[0]
+        catalog_digest = source.split('CANONICAL_CATALOG_SHA256 = "', 1)[1].split('"', 1)[0]
+
+        self.assertEqual(contract_digest, self._digest(contract))
+        self.assertEqual(catalog_digest, self._digest(projection))
+        mutated = copy.deepcopy(contract)
+        mutated["profileImagePolicy"]["ownerCheck"] = "trust request body owner"
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_digest", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        self.assertTrue(validator.validate_contract_value(mutated))
+
+    def test_issue_181_storage_metadata_fixture_covers_success_failure_and_boundaries(self) -> None:
+        fixture_path = FIXTURES / "storage-metadata.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        cases = {item["case"]: item["expected"] for item in fixture["examples"]}
+
+        self.assertEqual({"status": 200, "code": None}, cases["jpeg-minimum"])
+        self.assertEqual({"status": 200, "code": None}, cases["png-maximum"])
+        self.assertEqual({"status": 200, "code": None}, cases["webp-valid"])
+        self.assertEqual(413, cases["one-byte-over"]["status"])
+        self.assertEqual(415, cases["unsupported-mime"]["status"])
+        self.assertEqual(cases["missing-object"], cases["owner-mismatch"])
+        self.assertEqual(cases["missing-object"], cases["wrong-bucket"])
+        self.assertEqual(cases["missing-object"], cases["wrong-name"])
+        self.assertEqual(503, cases["malformed-size"]["status"])
+        self.assertEqual(503, cases["missing-updated-at"]["status"])
+        self.assertEqual(503, cases["null-mimetype"]["status"])
+        self.assertEqual(503, cases["malformed-updated-at"]["status"])
+        self.assertEqual(503, cases["zero-size"]["status"])
+        self.assertEqual(404, cases["wrong-name"]["status"])
+        self.assertEqual(503, cases["generation-mismatch"]["status"])
+        self.assertEqual(503, cases["missing-storage-etag"]["status"])
+
+        spec = importlib.util.spec_from_file_location("profile_legal_validator_metadata", VALIDATOR)
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        errors: list[str] = []
+        validator._validate_storage_metadata_fixture(fixture, errors)
+        self.assertEqual([], errors)
+        mutated = copy.deepcopy(fixture)
+        mutated["examples"][1]["object"]["size"] = 5_242_881
+        self.assertTrue(self._storage_fixture_errors(validator, mutated))
+        concealment_mutation = copy.deepcopy(fixture)
+        wrong_name = next(
+            item for item in concealment_mutation["examples"] if item["case"] == "wrong-name"
+        )
+        wrong_name["expected"] = {
+            "status": 503,
+            "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE",
+        }
+        self.assertTrue(self._storage_fixture_errors(validator, concealment_mutation))
+
+    @staticmethod
+    def _storage_fixture_errors(validator: object, fixture: dict) -> list[str]:
+        errors: list[str] = []
+        validator._validate_storage_metadata_fixture(fixture, errors)
+        return errors
+
     def test_contract_identity_and_core5_extension_are_exact(self) -> None:
         contract = self._contract()
 
         self.assertEqual("timing-jeju-profile-legal-contract/v1", contract["schemaVersion"])
-        self.assertEqual("1.0.0", contract["contractVersion"])
+        self.assertEqual("1.1.0", contract["contractVersion"])
         self.assertEqual("timing-jeju-rest-contract/v1", contract["inherits"])
         self.assertEqual(82, contract["ownerIssue"])
         self.assertEqual(
@@ -44,6 +647,8 @@ class ProfileLegalContractTest(unittest.TestCase):
                     "/api/v1/account-deletion-requests/{deletionRequestId}",
                     "extension",
                 ),
+                ("GET", "/api/v1/me/profile-image", "extension"),
+                ("PUT", "/api/v1/me/profile-image", "extension"),
             ],
             [
                 (endpoint["method"], endpoint["path"], endpoint["catalogKind"])
@@ -59,7 +664,7 @@ class ProfileLegalContractTest(unittest.TestCase):
             expected_mode = "optional" if identity == ("GET", "/api/v1/legal-documents") else "required"
             self.assertEqual(expected_mode, endpoint["auth"]["mode"])
             self.assertEqual(401, endpoint["auth"]["invalidToken"])
-        self.assertEqual([18, 19, 61, 106], contract["implementationIssues"])
+        self.assertEqual([18, 19, 61, 78, 106], contract["implementationIssues"])
         self.assertEqual(18, endpoints[("GET", "/api/v1/me")]["implementationIssue"])
         self.assertEqual(18, endpoints[("PATCH", "/api/v1/me")]["implementationIssue"])
         self.assertEqual(19, endpoints[("GET", "/api/v1/legal-documents")]["implementationIssue"])
@@ -71,6 +676,8 @@ class ProfileLegalContractTest(unittest.TestCase):
                 "implementationIssue"
             ],
         )
+        self.assertEqual(78, endpoints[("PUT", "/api/v1/me/profile-image")]["implementationIssue"])
+        self.assertEqual(78, endpoints[("GET", "/api/v1/me/profile-image")]["implementationIssue"])
         self.assertEqual(106, contract["deletionPolicy"]["workerIssue"])
         self.assertEqual("canonical Supabase JWT sub", contract["securityPolicy"]["principal"])
         self.assertEqual(
@@ -119,7 +726,7 @@ class ProfileLegalContractTest(unittest.TestCase):
         contract_doc = CONTRACT_DOC.read_text(encoding="utf-8")
         api_spec = API_SPEC.read_text(encoding="utf-8")
 
-        self.assertNotIn("profileImageObjectKey", contract_doc)
+        self.assertIn("profileImageObjectKey", contract_doc)
         self.assertIn("PATCH는 `nickname`, `locale`만", contract_doc)
         self.assertIn("provider `profileImageUrl`은 read-only", contract_doc)
         self.assertIn(
@@ -189,7 +796,7 @@ class ProfileLegalContractTest(unittest.TestCase):
         conditions = contract["errorConditions"]
         required_problem = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
 
-        expected_statuses = {400, 401, 403, 404, 409, 410, 422, 428, 429, 503}
+        expected_statuses = {400, 401, 403, 404, 409, 410, 413, 415, 422, 428, 429, 503}
         self.assertEqual(expected_statuses, {item["status"] for item in conditions})
         for condition in conditions:
             self.assertEqual(required_problem, set(condition["example"]))
@@ -306,6 +913,10 @@ class ProfileLegalContractTest(unittest.TestCase):
                 "DeletionRequestPath",
                 "DeletionStatusHeaders",
                 "DeletionStatusResponse",
+                "ProfileImageMutationHeaders",
+                "ProfileImageQueryHeaders",
+                "ProfileImageRequest",
+                "ProfileImageResponse",
             },
             referenced,
         )
@@ -316,7 +927,7 @@ class ProfileLegalContractTest(unittest.TestCase):
                     self.assertIs(False, schema["additionalProperties"])
                     self.assertTrue(set(schema.get("required", [])) <= set(schema["properties"]))
 
-    def test_fixtures_cover_six_endpoints_and_all_five_deletion_states(self) -> None:
+    def test_fixtures_cover_eight_endpoints_and_all_five_deletion_states(self) -> None:
         request = json.loads((FIXTURES / "request.json").read_text(encoding="utf-8"))
         success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
         expected = {(method, path) for method, path, _ in [
@@ -326,6 +937,8 @@ class ProfileLegalContractTest(unittest.TestCase):
             ("GET", "/api/v1/legal-documents", "core"),
             ("PUT", "/api/v1/me/consents", "core"),
             ("GET", "/api/v1/account-deletion-requests/{deletionRequestId}", "extension"),
+            ("GET", "/api/v1/me/profile-image", "extension"),
+            ("PUT", "/api/v1/me/profile-image", "extension"),
         ]}
 
         self.assertEqual(expected, {(item["method"], item["contractPath"]) for item in request["examples"]})
@@ -346,7 +959,7 @@ class ProfileLegalContractTest(unittest.TestCase):
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         actual = {(item["method"], item["path"]): item for item in catalog["endpoints"]}
 
-        self.assertEqual(["core"] * 5 + ["extension"], [item["catalogKind"] for item in contract["endpoints"]])
+        self.assertEqual(["core"] * 5 + ["extension"] * 3, [item["catalogKind"] for item in contract["endpoints"]])
         for endpoint in contract["endpoints"]:
             self.assertEqual(endpoint["catalogKind"], actual[(endpoint["method"], endpoint["path"])]["catalogKind"])
 
@@ -404,7 +1017,7 @@ class ProfileLegalContractTest(unittest.TestCase):
             catalog["commonRules"]["authorization"]["schemes"],
         )
         self.assertEqual(
-            ["bearer-jwt/v1"] * 5 + ["deletion-status-token/v1"],
+            ["bearer-jwt/v1"] * 5 + ["deletion-status-token/v1"] + ["bearer-jwt/v1"] * 2,
             [endpoint["auth"].get("scheme", "bearer-jwt/v1") for endpoint in contract["endpoints"]],
         )
 
@@ -455,7 +1068,7 @@ class ProfileLegalContractTest(unittest.TestCase):
             for item in request["examples"]
             if "Authorization" in item.get("headers", {})
         ]
-        self.assertEqual(["Bearer <fixture-access-token>"] * 4, committed_authorizations)
+        self.assertEqual(["Bearer <fixture-access-token>"] * 6, committed_authorizations)
         patch = next(
             item for item in request["examples"] if item["method"] == "PATCH"
         )
@@ -742,7 +1355,11 @@ class ProfileLegalContractTest(unittest.TestCase):
         extra_key["examples"][0]["unexpected"] = True
         mutations.append(("request", extra_key))
         duplicate_consent = copy.deepcopy(request)
-        consent = duplicate_consent["examples"][4]["body"]["consents"]
+        consent_example = next(
+            item for item in duplicate_consent["examples"]
+            if (item["method"], item["path"]) == ("PUT", "/api/v1/me/consents")
+        )
+        consent = consent_example["body"]["consents"]
         consent.append(copy.deepcopy(consent[0]))
         mutations.append(("request", duplicate_consent))
         invalid_status = copy.deepcopy(success)

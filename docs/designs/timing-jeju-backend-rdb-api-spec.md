@@ -209,6 +209,8 @@ MCP wire envelope, 내부 JWT, 실제 `calculate_feasibility` 송수신 JSON과 
 | Profile | DELETE | `/api/v1/me` | 필수 | 미호출 | - | `202` | Auth + owned data |
 | Legal | GET | `/api/v1/legal-documents` | 선택 | 미호출 | - | `200` | legal |
 | Legal | PUT | `/api/v1/me/consents` | 필수 | 미호출 | - | `200` | consent |
+| Profile | GET | `/api/v1/me/profile-image` | 필수 | 미호출 | - | `200` | profile image state/strong ETag |
+| Profile | PUT | `/api/v1/me/profile-image` | 필수 | 미호출 | - | `200` | Storage object-key confirm/clear |
 | Places | GET | `/api/v1/places` | 선택 | 미호출 | - | `200` | TourAPI cache/PostGIS |
 | Places | GET | `/api/v1/places/{placeId}` | 선택 | 미호출 | - | `200` | TourAPI/TAGO cache |
 | Saved | GET | `/api/v1/saved-places` | 필수 | 미호출 | - | `200` | saved places |
@@ -307,8 +309,46 @@ Response `200`:
 ```
 
 PATCH는 `nickname`, `locale`만 받는다. 두 필드는 omitted이면 기존 값을 보존하고 명시적
-`null`은 거부한다. `email`, `providers`, provider `profileImageUrl`은 read-only이며 이미지
+`null`은 거부한다. `email`, `providers`, storage-first `profileImageUrl`은 read-only이며 이미지
 업로드·object key 변경은 #78에서 별도 구현한다.
+
+<!-- timing-jeju-profile-image-canonical:v1:start -->
+### 9.2.1 `GET|PUT /api/v1/me/profile-image` (contract v1.1.0)
+
+기존 GET/PATCH closed schema를 유지하는 별도 이미지 조회/확정/해제 endpoint다. companion GET과 기존 core `GET /api/v1/me`의 `profileImageUrl`은 같은 `storage > provider > none` projection을 사용하되 core response field shape은 바꾸지 않는다. 인증된 companion GET은 현재 storage/provider/none 상태와 strong ETag를 반환한다. 신규 profile의 version은 0, ETag는 `"profile-image-0"`이며 PUT client는 이 GET으로 `If-Match`를 발견한다. version/ETag decimal은 `0..9223372036854775807`, 문법은 0 또는 leading zero 없는 nonzero decimal이다. 프론트는 publishable key와 사용자 JWT로 immutable `profile-images/{lowercase-sub}/profile/{lowercase-generation-uuid}`를 INSERT-only(`upsert=false`) 업로드한다. UUID segment는 version-neutral lowercase canonical parser로 검증하고 아래 성공 예시는 UUIDv7 generation이다. authenticated client Storage UPDATE와 DELETE는 금지한다. delete authority는 server cleanup worker와 Auth 삭제 전 #106에만 있으며 모두 Storage API를 사용한다.
+
+```http
+PUT /api/v1/me/profile-image
+Authorization: Bearer <supabase_access_token>
+Idempotency-Key: 00000000-0000-4000-8000-000000000181
+If-Match: "profile-image-0"
+Content-Type: application/json
+```
+
+```json
+{
+  "profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675",
+  "profileImageUrl": "https://project.example.invalid/storage/v1/object/public/profile-images/09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675",
+  "profileImageSource": "storage",
+  "profileImageVersion": 1,
+  "updatedAt": "2026-08-25T11:00:00+09:00"
+}
+```
+
+`profileImageObjectKey: null`은 storage 선택을 명시적으로 해제하고 provider image 또는 null fallback을 반환한다. bucket은 업로드 시 JPEG·PNG·WebP와 최대 5 MiB를 enforce하고 confirm은 exact bucket/key/owner, 1 byte 하한, MIME/size, key와 일치하는 immutable generation, strong Storage ETag, RFC3339 updatedAt을 재검증한다. key는 trim/decode/확장자 없이 lowercase UUID 두 개를 byte-for-byte 사용한다. Storage URL은 immutable generation key로 cache identity를 얻는다. 멱등 replay는 stale CAS보다 먼저 판정하여 최초 body/ETag와 `Idempotency-Replayed: true`를 반환한다. 신규 command는 profile lock/If-Match 뒤 exact object+ETag를 다시 확인한다. 오류는 400/401/404/409/413/415/503의 cause-free Problem Details를 사용한다.
+
+#78의 미래 additive schema는 nullable `profile_image_object_key`, nullable `profile_image_storage_etag`, `profile_image_source text not null`, `profile_image_version bigint not null default 0`을 둔다. legacy provider URL이 있는 row는 provider, 없으면 none으로 backfill하며 key/ETag null, version 0이다. version은 bigint 최댓값까지 commit마다 1 증가하고 overflow는 409이며 storage source만 key/ETag가 non-null이다.
+
+`20260810000000_api_idempotency_registry.sql`의 기존 `api_idempotency_records` schema를 변경하거나 재정의하지 않는다. 기존 `(owner_sub,http_method,normalized_path,idempotency_key)` PK, `attempt_token`, `PROCESSING|COMPLETED`, `bytea response_headers/response_body`와 24시간 lifecycle을 그대로 사용하며 canonical body+original If-Match의 `request_hash`와 최초 `response_status`, Content-Type/ETag header bytes, body bytes를 저장한다. `profile_image_cleanup_outbox`의 exact fields는 `id`, `owner_user_id`, `object_key`, `storage_etag`, `source_profile_version`, `reason`, `status`, `claim_token`, `claimed_at`, `attempt_count`, `next_attempt_at`, `completed_at`, `created_at`이다. reason은 `replacement|clear|orphan|account_deletion`, lifecycle은 `pending|claimed|succeeded|retry`이고 `(object_key, storage_etag)`가 unique fence다. cleanup은 profile lock 아래 current ref가 대상이 아님과 owner/key/ETag를 재확인하며 현재 참조 generation을 삭제하지 않는다. 실제 schema·Java·Storage 구현은 #78 소유다.
+<!-- timing-jeju-profile-image-canonical:v1:end -->
 
 ### 9.3 `DELETE /api/v1/me`
 

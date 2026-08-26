@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -12,6 +13,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,10 +27,18 @@ IDENTITIES = [
     ("GET", "/api/v1/legal-documents", "core"),
     ("PUT", "/api/v1/me/consents", "core"),
     ("GET", "/api/v1/account-deletion-requests/{deletionRequestId}", "extension"),
+    ("GET", "/api/v1/me/profile-image", "extension"),
+    ("PUT", "/api/v1/me/profile-image", "extension"),
 ]
+CANONICAL_CONTRACT_SHA256 = "3c8b32965216b819a2c251c9472e3e2070ec45428ee6e75a2f192ee72a42ab29"
+CANONICAL_CATALOG_SHA256 = "0314e9e3d7db062d5232ba261b7d8d761c350a77cd70c07da7abf25f44391fd0"
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
 CANONICAL_PROBLEM_TRACE_ID = "0123456789abcdef0123456789abcdef"
 CANONICAL_PROBLEM_INSTANCE = f"urn:timing-jeju:problem:{CANONICAL_PROBLEM_TRACE_ID}"
+MAX_PROFILE_IMAGE_VERSION = 9_223_372_036_854_775_807
+CANONICAL_IDEMPOTENCY_MIGRATION_SHA256 = "531c0444cc4ceb9d01946e8d82ce43d9d431142a112091323626d87a3546d32e"
+CANONICAL_SCHEMA_PROFILE_IMAGE_SECTION_SHA256 = "97a9cb75682bee5def457e6de3c4569f4c0f9db017401349a42f2d7fb736a8dd"
+CANONICAL_API_PROFILE_IMAGE_SECTION_SHA256 = "977e2ce3e738ea6a0b80f19f98cc00729eca4b284f5528ed15003777c2045fbc"
 CATALOG_FIELDS = {
     "method", "path", "operation", "auth", "owner", "schemas", "presence", "responses",
     "dbOwner", "requestTimeCall", "dataLineage", "figma", "contractVersion", "idempotency", "pagination", "catalogKind",
@@ -57,6 +67,13 @@ def _load(path: Path) -> Any:
     )
 
 
+def _digest(value: Any) -> str:
+    payload = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def catalog_projection(endpoint: dict[str, Any]) -> dict[str, Any]:
     return {key: endpoint[key] for key in CATALOG_FIELDS}
 
@@ -69,16 +86,16 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
         "schemaVersion", "contractVersion", "inherits", "ownerIssue", "implementationIssues", "schemas",
         "endpoints", "profilePatchPolicy", "deletionPolicy", "deletionStatusPolicy", "legalDocumentPolicy",
         "consentPolicy", "securityPolicy", "storagePolicy", "errorConditions", "externalTraceability", "readiness",
-        "profileProviderPolicy",
+        "profileProviderPolicy", "profileImagePolicy", "profileImagePersistencePolicy",
     }
     if set(contract) != required:
         errors.append("계약 top-level exact 필드가 다릅니다.")
     if (
         contract.get("schemaVersion") != "timing-jeju-profile-legal-contract/v1"
-        or contract.get("contractVersion") != "1.0.0"
+        or contract.get("contractVersion") != "1.1.0"
         or contract.get("inherits") != "timing-jeju-rest-contract/v1"
         or contract.get("ownerIssue") != 82
-        or contract.get("implementationIssues") != [18, 19, 61, 106]
+        or contract.get("implementationIssues") != [18, 19, 61, 78, 106]
     ):
         errors.append("계약 identity/version/owner가 다릅니다.")
     endpoints = contract.get("endpoints")
@@ -86,13 +103,13 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
         (item.get("method"), item.get("path"), item.get("catalogKind"))
         for item in endpoints if isinstance(item, dict)
     ] != IDENTITIES:
-        errors.append("core5 + deletion status extension endpoint 집합/순서가 다릅니다.")
-    elif len({(item["method"], item["path"]) for item in endpoints}) != 6:
+        errors.append("core5 + deletion status/profile image extension endpoint 집합/순서가 다릅니다.")
+    elif len({(item["method"], item["path"]) for item in endpoints}) != 8:
         errors.append("endpoint method/path가 중복됐습니다.")
     else:
-        implementation_owners = [18, 18, 61, 19, 19, 61]
+        implementation_owners = [18, 18, 61, 19, 19, 61, 78, 78]
         for index, endpoint in enumerate(endpoints):
-            if endpoint.get("contractVersion") != "1.0.0":
+            if endpoint.get("contractVersion") != "1.1.0":
                 errors.append("endpoint contractVersion drift가 있습니다.")
             if endpoint.get("implementationIssue") != implementation_owners[index]:
                 errors.append("profile/legal/deletion API implementation owner가 endpoint별 계약과 다릅니다.")
@@ -171,6 +188,168 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
     }
     if contract.get("profileProviderPolicy") != expected_providers:
         errors.append("profile provider canonical projection 정책이 다릅니다.")
+    expected_profile_image = {
+        "contractDecision": "additive v1.1 endpoint; PATCH /api/v1/me remains nickname/locale-only closed schema",
+        "bucket": "profile-images",
+        "objectKey": "{canonicalSub}/profile/{lowercaseGenerationUuid}",
+        "storageIdentity": "profile-images/{canonicalSub}/profile/{lowercaseGenerationUuid}",
+        "canonicalSub": "canonical lowercase UUID JWT sub",
+        "canonicalization": "server validates lowercase canonicalSub and lowercase generation UUID segments byte-for-byte; no trim, percent decoding, Unicode normalization, extension, alternate slash or user-supplied owner",
+        "ownerCheck": "storage.objects.owner_id == canonicalSub",
+        "storageMetadataFields": {
+            "bucket": "storage.objects.bucket_id",
+            "name": "storage.objects.name",
+            "owner": "storage.objects.owner_id",
+            "mime": "storage.objects.metadata.mimetype",
+            "size": "storage.objects.metadata.size integer bytes",
+            "generation": "storage.objects.metadata.generation lowercase UUID equal to key generation",
+            "storageEtag": "immutable Storage HEAD ETag persisted internally and never exposed",
+            "updatedAt": "RFC3339 storage.objects.updated_at for orphan cutoff only",
+            "malformed": "missing, null, wrong type, non-RFC3339 time, missing ETag or key/metadata generation contradiction returns 503 without raw metadata",
+        },
+        "allowedMimeTypes": ["image/jpeg", "image/png", "image/webp"],
+        "maximumBytes": 5242880,
+        "bucketUploadPolicy": "file_size_limit=5242880 and allowed_mime_types=image/jpeg,image/png,image/webp enforced before INSERT",
+        "sizeBoundary": "bucket rejects greater than 5242880 before INSERT; confirmation additionally requires metadata size integer 1..5242880 inclusive",
+        "clearSemantics": "null clears storage selection",
+        "readPriority": ["storage", "provider", "none"],
+        "providerFallback": "after clear, choose the first valid HTTPS provider image in google, kakao, custom:naver stable order; otherwise source=none and URL=null",
+        "fixtureSupabaseOrigin": "https://project.example.invalid",
+        "publicUrl": "storage source only: SUPABASE_URL + /storage/v1/object/public/profile-images/ + immutable canonical object key; DB stores no full, signed or environment-specific URL",
+        "cacheVersioning": "immutable generation key changes the public URL on every confirmed replacement; provider fallback URL is returned unchanged",
+        "directUploadBoundary": "client uses publishable key plus current user JWT and Storage RLS INSERT on a fresh generation key; Spring never proxies bytes or uses a service credential for user upload",
+        "directUploadMutation": "authenticated client INSERT only; upsert=false; UPDATE forbidden; DELETE forbidden",
+        "deleteAuthority": "server cleanup worker only via Storage API; Issue #106 uses the same server delete authority before Auth deletion",
+        "coreProfileProjection": "GET /api/v1/me profileImageUrl uses storage > provider > none while preserving the existing response field shape",
+        "storageMetadataBoundary": "Spring performs read-only storage.objects metadata plus Storage HEAD ETag confirmation; storage schema SQL DML is forbidden",
+        "confirmationTransaction": "read metadata and Storage ETag, lock current user_profiles row, resolve replay before strong If-Match, re-read the exact immutable generation/ETag, then atomically store key/source/storage ETag/version, completed response and old-generation cleanup outbox",
+        "replacement": "each replacement uses a new immutable generation key; Storage UPDATE/upsert cannot overwrite confirmed or pending bytes",
+        "clearCleanup": "after clear commit, outbox targets only the former immutable object key plus persisted Storage ETag; worker claims once, locks profile, verifies key is not current and owner/key/Storage ETag still match before delete",
+        "orphanCleanup": "Issue #78 deletes only unreferenced immutable generation keys older than the cutoff after owner/key/generation/Storage ETag validation; current profile reference is rechecked under lock",
+        "failureAtomicity": "validation, Storage lookup, stale If-Match or idempotency conflict leaves profile metadata unchanged and enqueues no cleanup",
+        "legacyCompatibility": "legacy profile_image_url is provider fallback read compatibility only; #78 backfills object key/source and new writers never persist storage public or signed URLs",
+        "accountDeletion": "Issue #106 lists the canonical user prefix, removes only owner_id=canonicalSub objects through Storage API before Auth deletion and retries before safe terminalization",
+    }
+    if contract.get("profileImagePolicy") != expected_profile_image:
+        errors.append("Issue #181 profile image ownership/fallback/cleanup 정책이 다릅니다.")
+    image_endpoints = [
+        endpoint
+        for endpoint in endpoints or []
+        if isinstance(endpoint, dict)
+        and (endpoint.get("method"), endpoint.get("path"))
+        == ("PUT", "/api/v1/me/profile-image")
+    ]
+    expected_image_errors = {
+        "400": ["INVALID_PROFILE_IMAGE_REQUEST"],
+        "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+        "404": ["PROFILE_IMAGE_NOT_FOUND"],
+        "409": [
+            "PROFILE_IMAGE_VERSION_CONFLICT",
+            "IDEMPOTENCY_PAYLOAD_CONFLICT",
+            "IDEMPOTENCY_REQUEST_IN_PROGRESS",
+        ],
+        "413": ["PROFILE_IMAGE_TOO_LARGE"],
+        "415": ["PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED"],
+        "503": ["PROFILE_IMAGE_STORAGE_UNAVAILABLE"],
+    }
+    expected_concurrency = {
+        "header": "If-Match",
+        "precondition": "strong current profile image ETag with canonical decimal version 0|[1-9][0-9]* bounded to 9223372036854775807",
+        "discovery": "GET /api/v1/me/profile-image returns body plus strong ETag; absent persisted version is version 0 with ETag profile-image-0",
+        "response": "GET and successful PUT return strong ETag matching profileImageVersion; completed replay returns the original body and original ETag",
+        "stale": "409 PROFILE_IMAGE_VERSION_CONFLICT; no profile mutation or cleanup enqueue",
+        "ordering": "idempotent replay is resolved before If-Match; new commands compare If-Match under profile row lock",
+        "overflow": "version 9223372036854775807 cannot increment and returns 409 PROFILE_IMAGE_VERSION_CONFLICT",
+    }
+    if len(image_endpoints) != 1:
+        errors.append("Issue #181 profile image PUT endpoint가 정확히 하나여야 합니다.")
+    else:
+        image_endpoint = image_endpoints[0]
+        if image_endpoint.get("errorMatrix") != expected_image_errors:
+            errors.append("profile image cause-free error matrix가 다릅니다.")
+        if image_endpoint.get("concurrency") != expected_concurrency:
+            errors.append("profile image If-Match concurrency 계약이 다릅니다.")
+    persistence = contract.get("profileImagePersistencePolicy", {})
+    expected_idempotency = {
+        "table": "api_idempotency_records",
+        "schemaOwnerMigration": "20260810000000_api_idempotency_registry.sql",
+        "redefined": False,
+        "primaryKey": ["owner_sub", "http_method", "normalized_path", "idempotency_key"],
+        "fields": [
+            "owner_sub", "http_method", "normalized_path", "idempotency_key",
+            "request_hash", "attempt_token", "state", "response_status",
+            "response_headers", "response_body", "created_at", "lease_expires_at",
+            "completed_at", "expires_at",
+        ],
+        "states": ["PROCESSING", "COMPLETED"],
+        "profileImageBinding": "request_hash binds canonical body plus original If-Match; completed response_status, response_headers bytea including Content-Type and ETag, and response_body bytea replay exactly",
+    }
+    expected_backfill = {
+        "providerUrlPresent": {
+            "profile_image_source": "provider",
+            "profile_image_object_key": None,
+            "profile_image_storage_etag": None,
+            "profile_image_version": 0,
+        },
+        "providerUrlAbsent": {
+            "profile_image_source": "none",
+            "profile_image_object_key": None,
+            "profile_image_storage_etag": None,
+            "profile_image_version": 0,
+        },
+    }
+    expected_outbox = {
+        "table": "profile_image_cleanup_outbox",
+        "fields": [
+            "id", "owner_user_id", "object_key", "storage_etag",
+            "source_profile_version", "reason", "status", "claim_token",
+            "claimed_at", "attempt_count", "next_attempt_at", "completed_at",
+            "created_at",
+        ],
+        "reasons": ["replacement", "clear", "orphan", "account_deletion"],
+        "states": ["pending", "claimed", "succeeded", "retry"],
+        "uniqueGeneration": ["object_key", "storage_etag"],
+        "claim": "SKIP LOCKED lease; retry preserves exact immutable key and Storage ETag target; current profile reference is never deleted",
+    }
+    if (
+        not isinstance(persistence, dict)
+        or persistence.get("migrationOwner") != 78
+        or persistence.get("schemaChangeInIssue181") != "none; documentation only"
+        or persistence.get("version", {}).get("default") != 0
+        or persistence.get("version", {}).get("maximum") != 9223372036854775807
+        or persistence.get("version", {}).get("overflow") != "409 PROFILE_IMAGE_VERSION_CONFLICT"
+        or persistence.get("backfill") != expected_backfill
+        or persistence.get("idempotencyPersistence") != expected_idempotency
+        or persistence.get("cleanupOutbox") != expected_outbox
+    ):
+        errors.append("profile image future persistence/version/outbox 계약이 다릅니다.")
+    schemas = contract.get("schemas", {})
+    expected_key_schema = {
+        "type": "string",
+        "format": "profile-image-object-key",
+        "nullable": True,
+        "pattern": r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/profile/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    }
+    request_key = (
+        schemas.get("ProfileImageRequest", {}).get("properties", {}).get("profileImageObjectKey")
+    )
+    response_properties = schemas.get("ProfileImageResponse", {}).get("properties", {})
+    mutation_if_match = (
+        schemas.get("ProfileImageMutationHeaders", {}).get("properties", {}).get("If-Match")
+    )
+    if request_key != expected_key_schema or response_properties.get("profileImageObjectKey") != expected_key_schema:
+        errors.append("profile image object key는 version-neutral lowercase canonical UUID parse 계약이어야 합니다.")
+    if response_properties.get("profileImageVersion") != {
+        "type": "integer", "nullable": False, "minimum": 0, "maximum": MAX_PROFILE_IMAGE_VERSION
+    }:
+        errors.append("profile image response version int64 범위가 다릅니다.")
+    if mutation_if_match != {
+        "type": "string",
+        "format": "profile-image-etag",
+        "nullable": False,
+        "pattern": r'^\"profile-image-(?:0|[1-9][0-9]*)\"$',
+    }:
+        errors.append("profile image If-Match canonical bigint decimal 계약이 다릅니다.")
     provider_schema = (
         contract.get("schemas", {})
         .get("ProfileResponse", {})
@@ -184,9 +363,16 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
     ):
         errors.append("email-only 공개 providers는 closed unique 빈 배열을 허용해야 합니다.")
     conditions = contract.get("errorConditions")
-    if not isinstance(conditions, list) or {item.get("status") for item in conditions if isinstance(item, dict)} != {400, 401, 403, 404, 409, 410, 422, 428, 429, 503}:
+    if not isinstance(conditions, list) or {item.get("status") for item in conditions if isinstance(item, dict)} != {400, 401, 403, 404, 409, 410, 413, 415, 422, 428, 429, 503}:
         errors.append("오류 status condition matrix가 다릅니다.")
     else:
+        not_found = [item for item in conditions if item.get("code") == "PROFILE_IMAGE_NOT_FOUND"]
+        expected_not_found = (
+            "immutable generation object missing, wrong bucket, wrong exact object name, or owner mismatch; "
+            "all existence-sensitive cases return the same concealed 404"
+        )
+        if len(not_found) != 1 or not_found[0].get("condition") != expected_not_found:
+            errors.append("PROFILE_IMAGE_NOT_FOUND immutable generation concealment 조건이 다릅니다.")
         for item in conditions:
             example = item.get("example")
             if not isinstance(example, dict) or set(example) != PROBLEM_FIELDS:
@@ -259,6 +445,22 @@ def _validate_schema_value(value: Any, schema: dict[str, Any], path: str, errors
                 uuid.UUID(value)
             except (ValueError, AttributeError):
                 errors.append(f"{path} UUID가 아닙니다.")
+        if schema.get("format") == "profile-image-object-key":
+            parts = value.split("/")
+            if len(parts) != 3 or parts[1] != "profile":
+                errors.append(f"{path} canonical profile image key가 아닙니다.")
+            else:
+                for segment in (parts[0], parts[2]):
+                    try:
+                        if str(uuid.UUID(segment)) != segment:
+                            raise ValueError
+                    except (ValueError, AttributeError):
+                        errors.append(f"{path} lowercase canonical UUID key가 아닙니다.")
+                        break
+        if schema.get("format") == "profile-image-etag":
+            match = re.fullmatch(r'"profile-image-(0|[1-9][0-9]*)"', value)
+            if match is None or int(match.group(1)) > MAX_PROFILE_IMAGE_VERSION:
+                errors.append(f"{path} canonical bigint profile image ETag가 아닙니다.")
         if schema.get("format") == "date-time":
             try:
                 if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})", value) is None:
@@ -359,7 +561,12 @@ def _validate_schema_meta(schema: Any, path: str, errors: list[str]) -> None:
                 re.compile(schema["pattern"])
             except (TypeError, re.error):
                 errors.append(f"{path} schema constraint pattern이 잘못됐습니다.")
-        if "format" in schema and schema["format"] not in {"uuid", "date-time"}:
+        if "format" in schema and schema["format"] not in {
+            "uuid",
+            "date-time",
+            "profile-image-object-key",
+            "profile-image-etag",
+        }:
             errors.append(f"{path} schema constraint format이 잘못됐습니다.")
     elif kind in {"integer", "number"}:
         numeric_type = (int,) if kind == "integer" else (int, float)
@@ -507,6 +714,63 @@ def _validate_provider_projection_examples(examples: Any, contract: dict[str, An
     return errors
 
 
+def _validate_profile_image_response_body(
+    body: Any, contract: dict[str, Any], path: str, errors: list[str]
+) -> None:
+    if not isinstance(body, dict):
+        errors.append(f"{path} profile image response object가 필요합니다.")
+        return
+    source = body.get("profileImageSource")
+    key = body.get("profileImageObjectKey")
+    url = body.get("profileImageUrl")
+    policy = contract.get("profileImagePolicy", {})
+    bucket = policy.get("bucket")
+    fixture_origin = policy.get("fixtureSupabaseOrigin")
+    if source == "storage":
+        valid = isinstance(key, str) and isinstance(url, str) and isinstance(fixture_origin, str)
+        if valid:
+            try:
+                parsed = urlsplit(url)
+                configured = urlsplit(fixture_origin)
+                expected_path = f"/storage/v1/object/public/{bucket}/{key}"
+                valid = (
+                    configured.scheme == "https"
+                    and configured.netloc != ""
+                    and configured.path == ""
+                    and configured.query == ""
+                    and configured.fragment == ""
+                    and configured.username is None
+                    and configured.password is None
+                    and parsed.scheme == "https"
+                    and parsed.netloc == configured.netloc
+                    and parsed.username is None
+                    and parsed.password is None
+                    and parsed.path == expected_path
+                    and "%" not in parsed.path
+                    and "//" not in parsed.path
+                    and parsed.query == ""
+                    and parsed.fragment == ""
+                    and url == fixture_origin + expected_path
+                )
+            except ValueError:
+                valid = False
+        if not valid:
+            errors.append(f"{path} storage source는 exact key 기반 immutable public URL이 필요합니다.")
+    elif source == "provider":
+        if (
+            key is not None
+            or not isinstance(url, str)
+            or re.fullmatch(r"https://[^\s]+", url) is None
+            or "/storage/v1/object/" in url
+        ):
+            errors.append(f"{path} provider source는 key 없이 non-storage HTTPS URL이어야 합니다.")
+    elif source == "none":
+        if key is not None or url is not None:
+            errors.append(f"{path} none source는 key와 URL이 모두 null이어야 합니다.")
+    else:
+        errors.append(f"{path} profile image source discriminator가 다릅니다.")
+
+
 def validate_fixture_value(kind: str, fixture: Any, contract: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if not isinstance(fixture, dict) or not isinstance(fixture.get("examples"), list):
@@ -577,6 +841,10 @@ def validate_fixture_value(kind: str, fixture: Any, contract: dict[str, Any]) ->
             if type(example.get("status")) is not int or example.get("status") not in endpoint["responses"]["success"]:
                 errors.append(f"success[{index}] status가 endpoint success에 없습니다.")
             _validate_schema_value(example.get("body"), schemas[endpoint["successSchema"]], f"success[{index}].body", errors)
+            if endpoint["successSchema"] == "ProfileImageResponse":
+                _validate_profile_image_response_body(
+                    example.get("body"), contract, f"success[{index}].body", errors
+                )
             if identity == ("GET", "/api/v1/account-deletion-requests/{deletionRequestId}"):
                 errors.extend(validate_deletion_status(example.get("body")))
             if identity in {("GET", "/api/v1/me"), ("PATCH", "/api/v1/me")} and isinstance(example.get("body"), dict):
@@ -613,8 +881,126 @@ def validate_fixture_value(kind: str, fixture: Any, contract: dict[str, Any]) ->
                     errors.append("consent documentId가 중복됐습니다.")
     if set(identities) != set(endpoints) or len(identities) != len(endpoints):
         errors.append(f"{kind} fixture는 endpoint마다 정확히 1개여야 합니다.")
+    if kind == "request":
+        mutation_examples = fixture.get("profileImageRequestExamples")
+        expected_cases = ["confirm", "clear", "replay", "stale"]
+        if not isinstance(mutation_examples, list) or [
+            item.get("case") for item in mutation_examples if isinstance(item, dict)
+        ] != expected_cases:
+            errors.append("profile image request fixture confirm/clear/replay/stale case가 다릅니다.")
+        else:
+            for index, item in enumerate(mutation_examples):
+                if set(item) != {"case", "request"} or not isinstance(item.get("request"), dict):
+                    errors.append(f"profileImageRequestExamples[{index}] exact shape가 다릅니다.")
+                    continue
+                request = item["request"]
+                if set(request) != {"headers", "body"}:
+                    errors.append(f"profileImageRequestExamples[{index}] request shape가 다릅니다.")
+                    continue
+                headers = request.get("headers")
+                if not isinstance(headers, dict) or set(headers) != {"Idempotency-Key", "If-Match"}:
+                    errors.append(f"profileImageRequestExamples[{index}] mutation headers가 다릅니다.")
+                else:
+                    _validate_schema_value(
+                        {"Authorization": "Bearer " + ("a" * 16), **headers},
+                        schemas["ProfileImageMutationHeaders"],
+                        f"profileImageRequestExamples[{index}].headers",
+                        errors,
+                    )
+                _validate_schema_value(
+                    request.get("body"),
+                    schemas["ProfileImageRequest"],
+                    f"profileImageRequestExamples[{index}].body",
+                    errors,
+                )
+            if mutation_examples[0].get("request") != mutation_examples[2].get("request"):
+                errors.append("profile image replay request는 original confirm과 byte-equivalent여야 합니다.")
+            if mutation_examples[1].get("request", {}).get("body") != {"profileImageObjectKey": None}:
+                errors.append("profile image clear request는 explicit null이어야 합니다.")
     if kind == "success":
         errors.extend(_validate_provider_projection_examples(fixture.get("providerProjectionExamples"), contract))
+        profile_image_examples = fixture.get("profileImageStateExamples")
+        expected_profile_cases = [
+            "storage-confirmed",
+            "cleared-provider-fallback",
+            "cleared-no-provider",
+        ]
+        if not isinstance(profile_image_examples, list) or [
+            item.get("case") for item in profile_image_examples if isinstance(item, dict)
+        ] != expected_profile_cases:
+            errors.append("profile image fixture는 storage/provider/none 상태를 정확히 포함해야 합니다.")
+        else:
+            for index, item in enumerate(profile_image_examples):
+                if set(item) != {"case", "body"}:
+                    errors.append(f"profileImageStateExamples[{index}] exact key가 다릅니다.")
+                    continue
+                body = item.get("body")
+                _validate_schema_value(
+                    body,
+                    schemas["ProfileImageResponse"],
+                    f"profileImageStateExamples[{index}].body",
+                    errors,
+                )
+                _validate_profile_image_response_body(
+                    body,
+                    contract,
+                    f"profileImageStateExamples[{index}].body",
+                    errors,
+                )
+                if isinstance(body, dict):
+                    expected_presence = {
+                        "storage-confirmed": (True, True, "storage"),
+                        "cleared-provider-fallback": (False, True, "provider"),
+                        "cleared-no-provider": (False, False, "none"),
+                    }[item["case"]]
+                    actual_presence = (
+                        body.get("profileImageObjectKey") is not None,
+                        body.get("profileImageUrl") is not None,
+                        body.get("profileImageSource"),
+                    )
+                    if actual_presence != expected_presence:
+                        errors.append(f"profileImageStateExamples[{index}] fallback presence가 다릅니다.")
+        response_examples = fixture.get("profileImageResponseHeaderExamples")
+        expected_response_cases = [
+            "initial-get", "confirm", "clear-provider", "clear-none", "replay", "stale"
+        ]
+        if not isinstance(response_examples, list) or [
+            item.get("case") for item in response_examples if isinstance(item, dict)
+        ] != expected_response_cases:
+            errors.append("profile image response header fixture case가 다릅니다.")
+        else:
+            for index, item in enumerate(response_examples):
+                if not isinstance(item, dict) or set(item) != {"case", "status", "headers", "body"}:
+                    errors.append(f"profileImageResponseHeaderExamples[{index}] exact shape가 다릅니다.")
+                    continue
+                headers = item.get("headers")
+                body = item.get("body")
+                if item["case"] == "stale":
+                    expected_header_keys = {"ETag"}
+                    _validate_schema_value(body, schemas["ProblemDetails"], f"profileImageResponseHeaderExamples[{index}].body", errors)
+                    if item.get("status") != 409 or not isinstance(body, dict) or body.get("code") != "PROFILE_IMAGE_VERSION_CONFLICT":
+                        errors.append("profile image stale fixture status/code가 다릅니다.")
+                else:
+                    expected_header_keys = {"ETag"} if item["case"] == "initial-get" else {"ETag", "Idempotency-Replayed"}
+                    _validate_schema_value(body, schemas["ProfileImageResponse"], f"profileImageResponseHeaderExamples[{index}].body", errors)
+                    _validate_profile_image_response_body(
+                        body,
+                        contract,
+                        f"profileImageResponseHeaderExamples[{index}].body",
+                        errors,
+                    )
+                    if item.get("status") != 200:
+                        errors.append("profile image GET/PUT/replay fixture는 200이어야 합니다.")
+                if not isinstance(headers, dict) or set(headers) != expected_header_keys:
+                    errors.append(f"profileImageResponseHeaderExamples[{index}] header exact set가 다릅니다.")
+                    continue
+                version = 2 if item["case"] == "stale" else body.get("profileImageVersion") if isinstance(body, dict) else None
+                if headers.get("ETag") != f'"profile-image-{version}"':
+                    errors.append(f"profileImageResponseHeaderExamples[{index}] ETag/version이 다릅니다.")
+            if response_examples[1].get("body") != response_examples[4].get("body") or response_examples[1].get("headers", {}).get("ETag") != response_examples[4].get("headers", {}).get("ETag"):
+                errors.append("profile image replay는 original body/ETag를 반환해야 합니다.")
+            if response_examples[4].get("headers", {}).get("Idempotency-Replayed") != "true":
+                errors.append("profile image replay header가 true여야 합니다.")
         states = []
         for item in fixture.get("deletionStatusExamples", []):
             if not isinstance(item, dict) or set(item) != {"body"}:
@@ -637,7 +1023,7 @@ def _validate_catalog(contract: dict[str, Any], errors: list[str]) -> None:
         if actual.get(identity) != catalog_projection(endpoint):
             errors.append(f"catalog projection drift: {identity[0]} {identity[1]}")
     domains = [item for item in catalog.get("domainContracts", []) if item.get("issue") == 82]
-    if len(domains) != 1 or domains[0].get("versions") != {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}:
+    if len(domains) != 1 or domains[0].get("versions") != {"local": "1.1.0", "notion": "not-linked", "figma": "not-linked"}:
         errors.append("catalog #82 version/readiness lineage가 다릅니다.")
     elif domains[0].get("readiness", {}).get("implementation") != {
         "status": "not-ready",
@@ -646,13 +1032,300 @@ def _validate_catalog(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("catalog implementation readiness를 승격할 수 없습니다.")
 
 
+def _validate_storage_metadata_fixture(fixture: Any, errors: list[str]) -> None:
+    expected_cases = [
+        "jpeg-minimum",
+        "png-maximum",
+        "webp-valid",
+        "one-byte-over",
+        "unsupported-mime",
+        "missing-object",
+        "owner-mismatch",
+        "wrong-bucket",
+        "wrong-name",
+        "missing-metadata",
+        "null-metadata",
+        "malformed-metadata",
+        "zero-size",
+        "missing-updated-at",
+        "null-mimetype",
+        "malformed-size",
+        "malformed-updated-at",
+        "generation-mismatch",
+        "missing-storage-etag",
+    ]
+    if not isinstance(fixture, dict) or set(fixture) != {"contractVersion", "examples"}:
+        errors.append("storage metadata fixture top-level 계약이 다릅니다.")
+        return
+    examples = fixture.get("examples")
+    if fixture.get("contractVersion") != "1.1.0" or not isinstance(examples, list):
+        errors.append("storage metadata fixture version/examples가 다릅니다.")
+        return
+    if [item.get("case") for item in examples if isinstance(item, dict)] != expected_cases:
+        errors.append("storage metadata fixture 성공/실패/경계 case가 다릅니다.")
+        return
+    canonical_sub = "09000000-0000-4000-8000-000000000001"
+    canonical_generation = "18100000-0000-4000-8000-000000000001"
+    canonical_name = f"{canonical_sub}/profile/{canonical_generation}"
+    allowed_mime = {"image/jpeg", "image/png", "image/webp"}
+    object_fields = {
+        "bucketId", "name", "ownerId", "mimetype", "size", "generation", "storageEtag", "updatedAt"
+    }
+    for index, item in enumerate(examples):
+        if not isinstance(item, dict) or set(item) != {"case", "object", "expected"}:
+            errors.append(f"storage metadata[{index}] exact fixture shape가 다릅니다.")
+            continue
+        expected = item.get("expected")
+        if not isinstance(expected, dict) or set(expected) != {"status", "code"}:
+            errors.append(f"storage metadata[{index}] expected shape가 다릅니다.")
+            continue
+        obj = item.get("object")
+        if obj is None:
+            actual = {"status": 404, "code": "PROFILE_IMAGE_NOT_FOUND"}
+        elif not isinstance(obj, dict):
+            actual = {"status": 503, "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE"}
+        elif (
+            obj.get("bucketId") != "profile-images"
+            or obj.get("name") != canonical_name
+            or obj.get("ownerId") != canonical_sub
+        ):
+            actual = {"status": 404, "code": "PROFILE_IMAGE_NOT_FOUND"}
+        elif set(obj) != object_fields:
+            actual = {"status": 503, "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE"}
+        elif (
+            not isinstance(obj.get("mimetype"), str)
+            or type(obj.get("size")) is not int
+            or not isinstance(obj.get("generation"), str)
+            or not isinstance(obj.get("storageEtag"), str)
+            or not isinstance(obj.get("updatedAt"), str)
+        ):
+            actual = {"status": 503, "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE"}
+        elif (
+            obj["generation"] != canonical_generation
+            or str(uuid.UUID(obj["generation"])) != obj["generation"]
+            or not re.fullmatch(r'"[^"\r\n]+"', obj["storageEtag"])
+            or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+                obj["updatedAt"],
+            )
+        ):
+            actual = {"status": 503, "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE"}
+        else:
+            try:
+                parsed_updated_at = datetime.fromisoformat(obj["updatedAt"].replace("Z", "+00:00"))
+            except ValueError:
+                actual = {"status": 503, "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE"}
+            else:
+                if parsed_updated_at.tzinfo is None:
+                    actual = {"status": 503, "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE"}
+                elif obj["mimetype"] not in allowed_mime:
+                    actual = {"status": 415, "code": "PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED"}
+                elif obj["size"] > 5242880:
+                    actual = {"status": 413, "code": "PROFILE_IMAGE_TOO_LARGE"}
+                elif obj["size"] < 1:
+                    actual = {"status": 503, "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE"}
+                else:
+                    actual = {"status": 200, "code": None}
+        if expected != actual:
+            errors.append(f"storage metadata[{index}] expected status/code가 canonical 판정과 다릅니다.")
+
+
+def _dbml_table(source: str, table: str) -> str:
+    match = re.search(
+        rf"(?ms)^Table {re.escape(table)} \{{\n(.*?)(?=^Table |\Z)", source
+    )
+    return match.group(1) if match else ""
+
+
+def _parse_dbml_table(source: str, table: str) -> dict[str, Any] | None:
+    body = _dbml_table(source, table)
+    if not body:
+        return None
+    fields: list[tuple[str, str, str | None]] = []
+    indexes: list[str] = []
+    note: str | None = None
+    in_indexes = False
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line == "indexes {":
+            in_indexes = True
+            continue
+        if line == "}":
+            in_indexes = False
+            continue
+        if line.startswith("Note: "):
+            note_match = re.fullmatch(r'Note: "(.*)"', line)
+            if note_match is None or note is not None:
+                return None
+            note = note_match.group(1)
+            continue
+        if in_indexes:
+            indexes.append(re.sub(r"\s+", " ", line))
+            continue
+        field_match = re.fullmatch(
+            r"([a-z][a-z0-9_]*)\s+([a-z][a-z0-9_]*(?:\([0-9]+\))?(?:\[\])?)(?:\s+\[(.*)\])?",
+            line,
+        )
+        if field_match is None:
+            return None
+        attrs = field_match.group(3)
+        fields.append(
+            (
+                field_match.group(1),
+                field_match.group(2),
+                re.sub(r"\s+", " ", attrs) if attrs is not None else None,
+            )
+        )
+    return {"fields": fields, "indexes": indexes, "note": note}
+
+
+def _canonical_markdown_section_digest(source: str) -> str | None:
+    start = "<!-- timing-jeju-profile-image-canonical:v1:start -->"
+    end = "<!-- timing-jeju-profile-image-canonical:v1:end -->"
+    if source.count(start) != 1 or source.count(end) != 1:
+        return None
+    if source.index(start) >= source.index(end):
+        return None
+    _, remainder = source.split(start, 1)
+    section, after = remainder.split(end, 1)
+    if start in after or end in after:
+        return None
+    normalized = "\n".join(
+        line.rstrip() for line in section.replace("\r\n", "\n").split("\n")
+    ).strip() + "\n"
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _validate_profile_image_persistence_documents(
+    contract: dict[str, Any], sources: dict[str, str], errors: list[str]
+) -> None:
+    """#181 future schema를 기존 migration과 exact 교차 검증한다."""
+    if set(sources) != {"dbml", "schema", "api", "migration"}:
+        errors.append("profile image persistence source 집합이 다릅니다.")
+        return
+    persistence = contract.get("profileImagePersistencePolicy", {})
+    idempotency = persistence.get("idempotencyPersistence", {})
+    migration = sources["migration"]
+    if hashlib.sha256(migration.encode("utf-8")).hexdigest() != CANONICAL_IDEMPOTENCY_MIGRATION_SHA256:
+        errors.append("기존 #17 api_idempotency_records migration bytes가 변경됐습니다.")
+    create_match = re.search(
+        r"(?ms)^create table public\.api_idempotency_records \(\n(.*?)^\);$",
+        migration,
+    )
+    if create_match is None:
+        errors.append("기존 api_idempotency_records migration을 찾을 수 없습니다.")
+    else:
+        migration_fields = []
+        for line in create_match.group(1).splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith(("primary key", "constraint", "check", "(", ")", "or", "and", "state =")):
+                continue
+            field_match = re.match(r"^([a-z][a-z0-9_]*)\s+(?:uuid|varchar\(|char\(|smallint|bytea|timestamptz)", stripped)
+            if field_match:
+                migration_fields.append(field_match.group(1))
+        if migration_fields != idempotency.get("fields"):
+            errors.append("idempotency contract field가 기존 #17 migration과 다릅니다.")
+
+    user_profiles = _parse_dbml_table(sources["dbml"], "user_profiles")
+    expected_user_profiles = {
+        "fields": [
+            ("id", "uuid", "pk, ref: > auth.users.id"),
+            ("email", "text", "unique"),
+            ("nickname", "text", None),
+            ("profile_image_url", "text", None),
+            ("profile_image_object_key", "text", 'note: "#78 future: immutable {lowercase-sub}/profile/{lowercase-generation-uuid}; storage source only"'),
+            ("profile_image_source", "text", 'not null, note: "#78 future: storage, provider, none; provider URL present -> provider, absent -> none backfill"'),
+            ("profile_image_storage_etag", "text", 'note: "#78 future: strong Storage ETag; storage source only"'),
+            ("profile_image_version", "bigint", 'not null, default: 0, note: "#78 future: 0..9223372036854775807; successful non-replay mutation increments exactly one"'),
+            ("locale", "text", "not null"),
+            ("status", "text", "not null"),
+            ("onboarding_completed_at", "timestamptz", None),
+            ("created_at", "timestamptz", "not null"),
+            ("updated_at", "timestamptz", "not null"),
+            ("last_login_at", "timestamptz", None),
+            ("deleted_at", "timestamptz", None),
+        ],
+        "indexes": [],
+        "note": None,
+    }
+    if user_profiles != expected_user_profiles:
+        errors.append("DBML user_profiles field/order/type/null/default/invariant가 exact 계약과 다릅니다.")
+
+    idempotency_dbml = _parse_dbml_table(sources["dbml"], "api_idempotency_records")
+    expected_idempotency_dbml = {
+        "fields": [
+            ("owner_sub", "uuid", "not null"),
+            ("http_method", "varchar(16)", "not null"),
+            ("normalized_path", "varchar(1024)", "not null"),
+            ("idempotency_key", "uuid", "not null"),
+            ("request_hash", "char(64)", 'not null, note: "profile-image request hash binds canonical body + original If-Match"'),
+            ("attempt_token", "uuid", "not null"),
+            ("state", "varchar(16)", 'not null, note: "PROCESSING, COMPLETED"'),
+            ("response_status", "smallint", None),
+            ("response_headers", "bytea", 'note: "completed profile-image snapshot includes Content-Type and original ETag"'),
+            ("response_body", "bytea", None),
+            ("created_at", "timestamptz", "not null"),
+            ("lease_expires_at", "timestamptz", None),
+            ("completed_at", "timestamptz", None),
+            ("expires_at", "timestamptz", "not null"),
+        ],
+        "indexes": [
+            "(owner_sub, http_method, normalized_path, idempotency_key) [pk]",
+            "(expires_at)",
+        ],
+        "note": "existing #17 schema reused unchanged; #78 adds no replacement table or columns and only stores a compatible profile-image request/response snapshot.",
+    }
+    if idempotency_dbml != expected_idempotency_dbml:
+        errors.append("DBML api_idempotency_records가 기존 #17 schema와 exact 일치하지 않습니다.")
+
+    outbox = _parse_dbml_table(sources["dbml"], "profile_image_cleanup_outbox")
+    expected_outbox_dbml = {
+        "fields": [
+            ("id", "uuid", "pk"),
+            ("owner_user_id", "uuid", "not null, ref: > user_profiles.id"),
+            ("object_key", "text", "not null"),
+            ("storage_etag", "text", "not null"),
+            ("source_profile_version", "bigint", "not null"),
+            ("reason", "text", 'not null, note: "replacement, clear, orphan, account_deletion"'),
+            ("status", "text", 'not null, note: "pending, claimed, succeeded, retry"'),
+            ("claim_token", "uuid", None),
+            ("claimed_at", "timestamptz", None),
+            ("attempt_count", "integer", "not null, default: 0"),
+            ("next_attempt_at", "timestamptz", "not null"),
+            ("completed_at", "timestamptz", None),
+            ("created_at", "timestamptz", "not null"),
+        ],
+        "indexes": ["(object_key, storage_etag) [unique]", "(status, next_attempt_at)"],
+        "note": "#78 future: profile lock/current ref plus owner/key/ETag generation fence before server-only deletion.",
+    }
+    if outbox != expected_outbox_dbml:
+        errors.append("DBML cleanup outbox field/reason/lifecycle가 canonical future shape와 다릅니다.")
+
+    if (
+        _canonical_markdown_section_digest(sources["schema"])
+        != CANONICAL_SCHEMA_PROFILE_IMAGE_SECTION_SHA256
+    ):
+        errors.append("DB schema canonical profile-image section 전체가 변경·누락·상충됐습니다.")
+    if (
+        _canonical_markdown_section_digest(sources["api"])
+        != CANONICAL_API_PROFILE_IMAGE_SECTION_SHA256
+    ):
+        errors.append("RDB API canonical profile-image section 전체가 변경·누락·상충됐습니다.")
+
+
 def _validate_fixtures(errors: list[str]) -> None:
     contract = _load(DEFAULT_CONTRACT)
-    expected = {"request": {"contractVersion", "examples"}, "success": {"contractVersion", "examples", "providerProjectionExamples", "deletionStatusExamples"}, "problem": {"contractVersion", "examples"}}
+    expected = {
+        "request": {"contractVersion", "examples", "profileImageRequestExamples"},
+        "success": {"contractVersion", "examples", "providerProjectionExamples", "profileImageStateExamples", "profileImageResponseHeaderExamples", "deletionStatusExamples"},
+        "problem": {"contractVersion", "examples"},
+    }
     for name, fields in expected.items():
         path = FIXTURES / f"{name}.json"
         fixture = _load(path)
-        if not isinstance(fixture, dict) or set(fixture) != fields or fixture.get("contractVersion") != "1.0.0":
+        if not isinstance(fixture, dict) or set(fixture) != fields or fixture.get("contractVersion") != "1.1.0":
             errors.append(f"{name} fixture closed top-level 계약이 다릅니다.")
             continue
         examples = fixture.get("examples")
@@ -673,13 +1346,39 @@ def _validate_fixtures(errors: list[str]) -> None:
         elif item["body"] != matching[0].get("example"):
             errors.append("problem fixture canonical example exact fields가 다릅니다.")
         _validate_schema_value(item["body"], contract["schemas"]["ProblemDetails"], "problem.body", errors)
+    storage_path = FIXTURES / "storage-metadata.json"
+    storage_fixture = _load(storage_path)
+    if FORBIDDEN_TEXT.search(storage_path.read_text(encoding="utf-8")):
+        errors.append("storage metadata fixture에 credential/raw provider 정보가 있습니다.")
+    _validate_storage_metadata_fixture(storage_fixture, errors)
 
 
 def validate(path: Path) -> list[str]:
     contract = _load(path)
     errors = validate_contract_value(contract)
+    if _digest(contract) != CANONICAL_CONTRACT_SHA256:
+        errors.append("canonical profile-legal contract digest가 다릅니다.")
     if isinstance(contract, dict):
         _validate_catalog(contract, errors)
+        _validate_profile_image_persistence_documents(
+            contract,
+            {
+                "dbml": (ROOT / "docs/designs/timing-jeju-dbdiagram.dbml").read_text(encoding="utf-8"),
+                "schema": (ROOT / "docs/designs/timing-jeju-db-schema-v0.md").read_text(encoding="utf-8"),
+                "api": (ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md").read_text(encoding="utf-8"),
+                "migration": (ROOT / "supabase/migrations/20260810000000_api_idempotency_registry.sql").read_text(encoding="utf-8"),
+            },
+            errors,
+        )
+        catalog = _load(CATALOG)
+        identities = {(item["method"], item["path"]) for item in contract.get("endpoints", [])}
+        projection = [
+            item
+            for item in catalog.get("endpoints", [])
+            if (item.get("method"), item.get("path")) in identities
+        ]
+        if _digest(projection) != CANONICAL_CATALOG_SHA256:
+            errors.append("canonical profile-legal catalog projection digest가 다릅니다.")
     _validate_fixtures(errors)
     return errors
 

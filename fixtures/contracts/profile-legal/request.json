@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "1.1.0",
   "examples": [
     {
       "method": "GET",
@@ -42,6 +42,14 @@
       }
     },
     {
+      "method": "GET",
+      "contractPath": "/api/v1/me/profile-image",
+      "path": "/api/v1/me/profile-image",
+      "headers": {
+        "Authorization": "Bearer <fixture-access-token>"
+      }
+    },
+    {
       "method": "PUT",
       "contractPath": "/api/v1/me/consents",
       "path": "/api/v1/me/consents",
@@ -63,6 +71,49 @@
       "path": "/api/v1/account-deletion-requests/01JZQ3CM4C9N6N5S7XJ9W1FB08",
       "headers": {
         "X-Deletion-Status-Token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "method": "PUT",
+      "contractPath": "/api/v1/me/profile-image",
+      "path": "/api/v1/me/profile-image",
+      "headers": {
+        "Authorization": "Bearer <fixture-access-token>",
+        "Idempotency-Key": "00000000-0000-4000-8000-000000000181",
+        "If-Match": "\"profile-image-0\""
+      },
+      "body": {
+        "profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675"
+      }
+    }
+  ],
+  "profileImageRequestExamples": [
+    {
+      "case": "confirm",
+      "request": {
+        "headers": {"Idempotency-Key": "00000000-0000-4000-8000-000000000181", "If-Match": "\"profile-image-0\""},
+        "body": {"profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675"}
+      }
+    },
+    {
+      "case": "clear",
+      "request": {
+        "headers": {"Idempotency-Key": "00000000-0000-4000-8000-000000000182", "If-Match": "\"profile-image-1\""},
+        "body": {"profileImageObjectKey": null}
+      }
+    },
+    {
+      "case": "replay",
+      "request": {
+        "headers": {"Idempotency-Key": "00000000-0000-4000-8000-000000000181", "If-Match": "\"profile-image-0\""},
+        "body": {"profileImageObjectKey": "09000000-0000-4000-8000-000000000001/profile/018f47a1-43d2-7b6e-9fa2-11a1cc32c675"}
+      }
+    },
+    {
+      "case": "stale",
+      "request": {
+        "headers": {"Idempotency-Key": "00000000-0000-4000-8000-000000000183", "If-Match": "\"profile-image-0\""},
+        "body": {"profileImageObjectKey": null}
       }
     }
   ]
