@@ -13,8 +13,8 @@ MIGRATION = (
     / "20260902000000_push_device_notification_preferences.sql"
 )
 NEGATIVE_SQL = ROOT / "db/queries/database_negative_constraints.sql"
-LOCAL_FIXTURE_SQL = ROOT / "db/local-postgres/seed_fixtures.sql"
-FIXTURE_USER = "09000000-0000-0000-0000-000000000001"
+LOCAL_HELPER_SQL = ROOT / "db/local-postgres/supabase_smoke_fixture_helper.sql"
+FIXTURE_USER = "f1130000-0000-0000-0000-000000000001"
 
 
 def compact(value: str) -> str:
@@ -22,14 +22,23 @@ def compact(value: str) -> str:
 
 
 class PushNotificationDatabaseTest(unittest.TestCase):
-    def test_deploy_negative_sql_reuses_local_fixture_owner_without_auth_insert(self):
+    def test_deploy_negative_sql_creates_owner_through_local_helper_before_push_rows(self):
         negative = compact(NEGATIVE_SQL.read_text(encoding="utf-8"))
-        fixture = compact(LOCAL_FIXTURE_SQL.read_text(encoding="utf-8"))
+        helper = compact(LOCAL_HELPER_SQL.read_text(encoding="utf-8"))
 
         self.assertNotRegex(negative, r"insert\s+into\s+(?:public\.)?auth\.users")
-        self.assertIn(f"insert into auth.users ( id, email", fixture)
-        self.assertIn(FIXTURE_USER, fixture)
+        self.assertIn(
+            "create function public.create_local_test_user(target_user_id uuid, target_email text)",
+            helper,
+        )
+        fixture_call = (
+            "select public.create_local_test_user( "
+            f"'{FIXTURE_USER}', 'push-negative@issue113.test' );"
+        )
+        self.assertIn(fixture_call, negative)
         self.assertGreaterEqual(negative.count(FIXTURE_USER), 4)
+        first_push_case = negative.index("push device fingerprint must be sha-256 length")
+        self.assertLess(negative.index(fixture_call), first_push_case)
         for case in (
             "push device fingerprint must be sha-256 length",
             "active token fingerprint is globally unique",
