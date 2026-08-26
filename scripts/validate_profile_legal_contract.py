@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -714,6 +714,121 @@ def _validate_provider_projection_examples(examples: Any, contract: dict[str, An
     return errors
 
 
+def _canonical_uuid(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(uuid.UUID(value)) == value
+    except (ValueError, AttributeError):
+        return False
+
+
+def _canonical_profile_image_key(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    parts = value.split("/")
+    if len(parts) != 3 or parts[1] != "profile":
+        return False
+    return all(_canonical_uuid(segment) for segment in (parts[0], parts[2]))
+
+
+def _exact_storage_public_url_key(url: Any, contract: dict[str, Any]) -> str | None:
+    policy = contract.get("profileImagePolicy", {})
+    bucket = policy.get("bucket")
+    fixture_origin = policy.get("fixtureSupabaseOrigin")
+    if not all(isinstance(value, str) for value in (url, bucket, fixture_origin)):
+        return None
+    try:
+        parsed = urlsplit(url)
+        configured = urlsplit(fixture_origin)
+    except ValueError:
+        return None
+    prefix = f"/storage/v1/object/public/{bucket}/"
+    if not parsed.path.startswith(prefix):
+        return None
+    key = parsed.path[len(prefix):]
+    if not _canonical_profile_image_key(key):
+        return None
+    expected_path = prefix + key
+    valid = (
+        configured.scheme == "https"
+        and configured.netloc != ""
+        and configured.path == ""
+        and configured.query == ""
+        and configured.fragment == ""
+        and configured.username is None
+        and configured.password is None
+        and parsed.scheme == "https"
+        and parsed.netloc == configured.netloc
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.path == expected_path
+        and "%" not in parsed.path
+        and "//" not in parsed.path
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and url == fixture_origin + expected_path
+    )
+    return key if valid else None
+
+
+def _valid_https_provider_url(url: Any) -> bool:
+    if not isinstance(url, str) or any(character.isspace() for character in url):
+        return False
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+        parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.netloc != ""
+        and isinstance(host, str)
+        and host != ""
+        and parsed.username is None
+        and parsed.password is None
+        and parsed.fragment == ""
+    )
+
+
+def _is_storage_like_url(url: Any) -> bool:
+    if not isinstance(url, str):
+        return False
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return False
+    return "/storage/v1/object/" in unquote(parsed.path).lower()
+
+
+def _validate_core_profile_image_projection_body(
+    body: Any, contract: dict[str, Any], path: str, errors: list[str]
+) -> None:
+    if not isinstance(body, dict):
+        return
+    url = body.get("profileImageUrl")
+    if url is None or not isinstance(url, str):
+        return
+    storage_candidate = _is_storage_like_url(url)
+    if not storage_candidate:
+        if not _valid_https_provider_url(url):
+            errors.append(
+                f"{path} core GET provider URL은 credential 없는 HTTPS URL이어야 합니다."
+            )
+        return
+    key = _exact_storage_public_url_key(url, contract)
+    user_id = body.get("userId")
+    if (
+        key is None
+        or not _canonical_uuid(user_id)
+        or key.split("/", 1)[0] != user_id
+    ):
+        errors.append(
+            f"{path} core GET storage URL은 canonical userId와 byte-exact owner key가 필요합니다."
+        )
+
+
 def _validate_profile_image_response_body(
     body: Any, contract: dict[str, Any], path: str, errors: list[str]
 ) -> None:
@@ -723,45 +838,19 @@ def _validate_profile_image_response_body(
     source = body.get("profileImageSource")
     key = body.get("profileImageObjectKey")
     url = body.get("profileImageUrl")
-    policy = contract.get("profileImagePolicy", {})
-    bucket = policy.get("bucket")
-    fixture_origin = policy.get("fixtureSupabaseOrigin")
     if source == "storage":
-        valid = isinstance(key, str) and isinstance(url, str) and isinstance(fixture_origin, str)
-        if valid:
-            try:
-                parsed = urlsplit(url)
-                configured = urlsplit(fixture_origin)
-                expected_path = f"/storage/v1/object/public/{bucket}/{key}"
-                valid = (
-                    configured.scheme == "https"
-                    and configured.netloc != ""
-                    and configured.path == ""
-                    and configured.query == ""
-                    and configured.fragment == ""
-                    and configured.username is None
-                    and configured.password is None
-                    and parsed.scheme == "https"
-                    and parsed.netloc == configured.netloc
-                    and parsed.username is None
-                    and parsed.password is None
-                    and parsed.path == expected_path
-                    and "%" not in parsed.path
-                    and "//" not in parsed.path
-                    and parsed.query == ""
-                    and parsed.fragment == ""
-                    and url == fixture_origin + expected_path
-                )
-            except ValueError:
-                valid = False
+        valid = (
+            isinstance(key, str)
+            and isinstance(url, str)
+            and _exact_storage_public_url_key(url, contract) == key
+        )
         if not valid:
             errors.append(f"{path} storage source는 exact key 기반 immutable public URL이 필요합니다.")
     elif source == "provider":
         if (
             key is not None
-            or not isinstance(url, str)
-            or re.fullmatch(r"https://[^\s]+", url) is None
-            or "/storage/v1/object/" in url
+            or not _valid_https_provider_url(url)
+            or _is_storage_like_url(url)
         ):
             errors.append(f"{path} provider source는 key 없이 non-storage HTTPS URL이어야 합니다.")
     elif source == "none":
@@ -858,6 +947,10 @@ def validate_fixture_value(kind: str, fixture: Any, contract: dict[str, Any]) ->
                 )
                 if providers != expected:
                     errors.append(f"success[{index}] providers 정규화/dedupe/stable order가 다릅니다.")
+            if identity == ("GET", "/api/v1/me"):
+                _validate_core_profile_image_projection_body(
+                    example.get("body"), contract, f"success[{index}].body", errors
+                )
         elif kind == "request":
             for location in ("headers", "query", "body"):
                 schema_name = endpoint["schemas"][location]

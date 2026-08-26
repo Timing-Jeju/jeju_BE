@@ -365,6 +365,71 @@ class ProfileLegalContractTest(unittest.TestCase):
             )
             self.assertTrue(errors, index)
 
+    def test_issue_181_companion_provider_urls_are_safe_in_every_success_collection(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "profile_legal_validator_companion_provider", VALIDATOR
+        )
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        contract = self._contract()
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+        storage_key = next(
+            item["body"]["profileImageObjectKey"]
+            for item in success["profileImageStateExamples"]
+            if item["case"] == "storage-confirmed"
+        )
+        invalid_urls = (
+            "https:///provider/avatar.webp",
+            "https://user@images.example.invalid/provider/avatar.webp",
+            "https://user:password@images.example.invalid/provider/avatar.webp",
+            "https://images.example.invalid:99999/provider/avatar.webp",
+            "https://images.example.invalid/provider/avatar.webp#fragment",
+            "https://project.example.invalid/%73torage/v1/object/public/"
+            f"profile-images/{storage_key}",
+        )
+
+        def general_provider(fixture: dict[str, object]) -> dict[str, object]:
+            body = next(
+                item["body"]
+                for item in fixture["examples"]
+                if (item["method"], item["contractPath"])
+                == ("GET", "/api/v1/me/profile-image")
+            )
+            body["profileImageSource"] = "provider"
+            return body
+
+        def state_provider(fixture: dict[str, object]) -> dict[str, object]:
+            return next(
+                item["body"]
+                for item in fixture["profileImageStateExamples"]
+                if item["case"] == "cleared-provider-fallback"
+            )
+
+        def header_provider(fixture: dict[str, object]) -> dict[str, object]:
+            return next(
+                item["body"]
+                for item in fixture["profileImageResponseHeaderExamples"]
+                if item["case"] == "clear-provider"
+            )
+
+        for collection, select_body in (
+            ("general", general_provider),
+            ("state", state_provider),
+            ("header", header_provider),
+        ):
+            for invalid_url in invalid_urls:
+                with self.subTest(collection=collection, provider_url=invalid_url):
+                    mutation = copy.deepcopy(success)
+                    select_body(mutation)["profileImageUrl"] = invalid_url
+                    errors = validator.validate_fixture_value(
+                        "success", mutation, contract
+                    )
+                    self.assertTrue(
+                        any("provider source" in error for error in errors),
+                        errors,
+                    )
+
     def test_issue_181_storage_response_url_requires_exact_canonical_origin_and_path(self) -> None:
         spec = importlib.util.spec_from_file_location("profile_legal_validator_url", VALIDATOR)
         assert spec is not None and spec.loader is not None
@@ -440,6 +505,115 @@ class ProfileLegalContractTest(unittest.TestCase):
             with self.subTest(collection=index):
                 self.assertTrue(
                     validator.validate_fixture_value("success", fixture, contract)
+                )
+
+    def test_issue_181_core_get_storage_url_owner_matches_user_id_exactly(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "profile_legal_validator_core_storage_owner", VALIDATOR
+        )
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        contract = self._contract()
+        success = json.loads((FIXTURES / "success.json").read_text(encoding="utf-8"))
+        core_get = next(
+            item
+            for item in success["examples"]
+            if (item["method"], item["contractPath"]) == ("GET", "/api/v1/me")
+        )
+        self.assertEqual(
+            {
+                "userId",
+                "email",
+                "nickname",
+                "profileImageUrl",
+                "locale",
+                "providers",
+                "onboardingCompleted",
+                "updatedAt",
+            },
+            set(core_get["body"]),
+        )
+
+        canonical_url = core_get["body"]["profileImageUrl"]
+        storage_mutations = (
+            canonical_url.replace(
+                "09000000-0000-4000-8000-000000000001/profile/",
+                "09000000-0000-4000-8000-000000000002/profile/",
+            ),
+            canonical_url.replace(
+                "https://project.example.invalid",
+                "https://attacker.invalid",
+            ),
+            canonical_url.replace("/profile-images/", "/wrong-bucket/"),
+            canonical_url.replace("/storage/", "/%73torage/"),
+            canonical_url + "?download=1",
+        )
+        for value in storage_mutations:
+            with self.subTest(storage_url=value):
+                mutation = copy.deepcopy(success)
+                mutated_core_get = next(
+                    item
+                    for item in mutation["examples"]
+                    if (item["method"], item["contractPath"])
+                    == ("GET", "/api/v1/me")
+                )
+                mutated_core_get["body"]["profileImageUrl"] = value
+                errors = validator.validate_fixture_value(
+                    "success", mutation, contract
+                )
+                self.assertTrue(
+                    any(
+                        "core GET storage" in error and "userId" in error
+                        for error in errors
+                    ),
+                    errors,
+                )
+
+        for fallback in (
+            "https://images.example.invalid/provider/avatar.webp",
+            "https://project.example.invalid/provider/avatar.webp",
+            None,
+        ):
+            valid_fallback = copy.deepcopy(success)
+            fallback_core_get = next(
+                item
+                for item in valid_fallback["examples"]
+                if (item["method"], item["contractPath"])
+                == ("GET", "/api/v1/me")
+            )
+            fallback_core_get["body"]["profileImageUrl"] = fallback
+            self.assertEqual(
+                [],
+                validator.validate_fixture_value(
+                    "success", valid_fallback, contract
+                ),
+                fallback,
+            )
+
+        for invalid_provider in (
+            "http://images.example.invalid/provider/avatar.webp",
+            "javascript:alert(1)",
+            "https:///provider/avatar.webp",
+            "https://user@images.example.invalid/provider/avatar.webp",
+            "https://user:password@images.example.invalid/provider/avatar.webp",
+            "https://images.example.invalid/provider/avatar.webp#fragment",
+        ):
+            with self.subTest(provider_url=invalid_provider):
+                mutation = copy.deepcopy(success)
+                mutated_core_get = next(
+                    item
+                    for item in mutation["examples"]
+                    if (item["method"], item["contractPath"])
+                    == ("GET", "/api/v1/me")
+                )
+                mutated_core_get["body"]["profileImageUrl"] = invalid_provider
+                errors = validator.validate_fixture_value(
+                    "success", mutation, contract
+                )
+                self.assertTrue(
+                    any("core GET provider" in error for error in errors),
+                    errors,
                 )
 
     def test_issue_181_uuid_v7_object_key_and_bigint_etag_boundaries_are_exact(self) -> None:
