@@ -82,6 +82,8 @@ provider·service·operation·scope와 source key/payload hash를 포함한 uniq
 
 `service_role`은 정상 앱 쓰기에 필요한 SELECT·INSERT·UPDATE·DELETE와 명시적 RPC 권한을 유지하지만, 행 trigger를 우회하는 `TRUNCATE`는 현재와 향후 public 앱 테이블에서 회수합니다. `spatial_ref_sys` 같은 확장 관리 객체는 확장 소유자의 ACL 경계이므로 앱 테이블 권한 검사에서 제외합니다. 파괴적 앱 테이블 초기화는 서버 런타임이 아니라 통제된 migration owner 작업으로만 수행합니다.
 
+`push_devices`는 사용자·opaque device UUID별 한 행과 활성 SHA-256 token fingerprint 전역 유일성을 보장합니다. token 원문은 Spring에서 AES-256-GCM 암호화한 뒤 ciphertext/fingerprint만 저장합니다. `notification_preferences`는 명시적 opt-in 전 `false`, safety buffer `10`을 기본으로 하며 `0..120` inclusive를 DB CHECK로 고정합니다. 두 테이블은 owner RLS를 켜고 `anon`/`PUBLIC` 권한을 회수합니다. `authenticated`의 device 직접 조회는 token 보호 열을 제외한 safe column으로 제한하며 Spring server adapter가 원자 token 이동과 해제를 담당합니다.
+
 정책 검사는 독립적으로 실행할 수 있습니다.
 
 ```bash

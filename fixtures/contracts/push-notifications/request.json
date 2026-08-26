@@ -1,0 +1,9 @@
+{
+  "deviceId": "11300000-0000-0000-0000-000000000101",
+  "platform": "IOS",
+  "registrationToken": "__REDACTED_REGISTRATION_TOKEN__",
+  "permissionStatus": "GRANTED",
+  "appVersion": "1.2.3",
+  "locale": "ko-KR",
+  "timeZone": "Asia/Seoul"
+}

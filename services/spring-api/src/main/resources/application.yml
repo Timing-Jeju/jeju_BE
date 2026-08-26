@@ -34,6 +34,8 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  notifications:
+    token-encryption-key: ${PUSH_TOKEN_ENCRYPTION_KEY:}
   snapshot-retention:
     enabled: ${SNAPSHOT_RETENTION_ENABLED:false}
     dry-run: ${SNAPSHOT_RETENTION_DRY_RUN:true}

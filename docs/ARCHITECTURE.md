@@ -95,6 +95,16 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
 - 현재 기능 개발 로드맵 전체에서 Spring classpath와 `db/migration`에 Flyway를 도입하지 않습니다. `supabase/migrations`만 운영 DB 마이그레이션의 단일 기준으로 유지합니다. Flyway 검토는 모든 주요 기능 개발이 끝난 뒤 마지막 안정화 Issue에서만 수행하며, 그 전에는 의존성·application 설정·디렉터리·테스트를 추가하지 않습니다.
 
+## 푸시 기기와 출발 알림 설정 경계
+
+`domain/notification`은 현재 사용자의 푸시 기기 등록·해제와 출발 알림 설정 API만 소유하고, `application.notification`은 token 보호 전후 port, 설정 및 eligibility 계약을 소유합니다. `global.notification`은 PostgreSQL adapter와 AES-256-GCM crypto/config만 구현합니다. Firebase provider 전송은 별도 `application.push`/`global.push.firebase` 경계이며 이 도메인에 Firebase SDK 타입을 노출하지 않습니다.
+
+registration token 원문은 controller 요청에서 application crypto port로 즉시 전달하고 repository에는 ciphertext와 SHA-256 fingerprint만 전달합니다. 원문·ciphertext·fingerprint 및 crypto 실패 원인은 API 응답, Problem Details, 로그, trace, metric과 fixture에 포함하지 않습니다. 암호화 키는 `PUSH_TOKEN_ENCRYPTION_KEY` 환경/secret 주입만 허용합니다.
+
+푸시 eligibility의 위치 문서는 profile locale 우선, `ko-KR` fallback과 semantic version/document ID 안정 정렬을 #19 법정 문서 정책과 공유합니다. profile, 후보 문서, 최종 동의·기기의 세 조회는 `REPEATABLE READ` transaction의 첫 DB read 시점 snapshot 하나를 공유하며 동시 commit은 다음 eligibility 호출부터 반영합니다. #61/#106 회원 탈퇴 intake는 `PushNotificationWithdrawalBoundary`만 호출하며, notification 경계는 탈퇴 command/status를 소유하지 않고 모든 기기의 즉시 eligibility 차단과 Auth 삭제 cascade만 책임집니다.
+
+발송 eligibility는 활성 device, `GRANTED` OS 권한, 서버의 명시적 opt-in과 현재 유효한 최신 required 위치 동의를 모두 다시 검사합니다. 결과는 사용한 위치 동의 문서 ID/version을 함께 제공해 예약 계층이 audit snapshot으로 보존할 수 있게 하며, token 존재만으로 동의를 추론하지 않습니다.
+
 ## 변경 API 멱등성 경계
 
 후속 생성·계산·적용 API는 [멱등성 application 계약](IDEMPOTENCY.md)의 `IdempotencyUseCase`를 통해서만 업무 변경을 실행합니다. application port는 Spring/JDBC에 의존하지 않고 `global.idempotency` adapter가 PostgreSQL registry와 트랜잭션을 연결합니다. 이 공통 기반 자체는 공개 endpoint를 추가하지 않습니다.

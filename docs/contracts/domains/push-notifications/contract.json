@@ -1,0 +1,212 @@
+{
+  "contractId": "push-notifications/v1",
+  "contractVersion": "1.0.0",
+  "issue": 113,
+  "inherits": "timing-jeju-rest-contract/v1",
+  "owner": {
+    "apiPrincipal": "canonical JWT sub UUID",
+    "requestOwnerFields": "forbidden",
+    "databaseOwner": "(select auth.uid()) = user_id"
+  },
+  "limits": {
+    "deviceId": {
+      "type": "string",
+      "format": "uuid",
+      "length": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "example": "11300000-0000-0000-0000-000000000101"
+    },
+    "registrationToken": {
+      "type": "string",
+      "encoding": "printable ASCII encoded as UTF-8",
+      "pattern": "^[!-~]{1,4096}$",
+      "minBytes": 1,
+      "maxBytes": 4096,
+      "envelope": {
+        "cipher": "AES-256-GCM",
+        "versionBytes": 1,
+        "ivBytes": 12,
+        "tagBytes": 16,
+        "encoding": "base64url without padding",
+        "maxChars": 5500
+      }
+    },
+    "safetyBufferMinutes": {"type": "integer", "minimum": 0, "maximum": 120, "default": 10}
+  },
+  "schemas": {
+    "PushDeviceRegistrationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "registrationToken", "permissionStatus", "appVersion", "locale", "timeZone"],
+      "properties": {
+        "platform": {"type": "string", "enum": ["IOS", "ANDROID"]},
+        "registrationToken": {"$ref": "#/limits/registrationToken"},
+        "permissionStatus": {"type": "string", "enum": ["GRANTED", "DENIED", "NOT_DETERMINED"]},
+        "appVersion": {"type": "string", "minLength": 1, "maxLength": 50},
+        "locale": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 35,
+          "pattern": "^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2}|-[0-9]{3})?(?:-[A-Za-z0-9]{5,8}|-[0-9][A-Za-z0-9]{3})*(?:-[0-9A-WYZa-wy-z](?:-[A-Za-z0-9]{2,8})+)*(?:-x(?:-[A-Za-z0-9]{1,8})+)?$",
+          "example": "en-US-u-ca-gregory"
+        },
+        "timeZone": {"type": "string", "minLength": 1, "maxLength": 64}
+      }
+    },
+    "PushDeviceResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deviceId", "platform", "permissionStatus", "active", "updatedAt"],
+      "properties": {
+        "deviceId": {"$ref": "#/limits/deviceId"},
+        "platform": {"type": "string", "enum": ["IOS", "ANDROID"]},
+        "permissionStatus": {"type": "string", "enum": ["GRANTED", "DENIED", "NOT_DETERMINED"]},
+        "active": {"type": "boolean"},
+        "updatedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "NotificationPreferencePatchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "nextDestinationDepartureEnabled": {"type": "boolean"},
+        "safetyBufferMinutes": {"$ref": "#/limits/safetyBufferMinutes"}
+      }
+    },
+    "NotificationPreferenceResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nextDestinationDepartureEnabled", "safetyBufferMinutes", "updatedAt"],
+      "properties": {
+        "nextDestinationDepartureEnabled": {"type": "boolean", "default": false},
+        "safetyBufferMinutes": {"$ref": "#/limits/safetyBufferMinutes"},
+        "updatedAt": {"type": ["string", "null"], "format": "date-time"}
+      }
+    }
+  },
+  "endpointContracts": [
+    {
+      "method": "PUT",
+      "path": "/api/v1/me/push-devices/{deviceId}",
+      "auth": "required bearer-jwt/v1",
+      "pathSchema": "PushDevicePath",
+      "bodySchema": "PushDeviceRegistrationRequest",
+      "success": {"status": 200, "mediaType": "application/json", "schema": "PushDeviceResponse"},
+      "problems": [
+        {"condition": "invalid canonical UUID, closed body, field, or token boundary", "status": 400, "code": "INVALID_PUSH_NOTIFICATION_REQUEST", "mediaType": "application/problem+json"},
+        {"condition": "missing bearer JWT", "status": 401, "code": "AUTHENTICATION_REQUIRED", "mediaType": "application/problem+json"},
+        {"condition": "invalid bearer JWT", "status": 401, "code": "INVALID_ACCESS_TOKEN", "mediaType": "application/problem+json"},
+        {"condition": "authenticated principal lacks endpoint access", "status": 403, "code": "AUTH_ACCESS_DENIED", "mediaType": "application/problem+json"},
+        {"condition": "unexpected server failure", "status": 500, "code": "INTERNAL_SERVER_ERROR", "mediaType": "application/problem+json"},
+        {"condition": "token protection or persistence unavailable", "status": 503, "code": "PUSH_NOTIFICATION_DATA_UNAVAILABLE", "mediaType": "application/problem+json"}
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/me/push-devices/{deviceId}",
+      "auth": "required bearer-jwt/v1",
+      "pathSchema": "PushDevicePath",
+      "bodySchema": "none",
+      "success": {"status": 204, "mediaType": "none", "schema": "none"},
+      "problems": [
+        {"condition": "invalid canonical UUID", "status": 400, "code": "INVALID_PUSH_NOTIFICATION_REQUEST", "mediaType": "application/problem+json"},
+        {"condition": "missing bearer JWT", "status": 401, "code": "AUTHENTICATION_REQUIRED", "mediaType": "application/problem+json"},
+        {"condition": "invalid bearer JWT", "status": 401, "code": "INVALID_ACCESS_TOKEN", "mediaType": "application/problem+json"},
+        {"condition": "authenticated principal lacks endpoint access", "status": 403, "code": "AUTH_ACCESS_DENIED", "mediaType": "application/problem+json"},
+        {"condition": "unexpected server failure", "status": 500, "code": "INTERNAL_SERVER_ERROR", "mediaType": "application/problem+json"},
+        {"condition": "persistence unavailable", "status": 503, "code": "PUSH_NOTIFICATION_DATA_UNAVAILABLE", "mediaType": "application/problem+json"}
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/notification-preferences",
+      "auth": "required bearer-jwt/v1",
+      "pathSchema": "none",
+      "bodySchema": "none",
+      "success": {"status": 200, "mediaType": "application/json", "schema": "NotificationPreferenceResponse"},
+      "problems": [
+        {"condition": "missing bearer JWT", "status": 401, "code": "AUTHENTICATION_REQUIRED", "mediaType": "application/problem+json"},
+        {"condition": "invalid bearer JWT", "status": 401, "code": "INVALID_ACCESS_TOKEN", "mediaType": "application/problem+json"},
+        {"condition": "authenticated principal lacks endpoint access", "status": 403, "code": "AUTH_ACCESS_DENIED", "mediaType": "application/problem+json"},
+        {"condition": "unexpected server failure", "status": 500, "code": "INTERNAL_SERVER_ERROR", "mediaType": "application/problem+json"},
+        {"condition": "persistence unavailable", "status": 503, "code": "PUSH_NOTIFICATION_DATA_UNAVAILABLE", "mediaType": "application/problem+json"}
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/me/notification-preferences",
+      "auth": "required bearer-jwt/v1",
+      "pathSchema": "none",
+      "bodySchema": "NotificationPreferencePatchRequest",
+      "success": {"status": 200, "mediaType": "application/json", "schema": "NotificationPreferenceResponse"},
+      "problems": [
+        {"condition": "empty, null, unknown, or out-of-range body", "status": 400, "code": "INVALID_PUSH_NOTIFICATION_REQUEST", "mediaType": "application/problem+json"},
+        {"condition": "missing bearer JWT", "status": 401, "code": "AUTHENTICATION_REQUIRED", "mediaType": "application/problem+json"},
+        {"condition": "invalid bearer JWT", "status": 401, "code": "INVALID_ACCESS_TOKEN", "mediaType": "application/problem+json"},
+        {"condition": "authenticated principal lacks endpoint access", "status": 403, "code": "AUTH_ACCESS_DENIED", "mediaType": "application/problem+json"},
+        {"condition": "unexpected server failure", "status": 500, "code": "INTERNAL_SERVER_ERROR", "mediaType": "application/problem+json"},
+        {"condition": "persistence unavailable", "status": 503, "code": "PUSH_NOTIFICATION_DATA_UNAVAILABLE", "mediaType": "application/problem+json"}
+      ]
+    }
+  ],
+  "catalogProjection": [
+    {"method": "PUT", "path": "/api/v1/me/push-devices/{deviceId}", "pathSchema": "PushDevicePath", "bodySchema": "PushDeviceRegistrationRequest", "success": [200], "errors": [400, 401, 403, 500, 503]},
+    {"method": "DELETE", "path": "/api/v1/me/push-devices/{deviceId}", "pathSchema": "PushDevicePath", "bodySchema": "none", "success": [204], "errors": [400, 401, 403, 500, 503]},
+    {"method": "GET", "path": "/api/v1/me/notification-preferences", "pathSchema": "none", "bodySchema": "none", "success": [200], "errors": [401, 403, 500, 503]},
+    {"method": "PATCH", "path": "/api/v1/me/notification-preferences", "pathSchema": "none", "bodySchema": "NotificationPreferencePatchRequest", "success": [200], "errors": [400, 401, 403, 500, 503]}
+  ],
+  "runtimeDrift": {
+    "canonicalMissingBearerCode": "AUTHENTICATION_REQUIRED",
+    "canonicalInvalidBearerCode": "INVALID_ACCESS_TOKEN",
+    "observedRequiredEndpointCode": "AUTH_TOKEN_INVALID",
+    "owner": "global security follow-up outside Issue #113",
+    "implementationReady": false
+  },
+  "cryptoFailure": {
+    "boundary": "RegistrationTokenProtector runtime failure -> provider-neutral application exception",
+    "status": 503,
+    "code": "PUSH_NOTIFICATION_DATA_UNAVAILABLE",
+    "storeCalls": 0,
+    "rawCauseOrTokenExposure": false
+  },
+  "legalSelection": {
+    "locale": "user_profiles.locale when any eligible location document exists; otherwise ko-KR",
+    "eligibility": "required and effectiveAt <= evaluatedAt and not retired",
+    "order": ["effectiveAt DESC", "semanticVersion DESC", "documentId ASC"],
+    "consent": "winning document requires agreed=true, withdrawnAt=null, agreedAt<=evaluatedAt",
+    "snapshotIsolation": "REPEATABLE_READ",
+    "snapshotAnchor": "first database read in findEligible",
+    "concurrentCommitVisibility": "next invocation"
+  },
+  "withdrawalLifecycle": {
+    "singleDeviceLogout": "DELETE /api/v1/me/push-devices/{deviceId}",
+    "requestBoundary": "PushNotificationWithdrawalBoundary.onWithdrawalRequested",
+    "requestOwner": "Issue #61/#106 invokes additive port in withdrawal intake transaction",
+    "requestEffect": "all owner devices invalidated immediately; eligibility=0",
+    "finalAuthDeletion": "auth.users delete cascades push_devices and notification_preferences",
+    "crossOwnerEffect": "none"
+  },
+  "database": {
+    "migration": "supabase/migrations/20260902000000_push_device_notification_preferences.sql",
+    "tables": ["public.push_devices", "public.notification_preferences"],
+    "ownerColumn": "user_id",
+    "rlsPredicate": "(select auth.uid()) = user_id",
+    "anonymousAccess": false,
+    "securityDefiner": false,
+    "activeTokenUniqueness": "unique token_fingerprint where invalidated_at is null",
+    "ciphertextMaxChars": 5500
+  },
+  "externalTraceability": {"notion": "not-linked", "figma": "not-linked"},
+  "localEvidence": {
+    "metadata": "docs/contracts/domains/push-notifications/contract.md",
+    "requestFixture": "fixtures/contracts/push-notifications/request.json",
+    "successFixture": "fixtures/contracts/push-notifications/success.json",
+    "problemFixture": "fixtures/contracts/push-notifications/problem.json",
+    "controller": "services/spring-api/src/main/java/com/timingjeju/api/domain/notification/controller/PushNotificationController.java",
+    "openApiTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/notification/controller/PushNotificationControllerIntegrationTest.java",
+    "serviceTest": "services/spring-api/src/test/java/com/timingjeju/api/application/notification/PushDeviceServiceTest.java",
+    "repositoryTest": "services/spring-api/src/test/java/com/timingjeju/api/global/notification/JdbcPushNotificationStoreIntegrationTest.java",
+    "contractTest": "scripts/tests/test_push_notification_contract.py"
+  }
+}
