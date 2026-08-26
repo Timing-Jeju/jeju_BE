@@ -1,0 +1,1011 @@
+# Timing Jeju 프론트엔드 API 명세
+
+> **DRAFT — Codegen NOT READY.** 이 Markdown은 프론트엔드 인계용 first deliverable이다. #34/#44의 `develop` 병합 뒤 #182에서 portable validator, AC2/AC5 검증·CI 연결과 Swagger/OpenAPI remediation을 완료하기 전에는 SDK를 생성하지 않는다.
+
+이 문서는 2026-08-26 현재 구현이 끝난 공개 Spring API 16개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+
+## 기준과 브랜치 준비 상태
+
+| 상태 | 범위 | 권위 자료 |
+|---|---|---|
+| `develop` 사용 가능 | auth 2, profile 2, legal 2, places 2, weather 1 | `origin/develop` `39ed577f4c2b839177faea0ab774e8d3102ed988`의 Controller/OpenAPI와 canonical contract |
+| **#34 병합 대기** | saved places 4 | clean HEAD `bd83872b1fd91d5e5c1980422634198734c92cf1`의 OpenAPI와 `saved-places` contract |
+| **#44 병합 대기** | trips 3 | HEAD `f6efff7a641aeec886894e98a3360ec7f90daa63` 및 현재 Swagger remediation source의 OpenAPI와 `trips` contract |
+
+따라서 현재 `develop` 서버 한 대에서 16개를 모두 호출할 수 있는 상태는 아니다. #34와 #44가 `develop`에 병합되기 전에는 해당 표식이 붙은 endpoint를 각 기능 브랜치에서 검증한다. 이 문서는 두 브랜치의 wire contract를 선반영하지만 아직 미구현인 trip PATCH/DELETE 등은 포함하지 않는다.
+
+## Base URL과 인증
+
+- 모든 경로는 API v1 상대 경로다. 로컬 기본 Base URL은 `http://localhost:8080`이다.
+- Swagger UI: `/swagger-ui/index.html`, OpenAPI JSON: `/v3/api-docs`.
+- 일반 인증은 `Authorization: Bearer <access-token>`의 Supabase JWT다. placeholder를 실제 token으로 교체하고 저장소나 로그에 남기지 않는다.
+- `인증: 필수`는 header 누락 시 `401 AUTHENTICATION_REQUIRED`, 유효하지 않은 JWT는 `401 INVALID_ACCESS_TOKEN`이다.
+- `인증: 선택`은 header 생략 시 익명 호출이다. header를 보냈는데 유효하지 않으면 `401 INVALID_ACCESS_TOKEN`이다.
+- Naver UserInfo의 Authorization은 예외적으로 **Supabase JWT가 아니라 Naver provider access token**이다.
+- 생성 OpenAPI는 bearer 필수 endpoint마다 공통 `403`을 추가하며 현재 registry code는 `AUTH_ACCESS_DENIED`다. canonical endpoint contract에는 이 403이 없고 필수 인증 401 code도 runtime과 다르므로, 아래 endpoint별 canonical/generated status를 모두 확인하고 “알려진 계약 충돌”의 호환 지침을 따른다.
+
+## OperationId와 code generation
+
+현재 operationId는 Controller method 이름에서 자동 생성되어 generic name과 `_1`, `_2` suffix가 branch의 operation 조합에 따라 바뀐다. 각 endpoint에 실제 source snapshot의 현재 값을 기록하지만 **16개 모두 Codegen NOT READY**다. #182 후속에서 `{domain}{Action}`의 stable unique operationId가 적용되고 `_1` 계열이 사라질 때까지 이 ID로 SDK를 생성하거나 client 함수명을 고정하지 않는다.
+
+## 공통 헤더와 응답
+
+| Header | 방향 | 계약 |
+|---|---|---|
+| `Authorization` | 요청 | `Bearer <access-token>`; endpoint별 필수/선택 여부 확인 |
+| `Content-Type` | 요청 | JSON body가 있으면 `application/json` |
+| `Accept` | 요청 | 성공 JSON은 `application/json`, 오류는 `application/problem+json` |
+| `X-Trace-Id` | 응답 | 서버 생성 32자리 lowercase hex; 요청 단위 추적용 |
+| `Location` | 생성 응답 | 생성된 resource의 상대 URI |
+| `ETag` | 생성·수정 응답 | 큰따옴표를 포함한 strong opaque validator |
+| `If-Match` | 수정 요청 | 직전 응답의 `ETag` 값을 큰따옴표까지 그대로 전달 |
+| `Idempotency-Key` | 생성 요청 | endpoint별 형식과 scope 확인 |
+| `Idempotency-Replayed` | 생성 응답 | HTTP wire는 textual `true` 또는 `false`; generated client schema는 boolean |
+
+`204`는 body와 content가 없다. JSON 성공은 `application/json`, 오류는 `application/problem+json`이다.
+
+## Problem Details
+
+모든 오류 body는 아래 closed shape이다. `instance`는 raw path/query를 반사하지 않는 `urn:timing-jeju:problem:<traceId>`이고, `traceId`는 `X-Trace-Id`와 같다. `fieldErrors`는 없을 때도 `[]`이며 provider 원문, SQL/JWT 원문, 개인정보는 포함하지 않는다.
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/validation-failed",
+  "title": "요청 값이 올바르지 않습니다.",
+  "status": 400,
+  "detail": "입력값을 확인해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "VALIDATION_FAILED",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+각 endpoint 표의 code가 분기 기준이다. 모든 operation에는 안전한 공통 `500 INTERNAL_SERVER_ERROR`도 적용될 수 있다.
+
+## Cursor 사용법
+
+cursor는 opaque하고 무결성이 보호된 문자열이다. `nextCursor`를 해석하거나 조합하지 말고 다음 요청의 `cursor`에 그대로 넣는다. `hasNext=false`이면 `nextCursor=null`이다. cursor를 받은 뒤 filter, sort, size 또는 사용자 scope를 바꾸면 `400 CURSOR_CONTEXT_MISMATCH`; 훼손된 cursor는 `400 INVALID_CURSOR`다.
+
+- places: 기본 `size=20`, 최대 100. 위치 검색은 `distanceMeters ASC NULLS LAST, name ASC, placeId ASC`, 그 외는 `name ASC, placeId ASC`.
+- saved places: 기본 `size=20`, 최대 100. sort는 `saved_at_desc`, `priority_desc`, `target_day_asc`.
+- trips: 기본 `size=20`, 최대 50. `updatedAt DESC, tripId DESC`.
+
+## ETag와 If-Match
+
+saved place PATCH는 `If-Match`가 필수다. POST/PATCH 성공의 `ETag`를 client cache에 저장하고 다음 PATCH에 그대로 보낸다. 누락·형식 오류는 `400 INVALID_REQUEST`, stale 값은 `409 SAVED_PLACE_VERSION_CONFLICT`다. 여행 POST도 strong `ETag`를 반환하지만 이 문서 범위의 trip GET에는 조건부 요청이 없다.
+
+## Idempotency replay
+
+- saved place POST: `Idempotency-Key`는 `^[A-Za-z0-9._:-]{1,128}$`, scope는 `canonicalSub + POST + canonical path`, TTL은 terminal response 뒤 24시간이다. 같은 key+canonical payload는 원본 status/body/Location/ETag를 재사용하고 `Idempotency-Replayed: true`만 덮는다. 다른 payload는 `409 IDEMPOTENCY_PAYLOAD_CONFLICT`.
+- trip POST: lowercase canonical UUID key, scope는 `canonicalSub + POST + /api/v1/trips`, TTL 24시간이다. 같은 payload는 원본 `201`을 replay한다. 다른 payload 또는 in-progress/reused key는 `409 IDEMPOTENCY_KEY_REUSED`.
+- timeout 뒤에는 새 key를 만들기 전에 같은 key와 같은 body로 재시도한다.
+- HTTP header 값은 전송 계층에서 문자열이지만 #44 generated OpenAPI는 `boolean` schema여서 생성 client가 boolean으로 노출할 수 있다. 목표 계약은 의미 type을 boolean으로 유지하고 transport adapter가 textual `true|false`를 boolean으로 변환하는 것이다. #34 snapshot은 이 header schema 자체가 빠져 있어 #182 후속 정렬 대상이다.
+
+## null, 생략, 기본값
+
+- response에서 required와 nullable은 별개다. 예를 들어 `nextCursor`, `totalScore`, `scoreProvenance`는 **필드는 항상 존재**하지만 값은 `null`일 수 있다.
+- profile PATCH: `nickname`, `locale` 생략은 기존 값 보존, explicit `null`은 거부. 최소 한 필드가 필요하다.
+- saved place POST: `memo` 생략/null → null, `tags` 생략/null → `[]`, `priority` 생략/null → `0`, `targetDay` 생략/null → null.
+- saved place PATCH: 생략은 보존, `memo`/`targetDay` null은 clear, `tags` null은 `[]`, `priority` null은 `0`; array는 전체 교체다.
+- trip POST: `timezone="Asia/Seoul"`, `userPace="normal"`, `transportModes=[public_transit priority 1 primary true]`가 생략 기본값이다. optional 필드의 explicit null은 거부한다.
+- places 익명 응답: 목록은 `saved=false`, `memo=null`, `tags=[]`; 상세는 `saved.value=false`, `saved.memo=null`, `saved.tags=[]`.
+- weather category 값은 필드가 항상 존재하되 원천 category가 없으면 null이다.
+
+## Endpoints
+
+### `GET /api/v1/auth/social/providers`
+
+현재 operationId: `getProviders` · Codegen: **NOT READY** · Canonical statuses: `not-defined` · Generated OpenAPI statuses: `200,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 없음 · query/path/body 없음 · 성공 `200 application/json`. 반환 순서는 `google`, `kakao`, `custom:naver`의 고정 catalog 순서이며 환경에서 활성화한 항목만 포함한다. id는 Supabase `signInWithOAuth` provider 값이다. 오류: `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/auth/social/providers HTTP/1.1
+Accept: application/json
+```
+
+```json
+{}
+```
+
+**성공 예시**
+
+```json
+{
+  "providers": [
+    {"id": "google", "displayName": "Google"},
+    {"id": "kakao", "displayName": "Kakao"},
+    {"id": "custom:naver", "displayName": "Naver"}
+  ]
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/internal-server-error",
+  "title": "내부 서버 오류가 발생했습니다.",
+  "status": 500,
+  "detail": "요청을 처리하는 중 내부 오류가 발생했습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "INTERNAL_SERVER_ERROR",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/auth/social/naver/userinfo`
+
+현재 operationId: `getNaverUserInfo` · Codegen: **NOT READY** · Canonical statuses: `not-defined` · Generated OpenAPI statuses: `200,401,403,422,429,500,502,503,504` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 공개 adapter지만 `Authorization` 필수. 값은 `Bearer <naver-provider-access-token>`이며 Supabase JWT나 query `access_token`을 보내지 않는다. provider token 길이는 최대 256자다. 성공 `200`; `sub`, `email` 필수, `name`, `preferred_username`, `picture`는 값이 있을 때만 key가 존재한다.
+
+오류 matrix: `401 SOCIAL_NAVER_TOKEN_INVALID | SOCIAL_NAVER_UPSTREAM_UNAUTHORIZED`; `403 SOCIAL_NAVER_UPSTREAM_FORBIDDEN`; `422 SOCIAL_NAVER_EMAIL_REQUIRED`; `429 SOCIAL_NAVER_RATE_LIMITED`; `502 SOCIAL_NAVER_UPSTREAM_UNAVAILABLE | SOCIAL_NAVER_UPSTREAM_INVALID_RESPONSE | SOCIAL_NAVER_UPSTREAM_RESPONSE_TOO_LARGE`; `503 SOCIAL_NAVER_OVERLOADED | SOCIAL_NAVER_UPSTREAM_RATE_LIMITED`; `504 SOCIAL_NAVER_UPSTREAM_TIMEOUT`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/auth/social/naver/userinfo HTTP/1.1
+Authorization: Bearer <naver-provider-access-token>
+Accept: application/json
+```
+
+```json
+{}
+```
+
+**성공 예시**
+
+```json
+{
+  "sub": "naver-public-subject-example",
+  "email": "naver-example@example.invalid",
+  "name": "제주 사용자",
+  "preferred_username": "제주 사용자",
+  "picture": "https://example.invalid/profile.png"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/social-naver-email-required",
+  "title": "필수 정보가 누락되었습니다.",
+  "status": 422,
+  "detail": "이메일 제공 동의가 필요합니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "SOCIAL_NAVER_EMAIL_REQUIRED",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/me`
+
+현재 operationId: `read` · Codegen: **NOT READY** · Canonical statuses: `200,401,503` · Generated OpenAPI statuses: `200,401,403,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 필수 · query/path/body 없음 · canonical JWT sub 소유 profile을 생성 보장한 뒤 `200`. 모든 response key는 필수다. `email`, `nickname`, `profileImageUrl`은 nullable; `locale`은 `ko-KR`; providers는 `google|kakao|custom:naver`의 unique stable array. 오류: `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/me HTTP/1.1
+Authorization: Bearer <access-token>
+Accept: application/json
+```
+
+```json
+{}
+```
+
+**성공 예시**
+
+```json
+{
+  "userId": "18000000-0000-0000-0000-000000000018",
+  "email": "user@example.invalid",
+  "nickname": "제주 여행자",
+  "profileImageUrl": null,
+  "locale": "ko-KR",
+  "providers": ["google"],
+  "onboardingCompleted": true,
+  "updatedAt": "2026-08-25T00:00:00Z"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/profile-data-unavailable",
+  "title": "프로필 조회 불가",
+  "status": 503,
+  "detail": "프로필 데이터를 불러올 수 없습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "PROFILE_DATA_UNAVAILABLE",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `PATCH /api/v1/me`
+
+현재 operationId: `update_1` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,409,503` · Generated OpenAPI statuses: `200,400,401,403,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 필수 · `Content-Type: application/json`. closed body에서 `nickname`(trim 후 1..50자), `locale`(`ko-KR`) 중 최소 하나. 생략은 보존, null/알 수 없는 field/email/image/providers 입력은 거부. 성공 `200`. 오류: `400 INVALID_PROFILE_LEGAL_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `409 PROFILE_CONFLICT`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+PATCH /api/v1/me HTTP/1.1
+Authorization: Bearer <access-token>
+Content-Type: application/json
+Accept: application/json
+```
+
+```json
+{
+  "nickname": "제주 산책자",
+  "locale": "ko-KR"
+}
+```
+
+**성공 예시**
+
+```json
+{
+  "userId": "18000000-0000-0000-0000-000000000018",
+  "email": "user@example.invalid",
+  "nickname": "제주 산책자",
+  "profileImageUrl": null,
+  "locale": "ko-KR",
+  "providers": ["google"],
+  "onboardingCompleted": true,
+  "updatedAt": "2026-08-25T00:01:00Z"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/invalid-profile-legal-request",
+  "title": "요청 형식 오류",
+  "status": 400,
+  "detail": "프로필 수정 요청 형식이 올바르지 않습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "INVALID_PROFILE_LEGAL_REQUEST",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": [{"field": "nickname", "reason": "크기는 1에서 50 사이여야 합니다"}]
+}
+```
+
+### `GET /api/v1/legal-documents`
+
+현재 operationId: `read_2` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,503` · Generated OpenAPI statuses: `200,400,401,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 선택 · query `locale` optional/non-null, 허용값 `ko-KR`, 생략 기본값 `ko-KR`. 한 서버 평가 시각에 시행 중인 문서 최신 version을 조회한다. 성공 `200`; `items`는 비어 있을 수 있다. 문서 `type=terms|privacy|location`, `documentId` UUID, `contentUrl` HTTPS, `required` boolean. 오류: `400 INVALID_PROFILE_LEGAL_REQUEST`; `401 INVALID_ACCESS_TOKEN`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/legal-documents?locale=ko-KR HTTP/1.1
+Accept: application/json
+```
+
+```json
+{"locale": "ko-KR"}
+```
+
+**성공 예시**
+
+```json
+{
+  "evaluatedAt": "2026-08-25T00:00:00Z",
+  "locale": "ko-KR",
+  "items": [
+    {
+      "documentId": "19000000-0000-0000-0000-000000000019",
+      "type": "terms",
+      "version": "1.0.0",
+      "title": "서비스 이용약관",
+      "contentUrl": "https://example.invalid/legal/terms/1.0.0",
+      "required": true,
+      "effectiveAt": "2026-08-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/invalid-profile-legal-request",
+  "title": "요청 형식 오류",
+  "status": 400,
+  "detail": "프로필 수정 요청 형식이 올바르지 않습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "INVALID_PROFILE_LEGAL_REQUEST",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": [{"field": "locale", "reason": "허용 값은 ko-KR입니다"}]
+}
+```
+
+### `PUT /api/v1/me/consents`
+
+현재 operationId: `update` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,409,422,503` · Generated OpenAPI statuses: `200,400,401,403,409,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 필수 · closed JSON body. `consents` 1..20개, 각 item은 UUID `documentId`와 boolean `agreed` 필수, documentId 중복 금지. 현재 active document version에 원자 반영한다. 성공 `200`. 오류: `400 INVALID_PROFILE_LEGAL_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `409 PROFILE_CONFLICT`; `422 LEGAL_CONSENT_REQUIRED`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+PUT /api/v1/me/consents HTTP/1.1
+Authorization: Bearer <access-token>
+Content-Type: application/json
+Accept: application/json
+```
+
+```json
+{
+  "consents": [
+    {"documentId": "19000000-0000-0000-0000-000000000019", "agreed": true}
+  ]
+}
+```
+
+**성공 예시**
+
+```json
+{
+  "requiredConsentsSatisfied": true,
+  "updatedAt": "2026-08-25T00:02:00Z"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/legal-consent-required",
+  "title": "필수 동의 필요",
+  "status": 422,
+  "detail": "현재 시행 중인 필수 법정 문서에 모두 동의해야 합니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "LEGAL_CONSENT_REQUIRED",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/places`
+
+현재 operationId: `list` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,422,429,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 선택. query는 모두 optional/non-null: `query` trim 1..100자, `category` `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`, `regionCode` `^[a-z0-9][a-z0-9_-]{0,49}$`, `lat` 33..34와 `lng` 126..127은 쌍으로 사용, `radiusMeters` 100..50000(좌표가 있을 때, 기본 10000), `cursor` 1..2048, `size` 1..100(기본 20), `savedOnly` boolean(기본 false). category는 runtime Controller/OpenAPI의 public wire pattern을 따른다. 익명 `savedOnly=true`는 `401 AUTHENTICATION_REQUIRED`.
+
+성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER | INVALID_GEO_FILTER | CURSOR_CONTEXT_MISMATCH | INVALID_CURSOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `422 PLACE_QUERY_CONSTRAINT_VIOLATION`; `503 PLACE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`. canonical contract에는 `429 UPSTREAM_RATE_LIMITED`가 있으나 현재 Controller OpenAPI에는 빠져 있으므로 아래 “계약 충돌”에 기록한다.
+
+**요청 예시**
+
+```http
+GET /api/v1/places?query=%EC%98%A4%EB%A6%84&category=content-type%3A12&regionCode=jeju-si&lat=33.4996&lng=126.5312&radiusMeters=10000&size=20 HTTP/1.1
+Accept: application/json
+```
+
+```json
+{
+  "query": "오름",
+  "category": "content-type:12",
+  "regionCode": "jeju-si",
+  "lat": 33.4996,
+  "lng": 126.5312,
+  "radiusMeters": 10000,
+  "size": 20,
+  "savedOnly": false
+}
+```
+
+**성공 예시**
+
+```json
+{
+  "items": [
+    {
+      "placeId": "33000000-0000-0000-0000-000000000033",
+      "contentId": "public-content-33",
+      "name": "새별오름",
+      "category": "content-type:12",
+      "regionCode": "jeju-si",
+      "regionLabel": "제주시",
+      "address": "제주특별자치도 제주시",
+      "location": {"lat": 33.366, "lng": 126.357},
+      "thumbnailUrl": null,
+      "recommendedStayMinutes": 90,
+      "recommendedStaySource": "category_default",
+      "recommendedStayPolicyVersion": "v1",
+      "recommendedStayEffectiveAt": "2026-08-01T00:00:00Z",
+      "recommendedStayUpdatedAt": "2026-08-01T00:00:00Z",
+      "operationsSummary": null,
+      "distanceMeters": 1250,
+      "dataFreshness": {"provider": "TOUR_API", "observedAt": "2026-08-25T00:00:00Z", "expiresAt": "2026-08-26T00:00:00Z", "stale": false},
+      "saved": false,
+      "memo": null,
+      "tags": []
+    }
+  ],
+  "page": {"size": 20, "hasNext": true, "nextCursor": "opaque-public-cursor-example"}
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/invalid-geo-filter",
+  "title": "요청 위치 조건이 올바르지 않습니다",
+  "status": 400,
+  "detail": "위도와 경도는 함께 입력하고 제주 범위와 반경을 확인해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "INVALID_GEO_FILTER",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/places/{placeId}`
+
+현재 operationId: `read_1` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,404,503` · Generated OpenAPI statuses: `200,400,401,404,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 선택. `placeId`는 lowercase canonical UUID. active 공개 장소의 상세, 최대 20 images, 최대 5 unique nearbyStops를 반환한다. 성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER`; `401 INVALID_ACCESS_TOKEN`; `404 PLACE_NOT_FOUND`; `503 PLACE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/places/33000000-0000-0000-0000-000000000033 HTTP/1.1
+Accept: application/json
+```
+
+```json
+{"placeId": "33000000-0000-0000-0000-000000000033"}
+```
+
+**성공 예시**
+
+```json
+{
+  "placeId": "33000000-0000-0000-0000-000000000033",
+  "contentId": "public-content-33",
+  "name": "새별오름",
+  "category": "content-type:12",
+  "regionCode": "jeju-si",
+  "regionLabel": "제주시",
+  "address": "제주특별자치도 제주시",
+  "location": {"lat": 33.366, "lng": 126.357},
+  "thumbnailUrl": null,
+  "recommendedStayMinutes": 90,
+  "recommendedStaySource": "category_default",
+  "recommendedStayPolicyVersion": "v1",
+  "recommendedStayEffectiveAt": "2026-08-01T00:00:00Z",
+  "recommendedStayUpdatedAt": "2026-08-01T00:00:00Z",
+  "operationsSummary": null,
+  "saved": {"value": false, "memo": null, "tags": []},
+  "overview": "제주의 대표 오름입니다.",
+  "contact": {"phone": null, "homepageUrl": null},
+  "operations": {"operatingHoursText": null, "closedDaysText": null, "parkingText": null, "admissionFeeText": null},
+  "images": [],
+  "nearbyStops": []
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/place-not-found",
+  "title": "장소를 찾을 수 없습니다",
+  "status": 404,
+  "detail": "장소가 없거나 공개할 수 없습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "PLACE_NOT_FOUND",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/me/saved-places`
+
+현재 operationId: `list` · Codegen: **NOT READY** · Canonical statuses: `200,400,401` · Generated OpenAPI statuses: `200,400,401,403,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+**#34 병합 대기** · 인증 필수. optional/non-null query: `tag`, `category`, `regionCode`, `sort=saved_at_desc|priority_desc|target_day_asc`(기본 saved_at_desc), `cursor` 1..2048, `size` 1..100(기본 20). 성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER | INVALID_CURSOR | CURSOR_CONTEXT_MISMATCH`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/me/saved-places?tag=%EC%98%A4%EB%A6%84&sort=priority_desc&size=20 HTTP/1.1
+Authorization: Bearer <access-token>
+Accept: application/json
+```
+
+```json
+{"tag": "오름", "sort": "priority_desc", "size": 20}
+```
+
+**성공 예시**
+
+```json
+{
+  "items": [
+    {
+      "placeId": "34000000-0000-0000-0000-000000000034",
+      "name": "새별오름",
+      "category": "content-type:12",
+      "regionLabel": "제주시",
+      "thumbnailUrl": null,
+      "recommendedStayMinutes": 90,
+      "memo": "노을 시간 방문",
+      "tags": ["노을", "오름"],
+      "priority": 5,
+      "targetDay": 2,
+      "savedAt": "2026-08-25T00:00:00Z",
+      "updatedAt": "2026-08-25T00:00:00Z"
+    }
+  ],
+  "page": {"size": 20, "hasNext": false, "nextCursor": null}
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/cursor-context-mismatch",
+  "title": "커서의 조회 조건이 현재 요청과 다릅니다",
+  "status": 400,
+  "detail": "변경한 조건으로 처음부터 다시 조회해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "CURSOR_CONTEXT_MISMATCH",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `POST /api/v1/me/saved-places`
+
+현재 operationId: `create` · Codegen: **NOT READY** · Canonical statuses: `200,201,400,401,404,409,422` · Generated OpenAPI statuses: `200,201,400,401,403,404,409,422,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+**#34 병합 대기** · 인증 필수 · `Idempotency-Key` 필수(`^[A-Za-z0-9._:-]{1,128}$`). closed body: `placeId` canonical UUID 필수; `memo` nullable 최대 2000자; `tags` nullable 최대 20개, item trim+nfc 1..50자 후 deduplicate/sort; `priority` nullable 0..5; `targetDay` nullable 1..365. 첫 생성 `201`, 동일한 현재 resource는 `200`; header `Location`, `ETag`, `Idempotency-Replayed`.
+
+`Idempotency-Replayed` HTTP serialization: textual `true|false`; OpenAPI schema: #34 snapshot에서 누락(목표 `boolean`).
+
+오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 PLACE_NOT_FOUND`; `409 IDEMPOTENCY_PAYLOAD_CONFLICT | SAVED_PLACE_ALREADY_EXISTS`; `422 SAVED_PLACE_CONSTRAINT_VIOLATION`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+POST /api/v1/me/saved-places HTTP/1.1
+Authorization: Bearer <access-token>
+Idempotency-Key: saved-place-create-34
+Content-Type: application/json
+Accept: application/json
+```
+
+```json
+{
+  "placeId": "34000000-0000-0000-0000-000000000034",
+  "memo": "노을 시간 방문",
+  "tags": ["오름", "노을"],
+  "priority": 5,
+  "targetDay": 2
+}
+```
+
+**성공 예시**
+
+```json
+{
+  "placeId": "34000000-0000-0000-0000-000000000034",
+  "name": "새별오름",
+  "category": "content-type:12",
+  "regionLabel": "제주시",
+  "thumbnailUrl": null,
+  "recommendedStayMinutes": 90,
+  "memo": "노을 시간 방문",
+  "tags": ["노을", "오름"],
+  "priority": 5,
+  "targetDay": 2,
+  "savedAt": "2026-08-25T00:00:00Z",
+  "updatedAt": "2026-08-25T00:00:00Z"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/idempotency-payload-conflict",
+  "title": "같은 멱등성 키의 요청 내용이 다릅니다",
+  "status": 409,
+  "detail": "새 Idempotency-Key로 다시 요청해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "IDEMPOTENCY_PAYLOAD_CONFLICT",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `PATCH /api/v1/me/saved-places/{placeId}`
+
+현재 operationId: `patch` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,404,409,422` · Generated OpenAPI statuses: `200,400,401,403,404,409,422,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+**#34 병합 대기** · 인증 필수 · canonical UUID `placeId` · strong `If-Match` 필수(`^"[A-Za-z0-9._:-]{1,128}"$`). body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나이며 semantics는 공통 null 표를 따른다. 성공 `200`과 새 `ETag`. 오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 SAVED_PLACE_NOT_FOUND`; `409 SAVED_PLACE_VERSION_CONFLICT`; `422 SAVED_PLACE_CONSTRAINT_VIOLATION`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+PATCH /api/v1/me/saved-places/34000000-0000-0000-0000-000000000034 HTTP/1.1
+Authorization: Bearer <access-token>
+If-Match: "saved-place.34.v1"
+Content-Type: application/json
+Accept: application/json
+```
+
+```json
+{
+  "memo": null,
+  "tags": ["오름"],
+  "priority": 3
+}
+```
+
+**성공 예시**
+
+```json
+{
+  "placeId": "34000000-0000-0000-0000-000000000034",
+  "name": "새별오름",
+  "category": "content-type:12",
+  "regionLabel": "제주시",
+  "thumbnailUrl": null,
+  "recommendedStayMinutes": 90,
+  "memo": null,
+  "tags": ["오름"],
+  "priority": 3,
+  "targetDay": 2,
+  "savedAt": "2026-08-25T00:00:00Z",
+  "updatedAt": "2026-08-25T00:05:00Z"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/saved-place-version-conflict",
+  "title": "관심 장소가 이미 변경되었습니다",
+  "status": 409,
+  "detail": "최신 관심 장소를 조회한 뒤 다시 수정해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "SAVED_PLACE_VERSION_CONFLICT",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `DELETE /api/v1/me/saved-places/{placeId}`
+
+현재 operationId: `delete` · Codegen: **NOT READY** · Canonical statuses: `204,400,401,404` · Generated OpenAPI statuses: `204,400,401,403,404,500` · Generated success media type: `none` · Frontend success media type: `none`
+
+**#34 병합 대기** · 인증 필수 · canonical UUID `placeId`; body와 `If-Match` 없음. 첫 삭제는 body 없는 `204`; 이미 삭제됐거나 타 소유자는 `404`로 은닉. 오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 SAVED_PLACE_NOT_FOUND`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+DELETE /api/v1/me/saved-places/34000000-0000-0000-0000-000000000034 HTTP/1.1
+Authorization: Bearer <access-token>
+```
+
+```json
+{}
+```
+
+**성공 예시**
+
+```json
+{}
+```
+
+실제 wire response는 `204`이며 JSON body를 보내지 않는다.
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/saved-place-not-found",
+  "title": "관심 장소를 찾을 수 없습니다",
+  "status": 404,
+  "detail": "요청한 관심 장소가 없거나 접근할 수 없습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "SAVED_PLACE_NOT_FOUND",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/trips`
+
+현재 operationId: `list` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,503` · Generated OpenAPI statuses: `200,400,401,403,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+**#44 병합 대기** · 인증 필수. optional/non-null query: `status=draft|generating|planned|live|completed|cancelled|failed`, `sort=updated_at_desc`, `cursor` 1..2048, `size` 1..50(기본 20). 알 수 없는/중복 query도 거부한다. 성공 `200`. nullable required fields `activeScheduleVersionId`, `totalScore`, `scoreProvenance`는 항상 key가 있다. 오류: `400 INVALID_QUERY_PARAMETER | INVALID_CURSOR | CURSOR_CONTEXT_MISMATCH`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `503 TRIP_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/trips?status=draft&sort=updated_at_desc&size=20 HTTP/1.1
+Authorization: Bearer <access-token>
+Accept: application/json
+```
+
+```json
+{"status": "draft", "sort": "updated_at_desc", "size": 20}
+```
+
+**성공 예시**
+
+```json
+{
+  "items": [
+    {
+      "tripId": "44000000-0000-0000-0000-000000000044",
+      "title": "제주 3박 4일",
+      "status": "draft",
+      "startDate": "2026-09-10",
+      "endDate": "2026-09-13",
+      "timezone": "Asia/Seoul",
+      "activeScheduleVersionId": null,
+      "totalScore": null,
+      "scoreProvenance": null,
+      "createdAt": "2026-08-25T00:00:00Z",
+      "updatedAt": "2026-08-25T00:00:00Z"
+    }
+  ],
+  "page": {"size": 20, "hasNext": false, "nextCursor": null}
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/invalid-query-parameter",
+  "title": "조회 조건이 올바르지 않습니다",
+  "status": 400,
+  "detail": "여행 목록 조회 조건을 확인해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "INVALID_QUERY_PARAMETER",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `POST /api/v1/trips`
+
+현재 operationId: `create` · Codegen: **NOT READY** · Canonical statuses: `201,400,401,409,422,503` · Generated OpenAPI statuses: `201,400,401,403,409,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+**#44 병합 대기** · 인증 필수 · lowercase canonical UUID `Idempotency-Key` 필수. closed body는 `title` trim+nfc 1..100자, `startDate`, `endDate` 필수; 최대 30일 inclusive. `timezone=Asia/Seoul`; `userPace=slow|normal|fast`; `transportModes` 1..3개, mode는 `public_transit|rental_car|taxi`, priority 1..3 연속/unique, primary 정확히 하나이자 priority 1. body 최대 1 MiB. 성공 `201` + `Location`, `ETag`, `Idempotency-Replayed`.
+
+`Idempotency-Replayed` HTTP serialization: textual `true|false`; OpenAPI schema: `boolean`. 현재 generated snapshot은 `Idempotency-Key`를 optional로 보이지만 dirty Swagger remediation source와 canonical contract는 required이므로 프론트는 반드시 보낸다.
+
+오류: `400 INVALID_REQUEST | IDEMPOTENCY_KEY_REQUIRED | IDEMPOTENCY_KEY_INVALID`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `409 IDEMPOTENCY_KEY_REUSED | PROFILE_CONFLICT`; `422 TRIP_CONSTRAINT_VIOLATION`; `503 TRIP_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+POST /api/v1/trips HTTP/1.1
+Authorization: Bearer <access-token>
+Idempotency-Key: 44000000-0000-0000-0000-000000000044
+Content-Type: application/json
+Accept: application/json
+```
+
+```json
+{
+  "title": "제주 3박 4일",
+  "startDate": "2026-09-10",
+  "endDate": "2026-09-13",
+  "timezone": "Asia/Seoul",
+  "userPace": "normal",
+  "transportModes": [
+    {"mode": "public_transit", "priority": 1, "primary": true}
+  ]
+}
+```
+
+**성공 예시**
+
+```json
+{
+  "tripId": "44000000-0000-0000-0000-000000000044",
+  "title": "제주 3박 4일",
+  "status": "draft",
+  "startDate": "2026-09-10",
+  "endDate": "2026-09-13",
+  "timezone": "Asia/Seoul",
+  "userPace": "normal",
+  "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}],
+  "days": [
+    {"dayId": "44000000-0000-0000-0001-000000000044", "dayNo": 1, "date": "2026-09-10"},
+    {"dayId": "44000000-0000-0000-0002-000000000044", "dayNo": 2, "date": "2026-09-11"},
+    {"dayId": "44000000-0000-0000-0003-000000000044", "dayNo": 3, "date": "2026-09-12"},
+    {"dayId": "44000000-0000-0000-0004-000000000044", "dayNo": 4, "date": "2026-09-13"}
+  ],
+  "activeScheduleVersionId": null,
+  "totalScore": null,
+  "scoreProvenance": null,
+  "scheduleEffect": "none",
+  "regenerationRequired": false,
+  "createdAt": "2026-08-25T00:00:00Z",
+  "updatedAt": "2026-08-25T00:00:00Z"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.example/problems/idempotency-key-reused",
+  "title": "멱등성 키를 재사용할 수 없습니다.",
+  "status": 409,
+  "detail": "새 Idempotency-Key로 다시 요청해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "IDEMPOTENCY_KEY_REUSED",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/trips/{tripId}`
+
+현재 operationId: `read_1` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,404,503` · Generated OpenAPI statuses: `200,400,401,403,404,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+**#44 병합 대기** · 인증 필수 · `tripId` lowercase canonical UUID. canonical JWT sub를 조회 조건에 포함하며 타 소유자도 `404`다. 성공 `200`, response shape과 nullable 의미는 POST 성공과 같다. 일정 점수가 null이 아니면 `scoreProvenance`도 non-null이고 active schedule의 최신 succeeded feasibility run을 가리킨다. 오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 TRIP_NOT_FOUND`; `503 TRIP_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/trips/44000000-0000-0000-0000-000000000044 HTTP/1.1
+Authorization: Bearer <access-token>
+Accept: application/json
+```
+
+```json
+{"tripId": "44000000-0000-0000-0000-000000000044"}
+```
+
+**성공 예시**
+
+```json
+{
+  "tripId": "44000000-0000-0000-0000-000000000044",
+  "title": "제주 3박 4일",
+  "status": "draft",
+  "startDate": "2026-09-10",
+  "endDate": "2026-09-13",
+  "timezone": "Asia/Seoul",
+  "userPace": "normal",
+  "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}],
+  "days": [
+    {"dayId": "44000000-0000-0000-0001-000000000044", "dayNo": 1, "date": "2026-09-10"},
+    {"dayId": "44000000-0000-0000-0002-000000000044", "dayNo": 2, "date": "2026-09-11"},
+    {"dayId": "44000000-0000-0000-0003-000000000044", "dayNo": 3, "date": "2026-09-12"},
+    {"dayId": "44000000-0000-0000-0004-000000000044", "dayNo": 4, "date": "2026-09-13"}
+  ],
+  "activeScheduleVersionId": null,
+  "totalScore": null,
+  "scoreProvenance": null,
+  "scheduleEffect": "none",
+  "regenerationRequired": false,
+  "createdAt": "2026-08-25T00:00:00Z",
+  "updatedAt": "2026-08-25T00:00:00Z"
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/trip-not-found",
+  "title": "여행을 찾을 수 없습니다",
+  "status": 404,
+  "detail": "요청한 여행이 없거나 접근할 수 없습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "TRIP_NOT_FOUND",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+### `GET /api/v1/weather/forecast`
+
+현재 operationId: `forecast` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+
+`develop` 사용 가능 · 인증 선택. query `lat`(-90 exclusive..90 exclusive), `lng`(-180..180), `dateTime` 모두 필수/non-null/finite. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
+
+성공 `200`; `contractVersion=1.0.0`, `provider=KMA`, `providerApiVersion=VilageFcstInfoService_2.0`, `forecastType=ultra_short|village`. category-derived 값은 required nullable. 오류: `400 INVALID_WEATHER_FORECAST_QUERY`; `401 INVALID_ACCESS_TOKEN`; `422 WEATHER_LOCATION_NOT_SUPPORTED | WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`; `503 WEATHER_FORECAST_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
+**요청 예시**
+
+```http
+GET /api/v1/weather/forecast?lat=33.4996&lng=126.5312&dateTime=2026-08-25T12%3A00%3A00%2B09%3A00 HTTP/1.1
+Accept: application/json
+```
+
+```json
+{
+  "lat": 33.4996,
+  "lng": 126.5312,
+  "dateTime": "2026-08-25T12:00:00+09:00"
+}
+```
+
+**성공 예시**
+
+```json
+{
+  "contractVersion": "1.0.0",
+  "grid": {"nx": 53, "ny": 38, "regionName": "제주시"},
+  "provider": "KMA",
+  "providerApiVersion": "VilageFcstInfoService_2.0",
+  "forecastType": "village",
+  "baseDate": "2026-08-25",
+  "baseTime": "05:00",
+  "forecastedAt": "2026-08-25T05:00:00+09:00",
+  "validAt": "2026-08-25T12:00:00+09:00",
+  "temperatureC": 27.5,
+  "precipitationProbabilityPercent": 20,
+  "precipitationAmountMm": null,
+  "precipitationType": "none",
+  "skyCode": "mostly_cloudy",
+  "humidityPercent": 72,
+  "windSpeedMps": 3.4,
+  "observedAt": "2026-08-25T05:10:00+09:00",
+  "expiresAt": "2026-08-25T08:00:00+09:00",
+  "stale": false,
+  "fallbackUsed": false
+}
+```
+
+**오류 예시**
+
+```json
+{
+  "type": "https://api.timing-jeju.com/problems/weather-forecast-horizon-not-supported",
+  "title": "지원하지 않는 예보 기간입니다",
+  "status": 422,
+  "detail": "현재 정시부터 10일 이내의 제주 현지 시각을 입력해 주세요.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
+```
+
+## 알려진 계약 충돌과 인계 주의사항
+
+1. places list canonical contract는 `429 UPSTREAM_RATE_LIMITED`를 열거하지만 현재 `develop`의 `PlacesApiDocs`는 429 response를 선언하지 않는다. runtime 정규화 read-only 경로에도 현재 대응 definition은 없다. #182 후속 Swagger 정렬 전에는 프론트 분기 계약으로 확정하지 않는다.
+2. profile PATCH canonical contract에는 `409 PROFILE_CONFLICT`가 있으나 현재 `develop` OpenAPI interface는 409를 명시하지 않는다. runtime handler/canonical contract를 우선하고 #182 후속 OpenAPI 정렬 대상으로 둔다.
+3. #44 trips canonical contract는 POST 멱등성 충돌을 `IDEMPOTENCY_KEY_REUSED`로 정의한다. #34 saved places는 다른 공통 구현 계약인 `IDEMPOTENCY_PAYLOAD_CONFLICT`를 쓴다. 두 code를 하나로 합치지 않는다.
+4. #34/#44는 아직 `develop` 병합 전이다. 이 문서의 readiness 표식이 배포 가능 여부를 대신하지 않는다.
+5. `ProblemDefinition.forCode`로 만든 공통/profile/legal/Naver type은 현재 source에서 `https://api.timing-jeju.example/problems/...`이고, places/saved-places/trips/weather의 domain definition 및 canonical contract는 `https://api.timing-jeju.com/problems/...`이다. 프론트는 type host를 분기 key로 쓰지 말고 안정적인 `code`를 사용한다. #182 후속에서 canonical host를 하나로 정렬해야 한다.
+6. canonical contracts는 필수 인증의 누락/실패를 `AUTHENTICATION_REQUIRED`/`INVALID_ACCESS_TOKEN`으로 명명하지만 현재 `JsonAuthenticationEntryPoint`는 필수 endpoint에서 두 경우 모두 `AUTH_TOKEN_INVALID`를 쓴다. 이 문서는 endpoint matrix에 canonical 이름을 보존했으며 runtime 정렬 전에는 `AUTH_TOKEN_INVALID`도 호환 처리해야 한다.
+7. Naver UserInfo runtime은 JSON object를 반환하지만 현재 생성 OpenAPI의 200 media type은 `*/*`다. 프론트 wire 처리는 `application/json`으로 하고, OpenAPI media type은 #182 후속에서 정렬해야 한다.
+8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 canonical endpoint.query 복제값은 #182 후속에서 정렬한다.
+9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
+10. #44 generated snapshot의 trip `Idempotency-Key`는 optional이지만 현재 dirty Swagger remediation source와 canonical contract는 required다. #34의 `Idempotency-Replayed` header는 generated schema가 비어 있고 #44는 boolean이다. 요청 header는 필수로 보내고 replay header는 textual wire 값을 boolean으로 변환한다.
+11. 이 문서는 Markdown first deliverable인 **DRAFT**다. portable OpenAPI validator, AC2의 양방향 schema 비교, AC5 mutation/CI 연결과 Swagger remediation은 #34/#44 병합 뒤 #182 본 구현에서 완료하며, 현재 완료된 것으로 간주하지 않는다.
