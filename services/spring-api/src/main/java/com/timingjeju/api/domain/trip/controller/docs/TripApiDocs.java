@@ -5,6 +5,7 @@ import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
 import com.timingjeju.api.global.error.ApiProblemDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.enums.ParameterIn;
 import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -113,7 +114,16 @@ public interface TripApiDocs {
                 mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
-  ResponseEntity<byte[]> create(String idempotencyKey, byte[] body);
+  ResponseEntity<byte[]> create(
+      @Parameter(
+              name = "Idempotency-Key",
+              in = ParameterIn.HEADER,
+              required = true,
+              description = "여행 생성 요청을 24시간 동안 식별하는 lowercase canonical UUID입니다.",
+              example = "44000000-0000-0000-0000-000000000044",
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN))
+          String idempotencyKey,
+      byte[] body);
 
   @Operation(summary = "여행 상세 조회", description = "소유자 조건을 SQL에 포함해 IDOR를 차단합니다.")
   @ApiResponses({

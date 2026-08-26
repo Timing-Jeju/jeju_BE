@@ -1,6 +1,7 @@
 package com.timingjeju.api.documentation;
 
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,6 +53,32 @@ class TripOpenApiIntegrationTest {
             jsonPath(
                     "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.$ref")
                 .value("#/components/schemas/CreateTripRequest"))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')]")
+                .value(hasSize(1)))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].in")
+                .value("header"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].required")
+                .value(true))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].description")
+                .value("여행 생성 요청을 24시간 동안 식별하는 lowercase canonical UUID입니다."))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].example")
+                .value("44000000-0000-0000-0000-000000000044"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].schema.format")
+                .value("uuid"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].schema.pattern")
+                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['201']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['401']").exists())

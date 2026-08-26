@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -273,6 +274,26 @@ class TripControllerRedIntegrationTest {
                     """))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+  }
+
+  @Test
+  void POST_trips의_Idempotency_Key_누락은_canonical_Problem_Details로_거부한다() throws Exception {
+    mvc.perform(
+            post("/api/v1/trips")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"title":"제주","startDate":"2026-08-03","endDate":"2026-08-05"}
+                    """))
+        .andExpect(status().isBadRequest())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.status").value(400))
+        .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"))
+        .andExpect(jsonPath("$.cause").doesNotExist())
+        .andExpect(jsonPath("$.message").doesNotExist());
+
+    verifyNoInteractions(idempotency, tripService);
   }
 
   @Test
