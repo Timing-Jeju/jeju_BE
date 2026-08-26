@@ -1,0 +1,536 @@
+{
+  "schemaVersion": "timing-jeju-fcm-departure-notification/v1",
+  "contractVersion": "1.0.0",
+  "ownerIssue": 112,
+  "dependencies": [72, 73, 93],
+  "excludedScope": [
+    "Firebase Console and APNs setup",
+    "mobile notification permission UI",
+    "mobile deep-link screen implementation",
+    "device token persistence implementation",
+    "notification scheduler and FCM adapter implementation",
+    "marketing notifications",
+    "database migration"
+  ],
+  "readiness": {
+    "contractReady": true,
+    "implementationReady": false,
+    "productionDefaultEnabled": false,
+    "missingPreconditionAction": "fail_closed",
+    "activationPreconditions": [
+      "REST common contract #72 active",
+      "location policy #73 active",
+      "live-state contract #93 implemented",
+      "Issue #113 device registry and preference API implemented",
+      "Issue #114 FCM adapter implemented with corrected outcome taxonomy",
+      "Issue #115 logical job persistence implemented",
+      "Issue #116 per-device attempt worker implemented with corrected attempt states",
+      "FCM ADC or secret mount validated",
+      "OS, server and latest required location consent signals available",
+      "focused integration and delivery-limit QA passed"
+    ]
+  },
+  "ownership": {
+    "springOwns": [
+      "token registry",
+      "logical job",
+      "per-device attempt",
+      "cancel",
+      "dispatch",
+      "retry",
+      "provider acceptance state"
+    ],
+    "fastApiForbidden": [
+      "token",
+      "logical job",
+      "per-device attempt",
+      "cancel",
+      "dispatch",
+      "retry",
+      "notification state",
+      "FCM credential"
+    ],
+    "mobileOwns": [
+      "OS permission UI",
+      "permission signal synchronization",
+      "notification tap",
+      "deep-link navigation",
+      "live-state refresh after entry"
+    ],
+    "publicApiAddedByIssue": "none",
+    "databaseMigrationAddedByIssue": "none"
+  },
+  "schedulePolicy": {
+    "notifyAtFormula": "arrivalTargetAt - expectedTravelDurationSeconds - safetyBufferMinutes",
+    "storageTime": "UTC timestamptz",
+    "displayTime": "IANA trip timezone",
+    "requiredSources": [
+      "activeScheduleVersion",
+      "nextTripItem",
+      "mobilityLeg"
+    ],
+    "sourceSnapshot": [
+      "tripId",
+      "scheduleVersionId",
+      "tripItemId",
+      "tripLegId",
+      "arrivalTargetAt",
+      "expectedTravelDurationSeconds",
+      "safetyBufferMinutes",
+      "tripTimezone"
+    ],
+    "travelDuration": {
+      "field": "expectedTravelDurationSeconds",
+      "unit": "seconds",
+      "minimum": 1,
+      "maximum": 604800,
+      "inclusiveBounds": true,
+      "integerOnly": true
+    },
+    "safetyBuffer": {
+      "field": "safetyBufferMinutes",
+      "unit": "minutes",
+      "default": 10,
+      "minimum": 0,
+      "maximum": 120,
+      "inclusiveBounds": true,
+      "integerOnly": true,
+      "zeroAllowed": true,
+      "checkedSecondsConversion": true,
+      "overflowAction": "fail_closed"
+    },
+    "safetyBufferChange": {
+      "trigger": "safetyBufferMinutes changed",
+      "atomicOrder": [
+        "compare preference version",
+        "invalidate old generation",
+        "cancel old unsent job",
+        "persist new preference",
+        "recompute notifyAt",
+        "create new logical job or record expired omission"
+      ],
+      "concurrentVersionMismatchAction": "fail_closed_without_mutation",
+      "alreadyCallStartedAction": "preserve attempt evidence and recover as ACCEPTANCE_UNKNOWN"
+    },
+    "arrivalInput": "RFC3339 instant with explicit offset plus IANA trip timezone",
+    "dstOverlapAction": "fail_closed_even_when_either_offset_is_supplied",
+    "dstGapAction": "fail_closed",
+    "offsetTimezoneMismatchAction": "fail_closed",
+    "phoneBackgroundExecutionRequired": false,
+    "recomputeOnActiveVersionChange": true
+  },
+  "messagePolicy": {
+    "messageType": "notification+data",
+    "androidPriority": "high",
+    "apnsPresentation": "alert+sound",
+    "notification": {
+      "titleTemplate": "다음 장소로 출발할 시간이에요",
+      "bodyTemplate": "{departureRecommendedLocalTime}까지 {nextPlaceName}(으)로 출발하세요.",
+      "titleMaxUtf8Bytes": 80,
+      "bodyMaxUtf8Bytes": 256,
+      "controlCharacters": "forbidden",
+      "overBudgetOrControlAction": "use_deterministic_fallback",
+      "fallback": {
+        "title": "출발 알림",
+        "body": "앱을 열어 다음 일정을 확인하세요."
+      }
+    },
+    "dataSchema": {
+      "required": [
+        "contractVersion",
+        "tripId",
+        "tripItemId",
+        "scheduleVersionId",
+        "deepLink"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {"type": "string", "const": "1.0.0"},
+        "tripId": {"type": "string", "format": "canonical-lowercase-uuid"},
+        "tripItemId": {"type": "string", "format": "canonical-lowercase-uuid"},
+        "scheduleVersionId": {"type": "string", "format": "canonical-lowercase-uuid"},
+        "deepLink": {"type": "string", "format": "canonical-timingjeju-live-deep-link"}
+      },
+      "maxKeyUtf8Bytes": 64,
+      "maxValueUtf8Bytes": 512,
+      "maxTotalUtf8Bytes": 2048,
+      "totalCalculation": "sum UTF-8 bytes of every key and value",
+      "controlCharacters": "forbidden",
+      "deepLinkTemplate": "timingjeju://trips/{tripId}/live?itemId={tripItemId}",
+      "deepLinkEncoding": "exact ASCII template with canonical lowercase UUID identifiers; percent encoding forbidden"
+    },
+    "forbiddenContent": [
+      "registration token",
+      "email",
+      "current location",
+      "movement path",
+      "memo",
+      "user profile",
+      "provider credential"
+    ],
+    "collapseKeyTemplate": "trip:{tripId}:departure",
+    "ttlPolicy": {
+      "maximumSeconds": 900,
+      "validUntil": "arrivalTargetAt - expectedTravelDurationSeconds",
+      "calculation": "min(maximumSeconds, floor(validUntil - sendAttemptAt))",
+      "nonPositiveAction": "do_not_send"
+    }
+  },
+  "consentPolicy": {
+    "requiredSignals": [
+      "osNotificationPermissionGranted",
+      "serverDepartureNotificationEnabled",
+      "latestRequiredLocationConsent"
+    ],
+    "checkpoints": [
+      "atSchedule",
+      "immediatelyBeforeSend"
+    ],
+    "anyMissingAction": "cancel_or_skip",
+    "osPermissionSource": "latest device-reported GRANTED state; never inferred from token presence",
+    "serverSettingSource": "Spring canonical nextDestinationDepartureEnabled preference",
+    "locationConsentEvaluation": {
+      "documentType": "location",
+      "requiredVersionSource": "latest effective required document at evaluation instant",
+      "eligibilityRule": "exact version match and active consent",
+      "oldNewOrWithdrawnAction": "not_eligible",
+      "canonicalVersionPattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "allowedStatuses": ["ACTIVE", "WITHDRAWN"],
+      "invalidEvidenceAction": "fail_closed_without_audit_snapshot",
+      "auditSnapshotFields": [
+        "documentType",
+        "requiredVersion",
+        "consentedVersion",
+        "consentStatus",
+        "evaluatedAt"
+      ]
+    },
+    "targetDeactivationTriggers": [
+      "permission_denied_or_revoked",
+      "logout",
+      "device_unlinked",
+      "account_deletion"
+    ]
+  },
+  "jobPolicy": {
+    "persistenceOwnerIssue": 115,
+    "table": "notification_jobs",
+    "logicalJobKey": [
+      "tripId",
+      "scheduleVersionId",
+      "tripItemId",
+      "tripLegId",
+      "notificationType",
+      "scheduledAt"
+    ],
+    "deviceIdentityIncluded": false,
+    "duplicateLogicalJobAction": "return_existing_without_mutation",
+    "states": [
+      "PENDING",
+      "LEASED",
+      "RETRY",
+      "ACCEPTED",
+      "CANCELLED",
+      "DEAD"
+    ],
+    "terminalStates": [
+      "ACCEPTED",
+      "CANCELLED",
+      "DEAD"
+    ],
+    "allowedTransitions": [
+      {"from": "PENDING", "to": "LEASED", "trigger": "due_claim"},
+      {"from": "PENDING", "to": "CANCELLED", "trigger": "pre_claim_invalidation"},
+      {"from": "PENDING", "to": "DEAD", "trigger": "expired_or_unrecoverable"},
+      {"from": "LEASED", "to": "ACCEPTED", "trigger": "all_attempts_terminal_and_any_accepted"},
+      {"from": "LEASED", "to": "LEASED", "trigger": "expired_lease_exact_reclaim"},
+      {"from": "LEASED", "to": "RETRY", "trigger": "retryable_attempt_remains"},
+      {"from": "LEASED", "to": "CANCELLED", "trigger": "pre_send_recheck_failed"},
+      {"from": "LEASED", "to": "DEAD", "trigger": "all_attempts_terminal_and_none_accepted"},
+      {"from": "RETRY", "to": "LEASED", "trigger": "retry_due_claim"},
+      {"from": "RETRY", "to": "CANCELLED", "trigger": "retry_invalidation"},
+      {"from": "RETRY", "to": "DEAD", "trigger": "expired_or_attempt_limit"}
+    ],
+    "cancellationTriggers": [
+      "schedule_version_changed",
+      "item_completed",
+      "item_skipped",
+      "trip_cancelled",
+      "notification_disabled"
+    ],
+    "preSendRecheck": [
+      "active schedule version",
+      "pending item",
+      "active trip",
+      "active target",
+      "OS permission granted",
+      "server departure notification enabled",
+      "latest required location consent active",
+      "positive TTL"
+    ],
+    "claimRequirements": [
+      "state is PENDING or RETRY",
+      "scheduledAt and nextAttemptAt are due",
+      "expiresAt is in the future",
+      "new monotonic generation and fencing token",
+      "lease owner and lease until are persisted atomically"
+    ],
+    "expiredLeaseReclaim": {
+      "fromState": "LEASED",
+      "toState": "LEASED",
+      "precondition": "leaseUntil is at or before database now and exact current CAS matches",
+      "casKey": ["expectedState", "expectedLeaseOwner", "expectedLeaseUntil", "expectedGeneration", "expectedFencingToken"],
+      "preserve": ["generation", "targetSnapshot", "attemptRows"],
+      "replace": ["leaseOwner", "leaseUntil"],
+      "fencingToken": "increment",
+      "oldFenceCompletion": "reject"
+    },
+    "staleWorkerDefense": "generation and fencing token plus lease-owner CAS",
+    "scheduleReplacementOrder": [
+      "persist new active schedule version",
+      "invalidate old generation",
+      "cancel old unsent job",
+      "create one deduplicated new logical job"
+    ]
+  },
+  "attemptPolicy": {
+    "persistenceOwnerIssue": 116,
+    "table": "push_delivery_attempts",
+    "deliveryAttemptKey": [
+      "jobId",
+      "pushDeviceId",
+      "attemptNo"
+    ],
+    "fanOut": "one logical job and one attempt per active device",
+    "targetSnapshot": {
+      "table": "push_delivery_targets",
+      "persistenceOwnerIssue": 116,
+      "capturePoint": "claim commit 후 첫 pre-send preparation transaction에서 live eligibility 재검사 후 저장",
+      "claimTransactionStoresTargets": false,
+      "preparationCas": ["leaseOwner", "generation", "fencingToken", "unexpiredLeaseUntil"],
+      "key": ["jobId", "pushDeviceId"],
+      "closedFields": ["jobId", "pushDeviceId", "ordinal", "currentState", "currentAttemptNo", "capturedAt"],
+      "states": ["UNATTEMPTED", "RESERVED", "IN_FLIGHT", "RETRYABLE", "ACCEPTED", "ACCEPTANCE_UNKNOWN", "PERMANENT_FAILURE", "SKIPPED"],
+      "oneCurrentAttemptPerTarget": true,
+      "immutableIdentity": true,
+      "newDeviceDuringFanOut": "not_added_to_in_flight_job",
+      "deactivatedTargetBeforeCall": "record_SKIPPED_without_provider_call"
+    },
+    "dispatchReservation": {
+      "inFlightStates": ["RESERVED", "CALL_STARTED"],
+      "reservationCasKey": ["jobId", "pushDeviceId", "attemptNo", "leaseOwner", "generation", "fencingToken"],
+      "beforeProviderCall": "insert RESERVED exact attempt key and commit",
+      "callStartMarker": "CAS RESERVED to CALL_STARTED and commit before any provider I/O",
+      "reservationOrMarkerCasFailure": "provider call forbidden",
+      "statusStorage": "single push_delivery_attempts row",
+      "statusMutation": "same row CAS",
+      "terminalImmutable": true
+    },
+    "duplicateAttemptAction": "reject_without_overwrite",
+    "states": [
+      "RESERVED",
+      "CALL_STARTED",
+      "ACCEPTED",
+      "RETRYABLE_FAILURE",
+      "PERMANENT_FAILURE",
+      "SKIPPED",
+      "ACCEPTANCE_UNKNOWN"
+    ],
+    "terminalStates": [
+      "ACCEPTED",
+      "RETRYABLE_FAILURE",
+      "PERMANENT_FAILURE",
+      "SKIPPED",
+      "ACCEPTANCE_UNKNOWN"
+    ],
+    "attemptStatusTransitions": [
+      {"from": "RESERVED", "to": "CALL_STARTED", "trigger": "pre_provider_io_marker_cas"},
+      {"from": "RESERVED", "to": "RETRYABLE_FAILURE", "trigger": "expired_lease_recovery_proves_no_call"},
+      {"from": "CALL_STARTED", "to": "ACCEPTED", "trigger": "provider_message_id_received"},
+      {"from": "CALL_STARTED", "to": "RETRYABLE_FAILURE", "trigger": "explicit_transient_rejection_or_provable_pre_connect"},
+      {"from": "CALL_STARTED", "to": "PERMANENT_FAILURE", "trigger": "permanent_provider_rejection"},
+      {"from": "CALL_STARTED", "to": "ACCEPTANCE_UNKNOWN", "trigger": "ambiguous_result_or_expired_lease_recovery"}
+    ],
+    "directTerminalInsert": "SKIPPED only after immediately-before-call recheck fails and before reservation",
+    "terminalMutationAction": "reject_without_overwrite",
+    "providerOutcomeMatrix": [
+      {"outcome": "provider_message_id_received", "attemptStatus": "ACCEPTED", "terminal": true, "retryAllowed": false, "invalidateDevice": false},
+      {"outcome": "explicit_transient_rejection", "attemptStatus": "RETRYABLE_FAILURE", "terminal": true, "retryAllowed": true, "invalidateDevice": false},
+      {"outcome": "provable_pre_connect_failure", "attemptStatus": "RETRYABLE_FAILURE", "terminal": true, "retryAllowed": true, "invalidateDevice": false},
+      {"outcome": "post_write_ambiguous", "attemptStatus": "ACCEPTANCE_UNKNOWN", "terminal": true, "retryAllowed": false, "invalidateDevice": false},
+      {"outcome": "permanent_token_rejection", "attemptStatus": "PERMANENT_FAILURE", "terminal": true, "retryAllowed": false, "invalidateDevice": true},
+      {"outcome": "invalid_payload_config_or_credential", "attemptStatus": "PERMANENT_FAILURE", "terminal": true, "retryAllowed": false, "invalidateDevice": false},
+      {"outcome": "pre_send_recheck_failed", "attemptStatus": "SKIPPED", "terminal": true, "retryAllowed": false, "invalidateDevice": false}
+    ],
+    "provablePreConnectBoundary": "request bytes provably not sent",
+    "postWriteAmbiguity": {
+      "transportExamples": ["write_timeout", "read_timeout", "connection_reset", "unexpected_eof"],
+      "attemptStatus": "ACCEPTANCE_UNKNOWN",
+      "retryAllowed": false
+    },
+    "crashRecoveryMatrix": [
+      {"case": "crash_before_call_marker", "observedMarker": "RESERVED", "attemptStatus": "RETRYABLE_FAILURE", "retryAllowed": true, "recoveryAction": "same row terminal update then apply retry policy", "sameAttemptRow": true, "requiredCas": "current owner/generation/fencing/unexpired lease CAS"},
+      {"case": "crash_after_call_marker_before_write", "observedMarker": "CALL_STARTED", "attemptStatus": "ACCEPTANCE_UNKNOWN", "retryAllowed": false, "recoveryAction": "same row terminal ambiguity update", "sameAttemptRow": true, "requiredCas": "current owner/generation/fencing/unexpired lease CAS"},
+      {"case": "crash_after_write_before_result", "observedMarker": "CALL_STARTED", "attemptStatus": "ACCEPTANCE_UNKNOWN", "retryAllowed": false, "recoveryAction": "same row terminal ambiguity update", "sameAttemptRow": true, "requiredCas": "current owner/generation/fencing/unexpired lease CAS"},
+      {"case": "crash_after_result_before_completion", "observedMarker": "CALL_STARTED", "attemptStatus": "ACCEPTANCE_UNKNOWN", "retryAllowed": false, "recoveryAction": "same row terminal ambiguity update", "sameAttemptRow": true, "requiredCas": "current owner/generation/fencing/unexpired lease CAS"},
+      {"case": "expired_lease_reserved", "observedMarker": "RESERVED", "attemptStatus": "RETRYABLE_FAILURE", "retryAllowed": true, "recoveryAction": "same row terminal update after exact reclaim", "sameAttemptRow": true, "requiredCas": "current owner/generation/fencing/unexpired lease CAS"},
+      {"case": "expired_lease_call_started", "observedMarker": "CALL_STARTED", "attemptStatus": "ACCEPTANCE_UNKNOWN", "retryAllowed": false, "recoveryAction": "same row terminal ambiguity update after exact reclaim", "sameAttemptRow": true, "requiredCas": "current owner/generation/fencing/unexpired lease CAS"}
+    ],
+    "targetRacePolicy": {
+      "immediatelyBeforeEachTargetCall": ["user setting", "OS permission", "latest required location consent", "device active"],
+      "claimToPreparationActivation": "include when active at preparation",
+      "claimToPreparationDeactivation": "exclude when inactive at preparation",
+      "postSnapshotActivation": "do not add to current job",
+      "postSnapshotDeviceDeactivation": "SKIPPED without provider call",
+      "postSnapshotJobWideInvalidation": "CANCELLED and stop remaining calls"
+    },
+    "zeroEligibleTargetPolicy": {
+      "snapshot": "persist empty snapshot",
+      "jobState": "CANCELLED",
+      "cancelReason": "NO_ACTIVE_PUSH_TARGET",
+      "attemptCount": 0,
+      "providerCallCount": 0,
+      "transaction": "same preparation transaction"
+    },
+    "targetTransitionPolicy": {
+      "allowedTransitions": [
+        {"from": "UNATTEMPTED", "to": "RESERVED"},
+        {"from": "RETRYABLE", "to": "RESERVED"},
+        {"from": "RESERVED", "to": "IN_FLIGHT"},
+        {"from": "IN_FLIGHT", "to": "ACCEPTED"},
+        {"from": "IN_FLIGHT", "to": "RETRYABLE"},
+        {"from": "IN_FLIGHT", "to": "ACCEPTANCE_UNKNOWN"},
+        {"from": "IN_FLIGHT", "to": "PERMANENT_FAILURE"},
+        {"from": "UNATTEMPTED", "to": "SKIPPED"},
+        {"from": "RETRYABLE", "to": "SKIPPED"}
+      ],
+      "recoveryTransitions": [
+        {"from": "RESERVED", "to": "RETRYABLE", "trigger": "expired lease proves provider call not started"},
+        {"from": "IN_FLIGHT", "to": "ACCEPTANCE_UNKNOWN", "trigger": "expired lease after call marker"}
+      ],
+      "retryReservationAttemptNo": "currentAttemptNo + 1 exact key",
+      "duplicateReservationConstraint": "unique(jobId,pushDeviceId,attemptNo)",
+      "duplicateReservationAction": "reject_without_provider_call",
+      "sameCasTransaction": ["attempt row", "target row", "job aggregation"]
+    },
+    "retryInactiveSkipPolicy": {
+      "precondition": "RETRYABLE and inactive immediately before call",
+      "newAttemptNo": "currentAttemptNo + 1",
+      "attemptStatus": "SKIPPED",
+      "targetTransition": "RETRYABLE to SKIPPED",
+      "sameCasTransaction": ["attempt insert", "target transition", "job aggregation"],
+      "providerCallCount": 0,
+      "duplicateOrStaleAction": "reject_without_mutation_or_provider_call"
+    },
+    "completionPolicy": {
+      "existingExactAttemptRequired": true,
+      "requiredAttemptStatus": "CALL_STARTED",
+      "requiredTargetState": "IN_FLIGHT",
+      "sameTransaction": ["attempt terminal CAS", "target transition", "job aggregation"],
+      "rejectionCases": ["absent_attempt", "reserved_attempt", "terminal_attempt", "wrong_target_marker", "second_completion", "cas_mismatch"]
+    },
+    "retryPolicy": {
+      "maximumAttemptsPerDevice": 3,
+      "retryAfterPrecedence": true,
+      "backoff": "bounded exponential backoff with full jitter",
+      "maximumDelaySeconds": 60,
+      "mustRemainBeforeExpiresAt": true,
+      "acceptanceUnknownRetry": "forbidden"
+    },
+    "completionCasRequiredFields": [
+      "jobId",
+      "expectedStateLEASED",
+      "leaseOwner",
+      "unexpiredLeaseUntil",
+      "generation",
+      "fencingToken",
+      "deliveryAttemptKey"
+    ],
+    "completionCasMatrix": [
+      {"case": "all_match_with_unexpired_lease", "condition": "all CAS fields match, exact attempt is CALL_STARTED and target is IN_FLIGHT", "action": "apply_attempt_and_job_transition_atomically", "writesAllowed": true},
+      {"case": "job_not_leased", "condition": "job state is not LEASED", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "lease_owner_mismatch", "condition": "lease owner differs", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "lease_expired", "condition": "database now is at or after leaseUntil", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "generation_mismatch", "condition": "generation differs", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "fencing_token_mismatch", "condition": "fencing token differs", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "terminal_job", "condition": "job is ACCEPTED, CANCELLED or DEAD", "action": "reject_terminal_mutation", "writesAllowed": false},
+      {"case": "attempt_absent", "condition": "exact attempt row does not exist", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "attempt_not_call_started", "condition": "attempt is RESERVED or terminal", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "target_not_in_flight", "condition": "target is not IN_FLIGHT", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "second_completion", "condition": "attempt was already completed", "action": "reject_stale_completion", "writesAllowed": false},
+      {"case": "retry_after_expiry", "condition": "next retry is at or after expiresAt", "action": "persist_current_retryable_attempt_and_job_dead_atomically", "writesAllowed": true},
+      {"case": "retry_attempt_limit_reached", "condition": "next attempt number exceeds three", "action": "persist_current_retryable_attempt_and_job_dead_atomically", "writesAllowed": true}
+    ],
+    "jobAggregation": {
+      "aggregationPrecedence": [
+        "CANCELLED when job invalidation wins",
+        "LEASED while any target is UNATTEMPTED, RESERVED or IN_FLIGHT",
+        "RETRY while any target is RETRYABLE and retry remains within TTL and limit",
+        "ACCEPTED after all targets terminal when any target is ACCEPTED",
+        "DEAD after all targets terminal when no target is ACCEPTED"
+      ],
+      "accepted": "all current device attempts terminal and at least one ACCEPTED",
+      "retry": "at least one retryable device remains within TTL and attempt limit",
+      "dead": "all current device attempts terminal, none ACCEPTED, and none retryable",
+      "acceptanceUnknown": "terminal per-device evidence; never promoted to ACCEPTED and never retried"
+    }
+  },
+  "deliveryPolicy": {
+    "providerMessageIdMeaning": "accepted",
+    "deliveredClaimAllowed": false,
+    "deliveryLimitStatement": "network, OS policy, battery state and user permission may delay or omit display",
+    "appReentrySourceOfTruth": "GET /api/v1/trips/{tripId}/live-state"
+  },
+  "securityPolicy": {
+    "registrationTokenClassification": "sensitive device identifier",
+    "registrationTokenStorage": "encrypted or platform-managed server storage; least privilege",
+    "registrationTokenForbiddenOutputs": [
+      "API response",
+      "application log",
+      "trace",
+      "metric",
+      "metric tag"
+    ],
+    "firebaseCredentialInjection": "ADC or secret mount only",
+    "firebaseCredentialRepositoryStorage": "forbidden",
+    "providerMessageIdStorage": "allowed only as provider acceptance evidence; never as delivery evidence",
+    "observabilityAllowlist": [
+      "notificationJobId",
+      "notificationKind",
+      "jobState",
+      "attemptState",
+      "attemptCount",
+      "errorClass",
+      "traceId"
+    ],
+    "fixtureForbiddenKeys": [
+      "fcmToken",
+      "registrationToken",
+      "serviceAccountJson",
+      "privateKey",
+      "clientEmail",
+      "accessToken",
+      "refreshToken",
+      "email",
+      "latitude",
+      "longitude",
+      "coordinates",
+      "memo",
+      "rawPayload"
+    ]
+  },
+  "traceability": {
+    "futureIssueOwners": {
+      "113": "device registry, OS permission signal and server preference including safetyBufferMinutes",
+      "114": "provider adapter and precise provider outcome classification",
+      "115": "one device-independent logical job in notification_jobs",
+      "116": "per-device immutable attempts, lease/fencing worker and retry cleanup"
+    },
+    "issueReadbackEvidence": [
+      {"issue": 113, "updatedAt": "2026-08-26T03:40:05Z", "appliedMarkers": ["default 10 and integer 0..120 inclusive", "latest required location consent"]},
+      {"issue": 114, "updatedAt": "2026-08-26T03:57:27Z", "appliedMarkers": ["closed FCM data UTF-8 budgets", "provable pre-connect versus post-write/read ambiguity", "unexpected EOF is post-write ambiguous"]},
+      {"issue": 115, "updatedAt": "2026-08-26T03:57:27Z", "appliedMarkers": ["device-independent logical job key", "one logical job per notification", "safetyBuffer version-CAS atomic replacement"]},
+      {"issue": 116, "updatedAt": "2026-08-26T04:33:51Z", "blankLineNormalizedBodySha256": "de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da", "appliedMarkers": ["exact per-device attempt key", "ACCEPTANCE_UNKNOWN no retry", "lease generation fencing", "push_delivery_targets closed snapshot and current states", "RESERVED/CALL_STARTED durable pre-I/O protocol", "marker-based crash and expired-lease recovery", "mutually exclusive target aggregation precedence", "exhausted transient attempt persistence", "single-row RESERVED/CALL_STARTED/terminal status lifecycle", "expired LEASED same-state reclaim with preserved generation and incremented fence", "post-claim preparation snapshot and claim/post-snapshot race rechecks", "existing CALL_STARTED plus IN_FLIGHT completion gate", "zero-target preparation cancellation", "closed target transitions and atomic attempt-target-job aggregation", "single generation naming", "inactive retry target terminal SKIPPED attempt"]}
+    ]
+  }
+}

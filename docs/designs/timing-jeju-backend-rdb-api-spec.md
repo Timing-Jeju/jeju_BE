@@ -1726,6 +1726,18 @@ KMA DFS grid는 각 투영축을 `floor(value + 0.5)`로 반올림하고 nx 1..1
 5. 변경되지 않은 항목의 진행 상태만 새 항목에 이관한다.
 6. `recovery_applied` 실행 이벤트를 남긴다.
 
+### 19.4 FCM 다음 목적지 출발 알림 계약
+
+Issue #112는 구현 전 계약만 소유하며 이 문서 변경으로 공개 API, migration, token registry, scheduler나 FCM adapter를 추가하지 않는다. Spring이 token, 기기 비종속 logical job, per-device delivery attempt, 취소·발송·재시도와 접수 상태를 단독 소유하고 FastAPI는 관여하지 않는다. Issue #115 `notification_jobs` logical key에는 device가 없고 복수 기기에도 한 job만 만든다. Issue #116 `push_delivery_targets`는 claim commit 후 첫 preparation transaction의 eligibility 재검사 뒤 `(jobId, pushDeviceId)`별 고정하는 닫힌 snapshot/current state다. `push_delivery_attempts`는 `(jobId, pushDeviceId, attemptNo)` unique 단일 행이며 status를 `RESERVED → CALL_STARTED → terminal` same-row CAS로 갱신한다. expired `LEASED` exact reclaim은 state/generation/target/attempt identity를 보존하고 owner/lease와 fencing만 교체·증가시키며 old fence completion을 거부한다. 앱 종료 상태에는 `notification + data`를 사용한다.
+
+generation/expectedGeneration의 single generation naming만 쓴다. preparation eligible target 0건은 empty snapshot과 `CANCELLED/NO_ACTIVE_PUSH_TARGET`, attempt/provider 0회를 같은 transaction에 기록한다. closed target 전이는 `UNATTEMPTED|RETRYABLE → RESERVED → IN_FLIGHT → terminal/retryable`와 `UNATTEMPTED|RETRYABLE → SKIPPED`뿐이다. inactive retry target은 provider 0회로 attemptNo+1 exact terminal `SKIPPED` row·target·job aggregation을 same CAS transaction에 쓰며 duplicate key/stale CAS는 무수정이다. completion은 existing exact `CALL_STARTED` attempt와 `IN_FLIGHT` target만 허용하고 attempt·target·job aggregation을 같은 CAS transaction으로 반영한다. absent/reserved/terminal/wrong-marker/second completion 및 duplicate reservation은 거부한다.
+
+`notifyAt = arrivalTargetAt - expectedTravelDurationSeconds - safetyBufferMinutes`이며 활성 일정 버전, 다음 항목과 mobility leg에서 계산한다. safety buffer는 기본 10분, integer 0..120분 inclusive다. 저장은 UTC `timestamptz`, 표시 문구는 여행 시간대이며 DST overlap 양쪽 offset과 gap은 fail-closed다. Android priority는 `high`, collapse key는 trip별이고 TTL은 최대 15분과 유효 출발 시각까지 남은 시간 중 작은 값이다. TTL이 0 이하이면 발송하지 않는다. data 다섯 field는 string·canonical UUID/deep link와 UTF-8 byte budget을 적용하고 초과/control 입력은 결정적 title/body fallback을 쓴다.
+
+OS 알림 권한, 서버 출발 알림 설정, 최신 required 위치 동의를 예약 시점과 발송 직전에 확인하며 preparation과 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 활성/비활성 기기는 snapshot에 반영하고 snapshot 이후 신규 target은 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 `CANCELLED`다. consent version은 canonical nonblank string이고 missing/null/blank/wrong type/unknown status는 fail-closed한다. 일정 버전 변경, 항목 완료·건너뜀, 여행 취소, 알림 비활성화는 기존 미발송 작업을 취소한다. `safetyBufferMinutes` 변경은 preference version CAS, old generation 무효화, old unsent job 취소, 재계산과 새 logical job을 한 transaction에서 처리한다. deduplication key와 generation fencing으로 stale 발송을 거부한다.
+
+FCM 접수는 단말 전달 완료가 아니다. provider message id는 `ACCEPTED`로만 보존하고 `DELIVERED`를 주장하지 않는다. explicit transient rejection과 request byte 미전송이 증명된 pre-connect failure만 재시도한다. `RESERVED` crash는 retryable이나 `CALL_STARTED` 뒤 crash와 post-write/read timeout, connection reset, unexpected EOF는 terminal `ACCEPTANCE_UNKNOWN`이며 자동 재시도하지 않는다. 세 번째 또는 TTL 만료 transient attempt는 immutable 보존하고 같은 transaction에서 job을 `DEAD`로 만든다. 앱 재진입 시 `GET /api/v1/trips/{tripId}/live-state`를 다시 조회한다. token은 API 응답·로그·trace·metric에 노출하지 않고 Firebase credential은 ADC 또는 secret mount로만 주입한다. #93과 정정된 #113~#116 구현이 없으면 production default-off 및 fail-closed다.
+
 ## 20. 구현 단계
 
 ### Phase 1

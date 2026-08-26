@@ -1,0 +1,360 @@
+{
+  "contractVersion": "1.0.0",
+  "scheduleCases": [
+    {
+      "id": "seoul_explicit_buffer_is_stored_as_utc",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {
+        "action": "schedule",
+        "safetyBufferMinutes": 10,
+        "notifyAtUtc": "2026-08-03T00:20:00+00:00",
+        "validUntilUtc": "2026-08-03T00:30:00+00:00",
+        "displayNotifyAt": "2026-08-03T09:20:00+09:00"
+      }
+    },
+    {
+      "id": "default_buffer_is_ten_minutes",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {
+        "action": "schedule",
+        "safetyBufferMinutes": 10,
+        "notifyAtUtc": "2026-08-03T00:20:00+00:00",
+        "validUntilUtc": "2026-08-03T00:30:00+00:00",
+        "displayNotifyAt": "2026-08-03T09:20:00+09:00"
+      }
+    },
+    {
+      "id": "zero_buffer_is_allowed",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 0,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {
+        "action": "schedule",
+        "safetyBufferMinutes": 0,
+        "notifyAtUtc": "2026-08-03T00:30:00+00:00",
+        "validUntilUtc": "2026-08-03T00:30:00+00:00",
+        "displayNotifyAt": "2026-08-03T09:30:00+09:00"
+      }
+    },
+    {
+      "id": "maximum_buffer_is_inclusive",
+      "arrivalTargetAt": "2026-08-03T12:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 120,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {
+        "action": "schedule",
+        "safetyBufferMinutes": 120,
+        "notifyAtUtc": "2026-08-03T00:30:00+00:00",
+        "validUntilUtc": "2026-08-03T02:30:00+00:00",
+        "displayNotifyAt": "2026-08-03T09:30:00+09:00"
+      }
+    },
+    {
+      "id": "negative_buffer_fails_closed",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": -1,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {"action": "fail_closed", "reason": "safetyBufferMinutes must be an integer from 0 through 120"}
+    },
+    {
+      "id": "above_maximum_buffer_fails_closed",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 121,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {"action": "fail_closed", "reason": "safetyBufferMinutes must be an integer from 0 through 120"}
+    },
+    {
+      "id": "non_integer_buffer_fails_closed",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10.5,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {"action": "fail_closed", "reason": "safetyBufferMinutes must be an integer from 0 through 120"}
+    },
+    {
+      "id": "overflow_buffer_fails_closed",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 9223372036854775807,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {"action": "fail_closed", "reason": "safetyBufferMinutes must be an integer from 0 through 120"}
+    },
+    {
+      "id": "dst_overlap_earlier_offset_fails_closed",
+      "arrivalTargetAt": "2026-11-01T01:30:00-04:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10,
+      "tripTimezone": "America/New_York",
+      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt is a DST overlap"}
+    },
+    {
+      "id": "dst_overlap_later_offset_fails_closed",
+      "arrivalTargetAt": "2026-11-01T01:30:00-05:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10,
+      "tripTimezone": "America/New_York",
+      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt is a DST overlap"}
+    },
+    {
+      "id": "dst_gap_fails_closed",
+      "arrivalTargetAt": "2026-03-08T02:30:00-05:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10,
+      "tripTimezone": "America/New_York",
+      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt is a DST gap"}
+    },
+    {
+      "id": "source_offset_must_match_trip_timezone",
+      "arrivalTargetAt": "2026-08-03T10:00:00+00:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt offset does not match trip timezone"}
+    },
+    {
+      "id": "offsetless_local_time_fails_closed",
+      "arrivalTargetAt": "2026-08-03T10:00:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10,
+      "tripTimezone": "Asia/Seoul",
+      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt must include an offset"}
+    },
+    {
+      "id": "unknown_trip_timezone_fails_closed",
+      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "expectedTravelDurationSeconds": 1800,
+      "safetyBufferMinutes": 10,
+      "tripTimezone": "Unknown/Zone",
+      "expected": {"action": "fail_closed", "reason": "trip timezone is invalid"}
+    }
+  ],
+  "ttlCases": [
+    {"id": "short_remaining_window_is_preserved", "sendAttemptAt": "2026-08-03T00:20:00+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 600},
+    {"id": "long_remaining_window_is_capped", "sendAttemptAt": "2026-08-03T00:00:00+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 900},
+    {"id": "equality_boundary_is_expired", "sendAttemptAt": "2026-08-03T00:30:00+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 0},
+    {"id": "past_window_is_expired", "sendAttemptAt": "2026-08-03T00:30:01+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 0}
+  ],
+  "consentCases": [
+    {
+      "id": "latest_version_active",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": true, "reason": "eligible", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+    },
+    {
+      "id": "old_version",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": "2026-08-11.v1",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "location_consent_not_latest", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v1", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+    },
+    {
+      "id": "newer_non_required_version",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": "2026-08-11.v3",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "location_consent_not_latest", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v3", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+    },
+    {
+      "id": "withdrawn",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "WITHDRAWN",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "location_consent_inactive", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "WITHDRAWN", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+    },
+    {
+      "id": "os_permission_denied",
+      "osGranted": false,
+      "serverEnabled": true,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "os_permission_not_granted", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+    },
+    {
+      "id": "server_setting_disabled",
+      "osGranted": true,
+      "serverEnabled": false,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "server_notification_disabled", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+    },
+    {
+      "id": "invalid_missing_required_version",
+      "osGranted": true,
+      "serverEnabled": true,
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+    },
+    {
+      "id": "invalid_null_consented_version",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": null,
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+    },
+    {
+      "id": "invalid_blank_required_version",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": " ",
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+    },
+    {
+      "id": "invalid_wrong_type_version",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": 2,
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "ACTIVE",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+    },
+    {
+      "id": "invalid_unknown_status",
+      "osGranted": true,
+      "serverEnabled": true,
+      "requiredVersion": "2026-08-11.v2",
+      "consentedVersion": "2026-08-11.v2",
+      "consentStatus": "PENDING",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+    }
+  ],
+  "aggregationCases": [
+    {"id": "accepted_plus_retryable", "jobCancelled": false, "retryEligible": true, "targetStates": ["ACCEPTED", "RETRYABLE"], "expected": {"jobState": "RETRY", "terminal": false}},
+    {"id": "accepted_plus_unknown", "jobCancelled": false, "retryEligible": false, "targetStates": ["ACCEPTED", "ACCEPTANCE_UNKNOWN"], "expected": {"jobState": "ACCEPTED", "terminal": true}},
+    {"id": "accepted_plus_permanent", "jobCancelled": false, "retryEligible": false, "targetStates": ["ACCEPTED", "PERMANENT_FAILURE"], "expected": {"jobState": "ACCEPTED", "terminal": true}},
+    {"id": "unknown_plus_permanent", "jobCancelled": false, "retryEligible": false, "targetStates": ["ACCEPTANCE_UNKNOWN", "PERMANENT_FAILURE"], "expected": {"jobState": "DEAD", "terminal": true}},
+    {"id": "accepted_plus_unattempted", "jobCancelled": false, "retryEligible": false, "targetStates": ["ACCEPTED", "UNATTEMPTED"], "expected": {"jobState": "LEASED", "terminal": false}},
+    {"id": "crash_reserved", "jobCancelled": false, "retryEligible": true, "targetStates": ["RESERVED"], "expected": {"jobState": "LEASED", "terminal": false}},
+    {"id": "unknown_only", "jobCancelled": false, "retryEligible": false, "targetStates": ["ACCEPTANCE_UNKNOWN"], "expected": {"jobState": "DEAD", "terminal": true}},
+    {"id": "cancelled_wins", "jobCancelled": true, "retryEligible": true, "targetStates": ["ACCEPTED", "RETRYABLE"], "expected": {"jobState": "CANCELLED", "terminal": true}}
+  ],
+  "retryExhaustionCases": [
+    {"id": "retry_remains", "attemptNo": 2, "attemptedAt": "2026-08-03T00:20:00+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "proposedNextRetryAt": "2026-08-03T00:21:00+00:00", "expected": {"attemptStatus": "RETRYABLE_FAILURE", "attemptPersisted": true, "jobState": "RETRY", "nextRetryAt": "2026-08-03T00:21:00+00:00", "atomic": true}},
+    {"id": "third_attempt_is_dead", "attemptNo": 3, "attemptedAt": "2026-08-03T00:20:00+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "proposedNextRetryAt": "2026-08-03T00:21:00+00:00", "expected": {"attemptStatus": "RETRYABLE_FAILURE", "attemptPersisted": true, "jobState": "DEAD", "nextRetryAt": null, "atomic": true}},
+    {"id": "retry_at_expiry_is_dead", "attemptNo": 2, "attemptedAt": "2026-08-03T00:20:00+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "proposedNextRetryAt": "2026-08-03T00:30:00+00:00", "expected": {"attemptStatus": "RETRYABLE_FAILURE", "attemptPersisted": true, "jobState": "DEAD", "nextRetryAt": null, "atomic": true}}
+  ],
+  "safetyBufferChangeCases": [
+    {"id": "ten_to_thirty", "oldBufferMinutes": 10, "newBufferMinutes": 30, "expectedPreferenceVersion": 4, "actualPreferenceVersion": 4, "arrivalTargetAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "replace_atomically", "newPreferenceVersion": 5, "newNotifyAtUtc": "2026-08-03T00:00:00+00:00", "oldGenerationInvalidated": true, "oldUnsentJobCancelled": true}},
+    {"id": "thirty_to_zero", "oldBufferMinutes": 30, "newBufferMinutes": 0, "expectedPreferenceVersion": 5, "actualPreferenceVersion": 5, "arrivalTargetAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "replace_atomically", "newPreferenceVersion": 6, "newNotifyAtUtc": "2026-08-03T00:30:00+00:00", "oldGenerationInvalidated": true, "oldUnsentJobCancelled": true}},
+    {"id": "concurrent_preference_change", "oldBufferMinutes": 10, "newBufferMinutes": 30, "expectedPreferenceVersion": 4, "actualPreferenceVersion": 5, "arrivalTargetAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "fail_closed", "reason": "preference_version_conflict", "mutationApplied": false}}
+  ],
+  "leaseReclaimCases": [
+    {"id": "expired_lease_exact_reclaim", "state": "LEASED", "expectedState": "LEASED", "databaseNow": "2026-08-03T00:20:00+00:00", "leaseUntil": "2026-08-03T00:20:00+00:00", "expectedLeaseUntil": "2026-08-03T00:20:00+00:00", "currentOwner": "worker-a", "expectedOwner": "worker-a", "newOwner": "worker-b", "newLeaseUntil": "2026-08-03T00:21:00+00:00", "generation": 7, "expectedGeneration": 7, "currentFencingToken": 11, "expectedFencingToken": 11, "targetSnapshot": ["72000000-0000-0000-0000-000000000001"], "attemptRows": ["72000000-0000-0000-0000-000000000001:1:CALL_STARTED"], "expected": {"action": "reclaim", "state": "LEASED", "leaseOwner": "worker-b", "leaseUntil": "2026-08-03T00:21:00+00:00", "generation": 7, "fencingToken": 12, "targetSnapshot": ["72000000-0000-0000-0000-000000000001"], "attemptRows": ["72000000-0000-0000-0000-000000000001:1:CALL_STARTED"]}},
+    {"id": "unexpired_lease_rejected", "state": "LEASED", "expectedState": "LEASED", "databaseNow": "2026-08-03T00:20:00+00:00", "leaseUntil": "2026-08-03T00:20:01+00:00", "expectedLeaseUntil": "2026-08-03T00:20:01+00:00", "currentOwner": "worker-a", "expectedOwner": "worker-a", "newOwner": "worker-b", "newLeaseUntil": "2026-08-03T00:21:00+00:00", "generation": 7, "expectedGeneration": 7, "currentFencingToken": 11, "expectedFencingToken": 11, "targetSnapshot": [], "attemptRows": [], "expected": {"action": "reject", "reason": "lease_not_expired", "mutationApplied": false}},
+    {"id": "stale_fence_rejected", "state": "LEASED", "expectedState": "LEASED", "databaseNow": "2026-08-03T00:20:00+00:00", "leaseUntil": "2026-08-03T00:19:59+00:00", "expectedLeaseUntil": "2026-08-03T00:19:59+00:00", "currentOwner": "worker-a", "expectedOwner": "worker-a", "newOwner": "worker-b", "newLeaseUntil": "2026-08-03T00:21:00+00:00", "generation": 7, "expectedGeneration": 7, "currentFencingToken": 12, "expectedFencingToken": 11, "targetSnapshot": ["72000000-0000-0000-0000-000000000001"], "attemptRows": ["72000000-0000-0000-0000-000000000001:1:RESERVED"], "expected": {"action": "reject", "reason": "stale_fencing_token", "mutationApplied": false}}
+  ],
+  "targetRaceCases": [
+    {"id": "activated_between_claim_and_preparation", "phase": "preparation", "claimActiveDevices": [], "preparationActiveDevices": ["72000000-0000-0000-0000-000000000001"], "snapshotDevices": [], "deviceToCall": null, "deviceActiveBeforeCall": null, "jobWideEligibleBeforeCall": true, "expected": {"action": "store_snapshot", "snapshotDevices": ["72000000-0000-0000-0000-000000000001"]}},
+    {"id": "deactivated_between_claim_and_preparation", "phase": "preparation", "claimActiveDevices": ["72000000-0000-0000-0000-000000000001"], "preparationActiveDevices": [], "snapshotDevices": [], "deviceToCall": null, "deviceActiveBeforeCall": null, "jobWideEligibleBeforeCall": true, "expected": {"action": "CANCELLED", "reason": "NO_ACTIVE_PUSH_TARGET", "snapshotDevices": [], "attemptCount": 0, "providerCallCount": 0, "atomic": true}},
+    {"id": "activated_after_snapshot_is_excluded", "phase": "post_snapshot_activation", "claimActiveDevices": ["72000000-0000-0000-0000-000000000001"], "preparationActiveDevices": ["72000000-0000-0000-0000-000000000001"], "snapshotDevices": ["72000000-0000-0000-0000-000000000001"], "deviceToCall": "72000000-0000-0000-0000-000000000002", "deviceActiveBeforeCall": true, "jobWideEligibleBeforeCall": true, "expected": {"action": "keep_snapshot", "snapshotDevices": ["72000000-0000-0000-0000-000000000001"]}},
+    {"id": "snapshot_device_disabled_before_call", "phase": "before_call", "claimActiveDevices": ["72000000-0000-0000-0000-000000000001"], "preparationActiveDevices": ["72000000-0000-0000-0000-000000000001"], "snapshotDevices": ["72000000-0000-0000-0000-000000000001"], "deviceToCall": "72000000-0000-0000-0000-000000000001", "deviceActiveBeforeCall": false, "jobWideEligibleBeforeCall": true, "expected": {"action": "SKIPPED", "providerCall": false}},
+    {"id": "consent_withdrawn_before_call", "phase": "before_call", "claimActiveDevices": ["72000000-0000-0000-0000-000000000001"], "preparationActiveDevices": ["72000000-0000-0000-0000-000000000001"], "snapshotDevices": ["72000000-0000-0000-0000-000000000001"], "deviceToCall": "72000000-0000-0000-0000-000000000001", "deviceActiveBeforeCall": true, "jobWideEligibleBeforeCall": false, "expected": {"action": "CANCELLED", "providerCall": false, "stopRemainingCalls": true}},
+    {"id": "eligible_snapshot_device_is_called", "phase": "before_call", "claimActiveDevices": ["72000000-0000-0000-0000-000000000001"], "preparationActiveDevices": ["72000000-0000-0000-0000-000000000001"], "snapshotDevices": ["72000000-0000-0000-0000-000000000001"], "deviceToCall": "72000000-0000-0000-0000-000000000001", "deviceActiveBeforeCall": true, "jobWideEligibleBeforeCall": true, "expected": {"action": "reserve_attempt", "providerCall": true}}
+  ],
+  "completionCases": [
+    {"id": "call_started_inflight_success", "attemptExists": true, "attemptStatus": "CALL_STARTED", "targetState": "IN_FLIGHT", "completionAlreadyApplied": false, "casMatches": true, "resultStatus": "ACCEPTED", "expected": {"action": "apply", "attemptStatus": "ACCEPTED", "targetState": "ACCEPTED", "jobAggregationRecomputed": true, "atomic": true}},
+    {"id": "absent_attempt_rejected", "attemptExists": false, "attemptStatus": null, "targetState": "IN_FLIGHT", "completionAlreadyApplied": false, "casMatches": true, "resultStatus": "ACCEPTED", "expected": {"action": "reject", "reason": "absent_attempt", "mutationApplied": false}},
+    {"id": "reserved_attempt_rejected", "attemptExists": true, "attemptStatus": "RESERVED", "targetState": "RESERVED", "completionAlreadyApplied": false, "casMatches": true, "resultStatus": "ACCEPTED", "expected": {"action": "reject", "reason": "reserved_attempt", "mutationApplied": false}},
+    {"id": "terminal_attempt_rejected", "attemptExists": true, "attemptStatus": "ACCEPTED", "targetState": "ACCEPTED", "completionAlreadyApplied": false, "casMatches": true, "resultStatus": "ACCEPTED", "expected": {"action": "reject", "reason": "terminal_attempt", "mutationApplied": false}},
+    {"id": "wrong_target_marker_rejected", "attemptExists": true, "attemptStatus": "CALL_STARTED", "targetState": "RESERVED", "completionAlreadyApplied": false, "casMatches": true, "resultStatus": "ACCEPTED", "expected": {"action": "reject", "reason": "wrong_target_marker", "mutationApplied": false}},
+    {"id": "second_completion_rejected", "attemptExists": true, "attemptStatus": "ACCEPTED", "targetState": "ACCEPTED", "completionAlreadyApplied": true, "casMatches": true, "resultStatus": "ACCEPTED", "expected": {"action": "reject", "reason": "second_completion", "mutationApplied": false}},
+    {"id": "stale_completion_cas_rejected", "attemptExists": true, "attemptStatus": "CALL_STARTED", "targetState": "IN_FLIGHT", "completionAlreadyApplied": false, "casMatches": false, "resultStatus": "ACCEPTED", "expected": {"action": "reject", "reason": "cas_mismatch", "mutationApplied": false}}
+  ],
+  "targetTransitionCases": [
+    {"id": "first_reservation", "fromState": "UNATTEMPTED", "toState": "RESERVED", "currentAttemptNo": 0, "requestedAttemptNo": 1, "attemptKeyExists": false, "expected": {"action": "apply", "targetState": "RESERVED", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "retry_reservation_increments", "fromState": "RETRYABLE", "toState": "RESERVED", "currentAttemptNo": 1, "requestedAttemptNo": 2, "attemptKeyExists": false, "expected": {"action": "apply", "targetState": "RESERVED", "currentAttemptNo": 2, "atomic": true}},
+    {"id": "retry_reservation_without_increment_rejected", "fromState": "RETRYABLE", "toState": "RESERVED", "currentAttemptNo": 1, "requestedAttemptNo": 1, "attemptKeyExists": false, "expected": {"action": "reject", "reason": "attempt_number_not_incremented", "providerCall": false}},
+    {"id": "duplicate_reservation_rejected", "fromState": "RETRYABLE", "toState": "RESERVED", "currentAttemptNo": 1, "requestedAttemptNo": 2, "attemptKeyExists": true, "expected": {"action": "reject", "reason": "duplicate_reservation_key", "providerCall": false}},
+    {"id": "reservation_to_inflight", "fromState": "RESERVED", "toState": "IN_FLIGHT", "currentAttemptNo": 1, "requestedAttemptNo": 1, "attemptKeyExists": true, "expected": {"action": "apply", "targetState": "IN_FLIGHT", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "expired_reserved_recovery_to_retryable", "fromState": "RESERVED", "toState": "RETRYABLE", "currentAttemptNo": 1, "requestedAttemptNo": 1, "attemptKeyExists": true, "expected": {"action": "apply", "targetState": "RETRYABLE", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "inflight_to_accepted", "fromState": "IN_FLIGHT", "toState": "ACCEPTED", "currentAttemptNo": 1, "requestedAttemptNo": 1, "attemptKeyExists": true, "expected": {"action": "apply", "targetState": "ACCEPTED", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "inflight_to_retryable", "fromState": "IN_FLIGHT", "toState": "RETRYABLE", "currentAttemptNo": 1, "requestedAttemptNo": 1, "attemptKeyExists": true, "expected": {"action": "apply", "targetState": "RETRYABLE", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "inflight_to_unknown", "fromState": "IN_FLIGHT", "toState": "ACCEPTANCE_UNKNOWN", "currentAttemptNo": 1, "requestedAttemptNo": 1, "attemptKeyExists": true, "expected": {"action": "apply", "targetState": "ACCEPTANCE_UNKNOWN", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "inflight_to_permanent", "fromState": "IN_FLIGHT", "toState": "PERMANENT_FAILURE", "currentAttemptNo": 1, "requestedAttemptNo": 1, "attemptKeyExists": true, "expected": {"action": "apply", "targetState": "PERMANENT_FAILURE", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "unattempted_to_skipped", "fromState": "UNATTEMPTED", "toState": "SKIPPED", "currentAttemptNo": 0, "requestedAttemptNo": 1, "attemptKeyExists": false, "expected": {"action": "apply", "targetState": "SKIPPED", "currentAttemptNo": 1, "atomic": true}},
+    {"id": "retryable_to_skipped", "fromState": "RETRYABLE", "toState": "SKIPPED", "currentAttemptNo": 1, "requestedAttemptNo": 2, "attemptKeyExists": false, "expected": {"action": "apply", "targetState": "SKIPPED", "currentAttemptNo": 2, "atomic": true}},
+    {"id": "terminal_transition_rejected", "fromState": "ACCEPTED", "toState": "RESERVED", "currentAttemptNo": 1, "requestedAttemptNo": 2, "attemptKeyExists": false, "expected": {"action": "reject", "reason": "invalid_target_transition", "providerCall": false}}
+  ],
+  "retryInactiveSkipCases": [
+    {"id": "inactive_retry_target_skipped", "currentAttemptNo": 1, "requestedAttemptNo": 2, "attemptKeyExists": false, "casMatches": true, "deviceActive": false, "expected": {"action": "apply", "attemptNo": 2, "attemptStatus": "SKIPPED", "targetState": "SKIPPED", "jobAggregationRecomputed": true, "providerCallCount": 0, "atomic": true}},
+    {"id": "duplicate_skip_attempt_rejected", "currentAttemptNo": 1, "requestedAttemptNo": 2, "attemptKeyExists": true, "casMatches": true, "deviceActive": false, "expected": {"action": "reject", "reason": "duplicate_attempt_key", "mutationApplied": false, "providerCallCount": 0}},
+    {"id": "stale_skip_cas_rejected", "currentAttemptNo": 1, "requestedAttemptNo": 2, "attemptKeyExists": false, "casMatches": false, "deviceActive": false, "expected": {"action": "reject", "reason": "stale_cas", "mutationApplied": false, "providerCallCount": 0}}
+  ],
+  "messageCases": [
+    {
+      "id": "normal_message",
+      "departureRecommendedLocalTime": "09:20",
+      "nextPlaceName": "성산일출봉",
+      "data": {
+        "contractVersion": "1.0.0",
+        "tripId": "71000000-0000-0000-0000-000000000001",
+        "tripItemId": "73000000-0000-0000-0000-000000000001",
+        "scheduleVersionId": "74000000-0000-0000-0000-000000000001",
+        "deepLink": "timingjeju://trips/71000000-0000-0000-0000-000000000001/live?itemId=73000000-0000-0000-0000-000000000001"
+      },
+      "expectedNotification": {"title": "다음 장소로 출발할 시간이에요", "body": "09:20까지 성산일출봉(으)로 출발하세요."}
+    },
+    {
+      "id": "unicode_body_over_budget_uses_fallback",
+      "departureRecommendedLocalTime": "09:20",
+      "nextPlaceName": "제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주",
+      "data": {
+        "contractVersion": "1.0.0",
+        "tripId": "71000000-0000-0000-0000-000000000001",
+        "tripItemId": "73000000-0000-0000-0000-000000000001",
+        "scheduleVersionId": "74000000-0000-0000-0000-000000000001",
+        "deepLink": "timingjeju://trips/71000000-0000-0000-0000-000000000001/live?itemId=73000000-0000-0000-0000-000000000001"
+      },
+      "expectedNotification": {"title": "출발 알림", "body": "앱을 열어 다음 일정을 확인하세요."}
+    },
+    {
+      "id": "control_character_uses_fallback",
+      "departureRecommendedLocalTime": "09:20",
+      "nextPlaceName": "성산\n일출봉",
+      "data": {
+        "contractVersion": "1.0.0",
+        "tripId": "71000000-0000-0000-0000-000000000001",
+        "tripItemId": "73000000-0000-0000-0000-000000000001",
+        "scheduleVersionId": "74000000-0000-0000-0000-000000000001",
+        "deepLink": "timingjeju://trips/71000000-0000-0000-0000-000000000001/live?itemId=73000000-0000-0000-0000-000000000001"
+      },
+      "expectedNotification": {"title": "출발 알림", "body": "앱을 열어 다음 일정을 확인하세요."}
+    }
+  ]
+}
