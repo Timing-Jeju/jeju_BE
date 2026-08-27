@@ -19,6 +19,7 @@ import java.util.Map;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 
 @Configuration(proxyBeanMethods = false)
 public class OpenApiConfig {
@@ -46,8 +47,7 @@ public class OpenApiConfig {
                 .version("v1"));
   }
 
-  @Bean
-  OpenApiCustomizer socialLoginPublicEndpointCustomizer() {
+  OpenApiCustomizer publicAndOptionalSecurityCustomizer() {
     return openApi -> {
       clearSecurity(openApi, "/api/v1/auth/social/providers");
       clearSecurity(openApi, "/api/v1/auth/social/naver/userinfo");
@@ -59,7 +59,6 @@ public class OpenApiConfig {
     };
   }
 
-  @Bean
   OpenApiCustomizer commonProblemDetailsCustomizer() {
     return openApi -> {
       ModelConverters.getInstance()
@@ -72,7 +71,8 @@ public class OpenApiConfig {
               new Header()
                   .description("서버가 요청 단위로 생성한 추적 식별자")
                   .required(true)
-                  .schema(new StringSchema().pattern("^[0-9a-f]{32}$")));
+                  .schema(new StringSchema().pattern("^[0-9a-f]{32}$"))
+                  .example("0123456789abcdef0123456789abcdef"));
       openApi
           .getComponents()
           .addResponses("ValidationProblem", problemResponse("요청 값 검증 실패"))
@@ -115,6 +115,19 @@ public class OpenApiConfig {
                                 .filter(response -> response.get$ref() == null)
                                 .forEach(OpenApiConfig::addTraceIdHeader);
                           }));
+    };
+  }
+
+  @Bean
+  @Order(0)
+  OpenApiCustomizer frontendReadyOpenApiCustomizer(
+      FrontendOpenApiCustomizer frontendOpenApiCustomizer) {
+    OpenApiCustomizer commonCustomizer = commonProblemDetailsCustomizer();
+    OpenApiCustomizer securityCustomizer = publicAndOptionalSecurityCustomizer();
+    return openApi -> {
+      securityCustomizer.customise(openApi);
+      commonCustomizer.customise(openApi);
+      frontendOpenApiCustomizer.customise(openApi);
     };
   }
 
