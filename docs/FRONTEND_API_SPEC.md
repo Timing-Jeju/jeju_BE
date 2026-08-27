@@ -1,6 +1,6 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **DRAFT — Codegen NOT READY.** 이 Markdown은 프론트엔드 인계용 first deliverable이다. #34/#44의 `develop` 병합 뒤 #182에서 portable validator, AC2/AC5 검증·CI 연결과 Swagger/OpenAPI remediation을 완료하기 전에는 SDK를 생성하지 않는다.
+> **현재 `develop` 공개 API 9개는 Codegen READY.** `openApiDocs` 뒤 portable frontend-readiness validator가 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. #34/#44 표식 endpoint는 아직 `develop`에 없으므로 아래 clean feature HEAD 계약을 수동 client 인계에만 사용하고, 병합 뒤 생성 artifact가 validator를 통과하기 전에는 해당 7개 SDK 함수를 생성하지 않는다.
 
 이 문서는 2026-08-26 현재 구현이 끝난 공개 Spring API 16개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
@@ -9,14 +9,15 @@
 | 상태 | 범위 | 권위 자료 |
 |---|---|---|
 | `develop` 사용 가능 | auth 2, profile 2, legal 2, places 2, weather 1 | `origin/develop` `39ed577f4c2b839177faea0ab774e8d3102ed988`의 Controller/OpenAPI와 canonical contract |
-| **#34 병합 대기** | saved places 4 | clean HEAD `bd83872b1fd91d5e5c1980422634198734c92cf1`의 OpenAPI와 `saved-places` contract |
-| **#44 병합 대기** | trips 3 | HEAD `f6efff7a641aeec886894e98a3360ec7f90daa63` 및 현재 Swagger remediation source의 OpenAPI와 `trips` contract |
+| **#34 병합 대기** | saved places 4 | clean HEAD `bd83872b1fd91d5e5c1980422634198734c92cf1`의 Controller/ApiDocs와 `saved-places` contract; combined 생성 artifact 검증 대기 |
+| **#44 병합 대기** | trips 3 | 최종 clean HEAD `9a4c4b2f78d61d8f37e8f27646f888eddd28a2de`의 Controller/ApiDocs/runtime과 `trips` contract; combined 생성 artifact 검증 대기 |
 
 따라서 현재 `develop` 서버 한 대에서 16개를 모두 호출할 수 있는 상태는 아니다. #34와 #44가 `develop`에 병합되기 전에는 해당 표식이 붙은 endpoint를 각 기능 브랜치에서 검증한다. 이 문서는 두 브랜치의 wire contract를 선반영하지만 아직 미구현인 trip PATCH/DELETE 등은 포함하지 않는다.
 
 ## Base URL과 인증
 
-- 모든 경로는 API v1 상대 경로다. 로컬 기본 Base URL은 `http://localhost:8080`이다.
+- 모든 경로는 API v1 상대 경로다. 프론트는 배포 환경의 `{API_BASE_URL}` 환경변수를 우선 사용하고 URL을 코드에 고정하지 않는다.
+- 직접 `bootRun`한 Spring은 `http://localhost:8080`, 기본 live Compose는 `http://localhost:18080`, 시현 showcase Compose는 `http://localhost:18082` 예시를 사용한다. 서로 다른 환경의 포트로 인증 token이나 fixture 요청을 보내지 않는다.
 - Swagger UI: `/swagger-ui/index.html`, OpenAPI JSON: `/v3/api-docs`.
 - 일반 인증은 `Authorization: Bearer <access-token>`의 Supabase JWT다. placeholder를 실제 token으로 교체하고 저장소나 로그에 남기지 않는다.
 - `인증: 필수`는 header 누락 시 `401 AUTHENTICATION_REQUIRED`, 유효하지 않은 JWT는 `401 INVALID_ACCESS_TOKEN`이다.
@@ -26,7 +27,7 @@
 
 ## OperationId와 code generation
 
-현재 operationId는 Controller method 이름에서 자동 생성되어 generic name과 `_1`, `_2` suffix가 branch의 operation 조합에 따라 바뀐다. 각 endpoint에 실제 source snapshot의 현재 값을 기록하지만 **16개 모두 Codegen NOT READY**다. #182 후속에서 `{domain}{Action}`의 stable unique operationId가 적용되고 `_1` 계열이 사라질 때까지 이 ID로 SDK를 생성하거나 client 함수명을 고정하지 않는다.
+현재 `develop`의 9개 operation은 #182 customizer가 아래에 적은 stable lowerCamelCase operationId를 제공한다. #34/#44의 7개 operationId는 병합 전 목표 이름이며 해당 endpoint가 생성 artifact에 나타난 뒤 같은 validator를 통과해야 확정된다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
 ## 공통 헤더와 응답
 
@@ -80,7 +81,7 @@ saved place PATCH는 `If-Match`가 필수다. POST/PATCH 성공의 `ETag`를 cli
 - saved place POST: `Idempotency-Key`는 `^[A-Za-z0-9._:-]{1,128}$`, scope는 `canonicalSub + POST + canonical path`, TTL은 terminal response 뒤 24시간이다. 같은 key+canonical payload는 원본 status/body/Location/ETag를 재사용하고 `Idempotency-Replayed: true`만 덮는다. 다른 payload는 `409 IDEMPOTENCY_PAYLOAD_CONFLICT`.
 - trip POST: lowercase canonical UUID key, scope는 `canonicalSub + POST + /api/v1/trips`, TTL 24시간이다. 같은 payload는 원본 `201`을 replay한다. 다른 payload 또는 in-progress/reused key는 `409 IDEMPOTENCY_KEY_REUSED`.
 - timeout 뒤에는 새 key를 만들기 전에 같은 key와 같은 body로 재시도한다.
-- HTTP header 값은 전송 계층에서 문자열이지만 #44 generated OpenAPI는 `boolean` schema여서 생성 client가 boolean으로 노출할 수 있다. 목표 계약은 의미 type을 boolean으로 유지하고 transport adapter가 textual `true|false`를 boolean으로 변환하는 것이다. #34 snapshot은 이 header schema 자체가 빠져 있어 #182 후속 정렬 대상이다.
+- HTTP header 값은 전송 계층에서 문자열이지만 OpenAPI 의미 schema는 `boolean`이다. 생성 client 또는 transport adapter가 textual `true|false`를 boolean으로 변환한다. #34 clean snapshot은 이 header schema 자체가 빠져 있어 병합 artifact에서 validator 통과 전 보완해야 한다.
 
 ## null, 생략, 기본값
 
@@ -96,7 +97,7 @@ saved place PATCH는 `If-Match`가 필수다. POST/PATCH 성공의 `ETag`를 cli
 
 ### `GET /api/v1/auth/social/providers`
 
-현재 operationId: `getProviders` · Codegen: **NOT READY** · Canonical statuses: `not-defined` · Generated OpenAPI statuses: `200,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `authSocialProvidersList` · Codegen: **READY** · Canonical statuses: `not-defined` · Generated OpenAPI statuses: `200,500` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 없음 · query/path/body 없음 · 성공 `200 application/json`. 반환 순서는 `google`, `kakao`, `custom:naver`의 고정 catalog 순서이며 환경에서 활성화한 항목만 포함한다. id는 Supabase `signInWithOAuth` provider 값이다. 오류: `500 INTERNAL_SERVER_ERROR`.
 
@@ -140,7 +141,7 @@ Accept: application/json
 
 ### `GET /api/v1/auth/social/naver/userinfo`
 
-현재 operationId: `getNaverUserInfo` · Codegen: **NOT READY** · Canonical statuses: `not-defined` · Generated OpenAPI statuses: `200,401,403,422,429,500,502,503,504` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `authNaverUserInfoRead` · Codegen: **READY** · Canonical statuses: `not-defined` · Generated OpenAPI statuses: `200,401,403,422,429,500,502,503,504` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 공개 adapter지만 `Authorization` 필수. 값은 `Bearer <naver-provider-access-token>`이며 Supabase JWT나 query `access_token`을 보내지 않는다. provider token 길이는 최대 256자다. 성공 `200`; `sub`, `email` 필수, `name`, `preferred_username`, `picture`는 값이 있을 때만 key가 존재한다.
 
@@ -187,7 +188,7 @@ Accept: application/json
 
 ### `GET /api/v1/me`
 
-현재 operationId: `read` · Codegen: **NOT READY** · Canonical statuses: `200,401,503` · Generated OpenAPI statuses: `200,401,403,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `profileRead` · Codegen: **READY** · Canonical statuses: `200,401,503` · Generated OpenAPI statuses: `200,401,403,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 필수 · query/path/body 없음 · canonical JWT sub 소유 profile을 생성 보장한 뒤 `200`. 모든 response key는 필수다. `email`, `nickname`, `profileImageUrl`은 nullable; `locale`은 `ko-KR`; providers는 `google|kakao|custom:naver`의 unique stable array. 오류: `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -235,7 +236,7 @@ Accept: application/json
 
 ### `PATCH /api/v1/me`
 
-현재 operationId: `update_1` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,409,503` · Generated OpenAPI statuses: `200,400,401,403,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `profileUpdate` · Codegen: **READY** · Canonical statuses: `200,400,401,409,503` · Generated OpenAPI statuses: `200,400,401,403,409,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 필수 · `Content-Type: application/json`. closed body에서 `nickname`(trim 후 1..50자), `locale`(`ko-KR`) 중 최소 하나. 생략은 보존, null/알 수 없는 field/email/image/providers 입력은 거부. 성공 `200`. 오류: `400 INVALID_PROFILE_LEGAL_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `409 PROFILE_CONFLICT`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -287,7 +288,7 @@ Accept: application/json
 
 ### `GET /api/v1/legal-documents`
 
-현재 operationId: `read_2` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,503` · Generated OpenAPI statuses: `200,400,401,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `legalDocumentsList` · Codegen: **READY** · Canonical statuses: `200,400,401,503` · Generated OpenAPI statuses: `200,400,401,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 선택 · query `locale` optional/non-null, 허용값 `ko-KR`, 생략 기본값 `ko-KR`. 한 서버 평가 시각에 시행 중인 문서 최신 version을 조회한다. 성공 `200`; `items`는 비어 있을 수 있다. 문서 `type=terms|privacy|location`, `documentId` UUID, `contentUrl` HTTPS, `required` boolean. 오류: `400 INVALID_PROFILE_LEGAL_REQUEST`; `401 INVALID_ACCESS_TOKEN`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -339,7 +340,7 @@ Accept: application/json
 
 ### `PUT /api/v1/me/consents`
 
-현재 operationId: `update` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,409,422,503` · Generated OpenAPI statuses: `200,400,401,403,409,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `legalConsentsUpdate` · Codegen: **READY** · Canonical statuses: `200,400,401,409,422,503` · Generated OpenAPI statuses: `200,400,401,403,409,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 필수 · closed JSON body. `consents` 1..20개, 각 item은 UUID `documentId`와 boolean `agreed` 필수, documentId 중복 금지. 현재 active document version에 원자 반영한다. 성공 `200`. 오류: `400 INVALID_PROFILE_LEGAL_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `409 PROFILE_CONFLICT`; `422 LEGAL_CONSENT_REQUIRED`; `503 PROFILE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -386,7 +387,7 @@ Accept: application/json
 
 ### `GET /api/v1/places`
 
-현재 operationId: `list` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,422,429,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `placesList` · Codegen: **READY** · Canonical statuses: `200,400,401,422,429,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 선택. query는 모두 optional/non-null: `query` trim 1..100자, `category` `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`, `regionCode` `^[a-z0-9][a-z0-9_-]{0,49}$`, `lat` 33..34와 `lng` 126..127은 쌍으로 사용, `radiusMeters` 100..50000(좌표가 있을 때, 기본 10000), `cursor` 1..2048, `size` 1..100(기본 20), `savedOnly` boolean(기본 false). category는 runtime Controller/OpenAPI의 public wire pattern을 따른다. 익명 `savedOnly=true`는 `401 AUTHENTICATION_REQUIRED`.
 
@@ -461,7 +462,7 @@ Accept: application/json
 
 ### `GET /api/v1/places/{placeId}`
 
-현재 operationId: `read_1` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,404,503` · Generated OpenAPI statuses: `200,400,401,404,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `placesRead` · Codegen: **READY** · Canonical statuses: `200,400,401,404,503` · Generated OpenAPI statuses: `200,400,401,404,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 선택. `placeId`는 lowercase canonical UUID. active 공개 장소의 상세, 최대 20 images, 최대 5 unique nearbyStops를 반환한다. 성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER`; `401 INVALID_ACCESS_TOKEN`; `404 PLACE_NOT_FOUND`; `503 PLACE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -521,7 +522,7 @@ Accept: application/json
 
 ### `GET /api/v1/me/saved-places`
 
-현재 operationId: `list` · Codegen: **NOT READY** · Canonical statuses: `200,400,401` · Generated OpenAPI statuses: `200,400,401,403,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+병합 후 목표 operationId: `savedPlacesList` · Codegen: **병합 artifact 검증 대기** · Canonical statuses: `200,400,401` · Generated OpenAPI statuses: `200,400,401,403,500` · 현재 feature OpenAPI success media type: `*/*` · Frontend success media type: `application/json`
 
 **#34 병합 대기** · 인증 필수. optional/non-null query: `tag`, `category`, `regionCode`, `sort=saved_at_desc|priority_desc|target_day_asc`(기본 saved_at_desc), `cursor` 1..2048, `size` 1..100(기본 20). 성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER | INVALID_CURSOR | CURSOR_CONTEXT_MISMATCH`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -578,7 +579,7 @@ Accept: application/json
 
 ### `POST /api/v1/me/saved-places`
 
-현재 operationId: `create` · Codegen: **NOT READY** · Canonical statuses: `200,201,400,401,404,409,422` · Generated OpenAPI statuses: `200,201,400,401,403,404,409,422,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+병합 후 목표 operationId: `savedPlacesCreate` · Codegen: **병합 artifact 검증 대기** · Canonical statuses: `200,201,400,401,404,409,422` · Generated OpenAPI statuses: `200,201,400,401,403,404,409,422,500` · 현재 feature OpenAPI success media type: `*/*` · Frontend success media type: `application/json`
 
 **#34 병합 대기** · 인증 필수 · `Idempotency-Key` 필수(`^[A-Za-z0-9._:-]{1,128}$`). closed body: `placeId` canonical UUID 필수; `memo` nullable 최대 2000자; `tags` nullable 최대 20개, item trim+nfc 1..50자 후 deduplicate/sort; `priority` nullable 0..5; `targetDay` nullable 1..365. 첫 생성 `201`, 동일한 현재 resource는 `200`; header `Location`, `ETag`, `Idempotency-Replayed`.
 
@@ -642,7 +643,7 @@ Accept: application/json
 
 ### `PATCH /api/v1/me/saved-places/{placeId}`
 
-현재 operationId: `patch` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,404,409,422` · Generated OpenAPI statuses: `200,400,401,403,404,409,422,500` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+병합 후 목표 operationId: `savedPlacesUpdate` · Codegen: **병합 artifact 검증 대기** · Canonical statuses: `200,400,401,404,409,422` · Generated OpenAPI statuses: `200,400,401,403,404,409,422,500` · 현재 feature OpenAPI success media type: `*/*` · Frontend success media type: `application/json`
 
 **#34 병합 대기** · 인증 필수 · canonical UUID `placeId` · strong `If-Match` 필수(`^"[A-Za-z0-9._:-]{1,128}"$`). body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나이며 semantics는 공통 null 표를 따른다. 성공 `200`과 새 `ETag`. 오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 SAVED_PLACE_NOT_FOUND`; `409 SAVED_PLACE_VERSION_CONFLICT`; `422 SAVED_PLACE_CONSTRAINT_VIOLATION`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -700,7 +701,7 @@ Accept: application/json
 
 ### `DELETE /api/v1/me/saved-places/{placeId}`
 
-현재 operationId: `delete` · Codegen: **NOT READY** · Canonical statuses: `204,400,401,404` · Generated OpenAPI statuses: `204,400,401,403,404,500` · Generated success media type: `none` · Frontend success media type: `none`
+병합 후 목표 operationId: `savedPlacesDelete` · Codegen: **병합 artifact 검증 대기** · Canonical statuses: `204,400,401,404` · Generated OpenAPI statuses: `204,400,401,403,404,500` · Generated success media type: `none` · Frontend success media type: `none`
 
 **#34 병합 대기** · 인증 필수 · canonical UUID `placeId`; body와 `If-Match` 없음. 첫 삭제는 body 없는 `204`; 이미 삭제됐거나 타 소유자는 `404`로 은닉. 오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 SAVED_PLACE_NOT_FOUND`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -711,17 +712,7 @@ DELETE /api/v1/me/saved-places/34000000-0000-0000-0000-000000000034 HTTP/1.1
 Authorization: Bearer <access-token>
 ```
 
-```json
-{}
-```
-
-**성공 예시**
-
-```json
-{}
-```
-
-실제 wire response는 `204`이며 JSON body를 보내지 않는다.
+request body 없음. 성공 `204`의 response content 없음.
 
 **오류 예시**
 
@@ -740,7 +731,7 @@ Authorization: Bearer <access-token>
 
 ### `GET /api/v1/trips`
 
-현재 operationId: `list` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,503` · Generated OpenAPI statuses: `200,400,401,403,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+병합 후 목표 operationId: `tripsList` · Codegen: **병합 artifact 검증 대기** · Canonical statuses: `200,400,401,503` · Generated OpenAPI statuses: `200,400,401,403,500,503` · 현재 feature OpenAPI success media type: `*/*` · Frontend success media type: `application/json`
 
 **#44 병합 대기** · 인증 필수. optional/non-null query: `status=draft|generating|planned|live|completed|cancelled|failed`, `sort=updated_at_desc`, `cursor` 1..2048, `size` 1..50(기본 20). 알 수 없는/중복 query도 거부한다. 성공 `200`. nullable required fields `activeScheduleVersionId`, `totalScore`, `scoreProvenance`는 항상 key가 있다. 오류: `400 INVALID_QUERY_PARAMETER | INVALID_CURSOR | CURSOR_CONTEXT_MISMATCH`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `503 TRIP_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -796,11 +787,11 @@ Accept: application/json
 
 ### `POST /api/v1/trips`
 
-현재 operationId: `create` · Codegen: **NOT READY** · Canonical statuses: `201,400,401,409,422,503` · Generated OpenAPI statuses: `201,400,401,403,409,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+병합 후 목표 operationId: `tripsCreate` · Codegen: **병합 artifact 검증 대기** · Canonical statuses: `201,400,401,409,422,503` · Generated OpenAPI statuses: `201,400,401,403,409,422,500,503` · 현재 feature OpenAPI success media type: `*/*` · Frontend success media type: `application/json`
 
 **#44 병합 대기** · 인증 필수 · lowercase canonical UUID `Idempotency-Key` 필수. closed body는 `title` trim+nfc 1..100자, `startDate`, `endDate` 필수; 최대 30일 inclusive. `timezone=Asia/Seoul`; `userPace=slow|normal|fast`; `transportModes` 1..3개, mode는 `public_transit|rental_car|taxi`, priority 1..3 연속/unique, primary 정확히 하나이자 priority 1. body 최대 1 MiB. 성공 `201` + `Location`, `ETag`, `Idempotency-Replayed`.
 
-`Idempotency-Replayed` HTTP serialization: textual `true|false`; OpenAPI schema: `boolean`. 현재 generated snapshot은 `Idempotency-Key`를 optional로 보이지만 dirty Swagger remediation source와 canonical contract는 required이므로 프론트는 반드시 보낸다.
+`Idempotency-Replayed` HTTP serialization: textual `true|false`; OpenAPI schema: `boolean`. #44 최종 clean HEAD `9a4c4b2`에서 `Idempotency-Key`는 required canonical UUID이며 예시도 같은 형식을 사용한다.
 
 오류: `400 INVALID_REQUEST | IDEMPOTENCY_KEY_REQUIRED | IDEMPOTENCY_KEY_INVALID`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `409 IDEMPOTENCY_KEY_REUSED | PROFILE_CONFLICT`; `422 TRIP_CONSTRAINT_VIOLATION`; `503 TRIP_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -872,7 +863,7 @@ Accept: application/json
 
 ### `GET /api/v1/trips/{tripId}`
 
-현재 operationId: `read_1` · Codegen: **NOT READY** (자동 suffix drift) · Canonical statuses: `200,400,401,404,503` · Generated OpenAPI statuses: `200,400,401,403,404,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+병합 후 목표 operationId: `tripsRead` · Codegen: **병합 artifact 검증 대기** · Canonical statuses: `200,400,401,404,503` · Generated OpenAPI statuses: `200,400,401,403,404,500,503` · 현재 feature OpenAPI success media type: `*/*` · Frontend success media type: `application/json`
 
 **#44 병합 대기** · 인증 필수 · `tripId` lowercase canonical UUID. canonical JWT sub를 조회 조건에 포함하며 타 소유자도 `404`다. 성공 `200`, response shape과 nullable 의미는 POST 성공과 같다. 일정 점수가 null이 아니면 `scoreProvenance`도 non-null이고 active schedule의 최신 succeeded feasibility run을 가리킨다. 오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 TRIP_NOT_FOUND`; `503 TRIP_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
@@ -933,7 +924,7 @@ Accept: application/json
 
 ### `GET /api/v1/weather/forecast`
 
-현재 operationId: `forecast` · Codegen: **NOT READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `*/*` · Frontend success media type: `application/json`
+operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
 `develop` 사용 가능 · 인증 선택. query `lat`(-90 exclusive..90 exclusive), `lng`(-180..180), `dateTime` 모두 필수/non-null/finite. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
 
@@ -998,14 +989,14 @@ Accept: application/json
 
 ## 알려진 계약 충돌과 인계 주의사항
 
-1. places list canonical contract는 `429 UPSTREAM_RATE_LIMITED`를 열거하지만 현재 `develop`의 `PlacesApiDocs`는 429 response를 선언하지 않는다. runtime 정규화 read-only 경로에도 현재 대응 definition은 없다. #182 후속 Swagger 정렬 전에는 프론트 분기 계약으로 확정하지 않는다.
-2. profile PATCH canonical contract에는 `409 PROFILE_CONFLICT`가 있으나 현재 `develop` OpenAPI interface는 409를 명시하지 않는다. runtime handler/canonical contract를 우선하고 #182 후속 OpenAPI 정렬 대상으로 둔다.
+1. places list canonical contract는 `429 UPSTREAM_RATE_LIMITED`를 열거하지만 현재 `develop` runtime의 정규화 read-only 경로와 problem registry에는 이 분기가 없다. #182는 존재하지 않는 runtime status를 Swagger에 추가하지 않는다. owning places contract/runtime Issue가 양쪽을 정렬하기 전에는 프론트 분기 계약으로 확정하지 않는다.
+2. profile PATCH의 `409 PROFILE_CONFLICT`는 runtime handler와 canonical contract에 이미 존재하므로 #182 생성 OpenAPI에도 반영했다.
 3. #44 trips canonical contract는 POST 멱등성 충돌을 `IDEMPOTENCY_KEY_REUSED`로 정의한다. #34 saved places는 다른 공통 구현 계약인 `IDEMPOTENCY_PAYLOAD_CONFLICT`를 쓴다. 두 code를 하나로 합치지 않는다.
 4. #34/#44는 아직 `develop` 병합 전이다. 이 문서의 readiness 표식이 배포 가능 여부를 대신하지 않는다.
 5. `ProblemDefinition.forCode`로 만든 공통/profile/legal/Naver type은 현재 source에서 `https://api.timing-jeju.example/problems/...`이고, places/saved-places/trips/weather의 domain definition 및 canonical contract는 `https://api.timing-jeju.com/problems/...`이다. 프론트는 type host를 분기 key로 쓰지 말고 안정적인 `code`를 사용한다. #182 후속에서 canonical host를 하나로 정렬해야 한다.
 6. canonical contracts는 필수 인증의 누락/실패를 `AUTHENTICATION_REQUIRED`/`INVALID_ACCESS_TOKEN`으로 명명하지만 현재 `JsonAuthenticationEntryPoint`는 필수 endpoint에서 두 경우 모두 `AUTH_TOKEN_INVALID`를 쓴다. 이 문서는 endpoint matrix에 canonical 이름을 보존했으며 runtime 정렬 전에는 `AUTH_TOKEN_INVALID`도 호환 처리해야 한다.
-7. Naver UserInfo runtime은 JSON object를 반환하지만 현재 생성 OpenAPI의 200 media type은 `*/*`다. 프론트 wire 처리는 `application/json`으로 하고, OpenAPI media type은 #182 후속에서 정렬해야 한다.
-8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 canonical endpoint.query 복제값은 #182 후속에서 정렬한다.
+7. Naver UserInfo의 생성 OpenAPI 200 media type은 #182에서 runtime과 같은 `application/json`으로 정렬했다.
+8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
-10. #44 generated snapshot의 trip `Idempotency-Key`는 optional이지만 현재 dirty Swagger remediation source와 canonical contract는 required다. #34의 `Idempotency-Replayed` header는 generated schema가 비어 있고 #44는 boolean이다. 요청 header는 필수로 보내고 replay header는 textual wire 값을 boolean으로 변환한다.
-11. 이 문서는 Markdown first deliverable인 **DRAFT**다. portable OpenAPI validator, AC2의 양방향 schema 비교, AC5 mutation/CI 연결과 Swagger remediation은 #34/#44 병합 뒤 #182 본 구현에서 완료하며, 현재 완료된 것으로 간주하지 않는다.
+10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 현재 `develop` 9개는 #182 artifact 검증 대상이고, #34/#44 7개는 두 최종 clean SHA를 모두 조상으로 포함한 checkout에서 새로 생성한 하나의 16-operation artifact에 나타나 같은 검사를 통과해야 Codegen READY로 승격된다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
