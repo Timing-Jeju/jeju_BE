@@ -18,6 +18,9 @@ management:
       enabled: false
 
 app:
+  saved-place-retention:
+    enabled: true
+    initial-delay: PT24H
   social-login:
     provider-ids: google,kakao,custom:naver
   security:

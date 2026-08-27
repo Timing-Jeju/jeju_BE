@@ -28,9 +28,11 @@ public final class SnapshotRetentionScheduler {
       return;
     }
     try {
-      orchestrator.execute(command);
-    } catch (RuntimeException exception) {
-      log.error("snapshot_retention scheduled cycle failed");
+      try {
+        orchestrator.execute(command);
+      } catch (RuntimeException exception) {
+        log.error("snapshot_retention scheduled cycle failed");
+      }
     } finally {
       running.set(false);
     }
