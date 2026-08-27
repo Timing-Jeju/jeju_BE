@@ -10,4 +10,4 @@ registration token은 printable ASCII/UTF-8 1..4096 bytes만 받고 Spring appli
 
 `DELETE /api/v1/me/push-devices/{deviceId}`는 로그아웃 시 단일 기기 해제다. 회원 탈퇴 접수는 #61/#106 owner가 additive `PushNotificationWithdrawalBoundary`를 같은 intake transaction에서 호출해 해당 사용자의 모든 기기를 즉시 비활성화하고 eligibility를 0으로 만든다. 최종 Auth 사용자 삭제 시 두 푸시 테이블은 FK cascade로 정리되며 타 사용자 행은 보존한다.
 
-`push_devices`와 `notification_preferences`는 owner RLS를 활성화한다. `anon`과 `PUBLIC` 권한은 회수한다. `authenticated`의 device 조회는 token 보호 열을 제외한 safe column으로 제한한다. `SECURITY DEFINER`와 Flyway를 추가하지 않는다.
+`push_devices`와 `notification_preferences`는 owner RLS를 활성화한다. `anon`과 `PUBLIC` 권한은 회수한다. `authenticated`에는 owner safe-column `SELECT`만 허용하고 `INSERT`·`UPDATE`·`DELETE` grant와 policy를 두지 않는다. 모든 등록·회전·해제·설정 변경은 Spring 서버의 `service_role` writer만 수행한다. `SECURITY DEFINER`와 Flyway를 추가하지 않는다.

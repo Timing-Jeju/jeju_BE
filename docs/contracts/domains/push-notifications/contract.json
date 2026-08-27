@@ -188,10 +188,16 @@
     "crossOwnerEffect": "none"
   },
   "database": {
-    "migration": "supabase/migrations/20260902000000_push_device_notification_preferences.sql",
+    "migrations": [
+      "supabase/migrations/20260902000000_push_device_notification_preferences.sql",
+      "supabase/migrations/20260902000001_push_notification_server_writer_boundary.sql"
+    ],
     "tables": ["public.push_devices", "public.notification_preferences"],
     "ownerColumn": "user_id",
     "rlsPredicate": "(select auth.uid()) = user_id",
+    "authenticatedAccess": "owner safe-column SELECT only; no INSERT, UPDATE, DELETE grant or policy",
+    "writerRole": "Spring server service_role only",
+    "clientWritePolicyCount": 0,
     "anonymousAccess": false,
     "securityDefiner": false,
     "activeTokenUniqueness": "unique token_fingerprint where invalidated_at is null",

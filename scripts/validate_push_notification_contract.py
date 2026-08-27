@@ -143,9 +143,19 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
     } for e in catalog_push]
     if actual_catalog_projection != expected_projection:
         errors.append("catalog projection does not exactly match domain contract")
+    expected_db_owners = {
+        KEYS[0]: "Spring service_role sole writer for public.push_devices.user_id; authenticated owner safe-column SELECT only; implementation #113",
+        KEYS[1]: "Spring service_role sole writer for public.push_devices.user_id; authenticated owner safe-column SELECT only; implementation #113",
+        KEYS[2]: "Spring service_role sole writer for public.notification_preferences.user_id; authenticated owner SELECT only; implementation #113",
+        KEYS[3]: "Spring service_role sole writer for public.notification_preferences.user_id; authenticated owner SELECT only; implementation #113",
+    }
     for endpoint in catalog_push:
         if endpoint.get("owner") != "canonical JWT sub" or "user_id" not in endpoint.get("dbOwner", "") or endpoint.get("auth") != {"mode": "required", "missingToken": 401, "invalidToken": 401}:
             errors.append("catalog owner/auth/dbOwner drift")
+        if endpoint.get("dbOwner") != expected_db_owners.get(
+            (endpoint.get("method"), endpoint.get("path"))
+        ):
+            errors.append("catalog server-writer/read-only client boundary drift")
 
     domain = [d for d in catalog.get("domainContracts", []) if d.get("issue") == 113]
     expected_domain = {"issue": 113, "domain": "push-notifications", "inherits": "timing-jeju-rest-contract/v1", "versions": {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}, "readiness": {stage: {"status": "not-ready", "evidence": None} for stage in ("metadata", "example", "implementation")}}
@@ -154,9 +164,14 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
 
     database = contract.get("database", {})
     if database != {
-        "migration": "supabase/migrations/20260902000000_push_device_notification_preferences.sql",
+        "migrations": [
+            "supabase/migrations/20260902000000_push_device_notification_preferences.sql",
+            "supabase/migrations/20260902000001_push_notification_server_writer_boundary.sql",
+        ],
         "tables": ["public.push_devices", "public.notification_preferences"], "ownerColumn": "user_id",
         "rlsPredicate": "(select auth.uid()) = user_id", "anonymousAccess": False,
+        "authenticatedAccess": "owner safe-column SELECT only; no INSERT, UPDATE, DELETE grant or policy",
+        "writerRole": "Spring server service_role only", "clientWritePolicyCount": 0,
         "securityDefiner": False, "activeTokenUniqueness": "unique token_fingerprint where invalidated_at is null",
         "ciphertextMaxChars": 5500,
     }:
@@ -206,15 +221,24 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
         if not path.is_file():
             errors.append(f"local evidence missing: {label}")
 
-    migration_path = repo_root / database.get("migration", "missing")
-    if migration_path.is_file():
-        migration = re.sub(r"\s+", " ", migration_path.read_text(encoding="utf-8").lower())
+    migration_paths = [repo_root / relative for relative in database.get("migrations", [])]
+    if migration_paths and all(path.is_file() for path in migration_paths):
+        migration = " ".join(
+            re.sub(r"\s+", " ", path.read_text(encoding="utf-8").lower())
+            for path in migration_paths
+        )
         for fragment in (
             "char_length(token_ciphertext) between 1 and 5500",
             "char_length(locale) between 2 and 35",
             "(select auth.uid()) = user_id",
             "revoke all on public.push_devices from anon",
             "where invalidated_at is null",
+            "drop policy if exists push_devices_owner_insert",
+            "drop policy if exists push_devices_owner_update",
+            "drop policy if exists notification_preferences_owner_insert",
+            "drop policy if exists notification_preferences_owner_update",
+            "revoke insert, update, delete on public.push_devices from authenticated",
+            "revoke insert, update, delete on public.notification_preferences from authenticated",
         ):
             if fragment not in migration:
                 errors.append(f"migration lineage missing: {fragment}")

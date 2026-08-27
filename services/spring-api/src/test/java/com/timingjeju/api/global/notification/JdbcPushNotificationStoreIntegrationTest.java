@@ -388,6 +388,70 @@ class JdbcPushNotificationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     }
   }
 
+  @Test
+  void authenticated는_owner_safe열만_읽고_service_role만_두테이블을_쓴다() throws Exception {
+    insertUser(USER);
+    insertUser(OTHER);
+    devices.register(USER, DEVICE, registration("__REDACTED_SERVER_WRITER_TOKEN__"), NOW);
+    devices.register(OTHER, OTHER_DEVICE, registration("__REDACTED_OTHER_WRITER_TOKEN__"), NOW);
+    preferences.save(USER, new NotificationPreferenceUpdate(true, 17), NOW);
+
+    assertThat(
+            jdbc.queryForObject(
+                """
+                select count(*) from pg_catalog.pg_policies
+                where schemaname = 'public'
+                  and tablename in ('push_devices', 'notification_preferences')
+                  and cmd <> 'SELECT'
+                """,
+                Integer.class))
+        .isZero();
+    for (String table : List.of("push_devices", "notification_preferences")) {
+      for (String privilege : List.of("INSERT", "UPDATE", "DELETE")) {
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_table_privilege('authenticated', ?, ?)",
+                    Boolean.class,
+                    "public." + table,
+                    privilege))
+            .as("authenticated %s on %s", privilege, table)
+            .isFalse();
+      }
+      for (String privilege : List.of("SELECT", "INSERT", "UPDATE", "DELETE")) {
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_table_privilege('service_role', ?, ?)",
+                    Boolean.class,
+                    "public." + table,
+                    privilege))
+            .as("service_role %s on %s", privilege, table)
+            .isTrue();
+      }
+    }
+
+    try (Connection connection = dataSource.getConnection()) {
+      connection.setAutoCommit(false);
+      try (var statement = connection.createStatement()) {
+        statement.execute("set local role authenticated");
+        statement.execute("select set_config('request.jwt.claim.sub', '" + USER + "', true)");
+        try (var deviceRows = statement.executeQuery("select device_id from public.push_devices")) {
+          assertThat(deviceRows.next()).isTrue();
+          assertThat(deviceRows.getObject(1, UUID.class)).isEqualTo(DEVICE);
+          assertThat(deviceRows.next()).isFalse();
+        }
+        try (var preferenceRows =
+            statement.executeQuery(
+                "select safety_buffer_minutes from public.notification_preferences")) {
+          assertThat(preferenceRows.next()).isTrue();
+          assertThat(preferenceRows.getInt(1)).isEqualTo(17);
+          assertThat(preferenceRows.next()).isFalse();
+        }
+      } finally {
+        connection.rollback();
+      }
+    }
+  }
+
   private void registerConcurrently(
       CountDownLatch ready,
       CountDownLatch start,

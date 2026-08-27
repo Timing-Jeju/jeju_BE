@@ -40,6 +40,7 @@ services:
       - ./supabase/migrations/20260831000000_compute_run_input_snapshot.sql:/docker-entrypoint-initdb.d/029_compute_run_input_snapshot.sql:ro
       - ./supabase/migrations/20260901000000_legal_documents_consents.sql:/docker-entrypoint-initdb.d/030_legal_documents_consents.sql:ro
       - ./supabase/migrations/20260902000000_push_device_notification_preferences.sql:/docker-entrypoint-initdb.d/031_push_device_notification_preferences.sql:ro
+      - ./supabase/migrations/20260902000001_push_notification_server_writer_boundary.sql:/docker-entrypoint-initdb.d/032_push_notification_server_writer_boundary.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

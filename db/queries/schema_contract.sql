@@ -1411,7 +1411,8 @@ $$;
 
 do $$
 declare
-  owner_policy_count integer;
+  owner_select_policy_count integer;
+  client_write_policy_count integer;
 begin
   if to_regclass('public.push_devices') is null
      or to_regclass('public.notification_preferences') is null then
@@ -1423,19 +1424,25 @@ begin
              where oid = 'public.notification_preferences'::regclass) then
     raise exception 'push notification owner RLS is disabled';
   end if;
-  select count(*) into owner_policy_count
+  select count(*) into owner_select_policy_count
   from pg_catalog.pg_policies
   where schemaname = 'public'
     and tablename in ('push_devices', 'notification_preferences')
     and roles = array['authenticated']::name[]
-    and (
-      (cmd = 'SELECT' and qual like '%auth.uid()%user_id%')
-      or (cmd = 'INSERT' and with_check like '%auth.uid()%user_id%')
-      or (cmd = 'UPDATE' and qual like '%auth.uid()%user_id%'
-          and with_check like '%auth.uid()%user_id%')
-    );
-  if owner_policy_count <> 6 then
-    raise exception 'push notification owner policy count differs: %', owner_policy_count;
+    and cmd = 'SELECT'
+    and qual like '%auth.uid()%user_id%';
+  if owner_select_policy_count <> 2 then
+    raise exception 'push notification owner SELECT policy count differs: %',
+      owner_select_policy_count;
+  end if;
+  select count(*) into client_write_policy_count
+  from pg_catalog.pg_policies
+  where schemaname = 'public'
+    and tablename in ('push_devices', 'notification_preferences')
+    and cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL');
+  if client_write_policy_count <> 0 then
+    raise exception 'push notification client-write policy count differs: %',
+      client_write_policy_count;
   end if;
   if not exists (
     select 1 from pg_catalog.pg_indexes
@@ -1460,19 +1467,29 @@ begin
        or has_column_privilege('authenticated', 'public.push_devices', 'token_ciphertext', 'SELECT')
        or has_column_privilege('authenticated', 'public.push_devices', 'token_fingerprint', 'SELECT')
        or has_table_privilege('authenticated', 'public.push_devices', 'INSERT')
+       or has_table_privilege('authenticated', 'public.push_devices', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.push_devices', 'DELETE')
        or not has_table_privilege('authenticated', 'public.notification_preferences', 'SELECT')
-       or not has_table_privilege('authenticated', 'public.notification_preferences', 'INSERT')
-       or not has_table_privilege('authenticated', 'public.notification_preferences', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.notification_preferences', 'INSERT')
+       or has_table_privilege('authenticated', 'public.notification_preferences', 'UPDATE')
        or has_table_privilege('authenticated', 'public.notification_preferences', 'DELETE')
      ) then
     raise exception 'authenticated push notification privilege boundary is invalid';
   end if;
   if exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role')
      and (
-       has_table_privilege('service_role', 'public.push_devices', 'TRUNCATE')
+       not has_table_privilege('service_role', 'public.push_devices', 'SELECT')
+       or not has_table_privilege('service_role', 'public.push_devices', 'INSERT')
+       or not has_table_privilege('service_role', 'public.push_devices', 'UPDATE')
+       or not has_table_privilege('service_role', 'public.push_devices', 'DELETE')
+       or not has_table_privilege('service_role', 'public.notification_preferences', 'SELECT')
+       or not has_table_privilege('service_role', 'public.notification_preferences', 'INSERT')
+       or not has_table_privilege('service_role', 'public.notification_preferences', 'UPDATE')
+       or not has_table_privilege('service_role', 'public.notification_preferences', 'DELETE')
+       or has_table_privilege('service_role', 'public.push_devices', 'TRUNCATE')
        or has_table_privilege('service_role', 'public.notification_preferences', 'TRUNCATE')
      ) then
-    raise exception 'service role can truncate push notification tables';
+    raise exception 'service role push notification DML/truncate boundary is invalid';
   end if;
 end;
 $$;
