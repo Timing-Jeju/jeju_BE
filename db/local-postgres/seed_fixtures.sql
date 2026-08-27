@@ -117,6 +117,16 @@ insert into auth.users (
   now()
 );
 
+insert into auth.identities (
+  id, user_id, provider, provider_id, identity_data
+) values (
+  '09200000-0000-0000-0000-000000000001',
+  '09000000-0000-0000-0000-000000000001',
+  'kakao',
+  'demo-kakao-user-001',
+  '{"sub":"demo-kakao-user-001","email":"demo@timing-jeju.local","email_verified":true,"nickname":"타이밍제주 데모"}'::jsonb
+);
+
 insert into user_profiles (
   id, email, nickname, locale, onboarding_completed_at, last_login_at
 ) values (

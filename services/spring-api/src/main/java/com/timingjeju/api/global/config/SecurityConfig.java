@@ -12,6 +12,7 @@ import com.timingjeju.api.global.security.LocalHs256JwtDecoderStrategy;
 import com.timingjeju.api.global.security.ProblemCorsProcessor;
 import com.timingjeju.api.global.security.SecurityAuthenticationFailureHandler;
 import com.timingjeju.api.global.security.SecurityContextCurrentUserAccessor;
+import com.timingjeju.api.global.security.SecurityRuntimeEnvironment;
 import com.timingjeju.api.global.security.SecurityRuntimeEnvironmentResolver;
 import com.timingjeju.api.global.security.SecurityRuntimePolicy;
 import com.timingjeju.api.global.security.StrictBearerTokenResolver;
@@ -53,11 +54,20 @@ public class SecurityConfig {
   }
 
   @Bean
+  SecurityRuntimePolicy securityRuntimePolicy(Environment environment) {
+    return SecurityRuntimeEnvironmentResolver.resolve(environment);
+  }
+
+  @Bean("localSecurityRuntime")
+  Boolean localSecurityRuntime(SecurityRuntimePolicy runtimePolicy) {
+    return runtimePolicy.environment() == SecurityRuntimeEnvironment.LOCAL;
+  }
+
+  @Bean
   JwtDecoder jwtDecoder(
       SupabaseJwtProperties properties,
-      Environment environment,
+      SecurityRuntimePolicy runtimePolicy,
       List<JwtDecoderStrategy> strategies) {
-    SecurityRuntimePolicy runtimePolicy = SecurityRuntimeEnvironmentResolver.resolve(environment);
     return new SupabaseJwtDecoderFactory(properties, runtimePolicy, strategies).create();
   }
 
