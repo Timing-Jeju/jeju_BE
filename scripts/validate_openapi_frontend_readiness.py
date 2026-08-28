@@ -77,6 +77,8 @@ SCHEMA_CONSTRAINT_KEYS = {
     "maxLength",
     "minimum",
     "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
     "minItems",
     "maxItems",
     "uniqueItems",

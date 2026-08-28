@@ -51,8 +51,12 @@ class TripOpenApiIntegrationTest {
                 .value(50))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.$ref")
-                .value("#/components/schemas/CreateTripRequest"))
+                    "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.type")
+                .value("object"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.additionalProperties")
+                .value(false))
         .andExpect(
             jsonPath("$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')]")
                 .value(hasSize(1)))
@@ -70,7 +74,7 @@ class TripOpenApiIntegrationTest {
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].example")
-                .value("44000000-0000-0000-0000-000000000044"))
+                .value("44000000-0000-4000-8000-000000000044"))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].schema.format")
@@ -78,7 +82,7 @@ class TripOpenApiIntegrationTest {
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')].schema.pattern")
-                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+                .doesNotExist())
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['201']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips'].post.responses['401']").exists())
@@ -114,8 +118,8 @@ class TripOpenApiIntegrationTest {
                 .value("#/components/schemas/ApiProblemDetails"))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/trips/{tripId}'].get.parameters[?(@.name=='tripId')].schema.pattern")
-                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+                    "$.paths['/api/v1/trips/{tripId}'].get.parameters[?(@.name=='tripId')].schema.format")
+                .value("uuid"))
         .andExpect(
             jsonPath("$.components.schemas.CreateTripRequest.additionalProperties").value(false))
         .andExpect(
@@ -267,17 +271,29 @@ class TripOpenApiIntegrationTest {
         .andExpect(
             jsonPath("$.components.schemas.TripsListResponse.required")
                 .value(containsInAnyOrder("items", "page")))
-        .andExpect(jsonPath("$.components.schemas.CursorPage.additionalProperties").value(false))
         .andExpect(
-            jsonPath("$.components.schemas.CursorPage.required")
+            jsonPath(
+                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.additionalProperties")
+                .value(false))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.required")
                 .value(containsInAnyOrder("size", "hasNext", "nextCursor")))
-        .andExpect(jsonPath("$.components.schemas.CursorPage.properties.size.minimum").value(1))
-        .andExpect(jsonPath("$.components.schemas.CursorPage.properties.size.maximum").value(50))
         .andExpect(
-            jsonPath("$.components.schemas.CursorPage.properties.nextCursor.type")
+            jsonPath(
+                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.size.minimum")
+                .value(1))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.size.maximum")
+                .value(50))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.nextCursor.type")
                 .value(containsInAnyOrder("string", "null")))
         .andExpect(
-            jsonPath("$.components.schemas.CursorPage.properties.nextCursor.maxLength")
+            jsonPath(
+                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.nextCursor.maxLength")
                 .value(2048));
   }
 

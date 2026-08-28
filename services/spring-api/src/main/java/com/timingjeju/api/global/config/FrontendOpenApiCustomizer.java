@@ -16,6 +16,7 @@ import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -249,6 +250,12 @@ final class FrontendOpenApiCustomizer {
       schema.setTypes(nullable ? Set.of(type, "null") : Set.of(type));
       schema.setNullable(nullable);
     }
+    if (canonical.get("exclusiveMinimum") instanceof Number minimum) {
+      schema.setExclusiveMinimumValue(new BigDecimal(minimum.toString()));
+    }
+    if (canonical.get("exclusiveMaximum") instanceof Number maximum) {
+      schema.setExclusiveMaximumValue(new BigDecimal(maximum.toString()));
+    }
     Map<String, Schema> properties = schema.getProperties();
     if (properties != null) {
       Map<String, Object> canonicalProperties = objectMap(canonical.get("properties"));
@@ -455,7 +462,7 @@ final class FrontendOpenApiCustomizer {
       mergeRequiredHeader(
           operation,
           "Idempotency-Key",
-          "여행 생성 요청을 24시간 동안 식별하는 lowercase canonical UUID",
+          "여행 생성 요청을 24시간 동안 식별하는 lowercase canonical UUID입니다.",
           new StringSchema().format("uuid"),
           "44000000-0000-4000-8000-000000000044");
     } else if (key.equals("GET /api/v1/trips")) {
