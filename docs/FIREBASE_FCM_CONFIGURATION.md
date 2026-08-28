@@ -24,9 +24,17 @@ chmod 0600 "$FIREBASE_CREDENTIALS_FILE"
 ./scripts/run-firebase-compose.sh
 ```
 
-`run-firebase-compose.sh`는 인자를 받지 않고 내부에서 `validate_firebase_credential_file.py`를 실행하며, credential preflight가 성공한 뒤에만 저장소의 고정 `compose.yml`과 `compose.fcm.yml`로 API를 `up -d --build`합니다. raw Compose opt-in은 사용하지 않습니다. 이 launcher 외부의 subcommand, Compose file, project directory나 command 환경변수는 실행에 반영하지 않습니다.
+`run-firebase-compose.sh`는 인자를 받지 않고 내부에서 `validate_firebase_credential_file.py`를 실행합니다. 성공하면 고정 project와 Compose file로 PostgreSQL을 기동하고 credential init을 매번 재생성한 뒤 init의 성공 종료를 기다립니다. init이 실패하면 API는 시작하지 않습니다. 마지막으로 `--force-recreate --no-deps`로 API만 재생성하므로 기존 DB container는 재생성하지 않습니다. raw Compose opt-in은 사용하지 않습니다. 이 launcher 외부의 subcommand, Compose file, project directory나 command 환경변수는 실행에 반영하지 않습니다.
 
 `compose.fcm.yml`의 one-shot root init service만 검증된 file-backed secret을 읽기 전용 mount합니다. init은 내용을 출력하지 않고 Docker-managed `firebase-credential` volume에 복사한 뒤 소유권을 runtime `spring`의 `10001:10001`, permission을 `0400`으로 고정합니다. API는 init의 `service_completed_successfully` 이후에만 시작하며 host secret을 직접 mount하지 않습니다.
+
+FCM opt-in API와 credential staging만 정리할 때는 인자 없이 고정 cleanup launcher를 사용합니다.
+
+```bash
+./scripts/cleanup-firebase-compose.sh
+```
+
+cleanup은 API와 credential init container만 stop/remove하고 정확한 `timing-jeju-fcm_firebase-credential` volume만 제거합니다. PostgreSQL container·database volume·network는 제거하지 않습니다.
 
 API는 managed volume만 `/run/secrets/timing-jeju-firebase`에 read-only mount합니다. ADC canonical path는 `/run/secrets/timing-jeju-firebase/service-account.json`이며 `GOOGLE_APPLICATION_CREDENTIALS`에는 이 고정 경로만 전달됩니다. 기본 실행과 CI에는 이 override를 결합하지 않습니다.
 
