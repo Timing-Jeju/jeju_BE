@@ -27,6 +27,10 @@ INITIAL_MIGRATION_RELATIVE = Path(
 IDEMPOTENCY_MIGRATION_RELATIVE = Path(
     "supabase/migrations/20260810000000_api_idempotency_registry.sql"
 )
+TRIP_CREATE_MIGRATION_RELATIVE = Path(
+    "supabase/migrations/20260902000000_trip_create_contract.sql"
+)
+SMOKE_CHECK_RELATIVE = Path("db/queries/smoke_check.sql")
 IDEMPOTENCY_REQUEST_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/application/idempotency/IdempotencyRequest.java"
 )
@@ -36,8 +40,8 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "a995979115a847f283fc750973cb5ba53fa6fe46c86d11a2a560d239ee67e453"
-CANONICAL_CATALOG_SHA256 = "7e92f1549c6dd0625f91da5bbc89a37e4a7ba800a7941ad7de7a69b5dc3758d0"
+CANONICAL_CONTRACT_SHA256 = "1fb50fe554ed7f1d8341d59c35f8c98466ab3cd2536f328ea2d91826fba37eee"
+CANONICAL_CATALOG_SHA256 = "bedac3e8b9c7e9deac3313a31cff1a697170742ff9d75911fb2cbec22e943faf"
 CONTRACT_FIELDS = {
     "schemaVersion",
     "contractVersion",
@@ -78,11 +82,13 @@ EXPECTED_PROBLEMS = {
     "400_idempotency_key_required": (400, "IDEMPOTENCY_KEY_REQUIRED", "idempotency-key-required"),
     "400_idempotency_key_invalid": (400, "IDEMPOTENCY_KEY_INVALID", "idempotency-key-invalid"),
     "409_idempotency_key_reused": (409, "IDEMPOTENCY_KEY_REUSED", "idempotency-key-reused"),
+    "409_profile_conflict": (409, "PROFILE_CONFLICT", "profile-conflict"),
     "409_trip_version_conflict": (409, "TRIP_VERSION_CONFLICT", "trip-version-conflict"),
     "409_trip_regeneration_required": (409, "TRIP_REGENERATION_REQUIRED", "trip-regeneration-required"),
     "409_trip_terminal_state_conflict": (409, "TRIP_TERMINAL_STATE_CONFLICT", "trip-terminal-state-conflict"),
     "409_trip_delete_conflict": (409, "TRIP_DELETE_CONFLICT", "trip-delete-conflict"),
     "422_trip_constraint_violation": (422, "TRIP_CONSTRAINT_VIOLATION", "trip-constraint-violation"),
+    "503_trip_data_unavailable": (503, "TRIP_DATA_UNAVAILABLE", "trip-data-unavailable"),
 }
 RFC3339 = re.compile(
     r"^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$"
@@ -195,6 +201,14 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
         errors.append("여행 endpoint method/path canonical 순서가 다릅니다.")
     if contract.get("schemaVersion") != "timing-jeju-trips-contract/v1":
         errors.append("여행 schemaVersion canonical 값이 다릅니다.")
+    trip_id = contract.get("schemas", {}).get("TripId")
+    if trip_id != {
+        "type": "string",
+        "nullable": False,
+        "format": "uuid",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    }:
+        errors.append("여행 tripId lowercase canonical UUID semantic 계약이 다릅니다.")
     if (
         contract.get("contractVersion") != "1.0.0"
         or contract.get("sourceSpecVersion") != "v1.1"
@@ -208,6 +222,11 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
     if len(endpoints) == 5:
         if endpoints[0].get("pagination") != {"type": "cursor", "defaultSize": 20, "maxSize": 50}:
             errors.append("여행 list pagination canonical 계약이 다릅니다.")
+        if endpoints[0].get("responses") != {
+            "success": [200],
+            "errors": [400, 401, 503],
+        }:
+            errors.append("여행 GET list data availability response semantic canonical 계약이 다릅니다.")
         create_idempotency = endpoints[1].get("idempotency", {})
         if not isinstance(create_idempotency, dict) or (
             create_idempotency.get("required") is not True
@@ -217,6 +236,16 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
             or create_idempotency.get("concurrentRequest") != "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED"
         ):
             errors.append("여행 POST idempotency canonical 계약이 다릅니다.")
+        if endpoints[1].get("responses") != {
+            "success": [201],
+            "errors": [400, 401, 409, 422, 503],
+        }:
+            errors.append("여행 POST error response canonical 계약이 다릅니다.")
+        if endpoints[2].get("responses") != {
+            "success": [200],
+            "errors": [400, 401, 404, 503],
+        }:
+            errors.append("여행 GET detail path/data availability response semantic canonical 계약이 다릅니다.")
         if endpoints[3].get("headersSchema") != "PatchTripHeaders":
             errors.append("여행 PATCH If-Match canonical 계약이 다릅니다.")
 
@@ -237,6 +266,16 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
         or policy.get("timezoneFormat") != "IANA"
     ):
         errors.append("여행 date/timezone semantic canonical 계약이 다릅니다.")
+
+    provisioning_errors = contract.get("createSemantics", {}).get("profileProvisioningErrors")
+    if provisioning_errors != {
+        "EMAIL_OWNERSHIP_CONFLICT": "409 PROFILE_CONFLICT",
+        "PROVIDER_SUBJECT_CONFLICT": "409 PROFILE_CONFLICT",
+        "INVALID_AUTH_IDENTITY": "503 TRIP_DATA_UNAVAILABLE",
+        "STORAGE_UNAVAILABLE": "503 TRIP_DATA_UNAVAILABLE",
+        "exposure": "cause-free Problem Details; no raw provider message or PII",
+    }:
+        errors.append("여행 POST profile provisioning error semantic canonical 계약이 다릅니다.")
 
     patch = contract.get("patchSemantics", {})
     expected_matrix = {
@@ -298,6 +337,37 @@ def _validate_catalog_idempotency_semantics(
     actual = catalog_create.get("idempotency") if isinstance(catalog_create, dict) else None
     if actual != expected:
         errors.append("catalog idempotency semantic: 여행 POST가 canonical 계약과 다릅니다.")
+    expected_responses = contract_create.get("responses") if isinstance(contract_create, dict) else None
+    actual_responses = catalog_create.get("responses") if isinstance(catalog_create, dict) else None
+    if actual_responses != expected_responses:
+        errors.append("catalog response semantic: 여행 POST가 canonical 계약과 다릅니다.")
+    for method, path in EXPECTED_ENDPOINT_IDENTITIES[:3]:
+        contract_endpoint = next(
+            (
+                item
+                for item in contract_endpoints
+                if isinstance(item, dict)
+                and item.get("method") == method
+                and item.get("path") == path
+            ),
+            None,
+        )
+        catalog_endpoint = next(
+            (
+                item
+                for item in catalog_endpoints
+                if isinstance(item, dict)
+                and item.get("method") == method
+                and item.get("path") == path
+            ),
+            None,
+        )
+        if not isinstance(contract_endpoint, dict) or not isinstance(catalog_endpoint, dict):
+            continue
+        if catalog_endpoint.get("responses") != contract_endpoint.get("responses"):
+            errors.append(
+                f"catalog response semantic: 여행 {method} {path}가 canonical 계약과 다릅니다."
+            )
 
 
 def _validate_common_pagination(
@@ -712,20 +782,52 @@ def _validate_schema_drift(root: Path, contract: dict[str, Any], errors: list[st
     if storage.get("implementationIssues") != [44, 45] or storage.get("migrationSourceOfTruth") != "supabase/migrations" or storage.get("flywayAllowed") is not False or storage.get("schemaChangesInIssue85") is not False:
         errors.append("storage semantic: migration/implementation owner가 정확하지 않습니다.")
     drift = storage.get("schemaDrift")
-    if not isinstance(drift, list) or [item.get("id") for item in drift if isinstance(item, dict)] != ["timezone", "revision", "owner-write-rls"]:
+    if not isinstance(drift, list) or [item.get("id") for item in drift if isinstance(item, dict)] != ["revision"]:
         errors.append("storage semantic: schema drift 집합이 정확하지 않습니다.")
+    expected_write_access = {
+        "soleWriter": "Spring API using service_role",
+        "clientRoles": ["anon", "authenticated"],
+        "clientTablePrivileges": [],
+        "clientWritePolicyCount": 0,
+        "serviceRoleTablePrivileges": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+        "serviceRoleDeniedTablePrivileges": ["TRUNCATE", "REFERENCES", "TRIGGER"],
+        "issue44CreateOwnership": "canonical JWT sub owner predicate and one aggregate transaction",
+        "issue45UpdateDeleteOwnership": "future Spring API owner predicate and transaction",
+        "writeRlsPoliciesRequired": False,
+    }
+    if storage.get("writeAccess") != expected_write_access:
+        errors.append("storage writer semantic: Spring/service_role 단독 writer 계약이 다릅니다.")
     try:
-        sql = (root / INITIAL_MIGRATION_RELATIVE).read_text(encoding="utf-8")
+        initial_sql = (root / INITIAL_MIGRATION_RELATIVE).read_text(encoding="utf-8")
+        trip_sql = (root / TRIP_CREATE_MIGRATION_RELATIVE).read_text(encoding="utf-8")
+        smoke_sql = (root / SMOKE_CHECK_RELATIVE).read_text(encoding="utf-8")
     except OSError as exc:
-        errors.append(f"storage semantic: initial migration을 읽을 수 없습니다: {exc}")
+        errors.append(f"storage semantic: migration/smoke contract를 읽을 수 없습니다: {exc}")
         return
-    start = sql.find("create table trip_plans (")
-    end = sql.find("\n);", start)
-    table = sql[start:end] if start >= 0 and end >= 0 else ""
-    if not table or re.search(r"\btimezone\b", table) or re.search(r"\brevision\b", table):
-        errors.append("storage semantic: 문서화한 trip_plans timezone/revision drift와 현재 schema가 다릅니다.")
-    if re.search(r"create policy trip_plans_owner_(insert|update|delete)", sql, re.IGNORECASE):
-        errors.append("storage semantic: 문서화한 owner write RLS drift와 현재 schema가 다릅니다.")
+    start = initial_sql.find("create table trip_plans (")
+    end = initial_sql.find("\n);", start)
+    table = initial_sql[start:end] if start >= 0 and end >= 0 else ""
+    if not table or re.search(r"\brevision\b", table):
+        errors.append("storage semantic: 문서화한 trip_plans revision drift와 현재 schema가 다릅니다.")
+
+    compact_trip_sql = re.sub(r"\s+", " ", trip_sql.lower())
+    required_trip_sql = (
+        "add column timezone text not null default 'asia/seoul'",
+        "check (timezone = 'asia/seoul')",
+        "from anon, authenticated",
+        "grant select, insert, update, delete on table",
+        "to service_role",
+        "revoke truncate, references, trigger on table",
+        "from service_role",
+    )
+    if any(fragment not in compact_trip_sql for fragment in required_trip_sql):
+        errors.append("storage writer semantic: migration ACL/timezone 계약이 다릅니다.")
+    if re.search(r"\bcreate\s+policy\b", trip_sql, re.IGNORECASE):
+        errors.append("storage writer semantic: client write policy 수는 0이어야 합니다.")
+
+    compact_smoke_sql = re.sub(r"\s+", " ", smoke_sql.lower())
+    if "from pg_policies" not in compact_smoke_sql or "and cmd <> 'select'" not in compact_smoke_sql:
+        errors.append("storage writer semantic: smoke의 zero client-write-policy guard가 없습니다.")
 
 
 def _validate_value(value: Any, schema: Any, schemas: dict[str, Any], label: str, errors: list[str]) -> None:

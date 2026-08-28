@@ -68,19 +68,19 @@ class PlacesOpenApiIntegrationTest {
                 .value(false))
         .andExpect(
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.minimum")
-                .value(33.0))
+                .value(33))
         .andExpect(
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.maximum")
-                .value(34.0))
+                .value(34))
         .andExpect(
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].required")
                 .value(false))
         .andExpect(
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.minimum")
-                .value(126.0))
+                .value(126))
         .andExpect(
             jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.maximum")
-                .value(127.0))
+                .value(127))
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['401']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['403']").doesNotExist())
@@ -106,8 +106,8 @@ class PlacesOpenApiIntegrationTest {
                 .value(true))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/places/{placeId}'].get.parameters[?(@.name=='placeId')].schema.pattern")
-                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+                    "$.paths['/api/v1/places/{placeId}'].get.parameters[?(@.name=='placeId')].schema.format")
+                .value("uuid"))
         .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['401']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['404']").exists())

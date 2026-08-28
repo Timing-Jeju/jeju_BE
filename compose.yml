@@ -38,6 +38,10 @@ services:
       - ./supabase/migrations/20260830000000_schedule_revision_run_foundation.sql:/docker-entrypoint-initdb.d/028_schedule_revision_run_foundation.sql:ro
       - ./supabase/migrations/20260831000000_compute_run_input_snapshot.sql:/docker-entrypoint-initdb.d/029_compute_run_input_snapshot.sql:ro
       - ./supabase/migrations/20260901000000_legal_documents_consents.sql:/docker-entrypoint-initdb.d/030_legal_documents_consents.sql:ro
+      - ./supabase/migrations/20260902000000_trip_create_contract.sql:/docker-entrypoint-initdb.d/031_trip_create_contract.sql:ro
+      - ./supabase/migrations/20260903000000_saved_places_api.sql:/docker-entrypoint-initdb.d/032_saved_places_api.sql:ro
+      - ./supabase/migrations/20260904000000_push_device_notification_preferences.sql:/docker-entrypoint-initdb.d/033_push_device_notification_preferences.sql:ro
+      - ./supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql:/docker-entrypoint-initdb.d/034_push_notification_server_writer_boundary.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
@@ -48,8 +52,8 @@ services:
 
   api:
     build:
-      context: ./services/spring-api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/spring-api/Dockerfile
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-timing_jeju}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-timing_jeju}
@@ -62,6 +66,8 @@ services:
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       APP_SOCIAL_LOGIN_PROVIDER_IDS: ${APP_SOCIAL_LOGIN_PROVIDER_IDS:-google,kakao,custom:naver}
       APP_PLACES_CURSOR_SIGNING_KEY: ${APP_PLACES_CURSOR_SIGNING_KEY:-}
+      PUSH_TOKEN_ENCRYPTION_KEY: ${PUSH_TOKEN_ENCRYPTION_KEY:-}
+      APP_TRIPS_CURSOR_SIGNING_KEY: ${APP_TRIPS_CURSOR_SIGNING_KEY:-}
       TOUR_API_ENABLED: ${TOUR_API_ENABLED:-false}
       TOUR_API_API_KEY: ${TOUR_API_API_KEY:-}
       TOUR_API_BASE_URL: ${TOUR_API_BASE_URL:-https://apis.data.go.kr/B551011/KorService2}

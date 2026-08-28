@@ -6,6 +6,37 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class SnapshotRetentionSchedulerConfigurationTest(unittest.TestCase):
+    def test_saved_place_cleanup_is_separate_and_production_fail_fast(self):
+        application = (
+            ROOT
+            / "services/spring-api/src/main/resources/application.yml"
+        ).read_text(encoding="utf-8")
+        configuration = (
+            ROOT
+            / "services/spring-api/src/main/java/com/timingjeju/api/global/retention"
+            / "SavedPlaceRetentionSchedulerConfiguration.java"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("enabled: ${SAVED_PLACE_RETENTION_ENABLED:false}", application)
+        self.assertIn("fixed-delay: ${SAVED_PLACE_RETENTION_FIXED_DELAY:PT24H}", application)
+        self.assertIn("SecurityRuntimeEnvironmentResolver.resolve(environment)", configuration)
+        self.assertIn("SecurityRuntimeEnvironment.PRODUCTION", configuration)
+        self.assertNotIn("@Profile", configuration)
+        self.assertIn("saved-place retention must be enabled in production", configuration)
+
+    def test_shared_test_and_docker_context_enable_cleanup_with_safe_delay(self):
+        test_application = (
+            ROOT / "services/spring-api/src/test/resources/application.yml"
+        ).read_text(encoding="utf-8")
+        compose_test = (ROOT / "compose.test.yml").read_text(encoding="utf-8")
+
+        self.assertIn(
+            "saved-place-retention:\n    enabled: true\n    initial-delay: PT24H",
+            test_application,
+        )
+        self.assertIn("SAVED_PLACE_RETENTION_ENABLED: \"true\"", compose_test)
+        self.assertIn("SAVED_PLACE_RETENTION_INITIAL_DELAY: PT24H", compose_test)
+
     def test_application_defaults_are_opt_in_and_bounded(self):
         application = (
             ROOT

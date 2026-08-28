@@ -47,10 +47,18 @@ public final class ProblemResponseWriter {
       String problemCode,
       List<FieldErrorDetail> fieldErrors)
       throws IOException {
+    return write(request, response, registry.find(problemCode), fieldErrors);
+  }
+
+  public boolean write(
+      HttpServletRequest request,
+      HttpServletResponse response,
+      ProblemDefinition definition,
+      List<FieldErrorDetail> fieldErrors)
+      throws IOException {
     if (response.isCommitted()) {
       return false;
     }
-    ProblemDefinition definition = registry.find(problemCode);
     String traceId = requestTraceId.getOrCreate(request);
     List<FieldErrorDetail> sortedFieldErrors =
         fieldErrors.stream().sorted(FIELD_ERROR_ORDER).toList();

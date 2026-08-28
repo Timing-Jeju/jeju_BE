@@ -1,0 +1,10 @@
+{
+  "type": "https://api.timing-jeju.example/problems/invalid-push-notification-request",
+  "title": "푸시 알림 요청 오류",
+  "status": 400,
+  "detail": "푸시 알림 요청 값이 올바르지 않습니다.",
+  "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
+  "code": "INVALID_PUSH_NOTIFICATION_REQUEST",
+  "traceId": "0123456789abcdef0123456789abcdef",
+  "fieldErrors": []
+}
