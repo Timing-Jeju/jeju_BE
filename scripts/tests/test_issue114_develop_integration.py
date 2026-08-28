@@ -38,6 +38,9 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         compose_test = (ROOT / "compose.test.yml").read_text(encoding="utf-8")
         env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
         override = (ROOT / "compose.fcm.yml").read_text(encoding="utf-8")
+        dockerfile = (ROOT / "services/spring-api/Dockerfile").read_text(
+            encoding="utf-8"
+        )
         documentation = (ROOT / "docs/FIREBASE_FCM_CONFIGURATION.md").read_text(
             encoding="utf-8"
         )
@@ -45,6 +48,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         self.assert_fcm_compose_contract(
             compose, compose_test, env_example, override, documentation
         )
+        self.assert_fcm_runtime_image_contract(dockerfile, documentation)
         mutations = {
             "runtime-disabled-default-deleted": (
                 compose.replace("      FCM_ENABLED: ${FCM_ENABLED:-false}\n", "", 1),
@@ -116,6 +120,12 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         for scenario, mutation in mutations.items():
             with self.subTest(scenario=scenario), self.assertRaises(AssertionError):
                 self.assert_fcm_compose_contract(*mutation)
+        for scenario, mutation in {
+            "runtime-uid-deleted": dockerfile.replace("-u 10001", "", 1),
+            "runtime-gid-drift": dockerfile.replace("-g 10001", "-g 10002", 1),
+        }.items():
+            with self.subTest(scenario=scenario), self.assertRaises(AssertionError):
+                self.assert_fcm_runtime_image_contract(mutation, documentation)
 
     def assert_fcm_compose_contract(
         self, compose, compose_test, env_example, override, documentation
@@ -156,7 +166,6 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
     secrets:
       - source: firebase-service-account
         target: timing-jeju-firebase-service-account.json
-        mode: 0400
 
 secrets:
   firebase-service-account:
@@ -167,7 +176,7 @@ secrets:
         self.assertIn(f"      GOOGLE_APPLICATION_CREDENTIALS: {credential_path}", override)
         self.assertIn("    - source: firebase-service-account", override)
         self.assertIn("      target: timing-jeju-firebase-service-account.json", override)
-        self.assertIn("      mode: 0400", override)
+        self.assertNotIn("mode:", override)
         self.assertIn(
             "    file: ${FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}",
             override,
@@ -175,6 +184,14 @@ secrets:
         self.assertIn("compose.fcm.yml", documentation)
         self.assertIn(credential_path, documentation)
         self.assertIn("읽기 전용", documentation)
+        self.assertIn("uid/gid/mode", documentation)
+        self.assertIn("validate_firebase_credential_file.py", documentation)
+
+    def assert_fcm_runtime_image_contract(self, dockerfile, documentation):
+        self.assertIn("addgroup -S -g 10001 spring", dockerfile)
+        self.assertIn("adduser -S -D -H -u 10001 -G spring spring", dockerfile)
+        self.assertIn("USER spring:spring", dockerfile)
+        self.assertIn("10001:10001", documentation)
 
 
 if __name__ == "__main__":

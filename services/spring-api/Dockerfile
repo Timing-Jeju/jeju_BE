@@ -8,7 +8,8 @@ COPY docs/contracts /workspace/docs/contracts
 RUN ./gradlew --no-daemon clean bootJar
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
-RUN addgroup -S spring && adduser -S spring -G spring
+RUN addgroup -S -g 10001 spring \
+  && adduser -S -D -H -u 10001 -G spring spring
 WORKDIR /app
 COPY --from=build --chown=spring:spring /workspace/services/spring-api/build/libs/*.jar app.jar
 USER spring:spring

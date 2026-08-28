@@ -6,7 +6,6 @@ services:
     secrets:
       - source: firebase-service-account
         target: timing-jeju-firebase-service-account.json
-        mode: 0400
 
 secrets:
   firebase-service-account:
