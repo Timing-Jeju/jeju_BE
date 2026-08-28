@@ -22,9 +22,10 @@ Compose의 file-backed secret은 bind mount이므로 service secret의 `uid/gid/
 ```sh
 sudo chown 10001:10001 "$FIREBASE_CREDENTIALS_FILE"
 chmod 0600 "$FIREBASE_CREDENTIALS_FILE"
-python3 scripts/validate_firebase_credential_file.py
-docker compose -f compose.yml -f compose.fcm.yml up --build
+./scripts/run-firebase-compose.sh
 ```
+
+`run-firebase-compose.sh`는 인자를 받지 않고 내부에서 `validate_firebase_credential_file.py`를 실행하며, credential preflight가 성공한 뒤에만 저장소의 고정 `compose.yml`과 `compose.fcm.yml`로 API를 `up -d --build`합니다. raw Compose opt-in은 사용하지 않습니다. 이 launcher 외부의 subcommand, Compose file, project directory나 command 환경변수는 실행에 반영하지 않습니다.
 
 `compose.fcm.yml`은 검증된 host 파일을 Compose secret으로 읽기 전용 mount합니다. 컨테이너 안의 ADC canonical path는 `/run/secrets/timing-jeju-firebase-service-account.json`이며 `GOOGLE_APPLICATION_CREDENTIALS`에는 이 고정 경로만 전달됩니다. 기본 실행과 CI에는 이 override를 결합하지 않습니다.
 
