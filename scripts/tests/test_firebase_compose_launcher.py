@@ -23,6 +23,7 @@ SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
 ROOT=$(CDPATH= cd -P "$SCRIPT_DIR/.." && pwd)
 
 python3 "$ROOT/scripts/validate_firebase_credential_file.py"
+python3 "$ROOT/scripts/validate_docker_compose_version.py"
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" stop api
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" rm -f api
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" up -d --build postgres
@@ -77,6 +78,7 @@ class FirebaseComposeLauncherTest(unittest.TestCase):
         shim.write_text("""#!/bin/sh
 printf '%s\\n' "$*" >> "$FAKE_DOCKER_LOG"
 case "$*" in
+  "compose version --short") printf '%s' "$FAKE_COMPOSE_VERSION" ;;
   *" stop api") printf stopped > "$FAKE_API_STATE" ;;
   *" rm -f api") printf removed > "$FAKE_API_STATE" ;;
   *" up -d --build --force-recreate --no-deps api") printf running > "$FAKE_API_STATE" ;;
@@ -111,6 +113,7 @@ fi
         )
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([
+            "compose version --short",
             f"{PREFIX} stop api",
             f"{PREFIX} rm -f api",
             f"{PREFIX} up -d --build postgres",
@@ -127,6 +130,7 @@ fi
                           extra_env={"FAKE_FAIL_ON": "run --rm --no-deps"})
         self.assertEqual(42, result.returncode)
         self.assertEqual([
+            "compose version --short",
             f"{PREFIX} stop api",
             f"{PREFIX} rm -f api",
             f"{PREFIX} up -d --build postgres",
@@ -149,6 +153,31 @@ fi
                 self.assertEqual("running", self.api_state.read_text(encoding="utf-8"))
         self.assertEqual(2, self.run_script(LAUNCHER, self.credential(), "unsafe").returncode)
         self.assertEqual([], self.invocations())
+
+    def test_unsupported_malformed_or_failed_compose_version은_API를_중단하지_않는다(self):
+        self.api_state.write_text("running", encoding="utf-8")
+        for version, fail_on in (("2.24.3", ""), ("v2.24", ""), ("NaN", ""), ("2.24.4", "version --short")):
+            with self.subTest(version=version, fail_on=fail_on):
+                result = self.run_script(
+                    LAUNCHER,
+                    self.credential(),
+                    extra_env={"FAKE_COMPOSE_VERSION": version, "FAKE_FAIL_ON": fail_on},
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(["compose version --short"], self.invocations())
+                self.assertEqual("running", self.api_state.read_text(encoding="utf-8"))
+                self.assertNotIn(version, result.stdout + result.stderr)
+                self.log.unlink()
+
+    def test_newer_compose_version도_exact_lifecycle을_허용한다(self):
+        result = self.run_script(
+            LAUNCHER,
+            self.credential(),
+            extra_env={"FAKE_COMPOSE_VERSION": "v5.3.1"},
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("compose version --short", self.invocations()[0])
+        self.assertTrue(self.invocations()[-1].endswith("--no-deps api"))
 
     def test_cleanup_exact_targets(self):
         for marker in (self.api_marker, self.init_marker, self.volume_marker):
@@ -206,6 +235,14 @@ fi
         stop_step = 'stop api\n'
         mutations = [
             (launcher.replace('python3 "$ROOT/scripts/validate_firebase_credential_file.py"\n', "", 1), cleanup),
+            (launcher.replace('python3 "$ROOT/scripts/validate_docker_compose_version.py"\n', "", 1), cleanup),
+            (launcher.replace(
+                'python3 "$ROOT/scripts/validate_firebase_credential_file.py"\n'
+                'python3 "$ROOT/scripts/validate_docker_compose_version.py"\n',
+                'python3 "$ROOT/scripts/validate_docker_compose_version.py"\n'
+                'python3 "$ROOT/scripts/validate_firebase_credential_file.py"\n',
+                1,
+            ), cleanup),
             (launcher.replace("run --rm --no-deps", "run --no-deps", 1), cleanup),
             (launcher.replace("run --rm --no-deps", "run --rm", 1), cleanup),
             (launcher.replace("--name timing-jeju-fcm-firebase-credential-init-1 ", "", 1), cleanup),
@@ -249,6 +286,7 @@ fi
         env = os.environ.copy()
         env.update({"PATH": f"{self.fake_bin}{os.pathsep}{env['PATH']}",
                     "FAKE_DOCKER_LOG": str(self.log), "FAKE_FAIL_ON": "", "FAKE_LIST_OVERRIDE": "",
+                    "FAKE_COMPOSE_VERSION": "2.24.4",
                     "FAKE_API_STATE": str(self.api_state), "FAKE_API_MARKER": str(self.api_marker),
                     "FAKE_INIT_MARKER": str(self.init_marker), "FAKE_VOLUME_MARKER": str(self.volume_marker)})
         if credential is None:

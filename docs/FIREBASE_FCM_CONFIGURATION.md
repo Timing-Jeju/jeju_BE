@@ -17,7 +17,7 @@ Spring의 FCM 발송 경계는 Firebase Admin Java SDK `9.10.0`을 고정해 사
 
 Compose의 file-backed secret은 bind mount이므로 service secret의 `uid/gid/mode` 값을 적용하지 않습니다. 따라서 `compose.fcm.yml`은 적용되지 않는 mode를 선언하지 않습니다. macOS와 Linux 모두 host credential은 launcher를 실행하는 현재 사용자 소유의 symlink가 아닌 regular file과 정확히 `0400` 또는 `0600` permission이어야 합니다. group/world permission은 허용하지 않으며 host에서 `10001:10001`로 chown하지 않습니다.
 
-launcher는 portable Python `os.stat` preflight로 absolute path, regular/non-symlink, 현재 UID/GID와 owner-only permission을 먼저 확인합니다. preflight는 파일 내용을 읽거나 경로·내용을 출력하지 않으며 조건이 하나라도 다르면 Compose를 호출하지 않습니다.
+launcher는 portable Python `os.stat` preflight로 absolute path, regular/non-symlink, 현재 UID/GID와 owner-only permission을 먼저 확인합니다. 이어서 exact `docker compose version --short` 결과가 strict `v?MAJOR.MINOR.PATCH`이며 2.24.4 이상인지 확인합니다. 두 preflight는 credential 내용, 경로 또는 명령의 raw 오류 출력을 노출하지 않으며 조건이 하나라도 다르면 기존 API를 중단하지 않습니다.
 
 ```sh
 chmod 0600 "$FIREBASE_CREDENTIALS_FILE"
