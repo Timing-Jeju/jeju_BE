@@ -10,6 +10,8 @@ SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
 ROOT=$(CDPATH= cd -P "$SCRIPT_DIR/.." && pwd)
 
 python3 "$ROOT/scripts/validate_firebase_credential_file.py"
+docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" stop api
+docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" rm -f api
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" up -d --build postgres
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" up -d --force-recreate firebase-credential-init
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" wait firebase-credential-init

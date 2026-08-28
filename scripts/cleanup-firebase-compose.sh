@@ -6,9 +6,12 @@ if [ "$#" -ne 0 ]; then
   exit 2
 fi
 
-SCRIPT_DIR=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
-ROOT=$(CDPATH= cd -P "$SCRIPT_DIR/.." && pwd)
-
-docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" stop api firebase-credential-init
-docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" rm -f api firebase-credential-init
-exec docker volume rm timing-jeju-fcm_firebase-credential
+if docker container inspect timing-jeju-fcm-api-1 >/dev/null 2>&1; then
+  docker container rm -f timing-jeju-fcm-api-1 >/dev/null
+fi
+if docker container inspect timing-jeju-fcm-firebase-credential-init-1 >/dev/null 2>&1; then
+  docker container rm -f timing-jeju-fcm-firebase-credential-init-1 >/dev/null
+fi
+if docker volume inspect timing-jeju-fcm_firebase-credential >/dev/null 2>&1; then
+  docker volume rm timing-jeju-fcm_firebase-credential >/dev/null
+fi
