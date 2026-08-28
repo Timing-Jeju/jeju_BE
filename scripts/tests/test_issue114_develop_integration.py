@@ -8,6 +8,28 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Issue114DevelopIntegrationTest(unittest.TestCase):
+    def test_tago_expired_source_boundary는_DB_clock_domain을_사용한다(self):
+        source = (
+            ROOT
+            / "services/spring-api/src/test/java/com/timingjeju/api/global/tago/arrival"
+            / "JdbcTagoArrivalFlightStoreIntegrationTest.java"
+        ).read_text(encoding="utf-8")
+        self.assert_tago_expired_source_clock_contract(source)
+
+        jvm_clock_mutation = source.replace(
+            "databaseNow().minusSeconds(1)", "Instant.now().minusSeconds(1)", 1
+        )
+        with self.assertRaises(AssertionError):
+            self.assert_tago_expired_source_clock_contract(jvm_clock_mutation)
+
+    def assert_tago_expired_source_clock_contract(self, source):
+        method = source.split(
+            "void success_retain은_source_expiry를_넘지않고_이미만료된_source는_publish하지않는다()",
+            1,
+        )[1].split("\n  @Test", 1)[0]
+        self.assertIn("databaseNow().minusSeconds(1)", method)
+        self.assertNotIn("Instant.now().minusSeconds(1)", method)
+
     def test_firebase_adapter와_mode20_contract가_함께_유지된다(self):
         firebase_adapter = (
             ROOT
