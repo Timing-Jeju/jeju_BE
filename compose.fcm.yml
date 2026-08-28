@@ -1,0 +1,13 @@
+services:
+  api:
+    environment:
+      FCM_ENABLED: "true"
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/timing-jeju-firebase-service-account.json
+    secrets:
+      - source: firebase-service-account
+        target: timing-jeju-firebase-service-account.json
+        mode: 0400
+
+secrets:
+  firebase-service-account:
+    file: ${FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}

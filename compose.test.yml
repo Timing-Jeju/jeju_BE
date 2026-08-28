@@ -63,6 +63,7 @@ services:
       APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
       APP_SOCIAL_LOGIN_PROVIDER_IDS: google,kakao,custom:naver
       PUSH_TOKEN_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      FCM_ENABLED: "false"
       SAVED_PLACE_RETENTION_ENABLED: "true"
       SAVED_PLACE_RETENTION_INITIAL_DELAY: PT24H
       APP_TRIPS_CURSOR_SIGNING_KEY: test-only-trip-cursor-signing-key-at-least-32-bytes
