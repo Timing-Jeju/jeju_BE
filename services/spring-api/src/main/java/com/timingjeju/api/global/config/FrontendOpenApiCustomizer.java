@@ -14,7 +14,10 @@ import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +50,7 @@ final class FrontendOpenApiCustomizer {
           Map.entry("regionCode", "jeju-seogwipo"),
           Map.entry("savedOnly", false),
           Map.entry("size", 20),
-          Map.entry("sort", "updated_at_desc"),
+          Map.entry("sort", "saved_at_desc"),
           Map.entry("status", "draft"),
           Map.entry("tag", "오름"),
           Map.entry("tripId", "44000000-0000-4000-8000-000000000044"));
@@ -105,6 +108,251 @@ final class FrontendOpenApiCustomizer {
     addHeaderComponents(openApi);
     documentComponentProblems(openApi);
     DOCUMENTS.forEach((key, document) -> applyOperation(openApi, key, document));
+    projectCanonicalContracts(openApi);
+  }
+
+  private void projectCanonicalContracts(OpenAPI openApi) {
+    Map<String, Map<String, Object>> catalogEndpoints =
+        endpointMap(readContractResource("/rest/catalog.json"));
+    for (String domain :
+        List.of("profile-legal", "places", "weather-forecast", "saved-places", "trips")) {
+      Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
+      Map<String, Object> schemas = objectMap(contract.get("schemas"));
+      for (Map<String, Object> endpoint : objectMapList(contract.get("endpoints"))) {
+        String key = endpointKey(endpoint);
+        if (!DOCUMENTS.containsKey(key)) {
+          continue;
+        }
+        Map<String, Object> catalogEndpoint = catalogEndpoints.get(key);
+        if (catalogEndpoint == null) {
+          throw new IllegalStateException("OpenAPI canonical catalog endpoint가 없습니다: " + key);
+        }
+        projectCanonicalOperation(openApi, key, catalogEndpoint, endpoint, schemas);
+      }
+    }
+  }
+
+  private void projectCanonicalOperation(
+      OpenAPI openApi,
+      String key,
+      Map<String, Object> catalog,
+      Map<String, Object> endpoint,
+      Map<String, Object> schemas) {
+    Operation operation = operation(openApi, key);
+    if (operation == null) {
+      return;
+    }
+    Map<String, Object> schemaNames = objectMap(catalog.get("schemas"));
+    projectCanonicalParameters(openApi, operation, schemaNames, schemas, key);
+    Object bodyName = schemaNames.get("body");
+    if (bodyName != null && !"none".equals(bodyName)) {
+      if (operation.getRequestBody() == null) {
+        throw new IllegalStateException("OpenAPI canonical request body가 없습니다: " + key);
+      }
+      jsonMedia(operation.getRequestBody().getContent())
+          .setSchema(canonicalSchema(String.valueOf(bodyName), schemas, key));
+    }
+    Object successSchema = endpoint.get("successSchema");
+    if (successSchema == null) {
+      successSchema = endpoint.get("responseSchema");
+    }
+    Collection<?> successStatuses = valueList(endpoint.get("successStatuses"));
+    if (successStatuses.isEmpty()) {
+      successStatuses = valueList(objectMap(endpoint.get("responses")).get("success"));
+    }
+    for (Object status : successStatuses) {
+      ApiResponse response = operation.getResponses().get(String.valueOf(status));
+      if (response != null && !"none".equals(successSchema)) {
+        jsonMedia(response.getContent())
+            .setSchema(canonicalSchema(String.valueOf(successSchema), schemas, key));
+      }
+    }
+  }
+
+  private void projectCanonicalParameters(
+      OpenAPI openApi,
+      Operation operation,
+      Map<String, Object> schemaNames,
+      Map<String, Object> schemas,
+      String key) {
+    Map<String, Parameter> parameters = new LinkedHashMap<>();
+    if (operation.getParameters() != null) {
+      for (int index = 0; index < operation.getParameters().size(); index++) {
+        Parameter parameter = operation.getParameters().get(index);
+        if (parameter.get$ref() != null) {
+          String prefix = "#/components/parameters/";
+          if (!parameter.get$ref().startsWith(prefix)) {
+            throw new IllegalStateException("OpenAPI 외부 parameter ref는 허용하지 않습니다.");
+          }
+          parameter =
+              openApi
+                  .getComponents()
+                  .getParameters()
+                  .get(parameter.get$ref().substring(prefix.length()));
+          operation.getParameters().set(index, parameter);
+        }
+        parameters.put(parameter.getIn() + " " + parameter.getName(), parameter);
+      }
+    }
+    for (Map.Entry<String, String> kind :
+        Map.of("query", "query", "path", "path", "headers", "header").entrySet()) {
+      Object schemaName = schemaNames.get(kind.getKey());
+      if (schemaName == null
+          || "none".equals(schemaName)
+          || ("headers".equals(kind.getKey()) && "CommonHeaders".equals(schemaName))) {
+        continue;
+      }
+      Map<String, Object> canonical = resolveCanonical(String.valueOf(schemaName), schemas, key);
+      Set<String> required = Set.copyOf(stringList(canonical.get("required")));
+      for (Map.Entry<String, Object> property : objectMap(canonical.get("properties")).entrySet()) {
+        if ("Authorization".equals(property.getKey())) {
+          continue;
+        }
+        Parameter parameter = parameters.get(kind.getValue() + " " + property.getKey());
+        if (parameter == null) {
+          throw new IllegalStateException(
+              "OpenAPI canonical parameter가 없습니다: " + key + " " + property.getKey());
+        }
+        parameter.setSchema(canonicalSchema(property.getValue(), schemas, key));
+        parameter.setRequired(required.contains(property.getKey()));
+      }
+    }
+  }
+
+  private static Operation operation(OpenAPI openApi, String key) {
+    String[] parts = key.split(" ", 2);
+    PathItem pathItem = openApi.getPaths().get(parts[1]);
+    return pathItem == null
+        ? null
+        : pathItem.readOperationsMap().get(PathItem.HttpMethod.valueOf(parts[0]));
+  }
+
+  private Schema<?> canonicalSchema(Object value, Map<String, Object> schemas, String key) {
+    Map<String, Object> canonical =
+        value instanceof String name
+            ? resolveCanonical(name, schemas, key)
+            : expandCanonical(objectMap(value), schemas, key, Set.of());
+    try {
+      Schema<?> schema =
+          objectMapper.readValue(objectMapper.writeValueAsString(canonical), Schema.class);
+      restoreCanonicalTypes(schema, canonical);
+      return schema;
+    } catch (JacksonException exception) {
+      throw new IllegalStateException("OpenAPI canonical schema 변환에 실패했습니다: " + key, exception);
+    }
+  }
+
+  private static void restoreCanonicalTypes(Schema<?> schema, Map<String, Object> canonical) {
+    if (canonical.get("type") instanceof String type) {
+      schema.setType(type);
+      boolean nullable = Boolean.TRUE.equals(canonical.get("nullable"));
+      schema.setTypes(nullable ? Set.of(type, "null") : Set.of(type));
+      schema.setNullable(nullable);
+    }
+    Map<String, Schema> properties = schema.getProperties();
+    if (properties != null) {
+      Map<String, Object> canonicalProperties = objectMap(canonical.get("properties"));
+      properties.forEach(
+          (name, property) ->
+              restoreCanonicalTypes(property, objectMap(canonicalProperties.get(name))));
+    }
+    if (schema.getItems() != null) {
+      restoreCanonicalTypes(schema.getItems(), objectMap(canonical.get("items")));
+    }
+  }
+
+  private Map<String, Object> resolveCanonical(
+      String name, Map<String, Object> schemas, String key) {
+    Object raw = schemas.get(name);
+    if (!(raw instanceof Map<?, ?>)) {
+      throw new IllegalStateException("OpenAPI canonical schema가 없습니다: " + key + " " + name);
+    }
+    return expandCanonical(objectMap(raw), schemas, key, Set.of(name));
+  }
+
+  private Map<String, Object> expandCanonical(
+      Map<String, Object> raw, Map<String, Object> schemas, String key, Set<String> seen) {
+    if (raw.containsKey("$ref")) {
+      String name = String.valueOf(raw.get("$ref"));
+      if (seen.contains(name)) {
+        throw new IllegalStateException("OpenAPI canonical schema ref가 순환합니다: " + key + " " + name);
+      }
+      Map<String, Object> referenced = objectMap(schemas.get(name));
+      if (referenced.isEmpty()) {
+        throw new IllegalStateException("OpenAPI canonical schema ref가 없습니다: " + key + " " + name);
+      }
+      Map<String, Object> merged = new LinkedHashMap<>(referenced);
+      raw.forEach(
+          (childKey, child) -> {
+            if (!"$ref".equals(childKey)) {
+              merged.put(childKey, child);
+            }
+          });
+      raw = merged;
+      seen = new java.util.HashSet<>(seen);
+      seen.add(name);
+    }
+    Map<String, Object> result = new LinkedHashMap<>();
+    Set<String> currentSeen = seen;
+    for (Map.Entry<String, Object> entry : raw.entrySet()) {
+      Object child = entry.getValue();
+      if (child instanceof Map<?, ?>) {
+        child = expandCanonical(objectMap(child), schemas, key, currentSeen);
+      } else if (child instanceof List<?> values) {
+        child =
+            values.stream()
+                .map(
+                    item ->
+                        item instanceof Map<?, ?>
+                            ? expandCanonical(objectMap(item), schemas, key, currentSeen)
+                            : item)
+                .toList();
+      }
+      result.put(entry.getKey(), child);
+    }
+    return result;
+  }
+
+  private Map<String, Object> readContractResource(String path) {
+    try (InputStream input = FrontendOpenApiCustomizer.class.getResourceAsStream(path)) {
+      if (input == null) {
+        throw new IllegalStateException("OpenAPI canonical contract resource가 없습니다: " + path);
+      }
+      return objectMap(objectMapper.readValue(input, Map.class));
+    } catch (IOException exception) {
+      throw new IllegalStateException("OpenAPI canonical contract를 읽을 수 없습니다: " + path, exception);
+    }
+  }
+
+  private static Map<String, Map<String, Object>> endpointMap(Map<String, Object> contract) {
+    Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+    objectMapList(contract.get("endpoints"))
+        .forEach(endpoint -> result.put(endpointKey(endpoint), endpoint));
+    return result;
+  }
+
+  private static String endpointKey(Map<String, Object> endpoint) {
+    return endpoint.get("method") + " " + endpoint.get("path");
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> objectMap(Object value) {
+    return value instanceof Map<?, ?> ? (Map<String, Object>) value : new LinkedHashMap<>();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static List<Map<String, Object>> objectMapList(Object value) {
+    return value instanceof List<?> ? (List<Map<String, Object>>) value : List.of();
+  }
+
+  private static List<?> valueList(Object value) {
+    return value instanceof List<?> values ? values : List.of();
+  }
+
+  private static List<String> stringList(Object value) {
+    return value instanceof List<?> values
+        ? values.stream().map(String::valueOf).toList()
+        : List.of();
   }
 
   private static void alignNullableCursorSchemas(OpenAPI openApi) {
@@ -204,7 +452,14 @@ final class FrontendOpenApiCustomizer {
           new StringSchema().pattern("^[A-Za-z0-9._:-]{1,128}$"),
           "saved-place-create-34");
     } else if (key.equals("POST /api/v1/trips")) {
-      addParameterReference(operation, "Idempotency-Key");
+      mergeRequiredHeader(
+          operation,
+          "Idempotency-Key",
+          "여행 생성 요청을 24시간 동안 식별하는 lowercase canonical UUID",
+          new StringSchema().format("uuid"),
+          "44000000-0000-4000-8000-000000000044");
+    } else if (key.equals("GET /api/v1/trips")) {
+      setParameterExample(operation, "sort", "updated_at_desc");
     }
     if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
@@ -243,15 +498,14 @@ final class FrontendOpenApiCustomizer {
     operation.addParametersItem(exact);
   }
 
-  private static void addParameterReference(Operation operation, String name) {
-    if (operation.getParameters() == null
-        || operation.getParameters().stream()
-            .noneMatch(
-                parameter ->
-                    name.equals(parameter.getName())
-                        || ("#/components/parameters/" + name).equals(parameter.get$ref()))) {
-      operation.addParametersItem(new Parameter().$ref("#/components/parameters/" + name));
+  private static void setParameterExample(Operation operation, String name, Object example) {
+    if (operation.getParameters() == null) {
+      return;
     }
+    operation.getParameters().stream()
+        .filter(parameter -> name.equals(parameter.getName()))
+        .findFirst()
+        .ifPresent(parameter -> parameter.setExample(example));
   }
 
   private static void addResponseHeaderReferences(

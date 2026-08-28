@@ -246,6 +246,9 @@ class Validator:
         pairs = set()
         for problem in (endpoint or {}).get("problems") or []:
             pairs.add((problem.get("code"), problem.get("type")))
+        for codes in ((endpoint or {}).get("errorMatrix") or {}).values():
+            for code in codes:
+                pairs.add((code, None))
         operation_key = f"{key[0]} {key[1]}"
         for condition in contract.get("errorConditions") or []:
             if operation_key not in (condition.get("endpoints") or []):
@@ -290,8 +293,16 @@ class Validator:
                 self.error(location, f"runtime Problem {status} manifest 형식이 올바르지 않습니다")
                 continue
             pair = tuple(problem)
-            is_runtime_only = self.runtime_problem_definitions.get(problem[0]) == problem[1]
-            if domain_problem_pairs is not None and not is_runtime_only and pair not in domain_problem_pairs:
+            is_runtime_only = (
+                self.runtime_problem_definitions.get(problem[0]) == problem[1]
+                or str(status) in runtime.get("runtimeOnlyProblemStatuses", [])
+            )
+            if (
+                domain_problem_pairs is not None
+                and not is_runtime_only
+                and pair not in domain_problem_pairs
+                and (problem[0], None) not in domain_problem_pairs
+            ):
                 self.error(location, f"Problem {status} code/type이 domain endpoint matrix와 다릅니다")
         expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
         expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
@@ -387,11 +398,17 @@ class Validator:
         header_name = schema_names.get("headers")
         if header_name not in (None, "none", "CommonHeaders"):
             canonical = self.canonical_schema({"$ref": header_name}, schemas, location)
-            expected_header_names = set((canonical.get("properties") or {}))
-            actual_header_names = {name for (where, name) in parameters if where == "header"}
+            expected_header_names = set((canonical.get("properties") or {})) - {"Authorization"}
+            actual_header_names = {
+                name
+                for (where, name) in parameters
+                if where == "header" and name != "Authorization"
+            }
             if actual_header_names != expected_header_names:
                 self.error(location, "canonical request header projection이 다릅니다")
             for name, raw_property in (canonical.get("properties") or {}).items():
+                if name == "Authorization":
+                    continue
                 parameter = parameters.get(("header", name))
                 if parameter is None:
                     self.error(location, f"canonical request header {name}가 없습니다")

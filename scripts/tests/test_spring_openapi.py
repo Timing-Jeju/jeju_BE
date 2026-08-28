@@ -107,6 +107,26 @@ class SpringOpenApiTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotIn("setAdditionalProperties(false)", customizer)
 
+    def test_canonical_contract_resource를_런타임_swagger에_fail_closed_projection한다(self):
+        customizer = (
+            SPRING_API
+            / "src/main/java/com/timingjeju/api/global/config/FrontendOpenApiCustomizer.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("srcDir file('../../docs/contracts')", self.build_gradle)
+        self.assertIn("projectCanonicalContracts(openApi)", customizer)
+        for resource in (
+            '"/rest/catalog.json"',
+            '"profile-legal"',
+            '"places"',
+            '"weather-forecast"',
+            '"saved-places"',
+            '"trips"',
+        ):
+            self.assertIn(resource, customizer)
+        self.assertIn("canonical parameter가 없습니다", customizer)
+        self.assertIn("canonical contract resource가 없습니다", customizer)
+        self.assertIn("schema.setTypes(nullable ? Set.of(type, \"null\")", customizer)
+
     def test_closed_response_shape은_각_authority_DTO에_명시한다(self):
         sources = (
             "global/error/ApiProblemDetails.java",
