@@ -24,7 +24,7 @@ chmod 0600 "$FIREBASE_CREDENTIALS_FILE"
 ./scripts/run-firebase-compose.sh
 ```
 
-`run-firebase-compose.sh`는 인자를 받지 않고 내부에서 `validate_firebase_credential_file.py`를 실행합니다. 성공하면 기존 API를 먼저 stop/remove하고, 고정 project와 Compose file로 PostgreSQL을 기동하고 credential init을 매번 재생성한 뒤 init의 성공 종료를 기다립니다. init이 실패하면 이전 API도 실행 상태로 남지 않습니다. 마지막으로 `--force-recreate --no-deps`로 API만 재생성하므로 기존 DB container는 재생성하지 않습니다. raw Compose opt-in은 사용하지 않습니다. 이 launcher 외부의 subcommand, Compose file, project directory나 command 환경변수는 실행에 반영하지 않습니다.
+`run-firebase-compose.sh`는 인자를 받지 않고 내부에서 `validate_firebase_credential_file.py`를 실행합니다. 성공하면 기존 API를 먼저 stop/remove하고 고정 project와 Compose file로 PostgreSQL을 기동합니다. credential init은 고정 container 이름의 foreground `run --rm --no-deps`로 매번 실행하므로 빠르게 성공해도 별도 wait 조회와 경합하지 않으며, 종료 status가 launcher에 직접 전파됩니다. init이 실패하면 이전 API도 실행 상태로 남지 않습니다. 마지막으로 `--force-recreate --no-deps`로 API만 재생성하므로 기존 DB container는 재생성하지 않습니다. raw Compose opt-in은 사용하지 않습니다. 이 launcher 외부의 subcommand, Compose file, project directory나 command 환경변수는 실행에 반영하지 않습니다.
 
 `compose.fcm.yml`의 one-shot root init service만 검증된 file-backed secret을 읽기 전용 mount합니다. init은 내용을 출력하지 않고 Docker-managed `firebase-credential` volume에 복사한 뒤 소유권을 runtime `spring`의 `10001:10001`, permission을 `0400`으로 고정합니다. API는 init의 `service_completed_successfully` 이후에만 시작하며 host secret을 직접 mount하지 않습니다.
 

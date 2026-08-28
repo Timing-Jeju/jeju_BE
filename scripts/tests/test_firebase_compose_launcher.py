@@ -26,8 +26,7 @@ python3 "$ROOT/scripts/validate_firebase_credential_file.py"
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" stop api
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" rm -f api
 docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" up -d --build postgres
-docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" up -d --force-recreate firebase-credential-init
-docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" wait firebase-credential-init
+docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" run --rm --no-deps --name timing-jeju-fcm-firebase-credential-init-1 firebase-credential-init
 exec docker compose --project-name timing-jeju-fcm --project-directory "$ROOT" -f "$ROOT/compose.yml" -f "$ROOT/compose.fcm.yml" up -d --build --force-recreate --no-deps api
 """
 EXPECTED_CLEANUP = f"""#!/bin/sh
@@ -113,8 +112,7 @@ fi
             f"{PREFIX} stop api",
             f"{PREFIX} rm -f api",
             f"{PREFIX} up -d --build postgres",
-            f"{PREFIX} up -d --force-recreate firebase-credential-init",
-            f"{PREFIX} wait firebase-credential-init",
+            f"{PREFIX} run --rm --no-deps --name timing-jeju-fcm-firebase-credential-init-1 firebase-credential-init",
             f"{PREFIX} up -d --build --force-recreate --no-deps api",
         ], self.invocations())
         self.assertEqual("running", self.api_state.read_text(encoding="utf-8"))
@@ -124,14 +122,13 @@ fi
     def test_init_failure_prevents_api(self):
         self.api_state.write_text("running", encoding="utf-8")
         result = self.run_script(LAUNCHER, self.credential(),
-                          extra_env={"FAKE_FAIL_ON": "wait firebase-credential-init"})
+                          extra_env={"FAKE_FAIL_ON": "run --rm --no-deps"})
         self.assertEqual(42, result.returncode)
         self.assertEqual([
             f"{PREFIX} stop api",
             f"{PREFIX} rm -f api",
             f"{PREFIX} up -d --build postgres",
-            f"{PREFIX} up -d --force-recreate firebase-credential-init",
-            f"{PREFIX} wait firebase-credential-init",
+            f"{PREFIX} run --rm --no-deps --name timing-jeju-fcm-firebase-credential-init-1 firebase-credential-init",
         ], self.invocations())
         self.assertEqual("removed", self.api_state.read_text(encoding="utf-8"))
 
@@ -203,11 +200,13 @@ fi
         docs = (ROOT / "docs/FIREBASE_FCM_CONFIGURATION.md").read_text(encoding="utf-8")
         self.assert_contract(launcher, cleanup, docs)
         postgres_step = 'up -d --build postgres\n'
-        init_step = 'up -d --force-recreate firebase-credential-init\n'
+        init_step = 'run --rm --no-deps --name timing-jeju-fcm-firebase-credential-init-1 firebase-credential-init\n'
         stop_step = 'stop api\n'
         mutations = [
             (launcher.replace('python3 "$ROOT/scripts/validate_firebase_credential_file.py"\n', "", 1), cleanup),
-            (launcher.replace("wait firebase-credential-init\n", "", 1), cleanup),
+            (launcher.replace("run --rm --no-deps", "run --no-deps", 1), cleanup),
+            (launcher.replace("run --rm --no-deps", "run --rm", 1), cleanup),
+            (launcher.replace("--name timing-jeju-fcm-firebase-credential-init-1 ", "", 1), cleanup),
             (launcher.replace("--force-recreate --no-deps api", "--no-deps api", 1), cleanup),
             (launcher.replace("--force-recreate --no-deps api", "--force-recreate api", 1), cleanup),
             (launcher.replace("up -d --build postgres\n", "", 1), cleanup),
