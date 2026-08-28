@@ -106,7 +106,9 @@ fi
     def test_launch_lifecycle_exact_order(self):
         self.api_state.write_text("running", encoding="utf-8")
         self.postgres_state.write_text("postgres-identity-A", encoding="utf-8")
-        result = self.run_script(LAUNCHER, self.credential())
+        result = self.run_script(
+            LAUNCHER, self.credential(), extra_env={"API_PORT": "65535"}
+        )
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([
             f"{PREFIX} stop api",
@@ -240,6 +242,7 @@ fi
             self.assertNotIn(" -v", source)
         self.assertIn("./scripts/run-firebase-compose.sh", docs)
         self.assertIn("./scripts/cleanup-firebase-compose.sh", docs)
+        self.assertIn("127.0.0.1:18083", docs)
         self.assertNotIn("docker compose -f compose.yml -f compose.fcm.yml", docs)
 
     def run_script(self, script, credential, *args, extra_env=None):

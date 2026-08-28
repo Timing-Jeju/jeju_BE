@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -8,6 +11,41 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Issue114DevelopIntegrationTest(unittest.TestCase):
+    def test_FCM_API_port는_caller_environment와_무관한_loopback_18083이다(self):
+        for caller_port in ("8080", "65535"):
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "API_PORT": caller_port,
+                    "FIREBASE_CREDENTIALS_FILE": "/tmp/test-only-firebase-config.json",
+                }
+            )
+            result = subprocess.run(
+                (
+                    "docker", "compose", "-f", "compose.yml", "-f", "compose.fcm.yml",
+                    "config", "--format", "json",
+                ),
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            ports = json.loads(result.stdout)["services"]["api"]["ports"]
+            self.assertEqual(
+                [
+                    {
+                        "mode": "ingress",
+                        "target": 8080,
+                        "published": "18083",
+                        "host_ip": "127.0.0.1",
+                        "protocol": "tcp",
+                    }
+                ],
+                ports,
+            )
+
     def test_FCM_init은_Dockerfile_runtime_base를_정확히_재사용한다(self):
         dockerfile = (ROOT / "services/spring-api/Dockerfile").read_text(encoding="utf-8")
         override = (ROOT / "compose.fcm.yml").read_text(encoding="utf-8")
@@ -228,6 +266,27 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
                 override.replace("        read_only: true\n", "        read_only: false\n", 1),
                 documentation,
             ),
+            "api-port-host-wide": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("127.0.0.1:18083:8080", "18083:8080", 1),
+                documentation,
+            ),
+            "api-port-default-collision": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("127.0.0.1:18083:8080", "127.0.0.1:8080:8080", 1),
+                documentation,
+            ),
+            "api-port-override-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace('    ports: !override\n      - "127.0.0.1:18083:8080"\n', "", 1),
+                documentation,
+            ),
             "api-direct-secret-added": (
                 compose,
                 compose_test,
@@ -307,6 +366,8 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         source: firebase-credential
         target: /credential
   api:
+    ports: !override
+      - "127.0.0.1:18083:8080"
     environment:
       FCM_ENABLED: "true"
       GOOGLE_APPLICATION_CREDENTIALS: {credential_path}
@@ -350,6 +411,7 @@ volumes:
         self.assertIn("uid/gid/mode", documentation)
         self.assertIn("validate_firebase_credential_file.py", documentation)
         self.assertIn("현재 사용자", documentation)
+        self.assertIn("127.0.0.1:18083", documentation)
         self.assertNotIn("sudo chown 10001:10001", documentation)
 
     def assert_fcm_runtime_image_contract(self, dockerfile, documentation):
