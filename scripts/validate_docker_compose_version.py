@@ -7,7 +7,9 @@ from collections.abc import Callable
 
 
 MINIMUM_COMPOSE_VERSION = (2, 24, 4)
-VERSION_PATTERN = re.compile(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)")
+VERSION_PATTERN = re.compile(
+    r"v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:-desktop\.[1-9][0-9]*)?"
+)
 
 
 class ComposeVersionError(ValueError):

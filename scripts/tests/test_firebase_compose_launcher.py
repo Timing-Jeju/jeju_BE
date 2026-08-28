@@ -173,7 +173,7 @@ fi
         result = self.run_script(
             LAUNCHER,
             self.credential(),
-            extra_env={"FAKE_COMPOSE_VERSION": "v5.3.1"},
+            extra_env={"FAKE_COMPOSE_VERSION": "v5.3.1-desktop.7"},
         )
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("compose version --short", self.invocations()[0])

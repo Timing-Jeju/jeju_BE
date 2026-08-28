@@ -10,12 +10,33 @@ from scripts.validate_docker_compose_version import validate_installed_compose
 
 class DockerComposeVersionPreflightTest(unittest.TestCase):
     def test_minimum_and_newer_versions_are_accepted(self):
-        for raw in ("2.24.4", "v2.24.4", "2.25.0", "5.3.1"):
+        for raw in (
+            "2.24.4",
+            "v2.24.4",
+            "2.24.4-desktop.1",
+            "v2.25.0-desktop.12",
+            "5.3.1-desktop.7",
+        ):
             with self.subTest(raw=raw):
                 self.assertGreaterEqual(parse_compose_version(raw), (2, 24, 4))
 
     def test_older_malformed_nonfinite_or_decorated_versions_are_rejected(self):
-        for raw in ("2.24.3", "v2.24", "NaN", "Infinity", "2.24.4-beta.1", "2.24.4 extra", ""):
+        for raw in (
+            "2.24.3",
+            "2.24.3-desktop.1",
+            "v2.24",
+            "NaN",
+            "Infinity",
+            "2.24.4-desktop",
+            "2.24.4-desktop.0",
+            "2.24.4-desktop.-1",
+            "2.24.4-beta.1",
+            "2.24.4-rc.1",
+            "2.24.4+metadata",
+            "2.24.4-arbitrary.1",
+            "2.24.4 extra",
+            "",
+        ):
             with self.subTest(raw=raw), self.assertRaises(ComposeVersionError):
                 parse_compose_version(raw)
 
