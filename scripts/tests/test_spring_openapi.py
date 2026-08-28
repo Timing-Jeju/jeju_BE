@@ -127,6 +127,90 @@ class SpringOpenApiTest(unittest.TestCase):
         self.assertIn("canonical contract resource가 없습니다", customizer)
         self.assertIn("schema.setTypes(nullable ? Set.of(type, \"null\")", customizer)
 
+    def test_docker_build도_repository_root의_canonical_contract를_포함한다(self):
+        dockerfile = (SPRING_API / "Dockerfile").read_text(encoding="utf-8")
+        dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+        compose_documents = {
+            compose_name: (ROOT / compose_name).read_text(encoding="utf-8")
+            for compose_name in ("compose.yml", "compose.test.yml")
+        }
+        self.assert_docker_contract(dockerignore, dockerfile, compose_documents)
+        mutations = (
+            ("\n".join(dockerignore.splitlines()[1:]) + "\n", dockerfile, compose_documents),
+            (dockerignore + "!**\n", dockerfile, compose_documents),
+            (
+                dockerignore,
+                dockerfile.replace(
+                    "COPY docs/contracts /workspace/docs/contracts",
+                    "# COPY docs/contracts /workspace/docs/contracts",
+                ),
+                compose_documents,
+            ),
+            (
+                dockerignore,
+                dockerfile,
+                {
+                    **compose_documents,
+                    "compose.test.yml": compose_documents["compose.test.yml"].replace(
+                        "      context: .\n", "      # context: .\n", 1
+                    ),
+                },
+            ),
+        )
+        for mutation in mutations:
+            with self.assertRaises(AssertionError):
+                self.assert_docker_contract(*mutation)
+
+    def assert_docker_contract(self, dockerignore, dockerfile, compose_documents):
+        expected_allowlist = (
+            "**",
+            "!services/",
+            "!services/spring-api/",
+            "!services/spring-api/Dockerfile",
+            "!services/spring-api/gradlew",
+            "!services/spring-api/gradlew.bat",
+            "!services/spring-api/build.gradle",
+            "!services/spring-api/settings.gradle",
+            "!services/spring-api/gradle/",
+            "!services/spring-api/gradle/**",
+            "!services/spring-api/src/",
+            "!services/spring-api/src/**",
+            "!docs/",
+            "!docs/contracts/",
+            "!docs/contracts/**",
+        )
+        actual_allowlist = tuple(
+            line.strip()
+            for line in dockerignore.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        self.assertEqual(expected_allowlist, actual_allowlist)
+        active_dockerfile = tuple(
+            line.strip()
+            for line in dockerfile.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        for compose_name in ("compose.yml", "compose.test.yml"):
+            compose = compose_documents[compose_name]
+            api_build = compose.split("  api:", 1)[1].split("    environment:", 1)[0]
+            active_build = {
+                line.strip()
+                for line in api_build.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            }
+            self.assertIn("context: .", active_build, compose_name)
+            self.assertIn(
+                "dockerfile: services/spring-api/Dockerfile", active_build, compose_name
+            )
+            self.assertNotIn("context: ./services/spring-api", active_build, compose_name)
+        self.assertIn("WORKDIR /workspace/services/spring-api", active_dockerfile)
+        self.assertIn("COPY services/spring-api/src src", active_dockerfile)
+        self.assertIn("COPY docs/contracts /workspace/docs/contracts", active_dockerfile)
+        self.assertIn(
+            "COPY --from=build --chown=spring:spring /workspace/services/spring-api/build/libs/*.jar app.jar",
+            active_dockerfile,
+        )
+
     def test_closed_response_shape은_각_authority_DTO에_명시한다(self):
         sources = (
             "global/error/ApiProblemDetails.java",

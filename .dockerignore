@@ -1,0 +1,15 @@
+**
+!services/
+!services/spring-api/
+!services/spring-api/Dockerfile
+!services/spring-api/gradlew
+!services/spring-api/gradlew.bat
+!services/spring-api/build.gradle
+!services/spring-api/settings.gradle
+!services/spring-api/gradle/
+!services/spring-api/gradle/**
+!services/spring-api/src/
+!services/spring-api/src/**
+!docs/
+!docs/contracts/
+!docs/contracts/**
