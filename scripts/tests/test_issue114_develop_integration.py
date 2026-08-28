@@ -112,7 +112,90 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
                 compose_test,
                 env_example,
                 override.replace(
-                    "timing-jeju-firebase-service-account.json", "firebase.json", 1
+                    "/run/secrets/timing-jeju-firebase/service-account.json",
+                    "/run/secrets/firebase.json",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-copy-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp\n",
+                    "",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-order-reversed": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp\n"
+                    "        chown 10001:10001 /credential/.service-account.json.tmp\n",
+                    "        chown 10001:10001 /credential/.service-account.json.tmp\n"
+                    "        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp\n",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-permission-relaxed": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("chmod 0400", "chmod 0644", 1),
+                documentation,
+            ),
+            "init-chown-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        chown 10001:10001 /credential/.service-account.json.tmp\n",
+                    "",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-chmod-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        chmod 0400 /credential/.service-account.json.tmp\n",
+                    "",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-dependency-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("        condition: service_completed_successfully\n", "", 1),
+                documentation,
+            ),
+            "api-volume-write-enabled": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("        read_only: true\n", "        read_only: false\n", 1),
+                documentation,
+            ),
+            "api-direct-secret-added": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "    depends_on:\n",
+                    "    secrets:\n"
+                    "      - source: firebase-service-account\n"
+                    "        target: firebase-service-account.json\n"
+                    "    depends_on:\n",
+                    1,
                 ),
                 documentation,
             ),
@@ -157,25 +240,62 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         ):
             self.assertIn(line, env_lines)
 
-        credential_path = "/run/secrets/timing-jeju-firebase-service-account.json"
+        credential_path = "/run/secrets/timing-jeju-firebase/service-account.json"
         expected_override = f"""services:
+  firebase-credential-init:
+    image: alpine:3.20.3
+    restart: "no"
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        umask 077
+        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp
+        chown 10001:10001 /credential/.service-account.json.tmp
+        chmod 0400 /credential/.service-account.json.tmp
+        mv /credential/.service-account.json.tmp /credential/service-account.json
+    secrets:
+      - source: firebase-service-account
+        target: firebase-service-account.json
+    volumes:
+      - type: volume
+        source: firebase-credential
+        target: /credential
   api:
     environment:
       FCM_ENABLED: "true"
       GOOGLE_APPLICATION_CREDENTIALS: {credential_path}
-    secrets:
-      - source: firebase-service-account
-        target: timing-jeju-firebase-service-account.json
+    depends_on:
+      firebase-credential-init:
+        condition: service_completed_successfully
+    volumes:
+      - type: volume
+        source: firebase-credential
+        target: /run/secrets/timing-jeju-firebase
+        read_only: true
 
 secrets:
   firebase-service-account:
     file: ${{FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}}
+
+volumes:
+  firebase-credential:
 """
         self.assertEqual(expected_override, override)
         self.assertIn('      FCM_ENABLED: "true"', override)
         self.assertIn(f"      GOOGLE_APPLICATION_CREDENTIALS: {credential_path}", override)
-        self.assertIn("    - source: firebase-service-account", override)
-        self.assertIn("      target: timing-jeju-firebase-service-account.json", override)
+        init = override.split("  firebase-credential-init:", 1)[1].split("  api:", 1)[0]
+        api_override = override.split("  api:", 1)[1].split("\nsecrets:", 1)[0]
+        self.assertIn("    secrets:", init)
+        self.assertNotIn("    secrets:", api_override)
+        self.assertIn("condition: service_completed_successfully", api_override)
+        self.assertIn("source: firebase-credential", api_override)
+        self.assertIn("read_only: true", api_override)
+        self.assertLess(init.index("cp "), init.index("chown 10001:10001"))
+        self.assertLess(init.index("chown 10001:10001"), init.index("chmod 0400"))
+        self.assertLess(init.index("chmod 0400"), init.index("mv "))
         self.assertNotIn("mode:", override)
         self.assertIn(
             "    file: ${FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}",
@@ -186,6 +306,8 @@ secrets:
         self.assertIn("읽기 전용", documentation)
         self.assertIn("uid/gid/mode", documentation)
         self.assertIn("validate_firebase_credential_file.py", documentation)
+        self.assertIn("현재 사용자", documentation)
+        self.assertNotIn("sudo chown 10001:10001", documentation)
 
     def assert_fcm_runtime_image_contract(self, dockerfile, documentation):
         self.assertIn("addgroup -S -g 10001 spring", dockerfile)

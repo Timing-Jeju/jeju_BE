@@ -18,11 +18,7 @@ class FirebaseCredentialPreflightTest(unittest.TestCase):
         self.credential.chmod(0o600)
 
     def test_owner_only_regular_file은_expected_runtime_owner가_읽을_수_있다(self):
-        validate_credential_file(
-            self.credential,
-            expected_uid=os.getuid(),
-            expected_gid=os.getgid(),
-        )
+        validate_credential_file(self.credential)
 
     def test_missing_directory_symlink은_regular_credential로_허용하지_않는다(self):
         missing = self.credential.with_name("missing.json")
@@ -62,7 +58,7 @@ class FirebaseCredentialPreflightTest(unittest.TestCase):
                         expected_gid=os.getgid(),
                     )
 
-    def test_wrong_uid_or_gid는_container_readable_owner_contract를_위반한다(self):
+    def test_wrong_uid_or_gid는_launcher_user_owner_contract를_위반한다(self):
         for expected_uid, expected_gid in (
             (os.getuid() + 1, os.getgid()),
             (os.getuid(), os.getgid() + 1),

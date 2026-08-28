@@ -9,7 +9,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "scripts/run-firebase-compose.sh"
-VALIDATOR = ROOT / "scripts/validate_firebase_credential_file.py"
 EXPECTED_LAUNCHER = f'''#!/bin/sh
 set -eu
 
@@ -41,7 +40,6 @@ class FirebaseComposeLauncherTest(unittest.TestCase):
         self.invocation_log = self.temp / "docker-invocations.log"
 
     def test_launcher는_validator_성공_뒤_fixed_compose를_정확히_한번_실행한다(self):
-        self.write_success_validator_shim()
         self.write_docker_shim()
         credential = self.temp / "firebase.json"
         sensitive_content = "private-key-content-must-not-be-logged"
@@ -81,7 +79,6 @@ class FirebaseComposeLauncherTest(unittest.TestCase):
             self.temp / "missing.json",
             Path("relative-firebase.json"),
             symlink,
-            regular,
             group_readable,
         )
         for path in invalid_paths:
@@ -94,7 +91,6 @@ class FirebaseComposeLauncherTest(unittest.TestCase):
                 self.assertNotIn("test-only-placeholder", combined_output)
 
     def test_argument와_command_environment는_fixed_invocation을_바꾸지_못한다(self):
-        self.write_success_validator_shim()
         self.write_docker_shim()
         credential = self.temp / "firebase.json"
         credential.write_text("test-only-placeholder", encoding="utf-8")
@@ -171,7 +167,6 @@ class FirebaseComposeLauncherTest(unittest.TestCase):
                 "PATH": f"{self.fake_bin}{os.pathsep}{environment['PATH']}",
                 "FIREBASE_CREDENTIALS_FILE": str(credential),
                 "FAKE_DOCKER_LOG": str(self.invocation_log),
-                "EXPECTED_VALIDATOR": str(VALIDATOR),
             }
         )
         environment.update(extra_env or {})
@@ -188,16 +183,6 @@ class FirebaseComposeLauncherTest(unittest.TestCase):
         if not self.invocation_log.exists():
             return []
         return self.invocation_log.read_text(encoding="utf-8").splitlines()
-
-    def write_success_validator_shim(self):
-        self.write_executable(
-            "python3",
-            '''#!/bin/sh
-[ "$#" -eq 1 ] || exit 91
-[ "$1" = "$EXPECTED_VALIDATOR" ] || exit 92
-exit 0
-''',
-        )
 
     def write_docker_shim(self):
         self.write_executable(

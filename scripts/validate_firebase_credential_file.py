@@ -6,8 +6,6 @@ import sys
 from pathlib import Path
 
 
-SPRING_UID = 10001
-SPRING_GID = 10001
 ALLOWED_MODES = frozenset((0o400, 0o600))
 
 
@@ -18,9 +16,11 @@ class CredentialFileError(ValueError):
 def validate_credential_file(
     credential_file: Path,
     *,
-    expected_uid: int = SPRING_UID,
-    expected_gid: int = SPRING_GID,
+    expected_uid: int | None = None,
+    expected_gid: int | None = None,
 ) -> None:
+    expected_uid = os.getuid() if expected_uid is None else expected_uid
+    expected_gid = os.getgid() if expected_gid is None else expected_gid
     if not credential_file.is_absolute():
         raise CredentialFileError("FIREBASE_CREDENTIALS_FILE은 absolute path여야 합니다.")
 
@@ -33,7 +33,7 @@ def validate_credential_file(
         raise CredentialFileError("Firebase credential은 symlink가 아닌 regular file이어야 합니다.")
     if metadata.st_uid != expected_uid or metadata.st_gid != expected_gid:
         raise CredentialFileError(
-            f"Firebase credential owner는 container spring user {expected_uid}:{expected_gid}여야 합니다."
+            f"Firebase credential owner는 launcher user {expected_uid}:{expected_gid}여야 합니다."
         )
 
     permission = stat.S_IMODE(metadata.st_mode)
