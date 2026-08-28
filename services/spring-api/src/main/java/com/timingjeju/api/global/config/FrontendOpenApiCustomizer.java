@@ -894,6 +894,67 @@ final class FrontendOpenApiCustomizer {
                 "400", "INVALID_REQUEST",
                 "401", "AUTH_TOKEN_INVALID",
                 "404", "SAVED_PLACE_NOT_FOUND")));
+    result.put(
+        "PUT /api/v1/me/push-devices/{deviceId}",
+        doc(
+            "pushDevicesUpdate",
+            "푸시 알림",
+            """
+            {"platform":"IOS","registrationToken":"__REDACTED_REGISTRATION_TOKEN__","permissionStatus":"GRANTED","appVersion":"1.2.3","locale":"ko-KR","timeZone":"Asia/Seoul"}
+            """,
+            """
+            {"deviceId":"11300000-0000-4000-8000-000000000101","platform":"IOS","permissionStatus":"GRANTED","active":true,"updatedAt":"2026-08-25T00:00:00Z"}
+            """,
+            Map.of(
+                "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
+                "401", "AUTH_TOKEN_INVALID",
+                "403", "AUTH_ACCESS_DENIED",
+                "500", "INTERNAL_SERVER_ERROR",
+                "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
+    result.put(
+        "DELETE /api/v1/me/push-devices/{deviceId}",
+        doc(
+            "pushDevicesDelete",
+            "푸시 알림",
+            null,
+            null,
+            Map.of(
+                "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
+                "401", "AUTH_TOKEN_INVALID",
+                "403", "AUTH_ACCESS_DENIED",
+                "500", "INTERNAL_SERVER_ERROR",
+                "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
+    result.put(
+        "GET /api/v1/me/notification-preferences",
+        doc(
+            "notificationPreferencesRead",
+            "푸시 알림",
+            null,
+            """
+            {"nextDestinationDepartureEnabled":false,"safetyBufferMinutes":10,"updatedAt":null}
+            """,
+            Map.of(
+                "401", "AUTH_TOKEN_INVALID",
+                "403", "AUTH_ACCESS_DENIED",
+                "500", "INTERNAL_SERVER_ERROR",
+                "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
+    result.put(
+        "PATCH /api/v1/me/notification-preferences",
+        doc(
+            "notificationPreferencesUpdate",
+            "푸시 알림",
+            """
+            {"nextDestinationDepartureEnabled":true,"safetyBufferMinutes":10}
+            """,
+            """
+            {"nextDestinationDepartureEnabled":true,"safetyBufferMinutes":10,"updatedAt":"2026-08-25T00:05:00Z"}
+            """,
+            Map.of(
+                "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
+                "401", "AUTH_TOKEN_INVALID",
+                "403", "AUTH_ACCESS_DENIED",
+                "500", "INTERNAL_SERVER_ERROR",
+                "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
     String tripExample =
         """
         {"tripId":"44000000-0000-4000-8000-000000000044","title":"제주 3박 4일","status":"draft","startDate":"2026-09-10","endDate":"2026-09-13","timezone":"Asia/Seoul","userPace":"normal","transportModes":[{"mode":"public_transit","priority":1,"primary":true}],"days":[{"dayId":"44000000-0000-4000-8001-000000000044","dayNo":1,"date":"2026-09-10"},{"dayId":"44000000-0000-4000-8002-000000000044","dayNo":2,"date":"2026-09-11"},{"dayId":"44000000-0000-4000-8003-000000000044","dayNo":3,"date":"2026-09-12"},{"dayId":"44000000-0000-4000-8004-000000000044","dayNo":4,"date":"2026-09-13"}],"activeScheduleVersionId":null,"totalScore":null,"scoreProvenance":null,"scheduleEffect":"none","regenerationRequired":false,"createdAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}

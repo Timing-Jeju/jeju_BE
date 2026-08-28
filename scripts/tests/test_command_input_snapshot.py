@@ -14,6 +14,7 @@ ACTUAL_PG_TEST = (
     / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql"
     / "CommandInputSnapshotRepositoryIntegrationTest.java"
 )
+NEGATIVE_CONSTRAINTS = ROOT / "db/queries/database_negative_constraints.sql"
 OTHER_SCRIPT_TEST = ROOT / "scripts/tests/test_backend_layout.py"
 SELF = Path(__file__).resolve()
 
@@ -400,6 +401,35 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         ):
             with self.subTest(path=path.name):
                 self.assertIn("compute_run_inputs", path.read_text(encoding="utf-8").lower())
+
+    def test_negative_compute_input_fixture_is_self_contained_without_demo_seed(self):
+        negative = compact_sql(NEGATIVE_CONSTRAINTS.read_text(encoding="utf-8"))
+        section = negative.split("insert into public.compute_run_inputs", 1)[1]
+        section = section.split(
+            "select public.create_local_test_user( 'f1130000-0000-0000-0000-000000000001'",
+            1,
+        )[0]
+
+        for demo_seed_id in (
+            "09000000-0000-0000-0000-000000000001",
+            "50000000-0000-0000-0000-000000000001",
+            "60000000-0000-0000-0000-000000000001",
+            "63000000-0000-0000-0000-000000000001",
+            "63000000-0000-0000-0000-000000000002",
+            "64000000-0000-0000-0000-000000000001",
+        ):
+            with self.subTest(demo_seed_id=demo_seed_id):
+                self.assertNotIn(demo_seed_id, section)
+
+        for local_fixture_id in (
+            "f1600000-0000-0000-0000-000000000001",
+            "f1610000-0000-0000-0000-000000000001",
+            "f1630000-0000-0000-0000-000000000001",
+            "f1640000-0000-0000-0000-000000000001",
+        ):
+            with self.subTest(local_fixture_id=local_fixture_id):
+                self.assertIn(local_fixture_id, section)
+        self.assertIn("schedule_revision_run_id", section)
 
     def test_scope_does_not_implement_intake_call_log_or_redaction_execution(self):
         migration = self.migration()

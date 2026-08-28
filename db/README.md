@@ -45,7 +45,10 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260826000000_tago_arrival_cache.sql`: TAGO 도착 snapshot 계보·범위·freshness와 동시 관측 충돌 방지 계약
 - `supabase/migrations/20260829000000_completed_provider_snapshot_retention_index.sql`: 완료 공급자 due snapshot payload one-shot batch의 `(purge_after, id)` partial ordered index
 - `supabase/migrations/20260830000000_schedule_revision_run_foundation.sql`: 일정 보정 run의 canonical owner/trip/base/Day identity, 멱등·active scope와 lease/fencing lifecycle 계약
+- `supabase/migrations/20260902000000_trip_create_contract.sql`: 여행 생성·조회와 owner scoped 일정 root/Day/이동수단 계약
 - `supabase/migrations/20260903000000_saved_places_api.sql`: 관심 장소 CRUD, canonical owner, 멱등 응답 snapshot과 30일 backfill audit retention 계약
+- `supabase/migrations/20260904000000_push_device_notification_preferences.sql`: 푸시 기기·출발 알림 설정과 owner safe-column 조회 계약
+- `supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql`: authenticated client write 경로 제거와 service-role writer 경계 보정
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터
@@ -82,6 +85,8 @@ provider·service·operation·scope와 source key/payload hash를 포함한 uniq
 `data_import_checkpoints`, `external_api_snapshots` 등 수집 내부 테이블은 RLS를 활성화하되 `anon`·`authenticated` 정책과 직접 grant를 두지 않습니다. 운영 적재는 비밀 저장소에서 주입한 서버 전용 `service_role`만 사용하고 브라우저·FastAPI MCP에는 이 권한을 전달하지 않습니다. raw payload와 오류 상세에는 API key, token, PII를 저장하지 않으며 보존 기한이 지난 snapshot은 별도 운영 작업에서 정리합니다.
 
 `service_role`은 정상 앱 쓰기에 필요한 SELECT·INSERT·UPDATE·DELETE와 명시적 RPC 권한을 유지하지만, 행 trigger를 우회하는 `TRUNCATE`는 현재와 향후 public 앱 테이블에서 회수합니다. `spatial_ref_sys` 같은 확장 관리 객체는 확장 소유자의 ACL 경계이므로 앱 테이블 권한 검사에서 제외합니다. 파괴적 앱 테이블 초기화는 서버 런타임이 아니라 통제된 migration owner 작업으로만 수행합니다.
+
+`push_devices`는 사용자·opaque device UUID별 한 행과 활성 SHA-256 token fingerprint 전역 유일성을 보장합니다. token 원문은 Spring에서 AES-256-GCM 암호화한 뒤 ciphertext/fingerprint만 저장합니다. `notification_preferences`는 명시적 opt-in 전 `false`, safety buffer `10`을 기본으로 하며 `0..120` inclusive를 DB CHECK로 고정합니다. 두 테이블은 owner RLS를 켜고 `anon`/`PUBLIC` 권한을 회수합니다. `authenticated`에는 token 보호 열을 제외한 owner safe-column `SELECT`만 허용하고 client write grant/policy를 두지 않으며, Spring의 서버 전용 `service_role` adapter만 원자 token 이동·해제와 설정 변경을 수행합니다.
 
 정책 검사는 독립적으로 실행할 수 있습니다.
 

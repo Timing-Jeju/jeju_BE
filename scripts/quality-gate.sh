@@ -66,6 +66,7 @@ run_common_checks() {
   stage "REST 공통 계약 readiness 검사"
   python3 scripts/validate_rest_contracts.py
   python3 scripts/validate_profile_legal_contract.py
+  python3 scripts/validate_push_notification_contract.py
 
   stage "관광지 검색·상세 계약 검사"
   python3 scripts/validate_places_contract.py
@@ -115,7 +116,7 @@ run_spring_checks() {
   rm -f services/spring-api/build/openapi/openapi.json
   run_spring_gradle openApiDocs
   stage "Spring OpenAPI 프론트엔드 readiness 검사"
-  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 16
+  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 20
   stage "Spring Architecture 테스트"
   run_spring_gradle architectureTest
   stage "Spring 전체 테스트와 커버리지"

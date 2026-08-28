@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts.validate_openapi_frontend_readiness import Validator
+from scripts.validate_openapi_frontend_readiness import (
+    CURRENT_OPERATIONS,
+    PUSH_NOTIFICATION_OPERATIONS,
+    SAVED_PLACE_OPERATIONS,
+    TRIP_OPERATIONS,
+    Validator,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -293,6 +299,103 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         result = self.run_validator(valid_document(), None, "--mode", "16")
         self.assertNotEqual(0, result.returncode, result.stdout)
         self.assertIn("16-operation", result.stderr)
+
+    def test_mode16은_push_endpoint를_historical_inventory_밖으로_거부한다(self):
+        document = valid_document()
+        document["paths"]["/api/v1/me/push-devices/{deviceId}"] = {
+            "put": copy.deepcopy(document["paths"]["/api/v1/me"]["patch"])
+        }
+        document["paths"]["/api/v1/me/push-devices/{deviceId}"]["put"][
+            "operationId"
+        ] = "pushDevicesUpdate"
+
+        validator = Validator(document, 16, ROOT)
+        errors = validator.validate(include_authority=False)
+
+        self.assertTrue(any("inventory allowlist" in error for error in errors), errors)
+
+    def test_mode20은_push_4개_삭제와_allowlist밖_extra를_모두_거부한다(self):
+        result = self.run_validator(valid_document(), None, "--mode", "20")
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn("20-operation", result.stderr)
+        for path in (
+            "/api/v1/me/push-devices/{deviceId}",
+            "/api/v1/me/notification-preferences",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, result.stderr)
+
+        exact_operations = (
+            set(CURRENT_OPERATIONS)
+            | set(SAVED_PLACE_OPERATIONS)
+            | set(TRIP_OPERATIONS)
+            | set(PUSH_NOTIFICATION_OPERATIONS)
+        )
+
+        def inventory_errors(operations):
+            validator = Validator({}, 20, ROOT)
+            validator.operations = operations
+            validator.operation_ids = {
+                operation_id: [f"{method} {path}"]
+                for (method, path), operation_id in {
+                    **CURRENT_OPERATIONS,
+                    **SAVED_PLACE_OPERATIONS,
+                    **TRIP_OPERATIONS,
+                    **PUSH_NOTIFICATION_OPERATIONS,
+                }.items()
+                if (method, path) in operations
+            }
+            validator.validate_operation_inventory()
+            return validator.errors
+
+        self.assertEqual([], inventory_errors(exact_operations))
+        removed = exact_operations - {("PUT", "/api/v1/me/push-devices/{deviceId}")}
+        self.assertTrue(
+            any("20-operation" in error for error in inventory_errors(removed))
+        )
+        extra = exact_operations | {("GET", "/api/v1/unowned")}
+        self.assertTrue(
+            any("inventory allowlist" in error for error in inventory_errors(extra))
+        )
+
+    def test_mode20_provenance는_push_clean_HEAD까지_exact하다(self):
+        validator = Validator(valid_document(), 20, ROOT)
+
+        self.assertEqual(
+            {
+                "saved-places": "bd83872b1fd91d5e5c1980422634198734c92cf1",
+                "trips": "9a4c4b2f78d61d8f37e8f27646f888eddd28a2de",
+                "push-notifications": "26ec730ae4d8d9b64356e624a4bf5021dbdc4d76",
+            },
+            validator.source_provenance,
+        )
+
+    def test_mode20은_push_contract_4개를_canonical_schema로_projection한다(self):
+        validator = Validator(valid_document(), 20, ROOT)
+        with mock.patch.object(validator, "validate_contract_endpoint") as projection:
+            validator.validate_contract_authority()
+
+        push_calls = {
+            call.args[0]: call
+            for call in projection.call_args_list
+            if call.args[0] in PUSH_NOTIFICATION_OPERATIONS
+        }
+        self.assertEqual(set(PUSH_NOTIFICATION_OPERATIONS), set(push_calls))
+        put_call = push_calls[("PUT", "/api/v1/me/push-devices/{deviceId}")]
+        endpoint = put_call.args[2]
+        schemas = put_call.args[3]
+        self.assertEqual("PushDeviceResponse", endpoint["successSchema"])
+        self.assertEqual([200], endpoint["successStatuses"])
+        self.assertEqual(
+            4096,
+            schemas["PushDeviceRegistrationRequest"]["properties"][
+                "registrationToken"
+            ]["maxLength"],
+        )
+        self.assertEqual(
+            ["deviceId"],
+            schemas["PushDevicePath"]["required"],
+        )
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)

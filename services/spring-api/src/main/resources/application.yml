@@ -34,6 +34,8 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  notifications:
+    token-encryption-key: ${PUSH_TOKEN_ENCRYPTION_KEY:}
   saved-place-retention:
     enabled: ${SAVED_PLACE_RETENTION_ENABLED:false}
     fixed-delay: ${SAVED_PLACE_RETENTION_FIXED_DELAY:PT24H}

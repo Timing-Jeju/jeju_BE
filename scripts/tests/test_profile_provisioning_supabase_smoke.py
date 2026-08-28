@@ -148,7 +148,7 @@ class ProfileProvisioningSupabaseSmokeContractTest(unittest.TestCase):
         ).read_text(encoding="utf-8").lower()
         contracts = negative_contract + "\n" + concurrency_contract
         self.assertNotIn("auth.create_local_test_user", contracts)
-        self.assertEqual(2, negative_contract.count("public.create_local_test_user"))
+        self.assertEqual(3, negative_contract.count("public.create_local_test_user"))
         self.assertEqual(1, concurrency_contract.count("public.create_local_test_user"))
 
     def test_canonical_bootstrap_checkpoints_are_exact_and_external_data_stays_empty(self):

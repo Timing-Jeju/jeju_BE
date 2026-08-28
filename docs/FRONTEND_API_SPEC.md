@@ -1,6 +1,6 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **현재 `develop` 공개 API 9개는 Codegen READY.** `openApiDocs` 뒤 portable frontend-readiness validator가 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. #34/#44 표식 endpoint는 아직 `develop`에 없으므로 아래 clean feature HEAD 계약을 수동 client 인계에만 사용하고, 병합 뒤 생성 artifact가 validator를 통과하기 전에는 해당 7개 SDK 함수를 생성하지 않는다.
+> **현재 통합 공개 API 20개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 20` 명령이 #182의 9개, #34/#44의 7개와 #113의 4개 endpoint를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`은 #182+#34+#44 inventory를 그대로 보존한다.
 
 이 문서는 2026-08-26 현재 구현이 끝난 공개 Spring API 16개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
@@ -27,7 +27,7 @@
 
 ## OperationId와 code generation
 
-현재 `develop`의 9개 operation은 #182 customizer가 아래에 적은 stable lowerCamelCase operationId를 제공한다. #34/#44의 7개 operationId는 병합 전 목표 이름이며 해당 endpoint가 생성 artifact에 나타난 뒤 같은 validator를 통과해야 확정된다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+통합된 20개 operation은 #182 customizer가 확장한 stable lowerCamelCase operationId를 제공한다. #113은 `pushDevicesUpdate`, `pushDevicesDelete`, `notificationPreferencesRead`, `notificationPreferencesUpdate`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
 ## 공통 헤더와 응답
 
@@ -992,11 +992,11 @@ Accept: application/json
 1. places list canonical contract는 `429 UPSTREAM_RATE_LIMITED`를 열거하지만 현재 `develop` runtime의 정규화 read-only 경로와 problem registry에는 이 분기가 없다. #182는 존재하지 않는 runtime status를 Swagger에 추가하지 않는다. owning places contract/runtime Issue가 양쪽을 정렬하기 전에는 프론트 분기 계약으로 확정하지 않는다.
 2. profile PATCH의 `409 PROFILE_CONFLICT`는 runtime handler와 canonical contract에 이미 존재하므로 #182 생성 OpenAPI에도 반영했다.
 3. #44 trips canonical contract는 POST 멱등성 충돌을 `IDEMPOTENCY_KEY_REUSED`로 정의한다. #34 saved places는 다른 공통 구현 계약인 `IDEMPOTENCY_PAYLOAD_CONFLICT`를 쓴다. 두 code를 하나로 합치지 않는다.
-4. #34/#44는 아직 `develop` 병합 전이다. 이 문서의 readiness 표식이 배포 가능 여부를 대신하지 않는다.
+4. #34/#44/#113 통합 artifact의 readiness 표식은 배포 가능 여부나 독립 Reviewer 승인을 대신하지 않는다.
 5. `ProblemDefinition.forCode`로 만든 공통/profile/legal/Naver type은 현재 source에서 `https://api.timing-jeju.example/problems/...`이고, places/saved-places/trips/weather의 domain definition 및 canonical contract는 `https://api.timing-jeju.com/problems/...`이다. 프론트는 type host를 분기 key로 쓰지 말고 안정적인 `code`를 사용한다. #182 후속에서 canonical host를 하나로 정렬해야 한다.
 6. canonical contracts는 필수 인증의 누락/실패를 `AUTHENTICATION_REQUIRED`/`INVALID_ACCESS_TOKEN`으로 명명하지만 현재 `JsonAuthenticationEntryPoint`는 필수 endpoint에서 두 경우 모두 `AUTH_TOKEN_INVALID`를 쓴다. 이 문서는 endpoint matrix에 canonical 이름을 보존했으며 runtime 정렬 전에는 `AUTH_TOKEN_INVALID`도 호환 처리해야 한다.
 7. Naver UserInfo의 생성 OpenAPI 200 media type은 #182에서 runtime과 같은 `application/json`으로 정렬했다.
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 현재 `develop` 9개는 #182 artifact 검증 대상이고, #34/#44 7개는 두 최종 clean SHA를 모두 조상으로 포함한 checkout에서 새로 생성한 하나의 16-operation artifact에 나타나 같은 검사를 통과해야 Codegen READY로 승격된다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #182의 9개, #34/#44의 7개와 #113의 4개 endpoint는 세 선행 clean SHA를 조상으로 포함한 checkout에서 새로 생성한 단일 20-operation artifact에 나타나 `--mode 20` 검사를 통과해야 Codegen READY로 승격된다. `--mode 16`은 push endpoint를 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.

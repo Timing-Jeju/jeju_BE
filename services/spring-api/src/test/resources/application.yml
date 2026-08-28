@@ -18,6 +18,8 @@ management:
       enabled: false
 
 app:
+  notifications:
+    token-encryption-key: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
   saved-place-retention:
     enabled: true
     initial-delay: PT24H

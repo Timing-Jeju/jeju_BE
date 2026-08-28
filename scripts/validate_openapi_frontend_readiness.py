@@ -56,7 +56,18 @@ TRIP_OPERATIONS = {
     ("POST", "/api/v1/trips"): "tripsCreate",
     ("GET", "/api/v1/trips/{tripId}"): "tripsRead",
 }
-EXPECTED_OPERATION_IDS = CURRENT_OPERATIONS | SAVED_PLACE_OPERATIONS | TRIP_OPERATIONS
+PUSH_NOTIFICATION_OPERATIONS = {
+    ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
+    ("DELETE", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesDelete",
+    ("GET", "/api/v1/me/notification-preferences"): "notificationPreferencesRead",
+    ("PATCH", "/api/v1/me/notification-preferences"): "notificationPreferencesUpdate",
+}
+EXPECTED_OPERATION_IDS = (
+    CURRENT_OPERATIONS
+    | SAVED_PLACE_OPERATIONS
+    | TRIP_OPERATIONS
+    | PUSH_NOTIFICATION_OPERATIONS
+)
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
     ("GET", "/api/v1/auth/social/naver/userinfo"),
@@ -67,9 +78,13 @@ OPTIONAL_SECURITY_OPERATIONS = {
     ("GET", "/api/v1/places/{placeId}"),
     ("GET", "/api/v1/weather/forecast"),
 }
-SOURCE_PROVENANCE = {
+SOURCE_PROVENANCE_16 = {
     "saved-places": "bd83872b1fd91d5e5c1980422634198734c92cf1",
     "trips": "9a4c4b2f78d61d8f37e8f27646f888eddd28a2de",
+}
+SOURCE_PROVENANCE_20 = {
+    **SOURCE_PROVENANCE_16,
+    "push-notifications": "26ec730ae4d8d9b64356e624a4bf5021dbdc4d76",
 }
 SCHEMA_CONSTRAINT_KEYS = {
     "type",
@@ -99,7 +114,9 @@ class Validator:
         self.errors = []
         self.operation_ids = {}
         self.operations = set()
-        self.source_provenance = dict(SOURCE_PROVENANCE)
+        self.source_provenance = dict(
+            SOURCE_PROVENANCE_20 if mode == 20 else SOURCE_PROVENANCE_16
+        )
         self.runtime_manifest = None
         self.runtime_problem_definitions = {}
 
@@ -167,7 +184,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode == 16:
+        if self.mode in (16, 20):
             self.validate_source_provenance()
         return self.errors
 
@@ -197,7 +214,7 @@ class Validator:
             if result.returncode != 0:
                 self.error(
                     f"source provenance {domain}",
-                    f"16-operation artifact는 clean HEAD {clean_head}를 포함한 checkout에서 생성되어야 합니다",
+                    f"{self.mode}-operation artifact는 clean HEAD {clean_head}를 포함한 checkout에서 생성되어야 합니다",
                 )
 
     def validate_contract_authority(self):
@@ -220,8 +237,10 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode == 16:
+        if self.mode in (16, 20):
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", TRIP_OPERATIONS)))
+        if self.mode == 20:
+            groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
         for domain, operation_group in groups:
             contract = self.read_authority_json(
                 f"docs/contracts/domains/{domain}/contract.json"
@@ -229,9 +248,17 @@ class Validator:
             if contract is None:
                 continue
             schemas = contract.get("schemas") or {}
+            endpoint_field = "endpoints"
+            if domain == "push-notifications":
+                schemas = self.push_notification_schemas(contract)
+                endpoint_field = "endpointContracts"
             domain_endpoints = {
-                (entry.get("method"), entry.get("path")): entry
-                for entry in contract.get("endpoints", [])
+                (entry.get("method"), entry.get("path")): (
+                    self.push_notification_endpoint(entry)
+                    if domain == "push-notifications"
+                    else entry
+                )
+                for entry in contract.get(endpoint_field, [])
                 if isinstance(entry, dict)
             }
             for key in operation_group:
@@ -242,6 +269,49 @@ class Validator:
                     schemas,
                     self.domain_problem_pairs(contract, domain_endpoints.get(key), key),
                 )
+
+    @classmethod
+    def push_notification_schemas(cls, contract):
+        limits = contract.get("limits") or {}
+
+        def expand(value):
+            if isinstance(value, dict):
+                reference = value.get("$ref")
+                if isinstance(reference, str) and reference.startswith("#/limits/"):
+                    return expand(limits.get(reference.removeprefix("#/limits/"), {}))
+                return {key: expand(child) for key, child in value.items()}
+            if isinstance(value, list):
+                return [expand(child) for child in value]
+            return value
+
+        schemas = {
+            name: expand(schema) for name, schema in (contract.get("schemas") or {}).items()
+        }
+        for schema in schemas.values():
+            for property_schema in (schema.get("properties") or {}).values():
+                property_type = property_schema.get("type")
+                if isinstance(property_type, list) and "null" in property_type:
+                    property_schema["type"] = next(
+                        (candidate for candidate in property_type if candidate != "null"),
+                        None,
+                    )
+                    property_schema["nullable"] = True
+        schemas["PushDevicePath"] = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["deviceId"],
+            "properties": {"deviceId": expand(limits.get("deviceId") or {})},
+        }
+        return schemas
+
+    @staticmethod
+    def push_notification_endpoint(endpoint):
+        success = endpoint.get("success") or {}
+        return {
+            **endpoint,
+            "successSchema": success.get("schema", "none"),
+            "successStatuses": [success.get("status")],
+        }
 
     @staticmethod
     def domain_problem_pairs(contract, endpoint, key):
@@ -506,12 +576,14 @@ class Validator:
 
     def validate_operation_inventory(self):
         required = dict(CURRENT_OPERATIONS)
-        if self.mode == 16:
+        if self.mode in (16, 20):
             required.update(SAVED_PLACE_OPERATIONS)
             required.update(TRIP_OPERATIONS)
+        if self.mode == 20:
+            required.update(PUSH_NOTIFICATION_OPERATIONS)
         for key, operation_id in required.items():
             if key not in self.operations:
-                prefix = "16-operation 완료 mode: " if self.mode == 16 else ""
+                prefix = f"{self.mode}-operation 완료 mode: " if self.mode in (16, 20) else ""
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
         for key in self.operations - set(required):
             self.error(f"{key[0]} {key[1]}", "public inventory allowlist 밖의 endpoint입니다")
@@ -913,7 +985,7 @@ def main(argv):
         type=Path,
         default=Path("services/spring-api/build/openapi/openapi.json"),
     )
-    parser.add_argument("--mode", type=int, choices=(9, 16), default=16)
+    parser.add_argument("--mode", type=int, choices=(9, 16, 20), default=20)
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])
     artifact = args.artifact

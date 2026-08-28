@@ -81,10 +81,16 @@ begin
   select count(*) into invalid_count
   from information_schema.role_table_grants
   where table_schema = 'public'
-    and grantee in ('anon', 'authenticated');
+    and grantee in ('anon', 'authenticated')
+    and not (
+      grantee = 'authenticated'
+      and table_name = 'notification_preferences'
+      and privilege_type = 'SELECT'
+    );
 
   if invalid_count <> 0 then
-    raise exception 'anon/authenticated must not have direct table grants; found %', invalid_count;
+    raise exception 'unexpected anon/authenticated table grants must not exist; found %',
+      invalid_count;
   end if;
 
   select count(*) into invalid_count
