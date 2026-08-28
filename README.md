@@ -33,7 +33,7 @@
 ## 요구 환경
 
 - JDK 21
-- Docker Engine과 Docker Compose
+- Docker Engine과 Docker Compose 2.24.4 이상
 - Supabase CLI 2.110.0
 - Git, GitHub CLI(원격 설정 또는 PR 생성 시)
 

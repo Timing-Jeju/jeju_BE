@@ -4,10 +4,13 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.mutation.FirebaseApplicationDependencyMutation;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchRule;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -240,6 +243,53 @@ class ArchitectureTest {
         .resideInAPackage("..application.retention..")
         .allowEmptyShould(false)
         .check(classes);
+  }
+
+  @Test
+  void push_application_port는_Firebase와_Spring_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.push..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global.push..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("FirebasePushMessageSender")
+        .should()
+        .resideInAPackage("..global.push.firebase..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.push..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
+  void Firebase_SDK는_global_push_firebase_adapter_밖으로_누출되지_않는다() {
+    firebaseSdkIsolationRule().check(classes);
+  }
+
+  @Test
+  void Firebase_SDK_누출_mutation을_application_전체_경계가_탐지한다() {
+    JavaClasses mutation =
+        new ClassFileImporter().importClasses(FirebaseApplicationDependencyMutation.class);
+
+    assertThatThrownBy(() -> firebaseSdkIsolationRule().check(mutation))
+        .isInstanceOf(AssertionError.class)
+        .hasMessageContaining("FirebaseMessaging");
+  }
+
+  private static ArchRule firebaseSdkIsolationRule() {
+    return noClasses()
+        .that()
+        .resideOutsideOfPackage("..global.push.firebase..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("com.google.firebase..", "com.google.auth..")
+        .allowEmptyShould(false);
   }
 
   @Test

@@ -2,6 +2,8 @@
 
 외부 데이터 provider의 환경변수와 시작 검증은 [외부 API 실행 설정](../../docs/EXTERNAL_API_CONFIGURATION.md)을 따릅니다.
 
+Firebase FCM은 기본 비활성이며 ADC/secret mount와 fail-fast 경계는 [Firebase FCM 발송 설정](../../docs/FIREBASE_FCM_CONFIGURATION.md)을 따릅니다.
+
 Timing Jeju의 공개 REST API, 인증·인가, 데이터베이스와 외부 API 연동, MCP 입력 조립과 결과 검증·저장을 담당하는 Spring Boot 서비스입니다.
 
 ## 실행

@@ -1,0 +1,14 @@
+package com.timingjeju.api.application.push;
+
+public enum PushErrorClass {
+  RATE_LIMITED,
+  SERVER_ERROR,
+  PRE_CONNECT,
+  POST_WRITE_AMBIGUOUS,
+  TOKEN_UNREGISTERED,
+  TOKEN_INVALID,
+  PAYLOAD_INVALID,
+  CONFIGURATION,
+  CREDENTIAL,
+  PERMANENT_PROVIDER_ERROR
+}

@@ -13,6 +13,7 @@ description = 'Timing Jeju backend API'
 ext {
 	minimumCoverage = 0.90
 	archUnitVersion = '1.4.2'
+	firebaseAdminVersion = '9.10.0'
 }
 
 java {
@@ -42,6 +43,11 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 	implementation 'org.jsoup:jsoup:1.21.2'
+	implementation('com.google.firebase:firebase-admin') {
+		version {
+			strictly firebaseAdminVersion
+		}
+	}
 	implementation 'org.postgresql:postgresql'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
