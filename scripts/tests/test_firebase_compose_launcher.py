@@ -38,15 +38,26 @@ if [ "$#" -ne 0 ]; then
   exit 2
 fi
 
-if docker container inspect timing-jeju-fcm-api-1 >/dev/null 2>&1; then
-  docker container rm -f timing-jeju-fcm-api-1 >/dev/null
-fi
-if docker container inspect timing-jeju-fcm-firebase-credential-init-1 >/dev/null 2>&1; then
-  docker container rm -f timing-jeju-fcm-firebase-credential-init-1 >/dev/null
-fi
-if docker volume inspect timing-jeju-fcm_firebase-credential >/dev/null 2>&1; then
-  docker volume rm timing-jeju-fcm_firebase-credential >/dev/null
-fi
+api_name=$(docker ps -a --filter 'name=^/timing-jeju-fcm-api-1$' --format '{{{{.Names}}}}')
+case "$api_name" in
+  "") ;;
+  "timing-jeju-fcm-api-1") docker container rm -f timing-jeju-fcm-api-1 >/dev/null ;;
+  *) echo "Unexpected FCM API container query result." >&2; exit 1 ;;
+esac
+
+init_name=$(docker ps -a --filter 'name=^/timing-jeju-fcm-firebase-credential-init-1$' --format '{{{{.Names}}}}')
+case "$init_name" in
+  "") ;;
+  "timing-jeju-fcm-firebase-credential-init-1") docker container rm -f timing-jeju-fcm-firebase-credential-init-1 >/dev/null ;;
+  *) echo "Unexpected FCM credential init container query result." >&2; exit 1 ;;
+esac
+
+credential_volume=$(docker volume ls -q --filter 'name=^timing-jeju-fcm_firebase-credential$')
+case "$credential_volume" in
+  "") ;;
+  "timing-jeju-fcm_firebase-credential") docker volume rm timing-jeju-fcm_firebase-credential >/dev/null ;;
+  *) echo "Unexpected FCM credential volume query result." >&2; exit 1 ;;
+esac
 """
 
 
@@ -70,9 +81,13 @@ case "$*" in
   *" stop api") printf stopped > "$FAKE_API_STATE" ;;
   *" rm -f api") printf removed > "$FAKE_API_STATE" ;;
   *" up -d --build --force-recreate --no-deps api") printf running > "$FAKE_API_STATE" ;;
-  "container inspect timing-jeju-fcm-api-1") [ -f "$FAKE_API_MARKER" ] || exit 1 ;;
-  "container inspect timing-jeju-fcm-firebase-credential-init-1") [ -f "$FAKE_INIT_MARKER" ] || exit 1 ;;
-  "volume inspect timing-jeju-fcm_firebase-credential") [ -f "$FAKE_VOLUME_MARKER" ] || exit 1 ;;
+  "ps -a --filter name=^/timing-jeju-fcm-api-1$ --format {{.Names}}")
+    [ -z "$FAKE_LIST_OVERRIDE" ] || { printf '%s' "$FAKE_LIST_OVERRIDE"; exit 0; }
+    [ ! -f "$FAKE_API_MARKER" ] || printf timing-jeju-fcm-api-1 ;;
+  "ps -a --filter name=^/timing-jeju-fcm-firebase-credential-init-1$ --format {{.Names}}")
+    [ ! -f "$FAKE_INIT_MARKER" ] || printf timing-jeju-fcm-firebase-credential-init-1 ;;
+  "volume ls -q --filter name=^timing-jeju-fcm_firebase-credential$")
+    [ ! -f "$FAKE_VOLUME_MARKER" ] || printf timing-jeju-fcm_firebase-credential ;;
   "container rm -f timing-jeju-fcm-api-1") rm -f "$FAKE_API_MARKER" ;;
   "container rm -f timing-jeju-fcm-firebase-credential-init-1") rm -f "$FAKE_INIT_MARKER" ;;
   "volume rm timing-jeju-fcm_firebase-credential") rm -f "$FAKE_VOLUME_MARKER" ;;
@@ -143,32 +158,44 @@ fi
         result = self.run_script(CLEANUP, None)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([
-            "container inspect timing-jeju-fcm-api-1",
+            "ps -a --filter name=^/timing-jeju-fcm-api-1$ --format {{.Names}}",
             "container rm -f timing-jeju-fcm-api-1",
-            "container inspect timing-jeju-fcm-firebase-credential-init-1",
+            "ps -a --filter name=^/timing-jeju-fcm-firebase-credential-init-1$ --format {{.Names}}",
             "container rm -f timing-jeju-fcm-firebase-credential-init-1",
-            "volume inspect timing-jeju-fcm_firebase-credential",
+            "volume ls -q --filter name=^timing-jeju-fcm_firebase-credential$",
             "volume rm timing-jeju-fcm_firebase-credential",
         ], self.invocations())
         self.log.unlink()
         second = self.run_script(CLEANUP, None)
         self.assertEqual(0, second.returncode, second.stderr)
         self.assertEqual([
-            "container inspect timing-jeju-fcm-api-1",
-            "container inspect timing-jeju-fcm-firebase-credential-init-1",
-            "volume inspect timing-jeju-fcm_firebase-credential",
+            "ps -a --filter name=^/timing-jeju-fcm-api-1$ --format {{.Names}}",
+            "ps -a --filter name=^/timing-jeju-fcm-firebase-credential-init-1$ --format {{.Names}}",
+            "volume ls -q --filter name=^timing-jeju-fcm_firebase-credential$",
+        ], self.invocations())
+        self.log.unlink()
+        third = self.run_script(CLEANUP, None)
+        self.assertEqual(0, third.returncode, third.stderr)
+        self.assertEqual([
+            "ps -a --filter name=^/timing-jeju-fcm-api-1$ --format {{.Names}}",
+            "ps -a --filter name=^/timing-jeju-fcm-firebase-credential-init-1$ --format {{.Names}}",
+            "volume ls -q --filter name=^timing-jeju-fcm_firebase-credential$",
         ], self.invocations())
         self.assertEqual("postgres-identity-A", self.postgres_state.read_text(encoding="utf-8"))
 
     def test_cleanup_zero_arg_injection_safe_and_fail_closed(self):
         self.assertEqual(2, self.run_script(CLEANUP, None, "postgres").returncode)
         self.assertEqual([], self.invocations())
-        self.api_marker.touch()
         result = self.run_script(CLEANUP, None, extra_env={
             "DOCKER_COMMAND": "unsafe", "COMPOSE_FILE": "unsafe",
-            "COMPOSE_PROJECT_NAME": "unsafe", "FAKE_FAIL_ON": "container rm"})
+            "COMPOSE_PROJECT_NAME": "unsafe", "FAKE_FAIL_ON": "ps -a"})
         self.assertEqual(42, result.returncode)
-        self.assertEqual(["container inspect timing-jeju-fcm-api-1", "container rm -f timing-jeju-fcm-api-1"], self.invocations())
+        self.assertEqual(["ps -a --filter name=^/timing-jeju-fcm-api-1$ --format {{.Names}}"], self.invocations())
+
+        self.log.unlink()
+        unexpected = self.run_script(CLEANUP, None, extra_env={"FAKE_LIST_OVERRIDE": "unexpected-container"})
+        self.assertNotEqual(0, unexpected.returncode)
+        self.assertEqual(["ps -a --filter name=^/timing-jeju-fcm-api-1$ --format {{.Names}}"], self.invocations())
 
     def test_source_contract_and_mutations(self):
         launcher = LAUNCHER.read_text(encoding="utf-8")
@@ -194,11 +221,13 @@ fi
             (launcher.replace("exec docker", 'exec "$DOCKER_COMMAND"', 1), cleanup),
             (launcher.replace("api\n", '"$@"\n', 1), cleanup),
             (launcher, cleanup.replace("timing-jeju-fcm-api-1", "timing-jeju-fcm-postgres-1", 1)),
-            (launcher, cleanup.replace("docker volume rm timing-jeju-fcm_firebase-credential >/dev/null\n", "", 1)),
+            (launcher, cleanup.replace("docker volume rm timing-jeju-fcm_firebase-credential >/dev/null", ":", 1)),
             (launcher, cleanup.replace("docker container rm -f", "docker container rm -f timing-jeju-fcm-postgres-1", 1)),
+            (launcher, cleanup.replace("--format '{{.Names}}')", "--format '{{.Names}}' || true)", 1)),
+            (launcher, cleanup.replace("api_name=$(docker ps", "if docker ps", 1)),
         ]
-        for launch_mutation, cleanup_mutation in mutations:
-            with self.assertRaises(AssertionError):
+        for index, (launch_mutation, cleanup_mutation) in enumerate(mutations):
+            with self.subTest(mutation=index), self.assertRaises(AssertionError):
                 self.assert_contract(launch_mutation, cleanup_mutation, docs)
 
     def assert_contract(self, launcher, cleanup, docs):
@@ -217,7 +246,7 @@ fi
     def run_script(self, script, credential, *args, extra_env=None):
         env = os.environ.copy()
         env.update({"PATH": f"{self.fake_bin}{os.pathsep}{env['PATH']}",
-                    "FAKE_DOCKER_LOG": str(self.log), "FAKE_FAIL_ON": "",
+                    "FAKE_DOCKER_LOG": str(self.log), "FAKE_FAIL_ON": "", "FAKE_LIST_OVERRIDE": "",
                     "FAKE_API_STATE": str(self.api_state), "FAKE_API_MARKER": str(self.api_marker),
                     "FAKE_INIT_MARKER": str(self.init_marker), "FAKE_VOLUME_MARKER": str(self.volume_marker)})
         if credential is None:
