@@ -8,6 +8,27 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class Issue114DevelopIntegrationTest(unittest.TestCase):
+    def test_FCM_init은_Dockerfile_runtime_base를_정확히_재사용한다(self):
+        dockerfile = (ROOT / "services/spring-api/Dockerfile").read_text(encoding="utf-8")
+        override = (ROOT / "compose.fcm.yml").read_text(encoding="utf-8")
+        self.assert_fcm_init_runtime_base_contract(dockerfile, override)
+
+        for external_image in ("alpine:3.20.3", "busybox:1.36"):
+            mutation = override.replace(
+                "image: eclipse-temurin:21-jre-alpine", f"image: {external_image}", 1
+            )
+            with self.subTest(external_image=external_image), self.assertRaises(AssertionError):
+                self.assert_fcm_init_runtime_base_contract(dockerfile, mutation)
+
+    def assert_fcm_init_runtime_base_contract(self, dockerfile, override):
+        runtime_image = next(
+            line.removeprefix("FROM ").removesuffix(" AS runtime")
+            for line in dockerfile.splitlines()
+            if line.endswith(" AS runtime")
+        )
+        init = override.split("  firebase-credential-init:\n", 1)[1].split("  api:\n", 1)[0]
+        self.assertEqual([f"    image: {runtime_image}"], [line for line in init.splitlines() if "image:" in line])
+
     def test_tago_expired_source_boundary는_DB_clock_domain을_사용한다(self):
         source = (
             ROOT
@@ -265,7 +286,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         credential_path = "/run/secrets/timing-jeju-firebase/service-account.json"
         expected_override = f"""services:
   firebase-credential-init:
-    image: alpine:3.20.3
+    image: eclipse-temurin:21-jre-alpine
     restart: "no"
     user: "0:0"
     command:
