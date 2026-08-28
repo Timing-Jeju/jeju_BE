@@ -54,6 +54,41 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertNotIn("astral-sh/setup-uv", self.workflow)
         self.assertNotIn("services/fastapi-mcp", self.workflow)
 
+    def test_spring_check_fetches_full_history_for_openapi_provenance(self):
+        self.assert_spring_check_fetches_full_history(self.workflow)
+        spring_job = self.workflow.split("\n  spring-check:", 1)[1].split(
+            "\n  contract-check:", 1
+        )[0]
+        mutations = {
+            "removed": spring_job.replace("          fetch-depth: 0\n", "", 1),
+            "shallow": spring_job.replace(
+                "          fetch-depth: 0", "          fetch-depth: 1", 1
+            ),
+            "comment_only": spring_job.replace(
+                "          fetch-depth: 0", "          # fetch-depth: 0", 1
+            ),
+        }
+        for scenario, mutated_spring_job in mutations.items():
+            mutation = self.workflow.replace(spring_job, mutated_spring_job, 1)
+            with self.subTest(scenario=scenario), self.assertRaises(AssertionError):
+                self.assert_spring_check_fetches_full_history(mutation)
+
+    def assert_spring_check_fetches_full_history(self, workflow):
+        spring_job = workflow.split("\n  spring-check:", 1)[1].split(
+            "\n  contract-check:", 1
+        )[0]
+        checkout_step = spring_job.split("      - name: 저장소 Checkout", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        active_checkout_lines = {
+            line.strip()
+            for line in checkout_step.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        self.assertIn("uses: actions/checkout@v4", active_checkout_lines)
+        self.assertIn("with:", active_checkout_lines)
+        self.assertIn("fetch-depth: 0", active_checkout_lines)
+
     def test_test_reports_are_preserved(self):
         self.assertIn("services/spring-api/build/reports/tests/", self.workflow)
         self.assertIn("services/spring-api/build/reports/jacoco/", self.workflow)
