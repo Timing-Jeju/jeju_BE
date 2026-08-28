@@ -65,7 +65,7 @@ class PushNotificationControllerIntegrationTest {
   private static final String ISSUER = "http://127.0.0.1:54321/auth/v1";
   private static final String SECRET = randomKey();
   private static final UUID USER_ID = UUID.fromString("11300000-0000-0000-0000-000000000001");
-  private static final UUID DEVICE_ID = UUID.fromString("11300000-0000-0000-0000-000000000101");
+  private static final UUID DEVICE_ID = UUID.fromString("11300000-0000-4000-8000-000000000101");
   private static final Instant UPDATED_AT = Instant.parse("2026-08-26T01:02:03Z");
 
   @Autowired private MockMvc mvc;
@@ -321,6 +321,11 @@ class PushNotificationControllerIntegrationTest {
   void OpenAPI는_세경로와_닫힌_schema_token비노출을_문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/me/push-devices/{deviceId}'].put.operationId")
+                .value("pushDevicesUpdate"))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/me/push-devices/{deviceId}'].put.tags[0]").value("푸시 알림"))
         .andExpect(jsonPath("$.paths['/api/v1/me/push-devices/{deviceId}'].put.summary").exists())
         .andExpect(
             jsonPath("$.paths['/api/v1/me/push-devices/{deviceId}'].delete.summary").exists())
@@ -343,6 +348,14 @@ class PushNotificationControllerIntegrationTest {
                 .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
         .andExpect(
             jsonPath("$.paths['/api/v1/me/push-devices/{deviceId}'].put.parameters[0].example")
+                .value(DEVICE_ID.toString()))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/push-devices/{deviceId}'].put.requestBody.content['application/json'].example.registrationToken")
+                .value("__REDACTED_REGISTRATION_TOKEN__"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/push-devices/{deviceId}'].put.responses['200'].content['application/json'].example.deviceId")
                 .value(DEVICE_ID.toString()))
         .andExpect(
             jsonPath(
@@ -485,9 +498,19 @@ class PushNotificationControllerIntegrationTest {
                 response
                     .path("content")
                     .path("application/problem+json")
-                    .path("examples")
-                    .has(problem.getValue()))
-            .isTrue();
+                    .path("example")
+                    .path("code")
+                    .asText())
+            .isEqualTo(problem.getValue());
+        assertThat(
+                response
+                    .path("content")
+                    .path("application/problem+json")
+                    .path("example")
+                    .fieldNames())
+            .toIterable()
+            .containsExactlyInAnyOrder(
+                "type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors");
       }
     }
     JsonNode noContent =

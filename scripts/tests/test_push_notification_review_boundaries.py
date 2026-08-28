@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 JDBC = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/global/notification/JdbcPushNotificationStore.java"
-MIGRATION = ROOT / "supabase/migrations/20260902000000_push_device_notification_preferences.sql"
+MIGRATION = ROOT / "supabase/migrations/20260904000000_push_device_notification_preferences.sql"
 PORT = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/application/notification/PushNotificationWithdrawalBoundary.java"
 INTEGRATION = ROOT / "services/spring-api/src/test/java/com/timingjeju/api/global/notification/JdbcPushNotificationStoreIntegrationTest.java"
 
@@ -83,7 +83,7 @@ class PushNotificationReviewBoundariesTest(unittest.TestCase):
     def test_locale_policy_is_identical_in_contract_swagger_and_database(self):
         migration = MIGRATION.read_text(encoding="utf-8")
         self.assertIn("char_length(locale) between 2 and 35", migration)
-        pattern = "^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2}|-[0-9]{3})?(?:-[A-Za-z0-9]{5,8}|-[0-9][A-Za-z0-9]{3})*(?:-[0-9A-WYZa-wy-z](?:-[A-Za-z0-9]{2,8})+)*(?:-x(?:-[A-Za-z0-9]{1,8})+)?$"
+        pattern = "^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2}|-[0-9]{3})?(?:-[A-Za-z0-9]{5,8}|-[0-9][A-Za-z0-9]{3})*(?:-[0-9A-WY-Za-wy-z](?:-[A-Za-z0-9]{2,8})+)*(?:-x(?:-[A-Za-z0-9]{1,8})+)?$"
         self.assertIn(f"locale ~ '{pattern}'", migration)
         contract = (ROOT / "docs/contracts/domains/push-notifications/contract.json").read_text(encoding="utf-8")
         self.assertIn(f'"pattern": "{pattern}"', contract)

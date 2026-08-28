@@ -1,15 +1,16 @@
 FROM eclipse-temurin:21-jdk-alpine AS build
-WORKDIR /workspace
-COPY gradlew gradlew.bat build.gradle settings.gradle ./
-COPY gradle gradle
+WORKDIR /workspace/services/spring-api
+COPY services/spring-api/gradlew services/spring-api/gradlew.bat services/spring-api/build.gradle services/spring-api/settings.gradle ./
+COPY services/spring-api/gradle gradle
 RUN chmod +x gradlew && ./gradlew --no-daemon dependencies
-COPY src src
+COPY services/spring-api/src src
+COPY docs/contracts /workspace/docs/contracts
 RUN ./gradlew --no-daemon clean bootJar
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
 RUN addgroup -S spring && adduser -S spring -G spring
 WORKDIR /app
-COPY --from=build --chown=spring:spring /workspace/build/libs/*.jar app.jar
+COPY --from=build --chown=spring:spring /workspace/services/spring-api/build/libs/*.jar app.jar
 USER spring:spring
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=6 \

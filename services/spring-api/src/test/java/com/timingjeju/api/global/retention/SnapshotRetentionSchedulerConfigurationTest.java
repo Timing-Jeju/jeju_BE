@@ -2,11 +2,14 @@ package com.timingjeju.api.global.retention;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.timingjeju.api.application.retention.SavedPlaceRetentionTask;
 import com.timingjeju.api.application.retention.SnapshotRetentionCycleResult;
 import com.timingjeju.api.application.retention.SnapshotRetentionOrchestrator;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -27,10 +30,12 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 class SnapshotRetentionSchedulerConfigurationTest {
   private final SnapshotRetentionOrchestrator orchestrator =
       mock(SnapshotRetentionOrchestrator.class);
+  private final SavedPlaceRetentionTask ancillaryRetention = mock(SavedPlaceRetentionTask.class);
   private final ApplicationContextRunner contextRunner =
       new ApplicationContextRunner()
           .withUserConfiguration(SnapshotRetentionSchedulerConfiguration.class)
           .withBean(SnapshotRetentionOrchestrator.class, () -> orchestrator)
+          .withBean(SavedPlaceRetentionTask.class, () -> ancillaryRetention)
           .withBean(SimpleMeterRegistry.class, SimpleMeterRegistry::new);
 
   @Test
@@ -46,6 +51,20 @@ class SnapshotRetentionSchedulerConfigurationTest {
     contextRunner
         .withPropertyValues("app.snapshot-retention.schedule.enabled=true")
         .run(context -> assertThat(context).getBeans(SnapshotRetentionScheduler.class).hasSize(1));
+  }
+
+  @Test
+  void snapshot_dry_run은_ancillary_mutation을_호출하지_않는다() {
+    contextRunner
+        .withPropertyValues(
+            "app.snapshot-retention.schedule.enabled=true",
+            "app.snapshot-retention.schedule.max-batches=3")
+        .run(
+            context -> {
+              context.getBean(SnapshotRetentionScheduler.class).tick();
+
+              verify(ancillaryRetention, never()).drain(anyInt());
+            });
   }
 
   @Test

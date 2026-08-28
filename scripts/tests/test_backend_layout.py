@@ -82,8 +82,9 @@ class BackendLayoutTest(unittest.TestCase):
 
         self.assertIn("services/spring-api", quality_gate)
         self.assertNotIn("services/fastapi-mcp", quality_gate)
-        self.assertIn("./services/spring-api", compose)
-        self.assertIn("./services/spring-api", test_compose)
+        for document in (compose, test_compose):
+            self.assertIn("dockerfile: services/spring-api/Dockerfile", document)
+            self.assertNotIn("services/fastapi-mcp", document)
 
 
 if __name__ == "__main__":

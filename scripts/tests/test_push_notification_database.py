@@ -10,13 +10,13 @@ MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "20260902000000_push_device_notification_preferences.sql"
+    / "20260904000000_push_device_notification_preferences.sql"
 )
 SERVER_WRITER_BOUNDARY_MIGRATION = (
     ROOT
     / "supabase"
     / "migrations"
-    / "20260902000001_push_notification_server_writer_boundary.sql"
+    / "20260904000001_push_notification_server_writer_boundary.sql"
 )
 SCHEMA_CONTRACT = ROOT / "db/queries/schema_contract.sql"
 SMOKE_CHECK = ROOT / "db/queries/smoke_check.sql"
@@ -31,45 +31,71 @@ def compact(value: str) -> str:
 
 
 class PushNotificationDatabaseTest(unittest.TestCase):
-    def test_docker_init_applies_server_writer_correction_after_base_before_seed(self):
-        base_source = (
-            "./supabase/migrations/20260902000000_push_device_notification_preferences.sql"
+    def test_latest_migration_versions_are_unique_and_chronological(self):
+        expected = (
+            "20260901000000_legal_documents_consents.sql",
+            "20260902000000_trip_create_contract.sql",
+            "20260903000000_saved_places_api.sql",
+            "20260904000000_push_device_notification_preferences.sql",
+            "20260904000001_push_notification_server_writer_boundary.sql",
         )
-        base_target = "/docker-entrypoint-initdb.d/031_push_device_notification_preferences.sql"
-        correction_source = (
-            "./supabase/migrations/20260902000001_push_notification_server_writer_boundary.sql"
+        migration_names = tuple(
+            path.name
+            for path in sorted((ROOT / "supabase/migrations").glob("202609*.sql"))
         )
-        correction_target = (
-            "/docker-entrypoint-initdb.d/032_push_notification_server_writer_boundary.sql"
+        versions = tuple(name[:14] for name in migration_names)
+
+        self.assertEqual(expected, migration_names)
+        self.assertEqual(len(versions), len(set(versions)))
+
+    def test_docker_init_applies_trip_saved_push_correction_then_seed_exactly_once(self):
+        mounts = (
+            (
+                "./supabase/migrations/20260902000000_trip_create_contract.sql",
+                "/docker-entrypoint-initdb.d/031_trip_create_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260903000000_saved_places_api.sql",
+                "/docker-entrypoint-initdb.d/032_saved_places_api.sql",
+            ),
+            (
+                "./supabase/migrations/20260904000000_push_device_notification_preferences.sql",
+                "/docker-entrypoint-initdb.d/033_push_device_notification_preferences.sql",
+            ),
+            (
+                "./supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql",
+                "/docker-entrypoint-initdb.d/034_push_notification_server_writer_boundary.sql",
+            ),
+            (
+                "./db/local-postgres/seed_fixtures.sql",
+                "/docker-entrypoint-initdb.d/099_seed_fixtures.sql",
+            ),
         )
-        seed_target = "/docker-entrypoint-initdb.d/099_seed_fixtures.sql"
 
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             compose = (ROOT / compose_name).read_text(encoding="utf-8")
             with self.subTest(compose=compose_name):
-                self.assertEqual(1, compose.count(f"{base_source}:{base_target}:ro"))
-                self.assertEqual(
-                    1,
-                    compose.count(f"{correction_source}:{correction_target}:ro"),
-                )
-                self.assertLess(compose.index(base_target), compose.index(correction_target))
-                self.assertLess(compose.index(correction_target), compose.index(seed_target))
+                positions = []
+                for source, target in mounts:
+                    exact_mount = f"{source}:{target}:ro"
+                    self.assertEqual(1, compose.count(exact_mount), exact_mount)
+                    positions.append(compose.index(exact_mount))
+                self.assertEqual(sorted(positions), positions)
 
         docker_smoke = DOCKER_SMOKE.read_text(encoding="utf-8")
-        self.assertEqual(2, docker_smoke.count(base_target))
-        self.assertEqual(2, docker_smoke.count(correction_target))
+        migration_targets = tuple(target for _, target in mounts[:-1])
+        for target in migration_targets:
+            self.assertEqual(2, docker_smoke.count(target), target)
         for next_contract in (
             "/queries/legacy_v1_upgrade_contract.sql",
             "/queries/database_concurrency_contract.sql",
         ):
             with self.subTest(next_contract=next_contract):
+                exact_sequence = " \\\n  ".join((*migration_targets, next_contract))
                 self.assertEqual(
                     1,
-                    docker_smoke.count(
-                        f"{base_target} \\\n"
-                        f"  {correction_target} \\\n"
-                        f"  {next_contract}"
-                    ),
+                    docker_smoke.count(exact_sequence),
+                    exact_sequence,
                 )
 
     def test_server_writer_boundary_is_additive_and_removes_all_client_write_paths(self):

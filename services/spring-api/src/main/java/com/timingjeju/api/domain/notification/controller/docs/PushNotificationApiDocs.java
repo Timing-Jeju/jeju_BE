@@ -92,7 +92,7 @@ public interface PushNotificationApiDocs {
               required = true,
               description =
                   "application-generated lowercase canonical UUID; hardware/advertising ID 금지",
-              example = "11300000-0000-0000-0000-000000000101",
+              example = "11300000-0000-4000-8000-000000000101",
               schema =
                   @Schema(
                       type = "string",
@@ -169,7 +169,7 @@ public interface PushNotificationApiDocs {
               required = true,
               description =
                   "application-generated lowercase canonical UUID; hardware/advertising ID 금지",
-              example = "11300000-0000-0000-0000-000000000101",
+              example = "11300000-0000-4000-8000-000000000101",
               schema =
                   @Schema(
                       type = "string",
@@ -177,7 +177,9 @@ public interface PushNotificationApiDocs {
                       pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
           String deviceId);
 
-  @Operation(summary = "현재 사용자 출발 알림 설정 조회")
+  @Operation(
+      summary = "현재 사용자 출발 알림 설정 조회",
+      description = "명시적 opt-in 전 기본 비활성화와 safety buffer 10분을 반환합니다.")
   @ApiResponses({
     @ApiResponse(
         responseCode = "200",
@@ -233,7 +235,9 @@ public interface PushNotificationApiDocs {
   })
   NotificationPreferenceResponse readPreferences();
 
-  @Operation(summary = "현재 사용자 출발 알림 설정 변경")
+  @Operation(
+      summary = "현재 사용자 출발 알림 설정 변경",
+      description = "출발 알림 opt-in과 0..120분 safety buffer를 부분 변경합니다.")
   @ApiResponses({
     @ApiResponse(
         responseCode = "200",

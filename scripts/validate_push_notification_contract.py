@@ -52,7 +52,7 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
     limits = contract.get("limits", {})
     if limits.get("deviceId") != {
         "type": "string", "format": "uuid", "length": 36, "pattern": UUID_PATTERN,
-        "example": "11300000-0000-0000-0000-000000000101",
+        "example": "11300000-0000-4000-8000-000000000101",
     }:
         errors.append("deviceId canonical UUID limit drift")
     token = limits.get("registrationToken", {})
@@ -89,7 +89,7 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
         "appVersion": {"type": "string", "minLength": 1, "maxLength": 50},
         "locale": {
             "type": "string", "minLength": 2, "maxLength": 35,
-            "pattern": "^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2}|-[0-9]{3})?(?:-[A-Za-z0-9]{5,8}|-[0-9][A-Za-z0-9]{3})*(?:-[0-9A-WYZa-wy-z](?:-[A-Za-z0-9]{2,8})+)*(?:-x(?:-[A-Za-z0-9]{1,8})+)?$",
+            "pattern": "^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2}|-[0-9]{3})?(?:-[A-Za-z0-9]{5,8}|-[0-9][A-Za-z0-9]{3})*(?:-[0-9A-WY-Za-wy-z](?:-[A-Za-z0-9]{2,8})+)*(?:-x(?:-[A-Za-z0-9]{1,8})+)?$",
             "example": "en-US-u-ca-gregory",
         },
         "timeZone": {"type": "string", "minLength": 1, "maxLength": 64},
@@ -106,12 +106,12 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
         errors.append("PushDeviceResponse field schema drift")
     if patch.get("properties") != {
         "nextDestinationDepartureEnabled": {"type": "boolean"},
-        "safetyBufferMinutes": {"$ref": "#/limits/safetyBufferMinutes"},
+        "safetyBufferMinutes": {"type": "integer", "format": "int32", "minimum": 0, "maximum": 120},
     }:
         errors.append("NotificationPreferencePatchRequest field schema drift")
     if schemas.get("NotificationPreferenceResponse", {}).get("properties") != {
         "nextDestinationDepartureEnabled": {"type": "boolean", "default": False},
-        "safetyBufferMinutes": {"$ref": "#/limits/safetyBufferMinutes"},
+        "safetyBufferMinutes": {"type": "integer", "format": "int32", "minimum": 0, "maximum": 120, "default": 10},
         "updatedAt": {"type": ["string", "null"], "format": "date-time"},
     }:
         errors.append("NotificationPreferenceResponse field schema drift")
@@ -165,8 +165,8 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
     database = contract.get("database", {})
     if database != {
         "migrations": [
-            "supabase/migrations/20260902000000_push_device_notification_preferences.sql",
-            "supabase/migrations/20260902000001_push_notification_server_writer_boundary.sql",
+            "supabase/migrations/20260904000000_push_device_notification_preferences.sql",
+            "supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql",
         ],
         "tables": ["public.push_devices", "public.notification_preferences"], "ownerColumn": "user_id",
         "rlsPredicate": "(select auth.uid()) = user_id", "anonymousAccess": False,

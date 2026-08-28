@@ -35,6 +35,29 @@ class IdempotencyRequestTest {
   }
 
   @Test
+  void uppercase_UUID_key는_invalid_code로_거부한다() {
+    assertThatThrownBy(
+            () ->
+                IdempotencyRequest.create(
+                    OWNER,
+                    "POST",
+                    "/api/v1/trips",
+                    "018F6F2A-60A0-7F5B-8C61-8F548F34BC31",
+                    bytes("{}")))
+        .isInstanceOf(IdempotencyException.class)
+        .extracting("code")
+        .isEqualTo("IDEMPOTENCY_KEY_INVALID");
+  }
+
+  @Test
+  void lowercase_canonical_UUID_key는_원본_UUID로_수용한다() {
+    IdempotencyRequest request =
+        IdempotencyRequest.create(OWNER, "POST", "/api/v1/trips", KEY, bytes("{}"));
+
+    assertThat(request.idempotencyKey()).isEqualTo(UUID.fromString(KEY));
+  }
+
+  @Test
   void request_body가_정확히_1MiB이면_허용한다() {
     IdempotencyRequest request =
         IdempotencyRequest.create(OWNER, "post", "/api//v1/trips/", KEY, new byte[1_048_576]);

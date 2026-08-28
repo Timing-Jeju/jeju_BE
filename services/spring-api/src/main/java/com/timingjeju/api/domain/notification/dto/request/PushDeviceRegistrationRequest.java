@@ -73,6 +73,7 @@ public final class PushDeviceRegistrationRequest {
   @Schema(
       requiredMode = Schema.RequiredMode.REQUIRED,
       example = "en-US-u-ca-gregory",
+      minLength = 2,
       maxLength = PushLocalePolicy.MAX_LENGTH,
       pattern = PushLocalePolicy.BCP47_PATTERN,
       description = "canonical BCP 47 locale; 2..35 characters")
@@ -85,7 +86,11 @@ public final class PushDeviceRegistrationRequest {
     locale = string(value);
   }
 
-  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, example = "Asia/Seoul", maxLength = 64)
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      example = "Asia/Seoul",
+      minLength = 1,
+      maxLength = 64)
   public String getTimeZone() {
     return timeZone;
   }

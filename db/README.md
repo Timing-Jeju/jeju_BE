@@ -45,6 +45,10 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260826000000_tago_arrival_cache.sql`: TAGO 도착 snapshot 계보·범위·freshness와 동시 관측 충돌 방지 계약
 - `supabase/migrations/20260829000000_completed_provider_snapshot_retention_index.sql`: 완료 공급자 due snapshot payload one-shot batch의 `(purge_after, id)` partial ordered index
 - `supabase/migrations/20260830000000_schedule_revision_run_foundation.sql`: 일정 보정 run의 canonical owner/trip/base/Day identity, 멱등·active scope와 lease/fencing lifecycle 계약
+- `supabase/migrations/20260902000000_trip_create_contract.sql`: 여행 생성·조회와 owner scoped 일정 root/Day/이동수단 계약
+- `supabase/migrations/20260903000000_saved_places_api.sql`: 관심 장소 CRUD, canonical owner, 멱등 응답 snapshot과 30일 backfill audit retention 계약
+- `supabase/migrations/20260904000000_push_device_notification_preferences.sql`: 푸시 기기·출발 알림 설정과 owner safe-column 조회 계약
+- `supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql`: authenticated client write 경로 제거와 service-role writer 경계 보정
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터

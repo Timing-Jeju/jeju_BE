@@ -6,9 +6,15 @@ import java.time.Instant;
 
 @Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public record NotificationPreferenceResponse(
-    boolean nextDestinationDepartureEnabled,
-    @Schema(minimum = "0", maximum = "120") int safetyBufferMinutes,
-    @Schema(nullable = true) Instant updatedAt) {
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, defaultValue = "false")
+        boolean nextDestinationDepartureEnabled,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            maximum = "120",
+            defaultValue = "10")
+        int safetyBufferMinutes,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true) Instant updatedAt) {
 
   public static NotificationPreferenceResponse from(NotificationPreference preference) {
     return new NotificationPreferenceResponse(

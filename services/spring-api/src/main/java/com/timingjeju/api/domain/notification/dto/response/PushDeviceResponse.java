@@ -9,11 +9,14 @@ import java.util.UUID;
 
 @Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public record PushDeviceResponse(
-    UUID deviceId,
-    PushPlatform platform,
-    PushPermissionStatus permissionStatus,
-    boolean active,
-    Instant updatedAt) {
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        UUID deviceId,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PushPlatform platform,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) PushPermissionStatus permissionStatus,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean active,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Instant updatedAt) {
 
   public static PushDeviceResponse from(PushDevice device) {
     return new PushDeviceResponse(
