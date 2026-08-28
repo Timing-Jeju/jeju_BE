@@ -27,6 +27,50 @@ final class PostgreSqlTestContainerFactory {
   private PostgreSqlTestContainerFactory() {}
 
   static PostgreSQLContainer create() {
+    return createWithScripts(canonicalInitScripts(locateRepositoryRoot()));
+  }
+
+  static PostgreSQLContainer createBefore(String exclusiveMigration) {
+    List<Path> scripts = canonicalInitScripts(locateRepositoryRoot());
+    int targetIndex = -1;
+    for (int index = 0; index < scripts.size(); index++) {
+      if (exclusiveMigration.equals(scripts.get(index).getFileName().toString())) {
+        targetIndex = index;
+        break;
+      }
+    }
+    if (targetIndex < 0) {
+      throw new IllegalStateException("대상 Supabase migration이 없습니다: " + exclusiveMigration);
+    }
+    return createWithScripts(scripts.subList(0, targetIndex));
+  }
+
+  static void executeScript(PostgreSQLContainer container, Path script) throws Exception {
+    String target = "/tmp/" + UUID.randomUUID() + "_" + script.getFileName();
+    container.copyFileToContainer(MountableFile.forHostPath(script), target);
+    var result =
+        container.execInContainer(
+            "psql",
+            "--no-psqlrc",
+            "--set",
+            "ON_ERROR_STOP=1",
+            "--username",
+            container.getUsername(),
+            "--dbname",
+            container.getDatabaseName(),
+            "--file",
+            target);
+    if (result.getExitCode() != 0) {
+      throw new IllegalStateException(
+          "PostgreSQL script 실행 실패: "
+              + script.getFileName()
+              + " (exit="
+              + result.getExitCode()
+              + ")");
+    }
+  }
+
+  private static PostgreSQLContainer createWithScripts(List<Path> initScripts) {
     requireDocker(() -> DockerClientFactory.instance().isDockerAvailable());
 
     PostgreSQLContainer container =
@@ -36,7 +80,6 @@ final class PostgreSqlTestContainerFactory {
             .withPassword(UUID.randomUUID().toString())
             .withStartupTimeout(Duration.ofMinutes(3));
 
-    List<Path> initScripts = canonicalInitScripts(locateRepositoryRoot());
     for (int index = 0; index < initScripts.size(); index++) {
       Path script = initScripts.get(index);
       String target =

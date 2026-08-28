@@ -34,6 +34,11 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  saved-place-retention:
+    enabled: ${SAVED_PLACE_RETENTION_ENABLED:false}
+    fixed-delay: ${SAVED_PLACE_RETENTION_FIXED_DELAY:PT24H}
+    initial-delay: ${SAVED_PLACE_RETENTION_INITIAL_DELAY:PT1M}
+    max-batches: ${SAVED_PLACE_RETENTION_MAX_BATCHES:10}
   snapshot-retention:
     enabled: ${SNAPSHOT_RETENTION_ENABLED:false}
     dry-run: ${SNAPSHOT_RETENTION_DRY_RUN:true}
@@ -50,6 +55,8 @@ app:
       enabled: ${APP_DATA_HEALTH_ACTUATOR_ENABLED:false}
   places:
     cursor-signing-key: ${APP_PLACES_CURSOR_SIGNING_KEY:}
+  trips:
+    cursor-signing-key: ${APP_TRIPS_CURSOR_SIGNING_KEY:}
   external-api:
     tour-api:
       enabled: ${TOUR_API_ENABLED:false}

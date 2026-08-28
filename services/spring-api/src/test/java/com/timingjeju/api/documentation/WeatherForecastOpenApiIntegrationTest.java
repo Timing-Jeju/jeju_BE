@@ -63,11 +63,11 @@ class WeatherForecastOpenApiIntegrationTest {
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lng')].schema.minimum")
-                .value(-180.0))
+                .value(-180))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lng')].schema.maximum")
-                .value(180.0))
+                .value(180))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='dateTime')].required")

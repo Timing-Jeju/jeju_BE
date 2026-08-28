@@ -39,6 +39,8 @@ services:
       - ./supabase/migrations/20260830000000_schedule_revision_run_foundation.sql:/docker-entrypoint-initdb.d/028_schedule_revision_run_foundation.sql:ro
       - ./supabase/migrations/20260831000000_compute_run_input_snapshot.sql:/docker-entrypoint-initdb.d/029_compute_run_input_snapshot.sql:ro
       - ./supabase/migrations/20260901000000_legal_documents_consents.sql:/docker-entrypoint-initdb.d/030_legal_documents_consents.sql:ro
+      - ./supabase/migrations/20260902000000_trip_create_contract.sql:/docker-entrypoint-initdb.d/031_trip_create_contract.sql:ro
+      - ./supabase/migrations/20260903000000_saved_places_api.sql:/docker-entrypoint-initdb.d/032_saved_places_api.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

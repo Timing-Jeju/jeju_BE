@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.timingjeju.api.application.retention.SavedPlaceRetentionTask;
 import com.timingjeju.api.application.retention.SnapshotRetentionOutcome;
 import com.timingjeju.api.application.retention.SnapshotRetentionResult;
 import com.timingjeju.api.application.retention.SnapshotRetentionService;
@@ -21,10 +22,12 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 @Tag("unit")
 class SnapshotRetentionRunnerConfigurationTest {
+  private final SavedPlaceRetentionTask ancillaryRetention = mock(SavedPlaceRetentionTask.class);
   private final ApplicationContextRunner contextRunner =
       new ApplicationContextRunner()
           .withUserConfiguration(SnapshotRetentionRunnerConfiguration.class)
-          .withBean(SnapshotRetentionService.class, () -> mock(SnapshotRetentionService.class));
+          .withBean(SnapshotRetentionService.class, () -> mock(SnapshotRetentionService.class))
+          .withBean(SavedPlaceRetentionTask.class, () -> ancillaryRetention);
 
   @Test
   void 기본값과_false는_runner가_없고_service를_호출하지_않는다() {
@@ -52,6 +55,7 @@ class SnapshotRetentionRunnerConfigurationTest {
               context.getBean(ApplicationRunner.class).run(arguments());
 
               verify(service).execute(true, 500);
+              verify(ancillaryRetention, never()).drain(10);
               assertThat(context).getBeans(ApplicationRunner.class).hasSize(1);
             });
   }

@@ -3,7 +3,10 @@ package com.timingjeju.api.global.error;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.List;
 
-@Schema(name = "ApiProblemDetails", description = "Timing Jeju 공개 API 공통 오류 응답")
+@Schema(
+    name = "ApiProblemDetails",
+    description = "Timing Jeju 공개 API 공통 오류 응답",
+    additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public record ApiProblemDetails(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uri") String type,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String title,
