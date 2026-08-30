@@ -8,6 +8,16 @@ public enum StandardProblemCode {
   IDEMPOTENCY_KEY_REQUIRED(400, "멱등성 키가 필요합니다.", "Idempotency-Key 헤더를 입력해 주세요."),
   IDEMPOTENCY_KEY_INVALID(400, "멱등성 키가 유효하지 않습니다.", "UUID 형식의 Idempotency-Key를 입력해 주세요."),
   CURSOR_INVALID(400, "커서가 유효하지 않습니다.", "목록을 처음부터 다시 조회해 주세요."),
+  AUTHENTICATION_REQUIRED(
+      "https://api.timing-jeju.com/problems/authentication-required",
+      401,
+      "인증이 필요합니다",
+      "로그인 후 다시 요청해 주세요."),
+  INVALID_ACCESS_TOKEN(
+      "https://api.timing-jeju.com/problems/invalid-access-token",
+      401,
+      "인증 정보가 올바르지 않습니다",
+      "유효한 인증 정보로 다시 요청해 주세요."),
   AUTH_TOKEN_INVALID(401, "인증에 실패했습니다.", "인증 토큰이 유효하지 않습니다."),
   AUTH_ACCESS_DENIED(403, "접근이 거부되었습니다.", "접근 권한이 없습니다."),
   RESOURCE_NOT_FOUND(404, "요청한 리소스를 찾을 수 없습니다.", "요청한 리소스가 존재하지 않습니다."),
@@ -30,6 +40,11 @@ public enum StandardProblemCode {
   StandardProblemCode(int status, String title, String detail) {
     String code = name();
     this.definition = ProblemDefinition.forCode(code, title, status, detail);
+  }
+
+  StandardProblemCode(String type, int status, String title, String detail) {
+    this.definition =
+        new ProblemDefinition(java.net.URI.create(type), title, status, name(), detail);
   }
 
   public ProblemDefinition definition() {

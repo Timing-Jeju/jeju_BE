@@ -70,10 +70,27 @@ class SecurityIntegrationTest {
   }
 
   @Test
-  void token이_없거나_malformed이면_401_계약을_반환한다() throws Exception {
-    assertUnauthorized(get("/api/v1/test/current-user"));
-    assertUnauthorized(
+  void token이_없으면_AUTHENTICATION_REQUIRED이고_malformed이면_INVALID_ACCESS_TOKEN이다() throws Exception {
+    assertAuthenticationRequired(get("/api/v1/test/current-user"));
+    assertInvalidAccessToken(
         get("/api/v1/test/current-user").header(HttpHeaders.AUTHORIZATION, "Bearer malformed"));
+  }
+
+  @Test
+  void 제공된_blank_wrong_scheme_empty_bearer_중복_overlong_header는_모두_invalid로_닫힌다() throws Exception {
+    String overlong = "Bearer " + "a".repeat(8192);
+
+    assertInvalidAccessToken(
+        get("/api/v1/test/current-user").header(HttpHeaders.AUTHORIZATION, ""));
+    assertInvalidAccessToken(
+        get("/api/v1/test/current-user").header(HttpHeaders.AUTHORIZATION, "Basic abc"));
+    assertInvalidAccessToken(
+        get("/api/v1/test/current-user").header(HttpHeaders.AUTHORIZATION, "Bearer "));
+    assertInvalidAccessToken(
+        get("/api/v1/test/current-user")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer malformed", "Bearer duplicate"));
+    assertInvalidAccessToken(
+        get("/api/v1/test/current-user").header(HttpHeaders.AUTHORIZATION, overlong));
   }
 
   @Test
@@ -259,7 +276,7 @@ class SecurityIntegrationTest {
     mockMvc.perform(get("/actuator/info")).andExpect(status().isOk());
     mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk());
     mockMvc.perform(get("/swagger-ui/index.html")).andExpect(status().isOk());
-    assertUnauthorized(get("/api/v1/test/current-user"));
+    assertAuthenticationRequired(get("/api/v1/test/current-user"));
   }
 
   @Test
@@ -391,10 +408,10 @@ class SecurityIntegrationTest {
         .andExpectAll(
             problemDetails(
                 401,
-                "https://api.timing-jeju.example/problems/auth-token-invalid",
-                "인증에 실패했습니다.",
-                "AUTH_TOKEN_INVALID",
-                "인증 토큰이 유효하지 않습니다."))
+                "https://api.timing-jeju.com/problems/authentication-required",
+                "인증이 필요합니다",
+                "AUTHENTICATION_REQUIRED",
+                "로그인 후 다시 요청해 주세요."))
         .andExpect(
             header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:3000"))
         .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, TRACE_ID_HEADER));
@@ -424,7 +441,7 @@ class SecurityIntegrationTest {
         .perform(
             get("/api/v1/test/current-user").header(HttpHeaders.AUTHORIZATION, "bearer " + token))
         .andExpect(status().isOk());
-    assertUnauthorized(
+    assertInvalidAccessToken(
         get("/api/v1/test/current-user")
             .header(HttpHeaders.AUTHORIZATION, bearer(token), bearer(token)));
   }
@@ -432,15 +449,37 @@ class SecurityIntegrationTest {
   private void assertUnauthorized(
       org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request)
       throws Exception {
+    assertInvalidAccessToken(request);
+  }
+
+  private void assertAuthenticationRequired(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request)
+      throws Exception {
     mockMvc
         .perform(request)
         .andExpectAll(
             problemDetails(
                 401,
-                "https://api.timing-jeju.example/problems/auth-token-invalid",
-                "인증에 실패했습니다.",
-                "AUTH_TOKEN_INVALID",
-                "인증 토큰이 유효하지 않습니다."));
+                "https://api.timing-jeju.com/problems/authentication-required",
+                "인증이 필요합니다",
+                "AUTHENTICATION_REQUIRED",
+                "로그인 후 다시 요청해 주세요."))
+        .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
+  }
+
+  private void assertInvalidAccessToken(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request)
+      throws Exception {
+    mockMvc
+        .perform(request)
+        .andExpectAll(
+            problemDetails(
+                401,
+                "https://api.timing-jeju.com/problems/invalid-access-token",
+                "인증 정보가 올바르지 않습니다",
+                "INVALID_ACCESS_TOKEN",
+                "유효한 인증 정보로 다시 요청해 주세요."))
+        .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"));
   }
 
   private String token(UUID userId) throws Exception {

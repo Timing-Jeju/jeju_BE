@@ -17,8 +17,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 public interface PushNotificationApiDocs {
 
   String AUTH_DESCRIPTION =
-      "현재 runtime stable code AUTH_TOKEN_INVALID; canonical common contract의 "
-          + "AUTHENTICATION_REQUIRED/INVALID_ACCESS_TOKEN과 drift가 있어 implementation not-ready";
+      "Authorization 누락은 AUTHENTICATION_REQUIRED, 제공된 인증 정보 실패는 INVALID_ACCESS_TOKEN";
 
   @Operation(summary = "현재 사용자 푸시 기기 등록", description = "FCM token을 응답에 노출하지 않고 기기를 멱등 등록·회전합니다.")
   @ApiResponses({
@@ -49,8 +48,8 @@ public interface PushNotificationApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class),
                 examples =
                     @ExampleObject(
-                        name = "AUTH_TOKEN_INVALID",
-                        value = "{\"code\":\"AUTH_TOKEN_INVALID\"}"))),
+                        name = "AUTHENTICATION_REQUIRED",
+                        value = "{\"code\":\"AUTHENTICATION_REQUIRED\"}"))),
     @ApiResponse(
         responseCode = "403",
         description = "AUTH_ACCESS_DENIED",
@@ -126,8 +125,8 @@ public interface PushNotificationApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class),
                 examples =
                     @ExampleObject(
-                        name = "AUTH_TOKEN_INVALID",
-                        value = "{\"code\":\"AUTH_TOKEN_INVALID\"}"))),
+                        name = "AUTHENTICATION_REQUIRED",
+                        value = "{\"code\":\"AUTHENTICATION_REQUIRED\"}"))),
     @ApiResponse(
         responseCode = "403",
         description = "AUTH_ACCESS_DENIED",
@@ -197,8 +196,8 @@ public interface PushNotificationApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class),
                 examples =
                     @ExampleObject(
-                        name = "AUTH_TOKEN_INVALID",
-                        value = "{\"code\":\"AUTH_TOKEN_INVALID\"}"))),
+                        name = "AUTHENTICATION_REQUIRED",
+                        value = "{\"code\":\"AUTHENTICATION_REQUIRED\"}"))),
     @ApiResponse(
         responseCode = "403",
         description = "AUTH_ACCESS_DENIED",
@@ -266,8 +265,8 @@ public interface PushNotificationApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class),
                 examples =
                     @ExampleObject(
-                        name = "AUTH_TOKEN_INVALID",
-                        value = "{\"code\":\"AUTH_TOKEN_INVALID\"}"))),
+                        name = "AUTHENTICATION_REQUIRED",
+                        value = "{\"code\":\"AUTHENTICATION_REQUIRED\"}"))),
     @ApiResponse(
         responseCode = "403",
         description = "AUTH_ACCESS_DENIED",

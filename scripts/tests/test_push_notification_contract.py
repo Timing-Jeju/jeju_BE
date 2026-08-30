@@ -51,7 +51,7 @@ class PushNotificationContractTest(unittest.TestCase):
             lambda c: c["endpointContracts"][0]["problems"][0].update(status=422),
             lambda c: c["endpointContracts"][0]["problems"][0].update(code="WRONG_CODE"),
             lambda c: c["endpointContracts"][0]["problems"][0].update(condition="wrong condition"),
-            lambda c: c["runtimeDrift"].update(implementationReady=True),
+            lambda c: c["runtimeDrift"].update(implementationReady=False),
             lambda c: c["cryptoFailure"].update(status=500),
             lambda c: c["legalSelection"]["order"].reverse(),
             lambda c: c["legalSelection"].update(snapshotIsolation="READ_COMMITTED"),

@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.config;
 
+import com.timingjeju.api.global.error.AuthenticationProblemWriter;
 import com.timingjeju.api.global.error.ProblemCodeRegistry;
 import com.timingjeju.api.global.error.ProblemDefinitionContributor;
 import com.timingjeju.api.global.error.ProblemResponseWriter;
@@ -40,6 +41,11 @@ public class ProblemDetailsConfig {
   ProblemResponseWriter problemResponseWriter(
       ObjectMapper objectMapper, ProblemCodeRegistry registry, RequestTraceId requestTraceId) {
     return new ProblemResponseWriter(objectMapper, registry, requestTraceId);
+  }
+
+  @Bean
+  AuthenticationProblemWriter authenticationProblemWriter(ProblemResponseWriter responseWriter) {
+    return new AuthenticationProblemWriter(responseWriter);
   }
 
   @Bean

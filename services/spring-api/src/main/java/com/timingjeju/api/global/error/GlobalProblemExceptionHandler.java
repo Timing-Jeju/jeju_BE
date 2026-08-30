@@ -36,11 +36,15 @@ public final class GlobalProblemExceptionHandler {
   private static final String VALIDATION_FAILED = "VALIDATION_FAILED";
 
   private final ProblemResponseWriter responseWriter;
+  private final AuthenticationProblemWriter authenticationProblemWriter;
   private final ValidationErrorMapper validationErrorMapper;
 
   public GlobalProblemExceptionHandler(
-      ProblemResponseWriter responseWriter, ValidationErrorMapper validationErrorMapper) {
+      ProblemResponseWriter responseWriter,
+      AuthenticationProblemWriter authenticationProblemWriter,
+      ValidationErrorMapper validationErrorMapper) {
     this.responseWriter = responseWriter;
+    this.authenticationProblemWriter = authenticationProblemWriter;
     this.validationErrorMapper = validationErrorMapper;
   }
 
@@ -222,6 +226,10 @@ public final class GlobalProblemExceptionHandler {
   void handleResponseStatus(
       ResponseStatusException exception, HttpServletRequest request, HttpServletResponse response)
       throws IOException {
+    if (exception.getStatusCode().value() == 401) {
+      authenticationProblemWriter.writeCanonical(request, response);
+      return;
+    }
     responseWriter.write(request, response, codeForStatus(exception.getStatusCode().value()));
   }
 
@@ -280,7 +288,6 @@ public final class GlobalProblemExceptionHandler {
   private static String codeForStatus(int status) {
     return switch (status) {
       case 400 -> StandardProblemCode.VALIDATION_FAILED.name();
-      case 401 -> StandardProblemCode.AUTH_TOKEN_INVALID.name();
       case 403 -> StandardProblemCode.AUTH_ACCESS_DENIED.name();
       case 404 -> StandardProblemCode.RESOURCE_NOT_FOUND.name();
       case 405 -> StandardProblemCode.METHOD_NOT_ALLOWED.name();

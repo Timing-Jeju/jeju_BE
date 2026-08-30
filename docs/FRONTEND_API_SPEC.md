@@ -994,7 +994,7 @@ Accept: application/json
 3. #44 trips canonical contract는 POST 멱등성 충돌을 `IDEMPOTENCY_KEY_REUSED`로 정의한다. #34 saved places는 다른 공통 구현 계약인 `IDEMPOTENCY_PAYLOAD_CONFLICT`를 쓴다. 두 code를 하나로 합치지 않는다.
 4. #34/#44/#113 통합 artifact의 readiness 표식은 배포 가능 여부나 독립 Reviewer 승인을 대신하지 않는다.
 5. `ProblemDefinition.forCode`로 만든 공통/profile/legal/Naver type은 현재 source에서 `https://api.timing-jeju.example/problems/...`이고, places/saved-places/trips/weather의 domain definition 및 canonical contract는 `https://api.timing-jeju.com/problems/...`이다. 프론트는 type host를 분기 key로 쓰지 말고 안정적인 `code`를 사용한다. #182 후속에서 canonical host를 하나로 정렬해야 한다.
-6. canonical contracts는 필수 인증의 누락/실패를 `AUTHENTICATION_REQUIRED`/`INVALID_ACCESS_TOKEN`으로 명명하지만 현재 `JsonAuthenticationEntryPoint`는 필수 endpoint에서 두 경우 모두 `AUTH_TOKEN_INVALID`를 쓴다. 이 문서는 endpoint matrix에 canonical 이름을 보존했으며 runtime 정렬 전에는 `AUTH_TOKEN_INVALID`도 호환 처리해야 한다.
+6. Spring 공통 인증 runtime은 필수 인증의 header 누락을 `AUTHENTICATION_REQUIRED`, 제공된 인증 정보 실패를 `INVALID_ACCESS_TOKEN`으로 구분하며, 선택 인증 endpoint는 header가 없을 때 익명 흐름을 유지한다.
 7. Naver UserInfo의 생성 OpenAPI 200 media type은 #182에서 runtime과 같은 `application/json`으로 정렬했다.
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.

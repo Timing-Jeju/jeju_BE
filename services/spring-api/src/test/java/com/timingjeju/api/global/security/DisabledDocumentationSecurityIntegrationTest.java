@@ -60,10 +60,10 @@ class DisabledDocumentationSecurityIntegrationTest {
         .andExpectAll(
             problemDetails(
                 401,
-                "https://api.timing-jeju.example/problems/auth-token-invalid",
-                "인증에 실패했습니다.",
-                "AUTH_TOKEN_INVALID",
-                "인증 토큰이 유효하지 않습니다."));
+                "https://api.timing-jeju.com/problems/authentication-required",
+                "인증이 필요합니다",
+                "AUTHENTICATION_REQUIRED",
+                "로그인 후 다시 요청해 주세요."));
 
     mockMvc
         .perform(get("/not-allowed").header(HttpHeaders.AUTHORIZATION, "Bearer " + validToken()))

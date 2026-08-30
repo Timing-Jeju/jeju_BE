@@ -633,7 +633,7 @@ final class FrontendOpenApiCustomizer {
   private static String defaultCode(int status) {
     return switch (status) {
       case 400 -> "VALIDATION_FAILED";
-      case 401 -> "AUTH_TOKEN_INVALID";
+      case 401 -> "AUTHENTICATION_REQUIRED";
       case 403 -> "AUTH_ACCESS_DENIED";
       case 404 -> "RESOURCE_NOT_FOUND";
       case 409 -> "CONFLICT";
@@ -746,7 +746,7 @@ final class FrontendOpenApiCustomizer {
             """
             {"userId":"18000000-0000-4000-8000-000000000018","email":"user@example.invalid","nickname":"제주 여행자","profileImageUrl":null,"locale":"ko-KR","providers":["google"],"onboardingCompleted":true,"updatedAt":"2026-08-25T00:00:00Z"}
             """,
-            Map.of("401", "AUTH_TOKEN_INVALID", "503", "PROFILE_DATA_UNAVAILABLE")));
+            Map.of("401", "AUTHENTICATION_REQUIRED", "503", "PROFILE_DATA_UNAVAILABLE")));
     result.put(
         "PATCH /api/v1/me",
         doc(
@@ -760,7 +760,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_PROFILE_LEGAL_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "409", "PROFILE_CONFLICT",
                 "503", "PROFILE_DATA_UNAVAILABLE")));
     result.put(
@@ -774,7 +774,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_PROFILE_LEGAL_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "INVALID_ACCESS_TOKEN",
                 "503", "PROFILE_DATA_UNAVAILABLE")));
     result.put(
         "PUT /api/v1/me/consents",
@@ -789,7 +789,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_PROFILE_LEGAL_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "409", "PROFILE_CONFLICT",
                 "422", "LEGAL_CONSENT_REQUIRED",
                 "503", "PROFILE_DATA_UNAVAILABLE")));
@@ -848,7 +848,7 @@ final class FrontendOpenApiCustomizer {
             """
             {"items":[{"placeId":"34000000-0000-4000-8000-000000000034","name":"새별오름","category":"content-type:12","regionLabel":"제주시","thumbnailUrl":"https://example.invalid/place.jpg","recommendedStayMinutes":90,"memo":"노을 시간 방문","tags":["노을","오름"],"priority":5,"targetDay":2,"savedAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}],"page":{"size":20,"hasNext":false,"nextCursor":null}}
             """,
-            Map.of("400", "INVALID_QUERY_PARAMETER", "401", "AUTH_TOKEN_INVALID")));
+            Map.of("400", "INVALID_QUERY_PARAMETER", "401", "AUTHENTICATION_REQUIRED")));
     result.put(
         "POST /api/v1/me/saved-places",
         doc(
@@ -862,7 +862,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "404", "PLACE_NOT_FOUND",
                 "409", "IDEMPOTENCY_PAYLOAD_CONFLICT",
                 "422", "SAVED_PLACE_CONSTRAINT_VIOLATION")));
@@ -879,7 +879,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "404", "SAVED_PLACE_NOT_FOUND",
                 "409", "SAVED_PLACE_VERSION_CONFLICT",
                 "422", "SAVED_PLACE_CONSTRAINT_VIOLATION")));
@@ -892,7 +892,7 @@ final class FrontendOpenApiCustomizer {
             null,
             Map.of(
                 "400", "INVALID_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "404", "SAVED_PLACE_NOT_FOUND")));
     result.put(
         "PUT /api/v1/me/push-devices/{deviceId}",
@@ -907,7 +907,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "403", "AUTH_ACCESS_DENIED",
                 "500", "INTERNAL_SERVER_ERROR",
                 "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
@@ -920,7 +920,7 @@ final class FrontendOpenApiCustomizer {
             null,
             Map.of(
                 "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "403", "AUTH_ACCESS_DENIED",
                 "500", "INTERNAL_SERVER_ERROR",
                 "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
@@ -934,7 +934,7 @@ final class FrontendOpenApiCustomizer {
             {"nextDestinationDepartureEnabled":false,"safetyBufferMinutes":10,"updatedAt":null}
             """,
             Map.of(
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "403", "AUTH_ACCESS_DENIED",
                 "500", "INTERNAL_SERVER_ERROR",
                 "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
@@ -951,7 +951,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "403", "AUTH_ACCESS_DENIED",
                 "500", "INTERNAL_SERVER_ERROR",
                 "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
@@ -970,7 +970,7 @@ final class FrontendOpenApiCustomizer {
             """,
             Map.of(
                 "400", "INVALID_QUERY_PARAMETER",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "503", "TRIP_DATA_UNAVAILABLE")));
     result.put(
         "POST /api/v1/trips",
@@ -983,7 +983,7 @@ final class FrontendOpenApiCustomizer {
             tripExample,
             Map.of(
                 "400", "INVALID_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "409", "IDEMPOTENCY_KEY_REUSED",
                 "422", "TRIP_CONSTRAINT_VIOLATION",
                 "503", "TRIP_DATA_UNAVAILABLE")));
@@ -996,7 +996,7 @@ final class FrontendOpenApiCustomizer {
             tripExample,
             Map.of(
                 "400", "INVALID_REQUEST",
-                "401", "AUTH_TOKEN_INVALID",
+                "401", "AUTHENTICATION_REQUIRED",
                 "404", "TRIP_NOT_FOUND",
                 "503", "TRIP_DATA_UNAVAILABLE")));
     return Map.copyOf(result);
