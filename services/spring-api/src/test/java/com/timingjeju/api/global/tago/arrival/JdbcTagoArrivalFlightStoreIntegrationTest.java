@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.tago.arrival;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.snapshot.SnapshotPayloadFormat;
 import com.timingjeju.api.application.tago.arrival.TagoArrival;
@@ -21,6 +22,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
@@ -30,17 +33,24 @@ import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -50,10 +60,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest
 @Import(PostgreSqlTestcontainersConfiguration.class)
 @ActiveProfiles("postgresql-integration")
+@ExtendWith(OutputCaptureExtension.class)
 class JdbcTagoArrivalFlightStoreIntegrationTest {
   private static final Duration LEASE = Duration.ofSeconds(12);
   private static final Duration RETAIN = Duration.ofSeconds(25);
   private static final Duration QUARANTINE = Duration.ofSeconds(12);
+  private static final Duration FOLLOWER_BATCH_DEADLINE = Duration.ofSeconds(3);
   private static final String FINGERPRINT = "a".repeat(64);
 
   @Autowired private JdbcTagoArrivalFlightStore store;
@@ -327,8 +339,8 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
   }
 
   @Test
-  void processor_row_lock중_same_fingerprint_followers는_pool을_막지않고_deadline내_action0이다()
-      throws Exception {
+  void processor_row_lock중_same_fingerprint_followers는_pool을_막지않고_deadline내_action0이다(
+      CapturedOutput output) throws Exception {
     TagoArrivalCacheKey key = TagoArrivalCacheKey.tago(new UUID(39L, 500L), "39", "LOCKED-NODE");
     String lockedFingerprint = fingerprint(key);
     TagoArrivalFlightDecision leader =
@@ -342,40 +354,72 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
     config.setMaximumPoolSize(2);
     config.setMinimumIdle(0);
 
-    try (HikariDataSource pool = new HikariDataSource(config);
-        var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      var lockHolder =
-          executor.submit(
-              () ->
-                  transactions.executeWithoutResult(
-                      ignored -> {
-                        store.lockCurrent(leader.lease());
-                        locked.countDown();
-                        await(release);
-                      }));
-      assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
-      JdbcTagoArrivalFlightStore followerStore =
-          new JdbcTagoArrivalFlightStore(new JdbcTemplate(pool));
+    try (HikariDataSource pool = new HikariDataSource(config)) {
+      warmFollowerPoolWithDatabaseTimeouts(pool);
+      assertThat(pool.getHikariPoolMXBean().getTotalConnections()).isEqualTo(2);
+      assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+
+      var executor = Executors.newVirtualThreadPerTaskExecutor();
+      CountDownLatch observersReady = new CountDownLatch(20);
+      CountDownLatch startObservers = new CountDownLatch(1);
+      AtomicInteger observersCompleted = new AtomicInteger();
+      AtomicInteger actions = new AtomicInteger();
+      Future<?> lockHolder = null;
       try {
-        var observers =
+        lockHolder =
+            executor.submit(
+                () ->
+                    transactions.executeWithoutResult(
+                        ignored -> {
+                          store.lockCurrent(leader.lease());
+                          locked.countDown();
+                          await(release);
+                        }));
+        assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+        JdbcTagoArrivalFlightStore followerStore =
+            new JdbcTagoArrivalFlightStore(new JdbcTemplate(pool));
+        List<FollowerTask> observers =
             IntStream.range(0, 20)
                 .mapToObj(
-                    index ->
-                        executor.submit(
-                            () ->
-                                followerStore.observeOrClaim(
-                                    lockedFingerprint,
-                                    new UUID(39L, index + 100L),
-                                    LEASE,
-                                    QUARANTINE)))
+                    index -> {
+                      String label = "follower-%02d".formatted(index);
+                      return new FollowerTask(
+                          label,
+                          executor.submit(
+                              () ->
+                                  observeFollower(
+                                      label,
+                                      index,
+                                      observersReady,
+                                      startObservers,
+                                      observersCompleted,
+                                      followerStore,
+                                      lockedFingerprint)));
+                    })
                 .toList();
-        for (var observer : observers) {
-          assertThat(observer.get(1, TimeUnit.SECONDS).status())
+
+        assertThat(observersReady.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(observersCompleted).hasValue(0);
+        long batchDeadlineNanos = System.nanoTime() + FOLLOWER_BATCH_DEADLINE.toNanos();
+        startObservers.countDown();
+        List<FollowerObservation> observations =
+            observers.stream()
+                .map(
+                    observer ->
+                        getBeforeDeadline(observer.label(), observer.future(), batchDeadlineNanos))
+                .toList();
+
+        assertThat(observations).hasSize(20);
+        for (FollowerObservation observation : observations) {
+          assertThat(observation.decision().status())
+              .describedAs(observation.label())
               .isEqualTo(TagoArrivalFlightStatus.RUNNING);
+          assertThat(observation.completedAtNanos())
+              .describedAs(observation.label())
+              .isLessThanOrEqualTo(batchDeadlineNanos);
         }
         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
 
-        AtomicInteger actions = new AtomicInteger();
         TagoArrivalDistributedFlightCoordinator coordinator =
             new TagoArrivalDistributedFlightCoordinator(
                 followerStore,
@@ -403,9 +447,110 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
         assertThat(actions).hasValue(0);
         assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
       } finally {
+        startObservers.countDown();
         release.countDown();
-        lockHolder.get(5, TimeUnit.SECONDS);
+        if (lockHolder != null) lockHolder.get(5, TimeUnit.SECONDS);
+        executor.shutdown();
+        assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
       }
+      assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+      transactions.executeWithoutResult(ignored -> store.lockCurrent(leader.lease()));
+      assertThat(
+              jdbc.queryForObject(
+                  "select generation from public.tago_arrival_flights where fingerprint=?",
+                  Long.class,
+                  lockedFingerprint))
+          .isEqualTo(leader.lease().generation());
+      assertThat(
+              containsAnySensitiveText(
+                  output.getAll(),
+                  primaryDataSource.getPassword(),
+                  lockedFingerprint,
+                  "LOCKED-NODE"))
+          .describedAs("raw credential/location log count")
+          .isFalse();
+    }
+  }
+
+  @Test
+  void follower_batch는_observer별_relative_timeout이_아닌하나의_absolute_deadline을_쓴다() {
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      CountDownLatch beginDelayedRelease = new CountDownLatch(1);
+      CountDownLatch releaseSecond = new CountDownLatch(1);
+      Future<FollowerObservation> second =
+          executor.submit(
+              () -> {
+                await(releaseSecond);
+                return new FollowerObservation(
+                    "deadline-second", TagoArrivalFlightDecision.contended(), System.nanoTime());
+              });
+      Future<?> delayedRelease =
+          executor.submit(
+              () -> {
+                await(beginDelayedRelease);
+                try {
+                  Thread.sleep(Duration.ofSeconds(1));
+                } catch (InterruptedException interrupted) {
+                  Thread.currentThread().interrupt();
+                  throw new AssertionError(interrupted);
+                }
+                releaseSecond.countDown();
+              });
+      long batchDeadlineNanos = System.nanoTime() + Duration.ofMillis(250).toNanos();
+
+      beginDelayedRelease.countDown();
+      assertThatThrownBy(() -> getBeforeDeadline("deadline-second", second, batchDeadlineNanos))
+          .isInstanceOf(AssertionError.class)
+          .hasMessageContaining("absolute deadline");
+      releaseSecond.countDown();
+      get(delayedRelease);
+    }
+  }
+
+  @Test
+  void follower_failure와_unfinished_deadline은_observer_label과_stage를_보존한다() {
+    CompletableFuture<FollowerObservation> failed = new CompletableFuture<>();
+    failed.completeExceptionally(new IllegalStateException("database observe failed"));
+
+    assertThatThrownBy(
+            () -> getBeforeDeadline("follower-07", failed, System.nanoTime() + 1_000_000_000L))
+        .isInstanceOf(AssertionError.class)
+        .hasMessageContaining("follower-07")
+        .hasMessageContaining("DB observe");
+
+    CompletableFuture<FollowerObservation> unfinished = new CompletableFuture<>();
+    assertThatThrownBy(
+            () -> getBeforeDeadline("follower-11", unfinished, System.nanoTime() + 20_000_000L))
+        .isInstanceOf(AssertionError.class)
+        .hasMessageContaining("follower-11")
+        .hasMessageContaining("absolute deadline");
+
+    assertThatThrownBy(() -> getBeforeDeadline("follower-13", unfinished, System.nanoTime() - 1L))
+        .isInstanceOf(AssertionError.class)
+        .hasMessageContaining("follower-13")
+        .hasMessageContaining("absolute deadline");
+  }
+
+  @Test
+  void follower는_coordinated_start가_release되기전에는_barrier를_통과하지않는다() throws Exception {
+    CountDownLatch ready = new CountDownLatch(1);
+    CountDownLatch start = new CountDownLatch(1);
+    CountDownLatch escaped = new CountDownLatch(1);
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      Future<?> follower =
+          executor.submit(
+              () -> {
+                awaitCoordinatedStart(ready, start);
+                escaped.countDown();
+              });
+
+      assertThat(ready.await(1, TimeUnit.SECONDS)).isTrue();
+      assertThat(escaped.await(100, TimeUnit.MILLISECONDS)).isFalse();
+      start.countDown();
+      follower.get(1, TimeUnit.SECONDS);
+      assertThat(escaped.getCount()).isZero();
+    } finally {
+      start.countDown();
     }
   }
 
@@ -553,6 +698,85 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
       throw new AssertionError(failure);
     }
   }
+
+  private static void warmFollowerPoolWithDatabaseTimeouts(HikariDataSource pool)
+      throws SQLException {
+    try (Connection first = pool.getConnection();
+        Connection second = pool.getConnection()) {
+      configureFollowerSession(first);
+      configureFollowerSession(second);
+      assertThat(pool.getHikariPoolMXBean().getTotalConnections()).isEqualTo(2);
+      assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(2);
+    }
+  }
+
+  private static void configureFollowerSession(Connection connection) throws SQLException {
+    try (var statement = connection.createStatement()) {
+      statement.execute("set lock_timeout='200ms'");
+      statement.execute("set statement_timeout='2s'");
+      try (var lockTimeout = statement.executeQuery("show lock_timeout")) {
+        assertThat(lockTimeout.next()).isTrue();
+        assertThat(lockTimeout.getString(1)).isEqualTo("200ms");
+      }
+      try (var statementTimeout = statement.executeQuery("show statement_timeout")) {
+        assertThat(statementTimeout.next()).isTrue();
+        assertThat(statementTimeout.getString(1)).isEqualTo("2s");
+      }
+    }
+  }
+
+  private static FollowerObservation observeFollower(
+      String label,
+      int index,
+      CountDownLatch ready,
+      CountDownLatch start,
+      AtomicInteger completed,
+      JdbcTagoArrivalFlightStore followerStore,
+      String fingerprint) {
+    awaitCoordinatedStart(ready, start);
+    TagoArrivalFlightDecision decision =
+        followerStore.observeOrClaim(fingerprint, new UUID(39L, index + 100L), LEASE, QUARANTINE);
+    completed.incrementAndGet();
+    return new FollowerObservation(label, decision, System.nanoTime());
+  }
+
+  private static void awaitCoordinatedStart(CountDownLatch ready, CountDownLatch start) {
+    ready.countDown();
+    await(start);
+  }
+
+  private static FollowerObservation getBeforeDeadline(
+      String label, Future<FollowerObservation> observer, long deadlineNanos) {
+    long remainingNanos = deadlineNanos - System.nanoTime();
+    assertThat(remainingNanos)
+        .describedAs(label + " absolute deadline before DB observe")
+        .isPositive();
+    try {
+      return observer.get(remainingNanos, TimeUnit.NANOSECONDS);
+    } catch (TimeoutException timeout) {
+      throw new AssertionError(label + " DB observe가 absolute deadline 안에 완료되지 않았습니다.", timeout);
+    } catch (ExecutionException failure) {
+      throw new AssertionError(label + " DB observe 실패", failure.getCause());
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(
+          label + " DB observe가 absolute deadline 전에 interrupt됐습니다.", interrupted);
+    }
+  }
+
+  private static boolean containsAnySensitiveText(String output, String... sensitiveValues) {
+    for (String sensitiveValue : sensitiveValues) {
+      if (sensitiveValue != null && !sensitiveValue.isBlank() && output.contains(sensitiveValue)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private record FollowerObservation(
+      String label, TagoArrivalFlightDecision decision, long completedAtNanos) {}
+
+  private record FollowerTask(String label, Future<FollowerObservation> future) {}
 
   private static void await(CountDownLatch latch) {
     try {
