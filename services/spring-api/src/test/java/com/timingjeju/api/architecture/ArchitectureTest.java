@@ -3,13 +3,19 @@ package com.timingjeju.api.architecture;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.mutation.FirebaseApplicationDependencyMutation;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchRule;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag("architecture")
@@ -33,6 +39,18 @@ class ArchitectureTest {
         .should()
         .dependOnClassesThat()
         .resideInAPackage("..repository..")
+        .allowEmptyShould(true)
+        .check(classes);
+  }
+
+  @Test
+  void controller는_Spring_DAO_예외에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .areAnnotatedWith(RestController.class)
+        .should()
+        .dependOnClassesThat()
+        .resideInAPackage("org.springframework.dao..")
         .allowEmptyShould(true)
         .check(classes);
   }
@@ -228,6 +246,53 @@ class ArchitectureTest {
   }
 
   @Test
+  void push_application_port는_Firebase와_Spring_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.push..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "..global.push..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("FirebasePushMessageSender")
+        .should()
+        .resideInAPackage("..global.push.firebase..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.push..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
+  void Firebase_SDK는_global_push_firebase_adapter_밖으로_누출되지_않는다() {
+    firebaseSdkIsolationRule().check(classes);
+  }
+
+  @Test
+  void Firebase_SDK_누출_mutation을_application_전체_경계가_탐지한다() {
+    JavaClasses mutation =
+        new ClassFileImporter().importClasses(FirebaseApplicationDependencyMutation.class);
+
+    assertThatThrownBy(() -> firebaseSdkIsolationRule().check(mutation))
+        .isInstanceOf(AssertionError.class)
+        .hasMessageContaining("FirebaseMessaging");
+  }
+
+  private static ArchRule firebaseSdkIsolationRule() {
+    return noClasses()
+        .that()
+        .resideOutsideOfPackage("..global.push.firebase..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("com.google.firebase..", "com.google.auth..")
+        .allowEmptyShould(false);
+  }
+
+  @Test
   void TourAPI_provenance_application_port는_Spring과_JDBC_adapter에_의존하지_않는다() {
     noClasses()
         .that()
@@ -292,6 +357,85 @@ class ArchitectureTest {
         .resideInAPackage("..domain..")
         .allowEmptyShould(false)
         .check(classes);
+  }
+
+  @Test
+  void 푸시_알림_application은_provider_Spring_global_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.notification..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage(
+            "org.springframework..",
+            "org.springframework.security..",
+            "..global.notification..",
+            "..global.security..",
+            "..application.push..",
+            "com.google.firebase..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
+  void 푸시_알림_domain은_Firebase_SpringSecurity_global_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..domain.notification..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage(
+            "org.springframework.security..",
+            "..global.notification..",
+            "..global.security..",
+            "..application.push..",
+            "com.google.firebase..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
+  void 푸시_알림_JDBC_crypto_adapter는_application_port_방향을_유지한다() {
+    classes()
+        .that()
+        .haveSimpleName("RegistrationTokenProtectionFailure")
+        .should()
+        .resideInAPackage("..application.notification..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("JdbcPushNotificationStore")
+        .should()
+        .resideInAPackage("..global.notification..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.notification..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("AesGcmRegistrationTokenProtector")
+        .should()
+        .resideInAPackage("..global.notification..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.notification..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
+  void 푸시_eligibility의_세조회는_repeatable_read_snapshot을_공유한다() throws ReflectiveOperationException {
+    Class<?> store =
+        Class.forName("com.timingjeju.api.global.notification.JdbcPushNotificationStore");
+    var method =
+        store.getDeclaredMethod("findEligible", java.util.UUID.class, java.time.Instant.class);
+    Transactional transaction = method.getAnnotation(Transactional.class);
+
+    assertThat(transaction).isNotNull();
+    assertThat(transaction.readOnly()).isTrue();
+    assertThat(transaction.isolation()).isEqualTo(Isolation.REPEATABLE_READ);
   }
 
   @Test

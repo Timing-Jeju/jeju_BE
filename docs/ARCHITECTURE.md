@@ -89,11 +89,23 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 법정 문서는 `(document_type, locale, version)`으로 버전을 보존하고 Spring이 한 평가 시각의 최신 시행 문서만 조회합니다. 사용자 동의는 canonical JWT sub에만 귀속하며 다건 갱신과 필수 최신 문서 검증을 한 트랜잭션으로 처리합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재, `20260820000000` `#36` 노선-정류장 적재, `20260820000001` `#76` KMA 예보, `20260822000000` `#37` 관광지-정류장 후보 link, `20260823000000` `#65` 추천 체류시간 정책, `20260824000000` `#75` TourAPI discovery checkpoint, `20260825000000` `#33` 공개 장소 tombstone, `20260826000000` `#39` TAGO 도착정보, `20260827000000` `#39` 도착 요청 flight state, `20260830000000` `#170` schedule revision run foundation 순으로 누적 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재, `20260820000000` `#36` 노선-정류장 적재, `20260820000001` `#76` KMA 예보, `20260822000000` `#37` 관광지-정류장 후보 link, `20260823000000` `#65` 추천 체류시간 정책, `20260824000000` `#75` TourAPI discovery checkpoint, `20260825000000` `#33` 공개 장소 tombstone, `20260826000000` `#39` TAGO 도착정보, `20260827000000` `#39` 도착 요청 flight state, `20260830000000` `#170` schedule revision run foundation, `20260902000000` `#44` 여행 생성, `20260903000000` `#182` 관심 장소, `20260904000000`·`20260904000001` `#113` 푸시 기기·알림 설정 순으로 누적 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
 - 현재 기능 개발 로드맵 전체에서 Spring classpath와 `db/migration`에 Flyway를 도입하지 않습니다. `supabase/migrations`만 운영 DB 마이그레이션의 단일 기준으로 유지합니다. Flyway 검토는 모든 주요 기능 개발이 끝난 뒤 마지막 안정화 Issue에서만 수행하며, 그 전에는 의존성·application 설정·디렉터리·테스트를 추가하지 않습니다.
+
+## 푸시 기기와 출발 알림 설정 경계
+
+`domain/notification`은 현재 사용자의 푸시 기기 등록·해제와 출발 알림 설정 API만 소유하고, `application.notification`은 token 보호 전후 port, 설정 및 eligibility 계약을 소유합니다. `global.notification`은 PostgreSQL adapter와 AES-256-GCM crypto/config만 구현합니다. Firebase provider 전송은 별도 `application.push`/`global.push.firebase` 경계이며 이 도메인에 Firebase SDK 타입을 노출하지 않습니다.
+
+registration token 원문은 controller 요청에서 application crypto port로 즉시 전달하고 repository에는 ciphertext와 SHA-256 fingerprint만 전달합니다. 원문·ciphertext·fingerprint 및 crypto 실패 원인은 API 응답, Problem Details, 로그, trace, metric과 fixture에 포함하지 않습니다. 암호화 키는 `PUSH_TOKEN_ENCRYPTION_KEY` 환경/secret 주입만 허용합니다.
+
+두 푸시 테이블의 client 역할은 owner safe-column `SELECT`만 허용합니다. `authenticated`의 `INSERT`·`UPDATE`·`DELETE` grant/RLS policy는 두지 않고, 모든 변경은 Spring 서버의 `service_role` JDBC adapter만 수행합니다.
+
+푸시 eligibility의 위치 문서는 profile locale 우선, `ko-KR` fallback과 semantic version/document ID 안정 정렬을 #19 법정 문서 정책과 공유합니다. profile, 후보 문서, 최종 동의·기기의 세 조회는 `REPEATABLE READ` transaction의 첫 DB read 시점 snapshot 하나를 공유하며 동시 commit은 다음 eligibility 호출부터 반영합니다. #61/#106 회원 탈퇴 intake는 `PushNotificationWithdrawalBoundary`만 호출하며, notification 경계는 탈퇴 command/status를 소유하지 않고 모든 기기의 즉시 eligibility 차단과 Auth 삭제 cascade만 책임집니다.
+
+발송 eligibility는 활성 device, `GRANTED` OS 권한, 서버의 명시적 opt-in과 현재 유효한 최신 required 위치 동의를 모두 다시 검사합니다. 결과는 사용한 위치 동의 문서 ID/version을 함께 제공해 예약 계층이 audit snapshot으로 보존할 수 있게 하며, token 존재만으로 동의를 추론하지 않습니다.
 
 ## 변경 API 멱등성 경계
 
@@ -123,7 +135,7 @@ Issue #112의 canonical 계약은 `docs/contracts/domains/fcm-departure-notifica
 
 generation/expectedGeneration의 single generation naming만 사용한다. preparation eligible target이 0건이면 empty snapshot과 `CANCELLED/NO_ACTIVE_PUSH_TARGET`을 같은 transaction에 남기고 attempt/provider 호출은 0회다. target은 `UNATTEMPTED|RETRYABLE → RESERVED → IN_FLIGHT → terminal/retryable` 및 `UNATTEMPTED|RETRYABLE → SKIPPED` closed transition만 따른다. 호출 직전 inactive retry target은 attemptNo+1 exact terminal `SKIPPED` row·target `SKIPPED`·job aggregation을 same CAS transaction에 쓰고 provider 호출은 0회다. duplicate key/stale CAS는 무수정·provider 0회다. completion은 existing exact `CALL_STARTED` attempt와 `IN_FLIGHT` target에서만 attempt·target·job aggregation을 같은 CAS transaction으로 반영한다. absent/reserved/terminal/wrong-marker/second completion과 duplicate reservation은 무수정 거부한다.
 
-앱 종료 상태의 사용자 표시 메시지는 `notification + data`다. `notifyAt = arrivalTargetAt - expectedTravelDurationSeconds - safetyBufferMinutes`로 계산하며 safety buffer는 기본 10분, integer 0..120분 inclusive다. UTC `timestamptz`로 저장하고 여행 시간대로 표시하며 DST overlap의 두 offset과 DST gap은 모두 fail-closed다. data는 다섯 string field만 허용하고 canonical lowercase UUID·canonical deep link, key/value/전체 UTF-8 byte budget과 결정적 title/body fallback을 적용한다.
+앱 종료 상태의 사용자 표시 메시지는 `notification + data`다. `notifyAt = targetArrivalAt - expectedTravelDurationSeconds - safetyBufferMinutes`, `expiresAt = min(notifyAt + 15분, targetArrivalAt)`로 계산하고 `scheduledAt`은 `notifyAt`의 alias다. 세 시각은 UTC `timestamptz`로 저장한다. trusted `evaluatedAt`에 대해 notifyAt/expiresAt이 모두 미래일 때만 생성하며 equality/past는 생성·즉시 발송·provider 호출을 모두 금지한다. provider TTL은 `min(900, floor(expiresAt - sendAttemptAt))`만 사용한다. Android는 high priority와 `collapse_key`, APNs는 alert+sound와 `apns-expiration=sendAttemptAt+TTL` epoch seconds 및 `apns-collapse-id`에 같은 canonical collapse key를 사용한다. collapse key의 tripId는 canonical lowercase UUID를 regex와 UUID roundtrip으로 검증한다. safety buffer는 기본 10분, integer 0..120분 inclusive다. 여행 시간대로 표시하며 DST overlap의 두 offset과 DST gap은 모두 fail-closed다. data는 다섯 string field만 허용하고 canonical lowercase UUID·canonical deep link, key/value/전체 UTF-8 byte budget과 결정적 title/body fallback을 적용한다.
 
 OS 알림 권한, 서버 출발 알림 설정과 최신 required 위치 동의를 예약 시점과 발송 직전에 확인하며 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 기기 변화는 preparation snapshot에 반영하고 snapshot 뒤 신규 기기는 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 남은 호출 없이 `CANCELLED`다. 동의 version은 canonical nonblank string이고 missing/null/blank/wrong type/unknown status는 fail-closed한다. 일정 버전 변경·항목 완료/건너뜀·여행 취소·알림 비활성화는 이전 미발송 작업을 취소하며 deduplication key와 generation fencing으로 stale worker를 거부한다. `safetyBufferMinutes` 변경도 preference CAS부터 old generation 무효화·미발송 job 취소·재계산·새 job까지 원자 수행한다. TTL은 최대 15분이면서 유효 출발 시각을 넘지 않고, 만료되면 보내지 않는다.
 

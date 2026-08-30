@@ -202,6 +202,10 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/028_schedule_revision_run_foundation.sql \
   /docker-entrypoint-initdb.d/029_compute_run_input_snapshot.sql \
   /docker-entrypoint-initdb.d/030_legal_documents_consents.sql \
+  /docker-entrypoint-initdb.d/031_trip_create_contract.sql \
+  /docker-entrypoint-initdb.d/032_saved_places_api.sql \
+  /docker-entrypoint-initdb.d/033_push_device_notification_preferences.sql \
+  /docker-entrypoint-initdb.d/034_push_notification_server_writer_boundary.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -372,6 +376,10 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/028_schedule_revision_run_foundation.sql \
   /docker-entrypoint-initdb.d/029_compute_run_input_snapshot.sql \
   /docker-entrypoint-initdb.d/030_legal_documents_consents.sql \
+  /docker-entrypoint-initdb.d/031_trip_create_contract.sql \
+  /docker-entrypoint-initdb.d/032_saved_places_api.sql \
+  /docker-entrypoint-initdb.d/033_push_device_notification_preferences.sql \
+  /docker-entrypoint-initdb.d/034_push_notification_server_writer_boundary.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

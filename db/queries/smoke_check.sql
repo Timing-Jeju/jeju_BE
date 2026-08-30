@@ -81,10 +81,37 @@ begin
   select count(*) into invalid_count
   from information_schema.role_table_grants
   where table_schema = 'public'
-    and grantee in ('anon', 'authenticated');
+    and grantee in ('anon', 'authenticated')
+    and not (
+      grantee = 'authenticated'
+      and table_name = 'notification_preferences'
+      and privilege_type = 'SELECT'
+    );
 
   if invalid_count <> 0 then
-    raise exception 'anon/authenticated must not have direct table grants; found %', invalid_count;
+    raise exception 'unexpected anon/authenticated table grants must not exist; found %',
+      invalid_count;
+  end if;
+
+  select count(*) into invalid_count
+  from auth.users u
+  join auth.identities i on i.user_id = u.id
+  join user_profiles p on p.id = u.id
+  join social_accounts s
+    on s.user_id = u.id
+   and s.provider = i.provider
+   and s.provider_user_id = i.provider_id
+  where u.id = '09000000-0000-0000-0000-000000000001'
+    and i.id = '09200000-0000-0000-0000-000000000001'
+    and i.provider = 'kakao'
+    and i.provider_id = 'demo-kakao-user-001'
+    and i.identity_data ->> 'sub' = i.provider_id
+    and i.identity_data ->> 'email' = u.email
+    and (i.identity_data ->> 'email_verified')::boolean
+    and i.identity_data ->> 'nickname' = p.nickname;
+
+  if invalid_count <> 1 then
+    raise exception 'demo auth identity fixture parity failed';
   end if;
 
   select count(*) into invalid_count

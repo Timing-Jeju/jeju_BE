@@ -3,7 +3,7 @@
   "scheduleCases": [
     {
       "id": "seoul_explicit_buffer_is_stored_as_utc",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10,
       "tripTimezone": "Asia/Seoul",
@@ -11,26 +11,26 @@
         "action": "schedule",
         "safetyBufferMinutes": 10,
         "notifyAtUtc": "2026-08-03T00:20:00+00:00",
-        "validUntilUtc": "2026-08-03T00:30:00+00:00",
+        "expiresAtUtc": "2026-08-03T00:35:00+00:00",
         "displayNotifyAt": "2026-08-03T09:20:00+09:00"
       }
     },
     {
       "id": "default_buffer_is_ten_minutes",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "tripTimezone": "Asia/Seoul",
       "expected": {
         "action": "schedule",
         "safetyBufferMinutes": 10,
         "notifyAtUtc": "2026-08-03T00:20:00+00:00",
-        "validUntilUtc": "2026-08-03T00:30:00+00:00",
+        "expiresAtUtc": "2026-08-03T00:35:00+00:00",
         "displayNotifyAt": "2026-08-03T09:20:00+09:00"
       }
     },
     {
       "id": "zero_buffer_is_allowed",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 0,
       "tripTimezone": "Asia/Seoul",
@@ -38,13 +38,13 @@
         "action": "schedule",
         "safetyBufferMinutes": 0,
         "notifyAtUtc": "2026-08-03T00:30:00+00:00",
-        "validUntilUtc": "2026-08-03T00:30:00+00:00",
+        "expiresAtUtc": "2026-08-03T00:45:00+00:00",
         "displayNotifyAt": "2026-08-03T09:30:00+09:00"
       }
     },
     {
       "id": "maximum_buffer_is_inclusive",
-      "arrivalTargetAt": "2026-08-03T12:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T12:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 120,
       "tripTimezone": "Asia/Seoul",
@@ -52,13 +52,13 @@
         "action": "schedule",
         "safetyBufferMinutes": 120,
         "notifyAtUtc": "2026-08-03T00:30:00+00:00",
-        "validUntilUtc": "2026-08-03T02:30:00+00:00",
+        "expiresAtUtc": "2026-08-03T00:45:00+00:00",
         "displayNotifyAt": "2026-08-03T09:30:00+09:00"
       }
     },
     {
       "id": "negative_buffer_fails_closed",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": -1,
       "tripTimezone": "Asia/Seoul",
@@ -66,7 +66,7 @@
     },
     {
       "id": "above_maximum_buffer_fails_closed",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 121,
       "tripTimezone": "Asia/Seoul",
@@ -74,7 +74,7 @@
     },
     {
       "id": "non_integer_buffer_fails_closed",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10.5,
       "tripTimezone": "Asia/Seoul",
@@ -82,7 +82,7 @@
     },
     {
       "id": "overflow_buffer_fails_closed",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 9223372036854775807,
       "tripTimezone": "Asia/Seoul",
@@ -90,58 +90,104 @@
     },
     {
       "id": "dst_overlap_earlier_offset_fails_closed",
-      "arrivalTargetAt": "2026-11-01T01:30:00-04:00",
+      "targetArrivalAt": "2026-11-01T01:30:00-04:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10,
       "tripTimezone": "America/New_York",
-      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt is a DST overlap"}
+      "expected": {"action": "fail_closed", "reason": "targetArrivalAt is a DST overlap"}
     },
     {
       "id": "dst_overlap_later_offset_fails_closed",
-      "arrivalTargetAt": "2026-11-01T01:30:00-05:00",
+      "targetArrivalAt": "2026-11-01T01:30:00-05:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10,
       "tripTimezone": "America/New_York",
-      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt is a DST overlap"}
+      "expected": {"action": "fail_closed", "reason": "targetArrivalAt is a DST overlap"}
     },
     {
       "id": "dst_gap_fails_closed",
-      "arrivalTargetAt": "2026-03-08T02:30:00-05:00",
+      "targetArrivalAt": "2026-03-08T02:30:00-05:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10,
       "tripTimezone": "America/New_York",
-      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt is a DST gap"}
+      "expected": {"action": "fail_closed", "reason": "targetArrivalAt is a DST gap"}
     },
     {
       "id": "source_offset_must_match_trip_timezone",
-      "arrivalTargetAt": "2026-08-03T10:00:00+00:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+00:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10,
       "tripTimezone": "Asia/Seoul",
-      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt offset does not match trip timezone"}
+      "expected": {"action": "fail_closed", "reason": "targetArrivalAt offset does not match trip timezone"}
     },
     {
       "id": "offsetless_local_time_fails_closed",
-      "arrivalTargetAt": "2026-08-03T10:00:00",
+      "targetArrivalAt": "2026-08-03T10:00:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10,
       "tripTimezone": "Asia/Seoul",
-      "expected": {"action": "fail_closed", "reason": "arrivalTargetAt must include an offset"}
+      "expected": {"action": "fail_closed", "reason": "targetArrivalAt must include an offset"}
     },
     {
       "id": "unknown_trip_timezone_fails_closed",
-      "arrivalTargetAt": "2026-08-03T10:00:00+09:00",
+      "targetArrivalAt": "2026-08-03T10:00:00+09:00",
       "expectedTravelDurationSeconds": 1800,
       "safetyBufferMinutes": 10,
       "tripTimezone": "Unknown/Zone",
       "expected": {"action": "fail_closed", "reason": "trip timezone is invalid"}
     }
   ],
+  "creationDecisionCases": [
+    {"id": "both_future_creates", "evaluatedAt": "2026-08-03T00:00:00+00:00", "notifyAt": "2026-08-03T00:00:01+00:00", "expiresAt": "2026-08-03T00:15:01+00:00", "expected": {"action": "create", "providerCallCount": 0}},
+    {"id": "notify_at_equality_rejected", "evaluatedAt": "2026-08-03T00:00:00+00:00", "notifyAt": "2026-08-03T00:00:00+00:00", "expiresAt": "2026-08-03T00:15:00+00:00", "expected": {"action": "do_not_create_and_do_not_send", "providerCallCount": 0}},
+    {"id": "notify_at_past_rejected", "evaluatedAt": "2026-08-03T00:00:00+00:00", "notifyAt": "2026-08-02T23:59:59+00:00", "expiresAt": "2026-08-03T00:15:00+00:00", "expected": {"action": "do_not_create_and_do_not_send", "providerCallCount": 0}},
+    {"id": "expires_at_equality_rejected", "evaluatedAt": "2026-08-03T00:00:00+00:00", "notifyAt": "2026-08-03T00:00:01+00:00", "expiresAt": "2026-08-03T00:00:00+00:00", "expected": {"action": "do_not_create_and_do_not_send", "providerCallCount": 0}},
+    {"id": "expires_at_past_rejected", "evaluatedAt": "2026-08-03T00:00:00+00:00", "notifyAt": "2026-08-03T00:00:01+00:00", "expiresAt": "2026-08-02T23:59:59+00:00", "expected": {"action": "do_not_create_and_do_not_send", "providerCallCount": 0}}
+  ],
   "ttlCases": [
-    {"id": "short_remaining_window_is_preserved", "sendAttemptAt": "2026-08-03T00:20:00+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 600},
-    {"id": "long_remaining_window_is_capped", "sendAttemptAt": "2026-08-03T00:00:00+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 900},
-    {"id": "equality_boundary_is_expired", "sendAttemptAt": "2026-08-03T00:30:00+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 0},
-    {"id": "past_window_is_expired", "sendAttemptAt": "2026-08-03T00:30:01+00:00", "validUntil": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 0}
+    {"id": "remaining_one_second", "sendAttemptAt": "2026-08-03T00:29:59+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 1},
+    {"id": "remaining_nine_hundred_seconds", "sendAttemptAt": "2026-08-03T00:15:00+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 900},
+    {"id": "remaining_nine_hundred_one_seconds", "sendAttemptAt": "2026-08-03T00:14:59+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 900},
+    {"id": "equality_boundary_is_expired", "sendAttemptAt": "2026-08-03T00:30:00+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 0},
+    {"id": "past_window_is_expired", "sendAttemptAt": "2026-08-03T00:30:01+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 0}
+  ],
+  "cancellationCases": [
+    {"id": "schedule_version_replaced", "trigger": "schedule_version_replaced", "expectedReason": "SCHEDULE_VERSION_REPLACED"},
+    {"id": "item_completed", "trigger": "item_completed", "expectedReason": "ITEM_COMPLETED"},
+    {"id": "item_skipped", "trigger": "item_skipped", "expectedReason": "ITEM_SKIPPED"},
+    {"id": "trip_cancelled", "trigger": "trip_cancelled", "expectedReason": "TRIP_CANCELLED"},
+    {"id": "user_opted_out", "trigger": "user_opted_out", "expectedReason": "USER_OPTED_OUT"},
+    {"id": "preference_changed", "trigger": "preference_changed", "expectedReason": "PREFERENCE_CHANGED"},
+    {"id": "os_permission_revoked", "trigger": "os_permission_revoked", "expectedReason": "OS_PERMISSION_REVOKED"},
+    {"id": "location_consent_invalid", "trigger": "location_consent_invalid", "expectedReason": "LOCATION_CONSENT_INVALID"},
+    {"id": "no_active_push_target", "trigger": "no_active_push_target", "expectedReason": "NO_ACTIVE_PUSH_TARGET"},
+    {"id": "expired", "trigger": "expired", "expectedReason": "EXPIRED"}
+  ],
+  "platformCases": [
+    {
+      "id": "android_high_priority_canonical_collapse",
+      "platform": "ANDROID",
+      "tripId": "71000000-0000-0000-0000-000000000001",
+      "sendAttemptAt": "2026-08-03T00:00:00+00:00",
+      "ttlSeconds": 900,
+      "canonicalCollapseKey": "trip:71000000-0000-0000-0000-000000000001:departure",
+      "expected": {"priority": "high", "collapse_key": "trip:71000000-0000-0000-0000-000000000001:departure"}
+    },
+    {
+      "id": "apns_alert_sound_expiration_and_collapse",
+      "platform": "IOS",
+      "tripId": "71000000-0000-0000-0000-000000000001",
+      "sendAttemptAt": "2026-08-03T00:00:00+00:00",
+      "ttlSeconds": 900,
+      "canonicalCollapseKey": "trip:71000000-0000-0000-0000-000000000001:departure",
+      "expected": {"presentation": "alert+sound", "apns-expiration": 1785716100, "apns-collapse-id": "trip:71000000-0000-0000-0000-000000000001:departure"}
+    }
+  ],
+  "collapseKeyCases": [
+    {"id": "canonical_lowercase_uuid", "value": "trip:71000000-0000-0000-0000-000000000001:departure", "expectedValid": true},
+    {"id": "uppercase_uuid_rejected", "value": "trip:71000000-0000-0000-0000-00000000000A:departure", "expectedValid": false},
+    {"id": "malformed_uuid_rejected", "value": "trip:not-a-uuid:departure", "expectedValid": false},
+    {"id": "extra_segment_rejected", "value": "trip:71000000-0000-0000-0000-000000000001:departure:extra", "expectedValid": false}
   ],
   "consentCases": [
     {
@@ -270,9 +316,9 @@
     {"id": "retry_at_expiry_is_dead", "attemptNo": 2, "attemptedAt": "2026-08-03T00:20:00+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "proposedNextRetryAt": "2026-08-03T00:30:00+00:00", "expected": {"attemptStatus": "RETRYABLE_FAILURE", "attemptPersisted": true, "jobState": "DEAD", "nextRetryAt": null, "atomic": true}}
   ],
   "safetyBufferChangeCases": [
-    {"id": "ten_to_thirty", "oldBufferMinutes": 10, "newBufferMinutes": 30, "expectedPreferenceVersion": 4, "actualPreferenceVersion": 4, "arrivalTargetAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "replace_atomically", "newPreferenceVersion": 5, "newNotifyAtUtc": "2026-08-03T00:00:00+00:00", "oldGenerationInvalidated": true, "oldUnsentJobCancelled": true}},
-    {"id": "thirty_to_zero", "oldBufferMinutes": 30, "newBufferMinutes": 0, "expectedPreferenceVersion": 5, "actualPreferenceVersion": 5, "arrivalTargetAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "replace_atomically", "newPreferenceVersion": 6, "newNotifyAtUtc": "2026-08-03T00:30:00+00:00", "oldGenerationInvalidated": true, "oldUnsentJobCancelled": true}},
-    {"id": "concurrent_preference_change", "oldBufferMinutes": 10, "newBufferMinutes": 30, "expectedPreferenceVersion": 4, "actualPreferenceVersion": 5, "arrivalTargetAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "fail_closed", "reason": "preference_version_conflict", "mutationApplied": false}}
+    {"id": "ten_to_thirty", "oldBufferMinutes": 10, "newBufferMinutes": 30, "expectedPreferenceVersion": 4, "actualPreferenceVersion": 4, "targetArrivalAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "replace_atomically", "newPreferenceVersion": 5, "newNotifyAtUtc": "2026-08-03T00:00:00+00:00", "oldGenerationInvalidated": true, "oldUnsentJobCancelled": true}},
+    {"id": "thirty_to_zero", "oldBufferMinutes": 30, "newBufferMinutes": 0, "expectedPreferenceVersion": 5, "actualPreferenceVersion": 5, "targetArrivalAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "replace_atomically", "newPreferenceVersion": 6, "newNotifyAtUtc": "2026-08-03T00:30:00+00:00", "oldGenerationInvalidated": true, "oldUnsentJobCancelled": true}},
+    {"id": "concurrent_preference_change", "oldBufferMinutes": 10, "newBufferMinutes": 30, "expectedPreferenceVersion": 4, "actualPreferenceVersion": 5, "targetArrivalAt": "2026-08-03T10:00:00+09:00", "expectedTravelDurationSeconds": 1800, "tripTimezone": "Asia/Seoul", "expected": {"action": "fail_closed", "reason": "preference_version_conflict", "mutationApplied": false}}
   ],
   "leaseReclaimCases": [
     {"id": "expired_lease_exact_reclaim", "state": "LEASED", "expectedState": "LEASED", "databaseNow": "2026-08-03T00:20:00+00:00", "leaseUntil": "2026-08-03T00:20:00+00:00", "expectedLeaseUntil": "2026-08-03T00:20:00+00:00", "currentOwner": "worker-a", "expectedOwner": "worker-a", "newOwner": "worker-b", "newLeaseUntil": "2026-08-03T00:21:00+00:00", "generation": 7, "expectedGeneration": 7, "currentFencingToken": 11, "expectedFencingToken": 11, "targetSnapshot": ["72000000-0000-0000-0000-000000000001"], "attemptRows": ["72000000-0000-0000-0000-000000000001:1:CALL_STARTED"], "expected": {"action": "reclaim", "state": "LEASED", "leaseOwner": "worker-b", "leaseUntil": "2026-08-03T00:21:00+00:00", "generation": 7, "fencingToken": 12, "targetSnapshot": ["72000000-0000-0000-0000-000000000001"], "attemptRows": ["72000000-0000-0000-0000-000000000001:1:CALL_STARTED"]}},

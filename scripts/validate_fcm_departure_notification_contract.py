@@ -20,8 +20,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/fcm-departure-notification/contract.json"
 DEFAULT_FIXTURE = ROOT / "fixtures/contracts/fcm-departure-notification/cases.json"
-CANONICAL_CONTRACT_SHA256 = "a8c2f5a195f516ea65b90adc1339bc4f4fa5e16599fcb9a22bc1b87ae1fbf761"
-CANONICAL_FIXTURE_SHA256 = "21ec79424022ed44ca249ec4dc9575185aeb25e10e8489dcfb6ba13dd4ebe137"
+CANONICAL_CONTRACT_SHA256 = "87ad401723a794b3c1fec5f12507c55f967472afbbc9269a5badf12f144c420a"
+CANONICAL_FIXTURE_SHA256 = "c0af781106afe08403c3395a671289bbfd3456da9281d88bd2e84090e5a8c921"
 TOP_LEVEL_KEYS = {
     "schemaVersion", "contractVersion", "ownerIssue", "dependencies", "excludedScope",
     "readiness", "ownership", "schedulePolicy", "messagePolicy", "consentPolicy",
@@ -31,8 +31,7 @@ JOB_STATES = ["PENDING", "LEASED", "RETRY", "ACCEPTED", "CANCELLED", "DEAD"]
 JOB_TERMINAL_STATES = ["ACCEPTED", "CANCELLED", "DEAD"]
 JOB_TRANSITIONS = [
     {"from": "PENDING", "to": "LEASED", "trigger": "due_claim"},
-    {"from": "PENDING", "to": "CANCELLED", "trigger": "pre_claim_invalidation"},
-    {"from": "PENDING", "to": "DEAD", "trigger": "expired_or_unrecoverable"},
+    {"from": "PENDING", "to": "CANCELLED", "trigger": "pre_claim_invalidation_or_expired"},
     {"from": "LEASED", "to": "ACCEPTED", "trigger": "all_attempts_terminal_and_any_accepted"},
     {"from": "LEASED", "to": "LEASED", "trigger": "expired_lease_exact_reclaim"},
     {"from": "LEASED", "to": "RETRY", "trigger": "retryable_attempt_remains"},
@@ -42,6 +41,26 @@ JOB_TRANSITIONS = [
     {"from": "RETRY", "to": "CANCELLED", "trigger": "retry_invalidation"},
     {"from": "RETRY", "to": "DEAD", "trigger": "expired_or_attempt_limit"},
 ]
+CANCEL_TRIGGER_REASONS = [
+    {"trigger": "schedule_version_replaced", "reason": "SCHEDULE_VERSION_REPLACED"},
+    {"trigger": "item_completed", "reason": "ITEM_COMPLETED"},
+    {"trigger": "item_skipped", "reason": "ITEM_SKIPPED"},
+    {"trigger": "trip_cancelled", "reason": "TRIP_CANCELLED"},
+    {"trigger": "user_opted_out", "reason": "USER_OPTED_OUT"},
+    {"trigger": "preference_changed", "reason": "PREFERENCE_CHANGED"},
+    {"trigger": "os_permission_revoked", "reason": "OS_PERMISSION_REVOKED"},
+    {"trigger": "location_consent_invalid", "reason": "LOCATION_CONSENT_INVALID"},
+    {"trigger": "no_active_push_target", "reason": "NO_ACTIVE_PUSH_TARGET"},
+    {"trigger": "expired", "reason": "EXPIRED"},
+]
+PLATFORM_MAPPING = {
+    "android": {"priority": "high", "collapseKeyField": "collapse_key", "collapseKeySource": "canonicalCollapseKey"},
+    "apns": {
+        "presentation": "alert+sound", "expirationField": "apns-expiration",
+        "expirationFormula": "epochSeconds(sendAttemptAt + ttlSeconds)",
+        "collapseIdField": "apns-collapse-id", "collapseIdSource": "canonicalCollapseKey",
+    },
+}
 ATTEMPT_STATES = ["RESERVED", "CALL_STARTED", "ACCEPTED", "RETRYABLE_FAILURE", "PERMANENT_FAILURE", "SKIPPED", "ACCEPTANCE_UNKNOWN"]
 ATTEMPT_TERMINAL_STATES = ["ACCEPTED", "RETRYABLE_FAILURE", "PERMANENT_FAILURE", "SKIPPED", "ACCEPTANCE_UNKNOWN"]
 ATTEMPT_TRANSITIONS = [
@@ -71,6 +90,9 @@ FORBIDDEN_FIXTURE_KEYS = {
     "fcmtoken", "registrationtoken", "serviceaccountjson", "privatekey", "clientemail",
     "accesstoken", "refreshtoken", "email", "latitude", "longitude", "coordinates", "memo", "rawpayload",
 }
+COLLAPSE_KEY_PATTERN = re.compile(
+    r"^trip:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):departure$"
+)
 
 
 class DuplicateJsonKeyError(ValueError):
@@ -126,9 +148,28 @@ def canonical_digest(value: Any) -> str:
 
 def evaluate_schedule_case(case: Any, contract: Any) -> dict[str, Any]:
     _require(isinstance(case, dict), "schedule fixture case는 객체여야 합니다.")
-    required = {"id", "arrivalTargetAt", "expectedTravelDurationSeconds", "tripTimezone", "expected"}
+    required = {"id", "targetArrivalAt", "expectedTravelDurationSeconds", "tripTimezone", "expected"}
     _require(required <= set(case) <= required | {"safetyBufferMinutes"}, "schedule fixture case는 canonical closed object여야 합니다.")
     schedule = contract["schedulePolicy"]
+    _require(set(schedule) == {
+        "notifyAtFormula", "scheduledAtAlias", "expiresAtFormula", "persistedInstants", "creationDecision", "displayTime",
+        "requiredSources", "sourceSnapshot", "travelDuration", "safetyBuffer", "safetyBufferChange",
+        "arrivalInput", "dstOverlapAction", "dstGapAction", "offsetTimezoneMismatchAction",
+        "phoneBackgroundExecutionRequired", "recomputeOnActiveVersionChange",
+    }, "schedulePolicy는 canonical closed object여야 합니다.")
+    _require(schedule["notifyAtFormula"] == "targetArrivalAt - expectedTravelDurationSeconds - safetyBufferMinutes", "notifyAt 공식이 다릅니다.")
+    _require(schedule["scheduledAtAlias"] == "notifyAt", "scheduledAt은 notifyAt의 영속 alias여야 합니다.")
+    _require(schedule["expiresAtFormula"] == "min(notifyAt + 15 minutes, targetArrivalAt)", "expiresAt 공식이 다릅니다.")
+    _require(schedule["persistedInstants"] == {
+        "notifyAt": "UTC timestamptz", "scheduledAt": "UTC timestamptz", "expiresAt": "UTC timestamptz",
+    }, "예약 시각은 UTC timestamptz로 영속해야 합니다.")
+    _require(schedule["creationDecision"] == {
+        "evaluatedAtSource": "trusted server/database clock",
+        "notifyAtComparator": "notifyAt > evaluatedAt",
+        "expiresAtComparator": "expiresAt > evaluatedAt",
+        "ineligibleAction": "do_not_create_and_do_not_send",
+        "providerCallCount": 0,
+    }, "job 생성 시각 decision이 다릅니다.")
     travel_policy = schedule["travelDuration"]
     buffer_policy = schedule["safetyBuffer"]
     travel = case["expectedTravelDurationSeconds"]
@@ -149,9 +190,9 @@ def evaluate_schedule_case(case: Any, contract: Any) -> dict[str, Any]:
     except (OverflowError, ValueError):
         return {"action": "fail_closed", "reason": "safetyBufferMinutes overflow"}
     try:
-        arrival = _parse_instant(case["arrivalTargetAt"], "arrivalTargetAt")
+        arrival = _parse_instant(case["targetArrivalAt"], "targetArrivalAt")
     except ValueError:
-        return {"action": "fail_closed", "reason": "arrivalTargetAt must include an offset"}
+        return {"action": "fail_closed", "reason": "targetArrivalAt must include an offset"}
     try:
         trip_zone = ZoneInfo(case["tripTimezone"])
     except (TypeError, ZoneInfoNotFoundError):
@@ -165,31 +206,81 @@ def evaluate_schedule_case(case: Any, contract: Any) -> dict[str, Any]:
         if round_trip == local_naive:
             valid_offsets.add(candidate.utcoffset())
     if not valid_offsets:
-        return {"action": "fail_closed", "reason": "arrivalTargetAt is a DST gap"}
+        return {"action": "fail_closed", "reason": "targetArrivalAt is a DST gap"}
     if len(valid_offsets) > 1:
-        return {"action": "fail_closed", "reason": "arrivalTargetAt is a DST overlap"}
+        return {"action": "fail_closed", "reason": "targetArrivalAt is a DST overlap"}
     if arrival.utcoffset() not in valid_offsets:
-        return {"action": "fail_closed", "reason": "arrivalTargetAt offset does not match trip timezone"}
+        return {"action": "fail_closed", "reason": "targetArrivalAt offset does not match trip timezone"}
     try:
-        valid_until = arrival - timedelta(seconds=travel)
-        notify_at = valid_until - timedelta(seconds=buffer_seconds)
+        notify_at = arrival - timedelta(seconds=travel + buffer_seconds)
+        expires_at = min(notify_at + timedelta(minutes=15), arrival)
     except OverflowError:
         return {"action": "fail_closed", "reason": "notifyAt arithmetic overflow"}
     return {
         "action": "schedule",
         "safetyBufferMinutes": buffer,
         "notifyAtUtc": notify_at.astimezone(timezone.utc).isoformat(),
-        "validUntilUtc": valid_until.astimezone(timezone.utc).isoformat(),
+        "expiresAtUtc": expires_at.astimezone(timezone.utc).isoformat(),
         "displayNotifyAt": notify_at.astimezone(trip_zone).isoformat(),
     }
 
 
-def calculate_ttl_seconds(send_attempt_at: Any, valid_until: Any, maximum_seconds: Any) -> int:
+def calculate_ttl_seconds(send_attempt_at: Any, expires_at: Any, maximum_seconds: Any) -> int:
     _require(isinstance(maximum_seconds, int) and not isinstance(maximum_seconds, bool) and maximum_seconds > 0, "TTL maximumSeconds는 양의 정수여야 합니다.")
     attempt = _parse_instant(send_attempt_at, "sendAttemptAt")
-    valid = _parse_instant(valid_until, "validUntil")
-    remaining = math.floor((valid.astimezone(timezone.utc) - attempt.astimezone(timezone.utc)).total_seconds())
+    expires = _parse_instant(expires_at, "expiresAt")
+    remaining = math.floor((expires.astimezone(timezone.utc) - attempt.astimezone(timezone.utc)).total_seconds())
     return max(0, min(maximum_seconds, remaining))
+
+
+def evaluate_creation_decision(case: Any, contract: Any) -> dict[str, Any]:
+    required = {"id", "evaluatedAt", "notifyAt", "expiresAt", "expected"}
+    _require(isinstance(case, dict) and set(case) == required, "creation decision fixture는 closed object여야 합니다.")
+    evaluated_at = _parse_instant(case["evaluatedAt"], "evaluatedAt").astimezone(timezone.utc)
+    notify_at = _parse_instant(case["notifyAt"], "notifyAt").astimezone(timezone.utc)
+    expires_at = _parse_instant(case["expiresAt"], "expiresAt").astimezone(timezone.utc)
+    decision = contract["schedulePolicy"]["creationDecision"]
+    if notify_at <= evaluated_at or expires_at <= evaluated_at:
+        return {"action": decision["ineligibleAction"], "providerCallCount": decision["providerCallCount"]}
+    return {"action": "create", "providerCallCount": 0}
+
+
+def build_collapse_key(trip_id: Any) -> str:
+    return f"trip:{_canonical_uuid(trip_id, 'tripId')}:departure"
+
+
+def validate_collapse_key(value: Any) -> str:
+    _require(isinstance(value, str), "collapse key는 문자열이어야 합니다.")
+    match = COLLAPSE_KEY_PATTERN.fullmatch(value)
+    _require(match is not None, "collapse key는 canonical 형식이어야 합니다.")
+    _canonical_uuid(match.group(1), "collapse key tripId")
+    return value
+
+
+def resolve_cancel_reason(trigger: Any, contract: Any) -> str:
+    _require(isinstance(trigger, str), "cancel trigger는 문자열이어야 합니다.")
+    matches = [item["reason"] for item in contract["jobPolicy"]["cancellationTriggerReasons"] if item["trigger"] == trigger]
+    _require(len(matches) == 1, "cancel trigger는 canonical reason 한 개와 일치해야 합니다.")
+    return matches[0]
+
+
+def map_platform_config(case: Any, contract: Any) -> dict[str, Any]:
+    required = {"id", "platform", "tripId", "sendAttemptAt", "ttlSeconds", "canonicalCollapseKey", "expected"}
+    _require(isinstance(case, dict) and set(case) == required, "platform fixture case는 closed object여야 합니다.")
+    attempt = _parse_instant(case["sendAttemptAt"], "sendAttemptAt")
+    ttl_seconds = case["ttlSeconds"]
+    _require(isinstance(ttl_seconds, int) and not isinstance(ttl_seconds, bool) and 1 <= ttl_seconds <= 900, "ttlSeconds는 1..900 정수여야 합니다.")
+    collapse_key = validate_collapse_key(case["canonicalCollapseKey"])
+    _require(collapse_key == build_collapse_key(case["tripId"]), "collapse key는 canonical tripId에서 정확히 조립해야 합니다.")
+    mapping = contract["messagePolicy"]["platformMapping"]
+    if case["platform"] == "ANDROID":
+        return {"priority": mapping["android"]["priority"], mapping["android"]["collapseKeyField"]: collapse_key}
+    _require(case["platform"] == "IOS", "platform은 ANDROID 또는 IOS여야 합니다.")
+    return {
+        "presentation": mapping["apns"]["presentation"],
+        mapping["apns"]["expirationField"]: int((attempt + timedelta(seconds=ttl_seconds)).timestamp()),
+        mapping["apns"]["collapseIdField"]: collapse_key,
+    }
 
 
 def evaluate_consent_case(case: Any) -> dict[str, Any]:
@@ -274,7 +365,7 @@ def complete_retryable_attempt(case: Any, contract: Any) -> dict[str, Any]:
 def evaluate_buffer_change_case(case: Any, contract: Any) -> dict[str, Any]:
     required = {
         "id", "oldBufferMinutes", "newBufferMinutes", "expectedPreferenceVersion", "actualPreferenceVersion",
-        "arrivalTargetAt", "expectedTravelDurationSeconds", "tripTimezone", "expected",
+        "targetArrivalAt", "expectedTravelDurationSeconds", "tripTimezone", "expected",
     }
     _require(isinstance(case, dict) and set(case) == required, "buffer change fixture case는 closed object여야 합니다.")
     for field in ("oldBufferMinutes", "newBufferMinutes", "expectedPreferenceVersion", "actualPreferenceVersion"):
@@ -283,7 +374,7 @@ def evaluate_buffer_change_case(case: Any, contract: Any) -> dict[str, Any]:
         return {"action": "fail_closed", "reason": "preference_version_conflict", "mutationApplied": False}
     scheduled = evaluate_schedule_case({
         "id": case["id"],
-        "arrivalTargetAt": case["arrivalTargetAt"],
+        "targetArrivalAt": case["targetArrivalAt"],
         "expectedTravelDurationSeconds": case["expectedTravelDurationSeconds"],
         "safetyBufferMinutes": case["newBufferMinutes"],
         "tripTimezone": case["tripTimezone"],
@@ -520,7 +611,6 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     _require(contract["contractVersion"] == "1.0.0", "contractVersion이 다릅니다.")
     _require(contract["ownerIssue"] == 112 and not isinstance(contract["ownerIssue"], bool), "ownerIssue는 112여야 합니다.")
     _require(contract["dependencies"] == [72, 73, 93], "선행 계약 목록이 다릅니다.")
-    _require(canonical_digest(contract) == CANONICAL_CONTRACT_SHA256, "계약 canonical tree가 변경됐습니다.")
 
     readiness = contract["readiness"]
     _require(readiness["contractReady"] is True and readiness["implementationReady"] is False, "계약과 구현 readiness를 분리해야 합니다.")
@@ -546,12 +636,22 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     _require(schedule["dstGapAction"] == "fail_closed", "DST gap은 fail-closed여야 합니다.")
 
     message = contract["messagePolicy"]
+    _require(set(message) == {
+        "messageType", "androidPriority", "apnsPresentation", "platformMapping", "notification",
+        "dataSchema", "forbiddenContent", "collapseKeyTemplate", "collapseKeyValidation", "ttlPolicy",
+    }, "messagePolicy는 canonical closed object여야 합니다.")
     _require(message["messageType"] == "notification+data" and message["androidPriority"] == "high", "사용자 표시 notification+data가 필요합니다.")
+    _require(message["platformMapping"] == PLATFORM_MAPPING, "Android/APNs provider mapping이 다릅니다.")
+    _require(message["collapseKeyTemplate"] == "trip:{tripId}:departure" and message["collapseKeyValidation"] == {
+        "source": "canonical lowercase tripId",
+        "pattern": "^trip:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:departure$",
+        "validation": "regex plus UUID roundtrip",
+    }, "collapse key canonical validation이 다릅니다.")
     schema = message["dataSchema"]
     _require(schema["required"] == ["contractVersion", "tripId", "tripItemId", "scheduleVersionId", "deepLink"], "FCM data required가 다릅니다.")
     _require(schema["additionalProperties"] is False, "FCM data는 closed object여야 합니다.")
     _require((schema["maxKeyUtf8Bytes"], schema["maxValueUtf8Bytes"], schema["maxTotalUtf8Bytes"]) == (64, 512, 2048), "FCM data UTF-8 byte budget이 다릅니다.")
-    _require(message["ttlPolicy"] == {"maximumSeconds": 900, "validUntil": "arrivalTargetAt - expectedTravelDurationSeconds", "calculation": "min(maximumSeconds, floor(validUntil - sendAttemptAt))", "nonPositiveAction": "do_not_send"}, "TTL 계약이 다릅니다.")
+    _require(message["ttlPolicy"] == {"maximumSeconds": 900, "remainingUntil": "expiresAt", "calculation": "min(900, floor(expiresAt - sendAttemptAt))", "nonPositiveAction": "do_not_send"}, "TTL 계약이 다릅니다.")
 
     consent = contract["consentPolicy"]
     _require(consent["requiredSignals"] == ["osNotificationPermissionGranted", "serverDepartureNotificationEnabled", "latestRequiredLocationConsent"], "OS·서버·최신 위치 동의가 필요합니다.")
@@ -561,12 +661,20 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     _require(consent["locationConsentEvaluation"]["allowedStatuses"] == ["ACTIVE", "WITHDRAWN"], "동의 상태 enum이 다릅니다.")
 
     job = contract["jobPolicy"]
+    _require(set(job) == {
+        "persistenceOwnerIssue", "table", "logicalJobKey", "deviceIdentityIncluded",
+        "duplicateLogicalJobAction", "states", "terminalStates", "allowedTransitions", "cancelReasons",
+        "cancellationTriggerReasons", "preSendRecheck", "claimRequirements", "expiredLeaseReclaim",
+        "staleWorkerDefense", "scheduleReplacementOrder",
+    }, "jobPolicy는 canonical closed object여야 합니다.")
     _require(job["persistenceOwnerIssue"] == 115 and job["table"] == "notification_jobs", "logical job persistence owner가 다릅니다.")
     _require(job["logicalJobKey"] == ["tripId", "scheduleVersionId", "tripItemId", "tripLegId", "notificationType", "scheduledAt"], "logical job key가 다릅니다.")
     _require(job["deviceIdentityIncluded"] is False, "logical job key에 device가 들어가면 안 됩니다.")
     _require(job["states"] == JOB_STATES and job["terminalStates"] == JOB_TERMINAL_STATES, "job 상태가 다릅니다.")
     _require(job["allowedTransitions"] == JOB_TRANSITIONS, "job transition matrix가 다릅니다.")
     _require(not any(item["from"] in JOB_TERMINAL_STATES for item in job["allowedTransitions"]), "terminal job은 전이할 수 없습니다.")
+    _require(job["cancelReasons"] == [item["reason"] for item in CANCEL_TRIGGER_REASONS], "cancelReason enum이 다릅니다.")
+    _require(job["cancellationTriggerReasons"] == CANCEL_TRIGGER_REASONS, "취소 trigger→reason mapping이 다릅니다.")
     _require(job["expiredLeaseReclaim"] == {
         "fromState": "LEASED", "toState": "LEASED",
         "precondition": "leaseUntil is at or before database now and exact current CAS matches",
@@ -670,8 +778,8 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     traceability = contract["traceability"]
     _require("pmIssueAmendmentsRequired" not in traceability and set(traceability) == {"futureIssueOwners", "issueReadbackEvidence"}, "Issue readback 추적성이 닫혀 있지 않습니다.")
     expected_evidence = {
-        113: ("2026-08-26T03:40:05Z", ["default 10 and integer 0..120 inclusive", "latest required location consent"]),
-        114: ("2026-08-26T03:57:27Z", ["closed FCM data UTF-8 budgets", "provable pre-connect versus post-write/read ambiguity", "unexpected EOF is post-write ambiguous"]),
+        113: ("2026-08-28T20:11:58Z", ["default 10 and integer 0..120 inclusive", "latest required location consent"]),
+        114: ("2026-08-28T23:50:45Z", ["closed FCM data UTF-8 budgets", "provable pre-connect versus post-write/read ambiguity", "unexpected EOF is post-write ambiguous"]),
         115: ("2026-08-26T03:57:27Z", ["device-independent logical job key", "one logical job per notification", "safetyBuffer version-CAS atomic replacement"]),
         116: ("2026-08-26T04:33:51Z", ["exact per-device attempt key", "ACCEPTANCE_UNKNOWN no retry", "lease generation fencing", "push_delivery_targets closed snapshot and current states", "RESERVED/CALL_STARTED durable pre-I/O protocol", "marker-based crash and expired-lease recovery", "mutually exclusive target aggregation precedence", "exhausted transient attempt persistence", "single-row RESERVED/CALL_STARTED/terminal status lifecycle", "expired LEASED same-state reclaim with preserved generation and incremented fence", "post-claim preparation snapshot and claim/post-snapshot race rechecks", "existing CALL_STARTED plus IN_FLIGHT completion gate", "zero-target preparation cancellation", "closed target transitions and atomic attempt-target-job aggregation", "single generation naming", "inactive retry target terminal SKIPPED attempt"]),
     }
@@ -682,17 +790,37 @@ def validate_contract(contract: Any, fixture: Any) -> None:
         _require(set(item) == expected_keys and (item["updatedAt"], item["appliedMarkers"]) == expected_evidence[item["issue"]], "Issue readback evidence가 다릅니다.")
     issue_116_evidence = next(item for item in evidence if item["issue"] == 116)
     _require(issue_116_evidence["blankLineNormalizedBodySha256"] == "de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da", "Issue #116 normalized body SHA가 다릅니다.")
+    _require(canonical_digest(contract) == CANONICAL_CONTRACT_SHA256, "계약 canonical tree가 변경됐습니다.")
 
-    _require(isinstance(fixture, dict) and set(fixture) == {"contractVersion", "scheduleCases", "ttlCases", "consentCases", "aggregationCases", "retryExhaustionCases", "safetyBufferChangeCases", "leaseReclaimCases", "targetRaceCases", "completionCases", "targetTransitionCases", "retryInactiveSkipCases", "messageCases"}, "fixture root는 canonical closed object여야 합니다.")
+    _require(isinstance(fixture, dict) and set(fixture) == {"contractVersion", "scheduleCases", "creationDecisionCases", "ttlCases", "cancellationCases", "platformCases", "collapseKeyCases", "consentCases", "aggregationCases", "retryExhaustionCases", "safetyBufferChangeCases", "leaseReclaimCases", "targetRaceCases", "completionCases", "targetTransitionCases", "retryInactiveSkipCases", "messageCases"}, "fixture root는 canonical closed object여야 합니다.")
     _require(canonical_digest(fixture) == CANONICAL_FIXTURE_SHA256, "fixture canonical tree가 변경됐습니다.")
     _require(fixture["contractVersion"] == contract["contractVersion"], "fixture contractVersion이 다릅니다.")
     _require(len(fixture["scheduleCases"]) == 14, "schedule fixture case 수가 다릅니다.")
     for case in fixture["scheduleCases"]:
         _require(evaluate_schedule_case(case, contract) == case["expected"], f"schedule fixture 결과가 다릅니다: {case.get('id')}")
-    _require(len(fixture["ttlCases"]) == 4, "TTL fixture case 수가 다릅니다.")
+    _require(len(fixture["creationDecisionCases"]) == 5, "creation decision fixture case 수가 다릅니다.")
+    for case in fixture["creationDecisionCases"]:
+        _require(evaluate_creation_decision(case, contract) == case["expected"], f"creation decision fixture 결과가 다릅니다: {case.get('id')}")
+    _require(len(fixture["ttlCases"]) == 5, "TTL fixture case 수가 다릅니다.")
     for case in fixture["ttlCases"]:
-        _require(isinstance(case, dict) and set(case) == {"id", "sendAttemptAt", "validUntil", "expectedTtlSeconds"}, "TTL fixture case는 closed object여야 합니다.")
-        _require(calculate_ttl_seconds(case["sendAttemptAt"], case["validUntil"], 900) == case["expectedTtlSeconds"], f"TTL fixture 결과가 다릅니다: {case.get('id')}")
+        _require(isinstance(case, dict) and set(case) == {"id", "sendAttemptAt", "expiresAt", "expectedTtlSeconds"}, "TTL fixture case는 closed object여야 합니다.")
+        _require(calculate_ttl_seconds(case["sendAttemptAt"], case["expiresAt"], 900) == case["expectedTtlSeconds"], f"TTL fixture 결과가 다릅니다: {case.get('id')}")
+    _require(len(fixture["cancellationCases"]) == 10, "취소 fixture case 수가 다릅니다.")
+    for case in fixture["cancellationCases"]:
+        _require(isinstance(case, dict) and set(case) == {"id", "trigger", "expectedReason"}, "취소 fixture case는 closed object여야 합니다.")
+        _require(resolve_cancel_reason(case["trigger"], contract) == case["expectedReason"], f"취소 fixture 결과가 다릅니다: {case.get('id')}")
+    _require(len(fixture["platformCases"]) == 2, "platform fixture case 수가 다릅니다.")
+    for case in fixture["platformCases"]:
+        _require(map_platform_config(case, contract) == case["expected"], f"platform fixture 결과가 다릅니다: {case.get('id')}")
+    _require(len(fixture["collapseKeyCases"]) == 4, "collapse key fixture case 수가 다릅니다.")
+    for case in fixture["collapseKeyCases"]:
+        _require(isinstance(case, dict) and set(case) == {"id", "value", "expectedValid"} and type(case["expectedValid"]) is bool, "collapse key fixture는 closed object여야 합니다.")
+        try:
+            validate_collapse_key(case["value"])
+            valid = True
+        except ValueError:
+            valid = False
+        _require(valid is case["expectedValid"], f"collapse key fixture 결과가 다릅니다: {case.get('id')}")
     _require(len(fixture["consentCases"]) == 11, "consent fixture case 수가 다릅니다.")
     for case in fixture["consentCases"]:
         _require(evaluate_consent_case(case) == case["expected"], f"consent fixture 결과가 다릅니다: {case.get('id')}")

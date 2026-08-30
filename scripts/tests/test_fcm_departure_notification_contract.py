@@ -89,7 +89,7 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
             attempt["terminalStates"],
         )
         expected = {
-            ("PENDING", "LEASED"), ("PENDING", "CANCELLED"), ("PENDING", "DEAD"),
+            ("PENDING", "LEASED"), ("PENDING", "CANCELLED"),
             ("LEASED", "LEASED"), ("LEASED", "ACCEPTED"), ("LEASED", "RETRY"), ("LEASED", "CANCELLED"), ("LEASED", "DEAD"),
             ("RETRY", "LEASED"), ("RETRY", "CANCELLED"), ("RETRY", "DEAD"),
         }
@@ -335,6 +335,49 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
         self.assertTrue(buffer["zeroAllowed"])
         self.assertEqual("fail_closed", buffer["overflowAction"])
 
+    def test_notify_at_scheduled_at_and_expires_at_are_exact_utc_contract(self) -> None:
+        schedule = self.contract["schedulePolicy"]
+        self.assertEqual("notifyAt", schedule["scheduledAtAlias"])
+        self.assertEqual("min(notifyAt + 15 minutes, targetArrivalAt)", schedule["expiresAtFormula"])
+        self.assertEqual(
+            {"notifyAt": "UTC timestamptz", "scheduledAt": "UTC timestamptz", "expiresAt": "UTC timestamptz"},
+            schedule["persistedInstants"],
+        )
+        for case_id in ("default_buffer_is_ten_minutes", "zero_buffer_is_allowed", "maximum_buffer_is_inclusive"):
+            case = next(item for item in self.fixture["scheduleCases"] if item["id"] == case_id)
+            result = self.validator.evaluate_schedule_case(case, self.contract)
+            self.assertIn("expiresAtUtc", result)
+            self.assertNotIn("validUntilUtc", result)
+        for mutate in (
+            lambda value: value["schedulePolicy"].pop("expiresAtFormula"),
+            lambda value: value["schedulePolicy"].__setitem__("expiresAtFormula", "targetArrivalAt - expectedTravelDurationSeconds"),
+            lambda value: value["schedulePolicy"].__setitem__("scheduledAtAlias", "expiresAt"),
+        ):
+            changed = copy.deepcopy(self.contract)
+            mutate(changed)
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                self.validator.validate_contract(changed, self.fixture)
+
+    def test_creation_decision_rejects_nonfuture_notify_or_expiry_against_trusted_evaluated_at(self) -> None:
+        decision = self.contract["schedulePolicy"]["creationDecision"]
+        self.assertEqual("trusted server/database clock", decision["evaluatedAtSource"])
+        self.assertEqual("notifyAt > evaluatedAt", decision["notifyAtComparator"])
+        self.assertEqual("expiresAt > evaluatedAt", decision["expiresAtComparator"])
+        self.assertEqual("do_not_create_and_do_not_send", decision["ineligibleAction"])
+        self.assertEqual(0, decision["providerCallCount"])
+        for case in self.fixture["creationDecisionCases"]:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(case["expected"], self.validator.evaluate_creation_decision(case, self.contract))
+        for mutate in (
+            lambda value: value["schedulePolicy"]["creationDecision"].pop("notifyAtComparator"),
+            lambda value: value["schedulePolicy"]["creationDecision"].__setitem__("notifyAtComparator", "notifyAt >= evaluatedAt"),
+            lambda value: value["schedulePolicy"]["creationDecision"].__setitem__("expiresAtComparator", "expiresAt >= evaluatedAt"),
+        ):
+            changed = copy.deepcopy(self.contract)
+            mutate(changed)
+            with self.subTest(mutate=mutate), self.assertRaises(ValueError):
+                self.validator.validate_contract(changed, self.fixture)
+
     def test_latest_required_location_consent_and_audit_snapshot_matrix(self) -> None:
         consent = self.contract["consentPolicy"]
         self.assertEqual(
@@ -437,10 +480,99 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
     def test_ttl_is_capped_and_equality_is_expired(self) -> None:
         ttl = self.contract["messagePolicy"]["ttlPolicy"]
         self.assertEqual(900, ttl["maximumSeconds"])
+        self.assertEqual("expiresAt", ttl["remainingUntil"])
+        self.assertEqual("min(900, floor(expiresAt - sendAttemptAt))", ttl["calculation"])
         self.assertEqual("do_not_send", ttl["nonPositiveAction"])
+        self.assertEqual(
+            {"remaining_one_second", "remaining_nine_hundred_seconds", "remaining_nine_hundred_one_seconds", "equality_boundary_is_expired", "past_window_is_expired"},
+            {case["id"] for case in self.fixture["ttlCases"]},
+        )
         for case in self.fixture["ttlCases"]:
             with self.subTest(case=case["id"]):
-                self.assertEqual(case["expectedTtlSeconds"], self.validator.calculate_ttl_seconds(case["sendAttemptAt"], case["validUntil"], 900))
+                self.assertEqual(case["expectedTtlSeconds"], self.validator.calculate_ttl_seconds(case["sendAttemptAt"], case["expiresAt"], 900))
+        for mutate in (
+            lambda value: value["messagePolicy"]["ttlPolicy"].pop("remainingUntil"),
+            lambda value: value["messagePolicy"]["ttlPolicy"].__setitem__("calculation", "min(900, floor(targetArrivalAt - sendAttemptAt))"),
+        ):
+            changed = copy.deepcopy(self.contract)
+            mutate(changed)
+            with self.subTest(mutate=mutate), self.assertRaisesRegex(ValueError, "TTL"):
+                self.validator.validate_contract(changed, self.fixture)
+
+    def test_cancel_reasons_and_trigger_mapping_are_closed_and_exact(self) -> None:
+        job = self.contract["jobPolicy"]
+        expected_reasons = [
+            "SCHEDULE_VERSION_REPLACED", "ITEM_COMPLETED", "ITEM_SKIPPED", "TRIP_CANCELLED",
+            "USER_OPTED_OUT", "PREFERENCE_CHANGED", "OS_PERMISSION_REVOKED",
+            "LOCATION_CONSENT_INVALID", "NO_ACTIVE_PUSH_TARGET", "EXPIRED",
+        ]
+        self.assertEqual(expected_reasons, job["cancelReasons"])
+        mapping = job["cancellationTriggerReasons"]
+        self.assertEqual(expected_reasons, [item["reason"] for item in mapping])
+        self.assertEqual(10, len(mapping))
+        for case in self.fixture["cancellationCases"]:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(case["expectedReason"], self.validator.resolve_cancel_reason(case["trigger"], self.contract))
+        for field in ("cancelReasons", "cancellationTriggerReasons"):
+            for mutation in ("missing", "extra"):
+                changed = copy.deepcopy(self.contract)
+                if mutation == "missing":
+                    changed["jobPolicy"][field].pop()
+                elif field == "cancelReasons":
+                    changed["jobPolicy"][field].append("UNKNOWN")
+                else:
+                    changed["jobPolicy"][field].append({"trigger": "unknown", "reason": "EXPIRED"})
+                with self.subTest(field=field, mutation=mutation), self.assertRaisesRegex(ValueError, "cancel|취소"):
+                    self.validator.validate_contract(changed, self.fixture)
+        terminal_mutation = copy.deepcopy(self.contract)
+        terminal_mutation["jobPolicy"]["allowedTransitions"].append(
+            {"from": "CANCELLED", "to": "PENDING", "trigger": "terminal_reopen"}
+        )
+        with self.assertRaisesRegex(ValueError, "transition"):
+            self.validator.validate_contract(terminal_mutation, self.fixture)
+
+    def test_platform_mapping_is_closed_and_uses_canonical_collapse_and_apns_expiration(self) -> None:
+        expected = {
+            "android": {"priority": "high", "collapseKeyField": "collapse_key", "collapseKeySource": "canonicalCollapseKey"},
+            "apns": {
+                "presentation": "alert+sound", "expirationField": "apns-expiration",
+                "expirationFormula": "epochSeconds(sendAttemptAt + ttlSeconds)",
+                "collapseIdField": "apns-collapse-id", "collapseIdSource": "canonicalCollapseKey",
+            },
+        }
+        self.assertEqual(expected, self.contract["messagePolicy"]["platformMapping"])
+        for case in self.fixture["platformCases"]:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(case["expected"], self.validator.map_platform_config(case, self.contract))
+        mutations = (
+            lambda value: value["messagePolicy"]["platformMapping"].pop("android"),
+            lambda value: value["messagePolicy"]["platformMapping"]["apns"].__setitem__("expirationFormula", "expiresAt epoch seconds"),
+            lambda value: value["messagePolicy"]["platformMapping"]["android"].__setitem__("collapseKeyField", "collapseKey"),
+            lambda value: value["messagePolicy"]["platformMapping"]["apns"].__setitem__("extra", True),
+        )
+        for mutate in mutations:
+            changed = copy.deepcopy(self.contract)
+            mutate(changed)
+            with self.subTest(mutate=mutate), self.assertRaisesRegex(ValueError, "provider mapping"):
+                self.validator.validate_contract(changed, self.fixture)
+
+    def test_collapse_key_requires_exact_canonical_lowercase_uuid_and_platform_identity(self) -> None:
+        policy = self.contract["messagePolicy"]["collapseKeyValidation"]
+        self.assertEqual("canonical lowercase tripId", policy["source"])
+        self.assertEqual("regex plus UUID roundtrip", policy["validation"])
+        for case in self.fixture["collapseKeyCases"]:
+            with self.subTest(case=case["id"]):
+                if case["expectedValid"]:
+                    self.assertEqual(case["value"], self.validator.validate_collapse_key(case["value"]), case["id"])
+                else:
+                    with self.assertRaises(ValueError):
+                        self.validator.validate_collapse_key(case["value"])
+        android, apns = (self.validator.map_platform_config(case, self.contract) for case in self.fixture["platformCases"])
+        self.assertEqual(android["collapse_key"], apns["apns-collapse-id"])
+        self.assertEqual(
+            self.validator.build_collapse_key(self.fixture["platformCases"][0]["tripId"]),
+            android["collapse_key"],
+        )
 
     def test_duplicate_json_keys_are_rejected_by_actual_cli_without_traceback(self) -> None:
         cases = (
@@ -501,9 +633,9 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
         self.assertNotIn("pmIssueAmendmentsRequired", traceability)
         evidence = {item["issue"]: item for item in traceability["issueReadbackEvidence"]}
         self.assertEqual({113, 114, 115, 116}, set(evidence))
-        self.assertEqual("2026-08-26T03:40:05Z", evidence[113]["updatedAt"])
-        for issue in (114, 115):
-            self.assertEqual("2026-08-26T03:57:27Z", evidence[issue]["updatedAt"])
+        self.assertEqual("2026-08-28T20:11:58Z", evidence[113]["updatedAt"])
+        self.assertEqual("2026-08-28T23:50:45Z", evidence[114]["updatedAt"])
+        self.assertEqual("2026-08-26T03:57:27Z", evidence[115]["updatedAt"])
         self.assertEqual("2026-08-26T04:33:51Z", evidence[116]["updatedAt"])
         self.assertEqual(
             "de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da",

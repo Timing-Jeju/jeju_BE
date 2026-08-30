@@ -1,0 +1,14 @@
+{
+  "device": {
+    "deviceId": "11300000-0000-0000-0000-000000000101",
+    "platform": "IOS",
+    "permissionStatus": "GRANTED",
+    "active": true,
+    "updatedAt": "2026-08-26T01:02:03Z"
+  },
+  "notificationPreferences": {
+    "nextDestinationDepartureEnabled": false,
+    "safetyBufferMinutes": 10,
+    "updatedAt": null
+  }
+}

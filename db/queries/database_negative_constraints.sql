@@ -2835,20 +2835,22 @@ select pg_temp.expect_rejected(
 );
 
 insert into public.compute_run_inputs (
-  id, compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+  id, schedule_revision_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
   run_type, schema_version, contract_version, algorithm_version,
   structured_input, command_input_hash
 ) values (
   'f1800000-0000-0000-0000-000000000001',
-  '63000000-0000-0000-0000-000000000001',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
-  '60000000-0000-0000-0000-000000000001',
-  'feasibility', 1, 'command/v1', 'algorithm/v1', '{"refreshExternalFacts":false}'::jsonb,
+  'f1640000-0000-0000-0000-000000000001',
+  'f1600000-0000-0000-0000-000000000001',
+  'f1610000-0000-0000-0000-000000000001',
+  'f1630000-0000-0000-0000-000000000001',
+  'schedule_revision', 1, 'revision-v1', 'algorithm-v1',
+  '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb,
   public.compute_command_input_hash(
-    'feasibility'::text, 1::smallint, 'command/v1'::text, 'algorithm/v1'::text,
-    '60000000-0000-0000-0000-000000000001'::uuid,
-    '{"refreshExternalFacts":false}'::jsonb, false::boolean, null::jsonb
+    'schedule_revision'::text, 1::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+    'f1630000-0000-0000-0000-000000000001'::uuid,
+    '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb,
+    false::boolean, null::jsonb
   )
 );
 
@@ -2860,10 +2862,10 @@ select pg_temp.expect_rejected(
       run_type, schema_version, contract_version, algorithm_version,
       structured_input, command_input_hash
     ) values (
-      '09000000-0000-0000-0000-000000000001',
-      '50000000-0000-0000-0000-000000000001',
-      '60000000-0000-0000-0000-000000000001',
-      'feasibility', 1, 'command/v1', 'algorithm/v1', '{}'::jsonb, repeat('a', 64)
+      'f1600000-0000-0000-0000-000000000001',
+      'f1610000-0000-0000-0000-000000000001',
+      'f1630000-0000-0000-0000-000000000001',
+      'schedule_revision', 1, 'revision-v1', 'algorithm/v1', '{}'::jsonb, repeat('a', 64)
     )
   $statement$,
   array['23514']
@@ -2873,16 +2875,16 @@ select pg_temp.expect_rejected(
   'command input multiple parents',
   $statement$
     insert into public.compute_run_inputs (
-      compute_run_id, generation_run_id, owner_user_id, trip_plan_id,
+      schedule_revision_run_id, generation_run_id, owner_user_id, trip_plan_id,
       base_schedule_version_id, run_type, schema_version, contract_version,
       algorithm_version, structured_input, command_input_hash
     ) values (
-      '63000000-0000-0000-0000-000000000002',
-      '64000000-0000-0000-0000-000000000001',
-      '09000000-0000-0000-0000-000000000001',
-      '50000000-0000-0000-0000-000000000001',
-      '60000000-0000-0000-0000-000000000001',
-      'recovery', 1, 'command/v1', 'algorithm/v1',
+      'f1640000-0000-0000-0000-000000000001',
+      'f1800000-0000-0000-0000-000000000099',
+      'f1600000-0000-0000-0000-000000000001',
+      'f1610000-0000-0000-0000-000000000001',
+      'f1630000-0000-0000-0000-000000000001',
+      'schedule_revision', 1, 'revision-v1', 'algorithm/v1',
       '{"riskEventId":"f1800000-0000-0000-0000-000000000099","optionCount":3}'::jsonb,
       repeat('a', 64)
     )
@@ -2894,16 +2896,16 @@ select pg_temp.expect_rejected(
   'command input hash mismatch',
   $statement$
     insert into public.compute_run_inputs (
-      compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+      schedule_revision_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
       run_type, schema_version, contract_version, algorithm_version,
       structured_input, command_input_hash
     ) values (
-      '63000000-0000-0000-0000-000000000002',
-      '09000000-0000-0000-0000-000000000001',
-      '50000000-0000-0000-0000-000000000001',
-      '60000000-0000-0000-0000-000000000001',
-      'recovery', 1, 'command/v1', 'algorithm/v1',
-      '{"riskEventId":"f1800000-0000-0000-0000-000000000099","optionCount":3}'::jsonb,
+      'f1640000-0000-0000-0000-000000000001',
+      'f1600000-0000-0000-0000-000000000001',
+      'f1610000-0000-0000-0000-000000000001',
+      'f1630000-0000-0000-0000-000000000001',
+      'schedule_revision', 1, 'revision-v1', 'algorithm/v1',
+      '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb,
       repeat('a', 64)
     )
   $statement$,
@@ -2914,15 +2916,15 @@ select pg_temp.expect_rejected(
   'command input sensitive raw location key',
   $statement$
     insert into public.compute_run_inputs (
-      compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+      schedule_revision_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
       run_type, schema_version, contract_version, algorithm_version,
       structured_input, command_input_hash
     ) values (
-      '63000000-0000-0000-0000-000000000002',
-      '09000000-0000-0000-0000-000000000001',
-      '50000000-0000-0000-0000-000000000001',
-      '60000000-0000-0000-0000-000000000001',
-      'recovery', 1, 'command/v1', 'algorithm/v1',
+      'f1640000-0000-0000-0000-000000000001',
+      'f1600000-0000-0000-0000-000000000001',
+      'f1610000-0000-0000-0000-000000000001',
+      'f1630000-0000-0000-0000-000000000001',
+      'schedule_revision', 1, 'revision-v1', 'algorithm/v1',
       '{"nested":{"latitude":33.4}}'::jsonb, repeat('a', 64)
     )
   $statement$,
@@ -2935,6 +2937,81 @@ select pg_temp.expect_rejected(
     update public.compute_run_inputs
     set structured_input = '{"day":2}'::jsonb
     where id = 'f1800000-0000-0000-0000-000000000001'
+  $statement$,
+  array['23514']
+);
+
+select public.create_local_test_user(
+  'f1130000-0000-0000-0000-000000000001', 'push-negative@issue113.test'
+);
+
+select pg_temp.expect_rejected(
+  'push device fingerprint must be SHA-256 length',
+  $statement$
+    insert into public.push_devices (
+      user_id, device_id, platform, token_ciphertext, token_fingerprint,
+      permission_status, app_version, locale, time_zone,
+      last_seen_at, created_at, updated_at
+    ) values (
+      'f1130000-0000-0000-0000-000000000001',
+      'f1130000-0000-0000-0000-000000000101',
+      'IOS', 'ciphertext', decode('01', 'hex'), 'GRANTED', '1.0.0', 'ko-KR',
+      'Asia/Seoul', now(), now(), now()
+    )
+  $statement$,
+  array['23514']
+);
+
+insert into public.push_devices (
+  user_id, device_id, platform, token_ciphertext, token_fingerprint,
+  permission_status, app_version, locale, time_zone,
+  last_seen_at, created_at, updated_at
+) values (
+  'f1130000-0000-0000-0000-000000000001',
+  'f1130000-0000-0000-0000-000000000101',
+  'IOS', 'ciphertext', digest('active-token', 'sha256'), 'GRANTED', '1.0.0',
+  'ko-KR', 'Asia/Seoul', now(), now(), now()
+);
+
+select pg_temp.expect_rejected(
+  'active token fingerprint is globally unique',
+  $statement$
+    insert into public.push_devices (
+      user_id, device_id, platform, token_ciphertext, token_fingerprint,
+      permission_status, app_version, locale, time_zone,
+      last_seen_at, created_at, updated_at
+    ) values (
+      'f1130000-0000-0000-0000-000000000001',
+      'f1130000-0000-0000-0000-000000000102',
+      'ANDROID', 'other-ciphertext', digest('active-token', 'sha256'), 'GRANTED',
+      '1.0.0', 'ko-KR', 'Asia/Seoul', now(), now(), now()
+    )
+  $statement$,
+  array['23505']
+);
+
+select pg_temp.expect_rejected(
+  'notification safety buffer below inclusive range',
+  $statement$
+    insert into public.notification_preferences (
+      user_id, next_destination_departure_enabled, safety_buffer_minutes,
+      created_at, updated_at
+    ) values (
+      'f1130000-0000-0000-0000-000000000001', true, -1, now(), now()
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'notification safety buffer above inclusive range',
+  $statement$
+    insert into public.notification_preferences (
+      user_id, next_destination_departure_enabled, safety_buffer_minutes,
+      created_at, updated_at
+    ) values (
+      'f1130000-0000-0000-0000-000000000001', true, 121, now(), now()
+    )
   $statement$,
   array['23514']
 );

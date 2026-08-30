@@ -119,6 +119,16 @@
     "traceId": "00000000000000000000000000850409",
     "fieldErrors": []
   },
+  "409_profile_conflict": {
+    "type": "https://api.timing-jeju.com/problems/profile-conflict",
+    "title": "프로필 연결 충돌",
+    "status": 409,
+    "detail": "인증 프로필을 현재 사용자에게 안전하게 연결할 수 없습니다.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000001850409",
+    "code": "PROFILE_CONFLICT",
+    "traceId": "00000000000000000000000001850409",
+    "fieldErrors": []
+  },
   "409_trip_version_conflict": {
     "type": "https://api.timing-jeju.com/problems/trip-version-conflict",
     "title": "여행이 이미 변경되었습니다",
@@ -167,6 +177,16 @@
     "instance": "urn:timing-jeju:problem:00000000000000000000000000850422",
     "code": "TRIP_CONSTRAINT_VIOLATION",
     "traceId": "00000000000000000000000000850422",
+    "fieldErrors": []
+  },
+  "503_trip_data_unavailable": {
+    "type": "https://api.timing-jeju.com/problems/trip-data-unavailable",
+    "title": "여행 데이터를 사용할 수 없습니다",
+    "status": 503,
+    "detail": "잠시 후 다시 시도해 주세요.",
+    "instance": "urn:timing-jeju:problem:00000000000000000000000000850503",
+    "code": "TRIP_DATA_UNAVAILABLE",
+    "traceId": "00000000000000000000000000850503",
     "fieldErrors": []
   }
 }

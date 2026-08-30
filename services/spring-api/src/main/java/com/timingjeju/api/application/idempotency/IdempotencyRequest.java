@@ -76,7 +76,7 @@ public final class IdempotencyRequest {
     }
     try {
       UUID parsed = UUID.fromString(value);
-      if (!parsed.toString().equals(value.toLowerCase(Locale.ROOT))) {
+      if (!parsed.toString().equals(value)) {
         throw IdempotencyException.invalid();
       }
       return parsed;

@@ -63,6 +63,7 @@ POST body에서 `placeId`만 required/non-null입니다.
 - 동시 같은 command는 한 요청만 실행하고 나머지는 대기 후 replay합니다. 서로 다른 key가 같은 owner/place를 만들면 DB unique race 뒤 위 규칙으로 결정합니다.
 
 canonical payload는 `placeId + normalized memo + canonical tags + effective priority + effective targetDay`입니다.
+Idempotency fingerprint는 versioned field order에서 각 값을 `type + 4-byte big-endian length + payload`로 frame한 뒤 SHA-256합니다. UUID와 정수는 고정 폭 big-endian이고 문자열은 UTF-8/NFC이며 배열은 순서, 원소 수, 각 원소의 type·length를 보존합니다. 따라서 null과 문자열 `"null"`, 배열 순서와 원소 경계, 구분자·control 문자를 서로 다른 payload로 취급합니다.
 
 ## PATCH presence·null·replace·동시성
 
@@ -115,14 +116,22 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 
 현재 `saved_places`에는 `(user_id, place_id)` partial unique index와 `tags text[]` GIN index가 있습니다. owner scope는 canonical JWT `sub = saved_places.user_id`입니다. session 소유 행은 이번 `/me` API 대상이 아닙니다.
 
-문서 검토에서 다음 drift를 확인했습니다.
+구현 전 문서 검토에서 다음 drift를 확인했고 Issue #34 migration이 이를 닫습니다.
 
 1. owner SELECT RLS만 있고 INSERT/UPDATE/DELETE DML RLS 정책이 없습니다.
 2. `priority`는 NOT NULL/default 0이지만 API의 `priority 0~5` 상한 CHECK가 없습니다.
 3. `target_day`는 양수만 검사하고 API의 365 상한은 없습니다.
 4. `updated_at` 자동 갱신과 ETag용 atomic compare-update 구현을 Issue #34에서 검증해야 합니다.
 
-이 Issue는 schema migration을 만들지 않습니다. 위 항목은 후속 구현 Issue #34의 명시적 migration·repository·통합 테스트 범위입니다. `supabase/migrations`가 단일 기준이며 Flyway는 마지막 안정화 전까지 도입하지 않습니다.
+canonical migration은 `supabase/migrations/20260903000000_saved_places_api.sql`이며 Docker init에서는 미래 #44의 `/031` 다음인 `/032_saved_places_api.sql`에 mount합니다. Flyway는 도입하지 않습니다.
+
+### retention 운영 경계
+
+- POST idempotency marker는 생성 시각부터 정확히 24시간 보존하고 `expires_at <= now()`부터 삭제 대상입니다.
+- legacy memo/tag 원문을 담는 `saved_places_backfill_audit`은 capture 후 최대 30일만 보존하고 `purge_after <= now()`부터 삭제 대상입니다.
+- cleanup은 POST traffic이나 외부 snapshot retention flag에 의존하지 않는 별도 `app.saved-place-retention` scheduler입니다. 한 transaction에서 테이블별 최대 100행을 `SKIP LOCKED`로 지우고, 한 cycle은 최대 10 batches입니다. 기본 fixed delay는 24시간, initial delay는 1분입니다.
+- 정확한 단일 `local`/`local-hs256` profile만 cleanup 비활성화를 허용합니다. no-profile, `staging`, `test`, `prod`, `production`과 그 밖의 non-local 환경은 보안 runtime과 같은 production 분류를 사용하며 cleanup이 비활성화되어 있으면 startup을 fail-fast합니다. 해당 환경은 `SAVED_PLACE_RETENTION_ENABLED=true`를 반드시 설정합니다.
+- snapshot retention의 기본 `dry-run=true`는 saved-place cleanup을 암묵적으로 실행하지 않습니다. 두 lifecycle은 설정과 실행 경계가 완전히 분리됩니다.
 
 ## Figma 추적성
 
