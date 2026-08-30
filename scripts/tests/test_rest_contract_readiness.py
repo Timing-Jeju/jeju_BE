@@ -444,11 +444,12 @@ class RestContractReadinessTest(unittest.TestCase):
 
     def test_rejects_domain_inheritance_and_readiness_version_drift(self):
         def mutate(catalog):
-            catalog["domainContracts"].pop()
-            first = catalog["domainContracts"][0]
-            first["inherits"] = "다른-template"
-            first["versions"]["notion"] = "v0"
-            first["readiness"]["implementation"] = "ready"
+            issue_94 = next(
+                domain for domain in catalog["domainContracts"] if domain["issue"] == 94
+            )
+            issue_94["inherits"] = "다른-template"
+            issue_94["versions"]["notion"] = "v0"
+            issue_94["readiness"]["implementation"] = "ready"
 
         errors = self.validate(mutate)
         self.assertTrue(any("#94" in error for error in errors))

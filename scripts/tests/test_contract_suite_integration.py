@@ -1,3 +1,4 @@
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -48,6 +49,10 @@ EXPECTED_ENDPOINTS = {
         "GET",
         "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}",
     ),
+    ("PUT", "/api/v1/me/push-devices/{deviceId}"),
+    ("DELETE", "/api/v1/me/push-devices/{deviceId}"),
+    ("GET", "/api/v1/me/notification-preferences"),
+    ("PATCH", "/api/v1/me/notification-preferences"),
 }
 EXPECTED_VALIDATORS = (
     "validate_rest_contracts.py",
@@ -77,13 +82,49 @@ def _active_commands(source: str, prefix: str) -> set[str]:
     return commands
 
 
+def _assert_catalog_endpoints(catalog: dict) -> None:
+    actual = {(endpoint["method"], endpoint["path"]) for endpoint in catalog["endpoints"]}
+    if actual != EXPECTED_ENDPOINTS:
+        raise AssertionError("canonical endpoint projection drift")
+    if len(catalog["endpoints"]) != len(EXPECTED_ENDPOINTS):
+        raise AssertionError("duplicate endpoint projection")
+
+
 class ContractSuiteIntegrationTest(unittest.TestCase):
     def test_catalog_preserves_all_places_saved_places_and_trips_endpoints(self) -> None:
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
-        actual = {(endpoint["method"], endpoint["path"]) for endpoint in catalog["endpoints"]}
+        _assert_catalog_endpoints(catalog)
 
-        self.assertEqual(EXPECTED_ENDPOINTS, actual)
-        self.assertEqual(36, len(catalog["endpoints"]))
+    def test_endpoint_projection_rejects_duplicate_omission_addition_and_issue113_drift(self):
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        issue_113 = next(
+            endpoint
+            for endpoint in catalog["endpoints"]
+            if endpoint["path"] == "/api/v1/me/push-devices/{deviceId}"
+            and endpoint["method"] == "PUT"
+        )
+        mutations = (
+            lambda value: value["endpoints"].append(copy.deepcopy(value["endpoints"][0])),
+            lambda value: value["endpoints"].pop(),
+            lambda value: value["endpoints"].append(
+                {**copy.deepcopy(value["endpoints"][0]), "path": "/api/v1/unrelated"}
+            ),
+            lambda value: next(
+                endpoint
+                for endpoint in value["endpoints"]
+                if endpoint["path"] == issue_113["path"]
+                and endpoint["method"] == issue_113["method"]
+            ).update(method="POST"),
+        )
+        for mutate in mutations:
+            mutated = copy.deepcopy(catalog)
+            mutate(mutated)
+            with self.subTest(mutate=mutate), self.assertRaises(AssertionError):
+                _assert_catalog_endpoints(mutated)
+
+        reordered = copy.deepcopy(catalog)
+        reordered["endpoints"].reverse()
+        _assert_catalog_endpoints(reordered)
 
     def test_quality_gates_execute_all_contract_validators(self) -> None:
         shell_commands = _active_commands(SHELL_GATE.read_text(encoding="utf-8"), "python3 scripts/")

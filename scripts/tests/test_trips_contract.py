@@ -31,6 +31,10 @@ CURSOR_PAGE_REQUEST = (
     / "pagination"
     / "CursorPageRequest.java"
 )
+TRIP_CREATE_MIGRATION = (
+    ROOT / "supabase" / "migrations" / "20260902000000_trip_create_contract.sql"
+)
+SMOKE_CHECK = ROOT / "db" / "queries" / "smoke_check.sql"
 
 
 class TripsContractTest(unittest.TestCase):
@@ -48,6 +52,8 @@ class TripsContractTest(unittest.TestCase):
                 ROOT / "docs" / "contracts" / "domains" / "trips" / "contract.md",
                 ROOT / "supabase" / "migrations" / "20260728000000_initial_public_schema.sql",
                 ROOT / "supabase" / "migrations" / "20260810000000_api_idempotency_registry.sql",
+                TRIP_CREATE_MIGRATION,
+                SMOKE_CHECK,
                 ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "application" / "idempotency" / "IdempotencyRequest.java",
                 CURSOR_PAGE_REQUEST,
                 ROOT / "services" / "spring-api" / "src" / "main" / "java" / "com" / "timingjeju" / "api" / "global" / "error" / "StandardProblemCode.java",
@@ -112,27 +118,45 @@ class TripsContractTest(unittest.TestCase):
         )
 
     def test_canonical_contract_cannot_be_changed_by_updating_only_the_digest(self) -> None:
-        with self._temporary_repository() as root:
-            path = root / CONTRACT.relative_to(ROOT)
-            contract = self._load(path)
-            contract["ownership"]["crossOwnerConcealment"] = 403
-            self._write(path, contract)
-            validator = root / VALIDATOR.relative_to(ROOT)
-            source = validator.read_text(encoding="utf-8")
-            source = source.replace(
-                source.split('CANONICAL_CONTRACT_SHA256 = "', 1)[1].split('"', 1)[0],
-                self._digest(contract),
-                1,
-            )
-            validator.write_text(source, encoding="utf-8")
-            result = self._run(root)
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("semantic", result.stdout)
+        mutations: dict[str, Callable[[dict[str, Any]], None]] = {
+            "ownership": lambda c: c["ownership"].update({"crossOwnerConcealment": 403}),
+            "trip path canonical UUID": lambda c: c["schemas"]["TripId"].update(
+                {"format": "text"}
+            ),
+            "list data availability": lambda c: c["endpoints"][0]["responses"].update(
+                {"errors": [400, 401]}
+            ),
+            "detail data availability": lambda c: c["endpoints"][2]["responses"].update(
+                {"errors": [400, 401, 404]}
+            ),
+            "profile provisioning": lambda c: c["createSemantics"][
+                "profileProvisioningErrors"
+            ].update({"STORAGE_UNAVAILABLE": "500 INTERNAL_SERVER_ERROR"}),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), self._temporary_repository() as root:
+                path = root / CONTRACT.relative_to(ROOT)
+                contract = self._load(path)
+                mutate(contract)
+                self._write(path, contract)
+                validator = root / VALIDATOR.relative_to(ROOT)
+                source = validator.read_text(encoding="utf-8")
+                source = source.replace(
+                    source.split('CANONICAL_CONTRACT_SHA256 = "', 1)[1].split('"', 1)[0],
+                    self._digest(contract),
+                    1,
+                )
+                validator.write_text(source, encoding="utf-8")
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("semantic", result.stdout)
 
     def test_endpoint_semantics_are_independently_enforced(self) -> None:
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "list path": lambda c: c["endpoints"][0].update({"path": "/api/v1/me/trips"}),
             "post idempotency": lambda c: c["endpoints"][1]["idempotency"].update({"required": False}),
+            "post errors": lambda c: c["endpoints"][1]["responses"].update({"errors": [400, 401, 409, 422]}),
+            "profile conflict mapping": lambda c: c["createSemantics"]["profileProvisioningErrors"].update({"EMAIL_OWNERSHIP_CONFLICT": "500 INTERNAL_SERVER_ERROR"}),
             "patch if-match": lambda c: c["endpoints"][3].update({"headersSchema": "CommonHeaders"}),
             "delete repeat": lambda c: c["deleteSemantics"].update({"repeat": "204"}),
             "timezone": lambda c: c["tripPolicy"].update({"timezone": "UTC"}),
@@ -147,6 +171,98 @@ class TripsContractTest(unittest.TestCase):
                 result = self._run(root)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("canonical", result.stdout)
+
+    def test_trip_create_profile_provisioning_error_mapping_is_stable_and_cause_free(self) -> None:
+        contract = self._load(CONTRACT)
+        self.assertEqual(
+            [400, 401, 409, 422, 503], contract["endpoints"][1]["responses"]["errors"]
+        )
+        self.assertEqual(
+            {
+                "EMAIL_OWNERSHIP_CONFLICT": "409 PROFILE_CONFLICT",
+                "PROVIDER_SUBJECT_CONFLICT": "409 PROFILE_CONFLICT",
+                "INVALID_AUTH_IDENTITY": "503 TRIP_DATA_UNAVAILABLE",
+                "STORAGE_UNAVAILABLE": "503 TRIP_DATA_UNAVAILABLE",
+                "exposure": "cause-free Problem Details; no raw provider message or PII",
+            },
+            contract["createSemantics"]["profileProvisioningErrors"],
+        )
+        problems = self._load(FIXTURES / "problem.json")
+        self.assertEqual("PROFILE_CONFLICT", problems["409_profile_conflict"]["code"])
+        self.assertEqual(
+            "TRIP_DATA_UNAVAILABLE", problems["503_trip_data_unavailable"]["code"]
+        )
+
+    def test_trip_reads_expose_stable_data_unavailable_contract(self) -> None:
+        contract = self._load(CONTRACT)
+        catalog = self._load(CATALOG)
+        expected = {
+            ("GET", "/api/v1/trips"): {"success": [200], "errors": [400, 401, 503]},
+            ("GET", "/api/v1/trips/{tripId}"): {
+                "success": [200],
+                "errors": [400, 401, 404, 503],
+            },
+        }
+
+        for identity, responses in expected.items():
+            contract_endpoint = next(
+                item
+                for item in contract["endpoints"]
+                if (item["method"], item["path"]) == identity
+            )
+            catalog_endpoint = next(
+                item
+                for item in catalog["endpoints"]
+                if (item["method"], item["path"]) == identity
+            )
+            self.assertEqual(responses, contract_endpoint["responses"])
+            self.assertEqual(responses, catalog_endpoint["responses"])
+
+        problems = self._load(FIXTURES / "problem.json")
+        self.assertEqual(503, problems["503_trip_data_unavailable"]["status"])
+        self.assertEqual(
+            "TRIP_DATA_UNAVAILABLE", problems["503_trip_data_unavailable"]["code"]
+        )
+
+    def test_trip_id_schema_requires_exact_lowercase_canonical_uuid_pattern(self) -> None:
+        expected_pattern = (
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        )
+        contract = self._load(CONTRACT)
+        self.assertEqual(
+            {
+                "type": "string",
+                "nullable": False,
+                "format": "uuid",
+                "pattern": expected_pattern,
+            },
+            contract["schemas"]["TripId"],
+        )
+
+        mutations: tuple[tuple[str, Callable[[dict[str, Any]], None]], ...] = (
+            ("removed", lambda c: c["schemas"]["TripId"].pop("pattern", None)),
+            (
+                "uppercase allowed",
+                lambda c: c["schemas"]["TripId"].update(
+                    {"pattern": "^[0-9A-Fa-f-]{36}$"}
+                ),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label), self._temporary_repository() as root:
+                path = root / CONTRACT.relative_to(ROOT)
+                value = self._load(path)
+                mutate(value)
+                self._write(path, value)
+                validator = root / VALIDATOR.relative_to(ROOT)
+                source = validator.read_text(encoding="utf-8")
+                old_digest = source.split('CANONICAL_CONTRACT_SHA256 = "', 1)[1].split('"', 1)[0]
+                validator.write_text(
+                    source.replace(old_digest, self._digest(value), 1), encoding="utf-8"
+                )
+                result = self._run(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("lowercase canonical UUID semantic", result.stdout)
 
     def test_catalog_projection_is_exact_and_not_falsely_ready(self) -> None:
         with self._temporary_repository() as root:
@@ -174,6 +290,19 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual(
             "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED",
             catalog_create["concurrentRequest"],
+        )
+        contract_create_endpoint = contract["endpoints"][1]
+        catalog_create_endpoint = next(
+            endpoint
+            for endpoint in catalog["endpoints"]
+            if endpoint["method"] == "POST" and endpoint["path"] == "/api/v1/trips"
+        )
+        self.assertEqual(
+            {"success": [201], "errors": [400, 401, 409, 422, 503]},
+            contract_create_endpoint["responses"],
+        )
+        self.assertEqual(
+            contract_create_endpoint["responses"], catalog_create_endpoint["responses"]
         )
 
     def test_catalog_trip_create_rejects_legacy_idempotency_codes_independent_of_digest(self) -> None:
@@ -474,14 +603,48 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual("supabase/migrations", storage["migrationSourceOfTruth"])
         self.assertFalse(storage["flywayAllowed"])
         self.assertEqual(
-            ["timezone", "revision", "owner-write-rls"],
+            ["revision"],
             [item["id"] for item in storage["schemaDrift"]],
+        )
+        self.assertEqual(
+            {
+                "soleWriter": "Spring API using service_role",
+                "clientRoles": ["anon", "authenticated"],
+                "clientTablePrivileges": [],
+                "clientWritePolicyCount": 0,
+                "serviceRoleTablePrivileges": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+                "serviceRoleDeniedTablePrivileges": ["TRUNCATE", "REFERENCES", "TRIGGER"],
+                "issue44CreateOwnership": "canonical JWT sub owner predicate and one aggregate transaction",
+                "issue45UpdateDeleteOwnership": "future Spring API owner predicate and transaction",
+                "writeRlsPoliciesRequired": False,
+            },
+            storage["writeAccess"],
         )
         deletion = contract["deleteSemantics"]
         self.assertEqual("cascade", deletion["tripAggregate"])
         self.assertEqual("delete-with-aggregate", deletion["locationAndExecutionHistory"])
         self.assertEqual("preserve", deletion["externalImportLineage"])
         self.assertEqual("preserve", deletion["userAndAuthIdentity"])
+
+    def test_legacy_owner_write_rls_text_cannot_match_zero_policy_migration_and_smoke(self) -> None:
+        with self._temporary_repository() as root:
+            path = root / CONTRACT.relative_to(ROOT)
+            contract = self._load(path)
+            contract["storage"].pop("writeAccess", None)
+            contract["storage"]["schemaDrift"] = [
+                {"id": "timezone", "ownerIssue": 44, "required": "trip_plans.timezone is absent"},
+                {"id": "revision", "ownerIssue": 45, "required": "revision is absent"},
+                {
+                    "id": "owner-write-rls",
+                    "ownerIssue": 44,
+                    "required": "owner INSERT/UPDATE/DELETE RLS policies are absent",
+                },
+            ]
+            self._write(path, contract)
+            result = self._run(root)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("storage writer", result.stdout)
 
     def test_external_traceability_does_not_claim_missing_design_states(self) -> None:
         contract = self._load(CONTRACT)

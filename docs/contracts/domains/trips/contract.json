@@ -6,7 +6,7 @@
   "ownerIssue": 85,
   "implementationIssues": [44, 45],
   "schemas": {
-    "TripId": {"type": "string", "nullable": false, "format": "uuid"},
+    "TripId": {"type": "string", "nullable": false, "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
     "TripTitle": {"type": "string", "nullable": false, "normalization": "trim+nfc", "minLength": 1, "maxLength": 100},
     "TripDate": {"type": "string", "nullable": false, "format": "date"},
     "TripTimezone": {"type": "string", "nullable": false, "format": "iana-timezone", "enum": ["Asia/Seoul"]},
@@ -211,7 +211,7 @@
       "properties": {
         "type": {"type": "string", "nullable": false, "format": "uri"},
         "title": {"type": "string", "nullable": false, "minLength": 1},
-        "status": {"type": "integer", "nullable": false, "enum": [400, 401, 404, 409, 422]},
+        "status": {"type": "integer", "nullable": false, "enum": [400, 401, 404, 409, 422, 503]},
         "detail": {"type": "string", "nullable": false, "minLength": 1},
         "instance": {"type": "string", "nullable": false, "format": "urn"},
         "code": {"type": "string", "nullable": false, "pattern": "^[A-Z][A-Z0-9_]+$"},
@@ -230,7 +230,7 @@
       "successSchema": "TripsListResponse",
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub",
-      "responses": {"success": [200], "errors": [400, 401]},
+      "responses": {"success": [200], "errors": [400, 401, 503]},
       "idempotency": {"required": false, "header": "none"},
       "pagination": {"type": "cursor", "defaultSize": 20, "maxSize": 50},
       "figma": {"node": "182:3248", "action": "여행 기본 조건에서 생성된 본인 여행 목록 진입", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}
@@ -244,7 +244,7 @@
       "successSchema": "TripDetail",
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub",
-      "responses": {"success": [201], "errors": [400, 401, 409, 422]},
+      "responses": {"success": [201], "errors": [400, 401, 409, 422, 503]},
       "idempotency": {"required": true, "header": "Idempotency-Key", "scope": "canonicalSub + POST + /api/v1/trips", "ttl": "24h", "replay": "same key+canonical payload returns original status, Location, ETag and body with Idempotency-Replayed=true", "payloadConflict": "409 IDEMPOTENCY_KEY_REUSED", "concurrentRequest": "single writer; in-progress or reused key returns 409 IDEMPOTENCY_KEY_REUSED"},
       "pagination": {"type": "none"},
       "figma": {"node": "182:3248", "action": "여행 기본 조건 저장", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}
@@ -258,7 +258,7 @@
       "successSchema": "TripDetail",
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub; cross-owner 404",
-      "responses": {"success": [200], "errors": [400, 401, 404]},
+      "responses": {"success": [200], "errors": [400, 401, 404, 503]},
       "idempotency": {"required": false, "header": "none"},
       "pagination": {"type": "none"},
       "figma": {"node": "182:3248", "action": "여행 기본 조건·상태 확인", "loading": "not-observed", "empty": "not-applicable", "error": "not-observed"}
@@ -330,7 +330,14 @@
       "totalScore": null,
       "scoreProvenance": null
     },
-    "idempotency": {"header": "Idempotency-Key", "format": "canonical UUID", "ttl": "24h", "missing": "400 IDEMPOTENCY_KEY_REQUIRED", "invalid": "400 IDEMPOTENCY_KEY_INVALID", "samePayload": "replay exact original response", "differentPayload": "409 IDEMPOTENCY_KEY_REUSED", "inProgressOrReused": "409 IDEMPOTENCY_KEY_REUSED"}
+    "idempotency": {"header": "Idempotency-Key", "format": "canonical UUID", "ttl": "24h", "missing": "400 IDEMPOTENCY_KEY_REQUIRED", "invalid": "400 IDEMPOTENCY_KEY_INVALID", "samePayload": "replay exact original response", "differentPayload": "409 IDEMPOTENCY_KEY_REUSED", "inProgressOrReused": "409 IDEMPOTENCY_KEY_REUSED"},
+    "profileProvisioningErrors": {
+      "EMAIL_OWNERSHIP_CONFLICT": "409 PROFILE_CONFLICT",
+      "PROVIDER_SUBJECT_CONFLICT": "409 PROFILE_CONFLICT",
+      "INVALID_AUTH_IDENTITY": "503 TRIP_DATA_UNAVAILABLE",
+      "STORAGE_UNAVAILABLE": "503 TRIP_DATA_UNAVAILABLE",
+      "exposure": "cause-free Problem Details; no raw provider message or PII"
+    }
   },
   "patchSemantics": {
     "concurrency": "required strong If-Match generated from persisted monotonically increasing revision",
@@ -379,10 +386,19 @@
     "migrationSourceOfTruth": "supabase/migrations",
     "flywayAllowed": false,
     "schemaChangesInIssue85": false,
+    "writeAccess": {
+      "soleWriter": "Spring API using service_role",
+      "clientRoles": ["anon", "authenticated"],
+      "clientTablePrivileges": [],
+      "clientWritePolicyCount": 0,
+      "serviceRoleTablePrivileges": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+      "serviceRoleDeniedTablePrivileges": ["TRUNCATE", "REFERENCES", "TRIGGER"],
+      "issue44CreateOwnership": "canonical JWT sub owner predicate and one aggregate transaction",
+      "issue45UpdateDeleteOwnership": "future Spring API owner predicate and transaction",
+      "writeRlsPoliciesRequired": false
+    },
     "schemaDrift": [
-      {"id": "timezone", "ownerIssue": 44, "required": "trip_plans.timezone IANA identifier with Asia/Seoul default/check is absent"},
-      {"id": "revision", "ownerIssue": 45, "required": "monotonic revision for strong If-Match/ETag is absent"},
-      {"id": "owner-write-rls", "ownerIssue": 44, "required": "trip_plans and owned aggregate INSERT/UPDATE/DELETE RLS policies are absent; #45 extends update/delete verification"}
+      {"id": "revision", "ownerIssue": 45, "required": "monotonic revision for strong If-Match/ETag is absent"}
     ],
     "existingConstraints": ["trip date order", "trip_days calendar", "active schedule deferred consistency", "sealed schedule mutation protection", "aggregate foreign-key cascade"],
     "requestTimeExternalCall": "none"

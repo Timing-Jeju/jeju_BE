@@ -213,7 +213,7 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
     jdbc.update("delete from public.tago_arrival_flights");
     TagoArrivalFlightDecision expired =
         store.observeOrClaim(FINGERPRINT, new UUID(39L, 2L), LEASE, QUARANTINE);
-    assertThat(store.completeSuccess(expired.lease(), Instant.now().minusSeconds(1), RETAIN))
+    assertThat(store.completeSuccess(expired.lease(), databaseNow().minusSeconds(1), RETAIN))
         .isFalse();
     assertThat(
             jdbc.queryForObject(

@@ -59,11 +59,18 @@ if ($Scope -in @("all", "common")) {
 if ($Scope -in @("all", "spring")) {
   Push-Location $springDir
   try {
-    ./gradlew.bat --no-daemon spotlessCheck
-    ./gradlew.bat --no-daemon classes testClasses
-    ./gradlew.bat --no-daemon unitTest sliceTest integrationTest architectureTest
-    ./gradlew.bat --no-daemon openApiDocs
-    ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar
+    Invoke-Native "Spring 포맷 검사" { ./gradlew.bat --no-daemon spotlessCheck }
+    Invoke-Native "Spring 컴파일" { ./gradlew.bat --no-daemon classes testClasses }
+    Invoke-Native "Spring 분류 테스트" { ./gradlew.bat --no-daemon unitTest sliceTest integrationTest architectureTest }
+    if (Test-Path -LiteralPath "build/openapi/openapi.json") {
+      Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath "build/openapi/openapi.json") {
+      throw "stale OpenAPI artifact를 삭제하지 못했습니다."
+    }
+    Invoke-Native "Spring OpenAPI 문서 생성" { ./gradlew.bat --no-daemon openApiDocs }
+    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 20 --contracts-root ../.. }
+    Invoke-Native "Spring 전체 검사" { ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar }
   } finally {
     Pop-Location
   }

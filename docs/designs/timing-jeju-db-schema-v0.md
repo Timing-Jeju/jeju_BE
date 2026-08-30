@@ -24,6 +24,7 @@
 - [공개 장소 tombstone](../../supabase/migrations/20260825000000_public_place_tombstone.sql)
 - [완료 공급자 데이터 상태 조회 인덱스](../../supabase/migrations/20260828000000_completed_provider_data_health_index.sql)
 - [완료 공급자 snapshot retention 인덱스](../../supabase/migrations/20260829000000_completed_provider_snapshot_retention_index.sql)
+- [관심 장소 CRUD·멱등 응답·audit retention](../../supabase/migrations/20260903000000_saved_places_api.sql)
 - [스키마 계약 검사](../../db/queries/schema_contract.sql)
 - [음수 무결성 계약](../../db/queries/database_negative_constraints.sql)
 - [자동 스모크 검사](../../db/queries/smoke_check.sql)

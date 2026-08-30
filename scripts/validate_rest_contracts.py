@@ -36,6 +36,7 @@ DOMAIN_CONTRACTS = {
     92: "recovery",
     93: "live",
     94: "weather-forecast",
+    113: "push-notifications",
 }
 DOMAIN_ISSUES = set(DOMAIN_CONTRACTS)
 DOMAIN_LOCAL_VERSION_OVERRIDES = {82: "1.1.0"}

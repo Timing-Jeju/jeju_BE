@@ -117,6 +117,16 @@ insert into auth.users (
   now()
 );
 
+insert into auth.identities (
+  id, user_id, provider, provider_id, identity_data
+) values (
+  '09200000-0000-0000-0000-000000000001',
+  '09000000-0000-0000-0000-000000000001',
+  'kakao',
+  'demo-kakao-user-001',
+  '{"sub":"demo-kakao-user-001","email":"demo@timing-jeju.local","email_verified":true,"nickname":"타이밍제주 데모"}'::jsonb
+);
+
 insert into user_profiles (
   id, email, nickname, locale, onboarding_completed_at, last_login_at
 ) values (
@@ -300,12 +310,12 @@ insert into saved_places (user_id, place_id, memo, tags, target_day, priority) v
 (
   '09000000-0000-0000-0000-000000000001',
   '20000000-0000-0000-0000-000000000002',
-  '오전에 방문', array['필수', '동쪽'], 1, 10
+  '오전에 방문', array['동쪽', '필수'], 1, 5
 ),
 (
   '09000000-0000-0000-0000-000000000001',
   '20000000-0000-0000-0000-000000000003',
-  '날씨가 좋으면 방문', array['선택', '산책'], 1, 5
+  '날씨가 좋으면 방문', array['산책', '선택'], 1, 5
 );
 
 insert into bus_stops (

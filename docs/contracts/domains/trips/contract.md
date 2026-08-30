@@ -12,13 +12,13 @@
 
 ## 공통 HTTP 계약
 
-| 작업 | 성공 | 필수 조건 | 외부 호출 |
-|---|---:|---|---|
-| 목록 | 200 | Bearer 인증, cursor pagination | 없음 |
-| 생성 | 201 | Bearer 인증, `Idempotency-Key` | 없음 |
-| 상세 | 200 | Bearer 인증, UUID `tripId` | 없음 |
-| 수정 | 200 | Bearer 인증, strong `If-Match` | 없음 |
-| 삭제 | 204 | Bearer 인증, 응답 body 없음 | 없음 |
+| 작업 | 성공 | 필수 조건 | 오류 | 외부 호출 |
+|---|---:|---|---|---|
+| 목록 | 200 | Bearer 인증, cursor pagination | 400, 401, 저장소 장애 시 `503 TRIP_DATA_UNAVAILABLE` | 없음 |
+| 생성 | 201 | Bearer 인증, `Idempotency-Key` | 400, 401, 409, 422, 503 | 없음 |
+| 상세 | 200 | Bearer 인증, lowercase canonical UUID `tripId` | 잘못된 path는 `400 INVALID_REQUEST`; 401, 404; 저장소 장애는 `503 TRIP_DATA_UNAVAILABLE` | 없음 |
+| 수정 | 200 | Bearer 인증, strong `If-Match` | 400, 401, 404, 409, 422 | 없음 |
+| 삭제 | 204 | Bearer 인증, 응답 body 없음 | 400, 401, 404, 409 | 없음 |
 
 오류는 공통 Problem Details 계약을 사용한다. 닫힌 request/response schema에 없는 필드는 거부하며, nullable로 명시하지 않은 필드에는 `null`을 허용하지 않는다.
 
@@ -31,6 +31,9 @@
 - `trip_plans`, 기본 교통수단, 날짜별 `trip_days`는 한 트랜잭션으로 생성한다.
 - `Idempotency-Key`는 공통 Issue #17 계약과 같은 canonical UUID다. 누락은 `400 IDEMPOTENCY_KEY_REQUIRED`, UUID 형식 오류는 `400 IDEMPOTENCY_KEY_INVALID`다.
 - 키 범위는 canonical sub + method + path이며 보존 시간은 24시간이다. 같은 payload는 최초의 status, `Location`, `ETag`, body를 그대로 재생하고, 다른 payload 또는 처리 중·재사용 상태는 `409 IDEMPOTENCY_KEY_REUSED`다.
+- 인증 프로필 준비 중 이메일 소유권 또는 provider subject 충돌은 원인을 노출하지 않는 `409 PROFILE_CONFLICT`로 응답한다.
+- 인증 identity가 유효하지 않거나 프로필 저장소를 사용할 수 없으면 원천 메시지·PII·cause를 노출하지 않는 `503 TRIP_DATA_UNAVAILABLE`로 응답한다.
+- 목록·상세 조회 중 저장소 접근 실패도 raw SQL, 연결 문자열과 cause를 노출하지 않는 동일한 `503 TRIP_DATA_UNAVAILABLE`로 응답한다.
 
 ## 목록과 점수 계약
 
@@ -62,7 +65,7 @@ PATCH는 저장된 단조 증가 revision으로 만든 strong `If-Match`가 필�
 
 ## DB drift와 migration 경계
 
-현재 스키마에는 `trip_plans.timezone`, strong ETag용 단조 증가 revision, owner write RLS가 없다. timezone과 생성 write RLS는 Issue #44, revision과 수정·삭제 write 검증은 Issue #45가 담당한다. 운영 migration의 단일 기준은 `supabase/migrations`이며 Flyway를 도입하지 않는다.
+Issue #44는 `trip_plans.timezone`의 `Asia/Seoul` default/check를 추가했고, Spring API가 `service_role`로 여행 aggregate를 쓰는 유일한 경로를 확정했다. `anon`과 `authenticated`에는 `trip_plans`, `trip_transport_modes`, `trip_days`의 직접 table 권한이 없고 client INSERT/UPDATE/DELETE RLS policy 수도 0이다. POST는 Spring application에서 canonical JWT sub와 owner predicate를 결합하고 root·mode·day를 한 transaction으로 저장한다. write RLS policy는 요구하지 않으며, Issue #45의 PATCH/DELETE도 같은 Spring owner predicate와 transaction 경계를 사용한다. 남은 schema drift는 strong If-Match/ETag용 단조 증가 revision뿐이다. 운영 migration의 단일 기준은 `supabase/migrations`이며 Flyway를 도입하지 않는다.
 
 ## 외부 문서 추적성
 

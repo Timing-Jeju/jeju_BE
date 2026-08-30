@@ -1,0 +1,425 @@
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+class Issue114DevelopIntegrationTest(unittest.TestCase):
+    def test_FCM_API_port는_caller_environment와_무관한_loopback_18083이다(self):
+        for caller_port in ("8080", "65535"):
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "API_PORT": caller_port,
+                    "FIREBASE_CREDENTIALS_FILE": "/tmp/test-only-firebase-config.json",
+                }
+            )
+            result = subprocess.run(
+                (
+                    "docker", "compose", "-f", "compose.yml", "-f", "compose.fcm.yml",
+                    "config", "--format", "json",
+                ),
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            ports = json.loads(result.stdout)["services"]["api"]["ports"]
+            self.assertEqual(
+                [
+                    {
+                        "mode": "ingress",
+                        "target": 8080,
+                        "published": "18083",
+                        "host_ip": "127.0.0.1",
+                        "protocol": "tcp",
+                    }
+                ],
+                ports,
+            )
+
+    def test_FCM_init은_Dockerfile_runtime_base를_정확히_재사용한다(self):
+        dockerfile = (ROOT / "services/spring-api/Dockerfile").read_text(encoding="utf-8")
+        override = (ROOT / "compose.fcm.yml").read_text(encoding="utf-8")
+        self.assert_fcm_init_runtime_base_contract(dockerfile, override)
+
+        for external_image in ("alpine:3.20.3", "busybox:1.36"):
+            mutation = override.replace(
+                "image: eclipse-temurin:21-jre-alpine", f"image: {external_image}", 1
+            )
+            with self.subTest(external_image=external_image), self.assertRaises(AssertionError):
+                self.assert_fcm_init_runtime_base_contract(dockerfile, mutation)
+
+    def assert_fcm_init_runtime_base_contract(self, dockerfile, override):
+        runtime_image = next(
+            line.removeprefix("FROM ").removesuffix(" AS runtime")
+            for line in dockerfile.splitlines()
+            if line.endswith(" AS runtime")
+        )
+        init = override.split("  firebase-credential-init:\n", 1)[1].split("  api:\n", 1)[0]
+        self.assertEqual([f"    image: {runtime_image}"], [line for line in init.splitlines() if "image:" in line])
+
+    def test_tago_expired_source_boundary는_DB_clock_domain을_사용한다(self):
+        source = (
+            ROOT
+            / "services/spring-api/src/test/java/com/timingjeju/api/global/tago/arrival"
+            / "JdbcTagoArrivalFlightStoreIntegrationTest.java"
+        ).read_text(encoding="utf-8")
+        self.assert_tago_expired_source_clock_contract(source)
+
+        jvm_clock_mutation = source.replace(
+            "databaseNow().minusSeconds(1)", "Instant.now().minusSeconds(1)", 1
+        )
+        with self.assertRaises(AssertionError):
+            self.assert_tago_expired_source_clock_contract(jvm_clock_mutation)
+
+    def assert_tago_expired_source_clock_contract(self, source):
+        method = source.split(
+            "void success_retain은_source_expiry를_넘지않고_이미만료된_source는_publish하지않는다()",
+            1,
+        )[1].split("\n  @Test", 1)[0]
+        self.assertIn("databaseNow().minusSeconds(1)", method)
+        self.assertNotIn("Instant.now().minusSeconds(1)", method)
+
+    def test_firebase_adapter와_mode20_contract가_함께_유지된다(self):
+        firebase_adapter = (
+            ROOT
+            / "services/spring-api/src/main/java/com/timingjeju/api/global/push/firebase"
+            / "FirebasePushMessageSender.java"
+        )
+        self.assertTrue(firebase_adapter.is_file())
+
+        for gate_name in ("quality-gate.sh", "quality-gate.ps1"):
+            gate = (ROOT / "scripts" / gate_name).read_text(encoding="utf-8")
+            self.assertIn("--mode 20", gate, gate_name)
+            self.assertNotIn("--mode 16", gate, gate_name)
+
+        migration_names = {
+            path.name for path in (ROOT / "supabase/migrations").glob("*.sql")
+        }
+        self.assertIn(
+            "20260904000000_push_device_notification_preferences.sql",
+            migration_names,
+        )
+        self.assertIn(
+            "20260904000001_push_notification_server_writer_boundary.sql",
+            migration_names,
+        )
+
+    def test_fcm_compose_runtime과_ADC_secret_boundary가_fail_closed이다(self):
+        compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
+        compose_test = (ROOT / "compose.test.yml").read_text(encoding="utf-8")
+        env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+        override = (ROOT / "compose.fcm.yml").read_text(encoding="utf-8")
+        dockerfile = (ROOT / "services/spring-api/Dockerfile").read_text(
+            encoding="utf-8"
+        )
+        documentation = (ROOT / "docs/FIREBASE_FCM_CONFIGURATION.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assert_fcm_compose_contract(
+            compose, compose_test, env_example, override, documentation
+        )
+        self.assert_fcm_runtime_image_contract(dockerfile, documentation)
+        mutations = {
+            "runtime-disabled-default-deleted": (
+                compose.replace("      FCM_ENABLED: ${FCM_ENABLED:-false}\n", "", 1),
+                compose_test,
+                env_example,
+                override,
+                documentation,
+            ),
+            "runtime-project-id-typo": (
+                compose.replace("FIREBASE_PROJECT_ID", "FIREBASE_PROJECT", 1),
+                compose_test,
+                env_example,
+                override,
+                documentation,
+            ),
+            "runtime-read-timeout-deleted": (
+                compose.replace(
+                    "      FCM_READ_TIMEOUT: ${FCM_READ_TIMEOUT:-5s}\n", "", 1
+                ),
+                compose_test,
+                env_example,
+                override,
+                documentation,
+            ),
+            "test-enables-provider": (
+                compose,
+                compose_test.replace('FCM_ENABLED: "false"', 'FCM_ENABLED: "true"', 1),
+                env_example,
+                override,
+                documentation,
+            ),
+            "env-example-credential-path-deleted": (
+                compose,
+                compose_test,
+                env_example.replace("FIREBASE_CREDENTIALS_FILE=\n", "", 1),
+                override,
+                documentation,
+            ),
+            "env-example-credential-path-typo": (
+                compose,
+                compose_test,
+                env_example.replace(
+                    "FIREBASE_CREDENTIALS_FILE=", "FIREBASE_CREDENTIAL_FILE=", 1
+                ),
+                override,
+                documentation,
+            ),
+            "secret-source-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "    file: ${FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}\n",
+                    "",
+                    1,
+                ),
+                documentation,
+            ),
+            "credential-target-typo": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "/run/secrets/timing-jeju-firebase/service-account.json",
+                    "/run/secrets/firebase.json",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-copy-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp\n",
+                    "",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-order-reversed": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp\n"
+                    "        chown 10001:10001 /credential/.service-account.json.tmp\n",
+                    "        chown 10001:10001 /credential/.service-account.json.tmp\n"
+                    "        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp\n",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-permission-relaxed": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("chmod 0400", "chmod 0644", 1),
+                documentation,
+            ),
+            "init-chown-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        chown 10001:10001 /credential/.service-account.json.tmp\n",
+                    "",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-chmod-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "        chmod 0400 /credential/.service-account.json.tmp\n",
+                    "",
+                    1,
+                ),
+                documentation,
+            ),
+            "init-dependency-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("        condition: service_completed_successfully\n", "", 1),
+                documentation,
+            ),
+            "api-volume-write-enabled": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("        read_only: true\n", "        read_only: false\n", 1),
+                documentation,
+            ),
+            "api-port-host-wide": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("127.0.0.1:18083:8080", "18083:8080", 1),
+                documentation,
+            ),
+            "api-port-default-collision": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace("127.0.0.1:18083:8080", "127.0.0.1:8080:8080", 1),
+                documentation,
+            ),
+            "api-port-override-deleted": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace('    ports: !override\n      - "127.0.0.1:18083:8080"\n', "", 1),
+                documentation,
+            ),
+            "api-direct-secret-added": (
+                compose,
+                compose_test,
+                env_example,
+                override.replace(
+                    "    depends_on:\n",
+                    "    secrets:\n"
+                    "      - source: firebase-service-account\n"
+                    "        target: firebase-service-account.json\n"
+                    "    depends_on:\n",
+                    1,
+                ),
+                documentation,
+            ),
+        }
+        for scenario, mutation in mutations.items():
+            with self.subTest(scenario=scenario), self.assertRaises(AssertionError):
+                self.assert_fcm_compose_contract(*mutation)
+        for scenario, mutation in {
+            "runtime-uid-deleted": dockerfile.replace("-u 10001", "", 1),
+            "runtime-gid-drift": dockerfile.replace("-g 10001", "-g 10002", 1),
+        }.items():
+            with self.subTest(scenario=scenario), self.assertRaises(AssertionError):
+                self.assert_fcm_runtime_image_contract(mutation, documentation)
+
+    def assert_fcm_compose_contract(
+        self, compose, compose_test, env_example, override, documentation
+    ):
+        api = compose.split("  api:", 1)[1].split("    ports:", 1)[0]
+        expected_runtime = (
+            "      FCM_ENABLED: ${FCM_ENABLED:-false}",
+            "      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}",
+            "      FCM_CONNECT_TIMEOUT: ${FCM_CONNECT_TIMEOUT:-2s}",
+            "      FCM_READ_TIMEOUT: ${FCM_READ_TIMEOUT:-5s}",
+            "      FCM_WRITE_TIMEOUT: ${FCM_WRITE_TIMEOUT:-5s}",
+        )
+        for line in expected_runtime:
+            self.assertIn(line, api)
+
+        test_api = compose_test.split("  api:", 1)[1].split("    ports:", 1)[0]
+        self.assertIn('      FCM_ENABLED: "false"', test_api)
+        self.assertNotIn('      FCM_ENABLED: "true"', test_api)
+        self.assertNotIn("GOOGLE_APPLICATION_CREDENTIALS", test_api)
+
+        env_lines = set(env_example.splitlines())
+        for line in (
+            "FCM_ENABLED=false",
+            "FIREBASE_PROJECT_ID=",
+            "FCM_CONNECT_TIMEOUT=2s",
+            "FCM_READ_TIMEOUT=5s",
+            "FCM_WRITE_TIMEOUT=5s",
+            "FIREBASE_CREDENTIALS_FILE=",
+        ):
+            self.assertIn(line, env_lines)
+
+        credential_path = "/run/secrets/timing-jeju-firebase/service-account.json"
+        expected_override = f"""services:
+  firebase-credential-init:
+    image: eclipse-temurin:21-jre-alpine
+    restart: "no"
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        umask 077
+        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp
+        chown 10001:10001 /credential/.service-account.json.tmp
+        chmod 0400 /credential/.service-account.json.tmp
+        mv /credential/.service-account.json.tmp /credential/service-account.json
+    secrets:
+      - source: firebase-service-account
+        target: firebase-service-account.json
+    volumes:
+      - type: volume
+        source: firebase-credential
+        target: /credential
+  api:
+    ports: !override
+      - "127.0.0.1:18083:8080"
+    environment:
+      FCM_ENABLED: "true"
+      GOOGLE_APPLICATION_CREDENTIALS: {credential_path}
+    depends_on:
+      firebase-credential-init:
+        condition: service_completed_successfully
+    volumes:
+      - type: volume
+        source: firebase-credential
+        target: /run/secrets/timing-jeju-firebase
+        read_only: true
+
+secrets:
+  firebase-service-account:
+    file: ${{FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}}
+
+volumes:
+  firebase-credential:
+"""
+        self.assertEqual(expected_override, override)
+        self.assertIn('      FCM_ENABLED: "true"', override)
+        self.assertIn(f"      GOOGLE_APPLICATION_CREDENTIALS: {credential_path}", override)
+        init = override.split("  firebase-credential-init:", 1)[1].split("  api:", 1)[0]
+        api_override = override.split("  api:", 1)[1].split("\nsecrets:", 1)[0]
+        self.assertIn("    secrets:", init)
+        self.assertNotIn("    secrets:", api_override)
+        self.assertIn("condition: service_completed_successfully", api_override)
+        self.assertIn("source: firebase-credential", api_override)
+        self.assertIn("read_only: true", api_override)
+        self.assertLess(init.index("cp "), init.index("chown 10001:10001"))
+        self.assertLess(init.index("chown 10001:10001"), init.index("chmod 0400"))
+        self.assertLess(init.index("chmod 0400"), init.index("mv "))
+        self.assertNotIn("mode:", override)
+        self.assertIn(
+            "    file: ${FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}",
+            override,
+        )
+        self.assertIn("compose.fcm.yml", documentation)
+        self.assertIn(credential_path, documentation)
+        self.assertIn("읽기 전용", documentation)
+        self.assertIn("uid/gid/mode", documentation)
+        self.assertIn("validate_firebase_credential_file.py", documentation)
+        self.assertIn("현재 사용자", documentation)
+        self.assertIn("127.0.0.1:18083", documentation)
+        self.assertNotIn("sudo chown 10001:10001", documentation)
+
+    def assert_fcm_runtime_image_contract(self, dockerfile, documentation):
+        self.assertIn("addgroup -S -g 10001 spring", dockerfile)
+        self.assertIn("adduser -S -D -H -u 10001 -G spring spring", dockerfile)
+        self.assertIn("USER spring:spring", dockerfile)
+        self.assertIn("10001:10001", documentation)
+
+
+if __name__ == "__main__":
+    unittest.main()

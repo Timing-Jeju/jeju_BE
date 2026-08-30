@@ -1,0 +1,43 @@
+services:
+  firebase-credential-init:
+    image: eclipse-temurin:21-jre-alpine
+    restart: "no"
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        umask 077
+        cp /run/secrets/firebase-service-account.json /credential/.service-account.json.tmp
+        chown 10001:10001 /credential/.service-account.json.tmp
+        chmod 0400 /credential/.service-account.json.tmp
+        mv /credential/.service-account.json.tmp /credential/service-account.json
+    secrets:
+      - source: firebase-service-account
+        target: firebase-service-account.json
+    volumes:
+      - type: volume
+        source: firebase-credential
+        target: /credential
+  api:
+    ports: !override
+      - "127.0.0.1:18083:8080"
+    environment:
+      FCM_ENABLED: "true"
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/timing-jeju-firebase/service-account.json
+    depends_on:
+      firebase-credential-init:
+        condition: service_completed_successfully
+    volumes:
+      - type: volume
+        source: firebase-credential
+        target: /run/secrets/timing-jeju-firebase
+        read_only: true
+
+secrets:
+  firebase-service-account:
+    file: ${FIREBASE_CREDENTIALS_FILE:?set FIREBASE_CREDENTIALS_FILE}
+
+volumes:
+  firebase-credential:
