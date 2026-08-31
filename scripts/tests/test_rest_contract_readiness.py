@@ -553,9 +553,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             self.assertEqual(
@@ -741,9 +741,9 @@ class RestContractReadinessTest(unittest.TestCase):
                 catalog = copy.deepcopy(self.catalog)
                 first = catalog["domainContracts"][0]
                 first["versions"] = {
-                    "local": catalog["contractVersion"],
-                    "notion": catalog["contractVersion"],
-                    "figma": catalog["contractVersion"],
+                    "local": "1.1.0",
+                    "notion": "1.1.0",
+                    "figma": "1.1.0",
                 }
                 first["readiness"] = self.ready_readiness()
                 first["readiness"][stage]["evidence"]["unknown"] = True
@@ -821,9 +821,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
 
@@ -872,9 +872,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             mutations = {
@@ -1080,9 +1080,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             link = repo_root / "docs/contracts/domains/profile-legal/link.md"
@@ -1125,9 +1125,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             mutations = {
@@ -1272,9 +1272,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             self.assertEqual(
@@ -1344,9 +1344,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             page_id = "0123456789abcdef0123456789abcdef"
@@ -1422,9 +1422,9 @@ class RestContractReadinessTest(unittest.TestCase):
             first = catalog["domainContracts"][0]
             self.assertNotEqual(94, first["issue"])
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             page_id = "0123456789abcdef0123456789abcdef"
@@ -1476,9 +1476,9 @@ class RestContractReadinessTest(unittest.TestCase):
                 catalog = copy.deepcopy(self.catalog)
                 first = catalog["domainContracts"][0]
                 first["versions"] = {
-                    "local": catalog["contractVersion"],
-                    "notion": catalog["contractVersion"],
-                    "figma": catalog["contractVersion"],
+                    "local": "1.1.0",
+                    "notion": "1.1.0",
+                    "figma": "1.1.0",
                 }
                 first["readiness"] = self.create_ready_evidence(repo_root)
                 first["readiness"]["metadata"]["evidence"][field]["url"] = malformed_url
@@ -1560,9 +1560,9 @@ class RestContractReadinessTest(unittest.TestCase):
                 catalog = copy.deepcopy(self.catalog)
                 first = catalog["domainContracts"][0]
                 first["versions"] = {
-                    "local": catalog["contractVersion"],
-                    "notion": catalog["contractVersion"],
-                    "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
                 }
                 first["readiness"] = self.create_ready_evidence(repo_root)
                 first["readiness"]["metadata"]["evidence"][field]["url"] = noncanonical_url
@@ -1663,9 +1663,9 @@ class RestContractReadinessTest(unittest.TestCase):
                 catalog = copy.deepcopy(self.catalog)
                 first = catalog["domainContracts"][0]
                 first["versions"] = {
-                    "local": catalog["contractVersion"],
-                    "notion": catalog["contractVersion"],
-                    "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
                 }
                 first["readiness"] = self.create_ready_evidence(repo_root)
                 linkage = first["readiness"]["metadata"]["evidence"][field]
@@ -1693,9 +1693,9 @@ class RestContractReadinessTest(unittest.TestCase):
             catalog = copy.deepcopy(self.catalog)
             first = catalog["domainContracts"][0]
             first["versions"] = {
-                "local": catalog["contractVersion"],
-                "notion": catalog["contractVersion"],
-                "figma": catalog["contractVersion"],
+                "local": "1.1.0",
+                "notion": "1.1.0",
+                "figma": "1.1.0",
             }
             first["readiness"] = self.create_ready_evidence(repo_root)
             self.assertEqual(
@@ -1748,6 +1748,45 @@ class RestContractReadinessTest(unittest.TestCase):
                 with self.subTest(command=command, mutation=mutation):
                     with self.assertRaises(AssertionError):
                         assert_required_commands_are_active(shell_source)
+
+    def test_profile_legal_v11_override_is_scoped_to_issue_82_endpoints(self):
+        self.assertEqual([], self.validator.validate_catalog(copy.deepcopy(self.catalog)))
+
+        profile_endpoints = [
+            endpoint
+            for endpoint in self.catalog["endpoints"]
+            if endpoint["path"] == "/api/v1/me/profile-image"
+        ]
+        self.assertEqual({"GET", "PUT"}, {endpoint["method"] for endpoint in profile_endpoints})
+        for identity in (("GET", "/api/v1/me/profile-image"), ("PUT", "/api/v1/me/profile-image")):
+            with self.subTest(identity=identity):
+                downgraded_profile = copy.deepcopy(self.catalog)
+                endpoint = next(
+                    item
+                    for item in downgraded_profile["endpoints"]
+                    if (item["method"], item["path"]) == identity
+                )
+                endpoint["contractVersion"] = "1.0.0"
+                self.assertTrue(
+                    any(
+                        "contract version" in error
+                        for error in self.validator.validate_catalog(downgraded_profile)
+                    )
+                )
+
+        upgraded_other_domain = copy.deepcopy(self.catalog)
+        places = next(
+            endpoint
+            for endpoint in upgraded_other_domain["endpoints"]
+            if endpoint["path"] == "/api/v1/places"
+        )
+        places["contractVersion"] = "1.1.0"
+        self.assertTrue(
+            any(
+                "contract version" in error
+                for error in self.validator.validate_catalog(upgraded_other_domain)
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -247,6 +247,10 @@ Table user_profiles {
   email text [unique]
   nickname text
   profile_image_url text
+  profile_image_object_key text [note: "#78 future: immutable {lowercase-sub}/profile/{lowercase-generation-uuid}; storage source only"]
+  profile_image_source text [not null, note: "#78 future: storage, provider, none; provider URL present -> provider, absent -> none backfill"]
+  profile_image_storage_etag text [note: "#78 future: strong Storage ETag; storage source only"]
+  profile_image_version bigint [not null, default: 0, note: "#78 future: 0..9223372036854775807; successful non-replay mutation increments exactly one"]
   locale text [not null]
   status text [not null]
   onboarding_completed_at timestamptz
@@ -254,6 +258,53 @@ Table user_profiles {
   updated_at timestamptz [not null]
   last_login_at timestamptz
   deleted_at timestamptz
+}
+
+Table api_idempotency_records {
+  owner_sub uuid [not null]
+  http_method varchar(16) [not null]
+  normalized_path varchar(1024) [not null]
+  idempotency_key uuid [not null]
+  request_hash char(64) [not null, note: "profile-image request hash binds canonical body + original If-Match"]
+  attempt_token uuid [not null]
+  state varchar(16) [not null, note: "PROCESSING, COMPLETED"]
+  response_status smallint
+  response_headers bytea [note: "completed profile-image snapshot includes Content-Type and original ETag"]
+  response_body bytea
+  created_at timestamptz [not null]
+  lease_expires_at timestamptz
+  completed_at timestamptz
+  expires_at timestamptz [not null]
+
+  indexes {
+    (owner_sub, http_method, normalized_path, idempotency_key) [pk]
+    (expires_at)
+  }
+
+  Note: "existing #17 schema reused unchanged; #78 adds no replacement table or columns and only stores a compatible profile-image request/response snapshot."
+}
+
+Table profile_image_cleanup_outbox {
+  id uuid [pk]
+  owner_user_id uuid [not null, ref: > user_profiles.id]
+  object_key text [not null]
+  storage_etag text [not null]
+  source_profile_version bigint [not null]
+  reason text [not null, note: "replacement, clear, orphan, account_deletion"]
+  status text [not null, note: "pending, claimed, succeeded, retry"]
+  claim_token uuid
+  claimed_at timestamptz
+  attempt_count integer [not null, default: 0]
+  next_attempt_at timestamptz [not null]
+  completed_at timestamptz
+  created_at timestamptz [not null]
+
+  indexes {
+    (object_key, storage_etag) [unique]
+    (status, next_attempt_at)
+  }
+
+  Note: "#78 future: profile lock/current ref plus owner/key/ETag generation fence before server-only deletion."
 }
 
 Table social_accounts {

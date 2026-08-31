@@ -16,6 +16,8 @@ EXPECTED_ENDPOINTS = {
     ("GET", "/api/v1/legal-documents"),
     ("PUT", "/api/v1/me/consents"),
     ("GET", "/api/v1/account-deletion-requests/{deletionRequestId}"),
+    ("GET", "/api/v1/me/profile-image"),
+    ("PUT", "/api/v1/me/profile-image"),
     ("GET", "/api/v1/places"),
     ("GET", "/api/v1/places/{placeId}"),
     ("GET", "/api/v1/me/saved-places"),
