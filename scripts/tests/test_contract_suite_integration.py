@@ -57,6 +57,7 @@ EXPECTED_ENDPOINTS = {
 EXPECTED_VALIDATORS = (
     "validate_rest_contracts.py",
     "validate_profile_legal_contract.py",
+    "validate_fcm_departure_notification_contract.py",
     "validate_places_contract.py",
     "validate_saved_places_contract.py",
     "validate_trips_contract.py",

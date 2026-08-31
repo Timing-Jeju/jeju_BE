@@ -66,6 +66,7 @@ run_common_checks() {
   stage "REST 공통 계약 readiness 검사"
   python3 scripts/validate_rest_contracts.py
   python3 scripts/validate_profile_legal_contract.py
+  python3 scripts/validate_fcm_departure_notification_contract.py
   python3 scripts/validate_push_notification_contract.py
 
   stage "관광지 검색·상세 계약 검사"

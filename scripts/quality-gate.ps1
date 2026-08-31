@@ -39,6 +39,7 @@ if ($Scope -in @("all", "common")) {
   Invoke-Native "비밀정보 검사" { py -3 scripts/git-hooks/scan-staged-secrets.py --all-files }
   Invoke-Native "REST 공통 계약 검사" { py -3 scripts/validate_rest_contracts.py }
   Invoke-Native "프로필·법정 문서 계약 검사" { py -3 scripts/validate_profile_legal_contract.py }
+  Invoke-Native "FCM 출발 알림 계약 검사" { py -3 scripts/validate_fcm_departure_notification_contract.py }
   Invoke-Native "관광지 계약 검사" { py -3 scripts/validate_places_contract.py }
   Invoke-Native "관심 장소 계약 검사" { py -3 scripts/validate_saved_places_contract.py }
   Invoke-Native "여행 계약 검사" { py -3 scripts/validate_trips_contract.py }
