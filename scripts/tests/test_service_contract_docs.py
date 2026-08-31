@@ -12,7 +12,13 @@ INTEGRATION_CONTRACT = (
 
 class ServiceContractDocsTest(unittest.TestCase):
     def test_backend_integration_contract_has_required_wire_terms(self):
-        required_terms = ("POST /mcp", "contractVersion", "inputHash")
+        required_terms = (
+            "POST /mcp",
+            "0.7.0",
+            "commandInputHash",
+            "mcpInputHash",
+            "structuredContent",
+        )
 
         document = INTEGRATION_CONTRACT.read_text(encoding="utf-8")
         for term in required_terms:
@@ -28,7 +34,13 @@ class ServiceContractDocsTest(unittest.TestCase):
     def test_integration_contract_defines_private_health_and_identity(self):
         document = INTEGRATION_CONTRACT.read_text(encoding="utf-8")
 
-        for term in ("/health/live", "/health/ready", "aud=timing-jeju-fastapi"):
+        for term in (
+            "`/health`",
+            "`/ready`",
+            "audience: timing-jeju-mcp",
+            "scope: jeju:mcp:invoke",
+            "Actuator health",
+        ):
             with self.subTest(term=term):
                 self.assertIn(term, document)
 

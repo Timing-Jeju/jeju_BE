@@ -14,6 +14,8 @@ ext {
 	minimumCoverage = 0.90
 	archUnitVersion = '1.4.2'
 	firebaseAdminVersion = '9.10.0'
+	springAiVersion = '2.0.1'
+	jsonSchemaValidatorVersion = '3.0.7'
 }
 
 java {
@@ -41,6 +43,8 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+	implementation "org.springframework.ai:spring-ai-starter-mcp-client-webflux:${springAiVersion}"
+	implementation "com.networknt:json-schema-validator:${jsonSchemaValidatorVersion}"
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 	implementation 'org.jsoup:jsoup:1.21.2'
 	implementation('com.google.firebase:firebase-admin') {
