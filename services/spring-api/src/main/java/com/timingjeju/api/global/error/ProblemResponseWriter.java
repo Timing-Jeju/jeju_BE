@@ -23,7 +23,8 @@ public final class ProblemResponseWriter {
           "Access-Control-Allow-Origin",
           "Access-Control-Expose-Headers",
           "Access-Control-Allow-Credentials",
-          "Access-Control-Allow-Private-Network");
+          "Access-Control-Allow-Private-Network",
+          "WWW-Authenticate");
 
   private final ObjectMapper objectMapper;
   private final ProblemCodeRegistry registry;

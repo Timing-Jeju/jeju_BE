@@ -184,11 +184,14 @@ def validate_contract(contract: dict[str, Any], catalog: dict[str, Any], repo_ro
     if contract.get("runtimeDrift") != {
         "canonicalMissingBearerCode": "AUTHENTICATION_REQUIRED",
         "canonicalInvalidBearerCode": "INVALID_ACCESS_TOKEN",
-        "observedRequiredEndpointCode": "AUTH_TOKEN_INVALID",
-        "owner": "global security follow-up outside Issue #113",
-        "implementationReady": False,
+        "observedRequiredEndpointCodes": {
+            "missing": "AUTHENTICATION_REQUIRED",
+            "invalid": "INVALID_ACCESS_TOKEN",
+        },
+        "owner": "global security Issue #186",
+        "implementationReady": True,
     }:
-        errors.append("required-endpoint runtime security drift must remain explicit and fail-closed")
+        errors.append("required-endpoint runtime security alignment must remain explicit")
     if contract.get("cryptoFailure") != {
         "boundary": "RegistrationTokenProtector runtime failure -> provider-neutral application exception",
         "status": 503,

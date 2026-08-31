@@ -1677,7 +1677,8 @@ KMA DFS grid는 각 투영축을 `floor(value + 0.5)`로 반올림하고 nx 1..1
 | HTTP | Code | 발생 조건 |
 | --- | --- | --- |
 | 400 | `INVALID_CURSOR` | 커서 변조/형식 오류 |
-| 401 | `AUTH_TOKEN_INVALID` | JWT 없음, 만료, issuer/audience 불일치 |
+| 401 | `AUTHENTICATION_REQUIRED` | Authorization header 없음 |
+| 401 | `INVALID_ACCESS_TOKEN` | header 제공 후 형식, 만료, 서명, issuer/audience 불일치 |
 | 403 | `TRIP_ACCESS_DENIED` | 다른 사용자의 여행 접근 |
 | 404 | `PLACE_NOT_FOUND` | 장소 없음 |
 | 404 | `TRIP_NOT_FOUND` | 여행 없음 |

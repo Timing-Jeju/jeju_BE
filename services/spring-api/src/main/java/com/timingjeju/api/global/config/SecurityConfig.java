@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.config;
 
 import com.timingjeju.api.application.security.CurrentUserAccessor;
+import com.timingjeju.api.global.error.AuthenticationProblemWriter;
 import com.timingjeju.api.global.error.ProblemResponseWriter;
 import com.timingjeju.api.global.security.AppCorsProperties;
 import com.timingjeju.api.global.security.CurrentUserJwtAuthenticationConverter;
@@ -32,7 +33,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.DelegatingAuthenticationEntryPoint;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
@@ -108,12 +112,21 @@ public class SecurityConfig {
       JwtDecoder jwtDecoder,
       CorsConfigurationSource corsConfigurationSource,
       ProblemCorsProcessor corsProcessor,
+      AuthenticationProblemWriter authenticationProblemWriter,
       ProblemResponseWriter responseWriter,
       @Value("${springdoc.api-docs.enabled:true}") boolean apiDocsEnabled,
       @Value("${springdoc.swagger-ui.enabled:true}") boolean swaggerUiEnabled)
       throws Exception {
-    JsonAuthenticationEntryPoint authenticationEntryPoint =
-        new JsonAuthenticationEntryPoint(responseWriter);
+    JsonAuthenticationEntryPoint apiAuthenticationEntryPoint =
+        new JsonAuthenticationEntryPoint(authenticationProblemWriter);
+    AuthenticationEntryPoint authenticationEntryPoint =
+        DelegatingAuthenticationEntryPoint.builder()
+            .defaultEntryPoint(
+                (request, response, exception) ->
+                    authenticationProblemWriter.writeLegacy(request, response))
+            .addEntryPointFor(
+                apiAuthenticationEntryPoint, PathPatternRequestMatcher.pathPattern("/api/v1/**"))
+            .build();
     JsonAccessDeniedHandler accessDeniedHandler = new JsonAccessDeniedHandler(responseWriter);
     SecurityAuthenticationFailureHandler authenticationFailureHandler =
         new SecurityAuthenticationFailureHandler(authenticationEntryPoint, responseWriter);

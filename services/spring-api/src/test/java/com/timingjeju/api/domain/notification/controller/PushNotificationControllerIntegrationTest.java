@@ -120,14 +120,14 @@ class PushNotificationControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validDeviceBody()))
         .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("AUTH_TOKEN_INVALID"));
+        .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
     mvc.perform(
             put("/api/v1/me/push-devices/{deviceId}", DEVICE_ID)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer malformed")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(validDeviceBody()))
         .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("AUTH_TOKEN_INVALID"));
+        .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"));
 
     for (String path :
         new String[] {"AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA", "not-a-uuid", DEVICE_ID + " "}) {
@@ -452,7 +452,7 @@ class PushNotificationControllerIntegrationTest {
         "put /api/v1/me/push-devices/{deviceId}",
         Map.of(
             "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
-            "401", "AUTH_TOKEN_INVALID",
+            "401", "AUTHENTICATION_REQUIRED",
             "403", "AUTH_ACCESS_DENIED",
             "500", "INTERNAL_SERVER_ERROR",
             "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE"));
@@ -460,14 +460,14 @@ class PushNotificationControllerIntegrationTest {
         "delete /api/v1/me/push-devices/{deviceId}",
         Map.of(
             "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
-            "401", "AUTH_TOKEN_INVALID",
+            "401", "AUTHENTICATION_REQUIRED",
             "403", "AUTH_ACCESS_DENIED",
             "500", "INTERNAL_SERVER_ERROR",
             "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE"));
     operations.put(
         "get /api/v1/me/notification-preferences",
         Map.of(
-            "401", "AUTH_TOKEN_INVALID",
+            "401", "AUTHENTICATION_REQUIRED",
             "403", "AUTH_ACCESS_DENIED",
             "500", "INTERNAL_SERVER_ERROR",
             "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE"));
@@ -475,7 +475,7 @@ class PushNotificationControllerIntegrationTest {
         "patch /api/v1/me/notification-preferences",
         Map.of(
             "400", "INVALID_PUSH_NOTIFICATION_REQUEST",
-            "401", "AUTH_TOKEN_INVALID",
+            "401", "AUTHENTICATION_REQUIRED",
             "403", "AUTH_ACCESS_DENIED",
             "500", "INTERNAL_SERVER_ERROR",
             "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE"));

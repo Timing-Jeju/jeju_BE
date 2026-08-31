@@ -1,6 +1,6 @@
 package com.timingjeju.api.global.security;
 
-import com.timingjeju.api.global.error.ProblemResponseWriter;
+import com.timingjeju.api.global.error.AuthenticationProblemWriter;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -10,10 +10,10 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 
 public final class JsonAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-  private final ProblemResponseWriter responseWriter;
+  private final AuthenticationProblemWriter problemWriter;
 
-  public JsonAuthenticationEntryPoint(ProblemResponseWriter responseWriter) {
-    this.responseWriter = responseWriter;
+  public JsonAuthenticationEntryPoint(AuthenticationProblemWriter problemWriter) {
+    this.problemWriter = problemWriter;
   }
 
   @Override
@@ -22,21 +22,6 @@ public final class JsonAuthenticationEntryPoint implements AuthenticationEntryPo
       HttpServletResponse response,
       AuthenticationException authenticationException)
       throws IOException, ServletException {
-    String path = request.getRequestURI().substring(request.getContextPath().length());
-    boolean optionalPublicGet =
-        "GET".equals(request.getMethod())
-            && (isOptionalPlacesPath(path) || "/api/v1/weather/forecast".equals(path));
-    responseWriter.write(
-        request, response, optionalPublicGet ? "INVALID_ACCESS_TOKEN" : "AUTH_TOKEN_INVALID");
-  }
-
-  private static boolean isOptionalPlacesPath(String path) {
-    if ("/api/v1/places".equals(path)) {
-      return true;
-    }
-    String prefix = "/api/v1/places/";
-    return path.startsWith(prefix)
-        && path.length() > prefix.length()
-        && path.indexOf('/', prefix.length()) < 0;
+    problemWriter.writeCanonical(request, response);
   }
 }

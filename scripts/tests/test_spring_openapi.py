@@ -291,8 +291,8 @@ class SpringOpenApiTest(unittest.TestCase):
         )[1].split("@Test", 1)[0]
         for expected in (
             'path("401")',
-            'isEqualTo("AUTH_TOKEN_INVALID")',
-            'isEqualTo("https://api.timing-jeju.example/problems/auth-token-invalid")',
+            'isEqualTo("AUTHENTICATION_REQUIRED")',
+            'isEqualTo("https://api.timing-jeju.com/problems/authentication-required")',
             'path("409")',
             'isEqualTo("IDEMPOTENCY_PAYLOAD_CONFLICT")',
             'isEqualTo("https://api.timing-jeju.com/problems/idempotency-payload-conflict")',

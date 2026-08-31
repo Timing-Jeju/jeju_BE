@@ -27,6 +27,32 @@ class ProblemCodeRegistryTest {
   }
 
   @Test
+  void 공통_인증_problem은_canonical_code와_URI_문구로_각각_한번만_등록된다() {
+    ProblemCodeRegistry registry = new ProblemCodeRegistry(List.of());
+
+    assertThat(registry.find("AUTHENTICATION_REQUIRED"))
+        .isEqualTo(
+            new ProblemDefinition(
+                URI.create("https://api.timing-jeju.com/problems/authentication-required"),
+                "인증이 필요합니다",
+                401,
+                "AUTHENTICATION_REQUIRED",
+                "로그인 후 다시 요청해 주세요."));
+    assertThat(registry.find("INVALID_ACCESS_TOKEN"))
+        .isEqualTo(
+            new ProblemDefinition(
+                URI.create("https://api.timing-jeju.com/problems/invalid-access-token"),
+                "인증 정보가 올바르지 않습니다",
+                401,
+                "INVALID_ACCESS_TOKEN",
+                "유효한 인증 정보로 다시 요청해 주세요."));
+    assertThat(registry.find("AUTH_TOKEN_INVALID"))
+        .isEqualTo(
+            ProblemDefinition.forCode(
+                "AUTH_TOKEN_INVALID", "인증에 실패했습니다.", 401, "인증 토큰이 유효하지 않습니다."));
+  }
+
+  @Test
   void contributor를_추가하면_기존_registry를_수정하지_않고_도메인_code를_확장한다() {
     ProblemDefinition custom =
         new ProblemDefinition(

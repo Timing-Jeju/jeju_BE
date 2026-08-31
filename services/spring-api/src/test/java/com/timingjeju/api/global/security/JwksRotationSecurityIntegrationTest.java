@@ -101,7 +101,7 @@ class JwksRotationSecurityIntegrationTest {
         .perform(
             get("/api/v1/test/jwks").header(HttpHeaders.AUTHORIZATION, bearer(token(UNSEEN_KEY))))
         .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("AUTH_TOKEN_INVALID"))
+        .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"))
         .andExpect(jsonPath("$.traceId").value(matchesPattern("[0-9a-f]{32}")));
     org.assertj.core.api.Assertions.assertThat(REQUEST_COUNT).hasValue(3);
   }

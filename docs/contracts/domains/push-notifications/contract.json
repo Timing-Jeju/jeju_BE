@@ -161,9 +161,12 @@
   "runtimeDrift": {
     "canonicalMissingBearerCode": "AUTHENTICATION_REQUIRED",
     "canonicalInvalidBearerCode": "INVALID_ACCESS_TOKEN",
-    "observedRequiredEndpointCode": "AUTH_TOKEN_INVALID",
-    "owner": "global security follow-up outside Issue #113",
-    "implementationReady": false
+    "observedRequiredEndpointCodes": {
+      "missing": "AUTHENTICATION_REQUIRED",
+      "invalid": "INVALID_ACCESS_TOKEN"
+    },
+    "owner": "global security Issue #186",
+    "implementationReady": true
   },
   "cryptoFailure": {
     "boundary": "RegistrationTokenProtector runtime failure -> provider-neutral application exception",

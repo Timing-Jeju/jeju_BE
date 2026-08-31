@@ -107,7 +107,7 @@ class ProblemResponseWriterTest {
         new MockHttpServletRequest("GET", "/api/v1/provider-token-user@example.test");
     MockHttpServletResponse unmatchedResponse = new MockHttpServletResponse();
 
-    writer.write(unmatchedRequest, unmatchedResponse, "AUTH_TOKEN_INVALID");
+    writer.write(unmatchedRequest, unmatchedResponse, "INVALID_ACCESS_TOKEN");
 
     assertThat(JsonPath.<String>read(unmatchedResponse.getContentAsString(), "$.instance"))
         .isEqualTo("urn:timing-jeju:problem:" + TRACE_ID);

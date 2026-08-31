@@ -109,6 +109,21 @@ class PlacesOptionalSecurityIntegrationTest {
   }
 
   @Test
+  void optional_endpoint도_제공된_blank_wrong_scheme_empty_bearer와_중복_header를_거부한다() throws Exception {
+    for (String authorization : new String[] {"", "Basic abc", "Bearer "}) {
+      mvc.perform(get("/api/v1/places").header(HttpHeaders.AUTHORIZATION, authorization))
+          .andExpect(status().isUnauthorized())
+          .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"));
+    }
+
+    mvc.perform(
+            get("/api/v1/places")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer malformed", "Bearer duplicate"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"));
+  }
+
+  @Test
   void exact_GET_place_detail은_optional_auth이고_익명_saved_shape를_고정한다() throws Exception {
     mvc.perform(get("/api/v1/places/20000000-0000-0000-0000-000000000002"))
         .andExpect(status().isOk())

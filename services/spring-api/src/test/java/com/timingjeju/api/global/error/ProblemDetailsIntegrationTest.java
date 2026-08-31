@@ -325,6 +325,50 @@ class ProblemDetailsIntegrationTest {
   }
 
   @Test
+  void API_ResponseStatus_401은_header_presence로_canonical_problem과_challenge를_한번만_쓴다()
+      throws Exception {
+    assertResponseStatusUnauthorized(
+        get("/api/v1/problem-test/response-status-unauthorized"),
+        "AUTHENTICATION_REQUIRED",
+        "https://api.timing-jeju.com/problems/authentication-required",
+        "인증이 필요합니다",
+        "로그인 후 다시 요청해 주세요.");
+    assertResponseStatusUnauthorized(
+        get("/api/v1/problem-test/response-status-unauthorized")
+            .header(HttpHeaders.AUTHORIZATION, ""),
+        "INVALID_ACCESS_TOKEN",
+        "https://api.timing-jeju.com/problems/invalid-access-token",
+        "인증 정보가 올바르지 않습니다",
+        "유효한 인증 정보로 다시 요청해 주세요.");
+    assertResponseStatusUnauthorized(
+        get("/api/v1/problem-test/response-status-unauthorized")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer malformed"),
+        "INVALID_ACCESS_TOKEN",
+        "https://api.timing-jeju.com/problems/invalid-access-token",
+        "인증 정보가 올바르지 않습니다",
+        "유효한 인증 정보로 다시 요청해 주세요.");
+  }
+
+  private void assertResponseStatusUnauthorized(
+      org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+      String code,
+      String type,
+      String title,
+      String detail)
+      throws Exception {
+    mockMvc
+        .perform(request)
+        .andExpectAll(problemDetails(401, type, title, code, detail))
+        .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+        .andExpect(
+            result -> {
+              assertThat(result.getResponse().getHeaders(HttpHeaders.WWW_AUTHENTICATE))
+                  .containsExactly("Bearer");
+              assertThat(result.getResponse().getHeaders("X-Trace-Id")).hasSize(1);
+            });
+  }
+
+  @Test
   void 확장_status도_안정적인_registry_code로_변환한다() throws Exception {
     List<ExpectedStatusProblem> expectedProblems =
         List.of(
@@ -542,6 +586,11 @@ class ProblemDetailsIntegrationTest {
     @GetMapping("/problem-test/response-status")
     void responseStatus() {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, SENSITIVE_EXCEPTION_MESSAGE);
+    }
+
+    @GetMapping("/api/v1/problem-test/response-status-unauthorized")
+    void responseStatusUnauthorized() {
+      throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, SENSITIVE_EXCEPTION_MESSAGE);
     }
 
     @GetMapping("/problem-test/response-status/{status}")

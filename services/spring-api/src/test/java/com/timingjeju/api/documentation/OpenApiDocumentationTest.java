@@ -91,7 +91,7 @@ class OpenApiDocumentationTest {
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/me'].get.responses['401'].content['application/problem+json'].example.code")
-                .value("AUTH_TOKEN_INVALID"))
+                .value("AUTHENTICATION_REQUIRED"))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/me'].patch.responses['409'].content['application/problem+json'].example.code")
@@ -270,10 +270,10 @@ class OpenApiDocumentationTest {
     JsonNode standard =
         standardResponse.path("content").path("application/problem+json").path("example");
     org.assertj.core.api.Assertions.assertThat(standard.path("code").asString())
-        .isEqualTo("AUTH_TOKEN_INVALID");
+        .isEqualTo("AUTHENTICATION_REQUIRED");
     org.assertj.core.api.Assertions.assertThat(standard.path("status").asInt()).isEqualTo(401);
     org.assertj.core.api.Assertions.assertThat(standard.path("type").asString())
-        .isEqualTo("https://api.timing-jeju.example/problems/auth-token-invalid");
+        .isEqualTo("https://api.timing-jeju.com/problems/authentication-required");
 
     JsonNode nonContributor =
         paths

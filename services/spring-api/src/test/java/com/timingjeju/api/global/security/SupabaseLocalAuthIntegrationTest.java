@@ -47,7 +47,7 @@ class SupabaseLocalAuthIntegrationTest {
             get("/api/v1/test/local-auth-user")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + tamperSignature(accessToken)))
         .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("AUTH_TOKEN_INVALID"))
+        .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"))
         .andExpect(jsonPath("$.traceId").isNotEmpty());
 
     mockMvc
