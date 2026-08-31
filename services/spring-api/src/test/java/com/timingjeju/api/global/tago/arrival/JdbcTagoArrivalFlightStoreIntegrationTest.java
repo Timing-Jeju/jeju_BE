@@ -40,6 +40,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
@@ -518,6 +519,17 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
         .hasMessageContaining("follower-07")
         .hasMessageContaining("DB observe");
 
+    assertThatThrownBy(
+            () ->
+                getBeforeDeadline(
+                    "expired-reclaim-follower-07",
+                    "coalescing after generation-2 leader",
+                    failed,
+                    System.nanoTime() + 1_000_000_000L))
+        .isInstanceOf(AssertionError.class)
+        .hasMessageContaining("expired-reclaim-follower-07")
+        .hasMessageContaining("coalescing after generation-2 leader");
+
     CompletableFuture<FollowerObservation> unfinished = new CompletableFuture<>();
     assertThatThrownBy(
             () -> getBeforeDeadline("follower-11", unfinished, System.nanoTime() + 20_000_000L))
@@ -555,42 +567,19 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
   }
 
   @Test
-  void expired_FAILED_ABANDONED_reclaim_lock중_old_outcome없이_retry해_generation2_provider1이다()
+  void expired_FAILED_ABANDONED_row_lock중_direct_observe는_CONTENDED이고_old_outcome은_없다()
       throws Exception {
     for (TagoArrivalFlightStatus terminal :
         List.of(TagoArrivalFlightStatus.FAILED, TagoArrivalFlightStatus.ABANDONED)) {
       clean();
-      TagoArrivalCacheKey key =
-          TagoArrivalCacheKey.tago(
-              new UUID(39L, terminal == TagoArrivalFlightStatus.FAILED ? 600L : 601L),
-              "39",
-              "RECLAIM-" + terminal);
-      String lockedFingerprint = fingerprint(key);
-      TagoArrivalFlightDecision first =
-          store.observeOrClaim(lockedFingerprint, new UUID(39L, 1L), LEASE, QUARANTINE);
-      if (terminal == TagoArrivalFlightStatus.FAILED) {
-        assertThat(
-                store.completeFailure(
-                    first.lease(), TagoArrivalException.Code.EMPTY_RESULT, RETAIN))
-            .isTrue();
-      } else {
-        assertThat(store.abandon(first.lease(), QUARANTINE)).isTrue();
-      }
-      jdbc.update(
-          """
-          update public.tago_arrival_flights
-          set updated_at=clock_timestamp()-interval '2 seconds',
-              retain_until=clock_timestamp()-interval '1 second'
-          where fingerprint=?
-          """,
-          lockedFingerprint);
+      ExpiredReclaimFixture fixture = seedExpiredTerminal(terminal);
+      String actor = terminal + "-locked-observer";
+      long outerDeadlineNanos = System.nanoTime() + Duration.ofSeconds(5).toNanos();
 
       CountDownLatch locked = new CountDownLatch(1);
       CountDownLatch release = new CountDownLatch(1);
-      AtomicInteger providers = new AtomicInteger();
-      TagoArrivalSnapshot fresh = snapshot(terminal.ordinal() + 600, databaseNow());
       try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-        var lockHolder =
+        Future<?> lockHolder =
             executor.submit(
                 () ->
                     transactions.executeWithoutResult(
@@ -598,56 +587,163 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
                           jdbc.queryForObject(
                               "select generation from public.tago_arrival_flights where fingerprint=? for update",
                               Long.class,
-                              lockedFingerprint);
+                              fixture.fingerprint());
                           locked.countDown();
                           await(release);
                         }));
-        assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
-        assertThat(
-                store
-                    .observeOrClaim(lockedFingerprint, new UUID(39L, 2L), LEASE, QUARANTINE)
-                    .status())
-            .isEqualTo(TagoArrivalFlightStatus.CONTENDED);
+        awaitBeforeDeadline(actor, "row lock acquisition", locked, outerDeadlineNanos);
+        TagoArrivalFlightDecision observed =
+            store.observeOrClaim(fixture.fingerprint(), new UUID(39L, 2L), LEASE, QUARANTINE);
 
-        var requests =
-            IntStream.range(0, 20)
+        assertThat(observed.status())
+            .describedAs(actor)
+            .isEqualTo(TagoArrivalFlightStatus.CONTENDED);
+        assertThat(observed.outcome()).describedAs(actor + " old outcome").isEmpty();
+        try {
+          assertThat(locked.getCount()).describedAs(actor + " lock held").isZero();
+        } finally {
+          release.countDown();
+        }
+        getBeforeDeadline(actor, "row lock release", lockHolder, outerDeadlineNanos);
+      } finally {
+        release.countDown();
+      }
+    }
+  }
+
+  @Test
+  void expired_FAILED_ABANDONED_lock해제후_generation2_LEADER확정뒤_followers는_provider1_same_outcome이다()
+      throws Exception {
+    for (TagoArrivalFlightStatus terminal :
+        List.of(TagoArrivalFlightStatus.FAILED, TagoArrivalFlightStatus.ABANDONED)) {
+      clean();
+      ExpiredReclaimFixture fixture = seedExpiredTerminal(terminal);
+      String actor = terminal + "-generation-2-leader";
+      long outerDeadlineNanos = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+      CountDownLatch locked = new CountDownLatch(1);
+      CountDownLatch release = new CountDownLatch(1);
+
+      try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        Future<?> lockHolder =
+            executor.submit(
+                () ->
+                    transactions.executeWithoutResult(
+                        ignored -> {
+                          jdbc.queryForObject(
+                              "select generation from public.tago_arrival_flights where fingerprint=? for update",
+                              Long.class,
+                              fixture.fingerprint());
+                          locked.countDown();
+                          await(release);
+                        }));
+        awaitBeforeDeadline(actor, "row lock acquisition", locked, outerDeadlineNanos);
+        TagoArrivalFlightDecision contended =
+            store.observeOrClaim(fixture.fingerprint(), new UUID(39L, 2L), LEASE, QUARANTINE);
+        assertThat(contended.status()).isEqualTo(TagoArrivalFlightStatus.CONTENDED);
+        assertThat(contended.outcome()).isEmpty();
+
+        release.countDown();
+        getBeforeDeadline(actor, "row lock release", lockHolder, outerDeadlineNanos);
+        TagoArrivalFlightDecision reclaimed =
+            store.observeOrClaim(fixture.fingerprint(), new UUID(39L, 3L), LEASE, QUARANTINE);
+
+        assertThat(reclaimed.status()).describedAs(actor).isEqualTo(TagoArrivalFlightStatus.LEADER);
+        assertThat(reclaimed.lease().generation()).describedAs(actor).isEqualTo(2L);
+        assertThat(reclaimed.outcome()).describedAs(actor + " cleared outcome").isEmpty();
+
+        int followerCount = 4;
+        CountDownLatch followersReady = new CountDownLatch(followerCount);
+        CountDownLatch startFollowers = new CountDownLatch(1);
+        CountDownLatch followersObservedLeader = new CountDownLatch(followerCount);
+        AtomicInteger providers = new AtomicInteger();
+        TagoArrivalSnapshot fresh = snapshot(terminal.ordinal() + 600, databaseNow());
+        List<LabeledSnapshotTask> followers =
+            IntStream.range(0, followerCount)
                 .mapToObj(
-                    index ->
-                        executor.submit(
-                            () ->
-                                new TagoArrivalDistributedFlightCoordinator(
-                                        store,
+                    index -> {
+                      String followerActor = terminal + "-follower-%02d".formatted(index);
+                      JdbcTagoArrivalFlightStore followerStore =
+                          new RunningStageReportingStore(jdbc, followersObservedLeader);
+                      return new LabeledSnapshotTask(
+                          followerActor,
+                          executor.submit(
+                              () -> {
+                                awaitCoordinatedStart(followersReady, startFollowers);
+                                return new TagoArrivalDistributedFlightCoordinator(
+                                        followerStore,
                                         new TagoArrivalFlightPolicy(
-                                            Duration.ofSeconds(2),
+                                            Duration.ofSeconds(5),
                                             Duration.ofMillis(10),
                                             Duration.ofSeconds(1),
                                             LEASE,
                                             RETAIN,
                                             QUARANTINE))
                                     .coalesce(
-                                        key,
+                                        fixture.key(),
                                         ignored -> {
                                           providers.incrementAndGet();
                                           return fresh;
                                         },
-                                        () -> fresh)))
+                                        () -> fresh);
+                              }));
+                    })
                 .toList();
+
         try {
-          Thread.sleep(100);
+          awaitBeforeDeadline(actor, "followers ready", followersReady, outerDeadlineNanos);
+          startFollowers.countDown();
+          awaitBeforeDeadline(
+              actor,
+              "followers observed generation-2 leader",
+              followersObservedLeader,
+              outerDeadlineNanos);
+          providers.incrementAndGet();
+          assertThat(store.completeSuccess(reclaimed.lease(), fresh.expiresAt(), RETAIN)).isTrue();
+
+          for (LabeledSnapshotTask follower : followers) {
+            assertThat(
+                    getBeforeDeadline(
+                        follower.actor(),
+                        "coalescing after generation-2 leader",
+                        follower.future(),
+                        outerDeadlineNanos))
+                .isEqualTo(fresh);
+          }
         } finally {
-          release.countDown();
-          lockHolder.get(5, TimeUnit.SECONDS);
+          startFollowers.countDown();
         }
-        for (var request : requests) assertThat(request.get(5, TimeUnit.SECONDS)).isEqualTo(fresh);
+        assertThat(providers).describedAs(actor).hasValue(1);
+      } finally {
+        release.countDown();
       }
-      assertThat(providers).hasValue(1);
-      assertThat(
-              jdbc.queryForObject(
-                  "select generation from public.tago_arrival_flights where fingerprint=?",
-                  Long.class,
-                  lockedFingerprint))
-          .isEqualTo(2L);
     }
+  }
+
+  private ExpiredReclaimFixture seedExpiredTerminal(TagoArrivalFlightStatus terminal) {
+    TagoArrivalCacheKey key =
+        TagoArrivalCacheKey.tago(
+            new UUID(39L, terminal == TagoArrivalFlightStatus.FAILED ? 600L : 601L),
+            "39",
+            "RECLAIM-" + terminal);
+    String lockedFingerprint = fingerprint(key);
+    TagoArrivalFlightDecision first =
+        store.observeOrClaim(lockedFingerprint, new UUID(39L, 1L), LEASE, QUARANTINE);
+    if (terminal == TagoArrivalFlightStatus.FAILED) {
+      assertThat(
+              store.completeFailure(first.lease(), TagoArrivalException.Code.EMPTY_RESULT, RETAIN))
+          .isTrue();
+    } else {
+      assertThat(store.abandon(first.lease(), QUARANTINE)).isTrue();
+    }
+    jdbc.update(
+        """
+        update public.tago_arrival_flights
+        set updated_at=clock_timestamp()-interval '2 seconds',
+            retain_until=clock_timestamp()-interval '1 second'
+        where fingerprint=?
+        """,
+        lockedFingerprint);
+    return new ExpiredReclaimFixture(key, lockedFingerprint);
   }
 
   private static TagoArrivalSnapshot snapshot(int index) {
@@ -747,20 +843,38 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
 
   private static FollowerObservation getBeforeDeadline(
       String label, Future<FollowerObservation> observer, long deadlineNanos) {
+    return getBeforeDeadline(label, "DB observe", observer, deadlineNanos);
+  }
+
+  private static <T> T getBeforeDeadline(
+      String actor, String stage, Future<T> observer, long deadlineNanos) {
+    String context = actor + " " + stage;
     long remainingNanos = deadlineNanos - System.nanoTime();
-    assertThat(remainingNanos)
-        .describedAs(label + " absolute deadline before DB observe")
-        .isPositive();
+    assertThat(remainingNanos).describedAs(context + " absolute deadline").isPositive();
     try {
       return observer.get(remainingNanos, TimeUnit.NANOSECONDS);
     } catch (TimeoutException timeout) {
-      throw new AssertionError(label + " DB observe가 absolute deadline 안에 완료되지 않았습니다.", timeout);
+      throw new AssertionError(context + "가 absolute deadline 안에 완료되지 않았습니다.", timeout);
     } catch (ExecutionException failure) {
-      throw new AssertionError(label + " DB observe 실패", failure.getCause());
+      throw new AssertionError(context + " 실패", failure.getCause());
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
-      throw new AssertionError(
-          label + " DB observe가 absolute deadline 전에 interrupt됐습니다.", interrupted);
+      throw new AssertionError(context + "가 absolute deadline 전에 interrupt됐습니다.", interrupted);
+    }
+  }
+
+  private static void awaitBeforeDeadline(
+      String actor, String stage, CountDownLatch latch, long deadlineNanos) {
+    String context = actor + " " + stage;
+    long remainingNanos = deadlineNanos - System.nanoTime();
+    assertThat(remainingNanos).describedAs(context + " absolute deadline").isPositive();
+    try {
+      assertThat(latch.await(remainingNanos, TimeUnit.NANOSECONDS))
+          .describedAs(context + " absolute deadline")
+          .isTrue();
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(context + "가 absolute deadline 전에 interrupt됐습니다.", interrupted);
     }
   }
 
@@ -777,6 +891,32 @@ class JdbcTagoArrivalFlightStoreIntegrationTest {
       String label, TagoArrivalFlightDecision decision, long completedAtNanos) {}
 
   private record FollowerTask(String label, Future<FollowerObservation> future) {}
+
+  private record LabeledSnapshotTask(String actor, Future<TagoArrivalSnapshot> future) {}
+
+  private record ExpiredReclaimFixture(TagoArrivalCacheKey key, String fingerprint) {}
+
+  private static final class RunningStageReportingStore extends JdbcTagoArrivalFlightStore {
+    private final CountDownLatch runningObserved;
+    private final AtomicBoolean reported = new AtomicBoolean();
+
+    private RunningStageReportingStore(JdbcTemplate jdbc, CountDownLatch runningObserved) {
+      super(jdbc);
+      this.runningObserved = runningObserved;
+    }
+
+    @Override
+    public TagoArrivalFlightDecision observeOrClaim(
+        String fingerprint, UUID proposedOwner, Duration lease, Duration quarantine) {
+      TagoArrivalFlightDecision decision =
+          super.observeOrClaim(fingerprint, proposedOwner, lease, quarantine);
+      if (decision.status() == TagoArrivalFlightStatus.RUNNING
+          && reported.compareAndSet(false, true)) {
+        runningObserved.countDown();
+      }
+      return decision;
+    }
+  }
 
   private static void await(CountDownLatch latch) {
     try {
