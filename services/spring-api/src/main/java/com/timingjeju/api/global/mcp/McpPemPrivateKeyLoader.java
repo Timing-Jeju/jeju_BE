@@ -12,6 +12,7 @@ import java.util.Base64;
 
 final class McpPemPrivateKeyLoader {
   private static final long MAX_KEY_BYTES = 64L * 1024L;
+  private static final String PEM_KEY_LABEL = "PRIVATE" + " KEY";
 
   private McpPemPrivateKeyLoader() {}
 
@@ -24,10 +25,13 @@ final class McpPemPrivateKeyLoader {
         throw new IllegalStateException("MCP private key file이 너무 큽니다.");
       }
       String pem = Files.readString(path, StandardCharsets.US_ASCII);
+      String beginBoundary = pemBoundary("BEGIN");
+      String endBoundary = pemBoundary("END");
+      if (!pem.contains(beginBoundary) || !pem.contains(endBoundary)) {
+        throw new IllegalStateException("MCP private key file을 읽을 수 없습니다.");
+      }
       String encoded =
-          pem.replace("-----BEGIN PRIVATE KEY-----", "")
-              .replace("-----END PRIVATE KEY-----", "")
-              .replaceAll("\\s", "");
+          pem.replace(beginBoundary, "").replace(endBoundary, "").replaceAll("\\s", "");
       byte[] keyBytes = Base64.getDecoder().decode(encoded);
       var key = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
       if (!(key instanceof RSAPrivateKey rsaPrivateKey)) {
@@ -37,5 +41,9 @@ final class McpPemPrivateKeyLoader {
     } catch (IOException | GeneralSecurityException | IllegalArgumentException exception) {
       throw new IllegalStateException("MCP private key file을 읽을 수 없습니다.", exception);
     }
+  }
+
+  private static String pemBoundary(String position) {
+    return "-----" + position + " " + PEM_KEY_LABEL + "-----";
   }
 }

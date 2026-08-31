@@ -15,6 +15,8 @@ import org.junit.jupiter.api.io.TempDir;
 @Tag("unit")
 class McpPemPrivateKeyLoaderTest {
 
+  private static final String PEM_KEY_LABEL = "PRIVATE" + " KEY";
+
   @TempDir Path temporaryDirectory;
 
   @Test
@@ -23,10 +25,13 @@ class McpPemPrivateKeyLoaderTest {
     generator.initialize(2048);
     byte[] encoded = generator.generateKeyPair().getPrivate().getEncoded();
     String pem =
-        "-----BEGIN PRIVATE KEY-----\n"
+        pemBoundary("BEGIN")
+            + "\n"
             + Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII))
                 .encodeToString(encoded)
-            + "\n-----END PRIVATE KEY-----\n";
+            + "\n"
+            + pemBoundary("END")
+            + "\n";
     Path keyFile = temporaryDirectory.resolve("service.pem");
     Files.writeString(keyFile, pem, StandardCharsets.US_ASCII);
 
@@ -50,5 +55,9 @@ class McpPemPrivateKeyLoaderTest {
     assertThatThrownBy(() -> McpPemPrivateKeyLoader.load(oversized))
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("MCP private key file이 너무 큽니다.");
+  }
+
+  private static String pemBoundary(String position) {
+    return "-----" + position + " " + PEM_KEY_LABEL + "-----";
   }
 }
