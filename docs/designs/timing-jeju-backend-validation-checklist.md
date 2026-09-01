@@ -33,13 +33,19 @@
 | --- | --- | --- | --- | --- |
 | 소셜/이메일 로그인, OTP, 비밀번호 재설정 | OWNER | JWT 검증 | 금지 | `auth.users` 원본 |
 | 프로필/약관/관심 장소/여행 CRUD | - | OWNER | 금지 | 영속화/RLS |
-| TourAPI/TAGO/KMA/길찾기 호출 | - | OWNER | 금지 | 정규화 cache/snapshot |
+| TourAPI/TAGO/KMA/공식 시간표 호출 | - | OWNER | 금지 | 정규화 cache/snapshot |
+| TMAP 보행·자동차 on-demand 호출 | - | 금지·비활성 | FastAPI OWNER | 저장 금지·프로세스 메모리 전용 |
 | 계산 입력 facts 조립 및 검증 | - | OWNER | 입력 검증 | 원천/사용자 데이터 조회 |
 | Day 생성/수정/가능성/추천/복구/라이브 재계산 | - | 호출/timeout/저장 | OWNER | 실행과 결과 이력 |
 | 일정 후보 적용과 동시성 제어 | - | OWNER | 금지 | 트랜잭션/제약 |
 | JWT, refresh token, provider access token 저장 | Supabase Auth | 금지 | 금지 | 앱 public schema에 저장 금지 |
 
-FastAPI는 `service_role` DB 키, Supabase JWT, 외부 API 키를 받지 않는다. Spring이 ID가 포함된 정규화 facts를 보내고 FastAPI는 입력에 없는 ID를 결과로 만들 수 없다.
+FastAPI는 `service_role` DB 키, Supabase JWT, TourAPI·TAGO·KMA 키를 받지 않는다.
+Issue #40 Owner 결정은 기존 이슈와 이 체크리스트의 “Spring만 길찾기 호출” 및 “FastAPI는
+외부 API 키를 받지 않음” 문구를 승인된 `tmap.pedestrian`·`tmap.driving` 두 source에 한해
+대체한다. FastAPI가 secret env의 `JEJU_TMAP_API_KEY`를 직접 읽으며 Spring 요청으로 key를
+전달받지 않는다. Spring이 ID가 포함된 정규화 facts를 보내고 FastAPI는 입력에 없는 ID를
+결과로 만들 수 없다. TMAP 대중교통 호출과 TMAP 결과 영속화는 계속 금지한다.
 
 ## 4. Figma 기능 커버리지
 

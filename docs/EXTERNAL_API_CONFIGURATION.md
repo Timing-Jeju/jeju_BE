@@ -29,6 +29,13 @@ TMAP 행은 기존 typed configuration 호환성과 fail-closed 시작 검증을
 `TMAP_ENABLED=false`가 canonical 기본값이며, 이 Spring 설정은 TMAP raw/snapshot 저장이나
 TMAP 대중교통 사용 권한을 부여하지 않는다.
 
+Issue #40의 실행 가능한 PoC와 후속 FastAPI on-demand adapter는 Spring의 `TMAP_API_KEY`가
+아닌 별도 secret env `JEJU_TMAP_API_KEY`를 사용한다. 이 키는 승인된 `tmap.pedestrian`과
+`tmap.driving` header 인증에만 쓰고 Spring 요청·응답으로 전달하지 않는다. 비어 있으면
+runner는 네트워크를 호출하지 않고 `APPROVED_TMAP_KEY_NOT_PRESENT`로 `SKIPPED`하며, 값이
+있을 때만 20개 TMAP case의 preflight를 `READY`로 판정한다. 대중교통 10개 case는 이 키를
+사용하지 않고 공식 시간표/TAGO transport 경계를 따른다.
+
 - 기본 활성값은 모두 `false`입니다. 비활성 provider는 key 없이 시작하고 client 설정 bean을 만들지 않습니다.
 - provider를 활성화하면 API key와 정확한 provider Base URL이 필수입니다. 공백, `changeme`, `replace-me`, `your-*`, `<...>`, `${...}` placeholder는 실제 key로 인정하지 않습니다.
 - TourAPI·TAGO·KMA의 `*_API_KEY`에는 공공데이터포털에서 제공하는 **decoded 원문 key**만 넣습니다. `%2B`, `%2F`, `%3D`처럼 이미 percent-encoded된 입력은 시작 시 거부합니다. 후속 query adapter는 typed credential 경계의 UTF-8 encoder를 사용해 `+`, `/`, `=`를 각각 `%2B`, `%2F`, `%3D`로 **정확히 한 번 percent-encoding**한 값을 `serviceKey` query에 조립해야 하며, 반환된 값을 다시 인코딩하면 안 됩니다.
@@ -52,6 +59,10 @@ TMAP 대중교통 사용 권한을 부여하지 않는다.
 2. 같은 provider의 `*_API_KEY`에 실제 발급값을 넣습니다. TourAPI·TAGO·KMA는 decoded 원문 key, TMAP은 header 원문을 사용하고 Base URL과 timeout은 `.env.example` 값을 복사합니다.
 3. `SPRING_PROFILES_ACTIVE=local`로 실행합니다.
 4. `/actuator/info`의 `externalApis`에서 활성 여부만 확인합니다. 이 응답에는 key, Base URL, timeout이 포함되지 않습니다.
+
+Issue #40 PoC/FastAPI live 검증은 위 Spring 순서와 분리한다. 비추적 환경에
+`JEJU_TMAP_API_KEY`를 주입한 뒤 승인 runner를 실행하며, 키가 없을 때의 `SKIPPED`는 정상적인
+DEFER 검증 결과다. `.env.example`에는 빈 변수명만 두고 실제 값은 기록하지 않는다.
 
 설정 객체와 client 설정 객체의 문자열 표현은 key를 `[REDACTED]`로 가립니다. 애플리케이션 오류, 로그, Actuator와 문서에 실제 key, `Authorization` 값 또는 `serviceKey` query를 기록하지 않습니다.
 

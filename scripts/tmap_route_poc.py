@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import Counter
 from datetime import datetime
 from typing import Any, Callable, Mapping, Sequence
@@ -30,9 +31,17 @@ class ProviderFailure(RuntimeError):
 def _require_endpoint(endpoint: Mapping[str, Any]) -> dict[str, Any]:
     latitude = endpoint.get("latitude")
     longitude = endpoint.get("longitude")
-    if isinstance(latitude, bool) or not isinstance(latitude, (int, float)):
+    if (
+        isinstance(latitude, bool)
+        or not isinstance(latitude, (int, float))
+        or (isinstance(latitude, float) and not math.isfinite(latitude))
+    ):
         raise ContractViolation("INVALID_LATITUDE")
-    if isinstance(longitude, bool) or not isinstance(longitude, (int, float)):
+    if (
+        isinstance(longitude, bool)
+        or not isinstance(longitude, (int, float))
+        or (isinstance(longitude, float) and not math.isfinite(longitude))
+    ):
         raise ContractViolation("INVALID_LONGITUDE")
     if not JEJU_BOUNDS["minimumLatitude"] <= latitude <= JEJU_BOUNDS["maximumLatitude"]:
         raise ContractViolation("OUTSIDE_JEJU_BOUNDS")
@@ -144,16 +153,24 @@ def sanitize_response(
     case_id: str,
     mode: str,
     departure_at: str,
-    response: Mapping[str, Any],
+    response: Any,
 ) -> dict[str, Any]:
     """원문 수치를 복사하지 않고 필드 가용성만 남깁니다."""
     if mode not in MODES:
         raise ContractViolation("UNSUPPORTED_MODE")
+    if not isinstance(response, Mapping):
+        raise ContractViolation("MALFORMED_RESPONSE")
+
     def numeric_field_available(key: str) -> bool:
         value = response.get(key)
         if value is None:
             return False
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or (isinstance(value, float) and not math.isfinite(value))
+            or value < 0
+        ):
             raise ContractViolation("MALFORMED_RESPONSE")
         return True
 
@@ -230,11 +247,31 @@ def aggregate_observations(
         )
         for mode in MODES
     }
+    field_counts_by_mode = {
+        mode: {
+            field: {
+                "available": available,
+                "missing": 10 - available,
+                "availabilityRate": available / 10,
+                "missingRate": (10 - available) / 10,
+            }
+            for field in FIELD_NAMES
+            for available in (
+                sum(
+                    bool(observation.get("fieldAvailability", {}).get(field))
+                    for observation in observations
+                    if observation.get("mode") == mode
+                ),
+            )
+        }
+        for mode in MODES
+    }
     return {
         "total": len(observations),
         "statusCounts": dict(sorted(status_counts.items())),
         "reasonCodeCounts": dict(sorted(reason_counts.items())),
         "fieldAvailability": field_counts,
+        "fieldAvailabilityByMode": field_counts_by_mode,
         "modeStatusCounts": {
             mode: dict(sorted(counts.items())) for mode, counts in mode_counts.items()
         },
@@ -310,6 +347,13 @@ def execute_live_matrix(
                 mode=request["mode"],
                 departure_at=request["departureAt"],
                 reason_code="MALFORMED_RESPONSE",
+            )
+        except Exception:
+            observation = sanitized_failure(
+                case_id=request["caseId"],
+                mode=request["mode"],
+                departure_at=request["departureAt"],
+                reason_code="TRANSPORT_FAILURE",
             )
         observations.append(observation)
 

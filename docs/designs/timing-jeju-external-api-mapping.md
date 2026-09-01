@@ -3,8 +3,8 @@
 ## 1. 검증 기준
 
 - 검증일: 2026-09-02
-- 외부 API 호출 주체: Spring Boot
-- FastAPI MCP 직접 호출: 승인된 on-demand `tmap.pedestrian`·`tmap.driving`만 허용
+- 외부 API 호출 주체: Spring Boot(TourAPI·TAGO·KMA·공식 시간표)와 FastAPI MCP(TMAP 예외)의 분리 소유
+- FastAPI MCP 직접 호출: secret env `JEJU_TMAP_API_KEY`를 사용하는 승인된 on-demand `tmap.pedestrian`·`tmap.driving`만 허용
 - API key 저장: 서버 secret manager/env only
 - 원문 payload 저장: `external_api_snapshots.raw_payload`에 장애 분석·재처리에 필요한 최소 범위만 저장하고 공개 API로 노출하지 않음
 
@@ -29,6 +29,13 @@ Issue #40의 Architecture Owner와 Product Owner가 2026-09-02 `DEFER`와
 기본 공급자가 아니며 대중교통 source로 사용하지 않는다. 대중교통은 공식 시간표와 TAGO를
 사용한다. TMAP 보행·자동차는 `Timing-Jeju/jeju_AI`의 승인 source contract를 통과한
 on-demand adapter에서만 기본 비활성화 상태로 사용할 수 있다.
+
+이 Owner 결정은 기존 Issue #40 및 설계의 “Spring이 모든 길찾기 외부 호출을 단독 소유”와
+“FastAPI는 외부 API 키를 받지 않음” 문구를 위 두 TMAP source에 한해서만 대체한다.
+Spring의 `TMAP_ENABLED`·`TMAP_API_KEY`는 비활성 호환 설정이고 #40 실행에는 사용하지 않는다.
+FastAPI/PoC runner만 자체 secret env의 `JEJU_TMAP_API_KEY`를 읽으며 Spring wire payload로
+key를 받지 않는다. 키가 없으면 live 검증은 네트워크 호출 없이
+`APPROVED_TMAP_KEY_NOT_PRESENT`로 `SKIPPED`되고, 키가 있을 때만 preflight가 `READY`다.
 
 TMAP raw body·geometry·요청 URL/query·사용자 위치·개별 시간·거리·요금은 파일, DB,
 object storage, Redis와 로그에 저장하지 않는다. TMAP 경로 결과는 `mobility_route_snapshots`에 저장하지 않는다.

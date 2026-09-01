@@ -27,6 +27,7 @@ VALIDATION_CHECKLIST = (
     ROOT / "docs/designs/timing-jeju-backend-validation-checklist.md"
 )
 EXTERNAL_API_CONFIGURATION = ROOT / "docs/EXTERNAL_API_CONFIGURATION.md"
+ENV_EXAMPLE = ROOT / ".env.example"
 
 
 class TmapRoutePocContractTest(unittest.TestCase):
@@ -134,12 +135,18 @@ class TmapRoutePocContractTest(unittest.TestCase):
         self.assertEqual("TIMEOUT", classify_failure(None, TimeoutError("secret")))
         self.assertEqual("PROVIDER_UNAVAILABLE", classify_failure(503, None))
 
-    def test_잘못된_타입과_음수_route_field를_거부한다(self):
-        """route field의 boolean·문자열·음수와 잘못된 segment 타입을 거부한다."""
+    def test_잘못된_응답과_비유한_route_field를_거부한다(self):
+        """응답 객체·route field 타입과 NaN·무한대 값을 안전하게 거부한다."""
         invalid_responses = (
+            None,
+            [],
+            "provider-raw-secret",
             {"durationSeconds": True},
             {"distanceMeters": "100"},
             {"fareKrw": -1},
+            {"durationSeconds": float("nan")},
+            {"distanceMeters": float("inf")},
+            {"fareKrw": float("-inf")},
             {"walkSegments": {}},
             {"geometry": 123},
         )
@@ -173,6 +180,22 @@ class TmapRoutePocContractTest(unittest.TestCase):
         self.assertEqual(30, aggregate["total"])
         self.assertEqual(30, aggregate["statusCounts"]["SUCCESS"])
         self.assertEqual(10, aggregate["fieldAvailability"]["walkSegment"])
+        for mode in ("PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"):
+            for field in ("duration", "distance", "fare", "walkSegment", "polyline"):
+                mode_field = aggregate["fieldAvailabilityByMode"][mode][field]
+                self.assertEqual(10, mode_field["available"] + mode_field["missing"])
+        self.assertEqual(
+            0,
+            aggregate["fieldAvailabilityByMode"]["PEDESTRIAN"]["walkSegment"][
+                "available"
+            ],
+        )
+        self.assertEqual(
+            10,
+            aggregate["fieldAvailabilityByMode"]["PUBLIC_TRANSIT"]["walkSegment"][
+                "available"
+            ],
+        )
 
         for invalid in (
             observations[:-1],
@@ -194,6 +217,19 @@ class TmapRoutePocContractTest(unittest.TestCase):
         self.assertEqual("SKIPPED", result["status"])
         self.assertEqual("APPROVED_TMAP_KEY_NOT_PRESENT", result["reasonCode"])
         self.assertEqual(0, result["plannedNetworkCalls"])
+
+    def test_문서화된_PoC_키가_있을_때만_live_preflight가_READY다(self):
+        """예시 환경의 FastAPI 전용 키 이름과 preflight 활성 조건을 일치시킨다."""
+        env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
+        self.assertIn("JEJU_TMAP_API_KEY=", env_example)
+
+        result = live_preflight(
+            self.payload,
+            {"JEJU_TMAP_API_KEY": "test-secret-not-logged"},
+        )
+
+        self.assertEqual("READY", result["status"])
+        self.assertEqual(20, result["plannedNetworkCalls"])
 
     def test_조건부_live_runner는_승인_transport로_30건을_집계한다(self):
         """승인 키가 있을 때 TMAP 20건과 공식 대중교통 10건을 값 없이 집계한다."""
@@ -226,6 +262,32 @@ class TmapRoutePocContractTest(unittest.TestCase):
             json.dumps(result, ensure_ascii=False),
         )
 
+    def test_예기치_않은_transport_오류도_원문_없이_안전_code로_집계한다(self):
+        """예상하지 못한 transport 예외도 실행을 중단하거나 원문을 노출하지 않는다."""
+        fixture = json.loads(DETERMINISTIC_RESPONSES.read_text(encoding="utf-8"))
+
+        def failing_tmap_transport(request, api_key):
+            raise RuntimeError("provider-raw-secret")
+
+        def official_transit_transport(request):
+            return fixture["responsesByMode"][request["mode"]]
+
+        result = execute_live_matrix(
+            self.payload,
+            {"JEJU_TMAP_API_KEY": "test-secret-not-logged"},
+            tmap_transport=failing_tmap_transport,
+            official_transit_transport=official_transit_transport,
+        )
+
+        self.assertEqual("COMPLETED", result["status"])
+        self.assertEqual(
+            20,
+            result["aggregate"]["reasonCodeCounts"]["TRANSPORT_FAILURE"],
+        )
+        serialized = json.dumps(result, ensure_ascii=False)
+        self.assertNotIn("provider-raw-secret", serialized)
+        self.assertNotIn("test-secret-not-logged", serialized)
+
     def test_DEFER_결정과_canonical_TMAP_저장_경계가_일치한다(self):
         """canonical 설계가 TMAP 대중교통·snapshot 저장을 기본값으로 남기지 않는다."""
         design = DESIGN.read_text(encoding="utf-8")
@@ -242,9 +304,12 @@ class TmapRoutePocContractTest(unittest.TestCase):
         checklist = VALIDATION_CHECKLIST.read_text(encoding="utf-8")
         self.assertIn("| 길찾기 공급자 POC | DEFER |", checklist)
         self.assertIn("TMAP DEFER", checklist)
+        self.assertIn("TMAP 보행·자동차 on-demand", checklist)
+        self.assertIn("FastAPI OWNER", checklist)
 
         configuration = EXTERNAL_API_CONFIGURATION.read_text(encoding="utf-8")
         self.assertIn("`TMAP_ENABLED=false`가 canonical 기본값", configuration)
+        self.assertIn("`JEJU_TMAP_API_KEY`", configuration)
 
     def test_Owner_승인과_비저장_경계를_고정한다(self):
         """두 Owner 승인과 TMAP 메모리 전용 보존 경계를 변경 불가능한 계약으로 둔다."""
