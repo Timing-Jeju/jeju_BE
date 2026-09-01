@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,17 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class Issue114DevelopIntegrationTest(unittest.TestCase):
     def test_FCM_API_port는_caller_environment와_무관한_loopback_18083이다(self):
+        preflight = subprocess.run(
+            (sys.executable, str(ROOT / "scripts/validate_docker_compose_version.py")),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if preflight.returncode != 0:
+            self.assertIn("Docker Compose 2.24.4 이상이 필요합니다.", preflight.stderr)
+            return
+
         for caller_port in ("8080", "65535"):
             environment = os.environ.copy()
             environment.update(
@@ -89,7 +101,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         self.assertIn("databaseNow().minusSeconds(1)", method)
         self.assertNotIn("Instant.now().minusSeconds(1)", method)
 
-    def test_firebase_adapter와_mode20_contract가_함께_유지된다(self):
+    def test_firebase_adapter와_mode22_contract가_함께_유지된다(self):
         firebase_adapter = (
             ROOT
             / "services/spring-api/src/main/java/com/timingjeju/api/global/push/firebase"
@@ -99,8 +111,8 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
 
         for gate_name in ("quality-gate.sh", "quality-gate.ps1"):
             gate = (ROOT / "scripts" / gate_name).read_text(encoding="utf-8")
-            self.assertIn("--mode 20", gate, gate_name)
-            self.assertNotIn("--mode 16", gate, gate_name)
+            self.assertIn("--mode 22", gate, gate_name)
+            self.assertNotIn("--mode 20", gate, gate_name)
 
         migration_names = {
             path.name for path in (ROOT / "supabase/migrations").glob("*.sql")
