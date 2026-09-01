@@ -32,6 +32,16 @@ REQUIRED_REQUEST_HEADERS = {
         "Idempotency-Key",
         "If-Match",
     },
+    ("POST", "/api/v1/trips/{tripId}/accommodations"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
+    ("PATCH", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "If-Match"
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "If-Match"
+    },
 }
 REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/me/saved-places", "200"): {"Location", "ETag", "Idempotency-Replayed"},
@@ -45,6 +55,16 @@ REQUIRED_RESPONSE_HEADERS = {
         "Idempotency-Replayed",
     },
     ("POST", "/api/v1/trips/{tripId}/schedule-items", "409"): {"Retry-After"},
+    ("POST", "/api/v1/trips/{tripId}/accommodations", "201"): {
+        "Location",
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    (
+        "PATCH",
+        "/api/v1/trips/{tripId}/accommodations/{accommodationId}",
+        "200",
+    ): {"ETag"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -71,6 +91,20 @@ TRIP_OPERATIONS = {
 TRIP_MUTATION_OPERATIONS = {
     ("PATCH", "/api/v1/trips/{tripId}"): "tripsUpdate",
     ("DELETE", "/api/v1/trips/{tripId}"): "tripsDelete",
+}
+ACCOMMODATION_OPERATIONS = {
+    (
+        "POST",
+        "/api/v1/trips/{tripId}/accommodations",
+    ): "tripAccommodationsCreate",
+    (
+        "PATCH",
+        "/api/v1/trips/{tripId}/accommodations/{accommodationId}",
+    ): "tripAccommodationsUpdate",
+    (
+        "DELETE",
+        "/api/v1/trips/{tripId}/accommodations/{accommodationId}",
+    ): "tripAccommodationsDelete",
 }
 PUSH_NOTIFICATION_OPERATIONS = {
     ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
@@ -114,6 +148,10 @@ SOURCE_PROVENANCE_20 = {
 SOURCE_PROVENANCE_21 = {
     **SOURCE_PROVENANCE_20,
     "schedules": "a5f53adcf43a63672de76d2a0ec4579257cb664a",
+}
+SOURCE_PROVENANCE_25 = {
+    **SOURCE_PROVENANCE_22,
+    "accommodations": "0335c49e5e60c11e5a365c67dbee970a11d247c5",
 }
 SCHEMA_CONSTRAINT_KEYS = {
     "type",
@@ -517,7 +555,15 @@ class Validator:
         problem = (self.runtime_operations().get(f"{key[0]} {key[1]}") or {}).get("problems", {}).get(str(status))
         return problem[0] if isinstance(problem, list) and len(problem) == 2 else None
 
-    def expected_problem_type(self, code):
+    def expected_problem_type(self, code, key=None, status=None):
+        if key is not None and status is not None:
+            problem = (
+                (self.runtime_operations().get(f"{key[0]} {key[1]}") or {})
+                .get("problems", {})
+                .get(str(status))
+            )
+            if isinstance(problem, list) and len(problem) == 2 and problem[0] == code:
+                return problem[1]
         for runtime in self.runtime_operations().values():
             for problem in (runtime.get("problems") or {}).values():
                 if isinstance(problem, list) and len(problem) == 2 and problem[0] == code:
@@ -693,6 +739,9 @@ class Validator:
             required.update(TRIP_MUTATION_OPERATIONS)
         if self.mode == 24:
             required.update(SCHEDULE_MUTATION_OPERATIONS)
+        if self.mode == 25:
+            required.update(SCHEDULE_MUTATION_OPERATIONS)
+            required.update(ACCOMMODATION_OPERATIONS)
         for key, operation_id in required.items():
             if key not in self.operations:
                 prefix = (

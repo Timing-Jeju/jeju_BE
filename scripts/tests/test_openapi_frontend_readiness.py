@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts.validate_openapi_frontend_readiness import (
+    ACCOMMODATION_OPERATIONS,
     CURRENT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
@@ -790,6 +791,14 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual(
             "https://api.timing-jeju.example/problems/idempotency-key-reused",
             validator.expected_problem_type("IDEMPOTENCY_KEY_REUSED"),
+        )
+        self.assertEqual(
+            "https://api.timing-jeju.com/problems/idempotency-key-reused",
+            validator.expected_problem_type(
+                "IDEMPOTENCY_KEY_REUSED",
+                ("POST", "/api/v1/trips/{tripId}/accommodations"),
+                409,
+            ),
         )
 
     def test_secret_like_example과_internal_endpoint를_거부한다(self):

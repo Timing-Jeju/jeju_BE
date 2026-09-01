@@ -7,7 +7,8 @@
     "INVALID_PROFILE_LEGAL_REQUEST": "https://api.timing-jeju.example/problems/invalid-profile-legal-request",
     "PROFILE_CONFLICT": "https://api.timing-jeju.example/problems/profile-conflict",
     "LEGAL_CONSENT_REQUIRED": "https://api.timing-jeju.example/problems/legal-consent-required",
-    "PROFILE_DATA_UNAVAILABLE": "https://api.timing-jeju.example/problems/profile-data-unavailable"
+    "PROFILE_DATA_UNAVAILABLE": "https://api.timing-jeju.example/problems/profile-data-unavailable",
+    "ACCOMMODATION_DATA_UNAVAILABLE": "https://api.timing-jeju.com/problems/accommodation-data-unavailable"
   },
   "operations": {
     "GET /api/v1/me": {"statusAdditions": [403, 500], "statusOmissions": [], "problems": {"401": ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"], "403": ["AUTH_ACCESS_DENIED", "https://api.timing-jeju.example/problems/auth-access-denied"], "500": ["INTERNAL_SERVER_ERROR", "https://api.timing-jeju.example/problems/internal-server-error"], "503": ["PROFILE_DATA_UNAVAILABLE", "https://api.timing-jeju.example/problems/profile-data-unavailable"]}},
