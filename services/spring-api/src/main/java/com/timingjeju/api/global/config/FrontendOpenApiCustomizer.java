@@ -54,7 +54,9 @@ final class FrontendOpenApiCustomizer {
           Map.entry("sort", "saved_at_desc"),
           Map.entry("status", "draft"),
           Map.entry("tag", "오름"),
-          Map.entry("tripId", "44000000-0000-4000-8000-000000000044"));
+          Map.entry("tripId", "44000000-0000-4000-8000-000000000044"),
+          Map.entry("versionId", "49000000-0000-4000-8000-000000000002"));
+
   private static final Map<String, ProblemDefinition> NON_CONTRIBUTOR_PROBLEM_DEFINITIONS =
       Map.ofEntries(
           Map.entry(
@@ -116,7 +118,8 @@ final class FrontendOpenApiCustomizer {
     Map<String, Map<String, Object>> catalogEndpoints =
         endpointMap(readContractResource("/rest/catalog.json"));
     for (String domain :
-        List.of("profile-legal", "places", "weather-forecast", "saved-places", "trips")) {
+        List.of(
+            "profile-legal", "places", "weather-forecast", "saved-places", "trips", "schedules")) {
       Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
       Map<String, Object> schemas = objectMap(contract.get("schemas"));
       for (Map<String, Object> endpoint : objectMapList(contract.get("endpoints"))) {
@@ -543,6 +546,7 @@ final class FrontendOpenApiCustomizer {
       case "regionCode" -> "정규화 제주 지역 code";
       case "savedOnly" -> "인증 사용자의 저장 장소만 조회할지 여부";
       case "size" -> "한 page의 최대 item 수";
+      case "versionId" -> "같은 여행에 속한 lowercase canonical UUID 일정 버전. 생략하면 active 버전을 조회합니다.";
       default -> name + " 요청 조건";
     };
   }
@@ -998,6 +1002,20 @@ final class FrontendOpenApiCustomizer {
                 "400", "INVALID_REQUEST",
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "TRIP_NOT_FOUND",
+                "503", "TRIP_DATA_UNAVAILABLE")));
+    result.put(
+        "GET /api/v1/trips/{tripId}/schedule",
+        doc(
+            "tripScheduleRead",
+            "일정",
+            null,
+            """
+            {"tripId":"49000000-0000-4000-8000-000000000001","scheduleVersion":{"scheduleVersionId":"49000000-0000-4000-8000-000000000002","versionNo":1,"status":"active","sourceType":"initial","baseScheduleVersionId":null,"score":81,"feasibilityStale":false},"days":[{"dayId":"49000000-0000-4000-8000-000000000003","dayNo":1,"date":"2026-09-01","items":[{"itemId":"49000000-0000-4000-8000-000000000004","sequenceNo":1,"itemType":"custom","placeId":null,"title":"공항 도착","plannedStartAt":"2026-09-01T09:00:00+09:00","plannedEndAt":"2026-09-01T10:00:00+09:00","stayMinutes":60,"bufferAfterMinutes":0,"required":true,"memo":null,"progress":null}],"legs":[]}]}
+            """,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "SCHEDULE_VERSION_NOT_FOUND",
                 "503", "TRIP_DATA_UNAVAILABLE")));
     return Map.copyOf(result);
   }

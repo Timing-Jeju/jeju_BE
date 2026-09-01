@@ -10,6 +10,7 @@ from scripts.validate_openapi_frontend_readiness import (
     CURRENT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
+    SCHEDULE_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
 )
@@ -395,6 +396,60 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual(
             ["deviceId"],
             schemas["PushDevicePath"]["required"],
+        )
+
+    def test_mode21은_schedule_read를_exact_inventory와_canonical_schema로_검사한다(self):
+        """21-operation 모드가 일정 조회 하나와 schedules 권위 계약을 정확히 검사한다."""
+        validator = Validator(valid_document(), 21, ROOT)
+        exact_operations = (
+            set(CURRENT_OPERATIONS)
+            | set(SAVED_PLACE_OPERATIONS)
+            | set(TRIP_OPERATIONS)
+            | set(PUSH_NOTIFICATION_OPERATIONS)
+            | set(SCHEDULE_OPERATIONS)
+        )
+        validator.operations = exact_operations
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in {
+                **CURRENT_OPERATIONS,
+                **SAVED_PLACE_OPERATIONS,
+                **TRIP_OPERATIONS,
+                **PUSH_NOTIFICATION_OPERATIONS,
+                **SCHEDULE_OPERATIONS,
+            }.items()
+        }
+
+        validator.validate_operation_inventory()
+
+        self.assertEqual([], validator.errors)
+        self.assertEqual(
+            "a5f53adcf43a63672de76d2a0ec4579257cb664a",
+            validator.source_provenance["schedules"],
+        )
+
+        validator = Validator(valid_document(), 21, ROOT)
+        with mock.patch.object(validator, "validate_contract_endpoint") as projection:
+            validator.validate_contract_authority()
+        schedule_calls = {
+            call.args[0]: call
+            for call in projection.call_args_list
+            if call.args[0] in SCHEDULE_OPERATIONS
+        }
+        self.assertEqual(set(SCHEDULE_OPERATIONS), set(schedule_calls))
+        call = schedule_calls[("GET", "/api/v1/trips/{tripId}/schedule")]
+        self.assertEqual("ScheduleResponse", call.args[2]["successSchema"])
+        self.assertEqual(
+            [
+                "scheduleVersionId",
+                "versionNo",
+                "status",
+                "sourceType",
+                "baseScheduleVersionId",
+                "score",
+                "feasibilityStale",
+            ],
+            call.args[3]["ScheduleVersion"]["required"],
         )
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
