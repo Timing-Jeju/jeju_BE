@@ -1049,7 +1049,7 @@ final class FrontendOpenApiCustomizer {
     result.put(
         "PUT /api/v1/trips/{tripId}/preferences",
         doc(
-            "tripPreferencesReplace",
+            "tripPreferencesUpdate",
             "여행",
             """
             {"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"seogwipo-si","preferredRegionCodes":["seongsan","aewol"],"startPlaceId":"34000000-0000-4000-8000-000000000034","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"rental_car","priority":2,"primary":false},{"mode":"taxi","priority":3,"primary":false}]}
@@ -1062,7 +1062,8 @@ final class FrontendOpenApiCustomizer {
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "TRIP_NOT_FOUND",
                 "409", "TRIP_VERSION_CONFLICT",
-                "422", "PREFERENCE_CONSTRAINT_VIOLATION")));
+                "422", "PREFERENCE_CONSTRAINT_VIOLATION",
+                "503", "TRIP_DATA_UNAVAILABLE")));
     return Map.copyOf(result);
   }
 

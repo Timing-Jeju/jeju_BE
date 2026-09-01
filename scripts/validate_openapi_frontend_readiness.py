@@ -27,12 +27,14 @@ REQUIRED_REQUEST_HEADERS = {
     ("POST", "/api/v1/me/saved-places"): {"Idempotency-Key"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}"): {"If-Match"},
     ("POST", "/api/v1/trips"): {"Idempotency-Key"},
+    ("PUT", "/api/v1/trips/{tripId}/preferences"): {"If-Match"},
 }
 REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/me/saved-places", "200"): {"Location", "ETag", "Idempotency-Replayed"},
     ("POST", "/api/v1/me/saved-places", "201"): {"Location", "ETag", "Idempotency-Replayed"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}", "200"): {"ETag"},
     ("POST", "/api/v1/trips", "201"): {"Location", "ETag", "Idempotency-Replayed"},
+    ("PUT", "/api/v1/trips/{tripId}/preferences", "200"): {"ETag"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -56,6 +58,9 @@ TRIP_OPERATIONS = {
     ("POST", "/api/v1/trips"): "tripsCreate",
     ("GET", "/api/v1/trips/{tripId}"): "tripsRead",
 }
+PREFERENCE_TRANSPORT_OPERATIONS = {
+    ("PUT", "/api/v1/trips/{tripId}/preferences"): "tripPreferencesUpdate",
+}
 PUSH_NOTIFICATION_OPERATIONS = {
     ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
     ("DELETE", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesDelete",
@@ -67,6 +72,7 @@ EXPECTED_OPERATION_IDS = (
     | SAVED_PLACE_OPERATIONS
     | TRIP_OPERATIONS
     | PUSH_NOTIFICATION_OPERATIONS
+    | PREFERENCE_TRANSPORT_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
@@ -85,6 +91,10 @@ SOURCE_PROVENANCE_16 = {
 SOURCE_PROVENANCE_20 = {
     **SOURCE_PROVENANCE_16,
     "push-notifications": "26ec730ae4d8d9b64356e624a4bf5021dbdc4d76",
+}
+SOURCE_PROVENANCE_21 = {
+    **SOURCE_PROVENANCE_20,
+    "preferences-transport": "bb28da643c087ce6a0f5abc0f2a6f45062c212cf",
 }
 SCHEMA_CONSTRAINT_KEYS = {
     "type",
@@ -114,9 +124,12 @@ class Validator:
         self.errors = []
         self.operation_ids = {}
         self.operations = set()
-        self.source_provenance = dict(
-            SOURCE_PROVENANCE_20 if mode == 20 else SOURCE_PROVENANCE_16
-        )
+        source_provenance = SOURCE_PROVENANCE_16
+        if mode in (20, 21):
+            source_provenance = SOURCE_PROVENANCE_20
+        if mode == 21:
+            source_provenance = SOURCE_PROVENANCE_21
+        self.source_provenance = dict(source_provenance)
         self.runtime_manifest = None
         self.runtime_problem_definitions = {}
 
@@ -237,10 +250,12 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20):
+        if self.mode in (16, 20, 21):
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", TRIP_OPERATIONS)))
-        if self.mode == 20:
+        if self.mode in (20, 21):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
+        if self.mode == 21:
+            groups.append(("preferences-transport", PREFERENCE_TRANSPORT_OPERATIONS))
         for domain, operation_group in groups:
             contract = self.read_authority_json(
                 f"docs/contracts/domains/{domain}/contract.json"
@@ -435,7 +450,38 @@ class Validator:
             seen.add(name)
             siblings = {key: value for key, value in schema.items() if key != "$ref"}
             schema = {**schemas[name], **siblings}
-        return schema if isinstance(schema, dict) else {}
+        if not isinstance(schema, dict):
+            return {}
+        flattened = dict(schema)
+        composition = flattened.pop("allOf", None)
+        required = list(flattened.get("required") or [])
+        properties = dict(flattened.get("properties") or {})
+        if isinstance(composition, list):
+            for index, member in enumerate(composition):
+                expanded = self.canonical_schema(
+                    member, schemas, f"{location}.allOf[{index}]"
+                )
+                for name in expanded.get("required") or []:
+                    if name not in required:
+                        required.append(name)
+                for name, child in (expanded.get("properties") or {}).items():
+                    previous = properties.setdefault(name, child)
+                    if previous != child:
+                        self.error(location, f"canonical allOf property {name}이 충돌합니다")
+                for key, value in expanded.items():
+                    if key in {"required", "properties", "additionalProperties"}:
+                        continue
+                    previous = flattened.setdefault(key, value)
+                    if previous != value:
+                        self.error(location, f"canonical allOf {key}가 충돌합니다")
+        if required or "required" in flattened:
+            flattened["required"] = required
+        if properties or "properties" in flattened:
+            flattened["properties"] = properties
+        unevaluated = flattened.pop("unevaluatedProperties", None)
+        if unevaluated is False:
+            flattened["additionalProperties"] = False
+        return flattened
 
     def validate_contract_parameters(self, operation, catalog, schemas, location):
         parameters = {
@@ -576,14 +622,20 @@ class Validator:
 
     def validate_operation_inventory(self):
         required = dict(CURRENT_OPERATIONS)
-        if self.mode in (16, 20):
+        if self.mode in (16, 20, 21):
             required.update(SAVED_PLACE_OPERATIONS)
             required.update(TRIP_OPERATIONS)
-        if self.mode == 20:
+        if self.mode in (20, 21):
             required.update(PUSH_NOTIFICATION_OPERATIONS)
+        if self.mode == 21:
+            required.update(PREFERENCE_TRANSPORT_OPERATIONS)
         for key, operation_id in required.items():
             if key not in self.operations:
-                prefix = f"{self.mode}-operation 완료 mode: " if self.mode in (16, 20) else ""
+                prefix = (
+                    f"{self.mode}-operation 완료 mode: "
+                    if self.mode in (16, 20, 21)
+                    else ""
+                )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
         for key in self.operations - set(required):
             self.error(f"{key[0]} {key[1]}", "public inventory allowlist 밖의 endpoint입니다")
@@ -985,7 +1037,7 @@ def main(argv):
         type=Path,
         default=Path("services/spring-api/build/openapi/openapi.json"),
     )
-    parser.add_argument("--mode", type=int, choices=(9, 16, 20), default=20)
+    parser.add_argument("--mode", type=int, choices=(9, 16, 20, 21), default=21)
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])
     artifact = args.artifact

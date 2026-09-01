@@ -210,6 +210,12 @@ public interface TripApiDocs {
         content =
             @Content(
                 mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "503",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   ResponseEntity<TripPreferencesResponse> replacePreferences(

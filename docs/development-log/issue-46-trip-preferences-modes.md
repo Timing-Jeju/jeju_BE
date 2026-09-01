@@ -63,6 +63,30 @@ python3 -m unittest scripts.tests.test_preferences_transport_contract scripts.te
 Ran 20 tests - OK
 ```
 
+### 생성 OpenAPI mode 21 승격
+
+첫 clean commit `b0d4a3d8b476f280c51c94f58d357461964bc65a`에 전체 품질 게이트를 실행하자 FE readiness가 fail-closed했다.
+
+```text
+PUT /api/v1/trips/{tripId}/preferences
+- operationId가 stable suffix 규칙과 불일치
+- 200 ETag가 response header inventory에 없음
+- public inventory allowlist 밖 endpoint
+```
+
+먼저 mode 21 inventory, source provenance, canonical authority projection과 closed `allOf` 합성 테스트를 추가했다. 최초 실행은 새 operation 상수 부재 ImportError와 gate의 세 오류, 이어 실제 artifact에서 canonical composition 비교 3건 실패를 재현했다.
+
+Green에서는 historical mode 16/20을 보존하면서 mode 21에 #46 endpoint와 #86 clean contract SHA를 추가했다. operationId를 `tripPreferencesUpdate`로 고정하고 request `If-Match`, response `ETag`, 503 runtime projection을 manifest와 Swagger에 연결했다. canonical `allOf + unevaluatedProperties=false`는 필드 손실 없이 동등한 flat closed schema로 비교한다.
+
+```text
+python3 -m unittest scripts.tests.test_openapi_frontend_readiness
+Ran 23 tests - OK
+
+python3 scripts/validate_openapi_frontend_readiness.py \
+  services/spring-api/build/openapi/openapi.json --mode 21
+OpenAPI frontend-readiness 검사 성공: 21 operations
+```
+
 ## 보안·데이터 결정
 
 - 사용자 JWT는 controller 보안 경계에서만 사용하며 persistence나 하위 외부 호출로 전달하지 않는다.

@@ -304,7 +304,7 @@ class TripOpenApiIntegrationTest {
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}/preferences'].put").exists())
         .andExpect(
             jsonPath("$.paths['/api/v1/trips/{tripId}/preferences'].put.operationId")
-                .value("tripPreferencesReplace"))
+                .value("tripPreferencesUpdate"))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips/{tripId}/preferences'].put.parameters[?(@.name=='If-Match')]")
@@ -359,7 +359,7 @@ class TripOpenApiIntegrationTest {
                 .exists())
         .andExpect(
             jsonPath("$.paths['/api/v1/trips/{tripId}/preferences'].put.responses")
-                .value(org.hamcrest.Matchers.aMapWithSize(8)))
+                .value(org.hamcrest.Matchers.aMapWithSize(9)))
         .andExpect(
             jsonPath("$.paths['/api/v1/trips/{tripId}/preferences'].put.responses['403'].$ref")
                 .value("#/components/responses/AccessDeniedProblem"))

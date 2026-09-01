@@ -8,6 +8,7 @@ from unittest import mock
 
 from scripts.validate_openapi_frontend_readiness import (
     CURRENT_OPERATIONS,
+    PREFERENCE_TRANSPORT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_OPERATIONS,
@@ -368,6 +369,102 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 "push-notifications": "26ec730ae4d8d9b64356e624a4bf5021dbdc4d76",
             },
             validator.source_provenance,
+        )
+
+    def test_mode21은_preferences_누락과_allowlist밖_extra를_모두_거부한다(self):
+        exact_operations = (
+            set(CURRENT_OPERATIONS)
+            | set(SAVED_PLACE_OPERATIONS)
+            | set(TRIP_OPERATIONS)
+            | set(PUSH_NOTIFICATION_OPERATIONS)
+            | set(PREFERENCE_TRANSPORT_OPERATIONS)
+        )
+
+        def inventory_errors(operations):
+            validator = Validator({}, 21, ROOT)
+            validator.operations = operations
+            validator.operation_ids = {
+                operation_id: [f"{method} {path}"]
+                for (method, path), operation_id in {
+                    **CURRENT_OPERATIONS,
+                    **SAVED_PLACE_OPERATIONS,
+                    **TRIP_OPERATIONS,
+                    **PUSH_NOTIFICATION_OPERATIONS,
+                    **PREFERENCE_TRANSPORT_OPERATIONS,
+                }.items()
+                if (method, path) in operations
+            }
+            validator.validate_operation_inventory()
+            return validator.errors
+
+        self.assertEqual([], inventory_errors(exact_operations))
+        removed = exact_operations - {
+            ("PUT", "/api/v1/trips/{tripId}/preferences")
+        }
+        self.assertTrue(
+            any("21-operation" in error for error in inventory_errors(removed))
+        )
+        extra = exact_operations | {("GET", "/api/v1/unowned")}
+        self.assertTrue(
+            any("inventory allowlist" in error for error in inventory_errors(extra))
+        )
+
+    def test_mode21_provenance는_preferences_contract_clean_HEAD까지_exact하다(self):
+        validator = Validator(valid_document(), 21, ROOT)
+
+        self.assertEqual(
+            "bb28da643c087ce6a0f5abc0f2a6f45062c212cf",
+            validator.source_provenance["preferences-transport"],
+        )
+
+    def test_mode21은_preferences_contract를_canonical_schema로_projection한다(self):
+        validator = Validator(valid_document(), 21, ROOT)
+        with mock.patch.object(validator, "validate_contract_endpoint") as projection:
+            validator.validate_contract_authority()
+
+        preference_calls = {
+            call.args[0]: call
+            for call in projection.call_args_list
+            if call.args[0] in PREFERENCE_TRANSPORT_OPERATIONS
+        }
+        self.assertEqual(set(PREFERENCE_TRANSPORT_OPERATIONS), set(preference_calls))
+        call = preference_calls[("PUT", "/api/v1/trips/{tripId}/preferences")]
+        self.assertEqual("PreferencesResponse", call.args[2]["successSchema"])
+        self.assertIn("PreferencesRequest", call.args[3])
+
+    def test_canonical_allOf_closed_response는_flat_schema로_손실없이_합성한다(self):
+        validator = Validator({}, 21, ROOT)
+        schemas = {
+            "Mutation": {
+                "type": "object",
+                "required": ["tripId"],
+                "properties": {"tripId": {"type": "string", "format": "uuid"}},
+            },
+            "Response": {
+                "type": "object",
+                "unevaluatedProperties": False,
+                "allOf": [
+                    {"$ref": "Mutation"},
+                    {
+                        "type": "object",
+                        "required": ["preferences"],
+                        "properties": {"preferences": {"type": "object"}},
+                    },
+                ],
+            },
+        }
+
+        self.assertEqual(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["tripId", "preferences"],
+                "properties": {
+                    "tripId": {"type": "string", "format": "uuid"},
+                    "preferences": {"type": "object"},
+                },
+            },
+            validator.canonical_schema({"$ref": "Response"}, schemas, "response"),
         )
 
     def test_mode20은_push_contract_4개를_canonical_schema로_projection한다(self):
