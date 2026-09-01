@@ -21,6 +21,7 @@ class AccommodationMigrationContractTest {
         .contains("alter column check_in_time set not null")
         .contains("alter column check_out_time set not null")
         .contains("create table public.accommodation_idempotency")
+        .contains("create index ix_accommodation_idempotency_trip")
         .contains("expires_at = created_at + interval '24 hours'")
         .contains("completed accommodation idempotency snapshot is immutable")
         .doesNotContain("delete from public.trip_accommodations")

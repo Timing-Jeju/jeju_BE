@@ -106,6 +106,9 @@ create table public.accommodation_idempotency (
 create index ix_accommodation_idempotency_expiry
   on public.accommodation_idempotency(expires_at);
 
+create index ix_accommodation_idempotency_trip
+  on public.accommodation_idempotency(trip_plan_id);
+
 alter table public.accommodation_idempotency enable row level security;
 
 create function public.protect_accommodation_idempotency_snapshot()
