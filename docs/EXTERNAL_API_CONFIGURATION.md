@@ -2,7 +2,11 @@
 
 ## 범위
 
-Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 typed configuration으로 읽고, 공통 `ExternalApiExecutor`가 안전한 HTTP 실행 경계를 제공합니다. 구체 provider DTO·parser와 importer는 후속 Issue에서 구현합니다. FastAPI와 프론트에는 provider key나 원천 요청 설정을 전달하지 않습니다.
+Spring API는 TourAPI·TAGO·KMA와 기존 TMAP 호환 설정의 활성 여부를 typed configuration으로
+읽고, 공통 `ExternalApiExecutor`가 안전한 HTTP 실행 경계를 제공합니다. Issue #40의 `DEFER`에
+따라 Spring의 TMAP 설정은 비활성 호환 경계이며 #41의 provider-neutral port가 이를 자동
+활성화하지 않습니다. 승인된 TMAP 보행·자동차 on-demand 호출은 FastAPI 프로세스의 별도
+source contract와 secret 경계를 사용하고, 프론트에는 provider key나 원천 요청 설정을 전달하지 않습니다.
 
 운영 Secret Manager 제품, workload identity/IAM, rotation과 rollback 절차는 배포 ADR Issue #63에서 확정합니다. 현재 Issue는 로컬·CI 환경변수 계약과 애플리케이션 시작 검증만 소유합니다.
 
@@ -20,6 +24,17 @@ Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 type
 TAGO 정류장 도착정보 importer도 위 TAGO 설정을 공유한다. 별도 key나 URL 환경변수를 만들지 않으며
 `ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList` operation은 코드 allowlist에 고정한다.
 20~30초 cache TTL과 최대 120초 stale 허용 범위는 application 계약이며 환경변수로 완화하지 않는다.
+
+TMAP 행은 기존 typed configuration 호환성과 fail-closed 시작 검증을 위해 유지한다.
+`TMAP_ENABLED=false`가 canonical 기본값이며, 이 Spring 설정은 TMAP raw/snapshot 저장이나
+TMAP 대중교통 사용 권한을 부여하지 않는다.
+
+Issue #40의 실행 가능한 PoC와 후속 FastAPI on-demand adapter는 Spring의 `TMAP_API_KEY`가
+아닌 별도 secret env `JEJU_TMAP_API_KEY`를 사용한다. 이 키는 승인된 `tmap.pedestrian`과
+`tmap.driving` header 인증에만 쓰고 Spring 요청·응답으로 전달하지 않는다. 비어 있으면
+runner는 네트워크를 호출하지 않고 `APPROVED_TMAP_KEY_NOT_PRESENT`로 `SKIPPED`하며, 값이
+있을 때만 20개 TMAP case의 preflight를 `READY`로 판정한다. 대중교통 10개 case는 이 키를
+사용하지 않고 공식 시간표/TAGO transport 경계를 따른다.
 
 - 기본 활성값은 모두 `false`입니다. 비활성 provider는 key 없이 시작하고 client 설정 bean을 만들지 않습니다.
 - provider를 활성화하면 API key와 정확한 provider Base URL이 필수입니다. 공백, `changeme`, `replace-me`, `your-*`, `<...>`, `${...}` placeholder는 실제 key로 인정하지 않습니다.
@@ -44,6 +59,10 @@ TAGO 정류장 도착정보 importer도 위 TAGO 설정을 공유한다. 별도 
 2. 같은 provider의 `*_API_KEY`에 실제 발급값을 넣습니다. TourAPI·TAGO·KMA는 decoded 원문 key, TMAP은 header 원문을 사용하고 Base URL과 timeout은 `.env.example` 값을 복사합니다.
 3. `SPRING_PROFILES_ACTIVE=local`로 실행합니다.
 4. `/actuator/info`의 `externalApis`에서 활성 여부만 확인합니다. 이 응답에는 key, Base URL, timeout이 포함되지 않습니다.
+
+Issue #40 PoC/FastAPI live 검증은 위 Spring 순서와 분리한다. 비추적 환경에
+`JEJU_TMAP_API_KEY`를 주입한 뒤 승인 runner를 실행하며, 키가 없을 때의 `SKIPPED`는 정상적인
+DEFER 검증 결과다. `.env.example`에는 빈 변수명만 두고 실제 값은 기록하지 않는다.
 
 설정 객체와 client 설정 객체의 문자열 표현은 key를 `[REDACTED]`로 가립니다. 애플리케이션 오류, 로그, Actuator와 문서에 실제 key, `Authorization` 값 또는 `serviceKey` query를 기록하지 않습니다.
 

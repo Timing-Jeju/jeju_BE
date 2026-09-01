@@ -1,10 +1,10 @@
-# 타이밍제주 외부 API 연동 명세 v1.2
+# 타이밍제주 외부 API 연동 명세 v1.3
 
 ## 1. 검증 기준
 
-- 검증일: 2026-07-30
-- 외부 API 호출 주체: Spring Boot
-- FastAPI MCP 직접 호출: 금지
+- 검증일: 2026-09-02
+- 외부 API 호출 주체: Spring Boot(TourAPI·TAGO·KMA·공식 시간표)와 FastAPI MCP(TMAP 예외)의 분리 소유
+- FastAPI MCP 직접 호출: secret env `JEJU_TMAP_API_KEY`를 사용하는 승인된 on-demand `tmap.pedestrian`·`tmap.driving`만 허용
 - API key 저장: 서버 secret manager/env only
 - 원문 payload 저장: `external_api_snapshots.raw_payload`에 장애 분석·재처리에 필요한 최소 범위만 저장하고 공개 API로 노출하지 않음
 
@@ -15,19 +15,39 @@
 | 관광지/숙소/음식점 기본정보 | TourAPI `KorService2` | 관리자 큐레이션 | Spring -> raw snapshot -> place tables |
 | 버스 정류장/노선/경유 순서 | TAGO | 제주 보조 데이터 | Spring -> raw snapshot -> transit tables |
 | 실시간 버스 도착 | TAGO | 최근 snapshot fallback | Spring -> raw snapshot -> arrival snapshots |
-| 대중교통 경로 후보 | TMAP 대중교통 API 권장 | TAGO graph fallback | Spring facts -> FastAPI 선택/검증 |
-| 자동차/렌터카 경로 | TMAP 자동차 경로 API 권장 | 공급자 adapter 교체 가능 | Spring -> raw snapshot -> mobility snapshots |
-| 택시 시간/예상 요금 | TMAP 자동차 경로 응답 권장 | 별도 요금 정책 | Spring -> raw snapshot -> mobility snapshots |
-| 도보 경로 | TMAP 보행자 경로 API 권장 | PostGIS 직선거리 보수 추정 | Spring -> raw snapshot -> mobility snapshots |
+| 대중교통 경로 후보 | 공식 시간표 | TAGO·provider-neutral graph | Spring facts -> FastAPI 선택/검증 |
+| 자동차/렌터카 경로 | provider-neutral port | TMAP 자동차 on-demand | FastAPI 프로세스 메모리 전용 |
+| 택시 시간/예상 요금 | provider-neutral port + 별도 요금 정책 | TMAP 자동차 on-demand | FastAPI 프로세스 메모리 전용 |
+| 도보 경로 | provider-neutral port | TMAP 보행자 on-demand·PostGIS 보수 추정 | FastAPI 프로세스 메모리 전용 |
 | 날씨 실황/예보 | KMA 단기예보 | 마지막 유효 예보 | Spring -> raw snapshot -> weather tables |
 | 위험도/추천/복구 | 외부 API 아님 | - | FastAPI MCP 계산, Spring 저장 |
 
-TMAP은 현재 설계 기본값이다. 실제 발급 계정의 상품/쿼터/약관과 제주 응답 품질을 POC로 통과해야 확정한다. `mobility_route_snapshots.source_provider`를 두어 공급자를 교체할 수 있게 했다.
+### 2.1 Issue #40 DEFER 결정
 
-### 2.1 raw 수집에서 정규화까지
+Issue #40의 Architecture Owner와 Product Owner가 2026-09-02 `DEFER`와
+`PROVIDER_NEUTRAL_WITH_TMAP_DISABLED_BY_DEFAULT`를 승인했다. 이에 따라 TMAP은 Spring의
+기본 공급자가 아니며 대중교통 source로 사용하지 않는다. 대중교통은 공식 시간표와 TAGO를
+사용한다. TMAP 보행·자동차는 `Timing-Jeju/jeju_AI`의 승인 source contract를 통과한
+on-demand adapter에서만 기본 비활성화 상태로 사용할 수 있다.
+
+이 Owner 결정은 기존 Issue #40 및 설계의 “Spring이 모든 길찾기 외부 호출을 단독 소유”와
+“FastAPI는 외부 API 키를 받지 않음” 문구를 위 두 TMAP source에 한해서만 대체한다.
+Spring의 `TMAP_ENABLED`·`TMAP_API_KEY`는 비활성 호환 설정이고 #40 실행에는 사용하지 않는다.
+FastAPI/PoC runner만 자체 secret env의 `JEJU_TMAP_API_KEY`를 읽으며 Spring wire payload로
+key를 받지 않는다. 키가 없으면 live 검증은 네트워크 호출 없이
+`APPROVED_TMAP_KEY_NOT_PRESENT`로 `SKIPPED`되고, 키가 있을 때만 preflight가 `READY`다.
+
+TMAP raw body·geometry·요청 URL/query·사용자 위치·개별 시간·거리·요금은 파일, DB,
+object storage, Redis와 로그에 저장하지 않는다. TMAP 경로 결과는 `mobility_route_snapshots`에 저장하지 않는다.
+필요한 경로 fact는 요청 프로세스 메모리에서만 사용하고 최대 TTL은 23시간 50분 미만이다.
+로그에는 fingerprint, 확인시각, latency, 상태와 안전한 reason code만 남긴다. 기존
+`mobility_route_snapshots` 스키마는 다른 영속 허용 공급자의 provider-neutral 호환 경계일 뿐
+TMAP 저장 권한을 뜻하지 않는다.
+
+### 2.2 raw 수집에서 정규화까지
 
 ```text
-TourAPI · TAGO · KMA · 경로 공급자 raw 응답
+TourAPI · TAGO · KMA · 영속 허용 경로 공급자 raw 응답
   -> data_import_runs 실행/버전/건수 기록
   -> external_api_snapshots 원문·redaction 메타데이터·hash 보존
   -> schema/parser 검증 및 파싱
@@ -41,6 +61,7 @@ TourAPI · TAGO · KMA · 경로 공급자 raw 응답
 - legacy run의 다중 snapshot 범위나 기준 코드·시간표·open/closed 영업시간의 겹치는 유효기간은 식별자를 포함한 사전 audit에서 마이그레이션을 중단한다. 자동 삭제·병합하지 않고 run 분리·행 격리·원천 기준 기간 정리 후 다시 적용한다.
 - `data_import_checkpoints`는 provider/service/operation/scope별 마지막 성공 지점만 보존한다. DB의 기대-version CAS 함수로만 전진하며 stale writer는 `40001`, 역행·DELETE·TRUNCATE는 실패한다. 함수는 구현됐고 Spring caller는 후속 importer Issue에서 연결한다.
 - `weather_observations`, `weather_forecasts`, `bus_arrival_snapshots`, `mobility_route_snapshots`의 기존 `raw_payload` 컬럼은 호환을 위해 유지하지만 공통 원문 기준은 `external_api_snapshots`이며 신규 적재는 `source_snapshot_id`를 연결한다.
+- 위 raw-first 규칙은 저장이 승인된 공급자에만 적용한다. TMAP 원문과 정규화 경로 수치는 예외 없이 비영속이며 `external_api_snapshots`와 `mobility_route_snapshots`에 쓰지 않는다.
 - 수집 내부 테이블은 RLS를 켜고 `anon`·`authenticated` policy/grant를 두지 않는다. 운영 적재의 서버 전용 `service_role`을 브라우저나 FastAPI MCP에 전달하지 않는다.
 - `service_role`은 필요한 DML·RPC를 유지하지만 행 trigger를 우회하는 `TRUNCATE`는 기존·향후 public 앱 테이블에서 허용하지 않는다. PostGIS 등 확장 관리 객체는 확장 소유자의 ACL 경계이므로 앱 테이블 검사에서 제외한다. 파괴적 앱 테이블 초기화는 통제된 migration owner 작업으로만 수행한다.
 
@@ -286,7 +307,7 @@ fallback하지 않는다. DB read/mapping 오류는 raw SQL·cause 없는 stable
 
 | 값 | 처리 |
 | --- | --- |
-| 장소 A -> B 완성 대중교통 경로 | TMAP 대중교통 또는 FastAPI graph 탐색 |
+| 장소 A -> B 완성 대중교통 경로 | 공식 시간표와 confirmed 정류장 mapping 기반 FastAPI graph 탐색 |
 | 정확한 모든 정류장 출발 시간표 | 제주 보조 데이터/관리자 적재가 있을 때만 `timetable_entries` 사용 |
 | 도보 경로/시간 | TMAP 보행자 또는 보수 추정 |
 | 환승 가능성/안전 버퍼 | FastAPI MCP 계산 |
@@ -294,58 +315,32 @@ fallback하지 않는다. DB read/mapping 오류는 raw SQL·cause 없는 stable
 
 `timetable_entries`는 TAGO에서 항상 채워지는 테이블이 아니다. 확보한 반복 시간표는 source record와 유효기간으로 멱등 upsert한다. UUID FK가 route/stop 존재와 삭제 전파를 보장하고 source scope trigger가 route·stop·route_stop의 `(route_id, direction_key, stop_id, source_provider, city_code)` 조합을 잠금과 함께 검증한다. v1의 경유 누락/provider 불일치 `city_code=NULL`은 보존하되 lineage 없이 내용을 바꿀 수 없다. 유효한 `parsed`/`tombstoned` snapshot과 같은 범위 run을 함께 연결해 정상 scope로 복구하는 재수집은 허용한다. 외부 신규 시간표도 같은 snapshot·run을 연결한다.
 
-## 5. TMAP 경로 API 설계 기본값
+## 5. TMAP 경로 API DEFER 경계
 
 - 공식 포털: [SK open API](https://openapi.sk.com/)
-- 사용할 상품 후보: TMAP 자동차, 보행자, 대중교통 경로.
-- 역할: 경로 polyline, 거리, 예상 시간, 구간별 이동 정보, 가능한 경우 요금.
-- TAGO 역할과 중복되지 않는다. TMAP은 경로 후보, TAGO는 정류장 기준 최신 도착을 담당한다.
+- 승인 source: `tmap.pedestrian`, `tmap.driving`.
+- 비승인 source: TMAP 대중교통. 대중교통은 공식 시간표와 TAGO를 사용한다.
+- 역할: 요청 시점의 보행·자동차 거리와 예상 시간. 결과는 프로세스 메모리에서만 사용한다.
+- 기본 상태: 비활성화. #41의 provider-neutral port가 capability를 확인한 뒤에만 호출한다.
 
-### 5.1 정규화
+### 5.1 메모리 전용 정규화
 
-모든 공급자 응답은 아래 형태로 변환해 `mobility_route_snapshots`에 저장한다.
-
-```json
-{
-  "requestHash": "sha256:...",
-  "transportMode": "public_transit",
-  "origin": {
-    "lat": 33.5066,
-    "lng": 126.493
-  },
-  "destination": {
-    "lat": 33.458111,
-    "lng": 126.941516
-  },
-  "departureAt": "2026-08-03T09:20:00+09:00",
-  "distanceMeters": 47000,
-  "durationMinutes": 105,
-  "estimatedFare": 3000,
-  "sourceProvider": "tmap",
-  "sourceOperation": "transit_route",
-  "routeSummary": {
-    "walkMinutes": 8,
-    "waitMinutes": 12,
-    "rideMinutes": 80,
-    "transferMinutes": 5
-  },
-  "observedAt": "2026-08-03T09:19:50+09:00",
-  "expiresAt": "2026-08-03T09:24:50+09:00"
-}
-```
-
-DB 행은 위 정규화 값에 더해 같은 원문 범위의 `import_run_id`와 `source_snapshot_id`를 저장한다. 같은 `request_hash`라도 공급자·operation·관측 시각이 다르면 별도 행이며 unique 범위는 `(source_provider, source_operation, request_hash, observed_at)`이다.
+TMAP 응답은 adapter 내부에서 provider-neutral route fact로 변환하되 요청 프로세스 밖으로
+원문·geometry·개별 수치를 보존하지 않는다. 프로세스 메모리 cache key는 source ID와 좌표
+fingerprint를 사용하고 23시간 50분 전에 만료한다. 응답을 로그·fixture·테스트 리포트에
+직렬화하지 않는다. `mobility_route_snapshots`와 `external_api_snapshots`에는 TMAP 행을 만들지 않는다.
 
 ### 5.2 POC 통과 조건
 
-- 제주공항 -> 성산일출봉 대중교통 경로가 반환된다.
-- 성산일출봉 -> 섭지코지 도보/대중교통 경로가 반환된다.
-- 렌터카 시간/거리와 택시 예상요금 필드 가용성을 확인한다.
-- 과거/미래 출발시각 지원 범위를 확인한다.
-- 응답 polyline 표시 및 저장/재사용 약관을 확인한다.
-- 개발/운영 쿼터와 공모전 트래픽 예상치를 비교한다.
+- 고정 공개장소 10구간 × 보행·자동차·대중교통 3모드의 정확한 30-case 계약을 생성한다.
+- 보행·자동차는 승인된 TMAP source, 대중교통은 공식 시간표와 TAGO 경계를 사용한다.
+- duration·distance·fare·walk segment·polyline은 값이 아닌 필드 가용성만 sanitized evidence로 집계한다.
+- 누락, 중복, 출발시각 불일치, quota, timeout이면 판정을 fail-closed한다.
+- 키가 없는 기본 품질 게이트는 `APPROVED_TMAP_KEY_NOT_PRESENT` 사유로 live 호출을 skip한다.
+- TMAP 원문·geometry·요청 좌표와 개별 route metric을 영속 저장하지 않는다.
 
-POC 실패 시 adapter만 ODsay(대중교통) + 자동차/도보 공급자로 교체한다. DB와 FastAPI 계약은 변경하지 않는다.
+Issue #40의 최종 판정은 `DEFER`다. #41은 provider-neutral port를 유지하고 TMAP을 기본
+비활성화한다. 공급자를 활성화하거나 바꾸더라도 공개 DTO와 DB 계약은 공급자 응답에 결합하지 않는다.
 
 ## 6. 기상청 단기예보
 
@@ -459,7 +454,8 @@ KMA 원문은 먼저 `external_api_snapshots`에 저장하고, category 파싱�
 | 노선 번호/유형/경유 순서 | `external` | TAGO |
 | 버스 도착예정 초/남은 정류장 | `external_snapshot` | TAGO |
 | 정확한 대기시간 | `computed` | FastAPI + arrival facts |
-| 자동차/도보/대중교통 이동시간 | `external_snapshot` | TMAP adapter |
+| 자동차/도보 이동시간 | `ephemeral_external_fact` | 승인된 on-demand route adapter |
+| 대중교통 이동시간 | `external/computed` | 공식 시간표·TAGO + FastAPI graph |
 | 위험도/점수/leave-by | `computed` | FastAPI MCP |
 | 날씨 실황/예보 | `external_snapshot` | KMA |
 | 날씨 일정 영향 | `computed` | FastAPI MCP |
@@ -473,9 +469,9 @@ KMA 원문은 먼저 `external_api_snapshots`에 저장하고, category 파싱�
 | TourAPI 목록/상세 | 24시간 | 최근 7일 | `stale=true` |
 | 정류장/노선/경유 순서 | 24시간 | 최근 7일 | `stale=true` |
 | 실시간 버스 도착 | 20~30초 | 최대 2분 | `STALE_TRANSIT_DATA` |
-| 자동차/택시 경로 | 5분 | 최대 30분 | confidence 하향 |
-| 도보 경로 | 24시간 | PostGIS 보수 추정 | `ESTIMATED_WALK_TIME` |
-| 대중교통 경로 | 5분 | 최근 경로 + TAGO 보정 | `STALE_ROUTE_PLAN` |
+| TMAP 자동차/택시 경로 | 프로세스 메모리 5분 | provider-neutral 대체 공급자 | `EXTERNAL_FACTS_UNAVAILABLE` |
+| TMAP 도보 경로 | 프로세스 메모리 최대 23시간 50분 미만 | PostGIS 보수 추정 | `ESTIMATED_WALK_TIME` |
+| 대중교통 경로 | 공식 시간표 publication 수명 | 검증된 대체 시간표만 | `EXTERNAL_FACTS_UNAVAILABLE` |
 | 초단기실황 | 10분 | 최근 30분 | `STALE_WEATHER_DATA` |
 | 단기예보 | 같은 발표 base | 이전 발표 1회 | `STALE_WEATHER_DATA` |
 
@@ -494,7 +490,7 @@ external.mobility.MobilityRouteProvider
 external.weather.KmaForecastClient
 ```
 
-`MobilityRouteProvider` 구현체만 `TmapMobilityRouteProvider`, `OdsayTransitProvider` 등으로 교체한다. Controller나 FastAPI 계약이 공급자 응답 DTO를 직접 참조하면 안 된다.
+`MobilityRouteProvider` 구현체는 provider-neutral이며 TMAP 구현은 기본 비활성화한다. Controller나 FastAPI 계약이 공급자 응답 DTO를 직접 참조하면 안 된다.
 
 ## 10. 후속 Spring importer Integration Test 체크리스트
 
@@ -504,7 +500,7 @@ external.weather.KmaForecastClient
 - TAGO 도시코드 목록에서 제주 코드와 지원 여부를 런타임 확인한다.
 - TAGO 제주 정류장, 노선, 경유 정류장, 도착 API의 ID가 서로 join된다.
 - TAGO 빈 도착 결과와 error code 97/쿼터 초과를 처리한다.
-- TMAP 세 모드 POC와 약관/쿼터를 확인한다.
+- 승인 source를 분리한 10구간 × 3모드 POC와 약관/쿼터를 확인한다.
 - KMA 위경도 -> `nx`, `ny` 변환 golden test를 만든다.
 - KMA base time 이전 발표 fallback과 category 문자열 parser를 검증한다.
 - 모든 adapter가 timeout, retry, circuit breaker, metric을 가진다.
