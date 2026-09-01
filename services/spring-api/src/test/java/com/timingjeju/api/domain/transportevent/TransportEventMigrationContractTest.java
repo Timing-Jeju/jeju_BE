@@ -21,6 +21,7 @@ class TransportEventMigrationContractTest {
         .contains("normalize(terminal_name, NFC)")
         .contains("char_length(transport_number) between 1 and 30")
         .contains("char_length(note) between 1 and 500")
+        .contains("perform public.lock_trip_plan_schedule_mutex(new.trip_plan_id)")
         .contains("revoke all on public.trip_transport_events from authenticated")
         .doesNotContain("delete from public.trip_transport_events")
         .doesNotContain("Flyway");

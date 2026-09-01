@@ -109,6 +109,8 @@ declare
   plan_end_date date;
   event_local_date date;
 begin
+  perform public.lock_trip_plan_schedule_mutex(new.trip_plan_id);
+
   select plan.start_date, plan.end_date
     into plan_start_date, plan_end_date
   from public.trip_plans plan
