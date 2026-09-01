@@ -131,7 +131,7 @@ final class FrontendOpenApiCustomizer {
           Map.entry(
               "INVALID_REQUEST",
               nonContributorProblem(
-                  "INVALID_REQUEST", "요청 값이 올바르지 않습니다", 400, "요청 형식과 If-Match를 확인해 주세요.")),
+                  "INVALID_REQUEST", "요청 값이 올바르지 않습니다", 400, "필수값, 형식과 If-Match를 확인해 주세요.")),
           Map.entry(
               "TRIP_NOT_FOUND",
               nonContributorProblem(
@@ -139,7 +139,7 @@ final class FrontendOpenApiCustomizer {
           Map.entry(
               "PLACE_NOT_FOUND",
               nonContributorProblem(
-                  "PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", 404, "요청한 터미널 장소가 없거나 사용할 수 없습니다.")),
+                  "PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", 404, "요청한 장소가 없거나 사용할 수 없습니다.")),
           Map.entry(
               "TRIP_VERSION_CONFLICT",
               nonContributorProblem(

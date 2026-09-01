@@ -13,6 +13,7 @@ from scripts.validate_openapi_frontend_readiness import (
     SAVED_PLACE_OPERATIONS,
     TRIP_MUTATION_OPERATIONS,
     TRIP_OPERATIONS,
+    TRANSPORT_EVENT_OPERATIONS,
     Validator,
 )
 
@@ -466,6 +467,43 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual(
             "0335c49e5e60c11e5a365c67dbee970a11d247c5",
             authority.source_provenance["accommodations"],
+        )
+
+    def test_mode27은_교통이벤트_2개를_exact_inventory와_canonical_projection으로_검사한다(self):
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            ACCOMMODATION_OPERATIONS,
+            TRANSPORT_EVENT_OPERATIONS,
+        )
+        exact_operations = set().union(*(set(values) for values in operation_maps))
+        expected_ids = {}
+        for values in operation_maps:
+            expected_ids.update(values)
+        validator = Validator({}, 27, ROOT)
+        validator.operations = exact_operations
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected_ids.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 27, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        transport_calls = {
+            call.args[0]
+            for call in projection.call_args_list
+            if call.args[0] in TRANSPORT_EVENT_OPERATIONS
+        }
+        self.assertEqual(set(TRANSPORT_EVENT_OPERATIONS), transport_calls)
+        self.assertEqual(
+            "05d6a75fb176ebb04fd1ab09c0fe7ff67f8cd5e4",
+            authority.source_provenance["transport-events"],
         )
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):

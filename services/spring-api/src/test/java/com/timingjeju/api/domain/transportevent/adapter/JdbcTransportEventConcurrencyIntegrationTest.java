@@ -82,24 +82,63 @@ class JdbcTransportEventConcurrencyIntegrationTest
     }
   }
 
+  @Test
+  void 같은_revision의_PUT_DELETE경합도_한_writer만_성공한다() throws Exception {
+    service.put(OWNER, TRIP, new TripExpectedRevision(TRIP, 1), command("KE1001"));
+    CountDownLatch start = new CountDownLatch(1);
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var put = pool.submit(() -> putAfter(start, "OZ8901", 2));
+      var delete = pool.submit(() -> deleteAfter(start, 2));
+      start.countDown();
+
+      assertThat(List.of(put.get(), delete.get()))
+          .containsExactlyInAnyOrder("success", "TRIP_VERSION_CONFLICT");
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_transport_events where trip_plan_id = ?",
+                  Integer.class,
+                  TRIP))
+          .isIn(0, 1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select revision from public.trip_plans where id = ?", Long.class, TRIP))
+          .isEqualTo(3L);
+    }
+  }
+
   private String putAfter(CountDownLatch start, String number) throws InterruptedException {
+    return putAfter(start, number, 1);
+  }
+
+  private String putAfter(CountDownLatch start, String number, long revision)
+      throws InterruptedException {
     start.await();
     try {
-      service.put(
-          OWNER,
-          TRIP,
-          new TripExpectedRevision(TRIP, 1),
-          new PutTransportEventCommand(
-              "arrival",
-              "flight",
-              null,
-              "제주국제공항",
-              OffsetDateTime.parse("2026-09-01T09:00:00+09:00"),
-              number,
-              null));
+      service.put(OWNER, TRIP, new TripExpectedRevision(TRIP, revision), command(number));
       return "success";
     } catch (TransportEventException failure) {
       return failure.code();
     }
+  }
+
+  private String deleteAfter(CountDownLatch start, long revision) throws InterruptedException {
+    start.await();
+    try {
+      service.delete(OWNER, TRIP, "arrival", new TripExpectedRevision(TRIP, revision));
+      return "success";
+    } catch (TransportEventException failure) {
+      return failure.code();
+    }
+  }
+
+  private PutTransportEventCommand command(String number) {
+    return new PutTransportEventCommand(
+        "arrival",
+        "flight",
+        null,
+        "제주국제공항",
+        OffsetDateTime.parse("2026-09-01T09:00:00+09:00"),
+        number,
+        null);
   }
 }

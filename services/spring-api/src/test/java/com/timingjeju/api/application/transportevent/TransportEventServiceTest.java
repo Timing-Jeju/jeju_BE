@@ -108,6 +108,28 @@ class TransportEventServiceTest {
   }
 
   @Test
+  void PUT은_PostgreSQL과_같은_microsecond로_시간정밀도를_canonicalize한다() {
+    CapturingStore store = new CapturingStore();
+
+    service(store)
+        .put(
+            OWNER,
+            TRIP,
+            new TripExpectedRevision(TRIP, 1),
+            new PutTransportEventCommand(
+                "arrival",
+                "flight",
+                PLACE,
+                null,
+                OffsetDateTime.parse("2026-09-01T09:00:00.123456789+09:00"),
+                null,
+                null));
+
+    assertThat(store.upsert.command().scheduledAt())
+        .isEqualTo(OffsetDateTime.parse("2026-09-01T09:00:00.123456+09:00"));
+  }
+
+  @Test
   void DELETE는_owner_trip_eventType_expected를_store에_그대로_전달한다() {
     CapturingStore store = new CapturingStore();
 

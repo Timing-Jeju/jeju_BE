@@ -1,6 +1,6 @@
 # 여행 선호·교통 이벤트 REST 계약 v1.0.0
 
-Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 모든 endpoint는 Spring Boot가 소유하고 검증된 Supabase JWT의 canonical `sub`로 여행 owner를 판정한다. 타 사용자 여행은 `404 TRIP_NOT_FOUND`로 숨기며 token, 이메일, `user_metadata`, provider payload는 계약·응답·로그에 사용하지 않는다. 공개 FastAPI API, Flyway, schema 변경은 이 문서 범위가 아니다.
+Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 모든 endpoint는 Spring Boot가 소유하고 검증된 Supabase JWT의 canonical `sub`로 여행 owner를 판정한다. 타 사용자 여행은 `404 TRIP_NOT_FOUND`로 숨기며 token, 이메일, `user_metadata`, provider payload는 계약·응답·로그에 사용하지 않는다. 공개 FastAPI API와 Flyway는 이 문서 범위가 아니다. #47은 transport-event 소유 범위의 운영 Supabase migration을 추가한다.
 
 ## endpoint와 쓰기 의미
 
@@ -29,8 +29,8 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 오류는 #72의 `application/problem+json`과 정확한 `type,title,status,detail,instance,code,traceId,fieldErrors`를 상속한다. endpoint별 matrix는 설명 문자열이 아니라 canonical error code를 직접 참조하며, 각 code는 condition과 한국어 problem fixture에 양방향으로 정확히 한 번 연결된다. 세 PUT에서 non-null 장소 참조가 없으면 `404 PLACE_NOT_FOUND`, DELETE selector에 이벤트가 없으면 `404 TRANSPORT_EVENT_NOT_FOUND`다. 두 오류의 canonical occurrence URI도 `urn:timing-jeju:problem:{traceId}`로 고정한다. request-time 외부 API 또는 MCP 호출은 없다.
 
-Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. 하지만 Figma 자체에 API contract version과 loading/empty/error response 연결이 없으므로 `figma=not-linked`, catalog readiness는 과장하지 않고 모두 `not-ready`다. Controller/OpenAPI/contract test가 없는 문서 Issue이므로 catalog의 Implementation Ready도 승격하지 않는다.
+Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. 하지만 Figma 자체에 API contract version과 loading/empty/error response 연결이 없으므로 `figma=not-linked`, aggregate catalog readiness는 과장하지 않고 모두 `not-ready`다. #47의 두 transport-event endpoint에는 Controller, PostgreSQL, migration, OpenAPI 테스트가 추가됐지만 #46/#48 구현과 외부 화면 상태 연결까지 완료됐다는 뜻은 아니다.
 
 ## 발견한 schema 후속 범위
 
-현재 schema는 terminal 둘 중 하나 이상만 요구하여 둘 다 허용하고, 같은 place의 `must_visit/avoid` 교차 중복도 허용한다. active 일정 무효화 transaction 또한 구현 API 범위다. 이 Issue에서는 migration을 바꾸지 않고 #46 preferences, #47 transport-event, #48 place-preferences의 각 owner 범위에서 명시적으로 검증한다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.
+#47의 `20260907000000_trip_transport_event_contract.sql`은 terminal exact XOR, 문자열 canonical 경계, arrival/startDate·departure/endDate를 강화한다. 충돌하는 legacy row는 삭제하거나 추측 보정하지 않고 `legacy transport event contract conflict`로 적용을 중단한다. active 일정 무효화는 Spring의 owner root lock, event mutation, schedule supersede, trip revision CAS 한 transaction으로 검증한다. 남은 schema 후속 범위는 #46 preferences와 #48 place-preferences이며 운영 migration 기준은 계속 `supabase/migrations`이고 Flyway는 도입하지 않는다.

@@ -13,7 +13,7 @@ if [[ ! -f "${OPENAPI_PATH}" ]]; then
   exit 1
 fi
 
-python3 "${SCRIPT_DIR}/validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 25
+python3 "${SCRIPT_DIR}/validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 27
 
 npx -y \
   -p typescript@6.0.3 \
@@ -38,7 +38,7 @@ operation_ids = {
 }
 index = (output_directory / "index.ts").read_text(encoding="utf-8")
 missing = sorted(operation_id for operation_id in operation_ids if operation_id not in index)
-if len(operation_ids) != 25 or missing:
+if len(operation_ids) != 27 or missing:
     raise SystemExit(
         f"TypeScript client operation 검증 실패: count={len(operation_ids)}, missing={missing}"
     )
@@ -46,9 +46,11 @@ for operation_id in (
     "tripAccommodationsCreate",
     "tripAccommodationsUpdate",
     "tripAccommodationsDelete",
+    "tripTransportEventsUpdate",
+    "tripTransportEventsDelete",
 ):
     if operation_id not in index:
-        raise SystemExit(f"숙소 client operation이 없습니다: {operation_id}")
+        raise SystemExit(f"여행 조건 client operation이 없습니다: {operation_id}")
 print(f"TypeScript frontend client 검사 성공: {len(operation_ids)} operations")
 PY
 

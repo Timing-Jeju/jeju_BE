@@ -58,7 +58,9 @@ public final class TransportEventService {
         command.transportType(),
         command.terminalPlaceId(),
         canonicalText(command.customTerminalName()),
-        command.scheduledAt(),
+        command.scheduledAt() == null
+            ? null
+            : command.scheduledAt().truncatedTo(java.time.temporal.ChronoUnit.MICROS),
         canonicalText(command.transportNumber()),
         canonicalText(command.note()));
   }

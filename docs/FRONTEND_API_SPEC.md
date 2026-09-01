@@ -1,8 +1,8 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **#68 기능 브랜치의 공개 API 25개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 25` 명령이 기존 22개와 숙소 CRUD 3개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 22`는 이전 inventory를 그대로 보존한다.
+> **#47 스택 기능 브랜치의 공개 API 27개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 27` 명령이 기존 25개와 교통 이벤트 PUT/DELETE 2개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 22`, `--mode 25`는 이전 inventory를 그대로 보존한다.
 
-이 문서는 2026-09-01 현재 #68 기능 브랜치에서 구현한 공개 Spring API 25개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 2026-09-01 현재 #45→#68→#180→#47 스택 브랜치에서 구현한 공개 Spring API 27개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
@@ -10,8 +10,10 @@
 |---|---|---|
 | `develop` 사용 가능 | 기존 공개 API 20 | `origin/develop` `ae3926ac6428c1d93cd57372fbafb8dd31d34544`의 Controller/OpenAPI와 canonical contract |
 | **#45 기능 브랜치** | trip PATCH/DELETE 2 | `feat/45-trip-update-delete`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
+| **#68 기능 브랜치** | accommodation POST/PATCH/DELETE 3 | `feat/68-trip-accommodations-crud`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
+| **#47 스택 브랜치** | transport-event PUT/DELETE 2 | `feat/47-trip-transport-events`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 
-현재 기준은 #45의 trip PATCH/DELETE와 #68의 숙소 CRUD를 포함한 25개다. 숙소 CRUD는 독립 리뷰와 병합 전까지 #68 기능 브랜치에서 검증하며, 이 문서는 해당 브랜치가 실제 생성한 25-operation artifact를 기준으로 한다.
+현재 기준은 #45의 trip PATCH/DELETE, #68의 숙소 CRUD, #47의 교통 이벤트 PUT/DELETE를 포함한 27개다. 각 기능은 독립 리뷰와 병합 전까지 스택 브랜치에서 검증하며, 이 문서는 해당 브랜치가 실제 생성한 단일 27-operation artifact를 기준으로 한다.
 
 ## Base URL과 인증
 
@@ -26,9 +28,9 @@
 
 ## OperationId와 code generation
 
-통합된 25개 operation은 stable lowerCamelCase operationId를 제공한다. #45는 `tripsUpdate`, `tripsDelete`, #68은 `tripAccommodationsCreate`, `tripAccommodationsUpdate`, `tripAccommodationsDelete`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+통합된 27개 operation은 stable lowerCamelCase operationId를 제공한다. #45는 `tripsUpdate`, `tripsDelete`, #68은 `tripAccommodationsCreate`, `tripAccommodationsUpdate`, `tripAccommodationsDelete`, #47은 `tripTransportEventsUpdate`, `tripTransportEventsDelete`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
-`./scripts/generate_frontend_api_client.sh`는 25-operation artifact 검사를 먼저 통과한 뒤 고정된 `@hey-api/openapi-ts@0.99.0`과 `typescript@6.0.3`으로 `services/spring-api/build/frontend-api-client` 및 release archive를 생성한다. 생성물은 FE 저장소에 자동 복사하지 않는다.
+`./scripts/generate_frontend_api_client.sh`는 27-operation artifact 검사를 먼저 통과한 뒤 고정된 `@hey-api/openapi-ts@0.99.0`과 `typescript@6.0.3`으로 `services/spring-api/build/frontend-api-client` 및 release archive를 생성한다. 생성물은 FE 저장소에 자동 복사하지 않는다.
 
 ## 공통 헤더와 응답
 
@@ -1096,4 +1098,4 @@ Accept: application/json
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #68 기능 브랜치는 새로 생성한 단일 25-operation artifact에서 `--mode 25` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`, `--mode 22`는 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #47 스택 기능 브랜치는 새로 생성한 단일 27-operation artifact에서 `--mode 27` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`, `--mode 22`, `--mode 25`는 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
