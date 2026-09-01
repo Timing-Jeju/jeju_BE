@@ -63,6 +63,32 @@ class TripMigrationIntegrationTest extends PostgreSqlRepositoryIntegrationTestSu
     }
   }
 
+  @Test
+  void trip_revision과_날짜_guard가_actual_catalog에_적용된다() {
+    assertThat(
+            jdbc.queryForMap(
+                """
+                select column_default, is_nullable
+                from information_schema.columns
+                where table_schema = 'public' and table_name = 'trip_plans'
+                  and column_name = 'revision'
+                """))
+        .containsEntry("column_default", "1")
+        .containsEntry("is_nullable", "NO");
+    assertThat(
+            jdbc.queryForObject(
+                "select pg_get_constraintdef(oid) from pg_constraint where conname = 'trip_plans_revision_positive'",
+                String.class))
+        .contains("revision > 0");
+    assertThat(
+            jdbc.queryForObject(
+                "select pg_get_functiondef('public.protect_trip_date_range()'::regprocedure::oid)",
+                String.class))
+        .contains("trip_schedule_versions")
+        .contains("trip_transport_events")
+        .contains("trip_accommodations");
+  }
+
   private void assertPrivilege(String role, String table, String privilege, boolean expected) {
     assertThat(
             jdbc.queryForObject(

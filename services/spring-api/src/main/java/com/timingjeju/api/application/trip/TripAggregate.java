@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record TripAggregate(
     UUID tripId,
+    long revision,
     String title,
     String status,
     LocalDate startDate,
@@ -21,6 +22,9 @@ public record TripAggregate(
     Instant createdAt,
     Instant updatedAt) {
   public TripAggregate {
+    if (revision < 1) {
+      throw new IllegalArgumentException("revision은 양수여야 합니다.");
+    }
     transportModes = List.copyOf(transportModes);
     days = List.copyOf(days);
   }

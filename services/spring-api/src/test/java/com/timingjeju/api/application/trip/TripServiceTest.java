@@ -307,6 +307,7 @@ class TripServiceTest {
       }
       return new TripAggregate(
           record.tripId(),
+          1,
           record.command().title(),
           "draft",
           record.command().startDate(),
@@ -338,6 +339,17 @@ class TripServiceTest {
       listOwner = ownerId;
       fetchSize = requestedFetchSize;
       return new TripListSlice(listRows);
+    }
+
+    @Override
+    public com.timingjeju.api.application.trip.TripMutationResult updateOwned(
+        com.timingjeju.api.application.trip.TripUpdateRecord record) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void deleteOwned(UUID ownerId, UUID tripId) {
+      throw new UnsupportedOperationException();
     }
   }
 }

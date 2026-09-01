@@ -6,18 +6,22 @@ import com.timingjeju.api.application.trip.TripDay;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripListCursor;
 import com.timingjeju.api.application.trip.TripListSlice;
+import com.timingjeju.api.application.trip.TripMutationResult;
 import com.timingjeju.api.application.trip.TripScore;
 import com.timingjeju.api.application.trip.TripStore;
 import com.timingjeju.api.application.trip.TripSummary;
 import com.timingjeju.api.application.trip.TripTransportMode;
+import com.timingjeju.api.application.trip.TripUpdateRecord;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class JdbcTripStore implements TripStore {
   private static final String SUMMARY_COLUMNS =
       """
-      p.id, p.title, p.status, p.start_date, p.end_date, p.timezone, p.user_pace,
+      p.id, p.revision, p.title, p.status, p.start_date, p.end_date, p.timezone, p.user_pace,
       p.active_schedule_version_id, p.created_at, p.updated_at,
       jsonb_typeof(score_run.result_summary -> 'score') as score_type,
       score_run.result_summary ->> 'score' as score_value,
@@ -145,6 +149,7 @@ public class JdbcTripStore implements TripStore {
 
       return new TripAggregate(
           record.tripId(),
+          1,
           record.command().title(),
           "draft",
           record.command().startDate(),
@@ -309,10 +314,285 @@ public class JdbcTripStore implements TripStore {
     }
   }
 
+  @Override
+  @Transactional
+  public TripMutationResult updateOwned(TripUpdateRecord record) {
+    try {
+      MutationRoot root = lockOwned(record.ownerId(), record.tripId());
+      if (!record.expected().tripId().equals(record.tripId())
+          || record.expected().revision() != root.revision()) {
+        throw TripException.versionConflict();
+      }
+      if (isTerminal(root.status())) {
+        throw TripException.terminalStateConflict();
+      }
+
+      var command = record.command();
+      String title = command.title().present() ? command.title().value() : root.title();
+      LocalDate startDate =
+          command.startDate().present() ? command.startDate().value() : root.startDate();
+      LocalDate endDate = command.endDate().present() ? command.endDate().value() : root.endDate();
+      String timezone = command.timezone().present() ? command.timezone().value() : root.timezone();
+      String pace = command.userPace().present() ? command.userPace().value() : root.userPace();
+      long dayCount = ChronoUnit.DAYS.between(startDate, endDate) + 1;
+      if (dayCount < 1 || dayCount > 30 || record.dayIds().size() < dayCount) {
+        throw TripException.constraintViolation();
+      }
+
+      List<TripTransportMode> existingModes = loadModes(record.tripId());
+      List<TripTransportMode> modes =
+          command.transportModes().present() ? command.transportModes().value() : existingModes;
+      boolean temporalChanged =
+          !startDate.equals(root.startDate())
+              || !endDate.equals(root.endDate())
+              || !timezone.equals(root.timezone());
+      boolean plannerPreferenceChanged =
+          !pace.equals(root.userPace()) || !modes.equals(existingModes);
+
+      if (temporalChanged && hasScheduleVersion(record.tripId())) {
+        throw TripException.regenerationRequired();
+      }
+      if (temporalChanged && hasCalendarChildOutside(record.tripId(), startDate, endDate)) {
+        throw TripException.constraintViolation();
+      }
+
+      boolean invalidate = plannerPreferenceChanged;
+      if (invalidate && root.activeScheduleVersionId() != null) {
+        jdbc.update(
+            """
+            update public.trip_schedule_versions
+            set status = 'superseded'
+            where id = ? and trip_plan_id = ? and status = 'active'
+            """,
+            root.activeScheduleVersionId(),
+            record.tripId());
+      }
+
+      jdbc.update(
+          """
+          update public.trip_plans
+          set title = ?, start_date = ?, end_date = ?, timezone = ?, user_pace = ?,
+              status = ?, active_schedule_version_id = ?, total_score = ?,
+              revision = revision + 1, updated_at = ?
+          where id = ? and user_id = ?
+          """,
+          title,
+          Date.valueOf(startDate),
+          Date.valueOf(endDate),
+          timezone,
+          pace,
+          invalidate ? "draft" : root.status(),
+          invalidate ? null : root.activeScheduleVersionId(),
+          invalidate ? null : root.totalScore(),
+          Timestamp.from(record.updatedAt()),
+          record.tripId(),
+          record.ownerId());
+
+      if (command.transportModes().present() && !modes.equals(existingModes)) {
+        replaceModes(record.tripId(), modes, record.updatedAt());
+      }
+      if (temporalChanged) {
+        rebuildDays(record, startDate, (int) dayCount);
+      }
+
+      TripAggregate updated =
+          loadOwned(record.ownerId(), record.tripId(), record.updatedAt(), false)
+              .orElseThrow(TripException::dataUnavailable);
+      String effect = invalidate ? "invalidated" : temporalChanged ? "none" : "maintained";
+      return new TripMutationResult(updated, effect, invalidate);
+    } catch (DataIntegrityViolationException failure) {
+      throw TripException.constraintViolation();
+    } catch (DataAccessException failure) {
+      throw TripException.dataUnavailable();
+    }
+  }
+
+  @Override
+  @Transactional
+  public void deleteOwned(UUID ownerId, UUID tripId) {
+    try {
+      MutationRoot root = lockOwned(ownerId, tripId);
+      if (isTerminal(root.status())) {
+        throw TripException.terminalStateConflict();
+      }
+      if ("live".equals(root.status()) || hasNonTerminalRun(tripId)) {
+        throw TripException.deleteConflict();
+      }
+      if (jdbc.update("delete from public.trip_plans where id = ? and user_id = ?", tripId, ownerId)
+          != 1) {
+        throw TripException.notFound();
+      }
+    } catch (DataIntegrityViolationException failure) {
+      throw TripException.deleteConflict();
+    } catch (DataAccessException failure) {
+      throw TripException.dataUnavailable();
+    }
+  }
+
+  private MutationRoot lockOwned(UUID ownerId, UUID tripId) {
+    List<MutationRoot> rows =
+        jdbc.query(
+            """
+            select revision, title, status, start_date, end_date, timezone, user_pace,
+                   active_schedule_version_id, total_score
+            from public.trip_plans
+            where id = ? and user_id = ?
+            for update
+            """,
+            (rs, row) ->
+                new MutationRoot(
+                    rs.getLong("revision"),
+                    rs.getString("title"),
+                    rs.getString("status"),
+                    rs.getDate("start_date").toLocalDate(),
+                    rs.getDate("end_date").toLocalDate(),
+                    rs.getString("timezone"),
+                    rs.getString("user_pace"),
+                    rs.getObject("active_schedule_version_id", UUID.class),
+                    rs.getObject("total_score", Integer.class)),
+            tripId,
+            ownerId);
+    if (rows.isEmpty()) {
+      throw TripException.notFound();
+    }
+    return rows.getFirst();
+  }
+
+  private List<TripTransportMode> loadModes(UUID tripId) {
+    return jdbc.query(
+        """
+        select transport_mode, priority, is_primary
+        from public.trip_transport_modes
+        where trip_plan_id = ?
+        order by priority
+        """,
+        (rs, row) ->
+            new TripTransportMode(
+                rs.getString("transport_mode"), rs.getInt("priority"), rs.getBoolean("is_primary")),
+        tripId);
+  }
+
+  private boolean hasScheduleVersion(UUID tripId) {
+    return Boolean.TRUE.equals(
+        jdbc.queryForObject(
+            "select exists(select 1 from public.trip_schedule_versions where trip_plan_id = ?)",
+            Boolean.class,
+            tripId));
+  }
+
+  private boolean hasCalendarChildOutside(UUID tripId, LocalDate startDate, LocalDate endDate) {
+    return Boolean.TRUE.equals(
+        jdbc.queryForObject(
+            """
+            select
+              exists(
+                select 1 from public.trip_transport_events event
+                where event.trip_plan_id = ?
+                  and timezone('Asia/Seoul', event.scheduled_at)::date not between ? and ?
+              )
+              or exists(
+                select 1 from public.trip_accommodations accommodation
+                where accommodation.trip_plan_id = ?
+                  and (accommodation.check_in_date < ? or accommodation.check_out_date > ?)
+              )
+            """,
+            Boolean.class,
+            tripId,
+            Date.valueOf(startDate),
+            Date.valueOf(endDate),
+            tripId,
+            Date.valueOf(startDate),
+            Date.valueOf(endDate)));
+  }
+
+  private void replaceModes(UUID tripId, List<TripTransportMode> modes, Instant updatedAt) {
+    jdbc.update("delete from public.trip_transport_modes where trip_plan_id = ?", tripId);
+    jdbc.batchUpdate(
+        """
+        insert into public.trip_transport_modes (
+          trip_plan_id, transport_mode, priority, is_primary, created_at
+        ) values (?, ?, ?, ?, ?)
+        """,
+        modes.stream()
+            .map(
+                mode ->
+                    new Object[] {
+                      tripId,
+                      mode.mode(),
+                      mode.priority(),
+                      mode.primary(),
+                      Timestamp.from(updatedAt)
+                    })
+            .toList());
+  }
+
+  private void rebuildDays(TripUpdateRecord record, LocalDate startDate, int dayCount) {
+    jdbc.update("delete from public.trip_days where trip_plan_id = ?", record.tripId());
+    List<Object[]> rows = new ArrayList<>(dayCount);
+    for (int index = 0; index < dayCount; index++) {
+      rows.add(
+          new Object[] {
+            record.dayIds().get(index),
+            record.tripId(),
+            index + 1,
+            Date.valueOf(startDate.plusDays(index)),
+            Timestamp.from(record.updatedAt()),
+            Timestamp.from(record.updatedAt())
+          });
+    }
+    jdbc.batchUpdate(
+        """
+        insert into public.trip_days (
+          id, trip_plan_id, day_no, trip_date, created_at, updated_at
+        ) values (?, ?, ?, ?, ?, ?)
+        """,
+        rows);
+  }
+
+  private boolean hasNonTerminalRun(UUID tripId) {
+    return Boolean.TRUE.equals(
+        jdbc.queryForObject(
+            """
+            select
+              exists(
+                select 1 from public.itinerary_generation_runs
+                where trip_plan_id = ? and status in ('queued', 'running')
+              )
+              or exists(
+                select 1 from public.compute_runs
+                where trip_plan_id = ? and status in ('queued', 'running')
+              )
+              or exists(
+                select 1 from public.schedule_revision_runs
+                where trip_plan_id = ? and status in ('queued', 'running')
+              )
+            """,
+            Boolean.class,
+            tripId,
+            tripId,
+            tripId));
+  }
+
+  private static boolean isTerminal(String status) {
+    return java.util.Set.of("completed", "cancelled", "failed").contains(status);
+  }
+
+  private record MutationRoot(
+      long revision,
+      String title,
+      String status,
+      LocalDate startDate,
+      LocalDate endDate,
+      String timezone,
+      String userPace,
+      UUID activeScheduleVersionId,
+      Integer totalScore) {}
+
   private static final RowMapper<TripRow> TRIP_ROW_MAPPER =
       (rs, row) ->
           new TripRow(
               rs.getObject("id", UUID.class),
+              rs.getLong("revision"),
               rs.getString("title"),
               rs.getString("status"),
               rs.getDate("start_date").toLocalDate(),
@@ -394,6 +674,7 @@ public class JdbcTripStore implements TripStore {
 
   private record TripRow(
       UUID tripId,
+      long revision,
       String title,
       String status,
       java.time.LocalDate startDate,
@@ -452,6 +733,7 @@ public class JdbcTripStore implements TripStore {
       TripScore score = score(responseTime);
       return new TripAggregate(
           tripId,
+          revision,
           title,
           status,
           startDate,

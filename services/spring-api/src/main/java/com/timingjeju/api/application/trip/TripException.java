@@ -36,6 +36,30 @@ public final class TripException extends RuntimeException {
     return new TripException("TRIP_DATA_UNAVAILABLE");
   }
 
+  public static TripException ifMatchRequired() {
+    return new TripException("IF_MATCH_REQUIRED");
+  }
+
+  public static TripException invalidIfMatch() {
+    return new TripException("INVALID_IF_MATCH");
+  }
+
+  public static TripException versionConflict() {
+    return new TripException("TRIP_VERSION_CONFLICT");
+  }
+
+  public static TripException regenerationRequired() {
+    return new TripException("TRIP_REGENERATION_REQUIRED");
+  }
+
+  public static TripException terminalStateConflict() {
+    return new TripException("TRIP_TERMINAL_STATE_CONFLICT");
+  }
+
+  public static TripException deleteConflict() {
+    return new TripException("TRIP_DELETE_CONFLICT");
+  }
+
   public String code() {
     return code;
   }

@@ -27,12 +27,15 @@ REQUIRED_REQUEST_HEADERS = {
     ("POST", "/api/v1/me/saved-places"): {"Idempotency-Key"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}"): {"If-Match"},
     ("POST", "/api/v1/trips"): {"Idempotency-Key"},
+    ("PATCH", "/api/v1/trips/{tripId}"): {"If-Match"},
 }
 REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/me/saved-places", "200"): {"Location", "ETag", "Idempotency-Replayed"},
     ("POST", "/api/v1/me/saved-places", "201"): {"Location", "ETag", "Idempotency-Replayed"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}", "200"): {"ETag"},
     ("POST", "/api/v1/trips", "201"): {"Location", "ETag", "Idempotency-Replayed"},
+    ("GET", "/api/v1/trips/{tripId}", "200"): {"ETag"},
+    ("PATCH", "/api/v1/trips/{tripId}", "200"): {"ETag"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -56,6 +59,10 @@ TRIP_OPERATIONS = {
     ("POST", "/api/v1/trips"): "tripsCreate",
     ("GET", "/api/v1/trips/{tripId}"): "tripsRead",
 }
+TRIP_MUTATION_OPERATIONS = {
+    ("PATCH", "/api/v1/trips/{tripId}"): "tripsUpdate",
+    ("DELETE", "/api/v1/trips/{tripId}"): "tripsDelete",
+}
 PUSH_NOTIFICATION_OPERATIONS = {
     ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
     ("DELETE", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesDelete",
@@ -66,6 +73,7 @@ EXPECTED_OPERATION_IDS = (
     CURRENT_OPERATIONS
     | SAVED_PLACE_OPERATIONS
     | TRIP_OPERATIONS
+    | TRIP_MUTATION_OPERATIONS
     | PUSH_NOTIFICATION_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
@@ -115,7 +123,7 @@ class Validator:
         self.operation_ids = {}
         self.operations = set()
         self.source_provenance = dict(
-            SOURCE_PROVENANCE_20 if mode == 20 else SOURCE_PROVENANCE_16
+            SOURCE_PROVENANCE_20 if mode in (20, 22) else SOURCE_PROVENANCE_16
         )
         self.runtime_manifest = None
         self.runtime_problem_definitions = {}
@@ -184,7 +192,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20):
+        if self.mode in (16, 20, 22):
             self.validate_source_provenance()
         return self.errors
 
@@ -237,9 +245,12 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20):
-            groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", TRIP_OPERATIONS)))
-        if self.mode == 20:
+        if self.mode in (16, 20, 22):
+            trip_operations = dict(TRIP_OPERATIONS)
+            if self.mode == 22:
+                trip_operations.update(TRIP_MUTATION_OPERATIONS)
+            groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
+        if self.mode in (20, 22):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
         for domain, operation_group in groups:
             contract = self.read_authority_json(
@@ -576,14 +587,16 @@ class Validator:
 
     def validate_operation_inventory(self):
         required = dict(CURRENT_OPERATIONS)
-        if self.mode in (16, 20):
+        if self.mode in (16, 20, 22):
             required.update(SAVED_PLACE_OPERATIONS)
             required.update(TRIP_OPERATIONS)
-        if self.mode == 20:
+        if self.mode in (20, 22):
             required.update(PUSH_NOTIFICATION_OPERATIONS)
+        if self.mode == 22:
+            required.update(TRIP_MUTATION_OPERATIONS)
         for key, operation_id in required.items():
             if key not in self.operations:
-                prefix = f"{self.mode}-operation 완료 mode: " if self.mode in (16, 20) else ""
+                prefix = f"{self.mode}-operation 완료 mode: " if self.mode in (16, 20, 22) else ""
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
         for key in self.operations - set(required):
             self.error(f"{key[0]} {key[1]}", "public inventory allowlist 밖의 endpoint입니다")
@@ -985,7 +998,7 @@ def main(argv):
         type=Path,
         default=Path("services/spring-api/build/openapi/openapi.json"),
     )
-    parser.add_argument("--mode", type=int, choices=(9, 16, 20), default=20)
+    parser.add_argument("--mode", type=int, choices=(9, 16, 20, 22), default=22)
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])
     artifact = args.artifact

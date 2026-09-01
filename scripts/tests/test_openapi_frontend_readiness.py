@@ -10,6 +10,7 @@ from scripts.validate_openapi_frontend_readiness import (
     CURRENT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
+    TRIP_MUTATION_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
 )
@@ -396,6 +397,39 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             ["deviceId"],
             schemas["PushDevicePath"]["required"],
         )
+
+    def test_mode22는_trip_PATCH_DELETE를_exact_inventory와_canonical_projection으로_검사한다(self):
+        exact_operations = (
+            set(CURRENT_OPERATIONS)
+            | set(SAVED_PLACE_OPERATIONS)
+            | set(TRIP_OPERATIONS)
+            | set(TRIP_MUTATION_OPERATIONS)
+            | set(PUSH_NOTIFICATION_OPERATIONS)
+        )
+        validator = Validator({}, 22, ROOT)
+        validator.operations = exact_operations
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in {
+                **CURRENT_OPERATIONS,
+                **SAVED_PLACE_OPERATIONS,
+                **TRIP_OPERATIONS,
+                **TRIP_MUTATION_OPERATIONS,
+                **PUSH_NOTIFICATION_OPERATIONS,
+            }.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 22, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        trip_mutation_calls = {
+            call.args[0]
+            for call in projection.call_args_list
+            if call.args[0] in TRIP_MUTATION_OPERATIONS
+        }
+        self.assertEqual(set(TRIP_MUTATION_OPERATIONS), trip_mutation_calls)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
