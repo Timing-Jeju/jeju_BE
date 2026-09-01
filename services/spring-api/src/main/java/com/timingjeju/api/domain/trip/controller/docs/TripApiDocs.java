@@ -2,6 +2,7 @@ package com.timingjeju.api.domain.trip.controller.docs;
 
 import com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse;
 import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
+import com.timingjeju.api.domain.trip.dto.response.TripPreferencesResponse;
 import com.timingjeju.api.global.error.ApiProblemDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -158,4 +159,68 @@ public interface TripApiDocs {
   TripAggregateResponse read(
       @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String tripId);
+
+  @Operation(summary = "여행 선호·교통수단 전체 교체", description = "강한 If-Match로 선호와 1~3순위 교통수단을 원자 교체합니다.")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              schema =
+                  @Schema(
+                      implementation =
+                          com.timingjeju.api.domain.trip.dto.request.UpdateTripPreferencesRequest
+                              .class)))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        headers =
+            @Header(
+                name = "ETag",
+                schema = @Schema(type = "string", pattern = "^\\\"[A-Za-z0-9._:-]{1,128}\\\"$")),
+        content =
+            @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = TripPreferencesResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "422",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
+  ResponseEntity<TripPreferencesResponse> replacePreferences(
+      @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
+          String tripId,
+      @Parameter(
+              name = "If-Match",
+              in = ParameterIn.HEADER,
+              required = true,
+              schema = @Schema(type = "string", pattern = "^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"))
+          String ifMatch,
+      byte[] body,
+      @Parameter(hidden = true) HttpServletRequest request);
 }

@@ -28,6 +28,22 @@ public final class TripException extends RuntimeException {
     return new TripException("TRIP_CONSTRAINT_VIOLATION");
   }
 
+  public static TripException preferenceConstraintViolation() {
+    return new TripException("PREFERENCE_CONSTRAINT_VIOLATION");
+  }
+
+  public static TripException placeNotFound() {
+    return new TripException("PLACE_NOT_FOUND");
+  }
+
+  public static TripException versionConflict() {
+    return new TripException("TRIP_VERSION_CONFLICT");
+  }
+
+  public static TripException terminalStateConflict() {
+    return new TripException("TRIP_TERMINAL_STATE_CONFLICT");
+  }
+
   public static TripException notFound() {
     return new TripException("TRIP_NOT_FOUND");
   }

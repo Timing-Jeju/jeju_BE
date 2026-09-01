@@ -19,12 +19,19 @@ public final class TripTransportModeRequest {
   @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
   private Boolean primary;
 
+  private boolean modePresent;
+  private boolean priorityPresent;
+  private boolean primaryPresent;
+
   public TripTransportModeRequest() {}
 
   TripTransportModeRequest(String mode, Integer priority, Boolean primary) {
     this.mode = mode;
     this.priority = priority;
     this.primary = primary;
+    this.modePresent = true;
+    this.priorityPresent = true;
+    this.primaryPresent = true;
   }
 
   public String getMode() {
@@ -41,6 +48,7 @@ public final class TripTransportModeRequest {
 
   @JsonSetter("mode")
   public void setMode(Object mode) {
+    modePresent = true;
     if (!(mode instanceof String value)) {
       throw TripException.invalidRequest();
     }
@@ -49,6 +57,7 @@ public final class TripTransportModeRequest {
 
   @JsonSetter("priority")
   public void setPriority(Object priority) {
+    priorityPresent = true;
     if (!(priority instanceof Integer value)) {
       throw TripException.invalidRequest();
     }
@@ -57,6 +66,7 @@ public final class TripTransportModeRequest {
 
   @JsonSetter("primary")
   public void setPrimary(Object primary) {
+    primaryPresent = true;
     if (!(primary instanceof Boolean value)) {
       throw TripException.invalidRequest();
     }
@@ -69,7 +79,9 @@ public final class TripTransportModeRequest {
   }
 
   public TripTransportMode toModel() {
-    return new TripTransportMode(
-        mode, priority == null ? 0 : priority, Boolean.TRUE.equals(primary));
+    if (!modePresent || !priorityPresent || !primaryPresent) {
+      throw TripException.invalidRequest();
+    }
+    return new TripTransportMode(mode, priority, primary);
   }
 }

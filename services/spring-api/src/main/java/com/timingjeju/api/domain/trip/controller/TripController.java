@@ -8,11 +8,14 @@ import com.timingjeju.api.application.security.CurrentUser;
 import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.application.trip.TripEntityTag;
 import com.timingjeju.api.application.trip.TripException;
+import com.timingjeju.api.application.trip.service.TripPreferencesService;
 import com.timingjeju.api.application.trip.service.TripService;
 import com.timingjeju.api.domain.trip.controller.docs.TripApiDocs;
 import com.timingjeju.api.domain.trip.dto.request.CreateTripRequest;
+import com.timingjeju.api.domain.trip.dto.request.UpdateTripPreferencesRequest;
 import com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse;
 import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
+import com.timingjeju.api.domain.trip.dto.response.TripPreferencesResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Set;
@@ -25,6 +28,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,17 +42,21 @@ import tools.jackson.databind.ObjectMapper;
 public class TripController implements TripApiDocs {
   private static final Set<String> LIST_PARAMETERS = Set.of("status", "sort", "cursor", "size");
   private static final Pattern CANONICAL_UUID = Pattern.compile(TripApiDocs.UUID_PATTERN);
+  private static final Pattern STRONG_ETAG = Pattern.compile("^\"[A-Za-z0-9._:-]{1,128}\"$");
   private final TripService trips;
+  private final TripPreferencesService preferences;
   private final CurrentUserAccessor currentUsers;
   private final IdempotencyUseCase idempotency;
   private final ObjectMapper objectMapper;
 
   public TripController(
       TripService trips,
+      TripPreferencesService preferences,
       CurrentUserAccessor currentUsers,
       IdempotencyUseCase idempotency,
       ObjectMapper objectMapper) {
     this.trips = trips;
+    this.preferences = preferences;
     this.currentUsers = currentUsers;
     this.idempotency = idempotency;
     this.objectMapper = objectMapper;
@@ -113,6 +121,31 @@ public class TripController implements TripApiDocs {
     return TripAggregateResponse.from(trips.read(currentUsers.getRequired(), canonicalTripId));
   }
 
+  @Override
+  @PutMapping("/{tripId}/preferences")
+  public ResponseEntity<TripPreferencesResponse> replacePreferences(
+      @PathVariable String tripId,
+      @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody byte[] body,
+      HttpServletRequest request) {
+    if (!request.getParameterMap().isEmpty()
+        || ifMatch == null
+        || !STRONG_ETAG.matcher(ifMatch).matches()) {
+      throw TripException.invalidRequest();
+    }
+    UUID canonicalTripId = parseCanonicalUuid(tripId);
+    TripPreferencesResponse response =
+        TripPreferencesResponse.from(
+            preferences.replace(
+                currentUsers.getRequired(),
+                canonicalTripId,
+                ifMatch,
+                parsePreferences(body).toCommand()));
+    return ResponseEntity.ok()
+        .eTag(TripEntityTag.strong(response.tripId(), response.updatedAt()))
+        .body(response);
+  }
+
   private static UUID parseCanonicalUuid(String raw) {
     if (raw == null || !CANONICAL_UUID.matcher(raw).matches()) {
       throw TripException.invalidRequest();
@@ -131,6 +164,19 @@ public class TripController implements TripApiDocs {
   private com.timingjeju.api.application.trip.CreateTripCommand parse(byte[] body) {
     try {
       return objectMapper.readValue(body, CreateTripRequest.class).toCommand();
+    } catch (JacksonException failure) {
+      throw TripException.invalidRequest();
+    }
+  }
+
+  private UpdateTripPreferencesRequest parsePreferences(byte[] body) {
+    try {
+      UpdateTripPreferencesRequest parsed =
+          objectMapper.readValue(body, UpdateTripPreferencesRequest.class);
+      if (parsed == null) {
+        throw TripException.invalidRequest();
+      }
+      return parsed;
     } catch (JacksonException failure) {
       throw TripException.invalidRequest();
     }

@@ -3,7 +3,9 @@ package com.timingjeju.api.domain.trip.config;
 import com.timingjeju.api.application.pagination.CursorCodec;
 import com.timingjeju.api.application.profile.CurrentUserProvisioningService;
 import com.timingjeju.api.application.trip.TripIdentityGenerator;
+import com.timingjeju.api.application.trip.TripPreferencesStore;
 import com.timingjeju.api.application.trip.TripStore;
+import com.timingjeju.api.application.trip.service.TripPreferencesService;
 import com.timingjeju.api.application.trip.service.TripService;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -45,6 +47,11 @@ public class TripConfiguration {
       @Qualifier("tripCursorCodec") TripCursorCodec tripCursorCodec,
       Clock clock) {
     return new TripService(provisioning, store, identities, tripCursorCodec.value(), clock);
+  }
+
+  @Bean
+  TripPreferencesService tripPreferencesService(TripPreferencesStore store, Clock clock) {
+    return new TripPreferencesService(store, clock);
   }
 
   record TripCursorCodec(CursorCodec value) {}

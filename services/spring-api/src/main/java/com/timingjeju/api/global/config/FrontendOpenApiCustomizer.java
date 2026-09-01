@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -116,7 +117,13 @@ final class FrontendOpenApiCustomizer {
     Map<String, Map<String, Object>> catalogEndpoints =
         endpointMap(readContractResource("/rest/catalog.json"));
     for (String domain :
-        List.of("profile-legal", "places", "weather-forecast", "saved-places", "trips")) {
+        List.of(
+            "profile-legal",
+            "places",
+            "weather-forecast",
+            "saved-places",
+            "trips",
+            "preferences-transport")) {
       Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
       Map<String, Object> schemas = objectMap(contract.get("schemas"));
       for (Map<String, Object> endpoint : objectMapList(contract.get("endpoints"))) {
@@ -233,6 +240,7 @@ final class FrontendOpenApiCustomizer {
         value instanceof String name
             ? resolveCanonical(name, schemas, key)
             : expandCanonical(objectMap(value), schemas, key, Set.of());
+    canonical = flattenClosedComposition(canonical, key);
     try {
       Schema<?> schema =
           objectMapper.readValue(objectMapper.writeValueAsString(canonical), Schema.class);
@@ -241,6 +249,36 @@ final class FrontendOpenApiCustomizer {
     } catch (JacksonException exception) {
       throw new IllegalStateException("OpenAPI canonical schema 변환에 실패했습니다: " + key, exception);
     }
+  }
+
+  private static Map<String, Object> flattenClosedComposition(
+      Map<String, Object> canonical, String key) {
+    if (!Boolean.FALSE.equals(canonical.get("unevaluatedProperties"))) {
+      return canonical;
+    }
+    Map<String, Object> flattened = new LinkedHashMap<>(canonical);
+    flattened.remove("unevaluatedProperties");
+    flattened.put("additionalProperties", false);
+    Object composition = flattened.remove("allOf");
+    if (!(composition instanceof List<?> members)) {
+      return flattened;
+    }
+    flattened.putIfAbsent("type", "object");
+    Set<String> required = new LinkedHashSet<>(stringList(flattened.get("required")));
+    Map<String, Object> properties = new LinkedHashMap<>(objectMap(flattened.get("properties")));
+    for (Object member : members) {
+      Map<String, Object> schema = objectMap(member);
+      required.addAll(stringList(schema.get("required")));
+      for (Map.Entry<String, Object> property : objectMap(schema.get("properties")).entrySet()) {
+        Object previous = properties.putIfAbsent(property.getKey(), property.getValue());
+        if (previous != null && !previous.equals(property.getValue())) {
+          throw new IllegalStateException("OpenAPI canonical allOf property가 충돌합니다: " + key);
+        }
+      }
+    }
+    flattened.put("required", List.copyOf(required));
+    flattened.put("properties", properties);
+    return flattened;
   }
 
   private static void restoreCanonicalTypes(Schema<?> schema, Map<String, Object> canonical) {
@@ -467,6 +505,13 @@ final class FrontendOpenApiCustomizer {
           "44000000-0000-4000-8000-000000000044");
     } else if (key.equals("GET /api/v1/trips")) {
       setParameterExample(operation, "sort", "updated_at_desc");
+    } else if (key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 응답의 강한 ETag를 큰따옴표까지 그대로 전달",
+          new StringSchema().pattern("^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"),
+          "\"trip-current-v1\"");
     }
     if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
@@ -484,6 +529,8 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("POST /api/v1/trips")) {
       addResponseHeaderReferences(
           operation, List.of("201"), List.of("Location", "ETag", "Idempotency-Replayed"));
+    } else if (key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
+      addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
     }
   }
 
@@ -999,6 +1046,23 @@ final class FrontendOpenApiCustomizer {
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "TRIP_NOT_FOUND",
                 "503", "TRIP_DATA_UNAVAILABLE")));
+    result.put(
+        "PUT /api/v1/trips/{tripId}/preferences",
+        doc(
+            "tripPreferencesReplace",
+            "여행",
+            """
+            {"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"seogwipo-si","preferredRegionCodes":["seongsan","aewol"],"startPlaceId":"34000000-0000-4000-8000-000000000034","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"rental_car","priority":2,"primary":false},{"mode":"taxi","priority":3,"primary":false}]}
+            """,
+            """
+            {"tripId":"44000000-0000-4000-8000-000000000044","scheduleEffect":"none","regenerationRequired":false,"activeScheduleVersionId":null,"tripStatus":"draft","updatedAt":"2026-09-01T10:00:00+09:00","preferences":{"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"seogwipo-si","preferredRegionCodes":["seongsan","aewol"],"startPlaceId":"34000000-0000-4000-8000-000000000034","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"rental_car","priority":2,"primary":false},{"mode":"taxi","priority":3,"primary":false}]}}
+            """,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "TRIP_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "PREFERENCE_CONSTRAINT_VIOLATION")));
     return Map.copyOf(result);
   }
 
