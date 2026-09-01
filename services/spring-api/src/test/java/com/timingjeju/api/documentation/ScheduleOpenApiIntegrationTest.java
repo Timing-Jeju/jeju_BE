@@ -54,7 +54,7 @@ class ScheduleOpenApiIntegrationTest {
         .andExpect(jsonPath(path + ".requestBody").doesNotExist())
         .andExpect(
             jsonPath(path + ".responses.keys()")
-                .value(containsInAnyOrder("200", "400", "401", "403", "404", "500", "503")))
+                .value(containsInAnyOrder("200", "400", "401", "403", "404", "500")))
         .andExpect(jsonPath(success + ".schema.additionalProperties").value(false))
         .andExpect(
             jsonPath(success + ".schema.required")
@@ -91,8 +91,12 @@ class ScheduleOpenApiIntegrationTest {
             jsonPath(path + ".responses['404'].content['application/problem+json'].example.code")
                 .value("SCHEDULE_VERSION_NOT_FOUND"))
         .andExpect(
-            jsonPath(path + ".responses['503'].content['application/problem+json'].example.code")
-                .value("TRIP_DATA_UNAVAILABLE"));
+            jsonPath(path + ".responses['500'].$ref")
+                .value("#/components/responses/InternalServerProblem"))
+        .andExpect(
+            jsonPath(
+                    "$.components.responses.InternalServerProblem.content['application/problem+json'].example.code")
+                .value("INTERNAL_SERVER_ERROR"));
   }
 
   private static String randomKey() {

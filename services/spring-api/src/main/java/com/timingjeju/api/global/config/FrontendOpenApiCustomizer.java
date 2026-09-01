@@ -1016,7 +1016,7 @@ final class FrontendOpenApiCustomizer {
                 "400", "INVALID_REQUEST",
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "SCHEDULE_VERSION_NOT_FOUND",
-                "503", "TRIP_DATA_UNAVAILABLE")));
+                "500", "INTERNAL_SERVER_ERROR")));
     return Map.copyOf(result);
   }
 

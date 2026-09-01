@@ -6,6 +6,7 @@ import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.domain.schedule.controller.docs.ScheduleApiDocs;
 import com.timingjeju.api.domain.schedule.dto.ScheduleResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -45,9 +46,16 @@ public final class ScheduleController implements ScheduleApiDocs {
     if (!QUERY_PARAMETERS.containsAll(request.getParameterMap().keySet())
         || request.getParameterMap().entrySet().stream()
             .anyMatch(entry -> entry.getValue().length != 1 || entry.getValue()[0].isBlank())
-        || request.getContentLengthLong() > 0
-        || request.getHeader("Transfer-Encoding") != null) {
+        || hasRequestBody(request)) {
       throw ScheduleException.invalidRequest();
+    }
+  }
+
+  private static boolean hasRequestBody(HttpServletRequest request) {
+    try {
+      return request.getInputStream().read() != -1;
+    } catch (IOException failure) {
+      return true;
     }
   }
 

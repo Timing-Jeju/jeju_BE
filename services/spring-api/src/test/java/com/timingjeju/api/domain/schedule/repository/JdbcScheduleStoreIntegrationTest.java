@@ -8,13 +8,29 @@ import com.timingjeju.api.application.schedule.ScheduleLookup;
 import com.timingjeju.api.application.schedule.ScheduleSnapshot;
 import com.timingjeju.api.domain.schedule.adapter.JdbcScheduleStore;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.sql.DataSource;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.datasource.AbstractDataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTestSupport {
   private static final UUID OWNER = UUID.fromString("49000000-0000-0000-0000-000000000101");
@@ -38,58 +54,76 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
 
   @Autowired private JdbcTemplate jdbc;
   @Autowired private JdbcScheduleStore store;
+  @Autowired private DataSource dataSource;
+  @Autowired private PlatformTransactionManager transactionManager;
 
   @BeforeEach
   void setUpCanonicalSchedule() {
-    insertOwner(OWNER, "schedule-owner@issue49.test");
-    insertOwner(OTHER_OWNER, "schedule-other@issue49.test");
-    insertTrip(TRIP, OWNER, "schedule-trip", true);
-    insertTrip(NO_ACTIVE_TRIP, OWNER, "schedule-no-active", false);
-    insertTrip(OTHER_TRIP, OTHER_OWNER, "schedule-other-trip", false);
-    insertDay(TRIP, DAY_ONE, 1, "2026-09-01");
-    insertDay(TRIP, DAY_TWO, 2, "2026-09-02");
-    UUID otherDay = UUID.fromString("49000000-0000-0000-0000-000000000113");
-    insertDay(OTHER_TRIP, otherDay, 1, "2026-09-01");
-    insertVersion(ACTIVE, TRIP, 1, "draft", "initial", null, 81);
-    insertVersion(CANDIDATE, TRIP, 2, "draft", "ai_generation", ACTIVE, null);
-    insertVersion(INVALID_VERSION, TRIP, 3, "draft", "user_edit", ACTIVE, null);
-    insertVersion(OTHER_VERSION, OTHER_TRIP, 1, "draft", "initial", null, null);
-    insertItem(FIRST, DAY_ONE, ACTIVE, 1, "place_visit", "성산일출봉", "2026-09-01T00:00:00Z");
-    insertItem(SECOND, DAY_ONE, ACTIVE, 2, "meal", "점심", "2026-09-01T01:30:00Z");
-    insertItem(THIRD, DAY_TWO, ACTIVE, 1, "custom", "둘째 날", "2026-09-02T00:00:00Z");
-    insertLeg();
+    new TransactionTemplate(transactionManager)
+        .executeWithoutResult(
+            ignored -> {
+              insertOwner(OWNER, "schedule-owner@issue49.test");
+              insertOwner(OTHER_OWNER, "schedule-other@issue49.test");
+              insertTrip(TRIP, OWNER, "schedule-trip", true);
+              insertTrip(NO_ACTIVE_TRIP, OWNER, "schedule-no-active", false);
+              insertTrip(OTHER_TRIP, OTHER_OWNER, "schedule-other-trip", false);
+              insertDay(TRIP, DAY_ONE, 1, "2026-09-01");
+              insertDay(TRIP, DAY_TWO, 2, "2026-09-02");
+              UUID otherDay = UUID.fromString("49000000-0000-0000-0000-000000000113");
+              insertDay(OTHER_TRIP, otherDay, 1, "2026-09-01");
+              insertVersion(ACTIVE, TRIP, 1, "draft", "initial", null, 81);
+              insertVersion(CANDIDATE, TRIP, 2, "draft", "ai_generation", ACTIVE, null);
+              insertVersion(INVALID_VERSION, TRIP, 3, "draft", "user_edit", ACTIVE, null);
+              insertVersion(OTHER_VERSION, OTHER_TRIP, 1, "draft", "initial", null, null);
+              insertItem(FIRST, DAY_ONE, ACTIVE, 1, "place_visit", "성산일출봉", "2026-09-01T00:00:00Z");
+              insertItem(SECOND, DAY_ONE, ACTIVE, 2, "meal", "점심", "2026-09-01T01:30:00Z");
+              insertItem(THIRD, DAY_TWO, ACTIVE, 1, "custom", "둘째 날", "2026-09-02T00:00:00Z");
+              insertLeg();
+              jdbc.update(
+                  """
+                  insert into public.trip_item_progress (
+                    trip_plan_id, schedule_version_id, trip_item_id, status,
+                    actual_started_at, actual_arrived_at, actual_completed_at, updated_at
+                  ) values (?, ?, ?, 'arrived', ?, null, null, ?)
+                  """,
+                  TRIP,
+                  ACTIVE,
+                  FIRST,
+                  Timestamp.from(Instant.parse("2026-09-01T00:01:00Z")),
+                  Timestamp.from(Instant.parse("2026-09-01T00:02:00Z")));
+              insertFreshRun();
+              UUID candidateItem = UUID.fromString("49000000-0000-0000-0000-000000000134");
+              insertItem(
+                  candidateItem, DAY_ONE, CANDIDATE, 1, "custom", "후보 일정", "2026-09-01T02:00:00Z");
+              insertItem(
+                  UUID.fromString("49000000-0000-0000-0000-000000000135"),
+                  DAY_TWO,
+                  CANDIDATE,
+                  1,
+                  "custom",
+                  "후보 둘째 날",
+                  "2026-09-02T02:00:00Z");
+              insertInvalidDraft();
+              jdbc.update(
+                  "update public.trip_schedule_versions set status = 'active', applied_at = now() where id = ?",
+                  ACTIVE);
+              jdbc.update(
+                  "update public.trip_schedule_versions set status = 'candidate' where id = ?",
+                  CANDIDATE);
+              jdbc.update(
+                  "update public.trip_plans set active_schedule_version_id = ? where id = ?",
+                  ACTIVE,
+                  TRIP);
+              jdbc.execute("set constraints all immediate");
+            });
+  }
+
+  @AfterEach
+  void cleanUpCommittedTwoSessionFixture() {
     jdbc.update(
-        """
-        insert into public.trip_item_progress (
-          trip_plan_id, schedule_version_id, trip_item_id, status,
-          actual_started_at, actual_arrived_at, actual_completed_at, updated_at
-        ) values (?, ?, ?, 'arrived', ?, null, null, ?)
-        """,
-        TRIP,
-        ACTIVE,
-        FIRST,
-        Timestamp.from(Instant.parse("2026-09-01T00:01:00Z")),
-        Timestamp.from(Instant.parse("2026-09-01T00:02:00Z")));
-    insertFreshRun();
-    UUID candidateItem = UUID.fromString("49000000-0000-0000-0000-000000000134");
-    insertItem(candidateItem, DAY_ONE, CANDIDATE, 1, "custom", "후보 일정", "2026-09-01T02:00:00Z");
-    insertItem(
-        UUID.fromString("49000000-0000-0000-0000-000000000135"),
-        DAY_TWO,
-        CANDIDATE,
-        1,
-        "custom",
-        "후보 둘째 날",
-        "2026-09-02T02:00:00Z");
-    insertInvalidDraft();
-    jdbc.update(
-        "update public.trip_schedule_versions set status = 'active', applied_at = now() where id = ?",
-        ACTIVE);
-    jdbc.update(
-        "update public.trip_schedule_versions set status = 'candidate' where id = ?", CANDIDATE);
-    jdbc.update(
-        "update public.trip_plans set active_schedule_version_id = ? where id = ?", ACTIVE, TRIP);
-    jdbc.execute("set constraints all immediate");
+        "delete from public.trip_plans where id in (?, ?, ?)", TRIP, OTHER_TRIP, NO_ACTIVE_TRIP);
+    jdbc.update("delete from public.user_profiles where id in (?, ?)", OWNER, OTHER_OWNER);
+    jdbc.update("delete from auth.users where id in (?, ?)", OWNER, OTHER_OWNER);
   }
 
   @Test
@@ -162,11 +196,90 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
   }
 
   @Test
-  void 불완전한_required_projection과_인접하지_않은_leg는_가짜값없이_data_unavailable이다() {
+  void 불완전한_required_projection과_인접하지_않은_leg는_가짜값없이_internal_error이다() {
     assertThatThrownBy(() -> store.readOwned(OWNER, TRIP, INVALID_VERSION, RESPONSE))
         .isInstanceOf(ScheduleException.class)
         .extracting(failure -> ((ScheduleException) failure).code())
-        .isEqualTo("TRIP_DATA_UNAVAILABLE");
+        .isEqualTo("INTERNAL_SERVER_ERROR");
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void 실제_PostgreSQL_일정_크기와_무관하게_정확히_네_query만_실행한다() {
+    CountingDataSource measured = new CountingDataSource(dataSource, () -> {});
+
+    ScheduleLookup active = measuredRead(measured, null);
+
+    assertThat(active.schedule().days()).hasSize(2);
+    assertThat(active.schedule().days().getFirst().items()).hasSize(2);
+    assertThat(measured.queryCount()).isEqualTo(4);
+
+    measured.reset();
+    ScheduleLookup candidate = measuredRead(measured, CANDIDATE);
+
+    assertThat(candidate.schedule().days()).hasSize(2);
+    assertThat(candidate.schedule().days()).allSatisfy(day -> assertThat(day.items()).hasSize(1));
+    assertThat(measured.queryCount()).isEqualTo(4);
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void root_조회_뒤_별도_session이_pointer와_child를_commit해도_A_snapshot만_반환한다() {
+    CountingDataSource measured =
+        new CountingDataSource(
+            dataSource,
+            () ->
+                new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(
+                        ignored -> {
+                          jdbc.execute("set local session_replication_role = replica");
+                          jdbc.update(
+                              "update public.trip_plans set active_schedule_version_id = ? where id = ?",
+                              CANDIDATE,
+                              TRIP);
+                          jdbc.update(
+                              "update public.trip_items set title = '동시 변경된 A 항목' where id = ?",
+                              FIRST);
+                        }));
+
+    ScheduleLookup lookup = measuredRead(measured, null);
+
+    assertThat(lookup.schedule().scheduleVersion().scheduleVersionId()).isEqualTo(ACTIVE);
+    assertThat(lookup.schedule().days().getFirst().items().getFirst().title()).isEqualTo("성산일출봉");
+    assertThat(
+            jdbc.queryForObject(
+                "select active_schedule_version_id from public.trip_plans where id = ?",
+                UUID.class,
+                TRIP))
+        .isEqualTo(CANDIDATE);
+    assertThat(
+            jdbc.queryForObject(
+                "select title from public.trip_items where id = ?", String.class, FIRST))
+        .isEqualTo("동시 변경된 A 항목");
+    assertThat(measured.queryCount()).isEqualTo(4);
+  }
+
+  private ScheduleLookup measuredRead(CountingDataSource measured, UUID versionId) {
+    DataSourceTransactionManager manager = new DataSourceTransactionManager(measured);
+    TransactionTemplate transaction = new TransactionTemplate(manager);
+    Transactional boundary;
+    try {
+      boundary =
+          JdbcScheduleStore.class
+              .getMethod("readOwned", UUID.class, UUID.class, UUID.class, Instant.class)
+              .getAnnotation(Transactional.class);
+    } catch (NoSuchMethodException failure) {
+      throw new AssertionError(failure);
+    }
+    transaction.setReadOnly(boundary.readOnly());
+    transaction.setIsolationLevel(
+        boundary.isolation() == org.springframework.transaction.annotation.Isolation.DEFAULT
+            ? TransactionDefinition.ISOLATION_DEFAULT
+            : boundary.isolation().value());
+    JdbcScheduleStore measuredStore =
+        new JdbcScheduleStore(new JdbcTemplate(measured), new NamedParameterJdbcTemplate(measured));
+    return transaction.execute(
+        ignored -> measuredStore.readOwned(OWNER, TRIP, versionId, RESPONSE));
   }
 
   private void insertOwner(UUID owner, String email) {
@@ -304,5 +417,72 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
         to,
         Timestamp.from(Instant.parse("2026-09-01T05:10:00Z")),
         Timestamp.from(Instant.parse("2026-09-01T05:30:00Z")));
+  }
+
+  private static final class CountingDataSource extends AbstractDataSource {
+    private final DataSource delegate;
+    private final Runnable afterFirstQuery;
+    private final AtomicInteger queryCount = new AtomicInteger();
+
+    private CountingDataSource(DataSource delegate, Runnable afterFirstQuery) {
+      this.delegate = delegate;
+      this.afterFirstQuery = afterFirstQuery;
+    }
+
+    @Override
+    public Connection getConnection() throws SQLException {
+      return countingConnection(delegate.getConnection());
+    }
+
+    @Override
+    public Connection getConnection(String username, String password) throws SQLException {
+      return countingConnection(delegate.getConnection(username, password));
+    }
+
+    private int queryCount() {
+      return queryCount.get();
+    }
+
+    private void reset() {
+      queryCount.set(0);
+    }
+
+    private Connection countingConnection(Connection connection) {
+      return (Connection)
+          Proxy.newProxyInstance(
+              Connection.class.getClassLoader(),
+              new Class<?>[] {Connection.class},
+              (proxy, method, arguments) -> {
+                Object result = invoke(connection, method, arguments);
+                if ("prepareStatement".equals(method.getName())
+                    && result instanceof PreparedStatement statement) {
+                  return countingStatement(statement);
+                }
+                return result;
+              });
+    }
+
+    private PreparedStatement countingStatement(PreparedStatement statement) {
+      return (PreparedStatement)
+          Proxy.newProxyInstance(
+              PreparedStatement.class.getClassLoader(),
+              new Class<?>[] {PreparedStatement.class},
+              (proxy, method, arguments) -> {
+                Object result = invoke(statement, method, arguments);
+                if ("executeQuery".equals(method.getName()) && queryCount.incrementAndGet() == 1) {
+                  afterFirstQuery.run();
+                }
+                return result;
+              });
+    }
+
+    private static Object invoke(Object target, java.lang.reflect.Method method, Object[] arguments)
+        throws Throwable {
+      try {
+        return method.invoke(target, arguments);
+      } catch (InvocationTargetException failure) {
+        throw failure.getCause();
+      }
+    }
   }
 }

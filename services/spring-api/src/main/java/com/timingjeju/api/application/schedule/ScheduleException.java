@@ -20,8 +20,8 @@ public final class ScheduleException extends RuntimeException {
     return new ScheduleException("SCHEDULE_VERSION_NOT_FOUND");
   }
 
-  public static ScheduleException dataUnavailable() {
-    return new ScheduleException("TRIP_DATA_UNAVAILABLE");
+  public static ScheduleException internalServerError() {
+    return new ScheduleException("INTERNAL_SERVER_ERROR");
   }
 
   public String code() {

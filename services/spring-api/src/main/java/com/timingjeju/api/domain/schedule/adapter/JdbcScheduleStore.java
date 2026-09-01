@@ -18,6 +18,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
@@ -70,7 +71,7 @@ public class JdbcScheduleStore implements ScheduleStore {
       List<LegRow> legs = readLegs(tripId, root.versionId());
       return ScheduleLookup.found(assemble(root, days, items, legs, responseTime));
     } catch (DataAccessException | ScheduleDataIntegrityException failure) {
-      throw ScheduleException.dataUnavailable();
+      throw ScheduleException.internalServerError();
     }
   }
 
@@ -185,10 +186,12 @@ public class JdbcScheduleStore implements ScheduleStore {
       List<LegRow> legRows,
       Instant responseTime) {
     LinkedHashMap<UUID, DayAssembly> byDay = new LinkedHashMap<>();
-    int expectedDayNo = 1;
-    for (DayRow day : dayRows) {
+    for (DayRow day :
+        dayRows.stream()
+            .sorted(Comparator.comparingInt(DayRow::dayNo).thenComparing(DayRow::id))
+            .toList()) {
       if (day.id() == null
-          || day.dayNo() != expectedDayNo++
+          || day.dayNo() < 1
           || day.date() == null
           || byDay.put(day.id(), new DayAssembly(day)) != null) {
         throw invalidData();
@@ -211,6 +214,12 @@ public class JdbcScheduleStore implements ScheduleStore {
 
     List<ScheduleDaySnapshot> days = new ArrayList<>(byDay.size());
     for (DayAssembly day : byDay.values()) {
+      day.items.sort(
+          Comparator.comparingInt(ScheduleItemSnapshot::sequenceNo)
+              .thenComparing(ScheduleItemSnapshot::itemId));
+      day.legs.sort(
+          Comparator.comparingInt(ScheduleLegSnapshot::sequenceNo)
+              .thenComparing(ScheduleLegSnapshot::legId));
       validateAdjacency(day.items, day.legs);
       days.add(
           new ScheduleDaySnapshot(
@@ -326,15 +335,9 @@ public class JdbcScheduleStore implements ScheduleStore {
     if (legs.size() != Math.max(items.size() - 1, 0)) {
       throw invalidData();
     }
-    for (int index = 0; index < items.size(); index++) {
-      if (items.get(index).sequenceNo() != index + 1) {
-        throw invalidData();
-      }
-    }
     for (int index = 0; index < legs.size(); index++) {
       ScheduleLegSnapshot leg = legs.get(index);
-      if (leg.sequenceNo() != index + 1
-          || !leg.fromItemId().equals(items.get(index).itemId())
+      if (!leg.fromItemId().equals(items.get(index).itemId())
           || !leg.toItemId().equals(items.get(index + 1).itemId())) {
         throw invalidData();
       }

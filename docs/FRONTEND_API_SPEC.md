@@ -925,11 +925,11 @@ Accept: application/json
 
 ### `GET /api/v1/trips/{tripId}/schedule`
 
-operationId: `tripScheduleRead` · Codegen: **#49 feature artifact READY** · Canonical statuses: `200,400,401,404` · Generated OpenAPI statuses: `200,400,401,403,404,500,503` · success media type: `application/json`
+operationId: `tripScheduleRead` · Codegen: **#49 feature artifact READY** · Canonical statuses: `200,400,401,404` · Generated OpenAPI statuses: `200,400,401,403,404,500` · success media type: `application/json`
 
 인증 필수. `tripId`와 optional `versionId`는 lowercase canonical UUID다. `versionId`를 생략하면 owner trip의 active pointer를, 지정하면 같은 owner/trip의 불변 버전을 조회한다. active pointer 없음, 다른 trip/owner 버전, 존재하지 않는 버전은 모두 `404 SCHEDULE_VERSION_NOT_FOUND`; 여행 없음과 cross-owner 여행은 `404 TRIP_NOT_FOUND`로 은닉한다. GET body, 빈·반복·unknown query는 `400 INVALID_REQUEST`다.
 
-Day는 `dayNo`, item과 leg는 `sequenceNo` 오름차순이다. item N개에는 인접 pair를 잇는 leg가 정확히 `max(N-1,0)`개 있어야 하며, 불완전한 저장 행을 0이나 임의 시간으로 채우지 않고 `503 TRIP_DATA_UNAVAILABLE`로 fail-closed한다. 모든 일정·진행 시각은 `+09:00`이다. `score`는 선택한 버전의 저장 점수이고 `feasibilityStale`은 같은 버전 최신 성공 feasibility의 `observedAt <= calculatedAt <= expiresAt` 및 응답 시각 `< expiresAt` 조건으로 계산한다.
+Day는 `(dayNo, dayId)`, item과 leg는 각각 `(sequenceNo, itemId)`와 `(sequenceNo, legId)` 오름차순이다. 비정상 중복 번호도 숨기지 않고 UUID tie-break 순서로 투영한다. item N개에는 정렬된 인접 pair를 잇는 leg가 정확히 `max(N-1,0)`개 있어야 하며, 불완전한 저장 행을 0이나 임의 시간으로 채우지 않고 원천 정보를 노출하지 않는 공통 `500 INTERNAL_SERVER_ERROR`로 fail-closed한다. 모든 일정·진행 시각은 `+09:00`이다. `score`는 선택한 버전의 저장 점수이고 `feasibilityStale`은 같은 버전 최신 성공 feasibility의 `observedAt <= calculatedAt <= expiresAt` 및 응답 시각 `< expiresAt` 조건으로 계산한다.
 
 ```http
 GET /api/v1/trips/49000000-0000-4000-8000-000000000001/schedule?versionId=49000000-0000-4000-8000-000000000002 HTTP/1.1

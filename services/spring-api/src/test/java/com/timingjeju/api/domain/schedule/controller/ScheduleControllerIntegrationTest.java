@@ -24,6 +24,7 @@ import com.timingjeju.api.application.schedule.ScheduleLegSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleVersionSnapshot;
 import com.timingjeju.api.application.schedule.service.ScheduleQueryService;
+import jakarta.servlet.ServletContext;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -39,11 +40,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 
 @Tag("integration")
 @SpringBootTest(
@@ -120,6 +124,34 @@ class ScheduleControllerIntegrationTest {
           .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
     verifyNoInteractions(schedules);
+  }
+
+  @Test
+  void GET_schedule은_길이와_transfer_encoding이_없는_request_stream_body도_거부한다() throws Exception {
+    var request =
+        new UnknownLengthGetRequestBuilder()
+            .uri("/api/v1/trips/{tripId}/schedule", TRIP_ID)
+            .content("{}")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID));
+
+    mvc.perform(request)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+    verifyNoInteractions(schedules);
+  }
+
+  @Test
+  void GET_schedule의_저장소_무결성_실패는_cause없는_공통_500으로_은닉한다() throws Exception {
+    when(schedules.read(any(), eq(TRIP_ID), isNull()))
+        .thenThrow(ScheduleException.internalServerError());
+
+    mvc.perform(
+            get("/api/v1/trips/{tripId}/schedule", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.code").value("INTERNAL_SERVER_ERROR"))
+        .andExpect(jsonPath("$.cause").doesNotExist());
   }
 
   @Test
@@ -224,5 +256,40 @@ class ScheduleControllerIntegrationTest {
     byte[] bytes = new byte[32];
     new SecureRandom().nextBytes(bytes);
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+  }
+
+  private static final class UnknownLengthGetRequestBuilder
+      extends AbstractMockHttpServletRequestBuilder<UnknownLengthGetRequestBuilder> {
+    private UnknownLengthGetRequestBuilder() {
+      super(HttpMethod.GET);
+    }
+
+    @Override
+    protected UnknownLengthGetRequestBuilder self() {
+      return this;
+    }
+
+    @Override
+    protected MockHttpServletRequest createServletRequest(ServletContext servletContext) {
+      return new MockHttpServletRequest(servletContext) {
+        @Override
+        public int getContentLength() {
+          return -1;
+        }
+
+        @Override
+        public long getContentLengthLong() {
+          return -1;
+        }
+
+        @Override
+        public String getHeader(String name) {
+          if (HttpHeaders.TRANSFER_ENCODING.equalsIgnoreCase(name)) {
+            return null;
+          }
+          return super.getHeader(name);
+        }
+      };
+    }
   }
 }

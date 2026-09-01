@@ -35,8 +35,9 @@
   Day/item 수에 따른 N+1을 차단한다.
 - repository 경계는 `@Transactional(readOnly = true, isolation = REPEATABLE_READ)`이며 HTTP 전후 row
   fingerprint가 동일함을 실제 PostgreSQL로 검증했다.
-- Day/item/leg를 canonical sequence와 UUID tie-breaker로 정렬하고 각 Day의 leg가 인접 item pair
-  `max(N-1, 0)`개를 정확히 연결하지 않으면 `TRIP_DATA_UNAVAILABLE`로 fail-closed 한다.
+- Day/item/leg를 canonical sequence와 UUID tie-breaker로 정렬하고 비정상 중복 번호도 모든 행을
+  결정적으로 투영한다. 각 Day의 leg가 정렬된 인접 item pair `max(N-1, 0)`개를 정확히 연결하지 않으면
+  원천 정보를 노출하지 않는 공통 `INTERNAL_SERVER_ERROR`로 fail-closed 한다.
 - 최신 성공 feasibility의 `observedAt <= calculatedAt <= expiresAt`과 응답 시각 `< expiresAt`을 모두 만족할
   때만 `feasibilityStale=false`이다. malformed 또는 근거 없음/만료는 오류가 아닌 stale projection이다.
 - JWT 원문, 사용자 metadata, provider URL/query/raw payload, geometry를 조회·응답·로그에 포함하지 않는다.
@@ -54,6 +55,20 @@
 - 종료 상태 재확인 `./gradlew --no-daemon check`: `BUILD SUCCESSFUL`
 - `git diff --check`: 오류 없음
 
+### 독립 Reviewer CHANGES_REQUESTED 보완
+
+- HTTP/OpenAPI RED: schedule 전용 `503 TRIP_DATA_UNAVAILABLE`가 canonical #88의 GET 오류 계약을
+  벗어났고, content length `-1`·Transfer-Encoding 없음·실제 stream body 조건이 service 호출까지
+  우회했다. 저장·무결성 실패를 cause 없는 공통 `500 INTERNAL_SERVER_ERROR`로 변경하고 실제 request
+  stream 첫 byte를 fail-closed 검사했다. 생성 OpenAPI와 runtime manifest에서도 schedule 503을 제거했다.
+- PostgreSQL RED: mock query 횟수와 annotation 존재만으로는 실제 N+1·snapshot을 증명하지 못했다.
+  실제 DataSource의 PreparedStatement 실행을 계측해 active/candidate 크기와 무관하게 root, days,
+  items/progress, legs 네 query임을 확인했다. root A 조회 직후 별도 transaction이 active pointer를 B로
+  바꾸고 A child를 수정·commit해도 응답이 전부 기존 A snapshot인 2-session 회귀 테스트를 추가했다.
+- 정렬 RED: 중복 `dayNo`와 `sequenceNo` fixture가 무결성 오류로 닫혔다. 번호는 양수만 검증하고
+  `(dayNo, dayId)`, `(sequenceNo, itemId|legId)`로 모든 행을 정렬하되 leg 수와 from/to adjacency는
+  그대로 엄격히 검증하도록 분리했다.
+
 ## Gaps
 
 - Developer 역할에서는 PR을 만들거나 Reviewer 승인 상태를 변경하지 않는다.
@@ -65,6 +80,6 @@
 
 - 큰 일정의 응답 크기는 query 횟수와 별개로 증가한다. canonical 최대 여행 기간과 item 정책을 후속 성능
   검증에서 함께 관찰해야 한다.
-- DB에 불완전 draft 또는 잘못 연결된 leg가 있으면 가짜 기본값을 반환하지 않고 503으로 닫힌다. 운영에서
-  `TRIP_DATA_UNAVAILABLE` 지표와 데이터 복구 절차가 필요하다.
+- DB에 불완전 draft 또는 잘못 연결된 leg가 있으면 가짜 기본값을 반환하지 않고 공통 500으로 닫힌다.
+  응답과 로그에는 SQL, credential, 원인 예외를 노출하지 않으며 내부 무결성 지표와 데이터 복구 절차가 필요하다.
 - `feasibilityStale=true`는 조회 실패가 아니므로 FE가 확정 일정과 재검사 필요 상태를 구분해 표시해야 한다.
