@@ -89,7 +89,8 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         self.assertIn("databaseNow().minusSeconds(1)", method)
         self.assertNotIn("Instant.now().minusSeconds(1)", method)
 
-    def test_firebase_adapter와_mode20_contract가_함께_유지된다(self):
+    def test_firebase_adapter와_mode21_contract가_함께_유지된다(self):
+        """Firebase 경계와 장소 선호 API가 포함된 mode 21 계약을 함께 고정한다."""
         firebase_adapter = (
             ROOT
             / "services/spring-api/src/main/java/com/timingjeju/api/global/push/firebase"
@@ -99,8 +100,8 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
 
         for gate_name in ("quality-gate.sh", "quality-gate.ps1"):
             gate = (ROOT / "scripts" / gate_name).read_text(encoding="utf-8")
-            self.assertIn("--mode 20", gate, gate_name)
-            self.assertNotIn("--mode 16", gate, gate_name)
+            self.assertIn("--mode 21", gate, gate_name)
+            self.assertNotIn("--mode 20", gate, gate_name)
 
         migration_names = {
             path.name for path in (ROOT / "supabase/migrations").glob("*.sql")
@@ -111,6 +112,10 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         )
         self.assertIn(
             "20260904000001_push_notification_server_writer_boundary.sql",
+            migration_names,
+        )
+        self.assertIn(
+            "20260908000000_trip_place_preference_contract.sql",
             migration_names,
         )
 

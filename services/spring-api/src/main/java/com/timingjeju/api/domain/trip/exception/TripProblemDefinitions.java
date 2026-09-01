@@ -12,14 +12,25 @@ public class TripProblemDefinitions implements ProblemDefinitionContributor {
   @Override
   public List<ProblemDefinition> definitions() {
     return List.of(
-        problem(
-            "INVALID_REQUEST", "요청 값이 올바르지 않습니다", 400, "여행 제목, 날짜, timezone과 교통 우선순위를 확인해 주세요."),
+        problem("INVALID_REQUEST", "요청 값이 올바르지 않습니다", 400, "필수값, 형식과 If-Match를 확인해 주세요."),
         problem("TRIP_NOT_FOUND", "여행을 찾을 수 없습니다", 404, "요청한 여행이 없거나 접근할 수 없습니다."),
+        problem(
+            "TRIP_VERSION_CONFLICT", "여행 조건이 이미 변경되었습니다", 409, "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."),
+        problem(
+            "TRIP_TERMINAL_STATE_CONFLICT",
+            "종료된 여행은 변경할 수 없습니다",
+            409,
+            "완료, 취소 또는 실패한 여행 조건은 변경할 수 없습니다."),
         problem(
             "TRIP_CONSTRAINT_VIOLATION",
             "여행 조건을 처리할 수 없습니다",
             422,
             "여행은 1일부터 30일까지이며 날짜와 교통 우선순위가 일관되어야 합니다."),
+        problem(
+            "PLACE_PREFERENCE_CONSTRAINT_VIOLATION",
+            "장소 선호 조건을 처리할 수 없습니다",
+            422,
+            "같은 장소의 희망·회피 중복과 적용 Day를 확인해 주세요."),
         problem("TRIP_DATA_UNAVAILABLE", "여행 데이터를 사용할 수 없습니다", 503, "잠시 후 다시 시도해 주세요."));
   }
 

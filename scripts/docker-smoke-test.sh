@@ -206,6 +206,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/032_saved_places_api.sql \
   /docker-entrypoint-initdb.d/033_push_device_notification_preferences.sql \
   /docker-entrypoint-initdb.d/034_push_notification_server_writer_boundary.sql \
+  /docker-entrypoint-initdb.d/035_trip_place_preference_contract.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -380,6 +381,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/032_saved_places_api.sql \
   /docker-entrypoint-initdb.d/033_push_device_notification_preferences.sql \
   /docker-entrypoint-initdb.d/034_push_notification_server_writer_boundary.sql \
+  /docker-entrypoint-initdb.d/035_trip_place_preference_contract.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

@@ -13,7 +13,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(assignableTypes = TripController.class)
+@RestControllerAdvice(
+    assignableTypes = {TripController.class, TripPlacePreferencesController.class})
 public class TripProblemExceptionHandler {
   private final ProblemResponseWriter writer;
 

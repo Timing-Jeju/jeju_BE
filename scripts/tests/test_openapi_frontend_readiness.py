@@ -8,6 +8,7 @@ from unittest import mock
 
 from scripts.validate_openapi_frontend_readiness import (
     CURRENT_OPERATIONS,
+    PREFERENCE_TRANSPORT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_OPERATIONS,
@@ -368,6 +369,97 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 "push-notifications": "26ec730ae4d8d9b64356e624a4bf5021dbdc4d76",
             },
             validator.source_provenance,
+        )
+
+    def test_mode21은_place_preferences_누락과_allowlist밖_extra를_모두_거부한다(self):
+        """21-operation 모드가 #48 endpoint의 exact 공개 inventory를 강제한다."""
+        exact_operations = (
+            set(CURRENT_OPERATIONS)
+            | set(SAVED_PLACE_OPERATIONS)
+            | set(TRIP_OPERATIONS)
+            | set(PUSH_NOTIFICATION_OPERATIONS)
+            | set(PREFERENCE_TRANSPORT_OPERATIONS)
+        )
+
+        def inventory_errors(operations):
+            validator = Validator({}, 21, ROOT)
+            validator.operations = operations
+            validator.operation_ids = {
+                operation_id: [f"{method} {path}"]
+                for (method, path), operation_id in {
+                    **CURRENT_OPERATIONS,
+                    **SAVED_PLACE_OPERATIONS,
+                    **TRIP_OPERATIONS,
+                    **PUSH_NOTIFICATION_OPERATIONS,
+                    **PREFERENCE_TRANSPORT_OPERATIONS,
+                }.items()
+                if (method, path) in operations
+            }
+            validator.validate_operation_inventory()
+            return validator.errors
+
+        self.assertEqual([], inventory_errors(exact_operations))
+        removed = exact_operations - {
+            ("PUT", "/api/v1/trips/{tripId}/place-preferences")
+        }
+        self.assertTrue(
+            any("21-operation" in error for error in inventory_errors(removed))
+        )
+        extra = exact_operations | {("GET", "/api/v1/unowned")}
+        self.assertTrue(
+            any("inventory allowlist" in error for error in inventory_errors(extra))
+        )
+
+    def test_mode21은_preferences_transport_contract를_projection한다(self):
+        """#48 endpoint가 canonical preferences-transport schema를 사용한다."""
+        validator = Validator(valid_document(), 21, ROOT)
+        with mock.patch.object(validator, "validate_contract_endpoint") as projection:
+            validator.validate_contract_authority()
+
+        calls = {
+            call.args[0]: call
+            for call in projection.call_args_list
+            if call.args[0] in PREFERENCE_TRANSPORT_OPERATIONS
+        }
+        self.assertEqual(set(PREFERENCE_TRANSPORT_OPERATIONS), set(calls))
+        call = calls[("PUT", "/api/v1/trips/{tripId}/place-preferences")]
+        self.assertEqual("PlacePreferencesResponse", call.args[2]["successSchema"])
+        self.assertIn("PlacePreferencesRequest", call.args[3])
+
+    def test_mode21의_allOf_closed_response는_flat_schema로_손실없이_합성된다(self):
+        """공통 mutation과 items 응답 allOf를 닫힌 flat schema로 합성한다."""
+        validator = Validator({}, 21, ROOT)
+        schemas = {
+            "Mutation": {
+                "type": "object",
+                "required": ["tripId"],
+                "properties": {"tripId": {"type": "string", "format": "uuid"}},
+            },
+            "Response": {
+                "type": "object",
+                "unevaluatedProperties": False,
+                "allOf": [
+                    {"$ref": "Mutation"},
+                    {
+                        "type": "object",
+                        "required": ["items"],
+                        "properties": {"items": {"type": "array"}},
+                    },
+                ],
+            },
+        }
+
+        self.assertEqual(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["tripId", "items"],
+                "properties": {
+                    "tripId": {"type": "string", "format": "uuid"},
+                    "items": {"type": "array"},
+                },
+            },
+            validator.canonical_schema({"$ref": "Response"}, schemas, "response"),
         )
 
     def test_mode20은_push_contract_4개를_canonical_schema로_projection한다(self):

@@ -26,7 +26,7 @@ public class PlacesProblemDefinitions implements ProblemDefinitionContributor {
             "현재 검색 조건으로 목록을 처음부터 다시 조회해 주세요."),
         problem("INVALID_CURSOR", "커서가 유효하지 않습니다", 400, "목록을 처음부터 다시 조회해 주세요."),
         problem("PLACE_QUERY_CONSTRAINT_VIOLATION", "검색 조건을 처리할 수 없습니다", 422, "검색 조건 조합을 변경해 주세요."),
-        problem("PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", 404, "장소가 없거나 공개할 수 없습니다."),
+        problem("PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", 404, "요청한 장소가 없거나 사용할 수 없습니다."),
         problem("PLACE_DATA_UNAVAILABLE", "장소 데이터를 사용할 수 없습니다", 503, "잠시 후 다시 시도해 주세요."));
   }
 

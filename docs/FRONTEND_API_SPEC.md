@@ -1,8 +1,8 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **현재 통합 공개 API 20개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 20` 명령이 #182의 9개, #34/#44의 7개와 #113의 4개 endpoint를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`은 #182+#34+#44 inventory를 그대로 보존한다.
+> **현재 통합 공개 API 21개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 21` 명령이 기존 20개와 #48 장소 선호 endpoint를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical mode는 이전 inventory를 그대로 보존한다.
 
-이 문서는 2026-08-26 현재 구현이 끝난 공개 Spring API 16개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 공개 Spring API 21개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
@@ -27,7 +27,7 @@
 
 ## OperationId와 code generation
 
-통합된 20개 operation은 #182 customizer가 확장한 stable lowerCamelCase operationId를 제공한다. #113은 `pushDevicesUpdate`, `pushDevicesDelete`, `notificationPreferencesRead`, `notificationPreferencesUpdate`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+통합된 21개 operation은 stable lowerCamelCase operationId를 제공한다. #48은 `tripPlacePreferencesUpdate`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
 ## 공통 헤더와 응답
 
@@ -922,6 +922,16 @@ Accept: application/json
 }
 ```
 
+### `PUT /api/v1/trips/{tripId}/place-preferences`
+
+operationId: `tripPlacePreferencesUpdate` · Codegen: **READY** · Canonical statuses: `200,400,401,404,409,422` · Generated OpenAPI statuses: `200,400,401,403,404,409,422,500,503` · 성공 media type: `application/json`
+
+인증과 strong `If-Match`가 필수인 전체교체 API다. `items`는 0..100개이며 빈 배열은 전체 삭제다. 각 item의 `placeId`, `type`, `targetDayNo`, `priority` property가 모두 필요하고 `targetDayNo`만 null을 허용한다. 같은 장소를 중복하거나 `must_visit`과 `avoid`로 동시에 지정할 수 없다. 자세한 wire 예시와 FE 상태 전이는 `docs/TRIP_PLACE_PREFERENCES_API.md`를 따른다.
+
+변경이 active schedule에 영향을 주면 응답의 `scheduleEffect=invalidated`, `regenerationRequired=true`, `activeScheduleVersionId=null`, `tripStatus=draft`가 같은 transaction에서 결정된다. canonical no-op은 기존 ETag와 schedule을 유지한다.
+
+오류: `400 INVALID_REQUEST`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 TRIP_NOT_FOUND | PLACE_NOT_FOUND`; `409 TRIP_VERSION_CONFLICT | TRIP_TERMINAL_STATE_CONFLICT`; `422 PLACE_PREFERENCE_CONSTRAINT_VIOLATION`; `503 TRIP_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+
 ### `GET /api/v1/weather/forecast`
 
 operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
@@ -999,4 +1009,4 @@ Accept: application/json
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #182의 9개, #34/#44의 7개와 #113의 4개 endpoint는 세 선행 clean SHA를 조상으로 포함한 checkout에서 새로 생성한 단일 20-operation artifact에 나타나 `--mode 20` 검사를 통과해야 Codegen READY로 승격된다. `--mode 16`은 push endpoint를 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 새로 생성한 단일 21-operation artifact가 `--mode 21` 검사를 통과해야 Codegen READY다. 이전 mode는 #48 endpoint를 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
