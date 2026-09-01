@@ -16,5 +16,6 @@
   - PostgreSQL `timestamptz`와 같은 microsecond 정밀도로 `scheduledAt`을 canonicalize해 nanosecond 입력의 no-op 판정을 안정화했다.
   - 같은 revision의 PUT/DELETE 경합에서도 한 writer만 성공하는 PostgreSQL 통합 테스트를 추가했다.
   - Docker schema contract가 calendar child trigger의 trip-plan mutex 누락을 검출해 `lock_trip_plan_schedule_mutex` 호출을 복원했다.
+  - Docker smoke가 `authenticated` direct SELECT grant를 검출해 transport-event를 Spring server-only 읽기·쓰기 경계로 정렬했다.
 - 보안:
   - request-time provider/MCP 호출이 없고 JWT·편명·terminal name·note·원천 payload를 로그/Problem Details에 남기지 않는다.

@@ -9,6 +9,7 @@ import com.timingjeju.api.application.transportevent.service.TransportEventServi
 import com.timingjeju.api.application.trip.TripExpectedRevision;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -120,6 +121,31 @@ class JdbcTransportEventStoreIntegrationTest extends PostgreSqlRepositoryIntegra
     assertCode(
         () -> service.delete(OWNER, TRIP, "arrival", expected(4)), "TRANSPORT_EVENT_NOT_FOUND");
     assertThat(fingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void transport_event_table은_client직접권한없이_server_role만_CRUD한다() {
+    for (String role : List.of("anon", "authenticated")) {
+      for (String privilege : List.of("SELECT", "INSERT", "UPDATE", "DELETE")) {
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_table_privilege(?, 'public.trip_transport_events', ?)",
+                    Boolean.class,
+                    role,
+                    privilege))
+            .as("%s은 %s 직접 권한이 없어야 한다", role, privilege)
+            .isFalse();
+      }
+    }
+    for (String privilege : List.of("SELECT", "INSERT", "UPDATE", "DELETE")) {
+      assertThat(
+              jdbc.queryForObject(
+                  "select has_table_privilege('service_role', 'public.trip_transport_events', ?)",
+                  Boolean.class,
+                  privilege))
+          .as("service_role은 %s 권한이 있어야 한다", privilege)
+          .isTrue();
+    }
   }
 
   @Test

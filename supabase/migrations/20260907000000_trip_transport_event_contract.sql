@@ -150,7 +150,6 @@ begin
   end if;
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
     execute 'revoke all on public.trip_transport_events from authenticated';
-    execute 'grant select on public.trip_transport_events to authenticated';
   end if;
   if exists (select 1 from pg_roles where rolname = 'service_role') then
     execute 'revoke all on public.trip_transport_events from service_role';
