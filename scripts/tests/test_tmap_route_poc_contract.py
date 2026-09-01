@@ -59,10 +59,18 @@ class TmapRoutePocContractTest(unittest.TestCase):
             "PROVIDER_NEUTRAL_WITH_TMAP_DISABLED_BY_DEFAULT",
             payload["decision"]["issue41Boundary"],
         )
-        self.assertEqual(
-            "PENDING", payload["decision"]["architectureOwnerApproval"]
-        )
-        self.assertEqual("PENDING", payload["decision"]["productOwnerApproval"])
+        for approval_key in (
+            "architectureOwnerApproval",
+            "productOwnerApproval",
+        ):
+            approval = payload["decision"][approval_key]
+            self.assertEqual("APPROVED", approval["status"])
+            self.assertEqual("kwongwangjae", approval["approvedBy"])
+            self.assertEqual("2026-09-01T22:41:52Z", approval["approvedAt"])
+            self.assertEqual(
+                "https://github.com/Timing-Jeju/jeju_BE/issues/40#issuecomment-5501405118",
+                approval["evidenceUrl"],
+            )
 
 
 if __name__ == "__main__":

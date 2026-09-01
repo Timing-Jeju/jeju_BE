@@ -131,7 +131,17 @@
       "NORMALIZED_ROUTE_FACTS_MUST_REMAIN_EPHEMERAL"
     ],
     "issue41Boundary": "PROVIDER_NEUTRAL_WITH_TMAP_DISABLED_BY_DEFAULT",
-    "architectureOwnerApproval": "PENDING",
-    "productOwnerApproval": "PENDING"
+    "architectureOwnerApproval": {
+      "status": "APPROVED",
+      "approvedBy": "kwongwangjae",
+      "approvedAt": "2026-09-01T22:41:52Z",
+      "evidenceUrl": "https://github.com/Timing-Jeju/jeju_BE/issues/40#issuecomment-5501405118"
+    },
+    "productOwnerApproval": {
+      "status": "APPROVED",
+      "approvedBy": "kwongwangjae",
+      "approvedAt": "2026-09-01T22:41:52Z",
+      "evidenceUrl": "https://github.com/Timing-Jeju/jeju_BE/issues/40#issuecomment-5501405118"
+    }
   }
 }

@@ -2,13 +2,17 @@
 
 ## 상태
 
-- 기술 권고: `DEFER`
+- 최종 판정: `DEFER`
 - 라이브 10구간 × 3모드 실행: `SKIPPED`
 - 사유: 현재 프로세스에 승인된 TMAP 키가 없고, `jeju_AI` 승인 계약에는 TMAP 대중교통이 없다.
-- Architecture Owner 승인: `PENDING`
-- Product Owner 승인: `PENDING`
+- Architecture Owner 승인: `APPROVED`
+- Product Owner 승인: `APPROVED`
+- 승인자: `kwongwangjae`
+- 승인시각: `2026-09-01T22:41:52Z`
+- 승인근거: <https://github.com/Timing-Jeju/jeju_BE/issues/40#issuecomment-5501405118>
 
-Owner 두 명이 승인하기 전에는 Issue #40을 완료하거나 #41 구현을 시작하지 않는다.
+두 Owner 승인은 #40의 `DEFER` 판정과 #41 경계를 확정한다. 독립 Reviewer 승인과 PR 승인은
+별도 저장소 절차로 유지한다.
 
 ## 적용한 우리 측 기준
 
@@ -47,11 +51,12 @@ FastAPI 프로세스의 승인된 on-demand adapter 경계에 남기며 Spring D
 안전한 reason code와 집계 latency뿐이다. 원문, geometry, 요청 URL/query, 좌표, 개별 구간의
 시간·거리·요금은 파일·DB·로그에 남기지 않는다.
 
-## 남은 승인
+## 승인된 판정
 
-Architecture Owner와 Product Owner는 다음 중 하나를 Issue #40에 명시해야 한다.
+Architecture Owner와 Product Owner는 다음 경계를 승인했다.
 
-- `DEFER 승인`: 위 #41 경계를 채택한다.
-- `재실측 요청`: 승인 키를 비밀 환경변수로 제공하고 10구간 × 허용 모드의 비저장 실행을 요구한다.
-- `NO_GO`: TMAP을 Spring 경계에서 사용하지 않고 fallback 계약만 유지한다.
-
+- 최종 판정은 `DEFER`다.
+- #41은 provider-neutral port와 TMAP 기본 비활성화 경계를 구현한다.
+- 대중교통은 공식 시간표와 TAGO를 사용한다.
+- TMAP raw·geometry·사용자 위치·개별 route metric을 영속 저장하지 않는다.
+- 신규 live 재실측은 별도 승인된 키와 비저장 실행 조건이 있을 때만 수행한다.
