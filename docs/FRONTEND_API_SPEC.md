@@ -1,8 +1,8 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **#45 기능 브랜치의 공개 API 22개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 22` 명령이 기존 20개와 trip PATCH/DELETE 2개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`은 이전 inventory를 그대로 보존한다.
+> **#68 기능 브랜치의 공개 API 25개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 25` 명령이 기존 22개와 숙소 CRUD 3개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 22`는 이전 inventory를 그대로 보존한다.
 
-이 문서는 2026-09-01 현재 구현이 끝난 공개 Spring API 22개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 2026-09-01 현재 #68 기능 브랜치에서 구현한 공개 Spring API 25개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
@@ -11,7 +11,7 @@
 | `develop` 사용 가능 | 기존 공개 API 20 | `origin/develop` `ae3926ac6428c1d93cd57372fbafb8dd31d34544`의 Controller/OpenAPI와 canonical contract |
 | **#45 기능 브랜치** | trip PATCH/DELETE 2 | `feat/45-trip-update-delete`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 
-현재 `develop`에서는 기존 20개를 호출할 수 있다. trip PATCH/DELETE는 독립 리뷰와 병합 전까지 #45 기능 브랜치에서만 검증하며, 이 문서는 해당 브랜치가 실제 생성한 22-operation artifact를 기준으로 한다.
+현재 기준은 #45의 trip PATCH/DELETE와 #68의 숙소 CRUD를 포함한 25개다. 숙소 CRUD는 독립 리뷰와 병합 전까지 #68 기능 브랜치에서 검증하며, 이 문서는 해당 브랜치가 실제 생성한 25-operation artifact를 기준으로 한다.
 
 ## Base URL과 인증
 
@@ -26,7 +26,9 @@
 
 ## OperationId와 code generation
 
-통합된 22개 operation은 stable lowerCamelCase operationId를 제공한다. #45는 `tripsUpdate`, `tripsDelete`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+통합된 25개 operation은 stable lowerCamelCase operationId를 제공한다. #45는 `tripsUpdate`, `tripsDelete`, #68은 `tripAccommodationsCreate`, `tripAccommodationsUpdate`, `tripAccommodationsDelete`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+
+`./scripts/generate_frontend_api_client.sh`는 25-operation artifact 검사를 먼저 통과한 뒤 고정된 `@hey-api/openapi-ts@0.99.0`과 `typescript@6.0.3`으로 `services/spring-api/build/frontend-api-client` 및 release archive를 생성한다. 생성물은 FE 저장소에 자동 복사하지 않는다.
 
 ## 공통 헤더와 응답
 
@@ -963,6 +965,60 @@ Authorization: Bearer <access-token>
 
 `live` 상태이거나 queued/running generation·compute·revision run이 있으면 `409 TRIP_DELETE_CONFLICT`, completed/cancelled/failed 상태이면 `409 TRIP_TERMINAL_STATE_CONFLICT`다. 그 밖의 오류는 `400 INVALID_REQUEST`, `503 TRIP_DATA_UNAVAILABLE`이다.
 
+### `POST /api/v1/trips/{tripId}/accommodations`
+
+operationId: `tripAccommodationsCreate` · Codegen: **READY on #68** · Generated statuses: `201,400,401,403,404,409,422,500,503`
+
+인증, printable ASCII `Idempotency-Key`(1..128자), 직전 trip strong `If-Match`가 필수다. closed body의 여섯 필드는 모두 존재해야 한다. `placeId`와 `customName`은 정확히 하나만 non-null이며, 날짜 구간은 `[checkInDate, checkOutDate)`, 시간은 KST wall-clock `HH:mm`이다. 서버는 입력한 날짜순으로 모든 숙소 `sequenceNo`를 같은 transaction에서 1부터 다시 부여한다.
+
+```http
+POST /api/v1/trips/68000000-0000-4000-8000-000000000068/accommodations HTTP/1.1
+Authorization: Bearer <access-token>
+Idempotency-Key: accommodation-create-68
+If-Match: "trip-68000000-0000-4000-8000-000000000068-r1"
+Content-Type: application/json
+```
+
+```json
+{
+  "placeId": null,
+  "customName": "제주알호텔",
+  "checkInDate": "2026-09-10",
+  "checkOutDate": "2026-09-12",
+  "checkInTime": "15:00",
+  "checkOutTime": "11:00"
+}
+```
+
+성공은 `201`과 `Location`, 새 trip `ETag`, `Idempotency-Replayed`를 반환한다. 같은 key와 같은 canonical body의 동시·재시도 요청은 원래 status/body/Location/ETag를 그대로 replay한다. body가 다르면 `409 IDEMPOTENCY_KEY_REUSED`다.
+
+### `PATCH /api/v1/trips/{tripId}/accommodations/{accommodationId}`
+
+operationId: `tripAccommodationsUpdate` · Codegen: **READY on #68** · Generated statuses: `200,400,401,403,404,409,422,500,503`
+
+인증과 trip `If-Match`가 필수다. closed body는 최소 한 필드다. 생략은 기존 값 유지, `null`은 `placeId/customName` identity 전환에서 잃는 쪽에만 허용한다. 날짜·시간의 explicit null과 결과 identity의 both-null/both-non-null은 `400 INVALID_REQUEST`다. canonical no-op은 revision, ETag, timestamp, active schedule을 그대로 보존한다.
+
+```json
+{
+  "placeId": "68000000-0000-4000-8000-000000000070",
+  "customName": null,
+  "checkInDate": "2026-09-10",
+  "checkOutDate": "2026-09-12",
+  "checkInTime": "16:00",
+  "checkOutTime": "11:00"
+}
+```
+
+실제 변경에 active schedule이 있으면 해당 version을 `superseded`로 바꾸고 pointer와 score를 제거한다. 응답은 `scheduleEffect=invalidated`, `regenerationRequired=true`, `tripStatus=draft`다. stale writer는 `409 TRIP_VERSION_CONFLICT`이며 자동 병합하지 않는다.
+
+### `DELETE /api/v1/trips/{tripId}/accommodations/{accommodationId}`
+
+operationId: `tripAccommodationsDelete` · Codegen: **READY on #68** · Generated statuses: `204,400,401,403,404,409,422,500,503`
+
+인증과 trip `If-Match`가 필수이고 query와 body는 금지한다. 성공은 content 없는 `204`이며 남은 sequence를 다시 압축한다. 중간 숙소 삭제로 날짜 공백이 생기면 `422 ACCOMMODATION_DATE_GAP_OR_OVERLAP`, active schedule이 있으면 `422 ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE`다. 타 소유자·다른 여행의 숙소 ID는 `404`로 숨긴다.
+
+숙소 mutation 응답의 식별자와 ETag는 FE 화면 객체와 섞지 말고 adapter side metadata로 보존한다. FE는 임의의 시간·거리·비용을 숙소 API에 보내지 않으며, 현재 저장소에는 이 API를 호출하도록 FE 코드를 변경하지 않았다. 전체 wire 예시와 DB 원자성은 `docs/ACCOMMODATION_API.md`를 따른다.
+
 ### `GET /api/v1/weather/forecast`
 
 operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
@@ -1040,4 +1096,4 @@ Accept: application/json
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #45 기능 브랜치는 새로 생성한 단일 22-operation artifact에서 `--mode 22` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`은 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #68 기능 브랜치는 새로 생성한 단일 25-operation artifact에서 `--mode 25` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`, `--mode 22`는 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.

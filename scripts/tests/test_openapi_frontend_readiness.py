@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from scripts.validate_openapi_frontend_readiness import (
+    ACCOMMODATION_OPERATIONS,
     CURRENT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
@@ -431,6 +432,42 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         }
         self.assertEqual(set(TRIP_MUTATION_OPERATIONS), trip_mutation_calls)
 
+    def test_mode25는_숙소_CRUD를_exact_inventory와_canonical_projection으로_검사한다(self):
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            ACCOMMODATION_OPERATIONS,
+        )
+        exact_operations = set().union(*(set(values) for values in operation_maps))
+        expected_ids = {}
+        for values in operation_maps:
+            expected_ids.update(values)
+        validator = Validator({}, 25, ROOT)
+        validator.operations = exact_operations
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected_ids.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 25, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        accommodation_calls = {
+            call.args[0]
+            for call in projection.call_args_list
+            if call.args[0] in ACCOMMODATION_OPERATIONS
+        }
+        self.assertEqual(set(ACCOMMODATION_OPERATIONS), accommodation_calls)
+        self.assertEqual(
+            "0335c49e5e60c11e5a365c67dbee970a11d247c5",
+            authority.source_provenance["accommodations"],
+        )
+
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
         with mock.patch(
@@ -725,6 +762,14 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual(
             "https://api.timing-jeju.example/problems/idempotency-key-reused",
             validator.expected_problem_type("IDEMPOTENCY_KEY_REUSED"),
+        )
+        self.assertEqual(
+            "https://api.timing-jeju.com/problems/idempotency-key-reused",
+            validator.expected_problem_type(
+                "IDEMPOTENCY_KEY_REUSED",
+                ("POST", "/api/v1/trips/{tripId}/accommodations"),
+                409,
+            ),
         )
 
     def test_secret_like_example과_internal_endpoint를_거부한다(self):

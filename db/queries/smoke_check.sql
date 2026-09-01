@@ -421,12 +421,15 @@ begin
   blocked := false;
   begin
     insert into trip_accommodations (
-      trip_plan_id, place_id, check_in_date, check_out_date, sequence_no
+      trip_plan_id, place_id, check_in_date, check_out_date,
+      check_in_time, check_out_time, sequence_no
     ) values (
       '50000000-0000-0000-0000-000000000001',
       '20000000-0000-0000-0000-000000000004',
       current_date,
       current_date + 1,
+      '15:00',
+      '11:00',
       99
     );
   exception
