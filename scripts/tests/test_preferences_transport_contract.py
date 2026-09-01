@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +16,7 @@ CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 REQUEST = ROOT / "fixtures/contracts/preferences-transport/request.json"
 SUCCESS = ROOT / "fixtures/contracts/preferences-transport/success.json"
 PROBLEM = ROOT / "fixtures/contracts/preferences-transport/problem.json"
+OWNERSHIP = ROOT / "fixtures/contracts/preferences-transport/ownership.json"
 VALIDATOR = ROOT / "scripts/validate_preferences_transport_contract.py"
 
 VALIDATOR_SPEC = importlib.util.spec_from_file_location(
@@ -30,6 +32,12 @@ EXPECTED_ENDPOINTS = {
     ("PUT", "/api/v1/trips/{tripId}/transport-event"),
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"),
 }
+EXPECTED_IMPLEMENTATION_OWNERS = {
+    ("PUT", "/api/v1/trips/{tripId}/preferences"): 46,
+    ("PUT", "/api/v1/trips/{tripId}/place-preferences"): 48,
+    ("PUT", "/api/v1/trips/{tripId}/transport-event"): 47,
+    ("DELETE", "/api/v1/trips/{tripId}/transport-event"): 47,
+}
 
 
 class PreferencesTransportContractTest(unittest.TestCase):
@@ -44,6 +52,90 @@ class PreferencesTransportContractTest(unittest.TestCase):
         actual = {(item["method"], item["path"]) for item in self.contract["endpoints"]}
         self.assertEqual(EXPECTED_ENDPOINTS, actual)
         self.assertEqual(4, len(self.contract["endpoints"]))
+
+    def test_implementation_ownership_is_single_complete_and_exact(self) -> None:
+        """네 endpoint의 구현 Issue가 누락이나 중복 없이 하나씩 고정되는지 검증한다."""
+        self.assertEqual([46, 47, 48], self.contract["implementationIssues"])
+        actual = {
+            (endpoint["method"], endpoint["path"]): endpoint["dbOwner"]
+            for endpoint in self.contract["endpoints"]
+        }
+        self.assertEqual(EXPECTED_ENDPOINTS, set(actual))
+        for identity, issue in EXPECTED_IMPLEMENTATION_OWNERS.items():
+            with self.subTest(identity=identity):
+                self.assertRegex(actual[identity], rf"implementation #{issue}$")
+                referenced = {
+                    int(value)
+                    for value in re.findall(r"implementation #(\d+)", actual[identity])
+                }
+                self.assertEqual({issue}, referenced)
+
+    def test_catalog_and_digest_fixture_preserve_the_same_owner_projection(self) -> None:
+        """catalog와 digest fixture가 canonical endpoint 소유권을 byte-stable하게 보존하는지 검증한다."""
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        endpoints = {
+            (endpoint["method"], endpoint["path"]): endpoint
+            for endpoint in catalog["endpoints"]
+            if (endpoint["method"], endpoint["path"]) in EXPECTED_ENDPOINTS
+        }
+        self.assertEqual(EXPECTED_ENDPOINTS, set(endpoints))
+        for identity, issue in EXPECTED_IMPLEMENTATION_OWNERS.items():
+            with self.subTest(identity=identity):
+                self.assertEqual(
+                    "Spring Preferences Transport domain; canonical sub owner, "
+                    f"cross-owner 404; implementation #{issue}",
+                    endpoints[identity]["owner"],
+                )
+                self.assertRegex(endpoints[identity]["dbOwner"], rf"implementation #{issue}$")
+
+        ownership = json.loads(OWNERSHIP.read_text(encoding="utf-8"))
+        self.assertEqual("timing-jeju-preferences-transport-ownership/v1", ownership["schemaVersion"])
+        self.assertEqual([46, 47, 48], ownership["implementationIssues"])
+        self.assertEqual(64, len(ownership["projectionSha256"]))
+        self.assertEqual(
+            "d1cd2bd461cbd2e6dc9cda4b43dc66cf4b28fe2d423095c436b26ec606c40214",
+            ownership["wireContractSha256"],
+        )
+        self.assertEqual("not-ready", ownership["readiness"]["implementation"]["status"])
+        self.assertEqual(VALIDATOR_MODULE._ownership_fixture(self.contract), ownership)
+
+    def test_validator_rejects_missing_duplicate_unknown_and_mismatched_owners(self) -> None:
+        """소유권 누락·중복·미등록 Issue·endpoint 불일치를 validator가 거부하는지 검증한다."""
+        mutations = (
+            ("implementationIssues", lambda c: c.update(implementationIssues=[46, 47])),
+            ("single implementation owner", lambda c: c["endpoints"][1].update(dbOwner="Spring transaction replaces trip_place_preferences; implementation #46/#48")),
+            ("unknown implementation Issue", lambda c: c["endpoints"][1].update(dbOwner="Spring transaction replaces trip_place_preferences; implementation #999")),
+            ("endpoint implementation owner", lambda c: c["endpoints"][3].update(dbOwner="Spring deletes selected trip_transport_events row; implementation #48")),
+            ("readiness", lambda c: c["readiness"]["implementation"].update(status="ready", evidence="#180")),
+        )
+        for expected, mutate in mutations:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "contract.json"
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate)
+                path.write_text(json.dumps(candidate, ensure_ascii=False), encoding="utf-8")
+                result = subprocess.run(
+                    ["python3", str(VALIDATOR), "--contract", str(path), "--skip-catalog-fixtures"],
+                    cwd=ROOT, text=True, capture_output=True, check=False,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(expected, result.stdout + result.stderr)
+
+    def test_validator_rejects_wire_contract_change_outside_owner_metadata(self) -> None:
+        """소유권 정렬 중 request·response wire 계약이 바뀌면 digest가 거부하는지 검증한다."""
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "contract.json"
+            candidate = copy.deepcopy(self.contract)
+            candidate["schemas"]["TransportMode"]["properties"]["mode"]["enum"].append(
+                "walking"
+            )
+            path.write_text(json.dumps(candidate, ensure_ascii=False), encoding="utf-8")
+            result = subprocess.run(
+                ["python3", str(VALIDATOR), "--contract", str(path)],
+                cwd=ROOT, text=True, capture_output=True, check=False,
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("wire contract digest", result.stdout + result.stderr)
 
     def test_preferences_is_full_replace_with_closed_enums_and_primary_rule(self) -> None:
         policy = self.contract["preferencePolicy"]
