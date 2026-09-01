@@ -1,4 +1,4 @@
-# Issue #40 TMAP 제주 이동수단 경로 PoC 판정 초안
+# Issue #40 TMAP 제주 이동수단 경로 PoC 최종 판정
 
 ## 상태
 
@@ -13,6 +13,23 @@
 
 두 Owner 승인은 #40의 `DEFER` 판정과 #41 경계를 확정한다. 독립 Reviewer 승인과 PR 승인은
 별도 저장소 절차로 유지한다.
+
+## 실행 가능한 계약
+
+`fixtures/tmap-route-poc/golden-matrix.json`은 다음 request를 고정한다.
+
+- 공개 장소 대표점 WGS84 좌표와 `longitude, latitude` 순서
+- `2026-09-15T09:00:00+09:00` 출발 및 승인 출발시각 구간
+- 10개 구간 × `PEDESTRIAN`, `DRIVING`, `PUBLIC_TRANSIT`의 정확한 30-case 결합
+- TMAP 보행·자동차 허용 host/path와 대중교통 TMAP 호출 금지
+
+`scripts/tmap_route_poc.py`는 30-case를 생성하고 response에서 개별 시간·거리·요금·geometry를
+즉시 버린 뒤 성공 여부, 안전한 reason code와 필드 가용성만 집계한다. 누락·중복·출발시각
+불일치면 판정을 거부하고 quota·timeout·provider 장애를 원문 없이 분류한다. 키가 없으면
+네트워크 호출을 시작하지 않고 `APPROVED_TMAP_KEY_NOT_PRESENT`로 skip한다.
+
+`fixtures/tmap-route-poc/deterministic-provider-responses.json`은 parser·집계 회귀만 검증하는
+`SYNTHETIC_CONTRACT_ONLY` fixture이며 live evidence나 공급자 적합성 근거로 사용하지 않는다.
 
 ## 적용한 우리 측 기준
 
@@ -40,6 +57,11 @@
 기존 검증은 TMAP 보행·차량 연결 가능성을 보여주지만 Issue #40이 요구하는 현재 시점의
 10구간 × 3모드 전체 실측이나 TMAP 대중교통 승인을 증명하지 않는다. 확인하지 않은
 duration, fare, walk segment를 과거 자료에서 새로 만들지 않는다.
+
+Issue 댓글의 2026-08-23 sanitized aggregate에는 당시 30건 중 자동차 10, 보행 10,
+대중교통 3건 성공과 대중교통 quota 7건이 기록돼 있다. 그러나 case별 artifact와 당시
+커밋은 현재 원격에서 소실됐고 TMAP 대중교통은 현재 승인 source가 아니므로 이 aggregate를
+qualifying evidence나 현재 판정의 정량 근거로 사용하지 않는다.
 
 ## DEFER 이후 경계
 

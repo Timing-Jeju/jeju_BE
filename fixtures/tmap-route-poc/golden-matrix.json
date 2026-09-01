@@ -1,81 +1,103 @@
 {
-  "schemaVersion": "1.0.0",
+  "schemaVersion": "2.0.0",
   "issueNumber": 40,
   "basis": "Timing-Jeju/jeju_AI",
+  "requestContract": {
+    "crs": "EPSG:4326",
+    "coordinateOrder": "LONGITUDE_LATITUDE",
+    "timezone": "Asia/Seoul",
+    "departureAt": "2026-09-15T09:00:00+09:00",
+    "earliestDepartureAt": "2026-09-02T00:00:00+09:00",
+    "latestDepartureAt": "2026-10-02T23:59:59+09:00",
+    "endpointBasis": "PUBLIC_PLACE_REPRESENTATIVE_POINT",
+    "jejuBounds": {
+      "minimumLatitude": 33.0,
+      "maximumLatitude": 34.0,
+      "minimumLongitude": 126.0,
+      "maximumLongitude": 127.0
+    }
+  },
   "goldenRoutes": [
     {
       "id": "airport-to-seongsan",
-      "origin": "제주국제공항",
-      "destination": "성산일출봉",
+      "origin": {"name": "제주국제공항", "longitude": 126.493, "latitude": 33.5066, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "성산일출봉", "longitude": 126.9408, "latitude": 33.4581, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "seongsan-to-seopjikoji",
-      "origin": "성산일출봉",
-      "destination": "섭지코지",
+      "origin": {"name": "성산일출봉", "longitude": 126.9408, "latitude": 33.4581, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "섭지코지", "longitude": 126.9305, "latitude": 33.4239, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "airport-to-jeju-terminal",
-      "origin": "제주국제공항",
-      "destination": "제주시외버스터미널",
+      "origin": {"name": "제주국제공항", "longitude": 126.493, "latitude": 33.5066, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "제주시외버스터미널", "longitude": 126.5147, "latitude": 33.4996, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "jeju-terminal-to-seongsan",
-      "origin": "제주시외버스터미널",
-      "destination": "성산일출봉",
+      "origin": {"name": "제주시외버스터미널", "longitude": 126.5147, "latitude": 33.4996, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "성산일출봉", "longitude": 126.9408, "latitude": 33.4581, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "seongsan-to-woljeongri",
-      "origin": "성산일출봉",
-      "destination": "월정리해변",
+      "origin": {"name": "성산일출봉", "longitude": 126.9408, "latitude": 33.4581, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "월정리해변", "longitude": 126.7958, "latitude": 33.5565, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "woljeongri-to-hamdeok",
-      "origin": "월정리해변",
-      "destination": "함덕해수욕장",
+      "origin": {"name": "월정리해변", "longitude": 126.7958, "latitude": 33.5565, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "함덕해수욕장", "longitude": 126.6692, "latitude": 33.5431, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "airport-to-hallim",
-      "origin": "제주국제공항",
-      "destination": "한림공원",
+      "origin": {"name": "제주국제공항", "longitude": 126.493, "latitude": 33.5066, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "한림공원", "longitude": 126.2397, "latitude": 33.3902, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "hallim-to-jungmun",
-      "origin": "한림공원",
-      "destination": "중문관광단지",
+      "origin": {"name": "한림공원", "longitude": 126.2397, "latitude": 33.3902, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "중문관광단지", "longitude": 126.412, "latitude": 33.2459, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "jungmun-to-seogwipo-market",
-      "origin": "중문관광단지",
-      "destination": "서귀포매일올레시장",
+      "origin": {"name": "중문관광단지", "longitude": 126.412, "latitude": 33.2459, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "서귀포매일올레시장", "longitude": 126.564, "latitude": 33.2501, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     },
     {
       "id": "seogwipo-market-to-airport",
-      "origin": "서귀포매일올레시장",
-      "destination": "제주국제공항",
+      "origin": {"name": "서귀포매일올레시장", "longitude": 126.564, "latitude": 33.2501, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
+      "destination": {"name": "제주국제공항", "longitude": 126.493, "latitude": 33.5066, "basis": "PUBLIC_PLACE_REPRESENTATIVE_POINT"},
       "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
     }
   ],
   "providerPolicy": {
     "PEDESTRIAN": {
       "sourceId": "tmap.pedestrian",
-      "tmapCallAllowed": true
+      "tmapCallAllowed": true,
+      "allowedHost": "apis.openapi.sk.com",
+      "allowedPathPrefix": "/tmap/routes/pedestrian",
+      "expectedFields": ["duration", "distance", "polyline"]
     },
     "DRIVING": {
       "sourceId": "tmap.driving",
-      "tmapCallAllowed": true
+      "tmapCallAllowed": true,
+      "allowedHost": "apis.openapi.sk.com",
+      "allowedPathPrefix": "/tmap/routes",
+      "expectedFields": ["duration", "distance", "fare", "polyline"]
     },
     "PUBLIC_TRANSIT": {
       "providerBoundary": "OFFICIAL_TIMETABLE_AND_TAGO",
-      "tmapCallAllowed": false
+      "tmapCallAllowed": false,
+      "expectedFields": ["duration", "fare", "walkSegment"]
     }
   },
   "persistencePolicy": {
@@ -121,7 +143,25 @@
   "liveRun": {
     "status": "SKIPPED",
     "reasonCode": "APPROVED_TMAP_KEY_NOT_PRESENT",
-    "persistedMetrics": false
+    "persistedMetrics": false,
+    "plannedCases": 30,
+    "plannedTmapCalls": 20,
+    "plannedOfficialTransitCases": 10
+  },
+  "historicalSanitizedAggregate": {
+    "status": "NON_QUALIFYING",
+    "total": 30,
+    "modeStatusCounts": {
+      "DRIVING": {"SUCCESS": 10},
+      "PEDESTRIAN": {"SUCCESS": 10},
+      "PUBLIC_TRANSIT": {"SUCCESS": 3, "QUOTA_EXCEEDED": 7}
+    },
+    "evidenceUrl": "https://github.com/Timing-Jeju/jeju_BE/issues/40#issuecomment-5386170602",
+    "limitations": [
+      "과거 TMAP 대중교통 호출은 현재 승인 source 경계에 포함되지 않는다",
+      "case별 sanitized artifact는 소실되어 현재 HEAD에서 재생할 수 없다",
+      "현재 DEFER 판정의 정량 근거로 사용하지 않는다"
+    ]
   },
   "decision": {
     "recommendation": "DEFER",
