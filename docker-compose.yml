@@ -45,6 +45,7 @@ services:
       - ./supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql:/docker-entrypoint-initdb.d/034_push_notification_server_writer_boundary.sql:ro
       - ./supabase/migrations/20260905000000_trip_update_delete_contract.sql:/docker-entrypoint-initdb.d/035_trip_update_delete_contract.sql:ro
       - ./supabase/migrations/20260906000000_trip_accommodation_contract.sql:/docker-entrypoint-initdb.d/036_trip_accommodation_contract.sql:ro
+      - ./supabase/migrations/20260907000000_trip_transport_event_contract.sql:/docker-entrypoint-initdb.d/037_trip_transport_event_contract.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
