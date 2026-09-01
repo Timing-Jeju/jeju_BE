@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "1.0.0",
+  "issueNumber": 40,
+  "basis": "Timing-Jeju/jeju_AI",
+  "goldenRoutes": [
+    {
+      "id": "airport-to-seongsan",
+      "origin": "제주국제공항",
+      "destination": "성산일출봉",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "seongsan-to-seopjikoji",
+      "origin": "성산일출봉",
+      "destination": "섭지코지",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "airport-to-jeju-terminal",
+      "origin": "제주국제공항",
+      "destination": "제주시외버스터미널",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "jeju-terminal-to-seongsan",
+      "origin": "제주시외버스터미널",
+      "destination": "성산일출봉",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "seongsan-to-woljeongri",
+      "origin": "성산일출봉",
+      "destination": "월정리해변",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "woljeongri-to-hamdeok",
+      "origin": "월정리해변",
+      "destination": "함덕해수욕장",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "airport-to-hallim",
+      "origin": "제주국제공항",
+      "destination": "한림공원",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "hallim-to-jungmun",
+      "origin": "한림공원",
+      "destination": "중문관광단지",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "jungmun-to-seogwipo-market",
+      "origin": "중문관광단지",
+      "destination": "서귀포매일올레시장",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    },
+    {
+      "id": "seogwipo-market-to-airport",
+      "origin": "서귀포매일올레시장",
+      "destination": "제주국제공항",
+      "modes": ["PEDESTRIAN", "DRIVING", "PUBLIC_TRANSIT"]
+    }
+  ],
+  "providerPolicy": {
+    "PEDESTRIAN": {
+      "sourceId": "tmap.pedestrian",
+      "tmapCallAllowed": true
+    },
+    "DRIVING": {
+      "sourceId": "tmap.driving",
+      "tmapCallAllowed": true
+    },
+    "PUBLIC_TRANSIT": {
+      "providerBoundary": "OFFICIAL_TIMETABLE_AND_TAGO",
+      "tmapCallAllowed": false
+    }
+  },
+  "persistencePolicy": {
+    "retention": "MEMORY_ONLY_LT_24H",
+    "maximumTtlMinutes": 1430,
+    "rawBody": false,
+    "geometry": false,
+    "routeMetrics": false,
+    "requestUrlOrQuery": false,
+    "userLocationHistory": false,
+    "safeLogFields": ["fingerprint", "checkedAt", "latencyMs", "status", "reasonCode"]
+  },
+  "existingEvidence": [
+    {
+      "type": "SOURCE_CONTRACT",
+      "repository": "Timing-Jeju/jeju_AI",
+      "commit": "d9cbd0d256e5bfe6d8c4f0d125d2b5fb0f710b2a",
+      "path": "config/data_sources.toml",
+      "finding": "tmap.pedestrian와 tmap.driving만 승인되고 MEMORY_ONLY_LT_24H를 사용한다"
+    },
+    {
+      "type": "LIVE_ACCEPTANCE",
+      "repository": "Timing-Jeju/jeju_AI",
+      "commit": "d9cbd0d256e5bfe6d8c4f0d125d2b5fb0f710b2a",
+      "path": "docs/reports/2026-08-17-v06-live-acceptance.md",
+      "finding": "대표 권역 tmap.driving 3개 구간이 통과했지만 운영 capability는 자동 활성화하지 않았다"
+    },
+    {
+      "type": "LIVE_ACCEPTANCE",
+      "repository": "Timing-Jeju/jeju_AI",
+      "commit": "d9cbd0d256e5bfe6d8c4f0d125d2b5fb0f710b2a",
+      "path": "docs/reports/2026-08-24-opening-hours-generation-integration.md",
+      "finding": "tmap.pedestrian 27개 호출이 통과했고 원문, geometry, 좌표, 키를 기록하지 않았다"
+    },
+    {
+      "type": "BUS_BOUNDARY",
+      "repository": "Timing-Jeju/jeju_AI",
+      "commit": "d9cbd0d256e5bfe6d8c4f0d125d2b5fb0f710b2a",
+      "path": "docs/reports/2026-08-18-v06-consolidated-final-acceptance.md",
+      "finding": "대중교통 시각은 공식 시간표를 사용하고 TMAP은 access, transfer, egress 보행에만 사용한다"
+    }
+  ],
+  "liveRun": {
+    "status": "SKIPPED",
+    "reasonCode": "APPROVED_TMAP_KEY_NOT_PRESENT",
+    "persistedMetrics": false
+  },
+  "decision": {
+    "recommendation": "DEFER",
+    "reasonCodes": [
+      "TMAP_PUBLIC_TRANSIT_NOT_APPROVED",
+      "FULL_TEN_ROUTE_THREE_MODE_LIVE_MATRIX_NOT_EXECUTED",
+      "NORMALIZED_ROUTE_FACTS_MUST_REMAIN_EPHEMERAL"
+    ],
+    "issue41Boundary": "PROVIDER_NEUTRAL_WITH_TMAP_DISABLED_BY_DEFAULT",
+    "architectureOwnerApproval": "PENDING",
+    "productOwnerApproval": "PENDING"
+  }
+}
