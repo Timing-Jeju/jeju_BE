@@ -322,7 +322,8 @@ public class JdbcAccommodationStore implements AccommodationStore {
             """
             select name
             from public.tour_places
-            where id = ? and tombstoned_at is null and source_deleted_at is null
+            where id = ? and content_type_id = '32'
+              and tombstoned_at is null and source_deleted_at is null
               and stale = false and (stale_at is null or stale_at > now())
             """,
             (rs, row) -> rs.getString("name"),

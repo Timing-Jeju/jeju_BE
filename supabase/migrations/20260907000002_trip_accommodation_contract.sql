@@ -144,6 +144,7 @@ for each row execute function public.protect_accommodation_idempotency_snapshot(
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on public.trip_accommodations from anon';
     execute 'revoke all on public.accommodation_idempotency from anon';
   end if;
   if exists (select 1 from pg_roles where rolname = 'authenticated') then

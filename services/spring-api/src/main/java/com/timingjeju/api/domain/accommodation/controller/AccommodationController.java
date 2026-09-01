@@ -3,7 +3,6 @@ package com.timingjeju.api.domain.accommodation.controller;
 import com.timingjeju.api.application.accommodation.AccommodationException;
 import com.timingjeju.api.application.accommodation.AccommodationHttpResult;
 import com.timingjeju.api.application.accommodation.service.AccommodationService;
-import com.timingjeju.api.application.idempotency.IdempotencyRequest;
 import com.timingjeju.api.application.security.CurrentUser;
 import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.application.trip.TripEntityTag;
@@ -21,11 +20,11 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.ObjectMapper;
 
 @RestController
@@ -54,19 +53,21 @@ public class AccommodationController implements AccommodationApiDocs {
       @PathVariable String tripId,
       @RequestHeader(name = "Idempotency-Key", required = false) String key,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
-      @RequestBody byte[] body,
       HttpServletRequest request) {
-    validateNoParameters(request);
+    AccommodationRequestBoundary.requireNoQuery(request);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
-    long expectedRevision = expectedRevision(canonicalTripId, ifMatch);
+    String canonicalKey =
+        AccommodationRequestBoundary.requiredSingleHeader(request, "Idempotency-Key");
+    parseCanonicalUuid(canonicalKey);
+    String canonicalIfMatch =
+        AccommodationRequestBoundary.requiredSingleHeader(request, HttpHeaders.IF_MATCH);
+    long expectedRevision = expectedRevision(canonicalTripId, canonicalIfMatch);
+    CreateAccommodationRequest body =
+        parseCreate(AccommodationRequestBoundary.readRequiredBody(request));
     CurrentUser current = currentUsers.getRequired();
     AccommodationHttpResult result =
         accommodations.create(
-            current.userId(),
-            canonicalTripId,
-            key,
-            expectedRevision,
-            parseCreate(body).toCommand());
+            current.userId(), canonicalTripId, canonicalKey, expectedRevision, body.toCommand());
     return response(result);
   }
 
@@ -79,19 +80,22 @@ public class AccommodationController implements AccommodationApiDocs {
       @PathVariable String tripId,
       @PathVariable String accommodationId,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
-      @RequestBody byte[] body,
       HttpServletRequest request) {
-    validateNoParameters(request);
+    AccommodationRequestBoundary.requireNoQuery(request);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
     UUID canonicalAccommodationId = parseCanonicalUuid(accommodationId);
-    long expectedRevision = expectedRevision(canonicalTripId, ifMatch);
+    String canonicalIfMatch =
+        AccommodationRequestBoundary.requiredSingleHeader(request, HttpHeaders.IF_MATCH);
+    long expectedRevision = expectedRevision(canonicalTripId, canonicalIfMatch);
+    PatchAccommodationRequest body =
+        parsePatch(AccommodationRequestBoundary.readRequiredBody(request));
     AccommodationHttpResult result =
         accommodations.patch(
             currentUsers.getRequired().userId(),
             canonicalTripId,
             canonicalAccommodationId,
             expectedRevision,
-            parsePatch(body).toCommand());
+            body.toCommand());
     return response(result);
   }
 
@@ -101,15 +105,13 @@ public class AccommodationController implements AccommodationApiDocs {
       @PathVariable String tripId,
       @PathVariable String accommodationId,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
-      @RequestBody(required = false) byte[] body,
       HttpServletRequest request) {
-    validateNoParameters(request);
-    if (body != null && body.length > 0) {
-      throw AccommodationException.invalidRequest();
-    }
+    AccommodationRequestBoundary.requireEmptyDelete(request);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
     UUID canonicalAccommodationId = parseCanonicalUuid(accommodationId);
-    long expectedRevision = expectedRevision(canonicalTripId, ifMatch);
+    String canonicalIfMatch =
+        AccommodationRequestBoundary.requiredSingleHeader(request, HttpHeaders.IF_MATCH);
+    long expectedRevision = expectedRevision(canonicalTripId, canonicalIfMatch);
     accommodations.delete(
         currentUsers.getRequired().userId(),
         canonicalTripId,
@@ -132,25 +134,23 @@ public class AccommodationController implements AccommodationApiDocs {
   }
 
   private CreateAccommodationRequest parseCreate(byte[] body) {
-    validateBodySize(body);
     try {
-      return objectMapper.readValue(body, CreateAccommodationRequest.class);
+      return objectMapper
+          .readerFor(CreateAccommodationRequest.class)
+          .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+          .readValue(body);
     } catch (JacksonException | AccommodationException failure) {
       throw AccommodationException.invalidRequest();
     }
   }
 
   private PatchAccommodationRequest parsePatch(byte[] body) {
-    validateBodySize(body);
     try {
-      return objectMapper.readValue(body, PatchAccommodationRequest.class);
+      return objectMapper
+          .readerFor(PatchAccommodationRequest.class)
+          .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+          .readValue(body);
     } catch (JacksonException | AccommodationException failure) {
-      throw AccommodationException.invalidRequest();
-    }
-  }
-
-  private static void validateBodySize(byte[] body) {
-    if (body == null || body.length == 0 || body.length > IdempotencyRequest.MAX_BODY_BYTES) {
       throw AccommodationException.invalidRequest();
     }
   }
@@ -178,12 +178,6 @@ public class AccommodationController implements AccommodationApiDocs {
       }
       return parsed;
     } catch (IllegalArgumentException failure) {
-      throw AccommodationException.invalidRequest();
-    }
-  }
-
-  private static void validateNoParameters(HttpServletRequest request) {
-    if (!request.getParameterMap().isEmpty()) {
       throw AccommodationException.invalidRequest();
     }
   }

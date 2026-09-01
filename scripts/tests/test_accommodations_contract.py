@@ -13,6 +13,9 @@ CONTRACT = ROOT / "docs/contracts/domains/accommodations/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 FIXTURE_DIR = ROOT / "fixtures/contracts/accommodations"
 VALIDATOR = ROOT / "scripts/validate_accommodations_contract.py"
+STORE = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/domain/accommodation/adapter/JdbcAccommodationStore.java"
+MIGRATION = ROOT / "supabase/migrations/20260906000001_trip_accommodation_contract.sql"
+REQUEST_BOUNDARY = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/domain/accommodation/controller/AccommodationRequestBoundary.java"
 SPEC = importlib.util.spec_from_file_location("validate_accommodations_contract", VALIDATOR)
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -36,6 +39,41 @@ class AccommodationsContractTest(unittest.TestCase):
         self.assertEqual(87, self.contract["ownerIssue"])
         self.assertEqual(EXPECTED_ENDPOINTS, {(e["method"], e["path"]) for e in self.contract["endpoints"]})
         self.assertEqual(3, len(self.contract["endpoints"]))
+
+    def test_lodging_place_lookup_is_closed_and_preserves_freshness_semantics(self) -> None:
+        source = " ".join(STORE.read_text(encoding="utf-8").split())
+
+        self.assertIn("content_type_id = '32'", source)
+        self.assertIn("tombstoned_at is null", source)
+        self.assertIn("source_deleted_at is null", source)
+        self.assertIn("stale = false", source)
+        self.assertIn("(stale_at is null or stale_at > now())", source)
+
+    def test_accommodation_acl_is_client_closed_and_service_role_is_least_privilege(self) -> None:
+        sql = " ".join(MIGRATION.read_text(encoding="utf-8").split()).lower()
+
+        for role in ("anon", "authenticated"):
+            for table in ("trip_accommodations", "accommodation_idempotency"):
+                self.assertIn(f"revoke all on public.{table} from {role}", sql)
+        for table in ("trip_accommodations", "accommodation_idempotency"):
+            self.assertIn(f"revoke all on public.{table} from service_role", sql)
+            self.assertIn(
+                f"grant select,insert,update,delete on public.{table} to service_role",
+                sql,
+            )
+            self.assertNotIn(f"grant all on public.{table} to service_role", sql)
+            for privilege in ("truncate", "references", "trigger"):
+                self.assertNotIn(
+                    f"grant {privilege} on public.{table} to service_role",
+                    sql,
+                )
+
+    def test_raw_absent_servlet_length_must_match_bounded_body_but_unknown_is_allowed(self) -> None:
+        source = " ".join(REQUEST_BOUNDARY.read_text(encoding="utf-8").split())
+
+        self.assertIn("servletLength < -1 || servletLength > MAX_BODY_BYTES", source)
+        self.assertIn("servletLength >= 0 && servletLength != body.length", source)
+        self.assertNotIn("servletLength == -1", source)
 
     def test_xor_timezone_coverage_gap_overlap_and_order_are_explicit(self) -> None:
         policy = self.contract["accommodationPolicy"]

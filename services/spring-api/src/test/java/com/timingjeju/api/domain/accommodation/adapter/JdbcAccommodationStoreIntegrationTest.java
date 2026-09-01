@@ -13,8 +13,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -256,6 +260,69 @@ class JdbcAccommodationStoreIntegrationTest extends PostgreSqlRepositoryIntegrat
     assertThat(count()).isZero();
   }
 
+  @ParameterizedTest(name = "CREATE invalid place lifecycle: {0}")
+  @MethodSource("invalidPlaceStates")
+  void CREATE는_숙박이아니거나_비활성_place를_거부하고_어떤_흔적도_남기지않는다(String state, String mutation) {
+    jdbc.update(mutation, PLACE);
+    String before = fingerprint();
+    String key = "invalid-place-" + state;
+
+    assertCode(() -> service.create(OWNER, TRIP, key, expected(1), place(1, 2)), "PLACE_NOT_FOUND");
+
+    assertThat(fingerprint()).isEqualTo(before);
+    assertThat(count()).isZero();
+    assertThat(idempotencyCount(key)).isZero();
+  }
+
+  @ParameterizedTest(name = "PATCH invalid place lifecycle: {0}")
+  @MethodSource("invalidPlaceStates")
+  void PATCH_identity_switch는_숙박이아니거나_비활성_place를_거부하고_원본을_보존한다(String state, String mutation) {
+    service.create(
+        OWNER, TRIP, "patch-invalid-source-" + state, expected(1), custom("원본 숙소", 1, 3));
+    UUID accommodationId = accommodationId();
+    jdbc.update(mutation, PLACE);
+    String before = fingerprint();
+
+    assertCode(
+        () ->
+            service.patch(
+                OWNER,
+                TRIP,
+                accommodationId,
+                expected(2),
+                PatchAccommodationCommand.identity(
+                    AccommodationPatchValue.present(PLACE), AccommodationPatchValue.present(null))),
+        "PLACE_NOT_FOUND");
+
+    assertThat(fingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void future_stale_at의_숙박_place는_active로_허용한다() {
+    jdbc.update(
+        "update public.tour_places set stale=false, stale_at=now()+interval '1 hour' where id=?",
+        PLACE);
+
+    service.create(OWNER, TRIP, "future-fresh-place", expected(1), place(1, 2));
+
+    assertThat(count()).isOne();
+    assertThat(revision()).isEqualTo(2L);
+  }
+
+  private static Stream<Arguments> invalidPlaceStates() {
+    return Stream.of(
+        Arguments.of(
+            "non-lodging", "update public.tour_places set content_type_id='12' where id=?"),
+        Arguments.of(
+            "stale-flag", "update public.tour_places set stale=true, stale_at=now() where id=?"),
+        Arguments.of(
+            "effective-stale-at",
+            "update public.tour_places set stale=false, stale_at=now()-interval '1 second' where id=?"),
+        Arguments.of("tombstoned", "update public.tour_places set tombstoned_at=now() where id=?"),
+        Arguments.of(
+            "source-deleted", "update public.tour_places set source_deleted_at=now() where id=?"));
+  }
+
   private long expected(long revision) {
     return revision;
   }
@@ -295,9 +362,9 @@ class JdbcAccommodationStoreIntegrationTest extends PostgreSqlRepositoryIntegrat
     jdbc.update(
         """
         insert into public.tour_places (
-          id, content_id, name, normalized_name, category, region_code, region_label,
+          id, content_id, content_type_id, name, normalized_name, category, region_code, region_label,
           location, source_provider, source_service
-        ) values (?, 'issue68-place', '제주알호텔', '제주알호텔', 'ST', 'jeju-si', '제주시',
+        ) values (?, 'issue68-place', '32', '제주알호텔', '제주알호텔', 'ST', 'jeju-si', '제주시',
           ST_SetSRID(ST_MakePoint(126.5, 33.5), 4326)::geography, 'fixture', 'issue68')
         """,
         PLACE);
@@ -383,17 +450,30 @@ class JdbcAccommodationStoreIntegrationTest extends PostgreSqlRepositoryIntegrat
         "select revision from public.trip_plans where id = ?", Long.class, TRIP);
   }
 
+  private int idempotencyCount(String key) {
+    return jdbc.queryForObject(
+        "select count(*) from public.accommodation_idempotency where owner_sub=? and trip_plan_id=? and idempotency_key=?",
+        Integer.class,
+        OWNER,
+        TRIP,
+        key);
+  }
+
   private String fingerprint() {
     return jdbc.queryForObject(
         """
         select p.revision::text || ':' || p.status || ':' || p.updated_at::text || ':' ||
+               coalesce(p.active_schedule_version_id::text, 'null') || ':' ||
+               coalesce(p.total_score::text, 'null') || ':' ||
                coalesce(string_agg(a.id::text || ':' || a.sequence_no::text || ':' ||
-                 a.check_in_date::text || ':' || a.check_out_date::text || ':' || a.updated_at::text,
+                 coalesce(a.place_id::text, 'null') || ':' || coalesce(a.custom_name, 'null') || ':' ||
+                 a.check_in_date::text || ':' || a.check_out_date::text || ':' ||
+                 a.check_in_time::text || ':' || a.check_out_time::text || ':' || a.updated_at::text,
                  ',' order by a.sequence_no), '')
         from public.trip_plans p
         left join public.trip_accommodations a on a.trip_plan_id = p.id
         where p.id = ?
-        group by p.revision, p.status, p.updated_at
+        group by p.revision, p.status, p.updated_at, p.active_schedule_version_id, p.total_score
         """,
         String.class,
         TRIP);

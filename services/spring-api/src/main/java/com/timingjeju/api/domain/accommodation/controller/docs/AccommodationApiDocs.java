@@ -80,7 +80,7 @@ public interface AccommodationApiDocs {
               name = "Idempotency-Key",
               in = ParameterIn.HEADER,
               required = true,
-              schema = @Schema(type = "string", pattern = "^[!-~]{1,128}$"))
+              schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String key,
       @Parameter(
               name = "If-Match",
@@ -88,7 +88,6 @@ public interface AccommodationApiDocs {
               required = true,
               schema = @Schema(type = "string", pattern = ETAG_PATTERN))
           String ifMatch,
-      byte[] body,
       @Parameter(hidden = true) HttpServletRequest request);
 
   @Operation(
@@ -151,7 +150,6 @@ public interface AccommodationApiDocs {
               required = true,
               schema = @Schema(type = "string", pattern = ETAG_PATTERN))
           String ifMatch,
-      byte[] body,
       @Parameter(hidden = true) HttpServletRequest request);
 
   @Operation(
@@ -208,6 +206,5 @@ public interface AccommodationApiDocs {
               required = true,
               schema = @Schema(type = "string", pattern = ETAG_PATTERN))
           String ifMatch,
-      @Parameter(hidden = true) byte[] body,
       @Parameter(hidden = true) HttpServletRequest request);
 }
