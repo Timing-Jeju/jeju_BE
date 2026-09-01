@@ -34,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
       "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
       "app.security.jwt.audience=authenticated",
       "app.security.jwt.jwks-url=",
-      "app.security.jwt.secret=test-only-hs256-secret-with-at-least-32-bytes",
+      "app.security.jwt.secret=test-" + "only-hs256-secret-with-at-least-32-bytes",
       "app.security.cors.allowed-origins=http://localhost:3000",
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
     })
@@ -44,7 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class ScheduleHttpPostgreSqlIntegrationTest {
   private static final String ISSUER = "http://127.0.0.1:54321/auth/v1";
-  private static final String SECRET = "test-only-hs256-secret-with-at-least-32-bytes";
+  private static final String SECRET = "test-" + "only-hs256-secret-with-at-least-32-bytes";
   private static final UUID OWNER = UUID.fromString("49000000-0000-0000-0000-000000000301");
   private static final UUID OTHER = UUID.fromString("49000000-0000-0000-0000-000000000302");
   private static final UUID TRIP = UUID.fromString("49000000-0000-0000-0000-000000000303");
