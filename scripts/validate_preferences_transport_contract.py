@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -18,12 +19,23 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/preferences-transport/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 FIXTURES = ROOT / "fixtures/contracts/preferences-transport"
+OWNERSHIP_FIXTURE = FIXTURES / "ownership.json"
 EXPECTED_ENDPOINTS = {
     ("PUT", "/api/v1/trips/{tripId}/preferences"),
     ("PUT", "/api/v1/trips/{tripId}/place-preferences"),
     ("PUT", "/api/v1/trips/{tripId}/transport-event"),
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"),
 }
+EXPECTED_IMPLEMENTATION_OWNERS = {
+    ("PUT", "/api/v1/trips/{tripId}/preferences"): 46,
+    ("PUT", "/api/v1/trips/{tripId}/place-preferences"): 48,
+    ("PUT", "/api/v1/trips/{tripId}/transport-event"): 47,
+    ("DELETE", "/api/v1/trips/{tripId}/transport-event"): 47,
+}
+EXPECTED_IMPLEMENTATION_ISSUES = [46, 47, 48]
+CANONICAL_WIRE_CONTRACT_SHA256 = (
+    "d1cd2bd461cbd2e6dc9cda4b43dc66cf4b28fe2d423095c436b26ec606c40214"
+)
 COMMON_RESPONSE_FIELDS = {
     "tripId", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId",
     "tripStatus", "updatedAt",
@@ -113,6 +125,114 @@ def _load(path: Path) -> Any:
 
 def _non_empty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _implementation_issues(db_owner: Any) -> list[int]:
+    if not isinstance(db_owner, str):
+        return []
+    return [int(value) for value in re.findall(r"#(\d+)", db_owner)]
+
+
+def _validate_implementation_ownership(
+    contract: dict[str, Any], errors: list[str]
+) -> None:
+    if contract.get("implementationIssues") != EXPECTED_IMPLEMENTATION_ISSUES:
+        errors.append("implementationIssues는 [46, 47, 48]이어야 합니다.")
+
+    endpoint_owners: dict[tuple[Any, Any], int] = {}
+    endpoints = contract.get("endpoints")
+    if not isinstance(endpoints, list):
+        return
+    for endpoint in endpoints:
+        if not isinstance(endpoint, dict):
+            continue
+        identity = (endpoint.get("method"), endpoint.get("path"))
+        referenced = _implementation_issues(endpoint.get("dbOwner"))
+        if len(referenced) != 1:
+            errors.append(f"{identity} single implementation owner가 필요합니다.")
+            continue
+        issue = referenced[0]
+        endpoint_owners[identity] = issue
+        if issue not in EXPECTED_IMPLEMENTATION_ISSUES:
+            errors.append(f"{identity} unknown implementation Issue #{issue}입니다.")
+        if issue != EXPECTED_IMPLEMENTATION_OWNERS.get(identity):
+            errors.append(f"{identity} endpoint implementation owner가 다릅니다.")
+
+    if set(endpoint_owners) == EXPECTED_ENDPOINTS:
+        covered = set(endpoint_owners.values())
+        if covered != set(EXPECTED_IMPLEMENTATION_ISSUES):
+            errors.append("endpoint implementation owner coverage에 누락 또는 중복이 있습니다.")
+
+
+def _ownership_projection(contract: dict[str, Any]) -> dict[str, Any]:
+    endpoints = contract.get("endpoints", [])
+    endpoint_owners = []
+    for endpoint in sorted(
+        (item for item in endpoints if isinstance(item, dict)),
+        key=lambda item: (str(item.get("path")), str(item.get("method"))),
+    ):
+        referenced = _implementation_issues(endpoint.get("dbOwner"))
+        endpoint_owners.append(
+            {
+                "method": endpoint.get("method"),
+                "path": endpoint.get("path"),
+                "implementationIssue": referenced[0] if len(referenced) == 1 else None,
+                "dbOwner": endpoint.get("dbOwner"),
+            }
+        )
+    return {
+        "schemaVersion": "timing-jeju-preferences-transport-ownership/v1",
+        "contractVersion": contract.get("contractVersion"),
+        "implementationIssues": contract.get("implementationIssues"),
+        "endpointOwners": endpoint_owners,
+        "readiness": contract.get("readiness"),
+    }
+
+
+def _ownership_fixture(contract: dict[str, Any]) -> dict[str, Any]:
+    projection = _ownership_projection(contract)
+    encoded = json.dumps(
+        projection,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return {
+        **projection,
+        "projectionSha256": hashlib.sha256(encoded).hexdigest(),
+        "wireContractSha256": _wire_contract_sha256(contract),
+    }
+
+
+def _wire_contract_sha256(contract: dict[str, Any]) -> str:
+    wire_contract = json.loads(json.dumps(contract, ensure_ascii=False, allow_nan=False))
+    wire_contract.pop("implementationIssues", None)
+    wire_contract.pop("schemaGap", None)
+    for endpoint in wire_contract.get("endpoints", []):
+        if isinstance(endpoint, dict):
+            endpoint.pop("dbOwner", None)
+    encoded = json.dumps(
+        wire_contract,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_ownership_fixture(contract: dict[str, Any], errors: list[str]) -> None:
+    try:
+        fixture = _load(OWNERSHIP_FIXTURE)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        errors.append(f"ownership digest fixture를 읽을 수 없습니다: {exc}")
+        return
+    expected = _ownership_fixture(contract)
+    if fixture != expected:
+        errors.append("ownership digest fixture가 canonical projection과 다릅니다.")
+    if expected["wireContractSha256"] != CANONICAL_WIRE_CONTRACT_SHA256:
+        errors.append("wire contract digest가 변경되어 owner metadata 범위를 벗어났습니다.")
 
 
 def _validate_schema(contract: dict[str, Any], errors: list[str]) -> None:
@@ -346,9 +466,12 @@ def _catalog_endpoint(endpoint: dict[str, Any]) -> dict[str, Any]:
     request = endpoint["requestSchema"]
     path_schema, _, body_or_query = request.partition(" + ")
     is_delete = endpoint["method"] == "DELETE"
+    identity = (endpoint["method"], endpoint["path"])
+    implementation_issue = EXPECTED_IMPLEMENTATION_OWNERS[identity]
     return {
         "method": endpoint["method"], "path": endpoint["path"], "operation": endpoint["operation"],
-        "auth": endpoint["auth"], "owner": "Spring Preferences Transport domain; canonical sub owner, cross-owner 404; implementation #46/#47",
+        "auth": endpoint["auth"], "owner": "Spring Preferences Transport domain; canonical sub owner, cross-owner 404; "
+        f"implementation #{implementation_issue}",
         "schemas": {"path": path_schema, "query": body_or_query if is_delete else "none", "headers": endpoint["headersSchema"], "body": "none" if is_delete else body_or_query},
         "presence": endpoint["presence"], "responses": endpoint["responses"], "dbOwner": endpoint["dbOwner"],
         "requestTimeCall": endpoint["requestTimeCall"], "dataLineage": endpoint["dataLineage"],
@@ -646,6 +769,7 @@ def validate(contract: Any, skip_catalog_fixtures: bool = False) -> list[str]:
         errors.append("contract required/unknown top-level field exact 집합이 다릅니다.")
     if contract.get("schemaVersion") != "timing-jeju-preferences-transport-contract/v1" or contract.get("contractVersion") != "1.0.0" or contract.get("inherits") != "timing-jeju-rest-contract/v1" or contract.get("ownerIssue") != 86:
         errors.append("계약 identity/version/inheritance가 다릅니다.")
+    _validate_implementation_ownership(contract, errors)
     _validate_schema(contract, errors)
     _validate_endpoints(contract, errors)
     _validate_error_conditions(contract, errors)
@@ -654,6 +778,7 @@ def validate(contract: Any, skip_catalog_fixtures: bool = False) -> list[str]:
     if not skip_catalog_fixtures:
         _validate_catalog(contract, errors)
         _validate_fixtures(contract, errors)
+        _validate_ownership_fixture(contract, errors)
     return errors
 
 
