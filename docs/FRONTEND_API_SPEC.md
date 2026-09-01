@@ -1,8 +1,8 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **현재 통합 공개 API 20개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 20` 명령이 #182의 9개, #34/#44의 7개와 #113의 4개 endpoint를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`은 #182+#34+#44 inventory를 그대로 보존한다.
+> **#49 기능 브랜치의 통합 공개 API 21개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 21` 명령이 기존 20개와 schedule read 1개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`과 `--mode 20`은 이전 inventory를 그대로 보존한다.
 
-이 문서는 2026-08-26 현재 구현이 끝난 공개 Spring API 16개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 기존 공개 Spring API와 #49 기능 브랜치의 schedule read를 합친 21개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
@@ -11,6 +11,7 @@
 | `develop` 사용 가능 | auth 2, profile 2, legal 2, places 2, weather 1 | `origin/develop` `39ed577f4c2b839177faea0ab774e8d3102ed988`의 Controller/OpenAPI와 canonical contract |
 | **#34 병합 대기** | saved places 4 | clean HEAD `bd83872b1fd91d5e5c1980422634198734c92cf1`의 Controller/ApiDocs와 `saved-places` contract; combined 생성 artifact 검증 대기 |
 | **#44 병합 대기** | trips 3 | 최종 clean HEAD `9a4c4b2f78d61d8f37e8f27646f888eddd28a2de`의 Controller/ApiDocs/runtime과 `trips` contract; combined 생성 artifact 검증 대기 |
+| **#49 기능 브랜치** | schedule read 1 | `feat/49-active-schedule-read`의 Controller/Service/JDBC/OpenAPI와 schedules contract v1.0.0; `--mode 21` 생성 artifact 검증 |
 
 따라서 현재 `develop` 서버 한 대에서 16개를 모두 호출할 수 있는 상태는 아니다. #34와 #44가 `develop`에 병합되기 전에는 해당 표식이 붙은 endpoint를 각 기능 브랜치에서 검증한다. 이 문서는 두 브랜치의 wire contract를 선반영하지만 아직 미구현인 trip PATCH/DELETE 등은 포함하지 않는다.
 
@@ -27,7 +28,7 @@
 
 ## OperationId와 code generation
 
-통합된 20개 operation은 #182 customizer가 확장한 stable lowerCamelCase operationId를 제공한다. #113은 `pushDevicesUpdate`, `pushDevicesDelete`, `notificationPreferencesRead`, `notificationPreferencesUpdate`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+기존 20개 operation에 #49의 `tripScheduleRead`를 더한 21개 operation은 stable lowerCamelCase operationId를 제공한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
 ## 공통 헤더와 응답
 
@@ -922,6 +923,59 @@ Accept: application/json
 }
 ```
 
+### `GET /api/v1/trips/{tripId}/schedule`
+
+operationId: `tripScheduleRead` · Codegen: **#49 feature artifact READY** · Canonical statuses: `200,400,401,404` · Generated OpenAPI statuses: `200,400,401,403,404,500` · success media type: `application/json`
+
+인증 필수. `tripId`와 optional `versionId`는 lowercase canonical UUID다. `versionId`를 생략하면 owner trip의 active pointer를, 지정하면 같은 owner/trip의 불변 버전을 조회한다. active pointer 없음, 다른 trip/owner 버전, 존재하지 않는 버전은 모두 `404 SCHEDULE_VERSION_NOT_FOUND`; 여행 없음과 cross-owner 여행은 `404 TRIP_NOT_FOUND`로 은닉한다. GET body, 빈·반복·unknown query는 `400 INVALID_REQUEST`다.
+
+Day는 `(dayNo, dayId)`, item과 leg는 각각 `(sequenceNo, itemId)`와 `(sequenceNo, legId)` 오름차순이다. 비정상 중복 번호도 숨기지 않고 UUID tie-break 순서로 투영한다. item N개에는 정렬된 인접 pair를 잇는 leg가 정확히 `max(N-1,0)`개 있어야 하며, 불완전한 저장 행을 0이나 임의 시간으로 채우지 않고 원천 정보를 노출하지 않는 공통 `500 INTERNAL_SERVER_ERROR`로 fail-closed한다. 모든 일정·진행 시각은 `+09:00`이다. `score`는 선택한 버전의 저장 점수이고 `feasibilityStale`은 같은 버전 최신 성공 feasibility의 `observedAt <= calculatedAt <= expiresAt` 및 응답 시각 `< expiresAt` 조건으로 계산한다.
+
+```http
+GET /api/v1/trips/49000000-0000-4000-8000-000000000001/schedule?versionId=49000000-0000-4000-8000-000000000002 HTTP/1.1
+Authorization: Bearer <access-token>
+Accept: application/json
+```
+
+```json
+{
+  "tripId": "49000000-0000-4000-8000-000000000001",
+  "scheduleVersion": {
+    "scheduleVersionId": "49000000-0000-4000-8000-000000000002",
+    "versionNo": 1,
+    "status": "active",
+    "sourceType": "initial",
+    "baseScheduleVersionId": null,
+    "score": 81,
+    "feasibilityStale": false
+  },
+  "days": [
+    {
+      "dayId": "49000000-0000-4000-8000-000000000003",
+      "dayNo": 1,
+      "date": "2026-09-01",
+      "items": [
+        {
+          "itemId": "49000000-0000-4000-8000-000000000004",
+          "sequenceNo": 1,
+          "itemType": "custom",
+          "placeId": null,
+          "title": "공항 도착",
+          "plannedStartAt": "2026-09-01T09:00:00+09:00",
+          "plannedEndAt": "2026-09-01T10:00:00+09:00",
+          "stayMinutes": 60,
+          "bufferAfterMinutes": 0,
+          "required": true,
+          "memo": null,
+          "progress": null
+        }
+      ],
+      "legs": []
+    }
+  ]
+}
+```
+
 ### `GET /api/v1/weather/forecast`
 
 operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
@@ -999,4 +1053,4 @@ Accept: application/json
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #182의 9개, #34/#44의 7개와 #113의 4개 endpoint는 세 선행 clean SHA를 조상으로 포함한 checkout에서 새로 생성한 단일 20-operation artifact에 나타나 `--mode 20` 검사를 통과해야 Codegen READY로 승격된다. `--mode 16`은 push endpoint를 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #49 기능 브랜치에서 새로 생성한 단일 21-operation artifact가 `--mode 21` 검사를 통과해야 schedule read를 Codegen READY로 인정한다. `--mode 16`과 `--mode 20`은 각각 historical inventory를 유지하며 schedule endpoint를 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
