@@ -35,6 +35,7 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
   private static final UUID DAY_3 = UUID.fromString("48000000-0000-0000-0000-000000000111");
   private static final UUID ITEM_2 = UUID.fromString("48000000-0000-0000-0000-000000000112");
   private static final UUID ITEM_3 = UUID.fromString("48000000-0000-0000-0000-000000000113");
+  private static final UUID CALENDAR_TRIP = UUID.fromString("48000000-0000-0000-0000-000000000114");
   private static final Instant ORIGINAL_AT = Instant.parse("2026-09-01T00:00:00Z");
   private static final Instant UPDATE_AT = Instant.parse("2026-09-01T01:00:00.123456Z");
 
@@ -307,6 +308,35 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
                 jdbc.update("update public.trip_plans set end_date='2026-09-01' where id=?", TRIP))
         .isInstanceOf(org.springframework.dao.DataAccessException.class)
         .hasMessageContaining("calendar excludes");
+  }
+
+  @Test
+  void schema는_선호_Day가_남는_여행기간_축소를_허용한다() {
+    jdbc.update(
+        """
+        insert into public.trip_plans (
+          id,user_id,public_token,status,start_date,end_date,timezone,user_pace,
+          source_mode,data_version,created_at,updated_at
+        ) values (?,?,'issue48-calendar-trip','draft','2026-09-01','2026-09-03',
+          'Asia/Seoul','normal','fixture','issue-48',?,?)
+        """,
+        CALENDAR_TRIP,
+        OWNER,
+        Timestamp.from(ORIGINAL_AT),
+        Timestamp.from(ORIGINAL_AT));
+    jdbc.update(
+        """
+        insert into public.trip_place_preferences (
+          trip_plan_id,place_id,preference_type,target_day_no,priority
+        ) values (?,?,'must_visit',2,50)
+        """,
+        CALENDAR_TRIP,
+        PLACE_A);
+
+    assertThat(
+            jdbc.update(
+                "update public.trip_plans set end_date='2026-09-02' where id=?", CALENDAR_TRIP))
+        .isOne();
   }
 
   @Test

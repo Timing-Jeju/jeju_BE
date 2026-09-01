@@ -15,6 +15,11 @@ class TripPlacePreferencesMigrationContractTest {
   @Test
   void migration은_legacy_fail_closed와_장소별_단일_role_priority_Day_mutex를_강제한다() throws Exception {
     String sql = Files.readString(MIGRATION);
+    String calendarValidation =
+        sql.substring(
+            sql.indexOf(
+                "create or replace function public.validate_trip_place_preference_calendar_change"),
+            sql.indexOf("create trigger trg_trip_place_preference_calendar_change"));
 
     assertThat(sql)
         .contains("legacy trip place preference contract conflict")
@@ -27,5 +32,6 @@ class TripPlacePreferencesMigrationContractTest {
         .contains("revoke all on table public.trip_place_preferences from anon, authenticated")
         .contains(
             "grant select, insert, update, delete on table public.trip_place_preferences to service_role");
+    assertThat(calendarValidation).doesNotContain("lock_trip_plan_schedule_mutex");
   }
 }

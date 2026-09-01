@@ -82,8 +82,6 @@ security invoker
 set search_path = ''
 as $$
 begin
-  perform public.lock_trip_plan_schedule_mutex(new.id);
-
   if exists (
     select 1
     from public.trip_place_preferences preference
