@@ -859,15 +859,13 @@ insert into live_state_snapshots (
 );
 
 insert into mcp_compute_call_logs (
-  id, user_id, trip_plan_id, compute_run_id, generation_run_id,
+  id, compute_run_id, generation_run_id,
   request_id, tool_name, status, contract_version,
   command_input_hash, mcp_input_hash, schema_checksum,
   request_fact_count, response_fact_count, attempt_no, latency_ms
 ) values
 (
   '67000000-0000-0000-0000-000000000001',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
   null, '64000000-0000-0000-0000-000000000001',
   'req-generate-day-001', 'recommend_jeju_day_trips', 'succeeded',
   '0.7.0',
@@ -876,8 +874,6 @@ insert into mcp_compute_call_logs (
 ),
 (
   '67000000-0000-0000-0000-000000000002',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
   '63000000-0000-0000-0000-000000000001', null,
   'req-feasibility-001', 'evaluate_jeju_day_trip', 'succeeded',
   '0.7.0',
@@ -886,8 +882,6 @@ insert into mcp_compute_call_logs (
 ),
 (
   '67000000-0000-0000-0000-000000000003',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
   '63000000-0000-0000-0000-000000000002', null,
   'req-recovery-001', 'revalidate_jeju_day_trip', 'succeeded',
   '0.7.0',
