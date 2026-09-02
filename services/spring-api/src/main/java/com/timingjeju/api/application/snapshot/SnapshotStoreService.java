@@ -28,6 +28,9 @@ public final class SnapshotStoreService {
 
   public SnapshotSaveResult save(SnapshotSaveCommand command) {
     Objects.requireNonNull(command, "command는 필수입니다.");
+    if (!PersistedSnapshotProviderCatalog.allows(command.scope().provider())) {
+      throw new IllegalArgumentException("승인되지 않은 공급자의 snapshot은 영속 저장할 수 없습니다.");
+    }
     byte[] payload = command.decompressedPayload();
     if (payload.length > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
       throw SnapshotStoreException.of(SnapshotStoreError.PAYLOAD_TOO_LARGE);
