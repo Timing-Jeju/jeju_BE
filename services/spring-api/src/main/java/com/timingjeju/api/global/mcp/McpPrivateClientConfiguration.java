@@ -21,7 +21,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class McpPrivateClientConfiguration {
 
   @Bean
-  McpServiceJwtIssuer mcpServiceJwtIssuer(McpPrivateProperties properties) {
+  McpServiceJwtIssuer mcpServiceJwtIssuer(McpPrivateProperties properties, JsonMapper jsonMapper) {
     McpEndpointPolicy.requirePrivateHttps(properties.baseUrl(), properties.allowedHost());
     Duration lifetime =
         properties.tokenLifetime() == null ? Duration.ofMinutes(2) : properties.tokenLifetime();
@@ -30,8 +30,7 @@ public class McpPrivateClientConfiguration {
         properties.audience(),
         properties.subject(),
         properties.scope(),
-        properties.keyId(),
-        McpPemPrivateKeyLoader.load(properties.privateKeyFile()),
+        new ReloadingMcpSigningKeyProvider(properties.signingKeyDescriptorFile(), jsonMapper),
         lifetime,
         Clock.systemUTC(),
         UUID::randomUUID);

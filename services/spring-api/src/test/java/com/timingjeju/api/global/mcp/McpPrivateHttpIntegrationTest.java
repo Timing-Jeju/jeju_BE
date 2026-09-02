@@ -3,6 +3,7 @@ package com.timingjeju.api.global.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -29,8 +30,9 @@ class McpPrivateHttpIntegrationTest {
     registry.add("app.mcp.audience", () -> requiredEnvironment("MCP_JWT_AUDIENCE"));
     registry.add("app.mcp.subject", () -> "backend-worker");
     registry.add("app.mcp.scope", () -> "jeju:mcp:invoke");
-    registry.add("app.mcp.key-id", () -> requiredEnvironment("MCP_JWT_KEY_ID"));
-    registry.add("app.mcp.private-key-file", () -> requiredEnvironment("MCP_JWT_PRIVATE_KEY_FILE"));
+    registry.add(
+        "app.mcp.signing-key-descriptor-file",
+        () -> requiredEnvironment("MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE"));
   }
 
   @Test
@@ -39,8 +41,11 @@ class McpPrivateHttpIntegrationTest {
         client.call(
             new McpInvocation(
                 "search_jeju_places",
+                "request-live-0001",
                 Map.of("request", Map.of("query", "제주", "limit", 1)),
                 "a".repeat(64),
+                McpCallParent.forComputeRun(
+                    UUID.fromString("10000000-0000-0000-0000-000000000001")),
                 Map.of(),
                 Map.of()));
 

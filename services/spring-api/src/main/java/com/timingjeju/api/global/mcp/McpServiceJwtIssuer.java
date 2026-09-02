@@ -17,15 +17,38 @@ import java.util.function.Supplier;
 
 public final class McpServiceJwtIssuer {
   private static final Duration MAX_LIFETIME = Duration.ofMinutes(5);
+  private static final Duration MIN_LIFETIME = Duration.ofSeconds(1);
   private final String issuer;
   private final String audience;
   private final String subject;
   private final String scope;
-  private final String keyId;
-  private final RSAPrivateKey privateKey;
+  private final McpSigningKeyProvider signingKeyProvider;
   private final Duration lifetime;
   private final Clock clock;
   private final Supplier<UUID> jtiSupplier;
+
+  public McpServiceJwtIssuer(
+      String issuer,
+      String audience,
+      String subject,
+      String scope,
+      McpSigningKeyProvider signingKeyProvider,
+      Duration lifetime,
+      Clock clock,
+      Supplier<UUID> jtiSupplier) {
+    this.issuer = requireText(issuer);
+    this.audience = requireText(audience);
+    this.subject = requireText(subject);
+    this.scope = requireText(scope);
+    this.signingKeyProvider =
+        Objects.requireNonNull(signingKeyProvider, "signingKeyProvider는 필수입니다.");
+    this.lifetime = Objects.requireNonNull(lifetime, "lifetime은 필수입니다.");
+    this.clock = Objects.requireNonNull(clock, "clock은 필수입니다.");
+    this.jtiSupplier = Objects.requireNonNull(jtiSupplier, "jtiSupplier는 필수입니다.");
+    if (lifetime.compareTo(MIN_LIFETIME) < 0 || lifetime.compareTo(MAX_LIFETIME) > 0) {
+      throw new IllegalArgumentException("service JWT lifetime은 1초 이상 5분 이하여야 합니다.");
+    }
+  }
 
   public McpServiceJwtIssuer(
       String issuer,
@@ -37,24 +60,19 @@ public final class McpServiceJwtIssuer {
       Duration lifetime,
       Clock clock,
       Supplier<UUID> jtiSupplier) {
-    this.issuer = requireText(issuer);
-    this.audience = requireText(audience);
-    this.subject = requireText(subject);
-    this.scope = requireText(scope);
-    this.keyId = requireText(keyId);
-    this.privateKey = Objects.requireNonNull(privateKey, "privateKey는 필수입니다.");
-    this.lifetime = Objects.requireNonNull(lifetime, "lifetime은 필수입니다.");
-    this.clock = Objects.requireNonNull(clock, "clock은 필수입니다.");
-    this.jtiSupplier = Objects.requireNonNull(jtiSupplier, "jtiSupplier는 필수입니다.");
-    if (privateKey.getModulus().bitLength() < 2048) {
-      throw new IllegalArgumentException("RSA key는 2048 bit 이상이어야 합니다.");
-    }
-    if (lifetime.isZero() || lifetime.isNegative() || lifetime.compareTo(MAX_LIFETIME) > 0) {
-      throw new IllegalArgumentException("service JWT lifetime은 1초 이상 5분 이하여야 합니다.");
-    }
+    this(
+        issuer,
+        audience,
+        subject,
+        scope,
+        () -> new McpSigningKey(keyId, privateKey),
+        lifetime,
+        clock,
+        jtiSupplier);
   }
 
   public String issue() {
+    McpSigningKey signingKey = signingKeyProvider.current();
     Instant issuedAt = clock.instant();
     JWTClaimsSet claims =
         new JWTClaimsSet.Builder()
@@ -67,9 +85,10 @@ public final class McpServiceJwtIssuer {
             .expirationTime(Date.from(issuedAt.plus(lifetime)))
             .build();
     SignedJWT token =
-        new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(keyId).build(), claims);
+        new SignedJWT(
+            new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(signingKey.keyId()).build(), claims);
     try {
-      token.sign(new RSASSASigner(privateKey));
+      token.sign(new RSASSASigner(signingKey.privateKey()));
       return token.serialize();
     } catch (Exception exception) {
       throw new IllegalStateException("MCP service JWT 서명에 실패했습니다.", exception);

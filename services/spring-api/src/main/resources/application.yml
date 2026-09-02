@@ -46,8 +46,7 @@ app:
     audience: ${MCP_JWT_AUDIENCE:timing-jeju-mcp}
     subject: backend-worker
     scope: jeju:mcp:invoke
-    key-id: ${MCP_JWT_KEY_ID:}
-    private-key-file: ${MCP_JWT_PRIVATE_KEY_FILE:}
+    signing-key-descriptor-file: ${MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE:}
     token-lifetime: ${MCP_JWT_LIFETIME:2m}
     request-timeout: ${MCP_REQUEST_TIMEOUT:35s}
     max-attempts: ${MCP_MAX_ATTEMPTS:3}

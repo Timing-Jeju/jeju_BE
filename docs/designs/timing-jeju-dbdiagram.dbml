@@ -1383,8 +1383,6 @@ Table live_state_snapshots {
 
 Table mcp_compute_call_logs {
   id uuid [pk]
-  user_id uuid [ref: > user_profiles.id]
-  trip_plan_id uuid [ref: > trip_plans.id]
   compute_run_id uuid [ref: > compute_runs.id]
   generation_run_id uuid [ref: > itinerary_generation_runs.id]
   schedule_revision_run_id uuid [ref: > schedule_revision_runs.id]

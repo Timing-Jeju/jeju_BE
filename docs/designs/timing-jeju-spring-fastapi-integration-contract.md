@@ -39,9 +39,16 @@ service JWT claim은 다음과 같다.
 - `sub`: `backend-worker`
 - `scope`: `jeju:mcp:invoke`
 - `iat`, `exp`, 고유 `jti`, `kid`: 필수
-- 수명: 5분 이하, 기본 2분
+- 수명: 1초 이상 5분 이하, 기본 2분
 
-토큰은 WebClient filter가 MCP HTTP 요청마다 새로 만든다. 사용자 access/refresh token을 재사용하지 않는다. private key는 환경값이 아니라 mount된 PKCS#8 PEM file에서 읽는다.
+토큰은 WebClient filter가 MCP HTTP 요청마다 새로 만든다. 사용자 access/refresh token을 재사용하지 않는다. 환경값에는 key를 넣지 않고 `kid`와 mount된 PKCS#8 PEM 절대 경로만 담은 descriptor file 경로를 둔다. issuer는 매 발급 시 descriptor를 다시 읽으므로 프로세스 재시작 없이 key를 교체하며, descriptor나 key가 비정상이면 이전 값을 묵시적으로 재사용하지 않고 발급을 fail-closed한다.
+
+무중단 key rotation 순서는 다음과 같다.
+
+1. AI JWKS에 old/new public key를 함께 게시한다.
+2. immutable한 새 private PEM을 mount한다.
+3. `{"kid":"new-kid","privateKeyFile":"/absolute/path/new.pem"}` descriptor를 임시 파일로 완성한 뒤 atomic rename으로 교체한다.
+4. 최대 JWT 수명 5분 이상 지난 뒤 old public key를 JWKS에서 제거한다.
 
 각 tool의 Pydantic input schema가 요구하는 `requestId`는 arguments 안에서 검증되고 `mcpInputHash` 계산에도 포함된다. Spring 요청 처리 중 생성한 canonical 32자리 lowercase hex trace ID가 있으면 같은 값을 private HTTP의 `X-Trace-Id`로 전파한다. 클라이언트가 보낸 trace 값이나 형식이 틀린 MDC 값은 전달하지 않는다.
 
@@ -59,14 +66,15 @@ canonical fingerprint는 UTF-8 JSON key 정렬, 공백 없는 JSON 표현의 SHA
 
 각 `tools/call`은 다음 순서를 따른다.
 
-1. 실제 arguments를 발견 시점 input schema로 검증한다.
-2. worker가 지정한 outbound field별 ID allowlist를 검사한다.
-3. arguments canonical JSON에서 `mcpInputHash`를 계산한다.
-4. 공식 SDK `callTool`을 실행한다.
-5. `isError=true`, 없는/비객체 `structuredContent`를 거부한다.
-6. 발견 시점 output schema로 `structuredContent`를 검증한다.
-7. inbound field별 ID allowlist를 검사한다.
-8. worker가 evidence closure와 도메인 invariant를 추가 검증한 뒤 transaction으로 저장한다.
+1. domain arguments에 Pydantic 계약의 `requestId`를 추가한다.
+2. `inputHash`를 제외한 실제 wire arguments canonical JSON에서 `mcpInputHash`를 계산한다.
+3. 계산값을 `inputHash`로 추가하고 발견 시점 input schema로 검증한다.
+4. schema의 모든 ID field와 정확히 같은 key set을 가진 outbound allowlist를 검사한다. 비거나 일부만 있는 allowlist는 거부한다.
+5. 공식 SDK `callTool`을 실행한다. AI는 tool 실행 전에 같은 canonical hash를 다시 계산해 `inputHash`와 비교한다.
+6. `isError=true`, 없는/비객체 `structuredContent`를 거부한다.
+7. 발견 시점 output schema로 `structuredContent`를 검증한다.
+8. schema ID field와 정확히 대응하는 inbound allowlist를 검사한다.
+9. worker가 evidence closure와 도메인 invariant를 추가 검증한 뒤 transaction으로 저장한다.
 
 intake의 immutable `commandInputHash`와 3단계의 `mcpInputHash`는 의미가 다르며 서로 덮어쓰지 않는다.
 
@@ -110,8 +118,7 @@ app:
     audience: timing-jeju-mcp
     subject: backend-worker
     scope: jeju:mcp:invoke
-    key-id: ${MCP_JWT_KEY_ID}
-    private-key-file: ${MCP_JWT_PRIVATE_KEY_FILE}
+    signing-key-descriptor-file: ${MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE}
     token-lifetime: 2m
     request-timeout: 35s
     max-attempts: 3
@@ -124,7 +131,7 @@ starter의 자동 client 생성은 끈다. BE는 공식 Spring AI `WebClientStre
 
 AI process의 liveness는 `/health`, 계약 readiness는 `/ready`다. BE는 이 둘을 public proxy하지 않고 자체 `Actuator health`에 tools/list schema 검증을 마친 client readiness만 포함한다.
 
-transport와 `isError=true`는 한 논리 호출에서 최대 3회까지 제한 재시도한다. JSON Schema, checksum, ID allowlist 오류는 재시도하지 않는다. 논리 호출 5회가 연속 실패하면 30초 동안 circuit을 열고, 이후 단일 half-open 호출이 성공해야 닫는다. 실제 attempt 수는 결과 metadata로 worker에 전달해 payload-free call log의 `attempt_no`에 기록할 수 있게 한다.
+timeout과 일시적 transport 오류는 한 논리 호출에서 최대 3회까지 제한 재시도한다. `isError=true`, 인증, protocol, JSON Schema, checksum, ID allowlist 오류는 재시도하지 않는다. 논리 호출 5회가 연속 실패하면 30초 동안 circuit을 열고, 이후 단일 half-open 호출이 성공해야 닫는다. 각 실패 attempt와 최종 성공/계약 실패는 즉시 payload-free call log에 별도 행으로 기록한다.
 
 Actuator health에는 schema 검증까지 끝난 readiness만 노출한다. metric tag는 `tool`, `status`처럼 닫힌 저카디널리티 값만 허용하며 trip/user/request ID나 오류 원문을 tag로 사용하지 않는다.
 

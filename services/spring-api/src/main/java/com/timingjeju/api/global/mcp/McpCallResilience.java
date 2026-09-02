@@ -75,6 +75,12 @@ final class McpCallResilience {
       } catch (McpContractException exception) {
         recordFailure(halfOpen);
         throw exception;
+      } catch (McpRemoteCallException exception) {
+        if (!exception.retryable() || attempt == maxAttempts) {
+          recordFailure(halfOpen);
+          throw exception;
+        }
+        sleepBeforeRetry(attempt, halfOpen);
       } catch (RuntimeException exception) {
         if (attempt == maxAttempts) {
           recordFailure(halfOpen);
@@ -126,7 +132,7 @@ final class McpCallResilience {
     } catch (InterruptedException exception) {
       Thread.currentThread().interrupt();
       recordFailure(halfOpen);
-      throw new McpRemoteCallException("MCP_RETRY_INTERRUPTED", exception);
+      throw new McpRemoteCallException("MCP_RETRY_INTERRUPTED", false);
     }
   }
 

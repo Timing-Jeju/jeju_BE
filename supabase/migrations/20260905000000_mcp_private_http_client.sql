@@ -6,6 +6,8 @@ alter table public.mcp_compute_call_logs
   drop constraint mcp_compute_call_logs_check;
 
 drop index if exists public.uq_mcp_compute_call_logs_request;
+drop index if exists public.idx_mcp_compute_call_logs_user_created;
+drop index if exists public.idx_mcp_compute_call_logs_trip_tool;
 
 alter table public.mcp_compute_call_logs
   add column schedule_revision_run_id uuid
@@ -17,6 +19,8 @@ alter table public.mcp_compute_call_logs
   add column response_fact_count integer,
   add column attempt_no integer not null default 1,
   add column legacy_contract boolean not null default false,
+  drop column user_id,
+  drop column trip_plan_id,
   drop column provider,
   drop column model,
   drop column request_payload_redacted,
@@ -40,7 +44,21 @@ alter table public.mcp_compute_call_logs
   ),
   add constraint mcp_compute_call_logs_status_check check (
     legacy_contract
-    or status in ('succeeded', 'domain_failure', 'contract_invalid', 'transport_error')
+    or status in (
+      'succeeded', 'domain_failure', 'contract_invalid', 'transport_error',
+      'authentication_failed', 'protocol_invalid'
+    )
+  ),
+  add constraint mcp_compute_call_logs_request_id_check check (
+    legacy_contract or request_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$'
+  ),
+  add constraint mcp_compute_call_logs_error_code_check check (
+    error_code is null or error_code ~ '^[A-Z][A-Z0-9_]{0,99}$'
+  ),
+  add constraint mcp_compute_call_logs_status_error_check check (
+    legacy_contract
+    or (status = 'succeeded' and error_code is null)
+    or (status <> 'succeeded' and error_code is not null)
   ),
   add constraint mcp_compute_call_logs_command_hash_check
     check (command_input_hash is null or command_input_hash ~ '^[0-9a-f]{64}$'),

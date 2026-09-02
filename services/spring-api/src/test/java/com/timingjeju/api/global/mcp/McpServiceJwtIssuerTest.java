@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jwt.SignedJWT;
@@ -49,5 +50,19 @@ class McpServiceJwtIssuerTest {
     assertThat(token.getJWTClaimsSet().getIssueTime()).isEqualTo(Date.from(now));
     assertThat(token.getJWTClaimsSet().getExpirationTime())
         .isEqualTo(Date.from(now.plus(Duration.ofMinutes(2))));
+
+    assertThatThrownBy(
+            () ->
+                new McpServiceJwtIssuer(
+                    "timing-jeju-spring",
+                    "timing-jeju-mcp",
+                    "backend-worker",
+                    "jeju:mcp:invoke",
+                    "mcp-key-2026-09",
+                    privateKey,
+                    Duration.ofMillis(999),
+                    Clock.fixed(now, ZoneOffset.UTC),
+                    UUID::randomUUID))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }

@@ -20,6 +20,8 @@ public final class McpContractGuard {
   private final McpExpectedCatalog expectedCatalog;
   private final Map<String, Schema> inputSchemas = new HashMap<>();
   private final Map<String, Schema> outputSchemas = new HashMap<>();
+  private final Map<String, Set<String>> inputIdFields = new HashMap<>();
+  private final Map<String, Set<String>> outputIdFields = new HashMap<>();
 
   public McpContractGuard(ObjectMapper objectMapper, McpExpectedCatalog expectedCatalog) {
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.");
@@ -47,6 +49,8 @@ public final class McpContractGuard {
     McpContractGuard guard = new McpContractGuard(objectMapper, catalog);
     guard.inputSchemas.put(toolName, compileSchema(objectMapper, inputSchema));
     guard.outputSchemas.put(toolName, compileSchema(objectMapper, outputSchema));
+    guard.inputIdFields.put(toolName, collectIdFields(objectMapper, inputSchema));
+    guard.outputIdFields.put(toolName, collectIdFields(objectMapper, outputSchema));
     return guard;
   }
 
@@ -60,6 +64,8 @@ public final class McpContractGuard {
 
     Map<String, Schema> verifiedInputSchemas = new HashMap<>();
     Map<String, Schema> verifiedOutputSchemas = new HashMap<>();
+    Map<String, Set<String>> verifiedInputIdFields = new HashMap<>();
+    Map<String, Set<String>> verifiedOutputIdFields = new HashMap<>();
     for (var entry : expectedCatalog.tools().entrySet()) {
       McpDiscoveredTool actual = discovered.get(entry.getKey());
       var expected = entry.getValue();
@@ -73,11 +79,18 @@ public final class McpContractGuard {
       }
       verifiedInputSchemas.put(actual.name(), compileSchema(objectMapper, actual.inputSchema()));
       verifiedOutputSchemas.put(actual.name(), compileSchema(objectMapper, actual.outputSchema()));
+      verifiedInputIdFields.put(actual.name(), collectIdFields(objectMapper, actual.inputSchema()));
+      verifiedOutputIdFields.put(
+          actual.name(), collectIdFields(objectMapper, actual.outputSchema()));
     }
     inputSchemas.clear();
     inputSchemas.putAll(verifiedInputSchemas);
     outputSchemas.clear();
     outputSchemas.putAll(verifiedOutputSchemas);
+    inputIdFields.clear();
+    inputIdFields.putAll(verifiedInputIdFields);
+    outputIdFields.clear();
+    outputIdFields.putAll(verifiedOutputIdFields);
   }
 
   public Map<String, Object> validateArguments(
@@ -88,8 +101,22 @@ public final class McpContractGuard {
     if (schema == null) throw invalidContract();
     JsonNode content = objectMapper.valueToTree(arguments);
     if (!content.isObject() || !schema.validate(content).isEmpty()) throw invalidContract();
-    validateIds(content, outboundIdAllowlist);
+    validateIds(content, outboundIdAllowlist, inputIdFields.get(toolName));
     return Map.copyOf(objectMapper.convertValue(content, MAP_TYPE));
+  }
+
+  public String contractVersion() {
+    return expectedCatalog.contractVersion();
+  }
+
+  public String schemaChecksum(String toolName) {
+    McpExpectedCatalog.ExpectedTool tool = expectedCatalog.tools().get(toolName);
+    if (tool == null) throw invalidContract();
+    return McpSchemaFingerprint.sha256(
+        Map.of(
+            "inputSchemaSha256", tool.inputSchemaSha256(),
+            "outputSchemaSha256", tool.outputSchemaSha256()),
+        objectMapper);
   }
 
   public Map<String, Object> validateStructuredContent(
@@ -101,7 +128,7 @@ public final class McpContractGuard {
       throw new McpContractException("MCP_CONTRACT_INVALID: structuredContent must be object");
     }
     if (!schema.validate(content).isEmpty()) throw invalidContract();
-    validateIds(content, inboundIdAllowlist);
+    validateIds(content, inboundIdAllowlist, outputIdFields.get(toolName));
     return Map.copyOf(objectMapper.convertValue(content, MAP_TYPE));
   }
 
@@ -114,10 +141,45 @@ public final class McpContractGuard {
     }
   }
 
-  private static void validateIds(JsonNode node, Map<String, Set<String>> inboundIdAllowlist) {
+  private static void validateIds(
+      JsonNode node, Map<String, Set<String>> inboundIdAllowlist, Set<String> requiredIdFields) {
     Map<String, Set<String>> allowlist = new HashMap<>();
     inboundIdAllowlist.forEach((field, values) -> allowlist.put(field, Set.copyOf(values)));
+    if (requiredIdFields == null || !allowlist.keySet().equals(requiredIdFields)) {
+      throw new McpContractException("MCP_ID_ALLOWLIST_INCOMPLETE");
+    }
     validateIdsRecursively(node, allowlist);
+  }
+
+  private static Set<String> collectIdFields(
+      ObjectMapper objectMapper, Map<String, Object> schema) {
+    Set<String> fields = new HashSet<>();
+    collectIdFieldsRecursively(objectMapper.valueToTree(schema), fields);
+    return Set.copyOf(fields);
+  }
+
+  private static void collectIdFieldsRecursively(JsonNode node, Set<String> fields) {
+    if (node.isObject()) {
+      JsonNode properties = node.get("properties");
+      if (properties != null && properties.isObject()) {
+        for (var property : properties.properties()) {
+          if (isIdField(property.getKey())) fields.add(property.getKey());
+        }
+      }
+      for (var property : node.properties()) {
+        collectIdFieldsRecursively(property.getValue(), fields);
+      }
+    } else if (node.isArray()) {
+      node.forEach(child -> collectIdFieldsRecursively(child, fields));
+    }
+  }
+
+  private static boolean isIdField(String field) {
+    return !field.equals("requestId")
+        && (field.endsWith("_id")
+            || field.endsWith("_ids")
+            || field.endsWith("Id")
+            || field.endsWith("Ids"));
   }
 
   private static void validateIdsRecursively(
@@ -138,7 +200,11 @@ public final class McpContractGuard {
     if (value.isTextual()) {
       actual.add(value.asText());
     } else if (value.isArray()) {
-      value.forEach(item -> actual.add(item.asText()));
+      value.forEach(
+          item -> {
+            if (!item.isTextual()) throw new McpContractException("UNKNOWN_MCP_ID");
+            actual.add(item.asText());
+          });
     } else if (!value.isNull()) {
       throw new McpContractException("UNKNOWN_MCP_ID");
     }

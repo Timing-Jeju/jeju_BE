@@ -57,6 +57,13 @@ class McpContractGuardTest {
     McpContractGuard guard = McpContractGuard.forSingleTool(objectMapper, "test_tool", schema);
 
     assertThatThrownBy(
+            () ->
+                guard.validateStructuredContent(
+                    "test_tool", Map.of("place_id", "tourapi.place:allowed"), Map.of()))
+        .isInstanceOf(McpContractException.class)
+        .hasMessage("MCP_ID_ALLOWLIST_INCOMPLETE");
+
+    assertThatThrownBy(
             () -> guard.validateStructuredContent("test_tool", "not-an-object", Map.of()))
         .isInstanceOf(McpContractException.class)
         .hasMessageContaining("structuredContent");
@@ -83,5 +90,35 @@ class McpContractGuardTest {
                 Map.of("place_id", "tourapi.place:allowed"),
                 Map.of("place_id", Set.of("tourapi.place:allowed"))))
         .isEqualTo(Map.of("place_id", "tourapi.place:allowed"));
+  }
+
+  @Test
+  void ID_allowlist는_schema의_모든_ID_field를_선언하고_text값만_허용한다() {
+    Map<String, Object> schema =
+        Map.of(
+            "type",
+            "object",
+            "properties",
+            Map.of(
+                "place_id", Map.of("type", "string"),
+                "source_ids", Map.of("type", "array", "items", Map.of())));
+    McpContractGuard guard = McpContractGuard.forSingleTool(objectMapper, "test_tool", schema);
+
+    assertThatThrownBy(
+            () ->
+                guard.validateStructuredContent(
+                    "test_tool",
+                    Map.of("place_id", "p1", "source_ids", List.of("s1")),
+                    Map.of("place_id", Set.of("p1"))))
+        .isInstanceOf(McpContractException.class)
+        .hasMessage("MCP_ID_ALLOWLIST_INCOMPLETE");
+    assertThatThrownBy(
+            () ->
+                guard.validateStructuredContent(
+                    "test_tool",
+                    Map.of("place_id", "p1", "source_ids", List.of(1)),
+                    Map.of("place_id", Set.of("p1"), "source_ids", Set.of("1"))))
+        .isInstanceOf(McpContractException.class)
+        .hasMessage("UNKNOWN_MCP_ID");
   }
 }
