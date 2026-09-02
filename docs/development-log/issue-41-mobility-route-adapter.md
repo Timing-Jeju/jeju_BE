@@ -90,3 +90,18 @@ WALK-only reason은 승인됐지만 MAJOR 2건이 남았다.
 - focused mobility unit 18건과 Architecture test가 성공했다.
 - review 2 remediation 최종 Spring `./gradlew --no-daemon clean check`는 12분 44초에
   `BUILD SUCCESSFUL`로 종료됐다.
+
+## PR #198 CI 동시성 RED와 remediation
+
+PR #198의 GitHub Linux runner에서 전체 1,608 tests 중 동시 single-flight 테스트 1건이
+실패했다. 같은 값의 fact가 여러 객체로 생성됐고, provider 호출 수 검증 전 identity assertion이
+실패했다. 로컬 성공과 달리 runner scheduling이 다음 race를 재현했다.
+
+1. 요청이 fresh cache miss를 확인한다.
+2. 기존 leader가 cache commit과 in-flight 제거를 완료한다.
+3. 지연된 요청이 이미 수행한 cache miss 결과를 들고 새 leader가 되어 provider를 재호출한다.
+
+새 leader가 된 직후 provider fetch 전에 fresh cache를 다시 확인하도록 single-flight 경계를
+닫았다. 동시 20요청 테스트는 provider 호출 수 1을 identity보다 먼저 검증하고 같은 시나리오를
+20회 반복한다. 강화 테스트의 `--rerun-tasks` 실행은 성공했고, 최종 Spring
+`./gradlew --no-daemon clean check`도 13분 5초에 `BUILD SUCCESSFUL`로 종료됐다.

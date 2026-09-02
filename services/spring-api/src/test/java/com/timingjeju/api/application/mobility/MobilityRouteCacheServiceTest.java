@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -365,7 +366,7 @@ class MobilityRouteCacheServiceTest {
     assertThat(service.inFlightCount()).isZero();
   }
 
-  @Test
+  @RepeatedTest(20)
   void 동일_hash의_동시_20요청은_하나의_provider_future를_공유한다() throws Exception {
     AtomicInteger calls = new AtomicInteger();
     CountDownLatch entered = new CountDownLatch(1);
@@ -392,12 +393,12 @@ class MobilityRouteCacheServiceTest {
       assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
       release.countDown();
       for (var future : futures) future.get(5, TimeUnit.SECONDS);
+      assertThat(calls).hasValue(1);
       assertThat(results)
           .hasSize(20)
           .allSatisfy(result -> assertThat(result).isSameAs(results.peek()));
     }
 
-    assertThat(calls).hasValue(1);
     assertThat(service.inFlightCount()).isZero();
   }
 

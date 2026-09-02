@@ -46,11 +46,17 @@ public final class MobilityRouteCacheService implements AutoCloseable {
     Objects.requireNonNull(request, "request는 필수입니다.");
     String requestHash = MobilityRouteRequestHasher.hash(sourceId, request);
     CacheKey key = new CacheKey(sourceId, requestHash);
+    MobilityRouteFact cached = findFresh(key);
+    if (cached != null) return cached;
+    return loadSingleFlight(key, request);
+  }
+
+  private MobilityRouteFact findFresh(CacheKey key) {
     MobilityRouteFact cached = cache.get(key);
     Instant now = clock.instant();
     if (cached != null && now.isBefore(cached.expiresAt())) return cached;
     if (cached != null) cache.remove(key, cached);
-    return loadSingleFlight(key, request);
+    return null;
   }
 
   int inFlightCount() {
@@ -74,6 +80,11 @@ public final class MobilityRouteCacheService implements AutoCloseable {
     if (active != null) return join(active);
 
     try {
+      MobilityRouteFact cached = findFresh(key);
+      if (cached != null) {
+        leader.complete(cached);
+        return cached;
+      }
       MobilityRouteFact loaded = load(key.requestHash(), request);
       commitLoaded(key, loaded);
       leader.complete(loaded);
