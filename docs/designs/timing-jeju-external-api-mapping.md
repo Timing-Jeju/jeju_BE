@@ -342,6 +342,31 @@ fingerprint를 사용하고 23시간 50분 전에 만료한다. 응답을 로그
 Issue #40의 최종 판정은 `DEFER`다. #41은 provider-neutral port를 유지하고 TMAP을 기본
 비활성화한다. 공급자를 활성화하거나 바꾸더라도 공개 DTO와 DB 계약은 공급자 응답에 결합하지 않는다.
 
+### 5.3 Issue #41 provider-neutral cache 계약
+
+Spring의 #41 구현은 공개 Controller나 TMAP HTTP client가 아닌
+`application.mobility.MobilityRouteProvider` port와 프로세스 메모리 cache다. Spring에는
+TMAP adapter bean을 등록하지 않으며 기존 `TMAP_ENABLED=false`를 유지한다. 승인된
+`tmap.pedestrian`·`tmap.driving` 호출은 #40 결정대로 FastAPI/PoC 경계가 소유한다.
+
+cache key는 `mobility-route-request-v1`, source ID, mode, origin/destination 좌표,
+departure time을 길이 구분 SHA-256으로 만든다. 좌표와 시각 원문은 hash나 로그에 출력하지
+않는다. 동일 key 동시 요청은 프로세스 내 single-flight를 공유하고 `now < expiresAt`일 때만
+fresh hit다. `now == expiresAt`은 만료로 취급하며 이전 route를 stale fallback으로 반환하지
+않는다.
+
+정규화 mode는 `PUBLIC_TRANSIT`, `RENTAL_CAR`, `TAXI`, `WALK` 네 가지다. provider가 fact의
+mode, 거리, access/wait/ride/transfer/egress duration 구성요소, nullable fare와 TTL을
+제공하고 application이 합계 및 범위를 검증한다. TTL 상한은 walk 23시간 50분,
+rental-car/taxi 5분이다. public-transit은 공식 publication adapter가 더 짧은 실제 유효기간을
+전달해야 하며 application 안전 상한은 24시간이다.
+
+복구 가능한 rate-limit/timeout/unavailable에서만 `WALK`가 주입된 보수 추정 port를 사용할
+수 있고 reason은 `ESTIMATED_WALK_TIME`이다. 차량·택시·대중교통은 수치를 추정하지 않으며,
+malformed response도 fallback하지 않는다. provider 예외 message/cause는 버리고 안정 code만
+반환한다. 이 cache의 fact와 요청 좌표는 `mobility_route_snapshots`,
+`external_api_snapshots`, 파일, Redis와 로그에 쓰지 않는다.
+
 ## 6. 기상청 단기예보
 
 ### 6.1 공식 서비스

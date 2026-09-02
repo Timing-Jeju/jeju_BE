@@ -246,6 +246,18 @@ class ArchitectureTest {
   }
 
   @Test
+  void mobility_route_application은_Spring_JDBC_global_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.mobility..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "java.sql..", "..global..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void push_application_port는_Firebase와_Spring_adapter에_의존하지_않는다() {
     noClasses()
         .that()
