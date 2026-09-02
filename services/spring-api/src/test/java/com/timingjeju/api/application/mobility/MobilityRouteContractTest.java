@@ -122,4 +122,46 @@ class MobilityRouteContractTest {
     assertThat(differentSource).isNotEqualTo(hash);
     assertThat(differentMode).isNotEqualTo(hash);
   }
+
+  @Test
+  void 보행_추정_reason은_WALK_mode에서만_허용한다() {
+    String requestHash = "a".repeat(64);
+    Instant observedAt = Instant.parse("2026-09-02T00:00:00Z");
+    MobilityDurationComponents duration = new MobilityDurationComponents(0, 0, 10, 0, 0);
+
+    for (MobilityMode mode :
+        EnumSet.of(MobilityMode.PUBLIC_TRANSIT, MobilityMode.RENTAL_CAR, MobilityMode.TAXI)) {
+      assertThatThrownBy(
+              () ->
+                  new MobilityRouteFact(
+                      requestHash,
+                      "conservative-walk-policy",
+                      mode,
+                      1_000,
+                      duration,
+                      null,
+                      observedAt,
+                      observedAt.plus(Duration.ofMinutes(1)),
+                      false,
+                      true,
+                      MobilityRouteReason.ESTIMATED_WALK_TIME))
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    assertThat(
+            new MobilityRouteFact(
+                    requestHash,
+                    "conservative-walk-policy",
+                    MobilityMode.WALK,
+                    1_000,
+                    duration,
+                    null,
+                    observedAt,
+                    observedAt.plus(Duration.ofMinutes(1)),
+                    false,
+                    true,
+                    MobilityRouteReason.ESTIMATED_WALK_TIME)
+                .mode())
+        .isEqualTo(MobilityMode.WALK);
+  }
 }

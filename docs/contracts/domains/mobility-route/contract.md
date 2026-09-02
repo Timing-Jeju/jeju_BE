@@ -28,6 +28,8 @@ provider가 요청과 다른 mode를 반환하거나 수치·TTL 경계를 위�
 - 같은 key의 fresh cache는 provider를 호출하지 않는다.
 - 같은 key의 동시 요청은 하나의 in-flight provider 결과를 공유한다.
 - `now < expiresAt`만 fresh이며 equality는 만료다.
+- cache는 가장 이른 `expiresAt`에 맞춘 단일 daemon scheduler로 만료 항목을 자동 제거한다.
+- lifecycle 종료 시 `close()`로 예약 작업을 취소하고 메모리 cache를 비운다.
 - walk TTL은 최대 23시간 50분, rental-car/taxi는 최대 5분이다.
 - public-transit은 공식 publication의 실제 expiry를 사용하되 application 상한은 24시간이다.
 
@@ -41,3 +43,4 @@ provider가 요청과 다른 mode를 반환하거나 수치·TTL 경계를 위�
 | 보행 추정도 실패 | `EXTERNAL_FACTS_UNAVAILABLE` |
 
 이 계약은 #40의 `DEFER`, provider-neutral, TMAP 기본 비활성화 결정을 완화하지 않는다.
+`ESTIMATED_WALK_TIME` fact는 record 생성 경계에서도 반드시 `WALK` mode로 제한한다.

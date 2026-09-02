@@ -13,6 +13,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -204,6 +205,90 @@ class MobilityRouteCacheServiceTest {
   }
 
   @Test
+  void 만료_route는_수동_cleanup없이_자동제거되고_fresh_route는_유지된다() throws Exception {
+    MobilityRouteRequest freshRequest =
+        new MobilityRouteRequest(
+            WALK_REQUEST.origin(),
+            WALK_REQUEST.destination(),
+            MobilityMode.WALK,
+            WALK_REQUEST.departureAt().plusSeconds(1));
+    try (MobilityRouteCacheService service =
+        new MobilityRouteCacheService(
+            provider(
+                "official.walking",
+                request ->
+                    walkMeasurement(
+                        request.equals(WALK_REQUEST)
+                            ? Duration.ofMillis(50)
+                            : Duration.ofMinutes(5))),
+            request -> walkMeasurement(Duration.ofMinutes(1)),
+            Clock.systemUTC())) {
+      service.get(WALK_REQUEST);
+      service.get(freshRequest);
+      assertThat(service.cacheSize()).isEqualTo(2);
+
+      awaitCacheSize(service, 1);
+
+      assertThat(service.cacheSize()).isEqualTo(1);
+      assertThat(service.get(freshRequest).expiresAt()).isAfter(Instant.now());
+    }
+  }
+
+  @Test
+  void malformed_보행_provider_수치와_TTL은_fallback없이_잘못된_응답으로_거부한다() {
+    var malformedMeasurements =
+        java.util.List.<Supplier<MobilityRouteMeasurement>>of(
+            () ->
+                new MobilityRouteMeasurement(
+                    MobilityMode.WALK,
+                    -1,
+                    new MobilityDurationComponents(0, 0, 1, 0, 0),
+                    null,
+                    Duration.ofMinutes(1)),
+            () ->
+                new MobilityRouteMeasurement(
+                    MobilityMode.WALK,
+                    1,
+                    new MobilityDurationComponents(0, -1, 0, 0, 0),
+                    null,
+                    Duration.ofMinutes(1)),
+            () ->
+                new MobilityRouteMeasurement(
+                    MobilityMode.WALK,
+                    1,
+                    new MobilityDurationComponents(0, 0, 1, 0, 0),
+                    -1,
+                    Duration.ofMinutes(1)),
+            () ->
+                new MobilityRouteMeasurement(
+                    MobilityMode.WALK,
+                    1,
+                    new MobilityDurationComponents(0, 0, 1, 0, 0),
+                    null,
+                    Duration.ZERO));
+    AtomicInteger estimates = new AtomicInteger();
+
+    for (Supplier<MobilityRouteMeasurement> malformed : malformedMeasurements) {
+      MobilityRouteCacheService service =
+          new MobilityRouteCacheService(
+              provider("official.walking", request -> malformed.get()),
+              request -> {
+                estimates.incrementAndGet();
+                return walkMeasurement(Duration.ofMinutes(1));
+              },
+              fixedClock(NOW));
+
+      assertThatThrownBy(() -> service.get(WALK_REQUEST))
+          .isInstanceOfSatisfying(
+              MobilityRouteException.class,
+              failure ->
+                  assertThat(failure.code())
+                      .isEqualTo(MobilityRouteException.Code.INVALID_PROVIDER_RESPONSE));
+    }
+    assertThat(estimates).hasValue(0);
+  }
+
+  @Test
   void 동일_hash의_동시_20요청은_하나의_provider_future를_공유한다() throws Exception {
     AtomicInteger calls = new AtomicInteger();
     CountDownLatch entered = new CountDownLatch(1);
@@ -270,6 +355,14 @@ class MobilityRouteCacheServiceTest {
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("test interrupted");
+    }
+  }
+
+  private static void awaitCacheSize(MobilityRouteCacheService service, int expected)
+      throws InterruptedException {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (service.cacheSize() != expected && System.nanoTime() < deadline) {
+      Thread.sleep(10);
     }
   }
 

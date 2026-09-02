@@ -35,10 +35,37 @@ fresh hit, expiry equality, 보행 fallback, 동시 single-flight 테스트가 �
   발견했다. 단일 테스트가 “throwable이 없음”으로 RED가 된 뒤 null을
   `INVALID_PROVIDER_RESPONSE`로 분류하고 fallback을 금지해 다시 Green으로 만들었다.
 
-## 검증 예정
+## 독립 Review 1차와 remediation
 
-- focused unit와 Architecture
+검토 HEAD `ba5e3b73c776b4675859ee477c1b21dfdf3c5912`는 공식 Gate를 통과했지만
+Reviewer가 MAJOR 3건으로 `CHANGES_REQUESTED`를 기록했다.
+
+1. 호출자가 없는 수동 `cleanup()`만으로는 고유 key의 만료 metric을 자동 제거하지 못했다.
+2. provider 내부의 잘못된 거리·duration·fare·TTL 생성 오류를 일시 장애로 오분류해 WALK
+   fallback을 허용했다.
+3. `ESTIMATED_WALK_TIME` fact가 non-WALK mode에서도 생성될 수 있었다.
+
+### Review RED
+
+- 자동 eviction·lifecycle 계약 테스트는 `AutoCloseable`과 `cacheSize()` 부재로 컴파일 RED였다.
+- 최소 scheduler 구조를 추가한 뒤 malformed 4종과 non-WALK reason 테스트가 각각
+  `Expecting code to raise a throwable`로 assertion RED가 됐다.
+
+### Review GREEN
+
+- 가장 이른 expiry 하나만 예약하는 단일 daemon scheduler를 두고 만료 시 자동 sweep 후 다음
+  expiry를 재예약한다. `close()`는 예약 작업을 취소하고 cache를 비운다.
+- provider normalization 과정의 `IllegalArgumentException`은 원문/cause 없이
+  `INVALID_PROVIDER_RESPONSE`로 변환하며 WALK fallback을 허용하지 않는다.
+- fact 생성자가 `ESTIMATED_WALK_TIME`과 `WALK` mode 조합을 직접 강제한다.
+- focused mobility unit 16건과 Architecture test가 성공했다.
+- remediation 최종 Spring `./gradlew --no-daemon clean check`는 12분 56초에
+  `BUILD SUCCESSFUL`로 종료됐다.
+
+## 검증
+
+- focused unit와 Architecture: 성공
 - Spring `clean check`: Refactor 최종 상태에서 13분 7초, `BUILD SUCCESSFUL`
-- 루트 전체 quality Gate와 Docker smoke
-- secret scan과 `git diff --check`
-- exact HEAD 독립 Reviewer
+- 최초 exact HEAD 루트 quality Gate와 Docker smoke: `SUCCESS`
+- review remediation 최종 상태에서 전체 `clean check`, root Gate, secret scan,
+  `git diff --check`와 독립 재검토를 다시 실행한다.

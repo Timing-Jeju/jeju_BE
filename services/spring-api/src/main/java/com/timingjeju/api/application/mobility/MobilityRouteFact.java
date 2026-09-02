@@ -33,6 +33,9 @@ public record MobilityRouteFact(
     if (estimated != (reason == MobilityRouteReason.ESTIMATED_WALK_TIME)) {
       throw new IllegalArgumentException("route fact의 추정 reason 조합이 올바르지 않습니다.");
     }
+    if (reason == MobilityRouteReason.ESTIMATED_WALK_TIME && mode != MobilityMode.WALK) {
+      throw new IllegalArgumentException("보행 추정 reason은 WALK mode에서만 허용됩니다.");
+    }
   }
 
   public int durationMinutes() {
