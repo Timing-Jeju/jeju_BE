@@ -2,7 +2,11 @@
 
 ## 범위
 
-Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 typed configuration으로 읽고, 공통 `ExternalApiExecutor`가 안전한 HTTP 실행 경계를 제공합니다. 구체 provider DTO·parser와 importer는 후속 Issue에서 구현합니다. FastAPI와 프론트에는 provider key나 원천 요청 설정을 전달하지 않습니다.
+Spring API는 TourAPI·TAGO·KMA와 기존 TMAP 호환 설정의 활성 여부를 typed configuration으로
+읽고, 공통 `ExternalApiExecutor`가 안전한 HTTP 실행 경계를 제공합니다. Issue #40의 `DEFER`에
+따라 Spring의 TMAP 설정은 비활성 호환 경계이며 #41의 provider-neutral port가 이를 자동
+활성화하지 않습니다. 승인된 TMAP 보행·자동차 on-demand 호출은 FastAPI 프로세스의 별도
+source contract와 secret 경계를 사용하고, 프론트에는 provider key나 원천 요청 설정을 전달하지 않습니다.
 
 운영 Secret Manager 제품, workload identity/IAM, rotation과 rollback 절차는 배포 ADR Issue #63에서 확정합니다. 현재 Issue는 로컬·CI 환경변수 계약과 애플리케이션 시작 검증만 소유합니다.
 
@@ -20,6 +24,17 @@ Spring API는 TourAPI·TAGO·TMAP·KMA의 활성 여부와 접속 설정을 type
 TAGO 정류장 도착정보 importer도 위 TAGO 설정을 공유한다. 별도 key나 URL 환경변수를 만들지 않으며
 `ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList` operation은 코드 allowlist에 고정한다.
 20~30초 cache TTL과 최대 120초 stale 허용 범위는 application 계약이며 환경변수로 완화하지 않는다.
+
+TMAP 행은 기존 typed configuration 호환성과 fail-closed 시작 검증을 위해 유지한다.
+`TMAP_ENABLED=false`가 canonical 기본값이며, 이 Spring 설정은 TMAP raw/snapshot 저장이나
+TMAP 대중교통 사용 권한을 부여하지 않는다.
+
+Issue #40의 실행 가능한 PoC와 후속 FastAPI on-demand adapter는 Spring의 `TMAP_API_KEY`가
+아닌 별도 secret env `JEJU_TMAP_API_KEY`를 사용한다. 이 키는 승인된 `tmap.pedestrian`과
+`tmap.driving` header 인증에만 쓰고 Spring 요청·응답으로 전달하지 않는다. 비어 있으면
+runner는 네트워크를 호출하지 않고 `APPROVED_TMAP_KEY_NOT_PRESENT`로 `SKIPPED`하며, 값이
+있을 때만 20개 TMAP case의 preflight를 `READY`로 판정한다. 대중교통 10개 case는 이 키를
+사용하지 않고 공식 시간표/TAGO transport 경계를 따른다.
 
 - 기본 활성값은 모두 `false`입니다. 비활성 provider는 key 없이 시작하고 client 설정 bean을 만들지 않습니다.
 - provider를 활성화하면 API key와 정확한 provider Base URL이 필수입니다. 공백, `changeme`, `replace-me`, `your-*`, `<...>`, `${...}` placeholder는 실제 key로 인정하지 않습니다.
@@ -45,17 +60,42 @@ TAGO 정류장 도착정보 importer도 위 TAGO 설정을 공유한다. 별도 
 3. `SPRING_PROFILES_ACTIVE=local`로 실행합니다.
 4. `/actuator/info`의 `externalApis`에서 활성 여부만 확인합니다. 이 응답에는 key, Base URL, timeout이 포함되지 않습니다.
 
+Issue #40 PoC/FastAPI live 검증은 위 Spring 순서와 분리한다. 비추적 환경에
+`JEJU_TMAP_API_KEY`를 주입한 뒤 승인 runner를 실행하며, 키가 없을 때의 `SKIPPED`는 정상적인
+DEFER 검증 결과다. `.env.example`에는 빈 변수명만 두고 실제 값은 기록하지 않는다.
+
 설정 객체와 client 설정 객체의 문자열 표현은 key를 `[REDACTED]`로 가립니다. 애플리케이션 오류, 로그, Actuator와 문서에 실제 key, `Authorization` 값 또는 `serviceKey` query를 기록하지 않습니다.
 
 ## 완료 공급자 Actuator 상태 요약
 
 `APP_DATA_HEALTH_ACTUATOR_ENABLED`의 기본값은 `false`입니다. 명시적으로 `true`인 운영 환경만 완료된 TourAPI·TAGO·KMA 집계 결과를 기존 `/actuator/health`의 aggregate `UP`/`DOWN`에 반영합니다. TMAP·mobility 상태는 이 요약의 범위가 아닙니다.
 
+## 운영자 전용 외부 데이터 상세 진단
+
+`APP_DATA_HEALTH_OPERATOR_ENABLED`의 기본값은 `false`입니다. 활성화할 때는 애플리케이션 포트와 다른 `MANAGEMENT_SERVER_PORT`를 private network에만 열고 `/actuator/externaldatahealth`를 조회합니다. 같은 포트이거나 management port가 누락되면 애플리케이션은 fail-fast 합니다. 일반 사용자 API와 OpenAPI에는 이 endpoint가 포함되지 않습니다.
+
+상세 진단은 RS256 service JWT만 받습니다. `OPS_JWT_ISSUER`와 `OPS_JWT_JWKS_URL`은 userinfo, query, fragment가 없는 HTTPS URL이어야 하고 audience는 정확히 `timing-jeju-ops`, role은 `operator`여야 합니다. Supabase 사용자 owner JWT는 audience 또는 role 검증에서 거부됩니다. clock skew는 `0s`부터 `60s`까지이며 기본값은 `30s`입니다.
+
+응답은 canonical provider/service/operation, 상태, 마지막 시도·성공·facts 시각, stale/reason과 fallback code만 제공합니다. snapshot metadata, scope key, provider URL/query, credential, raw payload·오류, 사용자 식별자는 projection 필드에 존재하지 않습니다. #40의 DEFER 계약 때문에 mobility는 활성 TMAP으로 가장하지 않고 `mobility-route/provider-neutral/route`의 `DISABLED` 상태와 `대체_미사용`을 표시합니다. 완료 공급자 조회 자체가 실패하면 raw cause 없이 top-level `DATA_HEALTH_UNAVAILABLE`과 `DOWN`만 반환합니다.
+
 공개 health 응답은 `show-details=never`, `show-components=never`를 유지하므로 provider·operation·시각·reason·원천 오류를 노출하지 않습니다. 활성화된 probe는 요청마다 bounded 집계를 한 번 수행하며 datasource `connection-timeout`의 영향을 받습니다. 운영 probe 주기와 timeout은 서로 겹쳐 요청이 누적되지 않도록 여유 있게 구성해야 합니다. 별도 cache나 background scheduler는 사용하지 않습니다.
 
-## 완료 공급자 snapshot retention scheduler
+## 승인된 영속 snapshot 공급자 전체 retention scheduler
 
-TourAPI·TAGO·KMA의 보존 기한이 지난 snapshot payload 정리는 기본 비활성입니다. 명시적으로 `SNAPSHOT_RETENTION_SCHEDULE_ENABLED=true`를 설정한 환경만 fixed-delay scheduler를 사용합니다. 기존 one-shot의 `SNAPSHOT_RETENTION_ENABLED=true`와 scheduler를 동시에 활성화할 수 없습니다. TMAP과 mobility 데이터는 이 작업의 범위가 아닙니다.
+Spring이 raw snapshot을 영속하는 승인 공급자는 `tour-api`, `TAGO`, `kma` 세 가지이며,
+retention one-shot과 scheduler는 이 canonical 목록 전체를 같은 application catalog에서 읽습니다.
+data-health에 등록된 operation 수나 활성 상태는 보존 대상의 원본이 아닙니다. 새 영속 snapshot
+공급자를 추가하려면 writer와 retention이 함께 이 catalog를 사용하도록 검증해야 하므로, 수집만
+추가되어 payload가 영구히 남는 상태를 허용하지 않습니다.
+
+TMAP mobility는 이 목록에서 빠진 미구현 공급자가 아니라 의도적인 **비영속 경계**입니다.
+TMAP 원문·상세 geometry·사용자 위치는 snapshot에 저장하지 않으며 중앙
+`SnapshotStoreService`도 TMAP을 포함한 미승인 provider를 redaction과 DB 호출 전에 거부합니다.
+따라서 TMAP을 retention SQL allowlist에 추가하지 않습니다.
+
+승인된 영속 공급자의 보존 기한이 지난 snapshot payload 정리는 기본 비활성입니다. 명시적으로
+`SNAPSHOT_RETENTION_SCHEDULE_ENABLED=true`를 설정한 환경만 fixed-delay scheduler를 사용합니다.
+기존 one-shot의 `SNAPSHOT_RETENTION_ENABLED=true`와 scheduler를 동시에 활성화할 수 없습니다.
 
 `SNAPSHOT_RETENTION_DRY_RUN=true`가 기본이며 dry-run은 동일 후보를 반복하지 않도록 한 cycle에서 정확히 한 batch만 조회합니다. purge cycle은 batch당 최대 500건, 최대 10 batches로 제한하고 500건보다 적게 정리한 즉시 끝납니다. DB unavailable만 최대 3 attempts로 재시도하며 backoff는 250ms, 500ms입니다. 다른 오류는 application 직접 호출에서 원형으로 전파하되 scheduled 경계에서는 고정된 비식별 문구만 남기고 다음 tick에서 다시 시작합니다.
 

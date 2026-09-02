@@ -80,6 +80,23 @@ class SnapshotStoreServiceTest {
   }
 
   @Test
+  void TMAP_payload는_redaction과_store_호출_전에_영속화를_거부한다() {
+    SnapshotSaveCommand command =
+        withScope(
+            command(
+                SnapshotPayloadFormat.JSON,
+                "{\"route\":true}".getBytes(StandardCharsets.UTF_8),
+                Map.of()),
+            new SnapshotScope("TMAP", "mobility-route", "driving", "private-route"));
+
+    assertThatThrownBy(() -> service.save(command))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("승인되지 않은 공급자의 snapshot은 영속 저장할 수 없습니다.")
+        .hasNoCause();
+    assertThat(store.saved).isEmpty();
+  }
+
+  @Test
   void JSON_payload와_metadata는_PII_alias와_정밀좌표를_같은_registry로_제거하고_안전한_유사키는_보존한다() {
     Map<String, Object> metadata =
         Map.of(
@@ -345,7 +362,7 @@ class SnapshotStoreServiceTest {
 
     List<SnapshotSaveCommand> changedIdentity =
         List.of(
-            withScope(base, new SnapshotScope("other", "KorService2", "areaBasedList2", "jeju")),
+            withScope(base, new SnapshotScope("TAGO", "KorService2", "areaBasedList2", "jeju")),
             withScope(
                 base, new SnapshotScope("tour-api", "OtherService", "areaBasedList2", "jeju")),
             withScope(base, new SnapshotScope("tour-api", "KorService2", "detailCommon2", "jeju")),

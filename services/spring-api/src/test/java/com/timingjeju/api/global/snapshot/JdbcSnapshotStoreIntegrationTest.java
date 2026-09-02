@@ -252,7 +252,7 @@ class JdbcSnapshotStoreIntegrationTest {
     SnapshotSaveCommand mismatch =
         new SnapshotSaveCommand(
             RUN_ID,
-            new SnapshotScope("tago", "BusArrival", "arrival", "jeju"),
+            new SnapshotScope("TAGO", "BusArrival", "arrival", "jeju"),
             null,
             "page-1",
             200,
@@ -272,7 +272,7 @@ class JdbcSnapshotStoreIntegrationTest {
             failure -> {
               assertThat(((SnapshotStoreException) failure).code())
                   .isEqualTo(SnapshotStoreError.SCOPE_MISMATCH);
-              assertThat(failure.getMessage()).doesNotContain("must-not-leak", "tago");
+              assertThat(failure.getMessage()).doesNotContain("must-not-leak", "TAGO");
               assertThat(failure.getCause()).isNull();
               assertThat(failure.getSuppressed()).isEmpty();
             });

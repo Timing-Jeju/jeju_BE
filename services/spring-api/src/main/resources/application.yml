@@ -17,7 +17,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,externaldatahealth
   endpoint:
     health:
       show-details: never
@@ -82,6 +82,12 @@ app:
   data-health:
     actuator:
       enabled: ${APP_DATA_HEALTH_ACTUATOR_ENABLED:false}
+    operator:
+      enabled: ${APP_DATA_HEALTH_OPERATOR_ENABLED:false}
+      issuer: ${OPS_JWT_ISSUER:}
+      audience: ${OPS_JWT_AUDIENCE:timing-jeju-ops}
+      jwks-url: ${OPS_JWT_JWKS_URL:}
+      clock-skew: ${OPS_JWT_CLOCK_SKEW:30s}
   places:
     cursor-signing-key: ${APP_PLACES_CURSOR_SIGNING_KEY:}
   trips:
