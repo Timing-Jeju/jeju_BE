@@ -70,6 +70,14 @@ DEFER 검증 결과다. `.env.example`에는 빈 변수명만 두고 실제 값�
 
 `APP_DATA_HEALTH_ACTUATOR_ENABLED`의 기본값은 `false`입니다. 명시적으로 `true`인 운영 환경만 완료된 TourAPI·TAGO·KMA 집계 결과를 기존 `/actuator/health`의 aggregate `UP`/`DOWN`에 반영합니다. TMAP·mobility 상태는 이 요약의 범위가 아닙니다.
 
+## 운영자 전용 외부 데이터 상세 진단
+
+`APP_DATA_HEALTH_OPERATOR_ENABLED`의 기본값은 `false`입니다. 활성화할 때는 애플리케이션 포트와 다른 `MANAGEMENT_SERVER_PORT`를 private network에만 열고 `/actuator/externaldatahealth`를 조회합니다. 같은 포트이거나 management port가 누락되면 애플리케이션은 fail-fast 합니다. 일반 사용자 API와 OpenAPI에는 이 endpoint가 포함되지 않습니다.
+
+상세 진단은 RS256 service JWT만 받습니다. `OPS_JWT_ISSUER`와 `OPS_JWT_JWKS_URL`은 userinfo, query, fragment가 없는 HTTPS URL이어야 하고 audience는 정확히 `timing-jeju-ops`, role은 `operator`여야 합니다. Supabase 사용자 owner JWT는 audience 또는 role 검증에서 거부됩니다. clock skew는 `0s`부터 `60s`까지이며 기본값은 `30s`입니다.
+
+응답은 canonical provider/service/operation, 상태, 마지막 시도·성공·facts 시각, stale/reason과 fallback code만 제공합니다. snapshot metadata, scope key, provider URL/query, credential, raw payload·오류, 사용자 식별자는 projection 필드에 존재하지 않습니다. #40의 DEFER 계약 때문에 mobility는 활성 TMAP으로 가장하지 않고 `mobility-route/provider-neutral/route`의 `DISABLED` 상태와 `대체_미사용`을 표시합니다. 완료 공급자 조회 자체가 실패하면 raw cause 없이 top-level `DATA_HEALTH_UNAVAILABLE`과 `DOWN`만 반환합니다.
+
 공개 health 응답은 `show-details=never`, `show-components=never`를 유지하므로 provider·operation·시각·reason·원천 오류를 노출하지 않습니다. 활성화된 probe는 요청마다 bounded 집계를 한 번 수행하며 datasource `connection-timeout`의 영향을 받습니다. 운영 probe 주기와 timeout은 서로 겹쳐 요청이 누적되지 않도록 여유 있게 구성해야 합니다. 별도 cache나 background scheduler는 사용하지 않습니다.
 
 ## 완료 공급자 snapshot retention scheduler
