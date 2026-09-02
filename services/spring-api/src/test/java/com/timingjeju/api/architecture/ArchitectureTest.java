@@ -199,6 +199,16 @@ class ArchitectureTest {
         .resideInAPackage("..application.datahealth..")
         .allowEmptyShould(false)
         .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("ExternalDataHealthEndpoint")
+        .should()
+        .resideInAPackage("..global.datahealth..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.datahealth..")
+        .allowEmptyShould(false)
+        .check(classes);
   }
 
   @Test
