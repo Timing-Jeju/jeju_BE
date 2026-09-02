@@ -13,8 +13,8 @@ class McpHealthIndicatorTest {
 
   @Test
   void schema_검증이_끝난_client만_health_UP이다() {
-    JejuMcpClient readyClient = mock(JejuMcpClient.class);
-    JejuMcpClient unavailableClient = mock(JejuMcpClient.class);
+    McpToolClient readyClient = mock(McpToolClient.class);
+    McpToolClient unavailableClient = mock(McpToolClient.class);
     when(readyClient.isReady()).thenReturn(true);
     when(unavailableClient.isReady()).thenReturn(false);
     McpHealthIndicator ready = new McpHealthIndicator(readyClient);

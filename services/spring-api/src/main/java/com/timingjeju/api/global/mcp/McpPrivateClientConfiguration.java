@@ -12,10 +12,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.reactive.function.client.ClientRequest;
-import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
 import tools.jackson.databind.json.JsonMapper;
 
 @Configuration(proxyBeanMethods = false)
@@ -43,15 +40,10 @@ public class McpPrivateClientConfiguration {
   @Bean(destroyMethod = "close")
   McpSyncClient jejuPlannerMcpSyncClient(
       McpPrivateProperties properties, McpServiceJwtIssuer jwtIssuer, JsonMapper jsonMapper) {
-    ExchangeFilterFunction serviceBearer =
-        ExchangeFilterFunction.ofRequestProcessor(
-            request ->
-                Mono.just(
-                    ClientRequest.from(request)
-                        .headers(headers -> headers.setBearerAuth(jwtIssuer.issue()))
-                        .build()));
     WebClient.Builder authenticatedClient =
-        WebClient.builder().baseUrl(properties.baseUrl().toString()).filter(serviceBearer);
+        WebClient.builder()
+            .baseUrl(properties.baseUrl().toString())
+            .filter(McpPrivateRequestFilter.create(jwtIssuer));
     var transport =
         WebClientStreamableHttpTransport.builder(authenticatedClient)
             .endpoint("/mcp")

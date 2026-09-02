@@ -8,9 +8,9 @@ import org.springframework.stereotype.Component;
 @Component("jejuPlannerMcp")
 @ConditionalOnProperty(prefix = "app.mcp", name = "enabled", havingValue = "true")
 public final class McpHealthIndicator implements HealthIndicator {
-  private final JejuMcpClient client;
+  private final McpToolClient client;
 
-  public McpHealthIndicator(JejuMcpClient client) {
+  public McpHealthIndicator(McpToolClient client) {
     this.client = client;
   }
 

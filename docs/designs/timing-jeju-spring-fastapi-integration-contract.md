@@ -43,6 +43,8 @@ service JWT claim은 다음과 같다.
 
 토큰은 WebClient filter가 MCP HTTP 요청마다 새로 만든다. 사용자 access/refresh token을 재사용하지 않는다. private key는 환경값이 아니라 mount된 PKCS#8 PEM file에서 읽는다.
 
+각 tool의 Pydantic input schema가 요구하는 `requestId`는 arguments 안에서 검증되고 `mcpInputHash` 계산에도 포함된다. Spring 요청 처리 중 생성한 canonical 32자리 lowercase hex trace ID가 있으면 같은 값을 private HTTP의 `X-Trace-Id`로 전파한다. 클라이언트가 보낸 trace 값이나 형식이 틀린 MDC 값은 전달하지 않는다.
+
 ## 4. 시작 단계 fail-closed
 
 Spring AI가 `initialize`를 완료한 뒤 BE가 `tools/list`를 호출한다. 다음 중 하나면 application readiness를 올리지 않고 시작을 실패시킨다.

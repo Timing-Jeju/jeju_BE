@@ -17,7 +17,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Component
 @ConditionalOnProperty(prefix = "app.mcp", name = "enabled", havingValue = "true")
-public final class SpringAiJejuMcpClient implements JejuMcpClient {
+public final class SpringAiJejuMcpClient implements McpToolClient {
   private final McpSyncClient client;
   private final McpContractGuard contractGuard;
   private final ObjectMapper objectMapper;

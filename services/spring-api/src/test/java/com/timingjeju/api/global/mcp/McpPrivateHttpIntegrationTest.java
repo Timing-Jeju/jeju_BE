@@ -21,7 +21,7 @@ import org.springframework.test.context.DynamicPropertySource;
 @EnabledIfEnvironmentVariable(named = "MCP_LIVE_TEST", matches = "true")
 class McpPrivateHttpIntegrationTest {
 
-  @Autowired private JejuMcpClient client;
+  @Autowired private McpToolClient client;
 
   @DynamicPropertySource
   static void privateMcpProperties(DynamicPropertyRegistry registry) {
