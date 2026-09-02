@@ -265,7 +265,24 @@ class MobilityRouteCacheServiceTest {
                     1,
                     new MobilityDurationComponents(0, 0, 1, 0, 0),
                     null,
-                    Duration.ZERO));
+                    Duration.ZERO),
+            () ->
+                new MobilityRouteMeasurement(
+                    null,
+                    1,
+                    new MobilityDurationComponents(0, 0, 1, 0, 0),
+                    null,
+                    Duration.ofMinutes(1)),
+            () ->
+                new MobilityRouteMeasurement(
+                    MobilityMode.WALK, 1, null, null, Duration.ofMinutes(1)),
+            () ->
+                new MobilityRouteMeasurement(
+                    MobilityMode.WALK,
+                    1,
+                    new MobilityDurationComponents(0, 0, 1, 0, 0),
+                    null,
+                    null));
     AtomicInteger estimates = new AtomicInteger();
 
     for (Supplier<MobilityRouteMeasurement> malformed : malformedMeasurements) {
@@ -281,11 +298,71 @@ class MobilityRouteCacheServiceTest {
       assertThatThrownBy(() -> service.get(WALK_REQUEST))
           .isInstanceOfSatisfying(
               MobilityRouteException.class,
-              failure ->
-                  assertThat(failure.code())
-                      .isEqualTo(MobilityRouteException.Code.INVALID_PROVIDER_RESPONSE));
+              failure -> {
+                assertThat(failure.code())
+                    .isEqualTo(MobilityRouteException.Code.INVALID_PROVIDER_RESPONSE);
+                assertThat(failure).hasMessage("INVALID_PROVIDER_RESPONSE").hasNoCause();
+              });
     }
     assertThat(estimates).hasValue(0);
+  }
+
+  @Test
+  void close_후_get은_provider호출없이_안정_code로_거부한다() {
+    AtomicInteger calls = new AtomicInteger();
+    MobilityRouteCacheService service =
+        new MobilityRouteCacheService(
+            provider(
+                "official.walking",
+                request -> {
+                  calls.incrementAndGet();
+                  return walkMeasurement(Duration.ofMinutes(1));
+                }),
+            request -> walkMeasurement(Duration.ofMinutes(1)),
+            fixedClock(NOW));
+    service.close();
+
+    assertThatThrownBy(() -> service.get(WALK_REQUEST))
+        .isInstanceOfSatisfying(
+            MobilityRouteException.class,
+            failure ->
+                assertThat(failure.code()).isEqualTo(MobilityRouteException.Code.CACHE_CLOSED));
+    assertThat(calls).hasValue(0);
+    assertThat(service.cacheSize()).isZero();
+  }
+
+  @Test
+  void provider_fetch_중_close하면_cache를_재삽입하지_않고_follower도_종료한다() throws Exception {
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    AtomicInteger calls = new AtomicInteger();
+    MobilityRouteCacheService service =
+        new MobilityRouteCacheService(
+            provider(
+                "official.walking",
+                request -> {
+                  calls.incrementAndGet();
+                  entered.countDown();
+                  await(release);
+                  return walkMeasurement(Duration.ofMinutes(1));
+                }),
+            request -> walkMeasurement(Duration.ofMinutes(1)),
+            fixedClock(NOW));
+
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var leader = executor.submit(() -> service.get(WALK_REQUEST));
+      assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+      var follower = executor.submit(() -> service.get(WALK_REQUEST));
+
+      service.close();
+      release.countDown();
+
+      assertCacheClosed(leader);
+      assertCacheClosed(follower);
+    }
+    assertThat(calls).hasValue(1);
+    assertThat(service.cacheSize()).isZero();
+    assertThat(service.inFlightCount()).isZero();
   }
 
   @Test
@@ -364,6 +441,15 @@ class MobilityRouteCacheServiceTest {
     while (service.cacheSize() != expected && System.nanoTime() < deadline) {
       Thread.sleep(10);
     }
+  }
+
+  private static void assertCacheClosed(java.util.concurrent.Future<MobilityRouteFact> future) {
+    assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+        .hasCauseInstanceOf(MobilityRouteException.class)
+        .satisfies(
+            failure ->
+                assertThat(((MobilityRouteException) failure.getCause()).code())
+                    .isEqualTo(MobilityRouteException.Code.CACHE_CLOSED));
   }
 
   private static final class MutableClock extends Clock {

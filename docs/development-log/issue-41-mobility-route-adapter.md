@@ -69,3 +69,24 @@ Reviewer가 MAJOR 3건으로 `CHANGES_REQUESTED`를 기록했다.
 - 최초 exact HEAD 루트 quality Gate와 Docker smoke: `SUCCESS`
 - review remediation 최종 상태에서 전체 `clean check`, root Gate, secret scan,
   `git diff --check`와 독립 재검토를 다시 실행한다.
+
+## 독립 Review 2차와 remediation
+
+검토 HEAD `d1b66c43b95b3dc732a503688ae46f16fe309cf9`에서 정상 자동 eviction과
+WALK-only reason은 승인됐지만 MAJOR 2건이 남았다.
+
+1. provider의 null mode·duration·validFor가 `NullPointerException`으로 빠져 WALK fallback을
+   허용했다.
+2. `close()` 후 신규 get과 진행 중 load의 cache 재삽입을 막지 못했다.
+
+### Review 2 RED/GREEN
+
+- null 필드 3종은 기존 구현에서 예외 없이 fallback되어 assertion RED였다.
+- close 후 get과 provider fetch 중 close 동시성도 예외 없이 완료되어 assertion RED였다.
+- null 필드 생성 오류를 cause 없는 `INVALID_PROVIDER_RESPONSE`로 닫고 estimator 0회를 고정했다.
+- 비복구 `CACHE_CLOSED` code를 추가하고 get 시작과 loaded fact의 cache commit을 lifecycle
+  lock으로 선형화했다. close 중인 leader/follower는 모두 같은 종료 예외로 완료되고 cache는
+  0을 유지한다.
+- focused mobility unit 18건과 Architecture test가 성공했다.
+- review 2 remediation 최종 Spring `./gradlew --no-daemon clean check`는 12분 44초에
+  `BUILD SUCCESSFUL`로 종료됐다.

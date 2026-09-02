@@ -42,6 +42,7 @@ public final class MobilityRouteCacheService implements AutoCloseable {
   }
 
   public MobilityRouteFact get(MobilityRouteRequest request) {
+    ensureOpen();
     Objects.requireNonNull(request, "request는 필수입니다.");
     String requestHash = MobilityRouteRequestHasher.hash(sourceId, request);
     CacheKey key = new CacheKey(sourceId, requestHash);
@@ -74,8 +75,7 @@ public final class MobilityRouteCacheService implements AutoCloseable {
 
     try {
       MobilityRouteFact loaded = load(key.requestHash(), request);
-      cache.put(key, loaded);
-      scheduleEviction(loaded.expiresAt());
+      commitLoaded(key, loaded);
       leader.complete(loaded);
       return loaded;
     } catch (RuntimeException failure) {
@@ -94,7 +94,7 @@ public final class MobilityRouteCacheService implements AutoCloseable {
     } catch (MobilityRouteException failure) {
       if (!allowsWalkFallback(request, failure)) throw failure;
       return fallback(requestHash, request);
-    } catch (IllegalArgumentException failure) {
+    } catch (IllegalArgumentException | NullPointerException failure) {
       throw MobilityRouteException.invalidProviderResponse();
     } catch (RuntimeException failure) {
       MobilityRouteException sanitized = MobilityRouteException.providerUnavailable();
@@ -167,6 +167,16 @@ public final class MobilityRouteCacheService implements AutoCloseable {
     evictionTask =
         expiryScheduler.schedule(
             this::evictExpiredAndScheduleNext, delayNanos, TimeUnit.NANOSECONDS);
+  }
+
+  private synchronized void commitLoaded(CacheKey key, MobilityRouteFact loaded) {
+    ensureOpen();
+    cache.put(key, loaded);
+    scheduleEviction(loaded.expiresAt());
+  }
+
+  private synchronized void ensureOpen() {
+    if (closed) throw MobilityRouteException.cacheClosed();
   }
 
   private synchronized void evictExpiredAndScheduleNext() {

@@ -19,7 +19,7 @@
 | freshness | `observedAt`, `expiresAt`, `stale=false` |
 | reason | `PROVIDER_FACT` 또는 보행 전용 `ESTIMATED_WALK_TIME` |
 
-provider가 요청과 다른 mode를 반환하거나 수치·TTL 경계를 위반하면
+provider가 요청과 다른 mode, null 필수 필드, 수치·TTL 경계 위반을 반환하면
 `INVALID_PROVIDER_RESPONSE`로 닫는다. 예외의 원문 message와 cause는 결과로 전달하지 않는다.
 
 ## Cache
@@ -30,6 +30,8 @@ provider가 요청과 다른 mode를 반환하거나 수치·TTL 경계를 위�
 - `now < expiresAt`만 fresh이며 equality는 만료다.
 - cache는 가장 이른 `expiresAt`에 맞춘 단일 daemon scheduler로 만료 항목을 자동 제거한다.
 - lifecycle 종료 시 `close()`로 예약 작업을 취소하고 메모리 cache를 비운다.
+- `close()` 이후 조회와 진행 중 load의 cache commit은 비복구 `CACHE_CLOSED`로 거부하며,
+  follower도 같은 완료 결과를 받아 무한 대기하지 않는다.
 - walk TTL은 최대 23시간 50분, rental-car/taxi는 최대 5분이다.
 - public-transit은 공식 publication의 실제 expiry를 사용하되 application 상한은 24시간이다.
 

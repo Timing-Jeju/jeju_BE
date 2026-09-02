@@ -7,7 +7,8 @@ public final class MobilityRouteException extends RuntimeException {
     RATE_LIMITED,
     TIMEOUT,
     PROVIDER_UNAVAILABLE,
-    EXTERNAL_FACTS_UNAVAILABLE
+    EXTERNAL_FACTS_UNAVAILABLE,
+    CACHE_CLOSED
   }
 
   private final Code code;
@@ -24,7 +25,8 @@ public final class MobilityRouteException extends RuntimeException {
   public boolean recoverable() {
     return switch (code) {
       case RATE_LIMITED, TIMEOUT, PROVIDER_UNAVAILABLE -> true;
-      case INVALID_REQUEST, INVALID_PROVIDER_RESPONSE, EXTERNAL_FACTS_UNAVAILABLE -> false;
+      case INVALID_REQUEST, INVALID_PROVIDER_RESPONSE, EXTERNAL_FACTS_UNAVAILABLE, CACHE_CLOSED ->
+          false;
     };
   }
 
@@ -50,5 +52,9 @@ public final class MobilityRouteException extends RuntimeException {
 
   public static MobilityRouteException externalFactsUnavailable() {
     return new MobilityRouteException(Code.EXTERNAL_FACTS_UNAVAILABLE);
+  }
+
+  public static MobilityRouteException cacheClosed() {
+    return new MobilityRouteException(Code.CACHE_CLOSED);
   }
 }
