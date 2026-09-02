@@ -212,13 +212,14 @@ class ArchitectureTest {
   }
 
   @Test
-  void snapshot_retention_application과_JDBC_adapter는_의존_방향을_유지한다() {
+  void snapshot_retention_application은_data_health와_adapter에서_독립된_의존_방향을_유지한다() {
     noClasses()
         .that()
         .resideInAPackage("..application.retention..")
         .should()
         .dependOnClassesThat()
-        .resideInAnyPackage("org.springframework..", "..global.retention..")
+        .resideInAnyPackage(
+            "org.springframework..", "..global.retention..", "..application.datahealth..")
         .allowEmptyShould(false)
         .check(classes);
     classes()

@@ -80,9 +80,22 @@ DEFER 검증 결과다. `.env.example`에는 빈 변수명만 두고 실제 값�
 
 공개 health 응답은 `show-details=never`, `show-components=never`를 유지하므로 provider·operation·시각·reason·원천 오류를 노출하지 않습니다. 활성화된 probe는 요청마다 bounded 집계를 한 번 수행하며 datasource `connection-timeout`의 영향을 받습니다. 운영 probe 주기와 timeout은 서로 겹쳐 요청이 누적되지 않도록 여유 있게 구성해야 합니다. 별도 cache나 background scheduler는 사용하지 않습니다.
 
-## 완료 공급자 snapshot retention scheduler
+## 승인된 영속 snapshot 공급자 전체 retention scheduler
 
-TourAPI·TAGO·KMA의 보존 기한이 지난 snapshot payload 정리는 기본 비활성입니다. 명시적으로 `SNAPSHOT_RETENTION_SCHEDULE_ENABLED=true`를 설정한 환경만 fixed-delay scheduler를 사용합니다. 기존 one-shot의 `SNAPSHOT_RETENTION_ENABLED=true`와 scheduler를 동시에 활성화할 수 없습니다. TMAP과 mobility 데이터는 이 작업의 범위가 아닙니다.
+Spring이 raw snapshot을 영속하는 승인 공급자는 `tour-api`, `TAGO`, `kma` 세 가지이며,
+retention one-shot과 scheduler는 이 canonical 목록 전체를 같은 application catalog에서 읽습니다.
+data-health에 등록된 operation 수나 활성 상태는 보존 대상의 원본이 아닙니다. 새 영속 snapshot
+공급자를 추가하려면 writer와 retention이 함께 이 catalog를 사용하도록 검증해야 하므로, 수집만
+추가되어 payload가 영구히 남는 상태를 허용하지 않습니다.
+
+TMAP mobility는 이 목록에서 빠진 미구현 공급자가 아니라 의도적인 **비영속 경계**입니다.
+TMAP 원문·상세 geometry·사용자 위치는 snapshot에 저장하지 않으며 중앙
+`SnapshotStoreService`도 TMAP을 포함한 미승인 provider를 redaction과 DB 호출 전에 거부합니다.
+따라서 TMAP을 retention SQL allowlist에 추가하지 않습니다.
+
+승인된 영속 공급자의 보존 기한이 지난 snapshot payload 정리는 기본 비활성입니다. 명시적으로
+`SNAPSHOT_RETENTION_SCHEDULE_ENABLED=true`를 설정한 환경만 fixed-delay scheduler를 사용합니다.
+기존 one-shot의 `SNAPSHOT_RETENTION_ENABLED=true`와 scheduler를 동시에 활성화할 수 없습니다.
 
 `SNAPSHOT_RETENTION_DRY_RUN=true`가 기본이며 dry-run은 동일 후보를 반복하지 않도록 한 cycle에서 정확히 한 batch만 조회합니다. purge cycle은 batch당 최대 500건, 최대 10 batches로 제한하고 500건보다 적게 정리한 즉시 끝납니다. DB unavailable만 최대 3 attempts로 재시도하며 backoff는 250ms, 500ms입니다. 다른 오류는 application 직접 호출에서 원형으로 전파하되 scheduled 경계에서는 고정된 비식별 문구만 남기고 다음 tick에서 다시 시작합니다.
 
