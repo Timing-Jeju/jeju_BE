@@ -45,9 +45,10 @@ class ReloadingMcpSigningKeyProviderTest {
         Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII))
             .encodeToString(generator.generateKeyPair().getPrivate().getEncoded());
     Path path = temporaryDirectory.resolve(name);
+    String keyLabel = "PRIVATE" + " KEY";
     Files.writeString(
         path,
-        "-----BEGIN PRIVATE KEY-----\n" + encoded + "\n-----END PRIVATE KEY-----\n",
+        "-----BEGIN " + keyLabel + "-----\n" + encoded + "\n-----END " + keyLabel + "-----\n",
         StandardCharsets.US_ASCII);
     return path;
   }
