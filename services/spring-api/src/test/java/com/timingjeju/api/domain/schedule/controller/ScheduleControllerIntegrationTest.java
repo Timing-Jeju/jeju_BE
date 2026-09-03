@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -173,6 +174,35 @@ class ScheduleControllerIntegrationTest {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("SCHEDULE_VERSION_NOT_FOUND"))
         .andExpect(jsonPath("$.cause").doesNotExist());
+  }
+
+  @Test
+  void POST_schedule_items는_새_user_edit_version을_활성화하고_201을_반환한다() throws Exception {
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "50000000-0000-0000-0000-000000000001")
+                .header("If-Match", "\"trip-1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "expectedActiveScheduleVersionId":"49000000-0000-0000-0000-000000000003",
+                      "dayNo":1,
+                      "sequenceNo":1,
+                      "itemType":"place_visit",
+                      "placeId":"49000000-0000-0000-0000-000000000007",
+                      "plannedStartAt":"2026-09-01T09:00:00+09:00",
+                      "stayMinutes":60
+                    }
+                    """))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.tripId").value(TRIP_ID.toString()))
+        .andExpect(jsonPath("$.previousScheduleVersionId").value(VERSION_ID.toString()))
+        .andExpect(jsonPath("$.sourceType").value("user_edit"))
+        .andExpect(jsonPath("$.feasibilityStale").value(true))
+        .andExpect(jsonPath("$.changedItemIds").isArray())
+        .andExpect(jsonPath("$.etag").value("\"trip-2\""));
   }
 
   private static ScheduleSnapshot snapshot() {
