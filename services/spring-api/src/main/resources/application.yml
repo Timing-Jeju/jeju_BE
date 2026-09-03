@@ -1,6 +1,10 @@
 spring:
   application:
     name: timing-jeju-api
+  ai:
+    mcp:
+      client:
+        enabled: false
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/timing_jeju}
     username: ${SPRING_DATASOURCE_USERNAME:timing_jeju}
@@ -13,7 +17,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,externaldatahealth
   endpoint:
     health:
       show-details: never
@@ -34,6 +38,21 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  mcp:
+    enabled: ${MCP_ENABLED:false}
+    base-url: ${MCP_BASE_URL:https://timing-jeju-ai:8000}
+    allowed-host: ${MCP_ALLOWED_HOST:timing-jeju-ai}
+    issuer: ${MCP_JWT_ISSUER:timing-jeju-spring}
+    audience: ${MCP_JWT_AUDIENCE:timing-jeju-mcp}
+    subject: backend-worker
+    scope: jeju:mcp:invoke
+    signing-key-descriptor-file: ${MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE:}
+    token-lifetime: ${MCP_JWT_LIFETIME:2m}
+    request-timeout: ${MCP_REQUEST_TIMEOUT:35s}
+    max-attempts: ${MCP_MAX_ATTEMPTS:3}
+    retry-delay: ${MCP_RETRY_DELAY:200ms}
+    circuit-failure-threshold: ${MCP_CIRCUIT_FAILURE_THRESHOLD:5}
+    circuit-open-duration: ${MCP_CIRCUIT_OPEN_DURATION:30s}
   push:
     fcm:
       enabled: ${FCM_ENABLED:false}
@@ -62,6 +81,12 @@ app:
   data-health:
     actuator:
       enabled: ${APP_DATA_HEALTH_ACTUATOR_ENABLED:false}
+    operator:
+      enabled: ${APP_DATA_HEALTH_OPERATOR_ENABLED:false}
+      issuer: ${OPS_JWT_ISSUER:}
+      audience: ${OPS_JWT_AUDIENCE:timing-jeju-ops}
+      jwks-url: ${OPS_JWT_JWKS_URL:}
+      clock-skew: ${OPS_JWT_CLOCK_SKEW:30s}
   places:
     cursor-signing-key: ${APP_PLACES_CURSOR_SIGNING_KEY:}
   trips:

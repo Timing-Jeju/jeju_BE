@@ -1,5 +1,6 @@
 package com.timingjeju.api.application.retention;
 
+import com.timingjeju.api.application.snapshot.PersistedSnapshotProviderCatalog;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
@@ -17,7 +18,7 @@ public class SnapshotRetentionService {
     SnapshotRetentionCommand command =
         new SnapshotRetentionCommand(
             clock.instant().truncatedTo(ChronoUnit.MICROS),
-            SnapshotRetentionProviderCatalog.providers(),
+            PersistedSnapshotProviderCatalog.providers(),
             batchSize,
             dryRun);
     SnapshotRetentionResult result = port.execute(command);

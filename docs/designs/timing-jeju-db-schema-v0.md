@@ -157,7 +157,7 @@ erDiagram
 
 완료 공급자 데이터 상태 집계는 `data_import_runs`의 canonical provider/service/operation과 lifecycle predicate를 기준으로 최근 terminal history를 `(started_at DESC, id DESC)` 순서로 최대 32건만 읽는다. 이 window 안의 same-lineage `parsed` snapshot을 가진 최신 succeeded run만 valid facts로 사용한다. terminal이 없으면 `NEVER_SYNCED`, terminal은 있지만 32건 안에 valid facts가 없으면 `NO_RECENT_VALID_FACTS / VALID_FACTS_WINDOW_EXHAUSTED`이며 33번째 이전 facts를 현재 상태로 추정하지 않는다. append-only `20260828000000_completed_provider_data_health_index.sql`의 `idx_data_import_runs_completed_health_latest`가 `(source_provider, source_service, source_operation, started_at DESC, id DESC)` 순서를 지원하며 status와 finished_at만 covering한다. 원문 payload, 오류 메시지, credential 및 내부 request metadata는 projection하지 않는다.
 
-완료된 TourAPI·TAGO·KMA snapshot payload의 one-shot retention은 row별 `purge_after <= now`만 따르며 TMAP과 running import run을 제외한다. `(purge_after, id)` stable order와 최대 500건, snapshot·run `FOR UPDATE SKIP LOCKED`를 사용하고 한 transaction에서 `raw_payload=NULL`, `purged_at=now`만 변경한다. `20260829000000_completed_provider_snapshot_retention_index.sql`의 partial `idx_external_api_snapshots_retention_due`가 due candidate 순서를 지원한다. snapshot identity/hash/status, import run, checkpoint와 normalized lineage는 삭제하거나 변경하지 않는다.
+완료된 TourAPI·TAGO·KMA snapshot payload의 one-shot retention은 row별 `purge_after <= now`만 따르며 running import run을 제외한다. TMAP은 retention 대상이 아니라 애초에 `external_api_snapshots` 행을 만들지 않는다. `(purge_after, id)` stable order와 최대 500건, snapshot·run `FOR UPDATE SKIP LOCKED`를 사용하고 한 transaction에서 `raw_payload=NULL`, `purged_at=now`만 변경한다. `20260829000000_completed_provider_snapshot_retention_index.sql`의 partial `idx_external_api_snapshots_retention_due`가 due candidate 순서를 지원한다. snapshot identity/hash/status, import run, checkpoint와 normalized lineage는 삭제하거나 변경하지 않는다.
 
 `service_role`은 필요한 앱 DML과 허용된 RPC만 사용하며, 행 trigger를 우회하는 `TRUNCATE` 권한은 기존·향후 public 앱 테이블에서 제거한다. `spatial_ref_sys` 같은 확장 관리 객체는 확장 소유자의 ACL 경계이므로 앱 테이블 권한 검사에서 제외한다. 파괴적 앱 테이블 초기화는 통제된 migration owner 경로로 제한한다.
 
@@ -195,9 +195,11 @@ erDiagram
 | `timetable_entries` | 확보된 정적 시간표 | 보조 source; TAGO 보장 아님 |
 | `bus_arrival_snapshots` | 정류장별 실시간 도착 snapshot | TAGO, 짧은 TTL |
 | `tago_arrival_flights` | 다중 Spring instance의 도착 요청 generation·lease·terminal outcome | 내부 service role 전용, 원문 미저장 |
-| `mobility_route_snapshots` | 도보/대중교통/차량/택시 경로 cache | TMAP 등 provider |
+| `mobility_route_snapshots` | 저장 허용 공급자의 provider-neutral 경로 cache | TMAP 저장 금지; #40 DEFER 경계 |
 
-`trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. 원천 route cache는 `mobility_route_snapshots`에 분리한다.
+`trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. 저장 허용 원천 route cache는
+`mobility_route_snapshots`에 분리한다. TMAP 원문·geometry·개별 route metric은 두 테이블
+모두에 저장하지 않으며 요청 프로세스 메모리에서만 사용한다.
 
 `bus_arrival_snapshots` 신규 행은 `source_service`, `source_snapshot_id`, `import_run_id`를 함께 가져야
 하며 TAGO 정류장 reference의 provider/service/city/node 범위와 일치해야 한다. 같은
@@ -288,7 +290,7 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | `trip_item_progress` | 활성 버전 항목별 현재 진행상태 | 허용된 단방향 transition |
 | `trip_execution_events` | 도착/완료/놓침 등 실행 이력 | append-only, client event id unique |
 | `live_state_snapshots` | 시점별 상태/다음 행동 | append-only snapshot |
-| `mcp_compute_call_logs` | MCP 요청/응답 감사 | redacted payload only |
+| `mcp_compute_call_logs` | MCP 요청/응답 감사 | payload 없이 hash/count/status/latency만 저장 |
 
 계획인 `trip_items`와 실행인 `trip_item_progress`를 분리하므로 도착 처리 때문에 일정 버전이 변하지 않는다.
 
@@ -393,7 +395,8 @@ stateDiagram-v2
 | --- | --- |
 | place content/address/location/image | TourAPI |
 | stop/route/arrival | TAGO |
-| mobility distance/duration/fare | TMAP 등 route provider |
+| 영속 mobility distance/duration/fare | 저장 약관이 승인된 provider-neutral route provider |
+| TMAP distance/duration | FastAPI on-demand memory-only fact; DB 저장 금지 |
 | weather observation/forecast | KMA |
 | saved/memo/required/pace | user input |
 | recommended stay | curated/computed |
@@ -475,6 +478,6 @@ stateDiagram-v2
 - Naver custom OAuth 또는 선택 provider 설정 검증.
 - TourAPI `KorService2` 실제 key/operation 호출.
 - TAGO 제주 도시코드와 정류장/노선/도착 join 품질.
-- TMAP 대중교통/자동차/도보 제주 경로와 쿼터/약관.
+- 승인된 TMAP 자동차/보행의 조건부 비저장 제주 경로와 쿼터/약관; 대중교통은 공식 시간표/TAGO.
 - KMA 격자 변환과 발표시각 fallback golden test.
 - Spring 외부 API importer, 구현된 checkpoint CAS 함수의 호출 adapter와 retention job은 별도 GitHub Issue.

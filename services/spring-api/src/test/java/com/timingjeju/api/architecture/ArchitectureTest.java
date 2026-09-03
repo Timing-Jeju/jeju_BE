@@ -199,16 +199,27 @@ class ArchitectureTest {
         .resideInAPackage("..application.datahealth..")
         .allowEmptyShould(false)
         .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("ExternalDataHealthEndpoint")
+        .should()
+        .resideInAPackage("..global.datahealth..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.datahealth..")
+        .allowEmptyShould(false)
+        .check(classes);
   }
 
   @Test
-  void snapshot_retention_application과_JDBC_adapter는_의존_방향을_유지한다() {
+  void snapshot_retention_application은_data_health와_adapter에서_독립된_의존_방향을_유지한다() {
     noClasses()
         .that()
         .resideInAPackage("..application.retention..")
         .should()
         .dependOnClassesThat()
-        .resideInAnyPackage("org.springframework..", "..global.retention..")
+        .resideInAnyPackage(
+            "org.springframework..", "..global.retention..", "..application.datahealth..")
         .allowEmptyShould(false)
         .check(classes);
     classes()
@@ -241,6 +252,18 @@ class ArchitectureTest {
         .andShould()
         .dependOnClassesThat()
         .resideInAPackage("..application.retention..")
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
+  void mobility_route_application은_Spring_JDBC_global_adapter에_의존하지_않는다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.mobility..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("org.springframework..", "java.sql..", "..global..")
         .allowEmptyShould(false)
         .check(classes);
   }
