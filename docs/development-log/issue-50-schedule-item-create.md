@@ -1,0 +1,49 @@
+# Issue #50 일정 항목 추가 API 개발 기록
+
+## 범위와 기준
+
+- 기준: `origin/develop` `4a82a6bcea99f961458a5d7af3d83ab1cc6240bf`
+- 브랜치: `feat/50-schedule-item-create`
+- endpoint: `POST /api/v1/trips/{tripId}/schedule-items`
+- 포함: 강한 ETag/CAS, idempotency, 불변 일정 version 복제, item 추가, leg 재구성, Supabase migration, OpenAPI와 실제 PostgreSQL 검증
+- 제외: 외부 경로 API·MCP 호출, 자동 일정 보정, 프론트엔드 구현
+
+## Red → Green → Refactor
+
+최초 RED에서는 Controller 통합 테스트로 올바른 요청이 `201`과 새 active `user_edit` version을 반환해야 한다고 먼저 고정했다. endpoint가 없어 기대 `201` 대신 실제 `404`로 실패했으며 Issue 댓글에 RED 증거를 기록했다.
+
+Green에서는 강한 여행 ETag와 `expectedActiveScheduleVersionId`의 이중 CAS, UUID idempotency, closed JSON body, 제주 `+09:00` 시간 경계를 구현했다. 기존 active version의 모든 item을 새 UUID로 복제하고 추가 위치를 반영한 뒤, 모든 Day의 인접 pair에 새 leg를 만들어 `draft → active`, 기존 active의 `superseded`, 여행 pointer·revision 변경을 한 transaction에서 수행한다.
+
+Refactor에서는 leg 결정 순서를 기존 의미 동일 leg 재사용, 미만료 mobility snapshot, 보수적 PostGIS 도보 fallback, `422 SCHEDULE_LEG_INCOMPLETE`로 고정했다. 원본 version과 item ID를 재사용하지 않고 실패 시 savepoint 밖에 draft나 부분 leg가 남지 않는지를 실제 PostgreSQL에서 검증했다.
+
+## 확정 구현
+
+- 인증된 owner의 여행·Day·장소·숙소·교통 이벤트만 사용하며 외부 소유 참조는 `404`로 은닉한다.
+- `Idempotency-Key`와 강한 `If-Match: "trip-{uuid}-r{revision}"`를 필수로 하고 replay·key 재사용·처리 중 lease를 공통 idempotency 계약에 맞춘다.
+- 요청은 duplicate/unknown field, explicit null, 비정상 시간 offset, 범위 밖 체류시간을 fail-closed로 거부한다.
+- 새 version의 모든 item은 새 UUID를 받고 정확히 `N-1`개의 연속 leg를 가진다.
+- request transaction에서 외부 API·MCP를 호출하지 않는다. snapshot의 정규화 요약만 사용하며 raw TMAP payload, geometry, JWT와 사용자 원문을 새로 저장하거나 로그에 남기지 않는다.
+- `20260907000000_schedule_item_create_contract.sql`은 accommodation/transport-event 전용 FK를 같은 여행 범위로 추가한다. 운영 schema 기준은 계속 `supabase/migrations` 하나다.
+
+## 검증
+
+- Controller·OpenAPI 집중 통합 테스트: 성공
+- 실제 PostgreSQL repository 통합 테스트: first/middle/last, 원본 불변성, CAS conflict, rollback, snapshot 우선순위 성공
+- `./gradlew --no-daemon clean check`: 성공
+- `./scripts/quality-gate.sh --setup-validation --scope common`: 성공, Python 전체 611 tests 중 환경 의존 2건 skip
+- 일정 canonical validator와 관련 Python 24 tests: 성공
+- `./scripts/docker-smoke-test.sh`: 성공
+  - clean DB migration, API health, legacy upgrade, 동시성, 음수 제약, schema/PostGIS fixture 포함
+  - 종료 후 `timing-jeju-smoke` 컨테이너 잔존 없음
+
+## 남은 Gate
+
+- 구현 커밋·원격 push 후 clean HEAD 기준 공식 `GITHUB_HEAD_REF=feat/50-schedule-item-create ./scripts/quality-gate.sh`를 실행한다.
+- Developer self-review로 승인하지 않는다. 독립 Reviewer의 `APPROVED` 기록 전에는 PR을 생성하지 않는다.
+- 공식 품질 Gate와 Reviewer Gate를 모두 통과한 뒤 저장소의 PR 생성 절차를 사용한다.
+
+## 리스크와 후속
+
+- title-only item type은 위치 근거가 없으면 인접 leg를 만들 수 없으므로 자동 추측하지 않고 `422`로 닫힌다.
+- stored snapshot은 같은 정규화 place pair와 transport mode에 한해 사용한다. snapshot이 없고 좌표 기반 도보 구간도 다음 일정 시작 전에 도착하지 못하면 mutation 전체를 rollback한다.
+- 프론트엔드는 mutation 성공 응답의 새 ETag를 다음 편집 요청에 보존하고, `409`에서는 active schedule과 여행 상세를 다시 조회해야 한다.

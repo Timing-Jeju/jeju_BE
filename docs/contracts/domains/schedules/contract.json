@@ -97,7 +97,7 @@
         },
         "If-Match": {
           "type": "string",
-          "pattern": "^\\\"trip-[0-9]+\\\"$",
+          "pattern": "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$",
           "nullable": false
         }
       }
@@ -811,7 +811,7 @@
         },
         "etag": {
           "type": "string",
-          "pattern": "^\\\"trip-[0-9]+\\\"$",
+          "pattern": "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$",
           "nullable": false
         },
         "updatedAt": {
@@ -1707,9 +1707,9 @@
     }
   },
   "schemaGap": [
-    "문서 작업은 schema를 변경하지 않으며 public schema 단일 기준은 supabase/migrations이다",
-    "trip_items에는 accommodation/transport-event 전용 FK가 없고 stay_minutes는 null/0 및 상한 없음이어서 #50에서 migration과 application validator 책임을 명시적으로 결정한다",
-    "trip_legs에는 derivation source/algorithm version/snapshot ID 전용 column이 없으므로 #50/#51에서 facts 저장 규약 또는 migration을 결정한다",
-    "Spring/FastAPI 운영 코드와 Flyway는 이 Issue 범위가 아니다"
+    "#50은 supabase/migrations/20260907000000_schedule_item_create_contract.sql에서 trip_items accommodation/transport-event 동일 여행 복합 FK를 추가한다",
+    "stay_minutes의 기존 null/0 및 상한 없는 저장 범위는 sealed version validator와 #50 API의 1..1440 검증으로 닫는다",
+    "leg derivation source/algorithm version은 facts marker, snapshot ID는 기존 mobility_route_snapshot_id로 보존한다",
+    "나머지 mutation의 Spring 구현은 #51 이후 범위이며 Flyway는 도입하지 않는다"
   ]
 }

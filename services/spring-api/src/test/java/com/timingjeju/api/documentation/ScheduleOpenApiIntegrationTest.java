@@ -99,6 +99,24 @@ class ScheduleOpenApiIntegrationTest {
                 .value("INTERNAL_SERVER_ERROR"));
   }
 
+  @Test
+  void schedule_item_create는_필수_header_body와_응답을_OpenAPI에_공개한다() throws Exception {
+    String path = "$.paths['/api/v1/trips/{tripId}/schedule-items'].post";
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath(path + ".operationId").value("tripScheduleItemCreate"))
+        .andExpect(jsonPath(path + ".parameters[?(@.name=='tripId')].required").value(true))
+        .andExpect(jsonPath(path + ".parameters[?(@.name=='If-Match')].required").value(true))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].required").value(true))
+        .andExpect(jsonPath(path + ".requestBody.required").value(true))
+        .andExpect(jsonPath(path + ".responses['201'].headers.ETag").exists())
+        .andExpect(jsonPath(path + ".responses['201'].headers.Idempotency-Replayed").exists())
+        .andExpect(
+            jsonPath(path + ".responses.keys()")
+                .value(containsInAnyOrder("201", "400", "401", "403", "404", "409", "422", "500")));
+  }
+
   private static String randomKey() {
     byte[] bytes = new byte[32];
     new SecureRandom().nextBytes(bytes);

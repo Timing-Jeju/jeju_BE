@@ -920,6 +920,7 @@ Table trip_transport_events {
 
   indexes {
     (trip_plan_id, event_type) [unique]
+    (id, trip_plan_id) [unique]
   }
 }
 
@@ -940,6 +941,7 @@ Table trip_accommodations {
 
   indexes {
     (trip_plan_id, sequence_no) [unique]
+    (id, trip_plan_id) [unique]
   }
 
   Note: "Date ranges cannot overlap within the same trip (PostgreSQL GiST exclusion constraint)."
@@ -995,6 +997,8 @@ Table trip_items {
   sequence_no integer [not null]
   item_type text [not null]
   place_id uuid [ref: > tour_places.id]
+  accommodation_id uuid
+  transport_event_id uuid
   title text
   planned_start_at timestamptz
   planned_end_at timestamptz
@@ -1016,6 +1020,9 @@ Table trip_items {
 
   Note: "Immutable after the schedule version leaves draft. Runtime state is stored in trip_item_progress."
 }
+
+Ref: trip_items.(accommodation_id, trip_plan_id) > trip_accommodations.(id, trip_plan_id)
+Ref: trip_items.(transport_event_id, trip_plan_id) > trip_transport_events.(id, trip_plan_id)
 
 Table itinerary_generation_runs {
   id uuid [pk]

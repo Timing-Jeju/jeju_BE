@@ -17,13 +17,16 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
 import com.timingjeju.api.application.schedule.ItemProgressSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleDaySnapshot;
 import com.timingjeju.api.application.schedule.ScheduleException;
 import com.timingjeju.api.application.schedule.ScheduleItemSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleLegSnapshot;
+import com.timingjeju.api.application.schedule.ScheduleMutationResult;
 import com.timingjeju.api.application.schedule.ScheduleSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleVersionSnapshot;
+import com.timingjeju.api.application.schedule.service.ScheduleMutationService;
 import com.timingjeju.api.application.schedule.service.ScheduleQueryService;
 import jakarta.servlet.ServletContext;
 import java.nio.charset.StandardCharsets;
@@ -35,6 +38,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -72,9 +76,24 @@ class ScheduleControllerIntegrationTest {
   @Autowired private MockMvc mvc;
   @MockitoBean private ScheduleQueryService schedules;
 
+  @MockitoBean(name = "scheduleMutationService")
+  private ScheduleMutationService mutations;
+
+  @MockitoBean private IdempotencyUseCase idempotency;
+
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
     registry.add("app.security.jwt.secret", () -> SECRET);
+  }
+
+  @BeforeEach
+  void 멱등성_operation을_동기_실행한다() {
+    when(idempotency.execute(any(), any()))
+        .thenAnswer(
+            invocation ->
+                invocation
+                    .<com.timingjeju.api.application.idempotency.IdempotencyOperation>getArgument(1)
+                    .execute());
   }
 
   @Test
@@ -178,11 +197,24 @@ class ScheduleControllerIntegrationTest {
 
   @Test
   void POST_schedule_items는_새_user_edit_version을_활성화하고_201을_반환한다() throws Exception {
+    UUID newVersionId = UUID.fromString("49000000-0000-0000-0000-000000000008");
+    UUID changedItemId = UUID.fromString("49000000-0000-0000-0000-000000000009");
+    when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
+        .thenReturn(
+            new ScheduleMutationResult(
+                TRIP_ID,
+                VERSION_ID,
+                newVersionId,
+                2,
+                2,
+                List.of(changedItemId),
+                Instant.parse("2026-09-01T01:00:00Z")));
+
     mvc.perform(
             post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
                 .header("Idempotency-Key", "50000000-0000-0000-0000-000000000001")
-                .header("If-Match", "\"trip-1\"")
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     """
@@ -199,10 +231,79 @@ class ScheduleControllerIntegrationTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.tripId").value(TRIP_ID.toString()))
         .andExpect(jsonPath("$.previousScheduleVersionId").value(VERSION_ID.toString()))
+        .andExpect(jsonPath("$.activeScheduleVersionId").value(newVersionId.toString()))
+        .andExpect(jsonPath("$.versionNo").value(2))
         .andExpect(jsonPath("$.sourceType").value("user_edit"))
         .andExpect(jsonPath("$.feasibilityStale").value(true))
-        .andExpect(jsonPath("$.changedItemIds").isArray())
-        .andExpect(jsonPath("$.etag").value("\"trip-2\""));
+        .andExpect(jsonPath("$.changedItemIds[0]").value(changedItemId.toString()))
+        .andExpect(jsonPath("$.etag").value("\"trip-" + TRIP_ID + "-r2\""));
+  }
+
+  @Test
+  void POST_schedule_items는_중복_JSON_필수누락과_유효하지_않은_item을_구분해_거부한다() throws Exception {
+    String prefix =
+        "{\"expectedActiveScheduleVersionId\":\"" + VERSION_ID + "\",\"dayNo\":1,\"sequenceNo\":1,";
+    for (var invalid :
+        List.of(
+            prefix
+                + "\"itemType\":\"place_visit\",\"itemType\":\"place_visit\",\"placeId\":\""
+                + UUID.fromString("49000000-0000-0000-0000-000000000007")
+                + "\",\"plannedStartAt\":\"2026-09-01T09:00:00+09:00\",\"stayMinutes\":60}",
+            prefix
+                + "\"itemType\":\"place_visit\",\"placeId\":\"49000000-0000-0000-0000-000000000007\",\"stayMinutes\":60}")) {
+      mvc.perform(
+              post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", UUID.randomUUID().toString())
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(invalid))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    prefix
+                        + "\"itemType\":\"place_visit\",\"plannedStartAt\":\"2026-09-01T09:00:00+09:00\",\"stayMinutes\":60}"))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.code").value("SCHEDULE_ITEM_INVALID"));
+    verifyNoInteractions(mutations);
+  }
+
+  @Test
+  void POST_schedule_items는_Idempotency_Key와_strong_If_Match를_필수로_검증한다() throws Exception {
+    String body =
+        """
+        {"expectedActiveScheduleVersionId":"49000000-0000-0000-0000-000000000003",
+         "dayNo":1,"sequenceNo":1,"itemType":"place_visit",
+         "placeId":"49000000-0000-0000-0000-000000000007",
+         "plannedStartAt":"2026-09-01T09:00:00+09:00","stayMinutes":60}
+        """;
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
+
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .header("If-Match", "\"trip-1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_IF_MATCH"));
+    verifyNoInteractions(mutations);
   }
 
   private static ScheduleSnapshot snapshot() {

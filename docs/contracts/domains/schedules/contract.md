@@ -39,4 +39,4 @@ snapshot이 없고 두 item에 정규화 좌표가 있으면 PostGIS geography �
 
 이 개발 세션에서는 Notion의 해당 6개 endpoint 행과 Figma의 일정 화면 node/action/loading/empty/error/API contract version 연결을 직접 읽거나 수정했다는 증거를 확보하지 못했다. 따라서 둘 다 `contractVersion=not-linked`, `status=not-ready`이며 metadata/example/implementation readiness도 승격하지 않는다. 알려진 Figma file/page 식별자는 탐색 시작점일 뿐 연결 증거가 아니다.
 
-문서 작업은 schema를 바꾸지 않는다. 현재 `trip_items`에는 accommodation/transport-event 전용 FK가 없고 `stay_minutes`는 null/0과 상한 없는 값을 허용한다. 또한 leg derivation source/algorithm version/snapshot ID의 전용 column이 없어 #50/#51은 `facts` 저장 규약 또는 migration을 명시적으로 결정해야 한다. 운영 public schema의 단일 기준은 `supabase/migrations`이며 Flyway를 도입하지 않는다.
+#50은 `20260907000000_schedule_item_create_contract.sql`에서 `trip_items.accommodation_id`와 `transport_event_id`를 추가하고 `(id, trip_plan_id)` 복합 FK로 다른 여행의 참조를 DB에서도 차단했다. leg derivation source/algorithm version/snapshot ID는 새 전용 column을 만들지 않고 `facts`의 `legDerivation` marker와 기존 `mobility_route_snapshot_id`를 사용한다. `stay_minutes`의 기존 null/0 허용 범위는 sealed version validator와 API의 `1..1440` 검증으로 닫으며, 운영 public schema의 단일 기준은 `supabase/migrations`이고 Flyway는 도입하지 않는다.
