@@ -73,6 +73,33 @@ class McpCallResilienceTest {
     assertThat(recovered.attemptCount()).isEqualTo(1);
   }
 
+  @Test
+  void open_이전_inflight_성공은_open_circuit을_닫지_못한다() {
+    AtomicLong now = new AtomicLong();
+    McpCallResilience resilience =
+        new McpCallResilience(
+            1, Duration.ZERO, 1, Duration.ofSeconds(30), now::get, duration -> {});
+
+    McpResilientResult<String> stale =
+        resilience.execute(
+            () -> {
+              assertThatThrownBy(
+                      () ->
+                          resilience.execute(
+                              () -> {
+                                throw new McpRemoteCallException("MCP_TIMEOUT", false);
+                              }))
+                  .isInstanceOf(McpRemoteCallException.class)
+                  .hasMessage("MCP_TIMEOUT");
+              return "stale-success";
+            });
+
+    assertThat(stale.value()).isEqualTo("stale-success");
+    assertThatThrownBy(() -> resilience.execute(() -> "must-remain-open"))
+        .isInstanceOf(McpRemoteCallException.class)
+        .hasMessage("MCP_CIRCUIT_OPEN");
+  }
+
   private static McpCallResilience resilience(AtomicLong now, McpCallResilience.Sleeper sleeper) {
     return new McpCallResilience(
         3, Duration.ofMillis(10), 2, Duration.ofSeconds(30), now::get, sleeper);

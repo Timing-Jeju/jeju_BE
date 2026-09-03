@@ -18,6 +18,8 @@ final class McpCallResilience {
     HALF_OPEN
   }
 
+  private record Permit(long epoch, boolean halfOpen) {}
+
   private final int maxAttempts;
   private final Duration retryDelay;
   private final int circuitFailureThreshold;
@@ -28,6 +30,7 @@ final class McpCallResilience {
   private int consecutiveFailures;
   private long openedAtNanos;
   private boolean halfOpenInFlight;
+  private long epoch;
 
   McpCallResilience(
       int maxAttempts,
@@ -66,33 +69,33 @@ final class McpCallResilience {
 
   <T> McpResilientResult<T> execute(Supplier<T> operation) {
     Objects.requireNonNull(operation, "operation은 필수입니다.");
-    boolean halfOpen = acquire();
+    Permit permit = acquire();
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         T value = operation.get();
-        recordSuccess(halfOpen);
+        recordSuccess(permit);
         return new McpResilientResult<>(value, attempt);
       } catch (McpContractException exception) {
-        recordFailure(halfOpen);
+        recordFailure(permit);
         throw exception;
       } catch (McpRemoteCallException exception) {
         if (!exception.retryable() || attempt == maxAttempts) {
-          recordFailure(halfOpen);
+          recordFailure(permit);
           throw exception;
         }
-        sleepBeforeRetry(attempt, halfOpen);
+        sleepBeforeRetry(attempt, permit);
       } catch (RuntimeException exception) {
         if (attempt == maxAttempts) {
-          recordFailure(halfOpen);
+          recordFailure(permit);
           throw exception;
         }
-        sleepBeforeRetry(attempt, halfOpen);
+        sleepBeforeRetry(attempt, permit);
       }
     }
     throw new IllegalStateException("도달할 수 없는 MCP retry 상태입니다.");
   }
 
-  private synchronized boolean acquire() {
+  private synchronized Permit acquire() {
     if (state == State.OPEN) {
       long elapsed = Math.max(0L, nanoTime.getAsLong() - openedAtNanos);
       if (elapsed < circuitOpenDuration.toNanos()) {
@@ -104,20 +107,23 @@ final class McpCallResilience {
     if (state == State.HALF_OPEN) {
       if (halfOpenInFlight) throw new McpRemoteCallException("MCP_CIRCUIT_OPEN");
       halfOpenInFlight = true;
-      return true;
+      return new Permit(epoch, true);
     }
-    return false;
+    return new Permit(epoch, false);
   }
 
-  private synchronized void recordSuccess(boolean halfOpen) {
-    if (halfOpen && state != State.HALF_OPEN) return;
+  private synchronized void recordSuccess(Permit permit) {
+    if (permit.epoch() != epoch) return;
+    if (permit.halfOpen() ? state != State.HALF_OPEN : state != State.CLOSED) return;
     state = State.CLOSED;
     consecutiveFailures = 0;
     halfOpenInFlight = false;
   }
 
-  private synchronized void recordFailure(boolean halfOpen) {
-    if (halfOpen) {
+  private synchronized void recordFailure(Permit permit) {
+    if (permit.epoch() != epoch) return;
+    if (permit.halfOpen()) {
+      if (state != State.HALF_OPEN) return;
       open();
       return;
     }
@@ -126,17 +132,18 @@ final class McpCallResilience {
     if (consecutiveFailures >= circuitFailureThreshold) open();
   }
 
-  private void sleepBeforeRetry(int attempt, boolean halfOpen) {
+  private void sleepBeforeRetry(int attempt, Permit permit) {
     try {
       sleeper.sleep(retryDelay.multipliedBy(attempt));
     } catch (InterruptedException exception) {
       Thread.currentThread().interrupt();
-      recordFailure(halfOpen);
+      recordFailure(permit);
       throw new McpRemoteCallException("MCP_RETRY_INTERRUPTED", false);
     }
   }
 
   private void open() {
+    epoch++;
     state = State.OPEN;
     openedAtNanos = nanoTime.getAsLong();
     consecutiveFailures = 0;

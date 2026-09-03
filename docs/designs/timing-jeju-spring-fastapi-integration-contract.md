@@ -131,7 +131,9 @@ starter의 자동 client 생성은 끈다. BE는 공식 Spring AI `WebClientStre
 
 AI process의 liveness는 `/health`, 계약 readiness는 `/ready`다. BE는 이 둘을 public proxy하지 않고 자체 `Actuator health`에 tools/list schema 검증을 마친 client readiness만 포함한다.
 
-timeout과 일시적 transport 오류는 한 논리 호출에서 최대 3회까지 제한 재시도한다. `isError=true`, 인증, protocol, JSON Schema, checksum, ID allowlist 오류는 재시도하지 않는다. 논리 호출 5회가 연속 실패하면 30초 동안 circuit을 열고, 이후 단일 half-open 호출이 성공해야 닫는다. 각 실패 attempt와 최종 성공/계약 실패는 즉시 payload-free call log에 별도 행으로 기록한다.
+timeout과 일시적 transport 오류는 한 논리 호출에서 최대 3회까지 제한 재시도한다. `isError=true`, 인증, protocol, JSON Schema, checksum, ID allowlist 오류는 재시도하지 않는다. 논리 호출 5회가 연속 실패하면 30초 동안 circuit을 열고, 이후 단일 half-open 호출이 성공해야 닫는다. OPEN 이전 epoch에서 시작한 in-flight 성공은 OPEN을 닫을 수 없다. 각 실패 attempt와 최종 성공/계약 실패는 즉시 payload-free call log에 별도 행으로 기록한다. 실패 audit writer 장애는 `mcp.client.audit.failure{outcome=write_failed}`로 계수하되 원래 MCP 오류의 재시도 가능 여부와 stable code를 바꾸지 않는다. 최종 성공 audit 저장 실패는 성공을 반환하지 않고 fail-closed한다.
+
+조건부 live 통합 테스트는 deterministic AI fixture가 반환할 `place_id`, `source_id`, `publication_id`, `source_fact_id` 전체를 `MCP_LIVE_EXPECTED_*_IDS` 환경값으로 명시한다. 빈 allowlist나 실행 결과에서 처음 발견한 ID를 사후 허용하는 방식은 금지한다.
 
 Actuator health에는 schema 검증까지 끝난 readiness만 노출한다. metric tag는 `tool`, `status`처럼 닫힌 저카디널리티 값만 허용하며 trip/user/request ID나 오류 원문을 tag로 사용하지 않는다.
 

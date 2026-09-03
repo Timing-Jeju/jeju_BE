@@ -119,7 +119,7 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
                   if (Boolean.TRUE.equals(result.isError())) {
                     McpRemoteCallException error =
                         new McpRemoteCallException("MCP_TOOL_ERROR", false);
-                    recordAudit(
+                    recordFailureAudit(
                         invocation,
                         mcpInputHash,
                         schemaChecksum,
@@ -136,7 +136,7 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
                   throw exception;
                 } catch (RuntimeException exception) {
                   McpRemoteCallException classified = McpFailureClassifier.classify(exception);
-                  recordAudit(
+                  recordFailureAudit(
                       invocation,
                       mcpInputHash,
                       schemaChecksum,
@@ -157,7 +157,7 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
                 call.value().structuredContent(),
                 invocation.inboundIdAllowlist());
       } catch (McpContractException exception) {
-        recordAudit(
+        recordFailureAudit(
             invocation,
             mcpInputHash,
             schemaChecksum,
@@ -186,7 +186,7 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
     } catch (McpRemoteCallException exception) {
       status = "remote_error";
       if (attempt.get() == 0) {
-        recordAudit(
+        recordFailureAudit(
             invocation,
             mcpInputHash,
             schemaChecksum,
@@ -240,6 +240,32 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
             status,
             latencyMs,
             errorCode));
+  }
+
+  private void recordFailureAudit(
+      McpInvocation invocation,
+      String mcpInputHash,
+      String schemaChecksum,
+      int requestFactCount,
+      int responseFactCount,
+      int attemptNo,
+      String status,
+      int latencyMs,
+      String errorCode) {
+    try {
+      recordAudit(
+          invocation,
+          mcpInputHash,
+          schemaChecksum,
+          requestFactCount,
+          responseFactCount,
+          attemptNo,
+          status,
+          latencyMs,
+          errorCode);
+    } catch (RuntimeException auditFailure) {
+      meterRegistry.counter("mcp.client.audit.failure", "outcome", "write_failed").increment();
+    }
   }
 
   private static String auditStatus(McpRemoteCallException exception) {
