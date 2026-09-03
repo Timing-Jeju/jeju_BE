@@ -290,7 +290,7 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 | `trip_item_progress` | 활성 버전 항목별 현재 진행상태 | 허용된 단방향 transition |
 | `trip_execution_events` | 도착/완료/놓침 등 실행 이력 | append-only, client event id unique |
 | `live_state_snapshots` | 시점별 상태/다음 행동 | append-only snapshot |
-| `mcp_compute_call_logs` | MCP 요청/응답 감사 | redacted payload only |
+| `mcp_compute_call_logs` | MCP 요청/응답 감사 | payload 없이 hash/count/status/latency만 저장 |
 
 계획인 `trip_items`와 실행인 `trip_item_progress`를 분리하므로 도착 처리 때문에 일정 버전이 변하지 않는다.
 

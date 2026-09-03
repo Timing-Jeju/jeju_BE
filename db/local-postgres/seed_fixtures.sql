@@ -859,39 +859,34 @@ insert into live_state_snapshots (
 );
 
 insert into mcp_compute_call_logs (
-  id, user_id, trip_plan_id, compute_run_id, generation_run_id,
-  request_id, tool_name, status, contract_version, provider, model,
-  request_payload_redacted, response_payload_redacted, latency_ms
+  id, compute_run_id, generation_run_id,
+  request_id, tool_name, status, contract_version,
+  command_input_hash, mcp_input_hash, schema_checksum,
+  request_fact_count, response_fact_count, attempt_no, latency_ms
 ) values
 (
   '67000000-0000-0000-0000-000000000001',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
   null, '64000000-0000-0000-0000-000000000001',
-  'req-generate-day-001', 'generate_day_itinerary', 'succeeded',
-  'itinerary-generation.v1', 'fastapi-mcp', 'fixture-model',
-  '{"factsRef":"sha256:fixture"}'::jsonb,
-  '{"candidateCount":1}'::jsonb, 1320
+  'req-generate-day-001', 'recommend_jeju_day_trips', 'succeeded',
+  '0.7.0',
+  repeat('1', 64), repeat('2', 64), repeat('3', 64),
+  12, 48, 1, 1320
 ),
 (
   '67000000-0000-0000-0000-000000000002',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
   '63000000-0000-0000-0000-000000000001', null,
-  'req-feasibility-001', 'calculate_feasibility', 'succeeded',
-  'feasibility.v1', 'fastapi-mcp', null,
-  '{"factsRef":"sha256:fixture"}'::jsonb,
-  '{"overallStatus":"caution","score":81}'::jsonb, 86
+  'req-feasibility-001', 'evaluate_jeju_day_trip', 'succeeded',
+  '0.7.0',
+  repeat('4', 64), repeat('5', 64), repeat('6', 64),
+  48, 9, 1, 86
 ),
 (
   '67000000-0000-0000-0000-000000000003',
-  '09000000-0000-0000-0000-000000000001',
-  '50000000-0000-0000-0000-000000000001',
   '63000000-0000-0000-0000-000000000002', null,
-  'req-recovery-001', 'generate_recovery_options', 'succeeded',
-  'recovery.v1', 'fastapi-mcp', null,
-  '{"factsRef":"sha256:fixture"}'::jsonb,
-  '{"optionCount":1}'::jsonb, 114
+  'req-recovery-001', 'revalidate_jeju_day_trip', 'succeeded',
+  '0.7.0',
+  repeat('7', 64), repeat('8', 64), repeat('9', 64),
+  31, 14, 1, 114
 );
 
 update trip_schedule_versions
