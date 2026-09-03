@@ -15,6 +15,8 @@ import com.timingjeju.api.domain.trip.dto.request.PatchTripRequest;
 import com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse;
 import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -138,14 +140,9 @@ public class TripController implements TripApiDocs {
 
   @Override
   @DeleteMapping("/{tripId}")
-  public ResponseEntity<Void> delete(
-      @PathVariable String tripId,
-      @RequestBody(required = false) byte[] body,
-      HttpServletRequest request) {
+  public ResponseEntity<Void> delete(@PathVariable String tripId, HttpServletRequest request) {
     validateNoParameters(request);
-    if (body != null && body.length > 0) {
-      throw TripException.invalidRequest();
-    }
+    validateEmptyDeleteFraming(request);
     trips.delete(currentUsers.getRequired(), parseCanonicalUuid(tripId));
     return ResponseEntity.noContent().build();
   }
@@ -202,6 +199,30 @@ public class TripController implements TripApiDocs {
 
   private static void validateNoParameters(HttpServletRequest request) {
     if (!request.getParameterMap().isEmpty()) {
+      throw TripException.invalidRequest();
+    }
+  }
+
+  private static void validateEmptyDeleteFraming(HttpServletRequest request) {
+    Enumeration<String> transferEncodings = request.getHeaders(HttpHeaders.TRANSFER_ENCODING);
+    if ((transferEncodings != null && transferEncodings.hasMoreElements())
+        || request.getHeader(HttpHeaders.TRANSFER_ENCODING) != null) {
+      throw TripException.invalidRequest();
+    }
+
+    Enumeration<String> lengths = request.getHeaders(HttpHeaders.CONTENT_LENGTH);
+    int lengthCount = 0;
+    while (lengths != null && lengths.hasMoreElements()) {
+      lengthCount++;
+      if (lengthCount > 1 || !"0".equals(lengths.nextElement())) {
+        throw TripException.invalidRequest();
+      }
+    }
+    try {
+      if (request.getInputStream().read() != -1) {
+        throw TripException.invalidRequest();
+      }
+    } catch (IOException failure) {
       throw TripException.invalidRequest();
     }
   }

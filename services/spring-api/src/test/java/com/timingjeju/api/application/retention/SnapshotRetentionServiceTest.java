@@ -20,7 +20,7 @@ class SnapshotRetentionServiceTest {
   private static final Instant NANO_NOW = Instant.parse("2026-08-24T12:00:00.123456789Z");
 
   @Test
-  void 한_batch는_Clock을_한번만_읽고_canonical_완료_공급자만_전달한다() {
+  void 한_batch는_Clock을_한번만_읽고_canonical_영속_snapshot_공급자_전체를_전달한다() {
     CountingClock clock = new CountingClock(NOW);
     RecordingPort port = new RecordingPort(result(3, 3, false));
     SnapshotRetentionService service = new SnapshotRetentionService(port, clock);

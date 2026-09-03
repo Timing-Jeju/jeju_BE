@@ -1,3 +1,4 @@
+-- Issue #45: trip aggregate revision, PATCH CAS, and DELETE contract.
 alter table public.trip_plans
   add column revision bigint;
 

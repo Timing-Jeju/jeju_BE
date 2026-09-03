@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "timing-jeju-planner-fe-integration/v1",
+  "contractVersion": "1.0.0",
+  "mcpContractVersion": "0.7.0",
+  "ownerIssue": 52,
+  "frontend": {
+    "repository": "Timing-Jeju/jeju_FE",
+    "branch": "main",
+    "commit": "3c280a1cc05c73150e6f0bb1174443906de04f91",
+    "sourceFiles": [
+      {"path": "store/useTripStore.ts", "sha256": "f08b69b6bd2d49702cd3ab8114c46374a2c15afabd1eef7a27e7ad61861492cb"},
+      {"path": "store/useScheduleStore.ts", "sha256": "92c5916ea172068bf8479af660782636568d39e6449bed8d525e0517bdab98e7"},
+      {"path": "store/useFavoriteStore.ts", "sha256": "90d8e25b48d6bd2e9549ff10c3ab9661bbbf179d8270de4a68781d4b0f30e00e"},
+      {"path": "utils/schedule.ts", "sha256": "b92a7e27d21271a15e8e01805572887eb2266a6ce4df636d73c5982e1a984738"},
+      {"path": "app/trip-conditions.tsx", "sha256": "dbd9db5045ced140ec0a35a09d36875a533877ce327045bbccdf497a6da27155"},
+      {"path": "app/schedule-review.tsx", "sha256": "47330586a8952b34b2691f0f281128851088db7acaa81f0a0d0db5d6fa0ffd93"},
+      {"path": "app/schedule-leg.tsx", "sha256": "01fbd8d1cfeebc5d31f9af846b64fe67da94f797ed51f531c6202c4f2d9a991a"},
+      {"path": "app/live-map.tsx", "sha256": "c17cd26e5c911667b9e2f5b303b0f70d4d1cd8450a7b109580068e41e7384f87"},
+      {"path": "app/(tabs)/index.tsx", "sha256": "0a4320cd46a913613873258485b2bf7a80624485af1cbc7fe6337139df32298c"},
+      {"path": "app/schedule-search.tsx", "sha256": "3c8c8ea9d3f117e9ff8bdbb3f4d41b715be2e75a7f9273f6a8bb582f8e4e6fdd"},
+      {"path": "app/schedule-favorites.tsx", "sha256": "eac9c2a17643a757259dc12f96ca35984cf7c477b61ac13be3430dcf862a4337"}
+    ]
+  },
+  "endpoints": [
+    {"action": "savePlannerConditions", "method": "PUT", "path": "/api/v1/trips/{tripId}/planner-conditions", "implementationIssue": null, "status": "planned"},
+    {"action": "searchPlaces", "method": "GET", "path": "/api/v1/places", "implementationIssue": null, "status": "existing"},
+    {"action": "listSavedPlaces", "method": "GET", "path": "/api/v1/me/saved-places", "implementationIssue": null, "status": "existing"},
+    {"action": "generateDay", "method": "POST", "path": "/api/v1/trips/{tripId}/generation-runs", "implementationIssue": 53, "status": "planned"},
+    {"action": "pollGeneration", "method": "GET", "path": "/api/v1/trips/{tripId}/generation-runs/{runId}", "implementationIssue": 95, "status": "planned"},
+    {"action": "reviseSchedule", "method": "POST", "path": "/api/v1/trips/{tripId}/schedule-revision-runs", "implementationIssue": 69, "status": "planned"},
+    {"action": "fillSpareTime", "method": "POST", "path": "/api/v1/trips/{tripId}/spare-time-runs", "implementationIssue": 57, "status": "planned"},
+    {"action": "inspectLeg", "method": "GET", "path": "/api/v1/trips/{tripId}/schedule-versions/{versionId}/legs/{legId}", "implementationIssue": 56, "status": "planned"},
+    {"action": "evaluateSchedule", "method": "POST", "path": "/api/v1/trips/{tripId}/feasibility-runs", "implementationIssue": 55, "status": "planned"},
+    {"action": "readActiveSchedule", "method": "GET", "path": "/api/v1/trips/{tripId}/schedule?projection=fe-review-v1", "implementationIssue": 49, "status": "planned"},
+    {"action": "recordExecution", "method": "POST", "path": "/api/v1/trips/{tripId}/execution-events", "implementationIssue": 59, "status": "planned"},
+    {"action": "revalidateLiveSchedule", "method": "POST", "path": "/api/v1/trips/{tripId}/live-recalculation-runs", "implementationIssue": 60, "status": "planned"}
+  ],
+  "projectionPolicy": {
+    "reviewAdditionalProperties": false,
+    "serverIdentifiersOutsideReview": ["candidateId", "scheduleVersionId", "rank", "strategy", "evaluationStatus"],
+    "timeFormat": "H:MM",
+    "distanceFormat": "meters below 1000; one-decimal kilometers at or above 1000",
+    "successfulLegNumericEvidenceRequired": ["startTime", "endTime", "cost", "distanceText"],
+    "slackUnknownSentinel": {"value": 0, "status": "warning", "reason": "여유시간 근거 확인 불가"},
+    "busColorEvidence": false,
+    "busColorProjection": ["green", "blue", "sky", "red"],
+    "alternativeModes": ["bus", "taxi"],
+    "forbiddenRequestFields": ["original_text", "gps", "time", "cost", "distance", "risk", "geometry"]
+  },
+  "schemas": {
+    "Coord": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["latitude", "longitude"], "properties": {"latitude": {"type": "number", "nullable": false, "minimum": -90, "maximum": 90}, "longitude": {"type": "number", "nullable": false, "minimum": -180, "maximum": 180}}},
+    "DayTime": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["start", "end"], "properties": {"start": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "end": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}}},
+    "TripLodging": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["name", "address", "coord"], "properties": {"name": {"type": "string", "nullable": false}, "address": {"type": "string", "nullable": false}, "coord": {"$ref": "Coord", "nullable": true}}},
+    "TripConditions": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["startDate", "endDate", "arrivalTransport", "arrivalTime", "departureTransport", "departureTime", "dayTimes", "lodgingMode", "lodging", "dailyLodgings", "styles", "transport"], "properties": {"startDate": {"type": "string", "nullable": true, "format": "date"}, "endDate": {"type": "string", "nullable": true, "format": "date"}, "arrivalTransport": {"type": "string", "nullable": true, "enum": ["비행기", "선박"]}, "arrivalTime": {"type": "string", "nullable": true, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "departureTransport": {"type": "string", "nullable": true, "enum": ["비행기", "선박"]}, "departureTime": {"type": "string", "nullable": true, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "dayTimes": {"type": "object", "nullable": false, "additionalProperties": {"$ref": "DayTime"}}, "lodgingMode": {"type": "string", "nullable": true, "enum": ["single", "daily"]}, "lodging": {"$ref": "TripLodging", "nullable": true}, "dailyLodgings": {"type": "object", "nullable": false, "additionalProperties": {"$ref": "TripLodging"}}, "styles": {"type": "array", "nullable": false, "items": {"type": "string", "nullable": false}}, "transport": {"type": "array", "nullable": false, "items": {"type": "string", "nullable": false, "enum": ["bus", "taxi", "walk"]}}}},
+    "SchedulePlace": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["name", "category", "address", "visitType", "stayMinutes", "coord"], "properties": {"name": {"type": "string", "nullable": false}, "category": {"type": "string", "nullable": false}, "address": {"type": "string", "nullable": false}, "visitType": {"type": "string", "nullable": true, "enum": ["필수방문", "선택방문"]}, "stayMinutes": {"type": "integer", "nullable": false, "minimum": 0}, "coord": {"$ref": "Coord", "nullable": true}}},
+    "FavoritePlace": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["name", "category", "address", "visitType", "memo", "stayMinutes", "direction", "coord"], "properties": {"name": {"type": "string", "nullable": false}, "category": {"type": "string", "nullable": false}, "address": {"type": "string", "nullable": false}, "visitType": {"type": "string", "nullable": false, "enum": ["필수방문", "선택방문"]}, "memo": {"type": "string", "nullable": false}, "stayMinutes": {"type": "integer", "nullable": false, "minimum": 0}, "direction": {"type": "string", "nullable": false}, "coord": {"$ref": "Coord", "nullable": true}}},
+    "RouteBus": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["text", "color"], "properties": {"text": {"type": "string", "nullable": false}, "color": {"type": "string", "nullable": false, "enum": ["green", "blue", "sky", "red", "grey"]}}},
+    "RouteStep": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["kind", "name", "detail", "buses", "caution"], "properties": {"kind": {"type": "string", "nullable": false, "enum": ["place", "stop"]}, "name": {"type": "string", "nullable": false}, "detail": {"type": "string", "nullable": true}, "buses": {"type": "array", "nullable": false, "items": {"$ref": "RouteBus"}}, "caution": {"type": "boolean", "nullable": false}}},
+    "RouteLeg": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["id", "from", "to", "fromCoord", "toCoord", "status", "startTime", "endTime", "cost", "distanceText", "reason", "steps", "departStayMinutes", "slackMinutes", "buses"], "properties": {"id": {"type": "string", "nullable": false}, "from": {"type": "string", "nullable": false}, "to": {"type": "string", "nullable": false}, "fromCoord": {"$ref": "Coord", "nullable": true}, "toCoord": {"$ref": "Coord", "nullable": true}, "status": {"type": "string", "nullable": false, "enum": ["positive", "cautionary", "warning"]}, "startTime": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "endTime": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "cost": {"type": "integer", "nullable": false, "minimum": 0}, "distanceText": {"type": "string", "nullable": false, "pattern": "^(?:\\d+m|\\d+\\.\\dkm)$"}, "reason": {"type": "string", "nullable": true}, "steps": {"type": "array", "nullable": false, "items": {"$ref": "RouteStep"}}, "departStayMinutes": {"type": "integer", "nullable": false, "minimum": 0}, "slackMinutes": {"type": "integer", "nullable": false}, "buses": {"type": "array", "nullable": false, "items": {"$ref": "RouteBus"}}}},
+    "DayReview": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["mode", "summary", "legs", "dirty", "confirmed"], "properties": {"mode": {"type": "string", "nullable": false, "enum": ["manual", "ai"]}, "summary": {"type": "string", "nullable": false}, "legs": {"type": "array", "nullable": false, "items": {"$ref": "RouteLeg"}}, "dirty": {"type": "boolean", "nullable": false}, "confirmed": {"type": "boolean", "nullable": false}}},
+    "FillSuggestion": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["id", "name", "transportLabel", "startTime", "endTime", "distanceText"], "properties": {"id": {"type": "string", "nullable": false}, "name": {"type": "string", "nullable": false}, "transportLabel": {"type": "string", "nullable": false, "enum": ["도보", "버스"]}, "startTime": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "endTime": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "distanceText": {"type": "string", "nullable": false, "pattern": "^(?:\\d+m|\\d+\\.\\dkm)$"}}},
+    "RouteAlternative": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["id", "from", "to", "bus", "startTime", "endTime", "cost", "note"], "properties": {"id": {"type": "string", "nullable": false}, "from": {"type": "string", "nullable": false}, "to": {"type": "string", "nullable": false}, "bus": {"$ref": "RouteBus", "nullable": true}, "startTime": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "endTime": {"type": "string", "nullable": false, "pattern": "^(?:[01]?\\d|2[0-3]):[0-5]\\d$"}, "cost": {"type": "integer", "nullable": false, "minimum": 0}, "note": {"type": "string", "nullable": false}}},
+    "SelectedCandidate": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["candidateId", "scheduleVersionId", "rank", "strategy", "evaluationStatus", "review"], "properties": {"candidateId": {"type": "string", "nullable": false, "format": "uuid"}, "scheduleVersionId": {"type": "string", "nullable": false, "format": "uuid"}, "rank": {"type": "integer", "nullable": false, "enum": [1]}, "strategy": {"type": "string", "nullable": false, "enum": ["balanced"]}, "evaluationStatus": {"type": "string", "nullable": false, "enum": ["feasible", "feasible_with_caution"]}, "review": {"$ref": "DayReview", "nullable": false}}}
+  },
+  "readiness": {
+    "contract": "ready",
+    "frontendCodeChanged": false,
+    "implementedEndpoints": "tracked per endpoint status; planned must not be advertised in OpenAPI",
+    "driftRule": "frontend commit or any source checksum change fails compatibility review until this contract is regenerated"
+  }
+}

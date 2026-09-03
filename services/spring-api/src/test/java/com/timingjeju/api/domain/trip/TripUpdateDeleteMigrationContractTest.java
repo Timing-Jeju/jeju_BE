@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 @Tag("unit")
 class TripUpdateDeleteMigrationContractTest {
-  private static final String MIGRATION = "20260905000000_trip_update_delete_contract.sql";
+  private static final String MIGRATION = "20260906000000_trip_update_delete_contract.sql";
 
   @Test
   void migration은_revision을_결정적으로_backfill하고_단조_양수로_고정한다() throws Exception {
@@ -45,7 +45,7 @@ class TripUpdateDeleteMigrationContractTest {
     for (String compose :
         java.util.List.of("docker-compose.yml", "compose.yml", "compose.test.yml")) {
       String text = Files.readString(root.resolve(compose));
-      int migration = text.indexOf("035_trip_update_delete_contract.sql");
+      int migration = text.indexOf("036_trip_update_delete_contract.sql");
       int seed = text.indexOf("099_seed_fixtures.sql");
       assertThat(migration).as(compose).isGreaterThanOrEqualTo(0).isLessThan(seed);
     }

@@ -1383,24 +1383,25 @@ Table live_state_snapshots {
 
 Table mcp_compute_call_logs {
   id uuid [pk]
-  user_id uuid [ref: > user_profiles.id]
-  trip_plan_id uuid [ref: > trip_plans.id]
   compute_run_id uuid [ref: > compute_runs.id]
   generation_run_id uuid [ref: > itinerary_generation_runs.id]
+  schedule_revision_run_id uuid [ref: > schedule_revision_runs.id]
   request_id text [not null]
   tool_name text [not null]
   status text [not null]
   contract_version text [not null]
-  provider text
-  model text
-  request_payload_redacted jsonb [not null]
-  response_payload_redacted jsonb [not null]
+  command_input_hash char(64)
+  mcp_input_hash char(64)
+  schema_checksum char(64)
+  request_fact_count integer
+  response_fact_count integer
+  attempt_no integer [not null]
+  legacy_contract boolean [not null]
   latency_ms integer
   error_code text
-  error_message text
   created_at timestamptz [not null]
 
   indexes {
-    (request_id, tool_name) [unique]
+    (request_id, tool_name, attempt_no) [unique]
   }
 }

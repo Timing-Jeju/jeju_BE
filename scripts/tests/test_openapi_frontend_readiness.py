@@ -11,6 +11,7 @@ from scripts.validate_openapi_frontend_readiness import (
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_MUTATION_OPERATIONS,
+    SCHEDULE_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
 )
@@ -398,15 +399,17 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             schemas["PushDevicePath"]["required"],
         )
 
-    def test_mode22는_trip_PATCH_DELETE를_exact_inventory와_canonical_projection으로_검사한다(self):
+    def test_mode23은_schedule_read와_trip_mutation을_exact_inventory로_검사한다(self):
+        """23-operation 모드가 일정 조회와 여행 변경 두 건을 함께 검사한다."""
         exact_operations = (
             set(CURRENT_OPERATIONS)
             | set(SAVED_PLACE_OPERATIONS)
             | set(TRIP_OPERATIONS)
             | set(TRIP_MUTATION_OPERATIONS)
             | set(PUSH_NOTIFICATION_OPERATIONS)
+            | set(SCHEDULE_OPERATIONS)
         )
-        validator = Validator({}, 22, ROOT)
+        validator = Validator({}, 23, ROOT)
         validator.operations = exact_operations
         validator.operation_ids = {
             operation_id: [f"{method} {path}"]
@@ -416,12 +419,19 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 **TRIP_OPERATIONS,
                 **TRIP_MUTATION_OPERATIONS,
                 **PUSH_NOTIFICATION_OPERATIONS,
+                **SCHEDULE_OPERATIONS,
             }.items()
         }
-        validator.validate_operation_inventory()
-        self.assertEqual([], validator.errors)
 
-        authority = Validator(valid_document(), 22, ROOT)
+        validator.validate_operation_inventory()
+
+        self.assertEqual([], validator.errors)
+        self.assertEqual(
+            "a5f53adcf43a63672de76d2a0ec4579257cb664a",
+            validator.source_provenance["schedules"],
+        )
+
+        authority = Validator(valid_document(), 23, ROOT)
         with mock.patch.object(authority, "validate_contract_endpoint") as projection:
             authority.validate_contract_authority()
         trip_mutation_calls = {
@@ -430,6 +440,26 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             if call.args[0] in TRIP_MUTATION_OPERATIONS
         }
         self.assertEqual(set(TRIP_MUTATION_OPERATIONS), trip_mutation_calls)
+        schedule_calls = {
+            call.args[0]: call
+            for call in projection.call_args_list
+            if call.args[0] in SCHEDULE_OPERATIONS
+        }
+        self.assertEqual(set(SCHEDULE_OPERATIONS), set(schedule_calls))
+        call = schedule_calls[("GET", "/api/v1/trips/{tripId}/schedule")]
+        self.assertEqual("ScheduleResponse", call.args[2]["successSchema"])
+        self.assertEqual(
+            [
+                "scheduleVersionId",
+                "versionNo",
+                "status",
+                "sourceType",
+                "baseScheduleVersionId",
+                "score",
+                "feasibilityStale",
+            ],
+            call.args[3]["ScheduleVersion"]["required"],
+        )
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)

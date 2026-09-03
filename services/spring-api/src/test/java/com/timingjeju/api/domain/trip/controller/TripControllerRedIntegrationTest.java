@@ -323,6 +323,28 @@ class TripControllerRedIntegrationTest {
   }
 
   @Test
+  void DELETE_trip은_비정상_framing과_길이_body_불일치를_fail_closed한다() throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+
+    for (var malformed :
+        List.of(
+            delete("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.TRANSFER_ENCODING, "chunked"),
+            delete("/api/v1/trips/{tripId}", tripId).header(HttpHeaders.CONTENT_LENGTH, "-1"),
+            delete("/api/v1/trips/{tripId}", tripId).header(HttpHeaders.CONTENT_LENGTH, "0", "0"),
+            delete("/api/v1/trips/{tripId}", tripId).header(HttpHeaders.CONTENT_LENGTH, "1"),
+            delete("/api/v1/trips/{tripId}", tripId)
+                .content("{}")
+                .header(HttpHeaders.CONTENT_LENGTH, "0"))) {
+      mvc.perform(malformed.header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    verifyNoInteractions(tripService);
+  }
+
+  @Test
   void GET_trip_list와_detail의_data_unavailable은_cause없는_TRIP_DATA_UNAVAILABLE_503이다()
       throws Exception {
     TripException listFailure = TripException.dataUnavailable();

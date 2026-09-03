@@ -13,7 +13,7 @@
 | FastAPI MCP 계약 | PASS | Phase 1 계산 도구 8개 + Phase 2 의도 파싱 도구 1개 정의 |
 | Spring-FastAPI wire 계약 | PASS | `/mcp` tools/call, structuredContent, service JWT, 저장 매핑 작성 |
 | 외부 API 필드 검증 | PASS | TourAPI/TAGO/KMA 공식 문서 기준 원천값과 계산값 분리 |
-| 길찾기 공급자 POC | PENDING | TMAP을 설계 기본값으로 두었으나 키/쿼터/제주 품질 실측 필요 |
+| 길찾기 공급자 POC | DEFER | #40 Owner 승인에 따라 provider-neutral·TMAP 기본 비활성화, 대중교통은 공식 시간표/TAGO |
 | Figma 우측 댓글 스레드 | PASS | 2026-07-21 브라우저에서 미해결 댓글과 답글을 직접 확인해 정책 반영 |
 
 `PASS`는 설계와 로컬 검증 완료, `PENDING`은 구현 전 POC 필요를 뜻한다.
@@ -33,13 +33,19 @@
 | --- | --- | --- | --- | --- |
 | 소셜/이메일 로그인, OTP, 비밀번호 재설정 | OWNER | JWT 검증 | 금지 | `auth.users` 원본 |
 | 프로필/약관/관심 장소/여행 CRUD | - | OWNER | 금지 | 영속화/RLS |
-| TourAPI/TAGO/KMA/길찾기 호출 | - | OWNER | 금지 | 정규화 cache/snapshot |
+| TourAPI/TAGO/KMA/공식 시간표 호출 | - | OWNER | 금지 | 정규화 cache/snapshot |
+| TMAP 보행·자동차 on-demand 호출 | - | 금지·비활성 | FastAPI OWNER | 저장 금지·프로세스 메모리 전용 |
 | 계산 입력 facts 조립 및 검증 | - | OWNER | 입력 검증 | 원천/사용자 데이터 조회 |
 | Day 생성/수정/가능성/추천/복구/라이브 재계산 | - | 호출/timeout/저장 | OWNER | 실행과 결과 이력 |
 | 일정 후보 적용과 동시성 제어 | - | OWNER | 금지 | 트랜잭션/제약 |
 | JWT, refresh token, provider access token 저장 | Supabase Auth | 금지 | 금지 | 앱 public schema에 저장 금지 |
 
-FastAPI는 `service_role` DB 키, Supabase JWT, 외부 API 키를 받지 않는다. Spring이 ID가 포함된 정규화 facts를 보내고 FastAPI는 입력에 없는 ID를 결과로 만들 수 없다.
+FastAPI는 `service_role` DB 키, Supabase JWT, TourAPI·TAGO·KMA 키를 받지 않는다.
+Issue #40 Owner 결정은 기존 이슈와 이 체크리스트의 “Spring만 길찾기 호출” 및 “FastAPI는
+외부 API 키를 받지 않음” 문구를 승인된 `tmap.pedestrian`·`tmap.driving` 두 source에 한해
+대체한다. FastAPI가 secret env의 `JEJU_TMAP_API_KEY`를 직접 읽으며 Spring 요청으로 key를
+전달받지 않는다. Spring이 ID가 포함된 정규화 facts를 보내고 FastAPI는 입력에 없는 ID를
+결과로 만들 수 없다. TMAP 대중교통 호출과 TMAP 결과 영속화는 계속 금지한다.
 
 ## 4. Figma 기능 커버리지
 
@@ -96,8 +102,9 @@ FastAPI는 `service_role` DB 키, Supabase JWT, 외부 API 키를 받지 않는�
 
 ### 구현 전 필수
 
-- [ ] TMAP 대중교통/자동차/보행자 API 키와 상용 쿼터를 확보한다.
-- [ ] 제주 10개 대표 A-B 구간에서 경로 누락률, duration, fare, walk segment를 실측한다.
+- [x] 공개 대표점 10개 A-B 구간 × 보행·자동차·대중교통의 실행 가능한 30-case 계약을 고정한다.
+- [x] 키 부재 시 live 호출을 `APPROVED_TMAP_KEY_NOT_PRESENT`로 명시적으로 skip한다.
+- [ ] TMAP 보행·자동차를 활성화하기 전 승인 키로 필드 가용성과 쿼터를 비저장 재실측한다.
 - [ ] 위치정보 이용약관 버전과 여행 당일 위치 수집/보존 기간을 법무 기준으로 확정한다.
 - [ ] 외부 API 키, Supabase service role, MCP 내부 인증키의 secret 관리 방식을 확정한다.
 
@@ -171,11 +178,13 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/queries/smoke_check.sql
 | 공급자 | 가져오는 값 | 가져오지 못하는 값 | 처리 |
 | --- | --- | --- | --- |
 | TourAPI KorService2 | 장소, 주소, 좌표, 이미지, 개요, 유형별 이용정보 | 추천 체류, 사용자 메모, 가능성 | curated/user/computed로 분리 |
-| TAGO | 정류장, 노선, 경유 순서, 실시간 도착 초/잔여 정류장 | 완성 A-B 경로, 모든 정확한 시간표 | TMAP/보조 데이터 + FastAPI |
+| TAGO | 정류장, 노선, 경유 순서, 실시간 도착 초/잔여 정류장 | 완성 A-B 경로, 모든 정확한 시간표 | 공식 시간표 + FastAPI graph |
 | KMA 단기예보 | 기온, 강수, 하늘, 습도, 풍속 | 일정 영향/위험도 | FastAPI 계산 |
-| TMAP 기본안 | 대중교통/자동차/보행 경로, 시간, 일부 요금 | 앱 정책 위험도/복구 | 정규화 snapshot 후 FastAPI |
+| TMAP DEFER | 승인된 자동차/보행 on-demand 경로 | 대중교통, 앱 정책 위험도/복구 | 기본 비활성화, FastAPI 프로세스 메모리 전용 |
 
-외부 응답을 그대로 프론트에 전달하지 않는다. Spring adapter가 내부 schema로 정규화하고 `observedAt`, `expiresAt`, `stale`, `provider`를 붙인다.
+외부 응답을 그대로 프론트에 전달하지 않는다. 영속 허용 공급자는 Spring adapter가 내부
+schema로 정규화한다. TMAP은 FastAPI on-demand adapter가 메모리에서만 route fact로 바꾸며
+원문·geometry·개별 수치를 Spring snapshot이나 로그에 남기지 않는다.
 
 ## 10. 장애/동시성 시나리오
 

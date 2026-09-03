@@ -40,7 +40,7 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "1fb50fe554ed7f1d8341d59c35f8c98466ab3cd2536f328ea2d91826fba37eee"
+CANONICAL_CONTRACT_SHA256 = "fb667fbb235d55180b992d9965f091131b4b667b4ec04f7b008a289f067888f2"
 CANONICAL_CATALOG_SHA256 = "bedac3e8b9c7e9deac3313a31cff1a697170742ff9d75911fb2cbec22e943faf"
 CONTRACT_FIELDS = {
     "schemaVersion",
@@ -298,12 +298,20 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
     if (
         deletion.get("repeat") != "404 TRIP_NOT_FOUND"
         or deletion.get("crossOwner") != "404 TRIP_NOT_FOUND"
+        or deletion.get("terminalOrRunning")
+        != "409 TRIP_DELETE_CONFLICT while an async run is running or trip status is live"
         or deletion.get("tripAggregate") != "cascade"
         or deletion.get("locationAndExecutionHistory") != "delete-with-aggregate"
         or deletion.get("externalImportLineage") != "preserve"
         or deletion.get("userAndAuthIdentity") != "preserve"
     ):
         errors.append("여행 DELETE semantic canonical 계약이 다릅니다.")
+
+    if contract.get("tripPolicy", {}).get("terminalMutation") != (
+        "PATCH rejects completed/cancelled/failed with 409 TRIP_TERMINAL_STATE_CONFLICT; "
+        "DELETE rejects only live or running async work with 409 TRIP_DELETE_CONFLICT"
+    ):
+        errors.append("여행 terminal PATCH/DELETE 분리 계약이 다릅니다.")
 
 
 def _validate_catalog_idempotency_semantics(

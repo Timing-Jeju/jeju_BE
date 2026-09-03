@@ -159,6 +159,12 @@ class TripsContractTest(unittest.TestCase):
             "profile conflict mapping": lambda c: c["createSemantics"]["profileProvisioningErrors"].update({"EMAIL_OWNERSHIP_CONFLICT": "500 INTERNAL_SERVER_ERROR"}),
             "patch if-match": lambda c: c["endpoints"][3].update({"headersSchema": "CommonHeaders"}),
             "delete repeat": lambda c: c["deleteSemantics"].update({"repeat": "204"}),
+            "delete terminal scope": lambda c: c["deleteSemantics"].update(
+                {"terminalOrRunning": "all terminal trips reject"}
+            ),
+            "terminal mutation split": lambda c: c["tripPolicy"].update(
+                {"terminalMutation": "PATCH and DELETE reject"}
+            ),
             "timezone": lambda c: c["tripPolicy"].update({"timezone": "UTC"}),
             "owner": lambda c: c["ownership"].update({"source": "email"}),
         }

@@ -1,17 +1,17 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **#45 기능 브랜치의 공개 API 22개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 22` 명령이 기존 20개와 trip PATCH/DELETE 2개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`은 이전 inventory를 그대로 보존한다.
+> **#45 기능 브랜치의 통합 공개 API 23개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 23` 명령이 현재 `develop`의 21개와 trip PATCH/DELETE 2개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 21`은 이전 inventory를 그대로 보존한다.
 
-이 문서는 2026-09-01 현재 구현이 끝난 공개 Spring API 22개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 현재 `develop`의 공개 Spring API와 #45의 trip PATCH/DELETE를 합친 23개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
 | 상태 | 범위 | 권위 자료 |
 |---|---|---|
-| `develop` 사용 가능 | 기존 공개 API 20 | `origin/develop` `ae3926ac6428c1d93cd57372fbafb8dd31d34544`의 Controller/OpenAPI와 canonical contract |
+| `develop` 사용 가능 | 공개 API 21 | `origin/develop`의 Controller/OpenAPI와 canonical contract; #49 schedule read 포함 |
 | **#45 기능 브랜치** | trip PATCH/DELETE 2 | `feat/45-trip-update-delete`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 
-현재 `develop`에서는 기존 20개를 호출할 수 있다. trip PATCH/DELETE는 독립 리뷰와 병합 전까지 #45 기능 브랜치에서만 검증하며, 이 문서는 해당 브랜치가 실제 생성한 22-operation artifact를 기준으로 한다.
+현재 `develop`에서는 21개를 호출할 수 있다. trip PATCH/DELETE는 독립 리뷰와 병합 전까지 #45 기능 브랜치에서만 검증하며, 이 문서는 해당 브랜치가 실제 생성한 23-operation artifact를 기준으로 한다.
 
 ## Base URL과 인증
 
@@ -26,7 +26,7 @@
 
 ## OperationId와 code generation
 
-통합된 22개 operation은 stable lowerCamelCase operationId를 제공한다. #45는 `tripsUpdate`, `tripsDelete`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+통합된 23개 operation은 stable lowerCamelCase operationId를 제공한다. #49의 `tripScheduleRead`를 유지하고 #45는 `tripsUpdate`, `tripsDelete`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
 ## 공통 헤더와 응답
 
@@ -921,6 +921,59 @@ Accept: application/json
 }
 ```
 
+### `GET /api/v1/trips/{tripId}/schedule`
+
+operationId: `tripScheduleRead` · Codegen: **#49 feature artifact READY** · Canonical statuses: `200,400,401,404` · Generated OpenAPI statuses: `200,400,401,403,404,500` · success media type: `application/json`
+
+인증 필수. `tripId`와 optional `versionId`는 lowercase canonical UUID다. `versionId`를 생략하면 owner trip의 active pointer를, 지정하면 같은 owner/trip의 불변 버전을 조회한다. active pointer 없음, 다른 trip/owner 버전, 존재하지 않는 버전은 모두 `404 SCHEDULE_VERSION_NOT_FOUND`; 여행 없음과 cross-owner 여행은 `404 TRIP_NOT_FOUND`로 은닉한다. GET body, 빈·반복·unknown query는 `400 INVALID_REQUEST`다.
+
+Day는 `(dayNo, dayId)`, item과 leg는 각각 `(sequenceNo, itemId)`와 `(sequenceNo, legId)` 오름차순이다. 비정상 중복 번호도 숨기지 않고 UUID tie-break 순서로 투영한다. item N개에는 정렬된 인접 pair를 잇는 leg가 정확히 `max(N-1,0)`개 있어야 하며, 불완전한 저장 행을 0이나 임의 시간으로 채우지 않고 원천 정보를 노출하지 않는 공통 `500 INTERNAL_SERVER_ERROR`로 fail-closed한다. 모든 일정·진행 시각은 `+09:00`이다. `score`는 선택한 버전의 저장 점수이고 `feasibilityStale`은 같은 버전 최신 성공 feasibility의 `observedAt <= calculatedAt <= expiresAt` 및 응답 시각 `< expiresAt` 조건으로 계산한다.
+
+```http
+GET /api/v1/trips/49000000-0000-4000-8000-000000000001/schedule?versionId=49000000-0000-4000-8000-000000000002 HTTP/1.1
+Authorization: Bearer <access-token>
+Accept: application/json
+```
+
+```json
+{
+  "tripId": "49000000-0000-4000-8000-000000000001",
+  "scheduleVersion": {
+    "scheduleVersionId": "49000000-0000-4000-8000-000000000002",
+    "versionNo": 1,
+    "status": "active",
+    "sourceType": "initial",
+    "baseScheduleVersionId": null,
+    "score": 81,
+    "feasibilityStale": false
+  },
+  "days": [
+    {
+      "dayId": "49000000-0000-4000-8000-000000000003",
+      "dayNo": 1,
+      "date": "2026-09-01",
+      "items": [
+        {
+          "itemId": "49000000-0000-4000-8000-000000000004",
+          "sequenceNo": 1,
+          "itemType": "custom",
+          "placeId": null,
+          "title": "공항 도착",
+          "plannedStartAt": "2026-09-01T09:00:00+09:00",
+          "plannedEndAt": "2026-09-01T10:00:00+09:00",
+          "stayMinutes": 60,
+          "bufferAfterMinutes": 0,
+          "required": true,
+          "memo": null,
+          "progress": null
+        }
+      ],
+      "legs": []
+    }
+  ]
+}
+```
+
 ### `PATCH /api/v1/trips/{tripId}`
 
 operationId: `tripsUpdate` · Codegen: **READY on #45** · Generated statuses: `200,400,401,403,404,409,422,500,503` · Generated success media type: `application/json`
@@ -932,18 +985,8 @@ PATCH /api/v1/trips/44000000-0000-0000-0000-000000000044 HTTP/1.1
 Authorization: Bearer <access-token>
 If-Match: "trip-44000000-0000-0000-0000-000000000044-r1"
 Content-Type: application/json
-Accept: application/json
-```
 
-```json
-{
-  "title": "제주 버스 여행",
-  "userPace": "slow",
-  "transportModes": [
-    {"mode": "public_transit", "priority": 1, "primary": true},
-    {"mode": "taxi", "priority": 2, "primary": false}
-  ]
-}
+{"title":"제주 버스 여행"}
 ```
 
 성공 `200`은 수정된 aggregate와 증가한 revision의 `ETag`를 반환한다. 제목만 실제 변경하면 active schedule을 유지하고 `scheduleEffect=maintained`다. pace 또는 교통수단의 실제 변경은 active version을 `superseded`로 만들고 pointer와 score를 비우며 `scheduleEffect=invalidated`, `regenerationRequired=true`를 반환한다. 일정 버전이 하나라도 존재하면 날짜 또는 timezone 변경은 `409 TRIP_REGENERATION_REQUIRED`이고, 일정 버전이 없으면 날짜별 Day를 정확히 재구성한다.
@@ -961,7 +1004,7 @@ DELETE /api/v1/trips/44000000-0000-0000-0000-000000000044 HTTP/1.1
 Authorization: Bearer <access-token>
 ```
 
-`live` 상태이거나 queued/running generation·compute·revision run이 있으면 `409 TRIP_DELETE_CONFLICT`, completed/cancelled/failed 상태이면 `409 TRIP_TERMINAL_STATE_CONFLICT`다. 그 밖의 오류는 `400 INVALID_REQUEST`, `503 TRIP_DATA_UNAVAILABLE`이다.
+`live` 상태이거나 queued/running generation·compute·revision run이 있으면 `409 TRIP_DELETE_CONFLICT`다. `completed`, `cancelled`, `failed` 여행도 실행 중 run이 없다면 삭제할 수 있다. 그 밖의 오류는 `400 INVALID_REQUEST`, `503 TRIP_DATA_UNAVAILABLE`이다.
 
 ### `GET /api/v1/weather/forecast`
 
@@ -1040,4 +1083,4 @@ Accept: application/json
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #45 기능 브랜치는 새로 생성한 단일 22-operation artifact에서 `--mode 22` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`은 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #45 기능 브랜치는 새로 생성한 단일 23-operation artifact에서 `--mode 23` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`, `--mode 21`은 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.

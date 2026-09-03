@@ -309,7 +309,7 @@
     "statusEnum": ["draft", "generating", "planned", "live", "completed", "cancelled", "failed"],
     "activeScheduleVersionId": "required property; UUID or null",
     "terminalStatuses": ["completed", "cancelled", "failed"],
-    "terminalMutation": "PATCH and DELETE reject with 409 TRIP_TERMINAL_STATE_CONFLICT except explicit retention cleanup outside this API"
+    "terminalMutation": "PATCH rejects completed/cancelled/failed with 409 TRIP_TERMINAL_STATE_CONFLICT; DELETE rejects only live or running async work with 409 TRIP_DELETE_CONFLICT"
   },
   "scorePolicy": {
     "totalScore": "required property; integer 0..100 or null",

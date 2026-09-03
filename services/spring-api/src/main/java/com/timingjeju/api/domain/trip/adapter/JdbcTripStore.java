@@ -412,9 +412,6 @@ public class JdbcTripStore implements TripStore {
   public void deleteOwned(UUID ownerId, UUID tripId) {
     try {
       MutationRoot root = lockOwned(ownerId, tripId);
-      if (isTerminal(root.status())) {
-        throw TripException.terminalStateConflict();
-      }
       if ("live".equals(root.status()) || hasNonTerminalRun(tripId)) {
         throw TripException.deleteConflict();
       }

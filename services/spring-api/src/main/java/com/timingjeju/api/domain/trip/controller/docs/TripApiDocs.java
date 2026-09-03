@@ -268,6 +268,5 @@ public interface TripApiDocs {
   ResponseEntity<Void> delete(
       @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String tripId,
-      @Parameter(hidden = true) byte[] body,
       @Parameter(hidden = true) HttpServletRequest request);
 }

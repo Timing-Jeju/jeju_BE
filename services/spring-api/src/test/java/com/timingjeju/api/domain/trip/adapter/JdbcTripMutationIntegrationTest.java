@@ -254,7 +254,18 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         "update public.itinerary_generation_runs set status = 'failed' where trip_plan_id = ?",
         TRIP);
     jdbc.update("update public.trip_plans set status = 'failed' where id = ?", TRIP);
-    assertCode(() -> store.deleteOwned(OWNER, TRIP), "TRIP_TERMINAL_STATE_CONFLICT");
+    store.deleteOwned(OWNER, TRIP);
+    assertThat(count("trip_plans", "id", TRIP)).isZero();
+
+    insertTrip("draft");
+    installActiveSchedule();
+    jdbc.update("update public.trip_plans set status = 'completed' where id = ?", TRIP);
+    store.deleteOwned(OWNER, TRIP);
+    assertThat(count("trip_plans", "id", TRIP)).as("completed").isZero();
+
+    insertTrip("cancelled");
+    store.deleteOwned(OWNER, TRIP);
+    assertThat(count("trip_plans", "id", TRIP)).as("cancelled").isZero();
   }
 
   private String updateAfter(CountDownLatch start, String value) throws InterruptedException {
