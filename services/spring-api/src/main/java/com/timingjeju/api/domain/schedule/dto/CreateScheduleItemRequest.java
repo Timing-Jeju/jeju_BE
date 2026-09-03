@@ -1,24 +1,46 @@
 package com.timingjeju.api.domain.schedule.dto;
 
 import com.timingjeju.api.application.schedule.CreateScheduleItemCommand;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.UUID;
 
+@Schema(
+    name = "CreateScheduleItemRequest",
+    additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public record CreateScheduleItemRequest(
-    UUID expectedActiveScheduleVersionId,
-    Integer dayNo,
-    Integer sequenceNo,
-    String itemType,
-    UUID placeId,
-    UUID accommodationId,
-    UUID transportEventId,
-    String title,
-    String plannedStartAt,
-    Integer stayMinutes,
-    Integer bufferAfterMinutes,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uuid")
+        UUID expectedActiveScheduleVersionId,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") Integer dayNo,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") Integer sequenceNo,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            allowableValues = {
+              "place_visit",
+              "meal",
+              "accommodation",
+              "arrival",
+              "departure",
+              "free_time",
+              "custom"
+            })
+        String itemType,
+    @Schema(format = "uuid") UUID placeId,
+    @Schema(format = "uuid") UUID accommodationId,
+    @Schema(format = "uuid") UUID transportEventId,
+    @Schema(minLength = 1, maxLength = 200) String title,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time")
+        String plannedStartAt,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "1440")
+        Integer stayMinutes,
+    @Schema(minimum = "0", maximum = "1440") Integer bufferAfterMinutes,
     Boolean required,
-    String memo) {
+    @Schema(
+            nullable = true,
+            types = {"string", "null"},
+            maxLength = 500)
+        String memo) {
 
   public CreateScheduleItemCommand toCommand() {
     try {

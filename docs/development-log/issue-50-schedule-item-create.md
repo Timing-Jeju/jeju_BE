@@ -42,6 +42,17 @@ Refactor에서는 leg 결정 순서를 기존 의미 동일 leg 재사용, 미�
 - Developer self-review로 승인하지 않는다. 독립 Reviewer의 `APPROVED` 기록 전에는 PR을 생성하지 않는다.
 - 공식 품질 Gate와 Reviewer Gate를 모두 통과한 뒤 저장소의 PR 생성 절차를 사용한다.
 
+## OpenAPI 공식 Gate 보완
+
+최초 clean HEAD 공식 Gate에서 기능·통합 테스트는 통과했지만 새 POST가 기존 23-operation allowlist 밖이었고, domain tag·parameter/header 설명과 예시·closed request schema·성공/Problem 예시가 빠져 OpenAPI frontend-readiness 단계에서 실패했다.
+
+보완에서는 historical mode 16/20/21/23을 유지한 채 #50 POST만 더한 mode 24를 추가했다. `FrontendOpenApiCustomizer`에 일정 항목 추가 operation을 등록해 canonical schedule 계약에서 request/response schema를 투영하고, quoted strong ETag와 UUID idempotency header, runtime Problem 대표값, request/success/error 예시를 연결했다. 새로 생성한 단일 artifact에서 아래 검증이 성공했다.
+
+```text
+python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 24
+# OpenAPI frontend-readiness 검사 성공: 24 operations
+```
+
 ## 리스크와 후속
 
 - title-only item type은 위치 근거가 없으면 인접 leg를 만들 수 없으므로 자동 추측하지 않고 `422`로 닫힌다.

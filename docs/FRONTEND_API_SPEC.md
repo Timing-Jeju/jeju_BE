@@ -1,6 +1,6 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **#45 기능 브랜치의 통합 공개 API 23개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 23` 명령이 현재 `develop`의 21개와 trip PATCH/DELETE 2개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 21`은 이전 inventory를 그대로 보존한다.
+> **#50 기능 브랜치의 통합 공개 API 24개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 24` 명령이 병합된 23개와 일정 항목 추가 POST 1개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 21`, `--mode 23`은 이전 inventory를 그대로 보존한다.
 
 이 문서는 현재 `develop`의 공개 Spring API와 #45의 trip PATCH/DELETE를 합친 23개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
@@ -11,7 +11,7 @@
 | `develop` 사용 가능 | 공개 API 21 | `origin/develop`의 Controller/OpenAPI와 canonical contract; #49 schedule read 포함 |
 | **#45 기능 브랜치** | trip PATCH/DELETE 2 | `feat/45-trip-update-delete`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 
-현재 `develop`에서는 21개를 호출할 수 있다. trip PATCH/DELETE는 독립 리뷰와 병합 전까지 #45 기능 브랜치에서만 검증하며, 이 문서는 해당 브랜치가 실제 생성한 23-operation artifact를 기준으로 한다.
+현재 `develop`에서는 23개를 호출할 수 있다. 일정 항목 추가 POST는 독립 리뷰와 병합 전까지 #50 기능 브랜치에서만 검증하며, 이 문서는 해당 브랜치가 실제 생성한 24-operation artifact를 기준으로 한다.
 
 ## Base URL과 인증
 
@@ -1083,4 +1083,4 @@ Accept: application/json
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #45 기능 브랜치는 새로 생성한 단일 23-operation artifact에서 `--mode 23` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`, `--mode 21`은 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #50 기능 브랜치는 새로 생성한 단일 24-operation artifact에서 `--mode 24` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`, `--mode 21`, `--mode 23`은 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.

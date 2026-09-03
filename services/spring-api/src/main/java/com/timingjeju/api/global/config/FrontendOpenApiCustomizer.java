@@ -479,6 +479,21 @@ final class FrontendOpenApiCustomizer {
               .pattern(
                   "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
           "\"trip-44000000-0000-4000-8000-000000000044-r1\"");
+    } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 상세 응답의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema()
+              .pattern(
+                  "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
+          "\"trip-50000000-0000-4000-8000-000000000001-r1\"");
+      mergeRequiredHeader(
+          operation,
+          "Idempotency-Key",
+          "일정 항목 추가 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
+          new StringSchema().format("uuid"),
+          "45000000-0000-4000-8000-000000000050");
     }
     if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
@@ -499,6 +514,9 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("GET /api/v1/trips/{tripId}")
         || key.equals("PATCH /api/v1/trips/{tripId}")) {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
+    } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
+      addResponseHeaderReferences(
+          operation, List.of("201"), List.of("ETag", "Idempotency-Replayed"));
     }
   }
 
@@ -1057,6 +1075,24 @@ final class FrontendOpenApiCustomizer {
                 "400", "INVALID_REQUEST",
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "SCHEDULE_VERSION_NOT_FOUND",
+                "500", "INTERNAL_SERVER_ERROR")));
+    result.put(
+        "POST /api/v1/trips/{tripId}/schedule-items",
+        doc(
+            "tripScheduleItemCreate",
+            "일정",
+            """
+            {"expectedActiveScheduleVersionId":"60000000-0000-4000-8000-000000000001","dayNo":1,"sequenceNo":2,"itemType":"place_visit","placeId":"20000000-0000-4000-8000-000000000001","accommodationId":"70000000-0000-4000-8000-000000000001","transportEventId":"71000000-0000-4000-8000-000000000001","title":"성산일출봉 방문","plannedStartAt":"2026-10-01T11:00:00+09:00","stayMinutes":60,"bufferAfterMinutes":10,"required":true,"memo":"정상 도착 후 입장"}
+            """,
+            """
+            {"tripId":"50000000-0000-4000-8000-000000000001","previousScheduleVersionId":"60000000-0000-4000-8000-000000000001","activeScheduleVersionId":"60000000-0000-4000-8000-000000000002","versionNo":2,"sourceType":"user_edit","feasibilityStale":true,"changedItemIds":["61000000-0000-4000-8000-000000000002"],"etag":"\\\"trip-50000000-0000-4000-8000-000000000001-r2\\\"","updatedAt":"2026-10-01T09:30:00+09:00"}
+            """,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "SCHEDULE_VERSION_NOT_FOUND",
+                "409", "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                "422", "SCHEDULE_ITEM_INVALID",
                 "500", "INTERNAL_SERVER_ERROR")));
     return Map.copyOf(result);
   }
