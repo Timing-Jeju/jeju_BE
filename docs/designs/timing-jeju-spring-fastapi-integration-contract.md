@@ -135,6 +135,39 @@ timeout과 일시적 transport 오류는 한 논리 호출에서 최대 3회까�
 
 조건부 live 통합 테스트는 deterministic AI fixture가 반환할 `place_id`, `source_id`, `publication_id`, `source_fact_id` 전체를 `MCP_LIVE_EXPECTED_*_IDS` 환경값으로 명시한다. 빈 allowlist나 실행 결과에서 처음 발견한 ID를 사후 허용하는 방식은 금지한다.
 
+### 8.1 deterministic TLS acceptance
+
+외부 provider key가 없어도 실제 프로세스·프로토콜 경계는 다음 조건으로 검증한다.
+
+- 실제 `jeju_AI`의 `jeju_trip.interfaces.mcp.http_server`를 `127.0.0.1:18443`에서 실행한다.
+- 테스트 전용 self-signed TLS 인증서, RS256 private key, local JWKS와 signing descriptor는 임시 owner-only 디렉터리에 생성하며 저장소에 커밋하지 않는다.
+- TLS 인증서는 테스트 전용 PKCS12 truststore로 가져오고 Gradle JVM에는 `javax.net.ssl.trustStore`, `javax.net.ssl.trustStorePassword`, `javax.net.ssl.trustStoreType=PKCS12`를 전달한다.
+- Spring 테스트에는 `MCP_LIVE_TEST=true`, 같은 issuer/audience, descriptor 절대 경로와 사전에 확정한 네 ID allowlist를 전달한다.
+- Docker가 실행 중이어야 하며 테스트는 H2가 아니라 전체 migration이 적용된 PostgreSQL Testcontainers를 사용한다.
+- `compute_runs` parent fixture만 transaction 안에서 준비한다. 실제 `mcp_compute_call_logs` insert에는 외래키·CHECK·trigger를 모두 적용하고 테스트 종료 시 transaction rollback으로 제거한다.
+
+실행 명령의 형태는 다음과 같다. 아래 값은 예시이며 실제 key material이나 provider credential을 명령 기록과 로그에 남기지 않는다.
+
+```bash
+MCP_LIVE_TEST=true \
+MCP_JWT_ISSUER=https://spring.example.test \
+MCP_JWT_AUDIENCE=https://mcp.example.test \
+MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE=/owner-only/descriptor.json \
+MCP_LIVE_EXPECTED_PLACE_IDS=preapproved-place-id \
+MCP_LIVE_EXPECTED_SOURCE_IDS=preapproved-source-id \
+MCP_LIVE_EXPECTED_PUBLICATION_IDS=preapproved-publication-id \
+MCP_LIVE_EXPECTED_SOURCE_FACT_IDS=preapproved-fact-id \
+JAVA_TOOL_OPTIONS='-Djavax.net.ssl.trustStore=/owner-only/truststore.p12 -Djavax.net.ssl.trustStorePassword=test-only-password -Djavax.net.ssl.trustStoreType=PKCS12' \
+./gradlew --no-daemon test \
+  --tests 'com.timingjeju.api.global.mcp.McpPrivateHttpIntegrationTest'
+```
+
+이 acceptance는 `/health`, `/ready`, TLS handshake, RS256 service JWT, initialize, 정확한 여섯 도구의 `tools/list`와 schema checksum, 최소 한 번의 `tools/call`, PostgreSQL 감사 저장을 함께 확인한다. 인증·schema·ID allowlist의 음수 경로는 `com.timingjeju.api.global.mcp.*` 테스트가 fail-closed를 검증한다.
+
+### 8.2 provider staging acceptance
+
+실제 runtime DB·TMAP·TAGO가 필요한 검증은 deterministic acceptance와 분리한다. 승인된 staging role의 `JEJU_RUNTIME_DSN`과 필요한 provider key가 모두 주입된 격리 환경에서만 실행하며, 하나라도 없으면 deterministic 결과를 실패로 바꾸지 않고 `SKIPPED`와 누락 capability만 기록한다. 사용자 원문, JWT, provider body와 TMAP geometry는 결과나 로그에 기록하지 않는다.
+
 Actuator health에는 schema 검증까지 끝난 readiness만 노출한다. metric tag는 `tool`, `status`처럼 닫힌 저카디널리티 값만 허용하며 trip/user/request ID나 오류 원문을 tag로 사용하지 않는다.
 
 ## 9. 선행조건 변경
