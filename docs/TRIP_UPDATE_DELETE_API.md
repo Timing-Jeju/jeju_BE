@@ -52,7 +52,8 @@ Request는 closed presence body다. 허용 필드는 `title`, `startDate`, `endD
 - `trip_plans.revision bigint not null default 1`과 양수 check
 - 날짜/timezone 변경 시 기존 일정 버전이 있으면 차단
 - transport event와 accommodation이 새 날짜 범위를 벗어나는 변경 차단
-- trip 삭제 시 aggregate 소유 데이터 cascade 및 공유 fact 보존
+- trip 삭제 시 direct/transitive aggregate 소유 데이터 cascade
+  (`schedule_revision_runs`, `compute_run_inputs` 포함) 및 공유 fact 보존
 - compose test/live/docker와 smoke check에 같은 migration 순서 반영
 
 Repository는 `SELECT ... FOR UPDATE`로 owner-scoped root를 잠근 뒤 revision을 검사한다. 같은 revision의 동시 writer 두 개 중 하나만 성공하고 다른 하나는 version conflict다. 검증, schedule 무효화, Day 재구성, revision 증가와 삭제는 각각 단일 트랜잭션이다.

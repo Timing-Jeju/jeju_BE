@@ -3,6 +3,10 @@ package com.timingjeju.api.domain.trip.adapter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.commandinput.CommandInputCanonicalizer;
+import com.timingjeju.api.application.commandinput.CommandInputParent;
+import com.timingjeju.api.application.commandinput.CommandInputRequest;
+import com.timingjeju.api.application.commandinput.CommandInputSnapshotRepository;
 import com.timingjeju.api.application.trip.PatchTripCommand;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripExpectedRevision;
@@ -27,6 +31,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTestSupport {
@@ -36,11 +41,15 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   private static final UUID VERSION = UUID.fromString("45000000-0000-0000-0000-000000000104");
   private static final UUID IMPORT_RUN = UUID.fromString("45000000-0000-0000-0000-000000000105");
   private static final UUID PLACE = UUID.fromString("45000000-0000-0000-0000-000000000106");
+  private static final UUID REVISION_RUN = UUID.fromString("45000000-0000-0000-0000-000000000107");
   private static final Instant NOW = Instant.parse("2026-09-01T04:00:00Z");
 
   @Autowired private JdbcTemplate jdbc;
   @Autowired private JdbcTripStore store;
   @Autowired private PlatformTransactionManager transactions;
+  @Autowired private ObjectMapper objectMapper;
+  @Autowired private CommandInputCanonicalizer commandInputCanonicalizer;
+  @Autowired private CommandInputSnapshotRepository commandInputRepository;
 
   @BeforeEach
   void setUp() {
@@ -230,11 +239,16 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                 String.class))
         .as("trip_plans 직접 자식 FK는 모두 ON DELETE CASCADE여야 한다")
         .isEmpty();
+    installRevisionCommandInputAggregate();
     installExternalFactReference();
+    assertThat(count("schedule_revision_runs", "trip_plan_id", TRIP)).isOne();
+    assertThat(count("compute_run_inputs", "trip_plan_id", TRIP)).isOne();
     store.deleteOwned(OWNER, TRIP);
 
     assertThat(count("trip_plans", "id", TRIP)).isZero();
     assertThat(count("trip_days", "trip_plan_id", TRIP)).isZero();
+    assertThat(count("schedule_revision_runs", "trip_plan_id", TRIP)).isZero();
+    assertThat(count("compute_run_inputs", "trip_plan_id", TRIP)).isZero();
     assertThat(count("tour_places", "id", PLACE)).isOne();
     assertThat(count("data_import_runs", "id", IMPORT_RUN)).isOne();
     assertThat(count("user_profiles", "id", OWNER)).isOne();
@@ -372,6 +386,54 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                   VERSION,
                   TRIP);
             });
+  }
+
+  private void installRevisionCommandInputAggregate() {
+    installActiveSchedule();
+    UUID targetDay =
+        jdbc.queryForObject(
+            "select id from public.trip_days where trip_plan_id = ? and day_no = 1",
+            UUID.class,
+            TRIP);
+    jdbc.update(
+        """
+        insert into public.schedule_revision_runs (
+          id, owner_user_id, trip_plan_id, base_schedule_version_id,
+          target_trip_day_id, contract_version, algorithm_version,
+          idempotency_key, request_hash
+        ) values (?, ?, ?, ?, ?, 'revision/v1', 'algorithm/v1', ?, repeat('a', 64))
+        """,
+        REVISION_RUN,
+        OWNER,
+        TRIP,
+        VERSION,
+        targetDay,
+        UUID.fromString("45000000-0000-0000-0000-000000000109"));
+    var structuredInput = objectMapper.createObjectNode();
+    structuredInput.put("targetDayId", targetDay.toString());
+    structuredInput.putArray("affectedItemIds");
+    structuredInput.putArray("instructionCodes").add("MOVE_ITEM");
+    commandInputRepository.save(
+        commandInputCanonicalizer.canonicalize(
+            new CommandInputRequest(
+                new CommandInputParent.ScheduleRevision(REVISION_RUN),
+                "schedule_revision",
+                1,
+                "command/v1",
+                "algorithm/v1",
+                structuredInput,
+                OWNER,
+                TRIP,
+                VERSION,
+                null)));
+    jdbc.update(
+        """
+        update public.schedule_revision_runs
+        set status = 'cancelled', failure_code = 'USER_CANCELLED',
+            completed_at = now(), next_attempt_at = null
+        where id = ?
+        """,
+        REVISION_RUN);
   }
 
   private void installExternalFactReference() {

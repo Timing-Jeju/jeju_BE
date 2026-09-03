@@ -21,6 +21,9 @@
 - DELETE framing 리뷰 지적에 대해 `Transfer-Encoding`, 비정상·중복 `Content-Length`, 선언 길이와 실제
   stream body 불일치를 service 진입 전에 모두 400으로 닫는 테스트와 구현을 추가했다.
 - OpenAPI inventory를 최신 develop과 합쳐 mode 23으로 올리고 일정 조회와 여행 PATCH/DELETE를 함께 검증한다.
+- 재리뷰에서 최신 develop의 `schedule_revision_runs`, `compute_run_inputs`가 canonical aggregate 목록에
+  누락된 점을 MAJOR로 확인했다. exact aggregate validator와 실제 populated PostgreSQL cascade 회귀를
+  추가해 계약과 DB의 삭제 경계를 일치시켰다.
 
 ### 검증 결과
 
@@ -29,7 +32,8 @@
 - OpenAPI 생성 후 frontend-readiness mode 23: 23 operations Green
 - 관련 Python 계약·migration·develop 통합 회귀 테스트: 61건 Green
 - `spotlessCheck`, `git diff --check`, conflict marker 검사: Green
-- 전체 공식 품질 게이트와 독립 Reviewer 재검토 결과는 커밋 고정 후 추가 기록한다.
+- 첫 보완 HEAD `5a9a93c`의 공식 전체 품질 게이트는 SUCCESS였으며, 독립 Reviewer가 신규 aggregate 계약
+  누락 1건을 `CHANGES_REQUESTED`로 기록했다. 해당 보완의 새 전체 게이트와 재검토는 다음 HEAD에서 수행한다.
 
 ## Gaps
 

@@ -100,6 +100,31 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("여행 CRUD 계약 검사 성공", result.stdout)
 
+    def test_delete_aggregate_scope_includes_latest_direct_children(self) -> None:
+        """여행 삭제 계약이 최신 direct cascade 자식을 빠짐없이 고정하는지 검증한다."""
+        contract = self._load(CONTRACT)
+        aggregate_tables = contract["deleteSemantics"]["aggregateTables"]
+
+        self.assertIn("schedule_revision_runs", aggregate_tables)
+        self.assertIn("compute_run_inputs", aggregate_tables)
+
+    def test_validator_rejects_missing_delete_aggregate_child(self) -> None:
+        """삭제 aggregate 목록에서 최신 자식이 빠지면 validator가 명시적으로 거부하는지 검증한다."""
+        with self._temporary_repository() as root:
+            path = root / CONTRACT.relative_to(ROOT)
+            contract = self._load(path)
+            contract["deleteSemantics"]["aggregateTables"] = [
+                table
+                for table in contract["deleteSemantics"]["aggregateTables"]
+                if table != "schedule_revision_runs"
+            ]
+            self._write(path, contract)
+
+            result = self._run(root)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("aggregateTables", result.stdout)
+
     def test_contract_is_closed_and_has_exact_endpoint_identities(self) -> None:
         contract = self._load(CONTRACT)
         self.assertEqual("timing-jeju-trips-contract/v1", contract["schemaVersion"])

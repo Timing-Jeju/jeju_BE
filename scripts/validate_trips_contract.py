@@ -40,7 +40,7 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "fb667fbb235d55180b992d9965f091131b4b667b4ec04f7b008a289f067888f2"
+CANONICAL_CONTRACT_SHA256 = "8a26f610c911ed2a22f208a11a48776c654cad73b6a9d343249d5cb1effbe9a5"
 CANONICAL_CATALOG_SHA256 = "bedac3e8b9c7e9deac3313a31cff1a697170742ff9d75911fb2cbec22e943faf"
 CONTRACT_FIELDS = {
     "schemaVersion",
@@ -68,6 +68,33 @@ EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/trips/{tripId}"),
     ("PATCH", "/api/v1/trips/{tripId}"),
     ("DELETE", "/api/v1/trips/{tripId}"),
+]
+EXPECTED_DELETE_AGGREGATE_TABLES = [
+    "trip_preferences",
+    "trip_transport_modes",
+    "trip_place_preferences",
+    "trip_transport_events",
+    "trip_accommodations",
+    "trip_days",
+    "trip_schedule_versions",
+    "trip_items",
+    "trip_legs",
+    "itinerary_generation_runs",
+    "itinerary_generation_candidates",
+    "schedule_revision_runs",
+    "compute_runs",
+    "compute_run_inputs",
+    "risk_events",
+    "trip_weather_impacts",
+    "recommendation_candidates",
+    "recovery_options",
+    "recovery_option_changes",
+    "trip_item_progress",
+    "trip_execution_events",
+    "live_state_snapshots",
+    "ai_conversations",
+    "ai_messages",
+    "mcp_compute_call_logs",
 ]
 EXPECTED_PROBLEMS = {
     "400_invalid_query_parameter": (400, "INVALID_QUERY_PARAMETER", "invalid-query-parameter"),
@@ -301,11 +328,14 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
         or deletion.get("terminalOrRunning")
         != "409 TRIP_DELETE_CONFLICT while an async run is running or trip status is live"
         or deletion.get("tripAggregate") != "cascade"
+        or deletion.get("aggregateTableScope")
+        != "all persisted trip-owned direct and transitive ON DELETE CASCADE children"
+        or deletion.get("aggregateTables") != EXPECTED_DELETE_AGGREGATE_TABLES
         or deletion.get("locationAndExecutionHistory") != "delete-with-aggregate"
         or deletion.get("externalImportLineage") != "preserve"
         or deletion.get("userAndAuthIdentity") != "preserve"
     ):
-        errors.append("여행 DELETE semantic canonical 계약이 다릅니다.")
+        errors.append("여행 DELETE semantic canonical 계약 또는 aggregateTables가 다릅니다.")
 
     if contract.get("tripPolicy", {}).get("terminalMutation") != (
         "PATCH rejects completed/cancelled/failed with 409 TRIP_TERMINAL_STATE_CONFLICT; "

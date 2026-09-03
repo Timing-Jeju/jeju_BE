@@ -60,7 +60,8 @@ PATCH는 저장된 단조 증가 revision으로 만든 strong `If-Match`가 필�
 
 - 최초 삭제는 body 없는 204, 반복 삭제와 cross-owner 요청은 404다.
 - 실행 중 async run이 있거나 여행 상태가 live면 `409 TRIP_DELETE_CONFLICT`다.
-- 여행 aggregate와 위치·실행 이력은 외래 키 cascade로 함께 삭제한다.
+- 여행 aggregate의 direct/transitive cascade 자식은 함께 삭제한다. 최신 실행·command-input 경계에는
+  `schedule_revision_runs`와 `compute_run_inputs`도 포함된다.
 - 관광·교통·날씨 정규화 데이터, provider snapshot, `data_import_runs` 같은 외부 수집 lineage, 사용자와 Auth identity는 보존한다.
 
 ## DB drift와 migration 경계
