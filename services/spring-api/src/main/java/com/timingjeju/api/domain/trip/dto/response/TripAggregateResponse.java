@@ -1,6 +1,7 @@
 package com.timingjeju.api.domain.trip.dto.response;
 
 import com.timingjeju.api.application.trip.TripAggregate;
+import com.timingjeju.api.application.trip.TripMutationResult;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
@@ -72,6 +73,15 @@ public record TripAggregateResponse(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant createdAt,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant updatedAt) {
   public static TripAggregateResponse from(TripAggregate trip) {
+    return from(trip, "none", false);
+  }
+
+  public static TripAggregateResponse from(TripMutationResult result) {
+    return from(result.trip(), result.scheduleEffect(), result.regenerationRequired());
+  }
+
+  private static TripAggregateResponse from(
+      TripAggregate trip, String scheduleEffect, boolean regenerationRequired) {
     return new TripAggregateResponse(
         trip.tripId(),
         trip.title(),
@@ -85,8 +95,8 @@ public record TripAggregateResponse(
         trip.activeScheduleVersionId(),
         trip.totalScore(),
         TripScoreProvenanceResponse.from(trip.scoreProvenance()),
-        "none",
-        false,
+        scheduleEffect,
+        regenerationRequired,
         trip.createdAt(),
         trip.updatedAt());
   }

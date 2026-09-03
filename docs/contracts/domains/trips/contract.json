@@ -309,7 +309,7 @@
     "statusEnum": ["draft", "generating", "planned", "live", "completed", "cancelled", "failed"],
     "activeScheduleVersionId": "required property; UUID or null",
     "terminalStatuses": ["completed", "cancelled", "failed"],
-    "terminalMutation": "PATCH and DELETE reject with 409 TRIP_TERMINAL_STATE_CONFLICT except explicit retention cleanup outside this API"
+    "terminalMutation": "PATCH rejects completed/cancelled/failed with 409 TRIP_TERMINAL_STATE_CONFLICT; DELETE rejects only live or running async work with 409 TRIP_DELETE_CONFLICT"
   },
   "scorePolicy": {
     "totalScore": "required property; integer 0..100 or null",
@@ -367,7 +367,8 @@
     "crossOwner": "404 TRIP_NOT_FOUND",
     "terminalOrRunning": "409 TRIP_DELETE_CONFLICT while an async run is running or trip status is live",
     "tripAggregate": "cascade",
-    "aggregateTables": ["trip_preferences", "trip_transport_modes", "trip_place_preferences", "trip_transport_events", "trip_accommodations", "trip_days", "trip_schedule_versions", "trip_items", "trip_legs", "itinerary_generation_runs", "itinerary_generation_candidates", "compute_runs", "risk_events", "trip_weather_impacts", "recommendation_candidates", "recovery_options", "recovery_option_changes", "trip_item_progress", "trip_execution_events", "live_state_snapshots", "ai_conversations", "ai_messages", "mcp_compute_call_logs"],
+    "aggregateTableScope": "all persisted trip-owned direct and transitive ON DELETE CASCADE children",
+    "aggregateTables": ["trip_preferences", "trip_transport_modes", "trip_place_preferences", "trip_transport_events", "trip_accommodations", "trip_days", "trip_schedule_versions", "trip_items", "trip_legs", "itinerary_generation_runs", "itinerary_generation_candidates", "schedule_revision_runs", "compute_runs", "compute_run_inputs", "risk_events", "trip_weather_impacts", "recommendation_candidates", "recovery_options", "recovery_option_changes", "trip_item_progress", "trip_execution_events", "live_state_snapshots", "ai_conversations", "ai_messages", "mcp_compute_call_logs"],
     "locationAndExecutionHistory": "delete-with-aggregate",
     "externalImportLineage": "preserve",
     "userAndAuthIdentity": "preserve",

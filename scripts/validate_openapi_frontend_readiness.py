@@ -27,12 +27,15 @@ REQUIRED_REQUEST_HEADERS = {
     ("POST", "/api/v1/me/saved-places"): {"Idempotency-Key"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}"): {"If-Match"},
     ("POST", "/api/v1/trips"): {"Idempotency-Key"},
+    ("PATCH", "/api/v1/trips/{tripId}"): {"If-Match"},
 }
 REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/me/saved-places", "200"): {"Location", "ETag", "Idempotency-Replayed"},
     ("POST", "/api/v1/me/saved-places", "201"): {"Location", "ETag", "Idempotency-Replayed"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}", "200"): {"ETag"},
     ("POST", "/api/v1/trips", "201"): {"Location", "ETag", "Idempotency-Replayed"},
+    ("GET", "/api/v1/trips/{tripId}", "200"): {"ETag"},
+    ("PATCH", "/api/v1/trips/{tripId}", "200"): {"ETag"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -56,6 +59,10 @@ TRIP_OPERATIONS = {
     ("POST", "/api/v1/trips"): "tripsCreate",
     ("GET", "/api/v1/trips/{tripId}"): "tripsRead",
 }
+TRIP_MUTATION_OPERATIONS = {
+    ("PATCH", "/api/v1/trips/{tripId}"): "tripsUpdate",
+    ("DELETE", "/api/v1/trips/{tripId}"): "tripsDelete",
+}
 PUSH_NOTIFICATION_OPERATIONS = {
     ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
     ("DELETE", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesDelete",
@@ -69,6 +76,7 @@ EXPECTED_OPERATION_IDS = (
     CURRENT_OPERATIONS
     | SAVED_PLACE_OPERATIONS
     | TRIP_OPERATIONS
+    | TRIP_MUTATION_OPERATIONS
     | PUSH_NOTIFICATION_OPERATIONS
     | SCHEDULE_OPERATIONS
 )
@@ -124,7 +132,7 @@ class Validator:
         self.operations = set()
         self.source_provenance = dict(
             SOURCE_PROVENANCE_21
-            if mode == 21
+            if mode in (21, 23)
             else SOURCE_PROVENANCE_20
             if mode == 20
             else SOURCE_PROVENANCE_16
@@ -196,7 +204,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20, 21):
+        if self.mode in (16, 20, 21, 23):
             self.validate_source_provenance()
         return self.errors
 
@@ -249,11 +257,14 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20, 21):
-            groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", TRIP_OPERATIONS)))
-        if self.mode in (20, 21):
+        if self.mode in (16, 20, 21, 23):
+            trip_operations = dict(TRIP_OPERATIONS)
+            if self.mode == 23:
+                trip_operations.update(TRIP_MUTATION_OPERATIONS)
+            groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
+        if self.mode in (20, 21, 23):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
-        if self.mode == 21:
+        if self.mode in (21, 23):
             groups.append(("schedules", SCHEDULE_OPERATIONS))
         for domain, operation_group in groups:
             contract = self.read_authority_json(
@@ -590,18 +601,20 @@ class Validator:
 
     def validate_operation_inventory(self):
         required = dict(CURRENT_OPERATIONS)
-        if self.mode in (16, 20, 21):
+        if self.mode in (16, 20, 21, 23):
             required.update(SAVED_PLACE_OPERATIONS)
             required.update(TRIP_OPERATIONS)
-        if self.mode in (20, 21):
+        if self.mode in (20, 21, 23):
             required.update(PUSH_NOTIFICATION_OPERATIONS)
-        if self.mode == 21:
+        if self.mode in (21, 23):
             required.update(SCHEDULE_OPERATIONS)
+        if self.mode == 23:
+            required.update(TRIP_MUTATION_OPERATIONS)
         for key, operation_id in required.items():
             if key not in self.operations:
                 prefix = (
                     f"{self.mode}-operation 완료 mode: "
-                    if self.mode in (16, 20, 21)
+                    if self.mode in (16, 20, 21, 23)
                     else ""
                 )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
@@ -1005,7 +1018,7 @@ def main(argv):
         type=Path,
         default=Path("services/spring-api/build/openapi/openapi.json"),
     )
-    parser.add_argument("--mode", type=int, choices=(9, 16, 20, 21), default=21)
+    parser.add_argument("--mode", type=int, choices=(9, 16, 20, 21, 23), default=23)
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])
     artifact = args.artifact

@@ -20,6 +20,24 @@ public class TripProblemDefinitions implements ProblemDefinitionContributor {
             "여행 조건을 처리할 수 없습니다",
             422,
             "여행은 1일부터 30일까지이며 날짜와 교통 우선순위가 일관되어야 합니다."),
+        problem("IF_MATCH_REQUIRED", "If-Match가 필요합니다", 400, "현재 여행 ETag를 If-Match로 보내 주세요."),
+        problem("INVALID_IF_MATCH", "If-Match가 올바르지 않습니다", 400, "strong 여행 ETag 형식을 사용해 주세요."),
+        problem("TRIP_VERSION_CONFLICT", "여행 버전이 충돌했습니다", 409, "최신 여행을 다시 조회한 뒤 수정해 주세요."),
+        problem(
+            "TRIP_REGENERATION_REQUIRED",
+            "일정 재생성이 필요합니다",
+            409,
+            "일정 버전이 존재하는 여행의 날짜 범위는 변경할 수 없습니다."),
+        problem(
+            "TRIP_TERMINAL_STATE_CONFLICT",
+            "종료된 여행은 변경할 수 없습니다",
+            409,
+            "완료, 취소 또는 실패 상태의 여행은 변경하거나 삭제할 수 없습니다."),
+        problem(
+            "TRIP_DELETE_CONFLICT",
+            "여행을 삭제할 수 없습니다",
+            409,
+            "라이브 일정 또는 처리 중인 비동기 작업이 끝난 뒤 다시 시도해 주세요."),
         problem("TRIP_DATA_UNAVAILABLE", "여행 데이터를 사용할 수 없습니다", 503, "잠시 후 다시 시도해 주세요."));
   }
 

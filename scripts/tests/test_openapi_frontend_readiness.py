@@ -10,6 +10,7 @@ from scripts.validate_openapi_frontend_readiness import (
     CURRENT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
+    TRIP_MUTATION_OPERATIONS,
     SCHEDULE_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
@@ -398,16 +399,17 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             schemas["PushDevicePath"]["required"],
         )
 
-    def test_mode21은_schedule_read를_exact_inventory와_canonical_schema로_검사한다(self):
-        """21-operation 모드가 일정 조회 하나와 schedules 권위 계약을 정확히 검사한다."""
-        validator = Validator(valid_document(), 21, ROOT)
+    def test_mode23은_schedule_read와_trip_mutation을_exact_inventory로_검사한다(self):
+        """23-operation 모드가 일정 조회와 여행 변경 두 건을 함께 검사한다."""
         exact_operations = (
             set(CURRENT_OPERATIONS)
             | set(SAVED_PLACE_OPERATIONS)
             | set(TRIP_OPERATIONS)
+            | set(TRIP_MUTATION_OPERATIONS)
             | set(PUSH_NOTIFICATION_OPERATIONS)
             | set(SCHEDULE_OPERATIONS)
         )
+        validator = Validator({}, 23, ROOT)
         validator.operations = exact_operations
         validator.operation_ids = {
             operation_id: [f"{method} {path}"]
@@ -415,6 +417,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 **CURRENT_OPERATIONS,
                 **SAVED_PLACE_OPERATIONS,
                 **TRIP_OPERATIONS,
+                **TRIP_MUTATION_OPERATIONS,
                 **PUSH_NOTIFICATION_OPERATIONS,
                 **SCHEDULE_OPERATIONS,
             }.items()
@@ -428,9 +431,15 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             validator.source_provenance["schedules"],
         )
 
-        validator = Validator(valid_document(), 21, ROOT)
-        with mock.patch.object(validator, "validate_contract_endpoint") as projection:
-            validator.validate_contract_authority()
+        authority = Validator(valid_document(), 23, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        trip_mutation_calls = {
+            call.args[0]
+            for call in projection.call_args_list
+            if call.args[0] in TRIP_MUTATION_OPERATIONS
+        }
+        self.assertEqual(set(TRIP_MUTATION_OPERATIONS), trip_mutation_calls)
         schedule_calls = {
             call.args[0]: call
             for call in projection.call_args_list

@@ -536,6 +536,27 @@ begin
   delete from public.schedule_revision_runs where id = revision_run_id;
 end $$;
 
+do $$
+declare
+  revision_default text;
+  revision_nullable text;
+begin
+  select column_default, is_nullable
+    into revision_default, revision_nullable
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'trip_plans'
+    and column_name = 'revision';
+
+  if revision_default is distinct from '1' or revision_nullable is distinct from 'NO' then
+    raise exception 'trip_plans.revision contract is missing';
+  end if;
+
+  if exists (select 1 from public.trip_plans where revision <= 0) then
+    raise exception 'trip_plans.revision must stay positive';
+  end if;
+end $$;
+
 select 'schema_contract' as check_name, 'PASS' as result;
 select 'negative_constraints' as check_name, 'PASS' as result;
 
