@@ -9,11 +9,19 @@
 
 ## 실행 Gate와 TDD 증거
 
+### 실행 Gate 사후 예외
+
+- 최초 운영 구현 커밋 `34c1e3f`의 author/committer 시각은 2026-09-01 08:56:05 KST다.
+- #31은 2026-09-02 13:43:05 KST, #62는 2026-09-02 14:39:19 KST에 CLOSED됐고, #114는 2026-08-29 08:50:45 KST에 CLOSED됐다.
+- 따라서 #31과 #62가 OPEN인 동안 구현을 시작해 Issue의 실행 Gate Acceptance Criteria를 위반했다. 이전 기록의 “모두 CLOSED 후에만 구현 시작” 진술은 사실과 달라 이 절에서 정정한다.
+- 2026-09-03 Owner/PM은 위 시각과 위반 사실을 확인하고 Issue #52에 한정한 사후 예외(waiver)를 명시적으로 승인했다. 이 예외는 다른 Issue의 실행 Gate를 완화하지 않는다.
+- 세 Gate가 모두 CLOSED된 뒤 최신 `origin/develop`을 반영하고 전체 품질 Gate와 독립 리뷰를 다시 수행한다.
+
 ### 시간순 RED → GREEN
 
 | 시각/기준 | 시나리오와 실행 명령 | RED 핵심 실패 | GREEN/Refactor 결과 |
 | --- | --- | --- | --- |
-| 개발 보류 시점 | `gh issue view 31`, `gh issue view 62`, `gh issue view 114` | 세 실행 Gate 중 OPEN이 있어 브랜치 생성·운영 코드 변경·PR 생성을 중단했다. | 2026-09-02 세 이슈가 모두 CLOSED임을 재조회한 뒤에만 `feat/52-spring-fastapi-mcp-client` 작업을 시작했다. |
+| 실행 Gate 감사 | `git log --reverse origin/develop..HEAD`와 `gh issue view 31/62/114` | `34c1e3f`가 #31·#62 종료보다 먼저여서 시작 금지 AC 위반을 확인했다. | 위반 사실과 Owner/PM의 Issue #52 한정 사후 예외를 기록하고, Gate 종료 후 최신 develop 반영·전체 검증·독립 리뷰를 요구한다. |
 | 최초 경계 | `./gradlew --no-daemon test --tests 'com.timingjeju.api.global.mcp.McpPrivateRequestFilterTest'` | `compileTestJava FAILED`: `McpPrivateRequestFilter`가 없어 service JWT/trace 전파 테스트를 컴파일할 수 없었다. | 같은 명령 `BUILD SUCCESSFUL`; 매 요청 새 JWT와 canonical trace만 전파한다. |
 | auth 401·timeout·malformed JSON-RPC | `./gradlew --no-daemon test --tests 'com.timingjeju.api.global.mcp.McpFailureClassifierTest'` | test-first working tree에서 `McpFailureClassifier`/stable retry metadata가 없어 `compileTestJava FAILED`였다. | `MCP_AUTHENTICATION_FAILED` non-retry, `MCP_TIMEOUT` retry, `MCP_PROTOCOL_INVALID` non-retry를 raw cause 없이 검증했다. |
 | schema mismatch | `./gradlew --no-daemon test --tests 'com.timingjeju.api.global.mcp.McpContractGuardTest.발견한_도구가_빠지거나_schema_checksum이_다르면_초기화를_닫힌_실패로_중단한다'` | tools/list 누락·checksum mismatch가 시작을 중단하지 않아 “throwable expected”로 실패했다. | Pydantic manifest와 발견 schema fingerprint가 다르면 `MCP_CONTRACT_INVALID`로 readiness를 열지 않는다. |
