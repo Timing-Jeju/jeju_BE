@@ -144,25 +144,131 @@ timeout과 일시적 transport 오류는 한 논리 호출에서 최대 3회까�
 - TLS 인증서는 테스트 전용 PKCS12 truststore로 가져오고 Gradle JVM에는 `javax.net.ssl.trustStore`, `javax.net.ssl.trustStorePassword`, `javax.net.ssl.trustStoreType=PKCS12`를 전달한다.
 - Spring 테스트에는 `MCP_LIVE_TEST=true`, 같은 issuer/audience, descriptor 절대 경로와 사전에 확정한 네 ID allowlist를 전달한다.
 - Docker가 실행 중이어야 하며 테스트는 H2가 아니라 전체 migration이 적용된 PostgreSQL Testcontainers를 사용한다.
-- `compute_runs` parent fixture만 transaction 안에서 준비한다. 실제 `mcp_compute_call_logs` insert에는 외래키·CHECK·trigger를 모두 적용하고 테스트 종료 시 transaction rollback으로 제거한다.
+- owner부터 `compute_runs`까지의 parent graph를 transaction 안에서 준비하고 `SET CONSTRAINTS ALL IMMEDIATE`로 deferred constraint trigger까지 호출 전에 평가한다. 실제 `mcp_compute_call_logs` insert에도 외래키·CHECK·trigger를 모두 적용하고 테스트 종료 시 transaction rollback으로 제거한다. 별도 음수 테스트는 active schedule pointer가 불일치한 parent를 같은 강제 평가 시점에 거부하는지 확인한다.
 
-실행 명령의 형태는 다음과 같다. 아래 값은 예시이며 실제 key material이나 provider credential을 명령 기록과 로그에 남기지 않는다.
+다음 절차는 macOS/Linux의 격리된 로컬 환경을 기준으로 한다. 저장소 경로만 바꾸고, 실제 provider credential은 사용하거나 명령 기록에 넣지 않는다.
+
+1. owner-only 임시 디렉터리에 TLS key/certificate와 RS256 signing key를 만든다.
+
+```bash
+umask 077
+export LIVE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/jeju-mcp-live.XXXXXX")"
+export MCP_LIVE_ISSUER=https://timing-jeju-spring.test
+export MCP_LIVE_AUDIENCE=https://timing-jeju-mcp.test
+export MCP_LIVE_KID=issue202-live-key
+export MCP_LIVE_TRUSTSTORE_PASSWORD="$(openssl rand -hex 16)"
+export TRUSTSTORE_PASSWORD_PROPERTY=javax.net.ssl.trustStorePassword
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj '/CN=127.0.0.1' -addext 'subjectAltName=IP:127.0.0.1' \
+  -keyout "$LIVE_DIR/tls.key" -out "$LIVE_DIR/tls.crt"
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+  -out "$LIVE_DIR/signing.pem"
+chmod 600 "$LIVE_DIR/tls.key" "$LIVE_DIR/tls.crt" "$LIVE_DIR/signing.pem"
+```
+
+2. `jeju_AI` dependency 환경의 `cryptography`로 public JWK/JWKS와 Spring signing descriptor를 만든다. heredoc은 환경에 있는 key를 읽어 공개 modulus/exponent만 JWKS에 쓰며 private key 본문을 출력하지 않는다.
+
+```bash
+cd /absolute/path/to/jeju_AI
+uv run python - <<'PY'
+import base64
+import json
+import os
+from pathlib import Path
+from cryptography.hazmat.primitives import serialization
+
+root = Path(os.environ["LIVE_DIR"])
+private_key = serialization.load_pem_private_key(
+    (root / "signing.pem").read_bytes(), password=None
+)
+numbers = private_key.public_key().public_numbers()
+
+def base64url_uint(value: int) -> str:
+    raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+kid = os.environ["MCP_LIVE_KID"]
+(root / "jwks.json").write_text(
+    json.dumps({"keys": [{
+        "kty": "RSA", "use": "sig", "alg": "RS256", "kid": kid,
+        "n": base64url_uint(numbers.n), "e": base64url_uint(numbers.e),
+    }]}, separators=(",", ":")),
+    encoding="utf-8",
+)
+(root / "descriptor.json").write_text(
+    json.dumps({"kid": kid, "privateKeyFile": str(root / "signing.pem")}),
+    encoding="utf-8",
+)
+PY
+
+keytool -importcert -noprompt -alias issue202-live \
+  -file "$LIVE_DIR/tls.crt" -keystore "$LIVE_DIR/truststore.p12" \
+  -storetype PKCS12 -storepass "$MCP_LIVE_TRUSTSTORE_PASSWORD"
+chmod 600 "$LIVE_DIR/jwks.json" "$LIVE_DIR/descriptor.json" "$LIVE_DIR/truststore.p12"
+```
+
+3. 같은 terminal에서 실제 AI HTTP server를 loopback으로 기동한다. deterministic acceptance에서는 의도적으로 `JEJU_RUNTIME_DSN`, `JEJU_TMAP_API_KEY`, `JEJU_TAGO_SERVICE_KEY`를 설정하지 않는다. 세 runtime 값이 필수인 운영용 `jeju-trip-mcp-http` launcher 대신 실제 `http_server` module을 직접 실행하면 승인되지 않은 provider를 호출하지 않는 disabled gateway가 `data_unavailable` structured result를 반환한다.
+
+```bash
+cd /absolute/path/to/jeju_AI
+JEJU_MCP_HTTP_HOST=127.0.0.1 \
+JEJU_MCP_HTTP_PORT=18443 \
+JEJU_MCP_AUTH_ISSUER="$MCP_LIVE_ISSUER" \
+JEJU_MCP_AUTH_AUDIENCE="$MCP_LIVE_AUDIENCE" \
+JEJU_MCP_AUTH_JWKS_FILE="$LIVE_DIR/jwks.json" \
+JEJU_MCP_TLS_CERT_FILE="$LIVE_DIR/tls.crt" \
+JEJU_MCP_TLS_KEY_FILE="$LIVE_DIR/tls.key" \
+uv run python -m jeju_trip.interfaces.mcp.http_server \
+  >"$LIVE_DIR/ai-server.log" 2>&1 &
+export MCP_LIVE_AI_PID=$!
+
+curl --fail --silent --show-error --cacert "$LIVE_DIR/tls.crt" \
+  https://127.0.0.1:18443/health
+curl --fail --silent --show-error --cacert "$LIVE_DIR/tls.crt" \
+  https://127.0.0.1:18443/ready
+```
+
+응답은 각각 `{"status":"ok"}`와 `{"status":"ready","contractVersion":"0.7.0"}`이어야 한다.
+
+4. 같은 terminal에서 Spring live test를 실행한다. 예시 ID는 호출 전에 고정된 allowlist이며 결과에서 동적으로 추출하지 않는다.
 
 ```bash
 MCP_LIVE_TEST=true \
-MCP_JWT_ISSUER=https://spring.example.test \
-MCP_JWT_AUDIENCE=https://mcp.example.test \
-MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE=/owner-only/descriptor.json \
+MCP_JWT_ISSUER="$MCP_LIVE_ISSUER" \
+MCP_JWT_AUDIENCE="$MCP_LIVE_AUDIENCE" \
+MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE="$LIVE_DIR/descriptor.json" \
 MCP_LIVE_EXPECTED_PLACE_IDS=preapproved-place-id \
 MCP_LIVE_EXPECTED_SOURCE_IDS=preapproved-source-id \
 MCP_LIVE_EXPECTED_PUBLICATION_IDS=preapproved-publication-id \
 MCP_LIVE_EXPECTED_SOURCE_FACT_IDS=preapproved-fact-id \
-JAVA_TOOL_OPTIONS='-Djavax.net.ssl.trustStore=/owner-only/truststore.p12 -Djavax.net.ssl.trustStorePassword=test-only-password -Djavax.net.ssl.trustStoreType=PKCS12' \
-./gradlew --no-daemon test \
+JAVA_TOOL_OPTIONS="-Djavax.net.ssl.trustStore=$LIVE_DIR/truststore.p12 -D${TRUSTSTORE_PASSWORD_PROPERTY}=$MCP_LIVE_TRUSTSTORE_PASSWORD -Djavax.net.ssl.trustStoreType=PKCS12" \
+/absolute/path/to/jeju_BE/services/spring-api/gradlew \
+  -p /absolute/path/to/jeju_BE/services/spring-api --no-daemon test \
   --tests 'com.timingjeju.api.global.mcp.McpPrivateHttpIntegrationTest'
 ```
 
 이 acceptance는 `/health`, `/ready`, TLS handshake, RS256 service JWT, initialize, 정확한 여섯 도구의 `tools/list`와 schema checksum, 최소 한 번의 `tools/call`, PostgreSQL 감사 저장을 함께 확인한다. 인증·schema·ID allowlist의 음수 경로는 `com.timingjeju.api.global.mcp.*` 테스트가 fail-closed를 검증한다.
+
+5. 종료 후 process와 임시 key material을 정리한다. `LIVE_DIR`가 이 절차에서 만든 정확한 prefix인지 검사한 뒤에만 삭제한다.
+
+```bash
+kill "$MCP_LIVE_AI_PID"
+wait "$MCP_LIVE_AI_PID" || true
+python3 - <<'PY'
+import os
+import shutil
+from pathlib import Path
+
+path = Path(os.environ["LIVE_DIR"]).resolve()
+temporary_root = Path(os.environ.get("TMPDIR", "/tmp")).resolve()
+if path.parent != temporary_root or not path.name.startswith("jeju-mcp-live."):
+    raise SystemExit("unexpected LIVE_DIR; refusing cleanup")
+shutil.rmtree(path)
+PY
+unset MCP_LIVE_AI_PID LIVE_DIR MCP_LIVE_ISSUER MCP_LIVE_AUDIENCE MCP_LIVE_KID
+unset MCP_LIVE_TRUSTSTORE_PASSWORD TRUSTSTORE_PASSWORD_PROPERTY
+```
 
 ### 8.2 provider staging acceptance
 

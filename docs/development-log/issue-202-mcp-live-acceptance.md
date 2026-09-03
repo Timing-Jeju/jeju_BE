@@ -15,6 +15,8 @@
 | GREEN 1 | 테스트에 `postgresql-integration` profile과 `PostgreSqlTestcontainersConfiguration` 적용 | 전체 migration 위에서 audit table과 제약을 사용했다. |
 | GREEN 2 | transaction 안에 owner·trip·day·schedule·queued `compute_runs` 전체 parent graph를 만든 뒤 실제 MCP 호출 | fixture와 audit insert가 모두 활성 외래키·CHECK·trigger를 통과했고 정확한 parent, tool, status, 두 hash와 schema checksum을 확인했다. |
 | 실제 종단 | 실제 AI TLS server와 test-only JWKS/signing descriptor/truststore로 live test 실행 | `/health` 성공, `contractVersion=0.7.0`, `ListToolsRequest`와 `CallToolRequest` 확인, Gradle `BUILD SUCCESSFUL`. |
+| 리뷰 RED | 최초 구현은 test transaction rollback 전에 deferred active-schedule constraint trigger를 강제하지 않았고, 문서는 Spring 실행 절반만 제공했다. | 독립 Reviewer가 MAJOR 2건으로 `CHANGES_REQUESTED`했다. |
+| 리뷰 GREEN | 정상 parent graph 뒤 `SET CONSTRAINTS ALL IMMEDIATE`, planned trip의 active pointer 누락 음수 fixture, owner-only key 생성부터 cleanup까지 전체 절차를 추가했다. | 새 임시 디렉터리에서 문서 절차로 `/health`, `/ready`, initialize/list/call/audit와 정상·음수 deferred trigger 테스트가 모두 성공했다. |
 
 test-only 인증서와 key material은 임시 디렉터리에서만 사용하고 저장소에는 추가하지 않았다. 호출·감사 assertion에는 사용자 원문, JWT, provider raw response와 TMAP geometry가 없다.
 

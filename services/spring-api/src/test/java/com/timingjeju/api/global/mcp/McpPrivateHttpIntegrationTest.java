@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
 import java.util.Map;
@@ -57,6 +58,7 @@ class McpPrivateHttpIntegrationTest {
   @Transactional
   void private_TLS와_RS256으로_initialize_list_call을_종단_검증한다() {
     insertComputeRunFixture();
+    jdbcTemplate.execute("set constraints all immediate");
 
     McpInvocationResult result =
         client.call(
@@ -97,7 +99,37 @@ class McpPrivateHttpIntegrationTest {
     assertThat(audit.get("schema_checksum")).asString().matches("[0-9a-f]{64}");
   }
 
+  @Test
+  @Transactional
+  void live_parent_fixture의_deferred_active_schedule_불일치는_즉시_거부한다() {
+    insertParentGraph("draft");
+    jdbcTemplate.update(
+        "update public.trip_plans set status = 'planned' where id = ?", TRIP_PLAN_ID);
+
+    assertThatThrownBy(() -> jdbcTemplate.execute("set constraints all immediate"))
+        .rootCause()
+        .hasMessageContaining(
+            "trip 10000000-0000-0000-0000-000000000011 with status planned requires an active schedule version");
+  }
+
   private void insertComputeRunFixture() {
+    insertParentGraph("draft");
+    jdbcTemplate.update(
+        """
+        insert into public.compute_runs (
+          id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+          input_hash, contract_version, algorithm_version, next_attempt_at
+        ) values (?, ?, ?, ?, 'feasibility', 'queued', ?, '0.7.0', ?, now())
+        """,
+        COMPUTE_RUN_ID,
+        TRIP_PLAN_ID,
+        TRIP_DAY_ID,
+        SCHEDULE_VERSION_ID,
+        COMMAND_INPUT_HASH,
+        "issue-202-live-test");
+  }
+
+  private void insertParentGraph(String scheduleStatus) {
     jdbcTemplate.update(
         "insert into auth.users (id, email) values (?, ?)", OWNER_ID, "issue-202@test.invalid");
     jdbcTemplate.update(
@@ -123,24 +155,12 @@ class McpPrivateHttpIntegrationTest {
         """
         insert into public.trip_schedule_versions (
           id, trip_plan_id, version_no, status, source_type, created_by_user_id
-        ) values (?, ?, 1, 'draft', 'initial', ?)
+        ) values (?, ?, 1, ?, 'initial', ?)
         """,
         SCHEDULE_VERSION_ID,
         TRIP_PLAN_ID,
+        scheduleStatus,
         OWNER_ID);
-    jdbcTemplate.update(
-        """
-        insert into public.compute_runs (
-          id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
-          input_hash, contract_version, algorithm_version, next_attempt_at
-        ) values (?, ?, ?, ?, 'feasibility', 'queued', ?, '0.7.0', ?, now())
-        """,
-        COMPUTE_RUN_ID,
-        TRIP_PLAN_ID,
-        TRIP_DAY_ID,
-        SCHEDULE_VERSION_ID,
-        COMMAND_INPUT_HASH,
-        "issue-202-live-test");
   }
 
   private static String requiredEnvironment(String name) {
