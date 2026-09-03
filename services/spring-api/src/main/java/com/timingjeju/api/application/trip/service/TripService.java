@@ -11,14 +11,20 @@ import com.timingjeju.api.application.profile.CurrentUserProvisioningService;
 import com.timingjeju.api.application.security.CurrentUser;
 import com.timingjeju.api.application.trip.CreateTripCommand;
 import com.timingjeju.api.application.trip.CreateTripRecord;
+import com.timingjeju.api.application.trip.PatchTripCommand;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripException;
+import com.timingjeju.api.application.trip.TripExpectedRevision;
 import com.timingjeju.api.application.trip.TripIdentityGenerator;
 import com.timingjeju.api.application.trip.TripListCursor;
 import com.timingjeju.api.application.trip.TripListSlice;
+import com.timingjeju.api.application.trip.TripMutationResult;
 import com.timingjeju.api.application.trip.TripPage;
+import com.timingjeju.api.application.trip.TripPatchValue;
 import com.timingjeju.api.application.trip.TripStore;
 import com.timingjeju.api.application.trip.TripSummary;
+import com.timingjeju.api.application.trip.TripTransportMode;
+import com.timingjeju.api.application.trip.TripUpdateRecord;
 import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Instant;
@@ -81,6 +87,27 @@ public final class TripService {
     return trips
         .findOwned(user.userId(), tripId, clock.instant())
         .orElseThrow(TripException::notFound);
+  }
+
+  public TripMutationResult update(
+      CurrentUser user, UUID tripId, TripExpectedRevision expected, PatchTripCommand command) {
+    Objects.requireNonNull(user);
+    Objects.requireNonNull(tripId);
+    Objects.requireNonNull(expected);
+    PatchTripCommand canonical = canonicalize(command);
+    validate(canonical);
+    List<UUID> dayIds = new ArrayList<>(30);
+    for (int day = 0; day < 30; day++) {
+      dayIds.add(identities.generate());
+    }
+    return trips.updateOwned(
+        new TripUpdateRecord(user.userId(), tripId, expected, canonical, dayIds, clock.instant()));
+  }
+
+  public void delete(CurrentUser user, UUID tripId) {
+    Objects.requireNonNull(user);
+    Objects.requireNonNull(tripId);
+    trips.deleteOwned(user.userId(), tripId);
   }
 
   public TripPage list(
@@ -170,13 +197,46 @@ public final class TripService {
         || !Set.of("slow", "normal", "fast").contains(command.userPace())) {
       throw TripException.invalidRequest();
     }
-    if (command.transportModes().isEmpty() || command.transportModes().size() > 3) {
+    validateTransportModes(command.transportModes());
+  }
+
+  private static void validate(PatchTripCommand command) {
+    Objects.requireNonNull(command);
+    if (command.emptyPatch()) {
+      throw TripException.invalidRequest();
+    }
+    if (command.title().present()) {
+      validateTitle(command.title().value());
+    }
+    if (command.timezone().present() && !"Asia/Seoul".equals(command.timezone().value())) {
+      throw TripException.invalidRequest();
+    }
+    if (command.userPace().present()
+        && !Set.of("slow", "normal", "fast").contains(command.userPace().value())) {
+      throw TripException.invalidRequest();
+    }
+    if (command.transportModes().present()) {
+      validateTransportModes(command.transportModes().value());
+    }
+  }
+
+  private static void validateTitle(String title) {
+    if (title == null
+        || title.isBlank()
+        || title.length() > 100
+        || !Normalizer.isNormalized(title, Normalizer.Form.NFC)) {
+      throw TripException.invalidRequest();
+    }
+  }
+
+  private static void validateTransportModes(List<TripTransportMode> transportModes) {
+    if (transportModes.isEmpty() || transportModes.size() > 3) {
       throw TripException.constraintViolation();
     }
     Set<String> names = new java.util.HashSet<>();
     int primaryCount = 0;
-    for (int index = 0; index < command.transportModes().size(); index++) {
-      var mode = command.transportModes().get(index);
+    for (int index = 0; index < transportModes.size(); index++) {
+      var mode = transportModes.get(index);
       if (mode == null
           || mode.mode() == null
           || !Set.of("public_transit", "rental_car", "taxi").contains(mode.mode())
@@ -203,6 +263,23 @@ public final class TripService {
         title == null ? null : Normalizer.normalize(asciiTrim(title), Normalizer.Form.NFC);
     return new CreateTripCommand(
         canonicalTitle,
+        command.startDate(),
+        command.endDate(),
+        command.timezone(),
+        command.userPace(),
+        command.transportModes());
+  }
+
+  private static PatchTripCommand canonicalize(PatchTripCommand command) {
+    Objects.requireNonNull(command);
+    TripPatchValue<String> title = command.title();
+    if (title.present()) {
+      title =
+          TripPatchValue.present(
+              Normalizer.normalize(asciiTrim(title.value()), Normalizer.Form.NFC));
+    }
+    return new PatchTripCommand(
+        title,
         command.startDate(),
         command.endDate(),
         command.timezone(),

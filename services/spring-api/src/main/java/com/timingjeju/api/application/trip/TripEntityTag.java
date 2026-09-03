@@ -1,31 +1,36 @@
 package com.timingjeju.api.application.trip;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
-import java.util.Base64;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class TripEntityTag {
+  private static final Pattern STRONG_TAG =
+      Pattern.compile(
+          "^\\\"trip-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-r([1-9][0-9]*)\\\"$");
+
   private TripEntityTag() {}
 
-  public static String strong(UUID tripId, Instant updatedAt) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      update(digest, tripId.toString());
-      update(digest, updatedAt.toString());
-      String opaque = Base64.getUrlEncoder().withoutPadding().encodeToString(digest.digest());
-      return "\"trip-" + opaque + "\"";
-    } catch (NoSuchAlgorithmException failure) {
-      throw new IllegalStateException("SHA-256을 사용할 수 없습니다.", failure);
+  public static String strong(UUID tripId, long revision) {
+    if (tripId == null || revision < 1) {
+      throw new IllegalArgumentException("tripId와 양수 revision이 필요합니다.");
     }
+    return "\"trip-" + tripId + "-r" + revision + "\"";
   }
 
-  private static void update(MessageDigest digest, String value) {
-    byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-    digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
-    digest.update(bytes);
+  public static TripExpectedRevision parse(String raw) {
+    if (raw == null) {
+      throw TripException.ifMatchRequired();
+    }
+    Matcher matcher = STRONG_TAG.matcher(raw);
+    if (!matcher.matches()) {
+      throw TripException.invalidIfMatch();
+    }
+    try {
+      return new TripExpectedRevision(
+          UUID.fromString(matcher.group(1)), Long.parseLong(matcher.group(2)));
+    } catch (IllegalArgumentException failure) {
+      throw TripException.invalidIfMatch();
+    }
   }
 }

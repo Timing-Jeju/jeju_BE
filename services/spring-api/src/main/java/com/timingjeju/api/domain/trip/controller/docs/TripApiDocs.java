@@ -129,6 +129,11 @@ public interface TripApiDocs {
   @ApiResponses({
     @ApiResponse(
         responseCode = "200",
+        headers =
+            @Header(
+                name = "ETag",
+                schema =
+                    @Schema(type = "string", pattern = "^\\\"trip-[0-9a-f-]+-r[1-9][0-9]*\\\"$")),
         content = @Content(schema = @Schema(implementation = TripAggregateResponse.class))),
     @ApiResponse(
         responseCode = "400",
@@ -155,7 +160,113 @@ public interface TripApiDocs {
                 mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
-  TripAggregateResponse read(
+  ResponseEntity<TripAggregateResponse> read(
       @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String tripId);
+
+  @Operation(summary = "여행 수정", description = "strong If-Match revision을 사용해 여행을 원자 수정합니다.")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              schema =
+                  @Schema(
+                      implementation =
+                          com.timingjeju.api.domain.trip.dto.request.PatchTripRequest.class)))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        headers =
+            @Header(
+                name = "ETag",
+                schema =
+                    @Schema(type = "string", pattern = "^\\\"trip-[0-9a-f-]+-r[1-9][0-9]*\\\"$")),
+        content = @Content(schema = @Schema(implementation = TripAggregateResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "422",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "503",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
+  ResponseEntity<TripAggregateResponse> update(
+      @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
+          String tripId,
+      @Parameter(
+              name = "If-Match",
+              in = ParameterIn.HEADER,
+              required = true,
+              schema = @Schema(type = "string"))
+          String ifMatch,
+      byte[] body,
+      @Parameter(hidden = true) HttpServletRequest request);
+
+  @Operation(summary = "여행 삭제", description = "실행 중 일정이나 비동기 run이 없는 소유 여행을 삭제합니다.")
+  @ApiResponses({
+    @ApiResponse(responseCode = "204", content = @Content),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "503",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
+  ResponseEntity<Void> delete(
+      @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
+          String tripId,
+      @Parameter(hidden = true) HttpServletRequest request);
 }

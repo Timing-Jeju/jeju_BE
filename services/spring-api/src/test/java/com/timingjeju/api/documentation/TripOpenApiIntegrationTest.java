@@ -297,6 +297,60 @@ class TripOpenApiIntegrationTest {
                 .value(2048));
   }
 
+  @Test
+  void trip_PATCH_DELETE는_strong_ETag_closed_presence와_상태별_problem을_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.operationId").value("tripsUpdate"))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}'].delete.operationId").value("tripsDelete"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].patch.parameters[?(@.name=='If-Match')].required")
+                .value(true))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].patch.parameters[?(@.name=='If-Match')].schema.pattern")
+                .value("^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['200'].headers.ETag")
+                .exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}'].get.responses['200'].headers.ETag")
+                .exists())
+        .andExpect(
+            jsonPath("$.components.schemas.PatchTripRequest.additionalProperties").value(false))
+        .andExpect(jsonPath("$.components.schemas.PatchTripRequest.minProperties").value(1))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.title.type")
+                .value("string"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.startDate.format")
+                .value("date"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.transportModes.minItems")
+                .value(1))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.transportModes.maxItems")
+                .value(3))
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['400']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['404']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['409']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['422']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['503']").exists())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].delete.requestBody").doesNotExist())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].delete.responses['204']").exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}'].delete.responses['204'].content")
+                .doesNotExist())
+        .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].delete.responses['409']").exists());
+  }
+
   private static String randomKey() {
     byte[] bytes = new byte[32];
     new SecureRandom().nextBytes(bytes);

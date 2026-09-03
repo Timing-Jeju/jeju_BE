@@ -9,7 +9,9 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -27,6 +29,7 @@ import com.timingjeju.api.application.profile.ProfileProvisioningException;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripDay;
 import com.timingjeju.api.application.trip.TripException;
+import com.timingjeju.api.application.trip.TripMutationResult;
 import com.timingjeju.api.application.trip.TripTransportMode;
 import com.timingjeju.api.application.trip.service.TripService;
 import java.nio.charset.StandardCharsets;
@@ -89,6 +92,8 @@ class TripControllerRedIntegrationTest {
                     .<com.timingjeju.api.application.idempotency.IdempotencyOperation>getArgument(1)
                     .execute());
     when(tripService.create(any(), any())).thenReturn(aggregate());
+    when(tripService.update(any(), any(), any(), any()))
+        .thenReturn(new TripMutationResult(aggregate(8), "maintained", false));
   }
 
   @Test
@@ -222,6 +227,121 @@ class TripControllerRedIntegrationTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.tripId").value(canonical.toString()));
     verify(tripService).read(any(), eq(canonical));
+  }
+
+  @Test
+  void PATCH_trip은_유효한_If_Match와_presence_body를_받아_새_ETag와_schedule_effect를_반환한다()
+      throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+
+    mvc.perform(
+            patch("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header(HttpHeaders.IF_MATCH, "\"trip-44000000-0000-0000-0000-000000000044-r7\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"title":"제주 가족 여행"}
+                    """))
+        .andExpect(status().isOk())
+        .andExpect(
+            header().string(HttpHeaders.ETAG, "\"trip-44000000-0000-0000-0000-000000000044-r8\""))
+        .andExpect(jsonPath("$.scheduleEffect").value("maintained"))
+        .andExpect(jsonPath("$.regenerationRequired").value(false));
+
+    verify(tripService).update(any(), eq(tripId), any(), any());
+  }
+
+  @Test
+  void PATCH_trip의_If_Match_누락과_weak_tag는_각각_canonical_problem으로_거부한다() throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    String body = "{\"title\":\"제주 가족 여행\"}";
+
+    mvc.perform(
+            patch("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("IF_MATCH_REQUIRED"));
+
+    mvc.perform(
+            patch("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header(HttpHeaders.IF_MATCH, "W/\"trip-44000000-0000-0000-0000-000000000044-r7\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_IF_MATCH"));
+  }
+
+  @Test
+  void PATCH_trip은_empty_unknown_explicit_null_body를_INVALID_REQUEST로_거부한다() throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    for (String body :
+        List.of(
+            "{}",
+            "{\"unknown\":true}",
+            "{\"title\":null}",
+            "{\"startDate\":null}",
+            "{\"transportModes\":null}")) {
+      mvc.perform(
+              patch("/api/v1/trips/{tripId}", tripId)
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header(HttpHeaders.IF_MATCH, "\"trip-44000000-0000-0000-0000-000000000044-r7\"")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+  }
+
+  @Test
+  void DELETE_trip은_204_empty를_반환하고_query와_body를_거부한다() throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+
+    mvc.perform(
+            delete("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+    verify(tripService).delete(any(), eq(tripId));
+
+    mvc.perform(
+            delete("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .queryParam("force", "true"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    mvc.perform(
+            delete("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+  }
+
+  @Test
+  void DELETE_trip은_비정상_framing과_길이_body_불일치를_fail_closed한다() throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+
+    for (var malformed :
+        List.of(
+            delete("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.TRANSFER_ENCODING, "chunked"),
+            delete("/api/v1/trips/{tripId}", tripId).header(HttpHeaders.CONTENT_LENGTH, "-1"),
+            delete("/api/v1/trips/{tripId}", tripId).header(HttpHeaders.CONTENT_LENGTH, "0", "0"),
+            delete("/api/v1/trips/{tripId}", tripId).header(HttpHeaders.CONTENT_LENGTH, "1"),
+            delete("/api/v1/trips/{tripId}", tripId)
+                .content("{}")
+                .header(HttpHeaders.CONTENT_LENGTH, "0"))) {
+      mvc.perform(malformed.header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    verifyNoInteractions(tripService);
   }
 
   @Test
@@ -415,10 +535,15 @@ class TripControllerRedIntegrationTest {
   }
 
   private static TripAggregate aggregate() {
+    return aggregate(1);
+  }
+
+  private static TripAggregate aggregate(long revision) {
     UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
     Instant createdAt = Instant.parse("2026-08-03T00:05:00Z");
     return new TripAggregate(
         tripId,
+        revision,
         "제주 동쪽 2박 3일",
         "draft",
         java.time.LocalDate.parse("2026-08-03"),

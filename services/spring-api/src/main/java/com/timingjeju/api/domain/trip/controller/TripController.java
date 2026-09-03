@@ -11,9 +11,12 @@ import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.service.TripService;
 import com.timingjeju.api.domain.trip.controller.docs.TripApiDocs;
 import com.timingjeju.api.domain.trip.dto.request.CreateTripRequest;
+import com.timingjeju.api.domain.trip.dto.request.PatchTripRequest;
 import com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse;
 import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -22,7 +25,9 @@ import java.util.regex.Pattern;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -86,9 +91,9 @@ public class TripController implements TripApiDocs {
             request,
             () -> {
               replayed.set(false);
-              TripAggregateResponse response =
-                  TripAggregateResponse.from(trips.create(user, parse(body)));
-              String etag = TripEntityTag.strong(response.tripId(), response.updatedAt());
+              var created = trips.create(user, parse(body));
+              TripAggregateResponse response = TripAggregateResponse.from(created);
+              String etag = TripEntityTag.strong(response.tripId(), created.revision());
               byte[] responseBody = serialize(response);
               return new IdempotencyResponse(
                   201,
@@ -108,9 +113,38 @@ public class TripController implements TripApiDocs {
 
   @Override
   @GetMapping("/{tripId}")
-  public TripAggregateResponse read(@PathVariable String tripId) {
+  public ResponseEntity<TripAggregateResponse> read(@PathVariable String tripId) {
     UUID canonicalTripId = parseCanonicalUuid(tripId);
-    return TripAggregateResponse.from(trips.read(currentUsers.getRequired(), canonicalTripId));
+    var trip = trips.read(currentUsers.getRequired(), canonicalTripId);
+    return ResponseEntity.ok()
+        .eTag(TripEntityTag.strong(trip.tripId(), trip.revision()))
+        .body(TripAggregateResponse.from(trip));
+  }
+
+  @Override
+  @PatchMapping("/{tripId}")
+  public ResponseEntity<TripAggregateResponse> update(
+      @PathVariable String tripId,
+      @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
+      @RequestBody byte[] body,
+      HttpServletRequest request) {
+    validateNoParameters(request);
+    UUID canonicalTripId = parseCanonicalUuid(tripId);
+    var expected = TripEntityTag.parse(ifMatch);
+    var result =
+        trips.update(currentUsers.getRequired(), canonicalTripId, expected, parsePatch(body));
+    return ResponseEntity.ok()
+        .eTag(TripEntityTag.strong(result.trip().tripId(), result.trip().revision()))
+        .body(TripAggregateResponse.from(result));
+  }
+
+  @Override
+  @DeleteMapping("/{tripId}")
+  public ResponseEntity<Void> delete(@PathVariable String tripId, HttpServletRequest request) {
+    validateNoParameters(request);
+    validateEmptyDeleteFraming(request);
+    trips.delete(currentUsers.getRequired(), parseCanonicalUuid(tripId));
+    return ResponseEntity.noContent().build();
   }
 
   private static UUID parseCanonicalUuid(String raw) {
@@ -136,6 +170,17 @@ public class TripController implements TripApiDocs {
     }
   }
 
+  private com.timingjeju.api.application.trip.PatchTripCommand parsePatch(byte[] body) {
+    if (body.length > IdempotencyRequest.MAX_BODY_BYTES) {
+      throw TripException.invalidRequest();
+    }
+    try {
+      return objectMapper.readValue(body, PatchTripRequest.class).toCommand();
+    } catch (JacksonException | TripException failure) {
+      throw TripException.invalidRequest();
+    }
+  }
+
   private byte[] serialize(TripAggregateResponse response) {
     try {
       return objectMapper.writeValueAsBytes(response);
@@ -149,6 +194,36 @@ public class TripController implements TripApiDocs {
         || request.getParameterMap().keySet().stream()
             .anyMatch(name -> request.getParameterValues(name).length != 1)) {
       throw TripException.invalidQuery();
+    }
+  }
+
+  private static void validateNoParameters(HttpServletRequest request) {
+    if (!request.getParameterMap().isEmpty()) {
+      throw TripException.invalidRequest();
+    }
+  }
+
+  private static void validateEmptyDeleteFraming(HttpServletRequest request) {
+    Enumeration<String> transferEncodings = request.getHeaders(HttpHeaders.TRANSFER_ENCODING);
+    if ((transferEncodings != null && transferEncodings.hasMoreElements())
+        || request.getHeader(HttpHeaders.TRANSFER_ENCODING) != null) {
+      throw TripException.invalidRequest();
+    }
+
+    Enumeration<String> lengths = request.getHeaders(HttpHeaders.CONTENT_LENGTH);
+    int lengthCount = 0;
+    while (lengths != null && lengths.hasMoreElements()) {
+      lengthCount++;
+      if (lengthCount > 1 || !"0".equals(lengths.nextElement())) {
+        throw TripException.invalidRequest();
+      }
+    }
+    try {
+      if (request.getInputStream().read() != -1) {
+        throw TripException.invalidRequest();
+      }
+    } catch (IOException failure) {
+      throw TripException.invalidRequest();
     }
   }
 }

@@ -470,6 +470,15 @@ final class FrontendOpenApiCustomizer {
           "44000000-0000-4000-8000-000000000044");
     } else if (key.equals("GET /api/v1/trips")) {
       setParameterExample(operation, "sort", "updated_at_desc");
+    } else if (key.equals("PATCH /api/v1/trips/{tripId}")) {
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 상세 응답의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema()
+              .pattern(
+                  "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
+          "\"trip-44000000-0000-4000-8000-000000000044-r1\"");
     }
     if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
@@ -487,6 +496,9 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("POST /api/v1/trips")) {
       addResponseHeaderReferences(
           operation, List.of("201"), List.of("Location", "ETag", "Idempotency-Replayed"));
+    } else if (key.equals("GET /api/v1/trips/{tripId}")
+        || key.equals("PATCH /api/v1/trips/{tripId}")) {
+      addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
     }
   }
 
@@ -1002,6 +1014,35 @@ final class FrontendOpenApiCustomizer {
                 "400", "INVALID_REQUEST",
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "TRIP_NOT_FOUND",
+                "503", "TRIP_DATA_UNAVAILABLE")));
+    result.put(
+        "PATCH /api/v1/trips/{tripId}",
+        doc(
+            "tripsUpdate",
+            "여행",
+            """
+            {"title":"제주 가족 여행","startDate":"2026-09-10","endDate":"2026-09-13","timezone":"Asia/Seoul","userPace":"slow","transportModes":[{"mode":"public_transit","priority":1,"primary":true}]}
+            """,
+            tripExample.replace("\"scheduleEffect\":\"none\"", "\"scheduleEffect\":\"maintained\""),
+            Map.of(
+                "400", "IF_MATCH_REQUIRED",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "TRIP_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "TRIP_CONSTRAINT_VIOLATION",
+                "503", "TRIP_DATA_UNAVAILABLE")));
+    result.put(
+        "DELETE /api/v1/trips/{tripId}",
+        doc(
+            "tripsDelete",
+            "여행",
+            null,
+            null,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "TRIP_NOT_FOUND",
+                "409", "TRIP_DELETE_CONFLICT",
                 "503", "TRIP_DATA_UNAVAILABLE")));
     result.put(
         "GET /api/v1/trips/{tripId}/schedule",

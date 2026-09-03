@@ -14,4 +14,8 @@ public interface TripStore {
       TripListCursor after,
       int fetchSize,
       java.time.Instant responseTime);
+
+  TripMutationResult updateOwned(TripUpdateRecord record);
+
+  void deleteOwned(UUID ownerId, UUID tripId);
 }
