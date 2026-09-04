@@ -42,6 +42,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260906000000_trip_update_delete_contract.sql",
             "20260907000000_schedule_item_create_contract.sql",
             "20260907000002_trip_accommodation_contract.sql",
+            "20260907000004_trip_transport_event_contract.sql",
         )
         migration_names = tuple(
             path.name
@@ -85,6 +86,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             (
                 "./supabase/migrations/20260907000002_trip_accommodation_contract.sql",
                 "/docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260907000004_trip_transport_event_contract.sql",
+                "/docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",
