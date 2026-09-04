@@ -106,7 +106,7 @@ jobs:
         run: python3 -m unittest scripts/tests/test_service_contract_docs.py
 
   quality-gate:
-    name: 최종 품질 게이트
+    name: quality-gate
     if: always()
     needs: [changes, pr-metadata, common-check, spring-check, contract-check]
     runs-on: ubuntu-24.04

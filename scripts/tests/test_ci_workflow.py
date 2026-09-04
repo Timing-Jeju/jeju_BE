@@ -49,6 +49,11 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertNotIn("fastapi-check:", self.workflow)
         self.assertNotIn("--scope fastapi", self.workflow)
 
+    def test_final_job_reports_the_ruleset_required_check_name(self):
+        """보호 규칙이 기다리는 quality-gate 이름을 최종 Job이 보고하는지 검증한다."""
+        quality_gate_job = self.workflow.split("\n  quality-gate:", 1)[1]
+        self.assertIn("\n    name: quality-gate\n", quality_gate_job)
+
     def test_backend_ci_does_not_install_python_or_uv(self):
         self.assertNotIn("actions/setup-python", self.workflow)
         self.assertNotIn("astral-sh/setup-uv", self.workflow)
