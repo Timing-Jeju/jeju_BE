@@ -266,6 +266,10 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 
 `compute_run_inputs`는 generic compute, generation, revision parent 중 정확히 하나만 참조하고 parent마다 한 행만 허용한다. owner·trip·base schedule·run type은 parent와 일치해야 하며 canonical structured input과 command SHA-256은 생성 후 불변이다. schema version 1은 run type별 exact field/type projection을 사용하고 unknown, alias, nested raw object를 허용하지 않는다. optional 위치는 `GRID_100M(gridX,gridY)`, `PLACE(placeId)`, `STOP(stopId)` closed union이며 raw 위경도/accuracy는 저장하지 않는다. DB가 최초 `completed` 여행 전이에 기록해 이후 일반 update에도 불변인 `trip_plans.trip_ended_at`과 실제 parent terminal `completed_at`을 도착 anchor로 삼고, 제한 함수가 +24시간 후보 중 earliest로 expiry를 단조 단축해 `expires_at <= evaluated_at`부터 due다. legacy completed 여행은 알 수 없는 과거 시각을 추측하지 않고 migration DB 시각으로 보수 backfill한다. `service_role`도 snapshot DELETE나 일반 UPDATE를 할 수 없다. MCP input hash/call log와 due redaction job은 별도 소유권이다.
 
+cleanup 함수는 due row를 안정 순서와 `SKIP LOCKED`로 최대 500건 잠그고 위치 5필드 NULL과 redaction 시각만 원자 기록한다. `service_role`은 exact cleanup 함수만 실행하며, worker는 MCP 직전 DB admission을 다시 통과한다.
+
+현재 production에는 MCP 계산 worker와 argument assembler가 없습니다. 후속 worker는 `McpCommandLocationResolver.resolveImmediatelyBeforeMcp`를 MCP argument 조립 직전에 반드시 호출해, request/thread-local 위치가 아니라 최신 DB admission 결과만 사용해야 한다.
+
 ### 4.7 Compute/Recovery
 
 | 테이블 | 의미 | 결과 생성 |

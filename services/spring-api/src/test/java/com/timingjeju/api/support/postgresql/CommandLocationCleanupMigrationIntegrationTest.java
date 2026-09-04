@@ -14,7 +14,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @Tag("integration")
 class CommandLocationCleanupMigrationIntegrationTest {
-  private static final String TARGET = "20260914000000_compute_run_input_location_cleanup.sql";
+  private static final String TARGET = "20260916000000_compute_run_input_location_cleanup.sql";
   private static final String BASELINE_SUCCESSOR = "20260901000000_legal_documents_consents.sql";
   private static final String INPUT_ID = "10950000-0000-0000-0000-000000000006";
   private static PostgreSQLContainer container;

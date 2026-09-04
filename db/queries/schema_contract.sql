@@ -1352,6 +1352,7 @@ do $$
 declare
   parent_fk_count integer;
   parent_unique_count integer;
+  location_constraint_definition text;
 begin
   if to_regclass('public.compute_run_inputs') is null then
     raise exception 'compute_run_inputs table is missing';
@@ -1381,6 +1382,19 @@ begin
   if parent_unique_count <> 3 then
     raise exception 'compute_run_inputs per-parent unique count differs: %', parent_unique_count;
   end if;
+  select lower(pg_catalog.pg_get_constraintdef(oid)) into location_constraint_definition
+  from pg_catalog.pg_constraint
+  where conrelid = 'public.compute_run_inputs'::regclass
+    and conname = 'chk_compute_run_inputs_location';
+  if location_constraint_definition is null
+     or location_constraint_definition !~ 'location_redacted_at is not null.*coarse_location is null.*location_precision_meters is null.*location_policy_version is null.*location_observed_at is null.*location_expires_at is null' then
+    raise exception 'compute_run_inputs five-field redaction constraint is invalid';
+  end if;
+  if to_regprocedure(
+       'public.redact_due_compute_run_input_locations(timestamptz,integer)'
+     ) is null then
+    raise exception 'compute_run_inputs due location cleanup function is missing';
+  end if;
   if not (select relrowsecurity from pg_catalog.pg_class
           where oid = 'public.compute_run_inputs'::regclass)
      or exists (
@@ -1401,6 +1415,11 @@ begin
        or not has_function_privilege(
          'service_role',
          'public.shorten_compute_run_input_location_expiry(uuid,timestamptz)',
+         'EXECUTE'
+       )
+       or not has_function_privilege(
+         'service_role',
+         'public.redact_due_compute_run_input_locations(timestamptz,integer)',
          'EXECUTE'
        )
      ) then

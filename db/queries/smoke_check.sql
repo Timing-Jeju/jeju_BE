@@ -618,3 +618,19 @@ select
   'compute_run_inputs' as check_name,
   case when to_regclass('public.compute_run_inputs') is not null then 'PASS' else 'MISSING' end
   as result;
+
+select
+  'compute_run_input_location_cleanup' as check_name,
+  case
+    when to_regprocedure(
+      'public.redact_due_compute_run_input_locations(timestamptz,integer)'
+    ) is not null
+    and not exists (
+      select 1 from public.compute_run_inputs
+      where location_supplied
+        and location_redacted_at is null
+        and location_expires_at is not null
+        and location_expires_at <= statement_timestamp()
+    ) then 'PASS'
+    else 'MISSING_OR_DUE'
+  end as result;

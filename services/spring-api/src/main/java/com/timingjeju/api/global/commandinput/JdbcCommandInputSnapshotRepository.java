@@ -46,6 +46,19 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
       """
           + PROJECTION;
 
+  static final String USABLE_LOCATION_SQL =
+      """
+      select coarse_location::text as coarse_location,
+             location_precision_meters, location_policy_version,
+             location_observed_at, location_expires_at
+      from public.compute_run_inputs
+      where %s = ?
+        and location_supplied
+        and location_redacted_at is null
+        and coarse_location is not null
+        and (location_expires_at is null or location_expires_at > ?)
+      """;
+
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
   private final CommandInputCanonicalizer canonicalizer;
@@ -110,22 +123,35 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
     }
   }
 
+  @Override
+  public Optional<CommandLocationSnapshot> findUsableLocation(
+      CommandInputParent parent, Instant evaluatedAt) {
+    Objects.requireNonNull(parent, "parent는 필수입니다.");
+    Objects.requireNonNull(evaluatedAt, "evaluatedAt은 필수입니다.");
+    String sql = USABLE_LOCATION_SQL.formatted(parent.databaseColumn());
+    try {
+      return jdbcTemplate
+          .query(
+              sql,
+              (resultSet, rowNumber) -> mapLocation(resultSet),
+              parent.id(),
+              Timestamp.from(evaluatedAt))
+          .stream()
+          .findFirst();
+    } catch (DataAccessException failure) {
+      throw rejected("COMMAND_INPUT_STORAGE_FAILURE");
+    }
+  }
+
   private CommandInputSnapshot map(ResultSet resultSet) throws SQLException {
     try {
       String structured =
           canonicalizer.canonicalJson(
               objectMapper.readTree(resultSet.getString("structured_input")));
       boolean locationSupplied = resultSet.getBoolean("location_supplied");
+      String coarseLocation = resultSet.getString("coarse_location");
       CommandLocationSnapshot location =
-          locationSupplied
-              ? new CommandLocationSnapshot(
-                  canonicalizer.canonicalJson(
-                      objectMapper.readTree(resultSet.getString("coarse_location"))),
-                  integer(resultSet, "location_precision_meters"),
-                  resultSet.getString("location_policy_version"),
-                  instant(resultSet.getTimestamp("location_observed_at")),
-                  instant(resultSet.getTimestamp("location_expires_at")))
-              : null;
+          locationSupplied && coarseLocation != null ? mapLocation(resultSet) : null;
       return new CommandInputSnapshot(
           parent(resultSet),
           resultSet.getString("run_type"),
@@ -138,6 +164,20 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
           resultSet.getObject("trip_plan_id", UUID.class),
           resultSet.getObject("base_schedule_version_id", UUID.class),
           location);
+    } catch (RuntimeException failure) {
+      throw rejected("COMMAND_INPUT_STORAGE_FAILURE");
+    }
+  }
+
+  private CommandLocationSnapshot mapLocation(ResultSet resultSet) throws SQLException {
+    try {
+      return new CommandLocationSnapshot(
+          canonicalizer.canonicalJson(
+              objectMapper.readTree(resultSet.getString("coarse_location"))),
+          integer(resultSet, "location_precision_meters"),
+          resultSet.getString("location_policy_version"),
+          instant(resultSet.getTimestamp("location_observed_at")),
+          instant(resultSet.getTimestamp("location_expires_at")));
     } catch (RuntimeException failure) {
       throw rejected("COMMAND_INPUT_STORAGE_FAILURE");
     }
