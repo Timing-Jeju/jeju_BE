@@ -14,6 +14,7 @@ import com.timingjeju.api.domain.trip.dto.request.CreateTripRequest;
 import com.timingjeju.api.domain.trip.dto.request.PatchTripRequest;
 import com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse;
 import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
+import com.timingjeju.api.domain.trip.dto.response.TripPreferencesResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.util.Enumeration;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,6 +49,7 @@ public class TripController implements TripApiDocs {
   private final CurrentUserAccessor currentUsers;
   private final IdempotencyUseCase idempotency;
   private final ObjectMapper objectMapper;
+  private final TripPreferencesRequestCodec preferencesCodec;
 
   public TripController(
       TripService trips,
@@ -57,6 +60,7 @@ public class TripController implements TripApiDocs {
     this.currentUsers = currentUsers;
     this.idempotency = idempotency;
     this.objectMapper = objectMapper;
+    this.preferencesCodec = new TripPreferencesRequestCodec(objectMapper);
   }
 
   @Override
@@ -136,6 +140,22 @@ public class TripController implements TripApiDocs {
     return ResponseEntity.ok()
         .eTag(TripEntityTag.strong(result.trip().tripId(), result.trip().revision()))
         .body(TripAggregateResponse.from(result));
+  }
+
+  @Override
+  @PutMapping(path = "/{tripId}/preferences", produces = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<TripPreferencesResponse> replacePreferences(
+      @PathVariable String tripId, HttpServletRequest request) {
+    TripPreferencesRequestBoundary.requireNoQuery(request);
+    TripPreferencesRequestBoundary.requireJsonMediaType(request);
+    UUID canonicalTripId = parseCanonicalUuid(tripId);
+    long expectedRevision =
+        TripPreferencesRequestBoundary.requiredRevision(request, canonicalTripId);
+    var command = preferencesCodec.decode(TripPreferencesRequestBoundary.readRequiredBody(request));
+    var result =
+        trips.replacePreferences(
+            currentUsers.getRequired(), canonicalTripId, expectedRevision, command);
+    return ResponseEntity.ok().eTag(result.etag()).body(TripPreferencesResponse.from(result));
   }
 
   @Override
