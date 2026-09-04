@@ -14,7 +14,7 @@ CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 FIXTURE_DIR = ROOT / "fixtures/contracts/accommodations"
 VALIDATOR = ROOT / "scripts/validate_accommodations_contract.py"
 STORE = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/domain/accommodation/adapter/JdbcAccommodationStore.java"
-MIGRATION = ROOT / "supabase/migrations/20260906000001_trip_accommodation_contract.sql"
+MIGRATION = ROOT / "supabase/migrations/20260907000002_trip_accommodation_contract.sql"
 REQUEST_BOUNDARY = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/domain/accommodation/controller/AccommodationRequestBoundary.java"
 SPEC = importlib.util.spec_from_file_location("validate_accommodations_contract", VALIDATOR)
 assert SPEC is not None and SPEC.loader is not None
@@ -55,6 +55,15 @@ class AccommodationsContractTest(unittest.TestCase):
         for role in ("anon", "authenticated"):
             for table in ("trip_accommodations", "accommodation_idempotency"):
                 self.assertIn(f"revoke all on public.{table} from {role}", sql)
+            self.assertIn(
+                "revoke execute on function public.protect_accommodation_idempotency_snapshot() "
+                f"from {role}",
+                sql,
+            )
+        self.assertIn(
+            "revoke all on function public.protect_accommodation_idempotency_snapshot() from public",
+            sql,
+        )
         for table in ("trip_accommodations", "accommodation_idempotency"):
             self.assertIn(f"revoke all on public.{table} from service_role", sql)
             self.assertIn(

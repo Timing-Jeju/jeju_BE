@@ -49,7 +49,6 @@ public final class AccommodationProblemDefinitions implements ProblemDefinitionC
         .filter(
             definition ->
                 java.util.Set.of(
-                        "ACCOMMODATION_NOT_FOUND",
                         "ACCOMMODATION_CONCURRENT_CONFLICT",
                         "ACCOMMODATION_DATE_GAP_OR_OVERLAP",
                         "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE")
