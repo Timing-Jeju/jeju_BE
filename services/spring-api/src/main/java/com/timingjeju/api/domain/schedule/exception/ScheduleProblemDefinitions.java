@@ -46,7 +46,20 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
               409,
               "최신 활성 일정을 조회한 뒤 다시 편집해 주세요."),
           mutation(
+              "SCHEDULE_ORDER_NOT_PERMUTATION",
+              "일정 순서가 올바르지 않습니다",
+              400,
+              "활성 일정의 모든 항목을 중복과 누락 없이 한 번씩 보내 주세요."),
+          mutation(
+              "SCHEDULE_ITEM_NOT_FOUND",
+              "일정 항목을 찾을 수 없습니다",
+              404,
+              "요청한 일정 항목이 없거나 해당 여행에 속하지 않습니다."),
+          mutation("TRIP_DAY_NOT_FOUND", "여행 Day를 찾을 수 없습니다", 404, "이동할 Day가 없거나 해당 여행에 속하지 않습니다."),
+          mutation(
               "SCHEDULE_ITEM_INVALID", "일정 항목을 적용할 수 없습니다", 422, "항목 유형별 필수값과 Day 시간 범위를 확인해 주세요."),
+          mutation(
+              "SCHEDULE_ITEM_COMPLETED", "완료한 일정 항목은 변경할 수 없습니다", 422, "완료되지 않은 일정 항목만 편집해 주세요."),
           mutation(
               "SCHEDULE_LEG_INCOMPLETE", "이동 구간을 완성할 수 없습니다", 422, "인접 일정 항목 사이의 이동 구간을 확인해 주세요."));
 
@@ -75,7 +88,16 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
             409,
             "최신 활성 일정을 조회한 뒤 다시 편집해 주세요."),
         problem(
+            "SCHEDULE_ORDER_NOT_PERMUTATION",
+            "일정 순서가 올바르지 않습니다",
+            400,
+            "활성 일정의 모든 항목을 중복과 누락 없이 한 번씩 보내 주세요."),
+        problem(
+            "SCHEDULE_ITEM_NOT_FOUND", "일정 항목을 찾을 수 없습니다", 404, "요청한 일정 항목이 없거나 해당 여행에 속하지 않습니다."),
+        problem("TRIP_DAY_NOT_FOUND", "여행 Day를 찾을 수 없습니다", 404, "이동할 Day가 없거나 해당 여행에 속하지 않습니다."),
+        problem(
             "SCHEDULE_ITEM_INVALID", "일정 항목을 적용할 수 없습니다", 422, "항목 유형별 필수값과 Day 시간 범위를 확인해 주세요."),
+        problem("SCHEDULE_ITEM_COMPLETED", "완료한 일정 항목은 변경할 수 없습니다", 422, "완료되지 않은 일정 항목만 편집해 주세요."),
         problem(
             "SCHEDULE_LEG_INCOMPLETE", "이동 구간을 완성할 수 없습니다", 422, "인접 일정 항목 사이의 이동 구간을 확인해 주세요."));
   }

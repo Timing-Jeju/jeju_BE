@@ -4,6 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.schedule.CreateScheduleItemCommand;
+import com.timingjeju.api.application.schedule.DeleteScheduleItemCommand;
+import com.timingjeju.api.application.schedule.MoveScheduleItemCommand;
+import com.timingjeju.api.application.schedule.PatchScheduleItemCommand;
+import com.timingjeju.api.application.schedule.ReorderScheduleCommand;
+import com.timingjeju.api.application.schedule.ScheduleEditRecord;
 import com.timingjeju.api.application.schedule.ScheduleException;
 import com.timingjeju.api.application.schedule.ScheduleMutationRecord;
 import com.timingjeju.api.application.schedule.ScheduleMutationResult;
@@ -13,7 +18,11 @@ import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTest
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -22,6 +31,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTestSupport {
@@ -42,6 +53,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   private static final UUID DEPARTURE_ID = UUID.fromString("50000000-0000-0000-0000-000000000113");
   private static final UUID DAY_TWO = UUID.fromString("50000000-0000-0000-0000-000000000114");
   private static final UUID DAY_TWO_ITEM = UUID.fromString("50000000-0000-0000-0000-000000000115");
+  private static final UUID THIRD = UUID.fromString("50000000-0000-0000-0000-000000000116");
   private static final Instant NOW = Instant.parse("2026-09-01T02:00:00Z");
 
   @Autowired private JdbcTemplate jdbc;
@@ -50,6 +62,10 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
   @BeforeEach
   void 활성_일정_fixture를_준비한다() {
+    new TransactionTemplate(transactionManager).executeWithoutResult(ignored -> prepareFixture());
+  }
+
+  private void prepareFixture() {
     insertOwner();
     insertPlaces();
     jdbc.update(
@@ -294,6 +310,275 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
+  @Test
+  void PATCH는_memo_explicit_null과_survivor_progress를_새_namespace에_복제한다() {
+    jdbc.update(
+        "insert into public.trip_item_progress (trip_plan_id,schedule_version_id,trip_item_id,status) values (?,?,?,'planned')",
+        TRIP,
+        ACTIVE,
+        FIRST);
+    var command =
+        new PatchScheduleItemCommand(
+            ACTIVE,
+            Set.of("stayMinutes", "memo"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            45,
+            null,
+            null,
+            null);
+
+    ScheduleMutationResult result = store.patchItem(edit(FIRST, command));
+
+    assertThat(
+            jdbc.queryForMap(
+                "select id,stay_minutes,memo from public.trip_items where schedule_version_id=? and sequence_no=1 and trip_day_id=?",
+                result.activeScheduleVersionId(),
+                DAY))
+        .containsEntry("stay_minutes", 45)
+        .containsEntry("memo", null)
+        .doesNotContainEntry("id", FIRST);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_item_progress where schedule_version_id=? and status='planned'",
+                Integer.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select stay_minutes from public.trip_items where id=?", Integer.class, FIRST))
+        .isEqualTo(60);
+  }
+
+  @Test
+  void PATCH로_기존_leg가_시간창을_넘으면_422이고_새_version을_전부_rollback한다() {
+    String before = aggregateFingerprint();
+    var command =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("stayMinutes"), null, null, null, null, null, 179, null, null, null);
+
+    assertThatThrownBy(() -> patchInNestedTransaction(edit(FIRST, command)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_LEG_INCOMPLETE");
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void DELETE는_middle_survivor를_compact하고_progress를_새_item_ID에_보존한다() {
+    jdbc.update(
+        "insert into public.trip_item_progress (trip_plan_id,schedule_version_id,trip_item_id,status) values (?,?,?,'arrived')",
+        TRIP,
+        ACTIVE,
+        SECOND);
+
+    ScheduleMutationResult result =
+        store.deleteItem(edit(FIRST, new DeleteScheduleItemCommand(ACTIVE)));
+
+    assertThat(
+            jdbc.queryForList(
+                "select sequence_no from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                DAY))
+        .containsExactly(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_item_progress where schedule_version_id=? and status='arrived'",
+                Integer.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo(1);
+    assertThat(originalFingerprint()).isNotNull();
+  }
+
+  @ParameterizedTest
+  @EnumSource(DeletePosition.class)
+  void DELETE_first_middle_last는_연속_sequence와_정확한_N_minus_1_leg를_만든다(DeletePosition position) {
+    jdbc.execute("set local session_replication_role = replica");
+    jdbc.update("update public.trip_schedule_versions set status='draft' where id=?", ACTIVE);
+    insertItem(THIRD, ADDED_PLACE, 3, "2026-09-01T06:00:00Z");
+    insertLeg(SECOND, THIRD, 2, "2026-09-01T04:00:00Z", "2026-09-01T04:10:00Z");
+    jdbc.update("update public.trip_schedule_versions set status='active' where id=?", ACTIVE);
+    jdbc.execute("set local session_replication_role = origin");
+
+    ScheduleMutationResult result =
+        store.deleteItem(edit(position.itemId, new DeleteScheduleItemCommand(ACTIVE)));
+
+    assertThat(
+            jdbc.queryForList(
+                "select sequence_no from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                DAY))
+        .containsExactly(1, 2);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_legs where schedule_version_id=?",
+                Integer.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo(1);
+  }
+
+  @Test
+  void completed_item의_PATCH_DELETE와_identical_reorder는_422로_원자거부한다() {
+    jdbc.update(
+        "insert into public.trip_item_progress (trip_plan_id,schedule_version_id,trip_item_id,status,actual_completed_at) values (?,?,?,'completed',?)",
+        TRIP,
+        ACTIVE,
+        FIRST,
+        Timestamp.from(NOW));
+    String before = aggregateFingerprint();
+    var patch =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("memo"), null, null, null, null, null, null, null, null, "완료");
+    var order =
+        new ReorderScheduleCommand(
+            ACTIVE,
+            List.of(
+                new ReorderScheduleCommand.DayOrder(1, List.of(FIRST, SECOND)),
+                new ReorderScheduleCommand.DayOrder(2, List.of(DAY_TWO_ITEM))));
+
+    assertCompleted(() -> store.patchItem(edit(FIRST, patch)));
+    assertCompleted(() -> store.deleteItem(edit(FIRST, new DeleteScheduleItemCommand(ACTIVE))));
+    assertCompleted(() -> store.reorder(edit(null, order)));
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void reorder의_duplicate_missing_foreign_ID는_400이고_active를_보존한다() {
+    var invalid =
+        new ReorderScheduleCommand(
+            ACTIVE,
+            List.of(
+                new ReorderScheduleCommand.DayOrder(1, List.of(FIRST, FIRST)),
+                new ReorderScheduleCommand.DayOrder(2, List.of(DAY_TWO_ITEM))));
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> store.reorder(edit(null, invalid)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ORDER_NOT_PERMUTATION");
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void MOVE는_source_target_Day를_compact하고_모든_leg를_새_ID로_완성한다() {
+    var command =
+        new MoveScheduleItemCommand(
+            ACTIVE, 2, 2, OffsetDateTime.parse("2026-09-02T10:30:00+09:00"));
+
+    ScheduleMutationResult result = store.moveItem(edit(FIRST, command));
+
+    assertThat(
+            jdbc.queryForList(
+                "select sequence_no from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                DAY))
+        .containsExactly(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_items where schedule_version_id=? and trip_day_id=?",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                DAY_TWO))
+        .isEqualTo(2);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_legs where schedule_version_id=?",
+                Integer.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo(1);
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void 동시_device의_같은_ETag_PATCH는_하나만_commit하고_다른_요청을_409로_종료한다() throws Exception {
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch start = new CountDownLatch(1);
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      var calls =
+          java.util.stream.IntStream.range(0, 2)
+              .mapToObj(
+                  index ->
+                      executor.submit(
+                          () -> {
+                            ready.countDown();
+                            start.await();
+                            try {
+                              store.patchItem(
+                                  edit(
+                                      FIRST,
+                                      new PatchScheduleItemCommand(
+                                          ACTIVE,
+                                          Set.of("memo"),
+                                          null,
+                                          null,
+                                          null,
+                                          null,
+                                          null,
+                                          null,
+                                          null,
+                                          null,
+                                          "device-" + index)));
+                              return "SUCCESS";
+                            } catch (ScheduleException failure) {
+                              return failure.code();
+                            }
+                          }))
+              .toList();
+      ready.await();
+      start.countDown();
+      assertThat(calls.stream().map(future -> get(future)).toList())
+          .containsExactlyInAnyOrder("SUCCESS", "TRIP_VERSION_CONFLICT");
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_schedule_versions where trip_plan_id=? and status='active'",
+                  Integer.class,
+                  TRIP))
+          .isEqualTo(1);
+    } finally {
+      jdbc.update("delete from public.trip_plans where id=?", TRIP);
+      jdbc.update(
+          "delete from public.tour_places where id in (?,?,?)",
+          FIRST_PLACE,
+          SECOND_PLACE,
+          ADDED_PLACE);
+      jdbc.update("delete from public.user_profiles where id=?", OWNER);
+      jdbc.update("delete from auth.users where id=?", OWNER);
+    }
+  }
+
+  private static String get(java.util.concurrent.Future<String> future) {
+    try {
+      return future.get();
+    } catch (Exception failure) {
+      throw new AssertionError(failure);
+    }
+  }
+
+  private <T> ScheduleEditRecord<T> edit(UUID itemId, T command) {
+    return new ScheduleEditRecord<>(
+        OWNER, TRIP, itemId, new TripExpectedRevision(TRIP, 1), command, NOW);
+  }
+
+  private ScheduleMutationResult patchInNestedTransaction(
+      ScheduleEditRecord<PatchScheduleItemCommand> record) {
+    TransactionTemplate nested = new TransactionTemplate(transactionManager);
+    nested.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
+    return nested.execute(ignored -> store.patchItem(record));
+  }
+
+  private static void assertCompleted(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+    assertThatThrownBy(call)
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_COMPLETED");
+  }
+
   private ScheduleMutationRecord record(Position position, UUID expectedActive, long revision) {
     CreateScheduleItemCommand command =
         new CreateScheduleItemCommand(
@@ -395,6 +680,27 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         Timestamp.from(startsAt.plusSeconds(3600)));
   }
 
+  private void insertLeg(UUID from, UUID to, int sequence, String departure, String arrival) {
+    jdbc.update(
+        """
+        insert into public.trip_legs
+          (trip_plan_id, trip_day_id, schedule_version_id, sequence_no, from_item_id, to_item_id,
+           transport_mode, planned_departure_at, planned_arrival_at, walk_minutes, wait_minutes,
+           ride_minutes, transfer_minutes, duration_minutes, buffer_minutes, distance_meters,
+           estimated_fare, facts)
+        values (?, ?, ?, ?, ?, ?, 'walk', ?, ?, 10, 0, 0, 0, 10, 0, 500, 0,
+                '{"derivation":"fixture"}'::jsonb)
+        """,
+        TRIP,
+        DAY,
+        ACTIVE,
+        sequence,
+        from,
+        to,
+        Timestamp.from(Instant.parse(departure)),
+        Timestamp.from(Instant.parse(arrival)));
+  }
+
   private String originalFingerprint() {
     return jdbc.queryForObject(
         """
@@ -430,6 +736,18 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     Position(int sequence, String start) {
       this.sequence = sequence;
       this.start = start;
+    }
+  }
+
+  private enum DeletePosition {
+    FIRST(JdbcScheduleMutationStoreIntegrationTest.FIRST),
+    MIDDLE(JdbcScheduleMutationStoreIntegrationTest.SECOND),
+    LAST(JdbcScheduleMutationStoreIntegrationTest.THIRD);
+
+    private final UUID itemId;
+
+    DeletePosition(UUID itemId) {
+      this.itemId = itemId;
     }
   }
 

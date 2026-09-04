@@ -58,6 +58,8 @@ final class FrontendOpenApiCustomizer {
           Map.entry("status", "draft"),
           Map.entry("tag", "오름"),
           Map.entry("tripId", "44000000-0000-4000-8000-000000000044"),
+          Map.entry("itemId", "61000000-0000-4000-8000-000000000003"),
+          Map.entry("expectedActiveScheduleVersionId", "60000000-0000-4000-8000-000000000001"),
           Map.entry("versionId", "49000000-0000-4000-8000-000000000002"));
 
   private static final Map<String, ProblemDefinition> NON_CONTRIBUTOR_PROBLEM_DEFINITIONS =
@@ -117,6 +119,13 @@ final class FrontendOpenApiCustomizer {
                   "TRIP_VERSION_CONFLICT",
                   "ACTIVE_SCHEDULE_VERSION_CONFLICT"),
           "422", List.of("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"));
+  private static final Set<String> SCHEDULE_MUTATION_KEYS =
+      Set.of(
+          "POST /api/v1/trips/{tripId}/schedule-items",
+          "PATCH /api/v1/trips/{tripId}/schedule-items/{itemId}",
+          "DELETE /api/v1/trips/{tripId}/schedule-items/{itemId}",
+          "PUT /api/v1/trips/{tripId}/schedule-order",
+          "POST /api/v1/trips/{tripId}/schedule-items/{itemId}/move");
 
   private final ObjectMapper objectMapper;
   private final ProblemCodeRegistry problemCodeRegistry;
@@ -410,6 +419,8 @@ final class FrontendOpenApiCustomizer {
           "Idempotency-Key로 중복 생성을 방지하며, 같은 key와 같은 payload는 기존 결과를 replay합니다.");
     } else if (key.equals("DELETE /api/v1/me/saved-places/{placeId}")) {
       operation.setDescription("관심 장소를 삭제합니다. request body와 성공 response content는 없습니다.");
+    } else if (isScheduleMutation(key)) {
+      operation.setDescription("활성 일정을 불변 복제하고 검증된 새 user_edit 버전을 원자적으로 활성화합니다.");
     }
     documentConditionalHeaders(key, operation);
     documentParameters(operation);
@@ -499,7 +510,7 @@ final class FrontendOpenApiCustomizer {
               .pattern(
                   "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
           "\"trip-44000000-0000-4000-8000-000000000044-r1\"");
-    } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
+    } else if (isScheduleMutation(key)) {
       mergeRequiredHeader(
           operation,
           "If-Match",
@@ -511,7 +522,7 @@ final class FrontendOpenApiCustomizer {
       mergeRequiredHeader(
           operation,
           "Idempotency-Key",
-          "일정 항목 추가 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
+          "일정 변경 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
           new StringSchema().format("uuid"),
           "45000000-0000-4000-8000-000000000050");
     }
@@ -534,9 +545,13 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("GET /api/v1/trips/{tripId}")
         || key.equals("PATCH /api/v1/trips/{tripId}")) {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
-    } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
+    } else if (isScheduleMutation(key)) {
       addResponseHeaderReferences(
-          operation, List.of("201"), List.of("ETag", "Idempotency-Replayed"));
+          operation,
+          key.startsWith("POST /api/v1/trips/{tripId}/schedule-items") && !key.endsWith("/move")
+              ? List.of("201")
+              : List.of("200"),
+          List.of("ETag", "Idempotency-Replayed"));
     }
   }
 
@@ -616,14 +631,16 @@ final class FrontendOpenApiCustomizer {
   private void documentProblem(
       ApiResponse response, int status, String configuredCode, String operationKey) {
     if (response.get$ref() != null) {
-      return;
+      if (!isScheduleMutation(operationKey)) return;
+      response.set$ref(null);
+      response.setDescription(configuredCode + " 오류");
     }
     String code = configuredCode == null ? defaultCode(status) : configuredCode;
     response.addHeaderObject(RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
     MediaType media = new MediaType().schema(new Schema<>().$ref(PROBLEM_SCHEMA));
     List<String> codes =
-        "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
-            ? SCHEDULE_ITEM_PROBLEMS.get(String.valueOf(status))
+        isScheduleMutation(operationKey)
+            ? scheduleProblems(operationKey, String.valueOf(status))
             : null;
     if (codes == null) {
       media.setExample(problemExample(status, code, operationKey));
@@ -640,7 +657,7 @@ final class FrontendOpenApiCustomizer {
         new Content()
             .addMediaType(
                 org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, media));
-    if ("POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey) && status == 409) {
+    if (isScheduleMutation(operationKey) && status == 409) {
       response.addHeaderObject(
           "Retry-After",
           new Header()
@@ -672,7 +689,7 @@ final class FrontendOpenApiCustomizer {
     boolean savedPlaceOperation =
         operationKey != null && operationKey.contains("/api/v1/me/saved-places");
     ProblemDefinition definition =
-        "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
+        isScheduleMutation(operationKey)
             ? ScheduleProblemDefinitions.mutationDefinition(code)
             : savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
     if (definition == null) {
@@ -692,6 +709,43 @@ final class FrontendOpenApiCustomizer {
     example.put("traceId", TRACE_ID);
     example.put("fieldErrors", List.of());
     return example;
+  }
+
+  private static List<String> scheduleProblems(String operationKey, String status) {
+    if ("POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)) {
+      return SCHEDULE_ITEM_PROBLEMS.get(status);
+    }
+    if ("400".equals(status)) {
+      var base =
+          new java.util.ArrayList<>(
+              List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID"));
+      if (operationKey.contains("schedule-order")) base.add("SCHEDULE_ORDER_NOT_PERMUTATION");
+      return base;
+    }
+    if ("401".equals(status)) return List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN");
+    if ("404".equals(status)) {
+      var base = new java.util.ArrayList<>(List.of("TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND"));
+      if (operationKey.endsWith("/move")) base.add("TRIP_DAY_NOT_FOUND");
+      if (operationKey.startsWith("PATCH")) {
+        base.addAll(
+            List.of("PLACE_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"));
+      }
+      return base;
+    }
+    if ("409".equals(status))
+      return List.of(
+          "IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT");
+    if ("422".equals(status)) {
+      var base =
+          new java.util.ArrayList<>(List.of("SCHEDULE_ITEM_COMPLETED", "SCHEDULE_LEG_INCOMPLETE"));
+      if (!operationKey.startsWith("DELETE")) base.add("SCHEDULE_ITEM_INVALID");
+      return base;
+    }
+    return null;
+  }
+
+  private static boolean isScheduleMutation(String operationKey) {
+    return operationKey != null && SCHEDULE_MUTATION_KEYS.contains(operationKey);
   }
 
   private static ProblemDefinition nonContributorProblem(
@@ -1136,6 +1190,55 @@ final class FrontendOpenApiCustomizer {
                 "409", "ACTIVE_SCHEDULE_VERSION_CONFLICT",
                 "422", "SCHEDULE_ITEM_INVALID",
                 "500", "INTERNAL_SERVER_ERROR")));
+    String mutationSuccess =
+        "{\"tripId\":\"50000000-0000-4000-8000-000000000001\","
+            + "\"previousScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\","
+            + "\"activeScheduleVersionId\":\"60000000-0000-4000-8000-000000000002\","
+            + "\"versionNo\":2,\"sourceType\":\"user_edit\",\"feasibilityStale\":true,"
+            + "\"changedItemIds\":[\"61000000-0000-4000-8000-000000000003\"],"
+            + "\"etag\":\"\\\"trip-50000000-0000-4000-8000-000000000001-r2\\\"\","
+            + "\"updatedAt\":\"2026-10-01T09:30:00+09:00\"}";
+    Map<String, String> mutationErrors =
+        Map.of(
+            "400",
+            "INVALID_REQUEST",
+            "401",
+            "AUTHENTICATION_REQUIRED",
+            "404",
+            "SCHEDULE_ITEM_NOT_FOUND",
+            "409",
+            "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+            "422",
+            "SCHEDULE_ITEM_INVALID",
+            "500",
+            "INTERNAL_SERVER_ERROR");
+    result.put(
+        "PATCH /api/v1/trips/{tripId}/schedule-items/{itemId}",
+        doc(
+            "tripScheduleItemPatch",
+            "일정",
+            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"placeId\":\"20000000-0000-4000-8000-000000000001\",\"accommodationId\":\"70000000-0000-4000-8000-000000000001\",\"transportEventId\":\"71000000-0000-4000-8000-000000000001\",\"title\":\"성산일출봉 방문\",\"plannedStartAt\":\"2026-10-01T11:00:00+09:00\",\"stayMinutes\":45,\"bufferAfterMinutes\":10,\"required\":true,\"memo\":null}",
+            mutationSuccess,
+            mutationErrors));
+    result.put(
+        "DELETE /api/v1/trips/{tripId}/schedule-items/{itemId}",
+        doc("tripScheduleItemDelete", "일정", null, mutationSuccess, mutationErrors));
+    result.put(
+        "PUT /api/v1/trips/{tripId}/schedule-order",
+        doc(
+            "tripScheduleOrderUpdate",
+            "일정",
+            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"days\":[{\"dayNo\":1,\"orderedItemIds\":[\"61000000-0000-4000-8000-000000000001\"]}]}",
+            mutationSuccess,
+            mutationErrors));
+    result.put(
+        "POST /api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+        doc(
+            "tripScheduleItemMoveUpdate",
+            "일정",
+            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"targetDayNo\":2,\"targetSequenceNo\":1,\"plannedStartAt\":\"2026-10-02T10:20:00+09:00\"}",
+            mutationSuccess,
+            mutationErrors));
     return Map.copyOf(result);
   }
 

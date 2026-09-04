@@ -44,6 +44,22 @@ public final class ScheduleException extends RuntimeException {
     return new ScheduleException("SCHEDULE_ITEM_INVALID");
   }
 
+  public static ScheduleException itemNotFound() {
+    return new ScheduleException("SCHEDULE_ITEM_NOT_FOUND");
+  }
+
+  public static ScheduleException tripDayNotFound() {
+    return new ScheduleException("TRIP_DAY_NOT_FOUND");
+  }
+
+  public static ScheduleException itemCompleted() {
+    return new ScheduleException("SCHEDULE_ITEM_COMPLETED");
+  }
+
+  public static ScheduleException orderNotPermutation() {
+    return new ScheduleException("SCHEDULE_ORDER_NOT_PERMUTATION");
+  }
+
   public static ScheduleException legIncomplete() {
     return new ScheduleException("SCHEDULE_LEG_INCOMPLETE");
   }
