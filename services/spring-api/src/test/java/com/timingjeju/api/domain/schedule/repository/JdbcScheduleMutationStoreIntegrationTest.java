@@ -351,6 +351,28 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
             jdbc.queryForObject(
                 "select stay_minutes from public.trip_items where id=?", Integer.class, FIRST))
         .isEqualTo(60);
+    assertThat(
+            jdbc.queryForObject(
+                "select facts->>'derivation' from public.trip_legs where schedule_version_id=?",
+                String.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo("conservative_walk_v1");
+  }
+
+  @Test
+  void PATCH로_장소가_바뀌면_이전_leg_근거를_재사용하지_않는다() {
+    var command =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("placeId"), ADDED_PLACE, null, null, null, null, null, null, null, null);
+
+    ScheduleMutationResult result = store.patchItem(edit(FIRST, command));
+
+    assertThat(
+            jdbc.queryForMap(
+                "select transport_mode,facts->>'derivation' as derivation from public.trip_legs where schedule_version_id=?",
+                result.activeScheduleVersionId()))
+        .containsEntry("transport_mode", "walk")
+        .containsEntry("derivation", "conservative_walk_v1");
   }
 
   @Test
@@ -462,6 +484,51 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         .extracting(failure -> ((ScheduleException) failure).code())
         .isEqualTo("SCHEDULE_ORDER_NOT_PERMUTATION");
     assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void reorder는_기존_Day_시간_slot에_새_순서를_배치하고_leg를_재구성한다() {
+    String original = originalFingerprint();
+    var command =
+        new ReorderScheduleCommand(
+            ACTIVE,
+            List.of(
+                new ReorderScheduleCommand.DayOrder(1, List.of(SECOND, FIRST)),
+                new ReorderScheduleCommand.DayOrder(2, List.of(DAY_TWO_ITEM))));
+
+    ScheduleMutationResult result = store.reorder(edit(null, command));
+
+    assertThat(
+            jdbc.queryForList(
+                "select place_id from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
+                UUID.class,
+                result.activeScheduleVersionId(),
+                DAY))
+        .containsExactly(SECOND_PLACE, FIRST_PLACE);
+    assertThat(
+            jdbc.queryForList(
+                "select planned_start_at from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
+                Timestamp.class,
+                result.activeScheduleVersionId(),
+                DAY))
+        .extracting(Timestamp::toInstant)
+        .containsExactly(
+            Instant.parse("2026-09-01T00:00:00Z"), Instant.parse("2026-09-01T03:00:00Z"));
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_items where schedule_version_id=? and id in (?,?)",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                FIRST,
+                SECOND))
+        .isZero();
+    assertThat(
+            jdbc.queryForMap(
+                "select facts->>'derivation' as derivation from public.trip_legs where schedule_version_id=? and trip_day_id=?",
+                result.activeScheduleVersionId(),
+                DAY))
+        .containsEntry("derivation", "conservative_walk_v1");
+    assertThat(originalFingerprint()).isEqualTo(original);
   }
 
   @Test

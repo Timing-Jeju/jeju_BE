@@ -29,11 +29,23 @@ Refactor에서는 네 작업의 version 생성·leg 재구성·seal·pointer CAS
 snapshot 또는 보수적 PostGIS 도보 근거로도 다음 item 시간창을 만족하지 못하면
 `SCHEDULE_LEG_INCOMPLETE`로 전체 rollback한다. 요청 시 외부 API·MCP·LLM 호출은 없다.
 
+독립 Reviewer의 첫 검토에서는 두 동작을 추가 RED로 확인했다. 장소가 바뀐 PATCH가 이전
+`fixture` leg를 복사했고, 실제 `[SECOND, FIRST]` same-Day reorder는 기존 항목 시간을 그대로
+따라가 `SCHEDULE_LEG_INCOMPLETE`로 실패했다. 수정 후에는 원본과 편집 항목의 item type,
+정규화 place identity, 시작·종료 시각 및 leg transport mode가 모두 같을 때만 route 속성을
+재사용한다. Reorder는 Day의 기존 `plannedStartAt` 슬롯을 제출 순서에 재배정하고 각 항목의
+stay로 종료 시각을 다시 계산하며, 겹침·시간창 위반은 원자적으로 거부한다. 두 RED와 기존
+memo/stay 회귀를 포함한 실제 PostgreSQL 집중 테스트는 모두 Green으로 전환됐다.
+
+Swagger operation 계약도 Controller 구현에서 `controller/docs/ScheduleMutationApiDocs`로
+이동해 구현과 문서 경계를 분리했으며 생성 OpenAPI operation ID와 응답 schema는 유지했다.
+
 ## 검증
 
 - Controller: 네 endpoint, duplicate/unknown JSON, semantic JSON hash, 1 MiB와 HTTP framing 검증 성공
 - 실제 PostgreSQL: PATCH memo null/progress, DELETE first/middle/last, exact permutation,
-  cross-Day move, completed guard, 두 동시 device의 단일 commit, 실패 rollback 성공
+  실제 same-Day swap과 시간 슬롯 재배정, cross-Day move, completed guard, 두 동시 device의
+  단일 commit, 실패 rollback 성공
 - schedule canonical validator 및 관련 Python 38 tests 성공
 - OpenAPI frontend-readiness mode 28: `28 operations` 성공
 - `./gradlew --no-daemon clean check`: 13분 56초, 성공

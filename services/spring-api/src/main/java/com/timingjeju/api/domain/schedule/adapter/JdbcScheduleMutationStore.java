@@ -78,7 +78,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
                 ? source.sequenceNo() + 1
                 : source.sequenceNo();
         insertCopiedItem(record.tripId(), newVersionId, newId, sequence, source);
-        newItems.add(source.asNew(newId, sequence));
+        newItems.add(source.asNew(newId, sequence, source));
         copiedIds.put(source.id(), newId);
       }
 
@@ -96,7 +96,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
               record.command().itemType(),
               reference.placeId(),
               plannedStart,
-              plannedEnd));
+              plannedEnd,
+              false));
 
       copyProgress(
           record.tripId(),
@@ -193,6 +194,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       Root root = lockOwnedTrip(record.ownerId(), record.tripId());
       validateExpected(record, root);
       List<SourceItem> sourceItems = loadSourceItems(record.tripId(), root.activeVersionId());
+      Map<UUID, SourceItem> originalById =
+          sourceItems.stream()
+              .collect(java.util.stream.Collectors.toMap(SourceItem::id, item -> item));
       List<SourceItem> editedItems = editor.apply(new ArrayList<>(sourceItems));
       if (editedItems.isEmpty()) throw ScheduleException.itemInvalid();
 
@@ -204,7 +208,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       for (SourceItem source : editedItems) {
         UUID newId = UUID.randomUUID();
         insertCopiedItem(record.tripId(), newVersionId, newId, source.sequenceNo(), source);
-        newItems.add(source.asNew(newId, source.sequenceNo()));
+        newItems.add(source.asNew(newId, source.sequenceNo(), originalById.get(source.id())));
         copiedIds.put(source.id(), newId);
       }
       copyProgress(
@@ -321,6 +325,16 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     ensureNoneCompleted(record.tripId(), expectedVersion(record.command()), submitted);
     Map<UUID, SourceItem> byId =
         items.stream().collect(java.util.stream.Collectors.toMap(SourceItem::id, item -> item));
+    Map<UUID, List<Instant>> slotsByDay = new HashMap<>();
+    items.stream()
+        .sorted(
+            java.util.Comparator.comparing(SourceItem::dayId)
+                .thenComparingInt(SourceItem::sequenceNo))
+        .forEach(
+            item ->
+                slotsByDay
+                    .computeIfAbsent(item.dayId(), ignored -> new ArrayList<>())
+                    .add(item.start()));
     List<SourceItem> reordered = new ArrayList<>(items.size());
     for (var dayOrder : record.command().days()) {
       Day day = loadDay(record.tripId(), dayOrder.dayNo(), true);
@@ -330,7 +344,15 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         if (source == null || !source.dayId().equals(day.id())) {
           throw ScheduleException.orderNotPermutation();
         }
-        reordered.add(source.withPosition(day.id(), sequence++, source.start()));
+        List<Instant> slots = slotsByDay.get(day.id());
+        if (slots == null || sequence > slots.size()) {
+          throw ScheduleException.orderNotPermutation();
+        }
+        Instant slotStart = slots.get(sequence - 1);
+        validateTime(slotStart.atZone(JEJU).toOffsetDateTime(), source.stayMinutes(), day);
+        SourceItem replacement = source.withPosition(day.id(), sequence++, slotStart);
+        ensureNoOverlap(reordered, -1, replacement);
+        reordered.add(replacement);
       }
     }
     if (reordered.size() != items.size()) throw ScheduleException.orderNotPermutation();
@@ -873,7 +895,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             from.oldId() == null || to.oldId() == null
                 ? null
                 : sourceLegs.get(new ItemPair(from.oldId(), to.oldId()));
-        if (reusable != null) {
+        if (reusable != null
+            && from.semanticallyUnchanged()
+            && to.semanticallyUnchanged()
+            && reusable.transportMode().equals(preferredMode)) {
           insertCopiedLeg(tripId, versionId, index + 1, from, to, reusable);
         } else if (!insertStoredSnapshotLeg(
             tripId, versionId, index + 1, from, to, preferredMode, transactionTime)) {
@@ -1163,7 +1188,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       String itemType,
       UUID placeId,
       Instant start,
-      Instant end) {}
+      Instant end,
+      boolean semanticallyUnchanged) {}
 
   private record SourceItem(
       UUID id,
@@ -1182,8 +1208,14 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       String source,
       String memo,
       String facts) {
-    NewItem asNew(UUID newId, int sequence) {
-      return new NewItem(newId, id, dayId, sequence, itemType, placeId, start, end);
+    NewItem asNew(UUID newId, int sequence, SourceItem original) {
+      boolean unchanged =
+          original != null
+              && itemType.equals(original.itemType())
+              && java.util.Objects.equals(placeId, original.placeId())
+              && start.equals(original.start())
+              && end.equals(original.end());
+      return new NewItem(newId, id, dayId, sequence, itemType, placeId, start, end, unchanged);
     }
 
     SourceItem withPosition(

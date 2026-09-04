@@ -17,11 +17,6 @@ import com.timingjeju.api.domain.schedule.dto.MoveScheduleItemRequest;
 import com.timingjeju.api.domain.schedule.dto.PatchScheduleItemRequest;
 import com.timingjeju.api.domain.schedule.dto.ReorderScheduleRequest;
 import com.timingjeju.api.domain.schedule.dto.ScheduleMutationResponse;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -172,15 +167,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
   }
 
   @PatchMapping("/schedule-items/{itemId}")
-  @Operation(operationId = "tripScheduleItemPatch", tags = "일정", summary = "일정 항목 수정")
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "수정된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @Override
   public ResponseEntity<byte[]> patchItem(
       @PathVariable String tripId,
       @PathVariable String itemId,
@@ -230,15 +217,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
   }
 
   @DeleteMapping("/schedule-items/{itemId}")
-  @Operation(operationId = "tripScheduleItemDelete", tags = "일정", summary = "일정 항목 삭제")
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "삭제가 반영된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @Override
   public ResponseEntity<byte[]> deleteItem(
       @PathVariable String tripId,
       @PathVariable String itemId,
@@ -275,15 +254,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
   }
 
   @PutMapping("/schedule-order")
-  @Operation(operationId = "tripScheduleOrderUpdate", tags = "일정", summary = "일정 순서 변경")
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "순서가 반영된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @Override
   public ResponseEntity<byte[]> reorder(
       @PathVariable String tripId,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
@@ -308,15 +279,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
   }
 
   @PostMapping("/schedule-items/{itemId}/move")
-  @Operation(operationId = "tripScheduleItemMoveUpdate", tags = "일정", summary = "일정 항목 Day 이동")
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "Day 이동이 반영된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @Override
   public ResponseEntity<byte[]> moveItem(
       @PathVariable String tripId,
       @PathVariable String itemId,

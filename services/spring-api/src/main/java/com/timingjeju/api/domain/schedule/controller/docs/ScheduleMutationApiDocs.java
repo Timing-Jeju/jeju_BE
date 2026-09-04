@@ -194,4 +194,71 @@ public interface ScheduleMutationApiDocs {
           String idempotencyKey,
       byte[] body,
       @Parameter(hidden = true) HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleItemPatch", tags = "일정", summary = "일정 항목 수정")
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "수정된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> patchItem(
+      String tripId,
+      String itemId,
+      String ifMatch,
+      String idempotencyKey,
+      byte[] body,
+      HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleItemDelete", tags = "일정", summary = "일정 항목 삭제")
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "삭제가 반영된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> deleteItem(
+      String tripId,
+      String itemId,
+      String ifMatch,
+      String idempotencyKey,
+      String expectedActiveScheduleVersionId,
+      HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleOrderUpdate", tags = "일정", summary = "일정 순서 변경")
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "순서가 반영된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> reorder(
+      String tripId,
+      String ifMatch,
+      String idempotencyKey,
+      byte[] body,
+      HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleItemMoveUpdate", tags = "일정", summary = "일정 항목 Day 이동")
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "Day 이동이 반영된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> moveItem(
+      String tripId,
+      String itemId,
+      String ifMatch,
+      String idempotencyKey,
+      byte[] body,
+      HttpServletRequest servletRequest);
 }
