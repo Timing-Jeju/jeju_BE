@@ -234,9 +234,30 @@ final class FrontendOpenApiCustomizer {
             (status, codes) -> {
               ApiResponse response = operation.getResponses().get(status);
               if (response != null) {
-                response.addExtension("x-error-codes", List.copyOf(valueList(codes)));
+                List<Object> canonicalCodes = List.copyOf(valueList(codes));
+                response.addExtension("x-error-codes", canonicalCodes);
+                if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
+                  projectAccommodationProblemExamples(
+                      response, Integer.parseInt(status), canonicalCodes, key);
+                }
               }
             });
+  }
+
+  private void projectAccommodationProblemExamples(
+      ApiResponse response, int status, List<Object> codes, String operationKey) {
+    MediaType media =
+        response
+            .getContent()
+            .get(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+    media.setExample(null);
+    media.setExampleSetFlag(false);
+    Map<String, Example> examples = new LinkedHashMap<>();
+    for (Object value : codes) {
+      String code = String.valueOf(value);
+      examples.put(code, new Example().value(problemExample(status, code, operationKey)));
+    }
+    media.setExamples(examples);
   }
 
   private void projectCanonicalParameters(

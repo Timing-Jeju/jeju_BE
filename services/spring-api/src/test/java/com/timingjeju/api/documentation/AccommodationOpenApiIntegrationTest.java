@@ -1,13 +1,21 @@
 package com.timingjeju.api.documentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,6 +24,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Tag("slice")
 @SpringBootTest(
@@ -32,6 +42,7 @@ class AccommodationOpenApiIntegrationTest {
   private static final String JWT_KEY = randomKey();
 
   @Autowired private MockMvc mvc;
+  @Autowired private ObjectMapper objectMapper;
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -124,15 +135,100 @@ class AccommodationOpenApiIntegrationTest {
             jsonPath(item + ".delete.responses['404']['x-error-codes']")
                 .value(containsInAnyOrder("TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND")))
         .andExpect(
-            jsonPath(
-                    collection
-                        + ".responses['422'].content['application/problem+json'].example.code")
-                .value("ACCOMMODATION_DATE_GAP_OR_OVERLAP"))
-        .andExpect(
-            jsonPath(
-                    item
-                        + ".delete.responses['422'].content['application/problem+json'].example.code")
-                .value("ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE"));
+            jsonPath(collection + ".responses['422'].content['application/problem+json'].example")
+                .doesNotExist());
+  }
+
+  @Test
+  void 숙소_mutation은_canonical_matrix의_모든_code를_named_problem_example로_정확히_제공한다() throws Exception {
+    JsonNode api =
+        objectMapper.readTree(
+            mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsByteArray());
+    JsonNode contract =
+        objectMapper.readTree(
+            Files.readString(
+                Path.of(
+                    "..",
+                    "..",
+                    "docs",
+                    "contracts",
+                    "domains",
+                    "accommodations",
+                    "contract.json")));
+    JsonNode fixture =
+        objectMapper.readTree(
+            Files.readString(
+                Path.of("..", "..", "fixtures", "contracts", "accommodations", "problem.json")));
+    Map<String, JsonNode> expectedByCode = new HashMap<>();
+    fixture.get("examples").forEach(value -> expectedByCode.put(value.get("code").asText(), value));
+
+    for (JsonNode endpoint : contract.get("endpoints")) {
+      if (!endpoint.get("path").asText().contains("/accommodations")) {
+        continue;
+      }
+      String method = endpoint.get("method").asText().toLowerCase();
+      JsonNode responses =
+          api.at("/paths/" + pointer(endpoint.get("path").asText()) + "/" + method + "/responses");
+      Set<String> expectedStatuses =
+          Set.of(
+              method.equals("post") ? "201" : method.equals("patch") ? "200" : "204",
+              "400",
+              "401",
+              "403",
+              "404",
+              "409",
+              "422",
+              "500");
+      assertThat(fieldNames(responses)).isEqualTo(expectedStatuses);
+
+      endpoint
+          .get("errorMatrix")
+          .properties()
+          .forEach(
+              entry -> {
+                String status = entry.getKey();
+                List<String> codes = new ArrayList<>();
+                entry.getValue().forEach(code -> codes.add(code.asText()));
+                JsonNode response = responses.get(status);
+                assertThat(textValues(response.get("x-error-codes")))
+                    .containsExactlyElementsOf(codes);
+                JsonNode media = response.at("/content/application~1problem+json");
+                assertThat(media.has("example")).isFalse();
+                assertThat(fieldNames(media.get("examples")))
+                    .containsExactlyInAnyOrderElementsOf(codes);
+                for (String code : codes) {
+                  JsonNode actual = media.get("examples").get(code).get("value");
+                  JsonNode expected = expectedByCode.get(code);
+                  assertThat(fieldNames(actual))
+                      .containsExactlyInAnyOrder(
+                          "type",
+                          "title",
+                          "status",
+                          "detail",
+                          "instance",
+                          "code",
+                          "traceId",
+                          "fieldErrors");
+                  for (String field : List.of("type", "title", "status", "detail", "code")) {
+                    assertThat(actual.get(field)).isEqualTo(expected.get(field));
+                  }
+                }
+              });
+    }
+  }
+
+  private static String pointer(String value) {
+    return value.replace("~", "~0").replace("/", "~1");
+  }
+
+  private static Set<String> fieldNames(JsonNode node) {
+    return Set.copyOf(node.propertyNames());
+  }
+
+  private static List<String> textValues(JsonNode node) {
+    List<String> values = new ArrayList<>();
+    node.forEach(value -> values.add(value.asText()));
+    return values;
   }
 
   private static String randomKey() {

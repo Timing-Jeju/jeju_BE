@@ -425,11 +425,18 @@ class Validator:
             for code in codes:
                 pairs.add((code, None))
         operation_key = f"{key[0]} {key[1]}"
+        matrix_codes = {
+            code
+            for codes in ((endpoint or {}).get("errorMatrix") or {}).values()
+            for code in codes
+        }
         for condition in contract.get("errorConditions") or []:
-            if operation_key not in (condition.get("endpoints") or []):
+            condition_endpoints = condition.get("endpoints") or []
+            if operation_key not in condition_endpoints and not (
+                not condition_endpoints and condition.get("code") in matrix_codes
+            ):
                 continue
-            example = condition.get("example") or {}
-            pairs.add((condition.get("code"), example.get("type")))
+            pairs.add((condition.get("code"), condition.get("type")))
         return pairs
 
     def read_authority_json(self, relative_path):
@@ -534,6 +541,16 @@ class Validator:
                 continue
             response = self.resolve(raw_response, f"{location} response {status}")
             media = (response.get("content") or {}).get("application/problem+json") or {}
+            canonical_codes = (endpoint.get("errorMatrix") or {}).get(str(status))
+            if key in ACCOMMODATION_OPERATIONS and canonical_codes is not None:
+                self.validate_named_problem_examples(
+                    media,
+                    canonical_codes,
+                    domain_problem_pairs or set(),
+                    int(status),
+                    location,
+                )
+                continue
             actual_problem_pairs = set()
             for example in self.examples(media):
                 if isinstance(example, dict):
@@ -574,6 +591,27 @@ class Validator:
         code, _ = pair
         typed = {candidate for candidate in pairs if candidate[0] == code and candidate[1] is not None}
         return pair in typed if typed else (code, None) in pairs
+
+    def validate_named_problem_examples(
+        self, media, expected_codes, domain_problem_pairs, status, location
+    ):
+        if "example" in media:
+            self.error(location, f"response {status} 단일 Problem example은 허용하지 않습니다")
+        examples = media.get("examples") or {}
+        if set(examples) != set(expected_codes):
+            self.error(location, f"response {status} named Problem examples가 canonical matrix와 다릅니다")
+            return
+        expected_types = {
+            code: problem_type
+            for code, problem_type in domain_problem_pairs
+            if problem_type is not None
+        }
+        for code in expected_codes:
+            value = (examples.get(code) or {}).get("value") or {}
+            if value.get("code") != code or value.get("status") != status:
+                self.error(location, f"response {status} named Problem {code} payload가 다릅니다")
+            if value.get("type") != expected_types.get(code):
+                self.error(location, f"response {status} named Problem {code} type이 다릅니다")
 
     def expected_problem_code(self, key, status):
         problem = (self.runtime_operations().get(f"{key[0]} {key[1]}") or {}).get("problems", {}).get(str(status))

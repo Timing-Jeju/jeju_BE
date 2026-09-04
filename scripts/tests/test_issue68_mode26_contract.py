@@ -17,6 +17,33 @@ def load_validator():
 
 
 class Issue68Mode27ContractTest(unittest.TestCase):
+    def test_accommodation_problem_examples_are_named_and_exact(self):
+        validator_module = load_validator()
+        validator = validator_module.Validator({}, 27, ROOT)
+        pairs = {
+            ("TRIP_NOT_FOUND", "https://api.timing-jeju.com/problems/trip-not-found"),
+            ("PLACE_NOT_FOUND", "https://api.timing-jeju.com/problems/place-not-found"),
+        }
+        media = {
+            "examples": {
+                code: {"value": {"code": code, "status": 404, "type": problem_type}}
+                for code, problem_type in pairs
+            }
+        }
+
+        validator.validate_named_problem_examples(
+            media, ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND"], pairs, 404, "POST accommodations"
+        )
+        self.assertFalse(validator.errors, validator.errors)
+
+        media["example"] = None
+        media["examples"].pop("PLACE_NOT_FOUND")
+        validator.validate_named_problem_examples(
+            media, ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND"], pairs, 404, "POST accommodations"
+        )
+        self.assertTrue(any("단일 Problem example" in error for error in validator.errors))
+        self.assertTrue(any("canonical matrix" in error for error in validator.errors))
+
     def test_mode27_is_current_mode24_plus_accommodation_crud(self):
         validator = load_validator()
 
