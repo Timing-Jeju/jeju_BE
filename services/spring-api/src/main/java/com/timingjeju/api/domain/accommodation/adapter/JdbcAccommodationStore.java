@@ -12,11 +12,16 @@ import com.timingjeju.api.application.accommodation.AccommodationPatchValue;
 import com.timingjeju.api.application.accommodation.AccommodationStore;
 import com.timingjeju.api.application.accommodation.CreateAccommodationCommand;
 import com.timingjeju.api.application.accommodation.PatchAccommodationCommand;
+import com.timingjeju.api.application.trip.TripAggregateMutationCommit;
+import com.timingjeju.api.application.trip.TripAggregateMutationCoordinator;
+import com.timingjeju.api.application.trip.TripAggregateMutationPlan;
+import com.timingjeju.api.application.trip.TripAggregateMutationState;
+import com.timingjeju.api.application.trip.TripException;
+import com.timingjeju.api.application.trip.TripRootPatch;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -35,9 +40,11 @@ public class JdbcAccommodationStore implements AccommodationStore {
           .thenComparing(Accommodation::accommodationId);
 
   private final JdbcTemplate jdbc;
+  private final TripAggregateMutationCoordinator coordinator;
 
-  public JdbcAccommodationStore(JdbcTemplate jdbc) {
+  public JdbcAccommodationStore(JdbcTemplate jdbc, TripAggregateMutationCoordinator coordinator) {
     this.jdbc = jdbc;
+    this.coordinator = coordinator;
   }
 
   @Override
@@ -57,44 +64,64 @@ public class JdbcAccommodationStore implements AccommodationStore {
         return AccommodationCreateStoreResult.replayed(previous.snapshot());
       }
 
-      MutationRoot root = lockOwned(record.ownerId(), record.tripId());
-      validateExpected(record.expectedRevision(), root);
-      validateMutable(root);
-      String placeName = resolvePlaceName(record.command().placeId());
-      Accommodation candidate = newAccommodation(record, placeName);
-      List<Accommodation> desired = new ArrayList<>(load(record.tripId()));
-      desired.add(candidate);
-      validateAndSort(desired, root);
-
-      jdbc.update(
-          """
-          insert into public.trip_accommodations (
-            id, trip_plan_id, place_id, custom_name, check_in_date, check_out_date,
-            check_in_time, check_out_time, sequence_no, source, created_at, updated_at
-          ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user_input', ?, ?)
-          """,
-          candidate.accommodationId(),
-          record.tripId(),
-          candidate.placeId(),
-          candidate.customName(),
-          Date.valueOf(candidate.checkInDate()),
-          Date.valueOf(candidate.checkOutDate()),
-          Time.valueOf(candidate.checkInTime()),
-          Time.valueOf(candidate.checkOutTime()),
-          desired.size(),
-          Timestamp.from(record.now()),
-          Timestamp.from(record.now()));
-      compact(record.tripId(), desired);
-      MutationRoot updatedRoot = advanceRoot(record.ownerId(), record.tripId(), root, record.now());
-      remember(record, candidate.accommodationId());
-      return AccommodationCreateStoreResult.created(
-          mutation(
-              record.tripId(), updatedRoot, loadOne(record.tripId(), candidate.accommodationId())));
+      TripAggregateMutationCommit<Accommodation> commit =
+          coordinator.execute(
+              record.ownerId(),
+              record.tripId(),
+              record.expectedRevision(),
+              record.now(),
+              state -> createPlan(record, state));
+      return AccommodationCreateStoreResult.created(mutation(record.tripId(), commit));
+    } catch (TripException failure) {
+      throw translate(failure);
     } catch (DataIntegrityViolationException failure) {
       throw AccommodationException.of("ACCOMMODATION_CONCURRENT_CONFLICT");
     } catch (DataAccessException failure) {
       throw AccommodationException.of("ACCOMMODATION_DATA_UNAVAILABLE");
     }
+  }
+
+  private TripAggregateMutationPlan<Accommodation> createPlan(
+      AccommodationCreateRecord record, TripAggregateMutationState state) {
+    String placeName = resolvePlaceName(record.command().placeId());
+    Accommodation candidate = newAccommodation(record, placeName);
+    List<Accommodation> desired = new ArrayList<>(load(record.tripId()));
+    desired.add(candidate);
+    validateAndSort(desired, state);
+    Runnable persist =
+        () -> {
+          jdbc.update(
+              """
+              insert into public.trip_accommodations (
+                id, trip_plan_id, place_id, custom_name, check_in_date, check_out_date,
+                check_in_time, check_out_time, sequence_no, source, created_at, updated_at
+              ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user_input', ?, ?)
+              """,
+              candidate.accommodationId(),
+              record.tripId(),
+              candidate.placeId(),
+              candidate.customName(),
+              Date.valueOf(candidate.checkInDate()),
+              Date.valueOf(candidate.checkOutDate()),
+              Time.valueOf(candidate.checkInTime()),
+              Time.valueOf(candidate.checkOutTime()),
+              desired.size(),
+              Timestamp.from(record.now()),
+              Timestamp.from(record.now()));
+          compact(record.tripId(), desired);
+        };
+    if (state.activeScheduleVersionId() == null) {
+      return TripAggregateMutationPlan.maintain(
+          TripRootPatch.unchanged(),
+          persist::run,
+          () -> remember(record, candidate.accommodationId()),
+          candidate);
+    }
+    return TripAggregateMutationPlan.invalidate(
+        TripRootPatch.unchanged(),
+        persist::run,
+        () -> remember(record, candidate.accommodationId()),
+        candidate);
   }
 
   @Override
@@ -133,44 +160,16 @@ public class JdbcAccommodationStore implements AccommodationStore {
   @Transactional
   public AccommodationMutation patch(AccommodationPatchRecord record) {
     try {
-      MutationRoot root = lockOwned(record.ownerId(), record.tripId());
-      validateExpected(record.expectedRevision(), root);
-      validateMutable(root);
-      List<Accommodation> current = new ArrayList<>(load(record.tripId()));
-      int targetIndex = indexOf(current, record.accommodationId());
-      if (targetIndex < 0) {
-        throw AccommodationException.of("ACCOMMODATION_NOT_FOUND");
-      }
-      Accommodation before = current.get(targetIndex);
-      Accommodation desired = apply(before, record.command(), record.now());
-      String placeName = resolvePlaceName(desired.placeId());
-      desired = withName(desired, placeName == null ? desired.customName() : placeName);
-      if (sameCanonical(before, desired)) {
-        return mutation(record.tripId(), root, before);
-      }
-      current.set(targetIndex, desired);
-      validateAndSort(current, root);
-
-      jdbc.update(
-          """
-          update public.trip_accommodations
-          set place_id = ?, custom_name = ?, check_in_date = ?, check_out_date = ?,
-              check_in_time = ?, check_out_time = ?, updated_at = ?
-          where id = ? and trip_plan_id = ?
-          """,
-          desired.placeId(),
-          desired.customName(),
-          Date.valueOf(desired.checkInDate()),
-          Date.valueOf(desired.checkOutDate()),
-          Time.valueOf(desired.checkInTime()),
-          Time.valueOf(desired.checkOutTime()),
-          Timestamp.from(record.now()),
-          record.accommodationId(),
-          record.tripId());
-      compact(record.tripId(), current);
-      MutationRoot updatedRoot = advanceRoot(record.ownerId(), record.tripId(), root, record.now());
-      return mutation(
-          record.tripId(), updatedRoot, loadOne(record.tripId(), record.accommodationId()));
+      TripAggregateMutationCommit<Accommodation> commit =
+          coordinator.execute(
+              record.ownerId(),
+              record.tripId(),
+              record.expectedRevision(),
+              record.now(),
+              state -> patchPlan(record, state));
+      return mutation(record.tripId(), commit);
+    } catch (TripException failure) {
+      throw translate(failure);
     } catch (DataIntegrityViolationException failure) {
       throw AccommodationException.of("ACCOMMODATION_CONCURRENT_CONFLICT");
     } catch (DataAccessException failure) {
@@ -178,37 +177,92 @@ public class JdbcAccommodationStore implements AccommodationStore {
     }
   }
 
+  private TripAggregateMutationPlan<Accommodation> patchPlan(
+      AccommodationPatchRecord record, TripAggregateMutationState state) {
+    List<Accommodation> current = new ArrayList<>(load(record.tripId()));
+    int targetIndex = indexOf(current, record.accommodationId());
+    if (targetIndex < 0) {
+      throw AccommodationException.of("ACCOMMODATION_NOT_FOUND");
+    }
+    Accommodation before = current.get(targetIndex);
+    Accommodation patched = apply(before, record.command(), record.now());
+    String placeName = resolvePlaceName(patched.placeId());
+    Accommodation desired = withName(patched, placeName == null ? patched.customName() : placeName);
+    if (sameCanonical(before, desired)) {
+      return TripAggregateMutationPlan.noChange(before);
+    }
+    current.set(targetIndex, desired);
+    validateAndSort(current, state);
+    Runnable persist =
+        () -> {
+          jdbc.update(
+              """
+              update public.trip_accommodations
+              set place_id = ?, custom_name = ?, check_in_date = ?, check_out_date = ?,
+                  check_in_time = ?, check_out_time = ?, updated_at = ?
+              where id = ? and trip_plan_id = ?
+              """,
+              desired.placeId(),
+              desired.customName(),
+              Date.valueOf(desired.checkInDate()),
+              Date.valueOf(desired.checkOutDate()),
+              Time.valueOf(desired.checkInTime()),
+              Time.valueOf(desired.checkOutTime()),
+              Timestamp.from(record.now()),
+              record.accommodationId(),
+              record.tripId());
+          compact(record.tripId(), current);
+        };
+    if (state.activeScheduleVersionId() == null) {
+      return TripAggregateMutationPlan.maintain(TripRootPatch.unchanged(), persist::run, desired);
+    }
+    return TripAggregateMutationPlan.invalidate(TripRootPatch.unchanged(), persist::run, desired);
+  }
+
   @Override
   @Transactional
   public void delete(AccommodationDeleteRecord record) {
     try {
-      MutationRoot root = lockOwned(record.ownerId(), record.tripId());
-      validateExpected(record.expectedRevision(), root);
-      validateMutable(root);
-      List<Accommodation> remaining = new ArrayList<>(load(record.tripId()));
-      int targetIndex = indexOf(remaining, record.accommodationId());
-      if (targetIndex < 0) {
-        throw AccommodationException.of("ACCOMMODATION_NOT_FOUND");
-      }
-      if (root.activeScheduleVersionId() != null) {
-        throw AccommodationException.of("ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE");
-      }
-      remaining.remove(targetIndex);
-      validateAndSort(remaining, root);
-      if (jdbc.update(
-              "delete from public.trip_accommodations where id = ? and trip_plan_id = ?",
-              record.accommodationId(),
-              record.tripId())
-          != 1) {
-        throw AccommodationException.of("ACCOMMODATION_CONCURRENT_CONFLICT");
-      }
-      compact(record.tripId(), remaining);
-      advanceRoot(record.ownerId(), record.tripId(), root, record.now());
+      coordinator.execute(
+          record.ownerId(),
+          record.tripId(),
+          record.expectedRevision(),
+          record.now(),
+          state -> deletePlan(record, state));
+    } catch (TripException failure) {
+      throw translate(failure);
     } catch (DataIntegrityViolationException failure) {
       throw AccommodationException.of("ACCOMMODATION_CONCURRENT_CONFLICT");
     } catch (DataAccessException failure) {
       throw AccommodationException.of("ACCOMMODATION_DATA_UNAVAILABLE");
     }
+  }
+
+  private TripAggregateMutationPlan<Void> deletePlan(
+      AccommodationDeleteRecord record, TripAggregateMutationState state) {
+    List<Accommodation> remaining = new ArrayList<>(load(record.tripId()));
+    int targetIndex = indexOf(remaining, record.accommodationId());
+    if (targetIndex < 0) {
+      throw AccommodationException.of("ACCOMMODATION_NOT_FOUND");
+    }
+    if (state.activeScheduleVersionId() != null) {
+      throw AccommodationException.of("ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE");
+    }
+    remaining.remove(targetIndex);
+    validateAndSort(remaining, state);
+    return TripAggregateMutationPlan.maintain(
+        TripRootPatch.unchanged(),
+        () -> {
+          if (jdbc.update(
+                  "delete from public.trip_accommodations where id = ? and trip_plan_id = ?",
+                  record.accommodationId(),
+                  record.tripId())
+              != 1) {
+            throw AccommodationException.of("ACCOMMODATION_CONCURRENT_CONFLICT");
+          }
+          compact(record.tripId(), remaining);
+        },
+        null);
   }
 
   private void lockIdempotencyScope(UUID ownerId, UUID tripId, String key) {
@@ -274,43 +328,6 @@ public class JdbcAccommodationStore implements AccommodationStore {
         accommodationId,
         Timestamp.from(record.now()),
         Timestamp.from(record.now().plus(java.time.Duration.ofHours(24))));
-  }
-
-  private MutationRoot lockOwned(UUID ownerId, UUID tripId) {
-    List<MutationRoot> rows =
-        jdbc.query(
-            """
-            select revision, status, start_date, end_date, active_schedule_version_id
-            from public.trip_plans
-            where id = ? and user_id = ?
-            for update
-            """,
-            (rs, row) ->
-                new MutationRoot(
-                    rs.getLong("revision"),
-                    rs.getString("status"),
-                    rs.getDate("start_date").toLocalDate(),
-                    rs.getDate("end_date").toLocalDate(),
-                    rs.getObject("active_schedule_version_id", UUID.class),
-                    false),
-            tripId,
-            ownerId);
-    if (rows.isEmpty()) {
-      throw AccommodationException.of("TRIP_NOT_FOUND");
-    }
-    return rows.getFirst();
-  }
-
-  private static void validateExpected(long expectedRevision, MutationRoot root) {
-    if (root.revision() != expectedRevision) {
-      throw AccommodationException.of("TRIP_VERSION_CONFLICT");
-    }
-  }
-
-  private static void validateMutable(MutationRoot root) {
-    if (!java.util.Set.of("draft", "planned").contains(root.status())) {
-      throw AccommodationException.of("TRIP_VERSION_CONFLICT");
-    }
   }
 
   private String resolvePlaceName(UUID placeId) {
@@ -379,20 +396,14 @@ public class JdbcAccommodationStore implements AccommodationStore {
         tripId);
   }
 
-  private Accommodation loadOne(UUID tripId, UUID accommodationId) {
-    return load(tripId).stream()
-        .filter(value -> value.accommodationId().equals(accommodationId))
-        .findFirst()
-        .orElseThrow(() -> AccommodationException.of("ACCOMMODATION_CONCURRENT_CONFLICT"));
-  }
-
-  private static void validateAndSort(List<Accommodation> values, MutationRoot root) {
+  private static void validateAndSort(
+      List<Accommodation> values, TripAggregateMutationState state) {
     values.sort(CANONICAL_ORDER);
     for (int index = 0; index < values.size(); index++) {
       Accommodation current = values.get(index);
       if (!current.checkInDate().isBefore(current.checkOutDate())
-          || current.checkInDate().isBefore(root.startDate())
-          || current.checkOutDate().isAfter(root.endDate())
+          || current.checkInDate().isBefore(state.startDate())
+          || current.checkOutDate().isAfter(state.endDate())
           || (index > 0 && !values.get(index - 1).checkOutDate().equals(current.checkInDate()))) {
         throw AccommodationException.of("ACCOMMODATION_DATE_GAP_OR_OVERLAP");
       }
@@ -415,57 +426,17 @@ public class JdbcAccommodationStore implements AccommodationStore {
     }
   }
 
-  private MutationRoot advanceRoot(UUID ownerId, UUID tripId, MutationRoot root, Instant now) {
-    boolean invalidate = root.activeScheduleVersionId() != null;
-    if (invalidate) {
-      jdbc.update(
-          """
-          update public.trip_schedule_versions
-          set status = 'superseded'
-          where id = ? and trip_plan_id = ? and status = 'active'
-          """,
-          root.activeScheduleVersionId(),
-          tripId);
-    }
-    int updated =
-        jdbc.update(
-            """
-            update public.trip_plans
-            set revision = revision + 1, updated_at = ?,
-                status = case when ? then 'draft' else status end,
-                active_schedule_version_id = case when ? then null else active_schedule_version_id end,
-                total_score = case when ? then null else total_score end
-            where id = ? and user_id = ? and revision = ?
-            """,
-            Timestamp.from(now),
-            invalidate,
-            invalidate,
-            invalidate,
-            tripId,
-            ownerId,
-            root.revision());
-    if (updated != 1) {
-      throw AccommodationException.of("TRIP_VERSION_CONFLICT");
-    }
-    return new MutationRoot(
-        root.revision() + 1,
-        invalidate ? "draft" : root.status(),
-        root.startDate(),
-        root.endDate(),
-        invalidate ? null : root.activeScheduleVersionId(),
-        invalidate);
-  }
-
   private static AccommodationMutation mutation(
-      UUID tripId, MutationRoot root, Accommodation accommodation) {
+      UUID tripId, TripAggregateMutationCommit<Accommodation> commit) {
+    boolean invalidated = "invalidated".equals(commit.scheduleEffect());
     return new AccommodationMutation(
         tripId,
-        accommodation,
-        root.invalidated() ? "invalidated" : "none",
-        root.invalidated(),
-        root.activeScheduleVersionId(),
-        root.status(),
-        root.revision());
+        commit.payload(),
+        invalidated ? "invalidated" : "none",
+        invalidated,
+        commit.activeScheduleVersionId(),
+        commit.status(),
+        commit.revision());
   }
 
   private static int indexOf(List<Accommodation> values, UUID accommodationId) {
@@ -526,13 +497,16 @@ public class JdbcAccommodationStore implements AccommodationStore {
         && left.checkOutTime().equals(right.checkOutTime());
   }
 
-  private record MutationRoot(
-      long revision,
-      String status,
-      LocalDate startDate,
-      LocalDate endDate,
-      UUID activeScheduleVersionId,
-      boolean invalidated) {}
+  private static AccommodationException translate(TripException failure) {
+    return switch (failure.code()) {
+      case "TRIP_NOT_FOUND" -> AccommodationException.of("TRIP_NOT_FOUND");
+      case "TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT" ->
+          AccommodationException.of("TRIP_VERSION_CONFLICT");
+      case "TRIP_CONSTRAINT_VIOLATION" ->
+          AccommodationException.of("ACCOMMODATION_CONCURRENT_CONFLICT");
+      default -> AccommodationException.of("ACCOMMODATION_DATA_UNAVAILABLE");
+    };
+  }
 
   private record IdempotencyRow(String requestHash, AccommodationHttpSnapshot snapshot) {}
 }

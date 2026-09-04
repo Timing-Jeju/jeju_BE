@@ -30,3 +30,12 @@
 - FE adapter와 실제 axios/polling 연결은 별도 변경이다.
 - TypeScript client 생성은 npm registry 접근이 필요하며 package와 TypeScript version을 script에서 고정했다.
 - MCP planner의 숙소 boundary publication은 후속 planner-conditions/generation 이슈에서 연결한다.
+
+## 2026-09-04 canonical trip mutation coordinator 재통합
+
+- SOURCE_APPROVED를 철회하고 `/private/tmp/timing-jeju-pr205-fixes` HEAD `4476932`의 #50fix canonical coordinator 9개 파일을 SHA-256 exact provenance로 재통합했다.
+- 먼저 accommodation store가 공통 coordinator/plan을 사용하지 않고 자체 trip root lock, revision CAS, `MutationRoot`를 보유한다는 architecture Red 2건을 확인했다.
+- create/patch/delete를 `TripAggregateMutationCoordinator.execute` 안의 `maintain`/`invalidate`/`noChange` plan으로 전환하고 자체 root lock/CAS/schedule supersede를 제거했다.
+- POST replay는 common stale/terminal 검사보다 먼저 반환해야 하므로 accommodation idempotency advisory lock과 marker `FOR UPDATE`만 store에 유지했다.
+- DB-free 테스트로 terminal, stale, no-op, active/no-active invalidation, before-root→CAS→after-effect rollback 경계, replay ordering과 common `TripException`의 canonical accommodation 오류 번역을 검증했다.
+- 최종 landing은 **#50fix-first → #68**이며, #50fix 반영 뒤 #68의 coordinator 9개 duplicate는 drop하고 accommodation 주입 diff만 유지한다.

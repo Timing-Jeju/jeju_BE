@@ -54,7 +54,7 @@ PATCH는 위 여섯 필드 중 하나 이상을 받는다. 생략은 보존한�
 
 ## Transaction and database rules
 
-- `SELECT ... FOR UPDATE`로 owner-scoped trip root를 잠근 뒤 revision을 검사한다.
+- #50fix canonical `TripAggregateMutationCoordinator`가 owner-scoped trip root `SELECT ... FOR UPDATE`, expected revision/terminal status 검사와 root CAS를 단독 소유한다.
 - 숙소 구간은 trip 범위 안의 `[checkInDate, checkOutDate)`다. 내부 구간은 gap과 overlap 없이 연속이어야 한다.
 - canonical order는 `checkInDate`, `checkOutDate`, `accommodationId` 오름차순이며 sequence를 같은 transaction에서 1..N으로 압축한다.
 - 실제 POST/PATCH는 trip revision을 정확히 한 번 증가시킨다.
@@ -63,6 +63,7 @@ PATCH는 위 여섯 필드 중 하나 이상을 받는다. 생략은 보존한�
 - 같은 revision의 동시 PATCH 두 개 중 하나만 성공한다.
 - POST 멱등 scope는 owner+trip+key이며 24시간 보존한다. 같은 canonical body는 첫 transaction 완료까지 기다린 뒤 원래 201 snapshot을 replay한다.
 - 완료된 replay snapshot은 DB trigger로 변경할 수 없다.
+- POST의 accommodation idempotency advisory lock과 marker `FOR UPDATE`는 replay-before-stale 직렬화를 위해 store에 유지한다.
 - migration은 identity/time 불변조건을 어긴 legacy row를 추측 보정하거나 삭제하지 않고 `legacy accommodation contract conflict`로 fail-closed한다.
 
 ## FE handoff
@@ -93,5 +94,11 @@ cd ../..
 - migration upgrade integration: invalid legacy row 보존과 target migration fail-closed
 - OpenAPI integration: closed schemas, examples, exact 27-operation inventory
 - canonical fixtures/validator: accommodations v1과 #45 strong ETag 정렬
+
+## Landing order
+
+- 최종 통합은 **#50fix 먼저, #68 다음** 순서다.
+- #50fix가 먼저 반영되면 #68에 exact 재통합한 coordinator 9개 파일은 중복이므로 landing diff에서 drop하고, `JdbcAccommodationStore`의 coordinator 주입과 accommodation 전용 plan/오류 번역만 유지한다.
+- 반대 순서로 병합하거나 coordinator를 두 구현으로 유지하지 않는다.
 
 #68은 독립 Reviewer 승인과 `develop` 병합 전이다. 이 문서의 Codegen READY는 wire artifact 검사를 뜻하며 배포 승인이나 FE 실제 호출 완료를 뜻하지 않는다.
