@@ -181,6 +181,22 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
+  @Test
+  void legacy_invalid_source_item_copy는_필수참조_validator에서_aggregate_전체를_rollback한다() {
+    jdbc.execute("drop trigger trg_validate_trip_item_required_references on public.trip_items");
+    jdbc.execute(
+        "alter table public.trip_items drop constraint trip_items_required_references_by_type");
+    jdbc.update("update public.trip_items set item_type='accommodation' where id=?", FIRST);
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> addInNestedTransaction(record(Position.MIDDLE, ACTIVE, 1)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_INVALID");
+
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
   private ScheduleMutationResult addInNestedTransaction(ScheduleMutationRecord record) {
     TransactionTemplate nested = new TransactionTemplate(transactionManager);
     nested.setPropagationBehavior(TransactionDefinition.PROPAGATION_NESTED);
