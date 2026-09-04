@@ -13,7 +13,7 @@ if [[ ! -f "${OPENAPI_PATH}" ]]; then
   exit 1
 fi
 
-python3 "${SCRIPT_DIR}/validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 26
+python3 "${SCRIPT_DIR}/validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 27
 
 npx -y \
   -p typescript@6.0.3 \
@@ -22,36 +22,8 @@ npx -y \
   -i "${OPENAPI_PATH}" \
   -o "${OUTPUT_DIRECTORY}"
 
-python3 - "${OPENAPI_PATH}" "${OUTPUT_DIRECTORY}" <<'PY'
-import json
-import pathlib
-import sys
-
-openapi_path = pathlib.Path(sys.argv[1])
-output_directory = pathlib.Path(sys.argv[2])
-document = json.loads(openapi_path.read_text(encoding="utf-8"))
-operation_ids = {
-    operation["operationId"]
-    for path_item in document["paths"].values()
-    for method, operation in path_item.items()
-    if method.lower() in {"get", "post", "put", "patch", "delete"}
-}
-index = (output_directory / "index.ts").read_text(encoding="utf-8")
-missing = sorted(operation_id for operation_id in operation_ids if operation_id not in index)
-if len(operation_ids) != 26 or missing:
-    raise SystemExit(
-        f"TypeScript client operation 검증 실패: count={len(operation_ids)}, missing={missing}"
-    )
-for operation_id in (
-    "tripScheduleRead",
-    "tripAccommodationsCreate",
-    "tripAccommodationsUpdate",
-    "tripAccommodationsDelete",
-):
-    if operation_id not in index:
-        raise SystemExit(f"숙소 client operation이 없습니다: {operation_id}")
-print(f"TypeScript frontend client 검사 성공: {len(operation_ids)} operations")
-PY
+python3 "${SCRIPT_DIR}/verify_frontend_api_client_artifact.py" \
+  "${OPENAPI_PATH}" "${OUTPUT_DIRECTORY}" 27
 
 mkdir -p "$(dirname "${ARCHIVE_PATH}")"
 tar -czf "${ARCHIVE_PATH}" -C "$(dirname "${OUTPUT_DIRECTORY}")" "$(basename "${OUTPUT_DIRECTORY}")"

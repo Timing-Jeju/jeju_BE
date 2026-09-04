@@ -26,7 +26,7 @@
 
 ## OperationId와 code generation
 
-통합된 26개 operation은 stable lowerCamelCase operationId를 제공한다. #49의 `tripScheduleRead`, #45의 `tripsUpdate`·`tripsDelete`, #68의 숙소 CRUD 3개를 유지한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+통합된 27개 operation은 stable lowerCamelCase operationId를 제공한다. #49의 `tripScheduleRead`, #50의 `tripScheduleItemCreate`, #45의 `tripsUpdate`·`tripsDelete`, #68의 숙소 CRUD 3개를 유지한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
 ## 공통 헤더와 응답
 
