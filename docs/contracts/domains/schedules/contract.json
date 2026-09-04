@@ -952,6 +952,7 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT",
           "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
@@ -1630,6 +1631,15 @@
       "title": "여행 조건이 이미 변경되었습니다",
       "detail": "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요.",
       "fixture": "409_trip_version_conflict"
+    },
+    {
+      "status": 409,
+      "code": "TRIP_TERMINAL_STATE_CONFLICT",
+      "condition": "trip status is completed, cancelled or failed when creating a schedule item",
+      "type": "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+      "title": "종료된 여행은 변경할 수 없습니다",
+      "detail": "완료, 취소 또는 실패한 여행 일정은 변경할 수 없습니다.",
+      "fixture": "409_trip_terminal_state_conflict"
     },
     {
       "status": 409,

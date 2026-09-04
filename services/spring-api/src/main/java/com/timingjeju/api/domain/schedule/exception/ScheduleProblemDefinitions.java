@@ -41,6 +41,11 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
           mutation(
               "TRIP_VERSION_CONFLICT", "여행 조건이 이미 변경되었습니다", 409, "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."),
           mutation(
+              "TRIP_TERMINAL_STATE_CONFLICT",
+              "종료된 여행은 변경할 수 없습니다",
+              409,
+              "완료, 취소 또는 실패한 여행 일정은 변경할 수 없습니다."),
+          mutation(
               "ACTIVE_SCHEDULE_VERSION_CONFLICT",
               "활성 일정이 이미 변경되었습니다",
               409,

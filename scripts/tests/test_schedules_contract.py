@@ -329,6 +329,11 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(404, conditions["SCHEDULE_ITEM_NOT_FOUND"]["status"])
         self.assertEqual(409, conditions["ACTIVE_SCHEDULE_VERSION_CONFLICT"]["status"])
         self.assertEqual(409, conditions["TRIP_VERSION_CONFLICT"]["status"])
+        self.assertEqual(409, conditions["TRIP_TERMINAL_STATE_CONFLICT"]["status"])
+        self.assertIn(
+            "TRIP_TERMINAL_STATE_CONFLICT",
+            self.contract["endpoints"][1]["errorMatrix"]["409"],
+        )
         self.assertEqual(422, conditions["SCHEDULE_ITEM_COMPLETED"]["status"])
         self.assertTrue(all(item["title"] and item["detail"] for item in conditions.values()))
         external = self.contract["externalTraceability"]

@@ -172,6 +172,7 @@ final class FrontendOpenApiCustomizer {
               List.of(
                   "IDEMPOTENCY_KEY_REUSED",
                   "TRIP_VERSION_CONFLICT",
+                  "TRIP_TERMINAL_STATE_CONFLICT",
                   "ACTIVE_SCHEDULE_VERSION_CONFLICT"),
           "422", List.of("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"));
 

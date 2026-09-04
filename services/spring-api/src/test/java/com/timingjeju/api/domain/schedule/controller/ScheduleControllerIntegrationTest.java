@@ -31,6 +31,7 @@ import com.timingjeju.api.application.schedule.ScheduleSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleVersionSnapshot;
 import com.timingjeju.api.application.schedule.service.ScheduleMutationService;
 import com.timingjeju.api.application.schedule.service.ScheduleQueryService;
+import com.timingjeju.api.application.trip.TripException;
 import jakarta.servlet.ServletContext;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
@@ -390,6 +391,23 @@ class ScheduleControllerIntegrationTest {
           .andExpect(jsonPath("$.title").value(problem.get(1)))
           .andExpect(jsonPath("$.detail").value(problem.get(2)));
     }
+  }
+
+  @Test
+  void POST_schedule_items는_종료된_trip을_schedule_canonical_409로_반환한다() throws Exception {
+    when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
+        .thenThrow(TripException.terminalStateConflict());
+
+    mvc.perform(
+            scheduleItemPost(
+                validScheduleItemBody().getBytes(StandardCharsets.UTF_8), UUID.randomUUID()))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("TRIP_TERMINAL_STATE_CONFLICT"))
+        .andExpect(
+            jsonPath("$.type")
+                .value("https://api.timing-jeju.com/problems/trip-terminal-state-conflict"))
+        .andExpect(jsonPath("$.title").value("종료된 여행은 변경할 수 없습니다"))
+        .andExpect(jsonPath("$.detail").value("완료, 취소 또는 실패한 여행 일정은 변경할 수 없습니다."));
   }
 
   @Test

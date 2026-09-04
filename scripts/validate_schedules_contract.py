@@ -67,6 +67,7 @@ EXPECTED_ERROR_CONDITIONS = {
     "TRANSPORT_EVENT_NOT_FOUND": "referenced transport event is missing, cross-owner or wrong-trip",
     "IDEMPOTENCY_KEY_REUSED": "same idempotency scope/key has a different request hash, or the same hash is still PROCESSING with an active lease",
     "TRIP_VERSION_CONFLICT": "If-Match does not equal the current strong trip aggregate ETag",
+    "TRIP_TERMINAL_STATE_CONFLICT": "trip status is completed, cancelled or failed when creating a schedule item",
     "ACTIVE_SCHEDULE_VERSION_CONFLICT": "expectedActiveScheduleVersionId does not equal the current active schedule version",
     "SCHEDULE_ITEM_INVALID": "item violates type-required fields, range, target day or time-window invariants",
     "SCHEDULE_ITEM_COMPLETED": "patch, delete, reorder or move targets an item whose progress status is completed",
@@ -187,6 +188,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         matrix = endpoint.get("errorMatrix", {})
         if "ACTIVE_SCHEDULE_VERSION_CONFLICT" not in matrix.get("409", []) or "TRIP_VERSION_CONFLICT" not in matrix.get("409", []):
             errors.append(f"{identity} expected-version/If-Match 409가 모두 필요합니다.")
+        if endpoint.get("method") == "POST" and endpoint.get("path") == "/api/v1/trips/{tripId}/schedule-items" and "TRIP_TERMINAL_STATE_CONFLICT" not in matrix.get("409", []):
+            errors.append(f"{identity} terminal trip 409가 필요합니다.")
         if endpoint["method"] in {"POST", "PATCH"} and endpoint["path"].endswith(("/schedule-items", "/{itemId}")):
             if not {"ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"}.issubset(matrix.get("404", [])):
                 errors.append(f"{identity} accommodation/transport owner 404 error condition이 필요합니다.")
@@ -231,7 +234,7 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         errors.append("error condition/code 집합이 exact하지 않습니다.")
     if not {"IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID"}.issubset(condition_map):
         errors.append("idempotency required/invalid condition이 누락되거나 conflation 됐습니다.")
-    for code in ("TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND", "ACTIVE_SCHEDULE_VERSION_CONFLICT", "TRIP_VERSION_CONFLICT", "SCHEDULE_ITEM_COMPLETED"):
+    for code in ("TRIP_NOT_FOUND", "SCHEDULE_ITEM_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND", "ACTIVE_SCHEDULE_VERSION_CONFLICT", "TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT", "SCHEDULE_ITEM_COMPLETED"):
         if code not in condition_map:
             errors.append(f"오류 condition {code}가 누락됐습니다.")
     for condition in conditions if isinstance(conditions, list) else []:

@@ -148,6 +148,7 @@ class ScheduleOpenApiIntegrationTest {
                     containsInAnyOrder(
                         "IDEMPOTENCY_KEY_REUSED",
                         "TRIP_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT",
                         "ACTIVE_SCHEDULE_VERSION_CONFLICT")))
         .andExpect(jsonPath(path + ".responses['409'].headers['Retry-After']").exists())
         .andExpect(
