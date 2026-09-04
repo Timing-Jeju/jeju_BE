@@ -86,3 +86,10 @@ REST 계약 readiness 검사 성공
 - 최신 catalog의 기존 40개 endpoint와 #89의 6개 endpoint를 합쳐 exactly 46개로 유지했다. #113 push endpoint와 다른 domain validator를 보존했고, catalog 중복·누락·범위 밖 추가도 거부한다.
 - 외부 live Notion/Figma를 호출하지 않았고 repository 안에도 여섯 endpoint의 authoritative readback이 없다. 양쪽 version은 `not-linked`, metadata/example/implementation은 `not-ready`, evidence는 `null`로 유지하며 local/source-ready만 주장한다.
 - 운영 Java, DB schema/migration, 실제 DB, PostgreSQL/Testcontainers, Docker, live Supabase/Notion/Figma와 전체 heavy gate는 부모 승인 범위에 따라 실행하거나 변경하지 않는다.
+
+### Reviewer MAJOR — apply first-match precedence
+
+- Red: 두 apply endpoint가 겹치는 오류의 ordered precedence를 갖는지, 그리고 candidate base=`A`/request=`A`/locked active=`B`와 already-applied·expired·stale 중첩을 하나의 public code로 축약하는지 테스트를 먼저 추가했다. focused 3개는 `firstMatchPrecedence` 부재 `KeyError` 3건과 `resolve_apply_overlap` 부재 `ImportError` 1건으로 실패했다. Red commit은 `fc23bed`다.
+- Green: 양 endpoint에 동일한 exact first-match 순서를 추가했다. 인증→형식→trip/run/candidate 404 은닉→완료 replay/registry conflict→already-applied→run/candidate status→expiry→locked active CAS→candidate base stale→lineage/봉인→429/503→success 순서다.
+- 겹침 결과는 완료 replay가 현재 candidate 문제보다 우선하고, fresh request에서는 already-applied가 status/expiry/CAS/stale보다 우선한다. already-applied가 아니면 status, expiry, locked active CAS, candidate stale, lineage 순으로 최초 하나만 선택한다. candidate base=`A`, request=`A`, locked active=`B`는 `ACTIVE_SCHEDULE_VERSION_CONFLICT`; already-applied까지 겹치면 `CANDIDATE_ALREADY_APPLIED`다.
+- validator는 두 endpoint의 배열을 exact 비교하며 순서 reverse mutation을 거부한다. 테스트 oracle도 인증·형식·404 은닉·멱등·candidate 상태·잠금 후 CAS·stale/lineage 중첩을 단일 결과로 검증한다.

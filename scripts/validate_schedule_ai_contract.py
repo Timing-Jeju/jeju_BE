@@ -15,7 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/schedule-ai/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
-CANONICAL_DIGEST = "0429648901d659ebcb3175698249c83206e310999dffbf184920236e69aad572"
+CANONICAL_DIGEST = "8e6320a633ee49be1828ee920ae5e2e38a50b077df929c6c0e84e3436a8a2ad2"
 IDENTITIES = [
     ("POST", "/api/v1/trips/{tripId}/generation-runs", "compute", [202], [400, 401, 404, 409, 422, 429, 503]),
     ("GET", "/api/v1/trips/{tripId}/generation-runs/{runId}", "read", [200], [400, 401, 404, 410, 429, 503]),
@@ -32,6 +32,30 @@ TOP_FIELDS = {
     "hashPolicy", "examples", "catalogProjection", "externalTraceability", "readiness", "schemaGaps",
     "excludedScope",
 }
+APPLY_FIRST_MATCH_PRECEDENCE = [
+    "AUTHENTICATION_REQUIRED",
+    "INVALID_ACCESS_TOKEN",
+    "INVALID_PATH_PARAMETER",
+    "INVALID_ASYNC_RUN_REQUEST",
+    "IDEMPOTENCY_KEY_REQUIRED",
+    "IDEMPOTENCY_KEY_INVALID",
+    "IF_MATCH_REQUIRED",
+    "IF_MATCH_INVALID",
+    "TRIP_NOT_FOUND",
+    "ASYNC_RUN_NOT_FOUND",
+    "CANDIDATE_NOT_FOUND",
+    "IDEMPOTENT_REPLAY",
+    "IDEMPOTENCY_KEY_REUSED",
+    "CANDIDATE_ALREADY_APPLIED",
+    "CANDIDATE_NOT_APPLICABLE_RUN_STATUS",
+    "CANDIDATE_EXPIRED",
+    "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+    "CANDIDATE_STALE",
+    "CANDIDATE_NOT_APPLICABLE_LINEAGE",
+    "ASYNC_RUN_QUOTA_EXCEEDED",
+    "ASYNC_RESULT_TEMPORARILY_UNAVAILABLE",
+    "APPLY_SUCCESS",
+]
 
 
 class DuplicateKey(ValueError):
@@ -114,6 +138,50 @@ def validate_running_payload(payload: dict[str, Any], phase: str) -> list[str]:
     return errors
 
 
+def resolve_apply_overlap(state: dict[str, Any]) -> str:
+    """Return the one observable result selected by the canonical apply ordering."""
+    rules = [
+        (not state.get("authenticated", True), "AUTHENTICATION_REQUIRED"),
+        (not state.get("accessTokenValid", True), "INVALID_ACCESS_TOKEN"),
+        (not state.get("pathValid", True), "INVALID_PATH_PARAMETER"),
+        (not state.get("requestValid", True), "INVALID_ASYNC_RUN_REQUEST"),
+        (not state.get("idempotencyKeyPresent", True), "IDEMPOTENCY_KEY_REQUIRED"),
+        (not state.get("idempotencyKeyValid", True), "IDEMPOTENCY_KEY_INVALID"),
+        (not state.get("ifMatchPresent", True), "IF_MATCH_REQUIRED"),
+        (not state.get("ifMatchValid", True), "IF_MATCH_INVALID"),
+        (not state.get("tripVisible", True), "TRIP_NOT_FOUND"),
+        (not state.get("runVisibleAndLinked", True), "ASYNC_RUN_NOT_FOUND"),
+        (not state.get("candidateVisibleAndLinked", True), "CANDIDATE_NOT_FOUND"),
+        (state.get("replayCompleted", False), "IDEMPOTENT_REPLAY"),
+        (state.get("idempotencyConflict", False), "IDEMPOTENCY_KEY_REUSED"),
+        (state.get("alreadyApplied", False), "CANDIDATE_ALREADY_APPLIED"),
+        (
+            not state.get("runSucceeded", True)
+            or not state.get("candidateSelectable", True),
+            "CANDIDATE_NOT_APPLICABLE",
+        ),
+        (state.get("expired", False), "CANDIDATE_EXPIRED"),
+        (
+            state.get("requestedVersion") != state.get("lockedActiveVersion"),
+            "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+        ),
+        (
+            state.get("candidateBaseVersion") != state.get("lockedActiveVersion"),
+            "CANDIDATE_STALE",
+        ),
+        (
+            not state.get("candidateLineageApplicable", True),
+            "CANDIDATE_NOT_APPLICABLE",
+        ),
+        (not state.get("quotaAvailable", True), "ASYNC_RUN_QUOTA_EXCEEDED"),
+        (
+            not state.get("storageAvailable", True),
+            "ASYNC_RESULT_TEMPORARILY_UNAVAILABLE",
+        ),
+    ]
+    return next((outcome for matches, outcome in rules if matches), "APPLY_SUCCESS")
+
+
 def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
     errors: list[str] = []
     try:
@@ -132,6 +200,17 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
     expected_pairs = [(method, path) for method, path, *_ in IDENTITIES]
     if identities != expected_pairs or len(set(identities)) != 6:
         errors.append("Issue #89 여섯 endpoint identity/order가 정확하지 않습니다.")
+
+    apply_endpoints = [
+        endpoint
+        for endpoint in contract.get("endpoints", [])
+        if isinstance(endpoint, dict) and endpoint.get("operation") == "apply"
+    ]
+    if len(apply_endpoints) != 2 or any(
+        endpoint.get("firstMatchPrecedence") != APPLY_FIRST_MATCH_PRECEDENCE
+        for endpoint in apply_endpoints
+    ):
+        errors.append("두 apply endpoint의 ordered first-match precedence가 정확하지 않습니다.")
 
     common_auth = catalog.get("commonRules", {}).get("authorization", {}) if isinstance(catalog, dict) else {}
     alignment = contract.get("commonAlignment", {}).get("authentication")

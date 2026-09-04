@@ -150,6 +150,7 @@ class ScheduleAiContractTest(unittest.TestCase):
             "idempotencyConflict": False,
             "alreadyApplied": False,
             "runSucceeded": True,
+            "candidateSelectable": True,
             "expired": False,
             "requestedVersion": "A",
             "lockedActiveVersion": "A",
@@ -159,6 +160,31 @@ class ScheduleAiContractTest(unittest.TestCase):
             "storageAvailable": True,
         }
         overlaps = [
+            (
+                {
+                    "authenticated": False,
+                    "pathValid": False,
+                    "tripVisible": False,
+                    "idempotencyConflict": True,
+                },
+                "AUTHENTICATION_REQUIRED",
+            ),
+            (
+                {"pathValid": False, "tripVisible": False, "replayCompleted": True},
+                "INVALID_PATH_PARAMETER",
+            ),
+            (
+                {
+                    "runVisibleAndLinked": False,
+                    "replayCompleted": True,
+                    "alreadyApplied": True,
+                },
+                "ASYNC_RUN_NOT_FOUND",
+            ),
+            (
+                {"candidateVisibleAndLinked": False, "replayCompleted": True},
+                "CANDIDATE_NOT_FOUND",
+            ),
             (
                 {
                     "alreadyApplied": True,

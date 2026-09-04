@@ -31,6 +31,10 @@ generation 입력은 `targetDayId`, `candidateCount(1..10)`, `refreshExternalFac
 
 create/apply의 key scope는 `canonicalSub + method + normalized path + Idempotency-Key`, 완료 TTL은 24시간이다. 같은 key/body는 저장된 response를 replay하고 다른 body는 `409 IDEMPOTENCY_KEY_REUSED`다. 처리 중 loser도 `Retry-After: 1`과 409를 받는다. active run unique arbiter와 apply의 trip lock/expected-active CAS가 동시 writer를 직렬화한다.
 
+두 apply endpoint는 machine contract의 `firstMatchPrecedence`를 위에서 아래로 평가하고 최초 한 결과만 반환한다. 인증 누락·token 오류, path/body/key/`If-Match` 형식 오류, trip→run→candidate owner·domain·parent lineage 404 은닉, 완료 멱등 replay, 멱등 충돌, 이미 적용됨, run/candidate 상태 부적합, 만료 순이다. 그 뒤에만 여행 root를 잠그고 request/`If-Match` expected version과 locked active version의 불일치를 `ACTIVE_SCHEDULE_VERSION_CONFLICT`로 결정한다. 둘이 같을 때 candidate base가 다르면 `CANDIDATE_STALE`, 마지막 candidate schedule lineage·봉인 불변식 위반은 `CANDIDATE_NOT_APPLICABLE`이다. quota·bounded internal access failure는 앞선 결정 가능한 match가 없을 때만 각각 429·503이며, 모두 통과해야 apply가 성공한다.
+
+따라서 candidate base=`A`, request expected=`A`, locked active=`B`이면 candidate stale보다 먼저 `ACTIVE_SCHEDULE_VERSION_CONFLICT` 하나만 반환한다. 같은 요청에서 candidate가 이미 적용됐고 만료·active mismatch·stale도 동시에 참이면 `CANDIDATE_ALREADY_APPLIED` 하나만 반환한다. 동일 idempotency scope의 완료 replay는 현재 candidate 상태를 다시 판정하지 않고 원래 200을 그대로 replay하며, registry conflict는 candidate 상태보다 먼저 `IDEMPOTENCY_KEY_REUSED`로 끝난다.
+
 ## owner, DB와 오류
 
 owner 근거는 검증된 Supabase JWT의 canonical `sub`뿐이다. cross-owner trip/run/candidate는 모두 404로 은닉한다. `user_metadata`, email, raw token과 provider payload는 권한 입력이 아니다.
