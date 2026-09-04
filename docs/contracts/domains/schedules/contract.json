@@ -1427,6 +1427,7 @@
   },
   "orderPolicy": {
     "permutation": "each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID",
+    "timeSlots": "within each Day, preserve the ordered active plannedStartAt slots and assign them by submitted position; recompute plannedEndAt from the reordered item's stayMinutes and reject an invalid or overlapping result",
     "result": "renumber each affected day contiguously from 1 and rebuild every adjacent leg"
   },
   "movePolicy": {

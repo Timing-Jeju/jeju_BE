@@ -203,6 +203,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
 
     if contract.get("orderPolicy", {}).get("permutation") != PERMUTATION:
         errors.append("reorder permutation 계약이 다릅니다.")
+    if contract.get("orderPolicy", {}).get("timeSlots") != "within each Day, preserve the ordered active plannedStartAt slots and assign them by submitted position; recompute plannedEndAt from the reordered item's stayMinutes and reject an invalid or overlapping result":
+        errors.append("reorder 시간 slot 재배정 계약이 다릅니다.")
     if contract.get("movePolicy", {}).get("dayBoundary") != "target day belongs to trip; local date of plannedStartAt equals target day date":
         errors.append("Day move boundary가 다릅니다.")
     if contract.get("versionPolicy", {}).get("legCompleteness") != "exactly one adjacent leg for every consecutive item pair; zero for fewer than two":

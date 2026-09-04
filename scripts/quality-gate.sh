@@ -117,7 +117,7 @@ run_spring_checks() {
   rm -f services/spring-api/build/openapi/openapi.json
   run_spring_gradle openApiDocs
   stage "Spring OpenAPI 프론트엔드 readiness 검사"
-  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 24
+  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 28
   stage "Spring Architecture 테스트"
   run_spring_gradle architectureTest
   stage "Spring 전체 테스트와 커버리지"

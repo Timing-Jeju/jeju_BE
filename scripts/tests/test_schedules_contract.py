@@ -319,6 +319,7 @@ class SchedulesContractTest(unittest.TestCase):
 
     def test_reorder_and_move_boundaries_are_exact(self) -> None:
         self.assertEqual("each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID", self.contract["orderPolicy"]["permutation"])
+        self.assertEqual("within each Day, preserve the ordered active plannedStartAt slots and assign them by submitted position; recompute plannedEndAt from the reordered item's stayMinutes and reject an invalid or overlapping result", self.contract["orderPolicy"]["timeSlots"])
         self.assertEqual("renumber each affected day contiguously from 1 and rebuild every adjacent leg", self.contract["orderPolicy"]["result"])
         self.assertEqual("target day belongs to trip; local date of plannedStartAt equals target day date", self.contract["movePolicy"]["dayBoundary"])
         self.assertEqual("remove from source, insert at targetSequenceNo, compact both days, rebuild affected legs", self.contract["movePolicy"]["result"])
