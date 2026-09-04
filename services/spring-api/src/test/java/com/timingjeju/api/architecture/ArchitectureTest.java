@@ -291,6 +291,36 @@ class ArchitectureTest {
   }
 
   @Test
+  void command_location_cleanup은_application_port와_내부_adapter_경계를_유지한다() {
+    noClasses()
+        .that()
+        .resideInAPackage("..application.commandinput.cleanup..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage(
+            "org.springframework..", "io.micrometer..", "..global.commandinput.cleanup..")
+        .allowEmptyShould(false)
+        .check(classes);
+    classes()
+        .that()
+        .haveSimpleName("JdbcCommandLocationCleanupRepository")
+        .should()
+        .resideInAPackage("..global.commandinput.cleanup..")
+        .andShould()
+        .dependOnClassesThat()
+        .resideInAPackage("..application.commandinput.cleanup..")
+        .allowEmptyShould(false)
+        .check(classes);
+    noClasses()
+        .that()
+        .resideInAPackage("..global.commandinput.cleanup..")
+        .should()
+        .beAnnotatedWith(RestController.class)
+        .allowEmptyShould(false)
+        .check(classes);
+  }
+
+  @Test
   void Firebase_SDK는_global_push_firebase_adapter_밖으로_누출되지_않는다() {
     firebaseSdkIsolationRule().check(classes);
   }

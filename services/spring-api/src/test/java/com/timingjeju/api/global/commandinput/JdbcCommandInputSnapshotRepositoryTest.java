@@ -29,6 +29,19 @@ class JdbcCommandInputSnapshotRepositoryTest {
   private final ObjectMapper objectMapper = new ObjectMapper();
 
   @Test
+  void MCP_직전_location_query는_redacted와_expiry_정확경계를_DB에서_제외한다() {
+    String sql = canonical(JdbcCommandInputSnapshotRepository.USABLE_LOCATION_SQL);
+
+    assertThat(sql)
+        .contains(
+            "location_supplied",
+            "location_redacted_at is null",
+            "location_expires_at > ?",
+            "coarse_location is not null")
+        .doesNotContain("location_expires_at >= ?", "structured_input", "command_input_hash");
+  }
+
+  @Test
   void repository는_Spring_exception_translation_proxy가_생성할_수_있다() {
     assertThat(Modifier.isFinal(JdbcCommandInputSnapshotRepository.class.getModifiers())).isFalse();
   }
