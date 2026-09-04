@@ -1,3 +1,5 @@
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+
 plugins {
 	id 'java'
 	id 'jacoco'
@@ -81,6 +83,11 @@ spotless {
 }
 
 tasks.withType(Test).configureEach {
+	def jacocoExecutionData = layout.buildDirectory.file("jacoco/${name}.exec")
+	extensions.configure(JacocoTaskExtension) { JacocoTaskExtension extension ->
+		extension.destinationFile = jacocoExecutionData.get().asFile
+	}
+	outputs.file(jacocoExecutionData).withPropertyName("jacocoExecutionData")
 	useJUnitPlatform()
 	afterSuite { descriptor, result ->
 		if (descriptor.parent == null) {

@@ -261,6 +261,22 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
             self.assertIn("executionData requiredCoverageExecutionData", coverage_task)
             self.assertNotIn("dependsOn test", coverage_task)
 
+    def test_each_test_task_owns_its_jacoco_execution_data_output(self) -> None:
+        gradle = BUILD_GRADLE.read_text(encoding="utf-8")
+        test_configuration = self._block(gradle, "tasks.withType(Test).configureEach")
+
+        self.assertIn(
+            'layout.buildDirectory.file("jacoco/${name}.exec")', test_configuration
+        )
+        self.assertIn(
+            "extension.destinationFile = jacocoExecutionData.get().asFile",
+            test_configuration,
+        )
+        self.assertIn("outputs.file(jacocoExecutionData)", test_configuration)
+        self.assertIn(
+            'withPropertyName("jacocoExecutionData")', test_configuration
+        )
+
     def test_check_schedules_required_coverage_writers_without_report_reruns(self) -> None:
         gradle = BUILD_GRADLE.read_text(encoding="utf-8")
         precondition = self._block(
