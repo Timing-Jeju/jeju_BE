@@ -626,6 +626,17 @@ begin
     raise exception 'legacy fallback compute run was not normalized';
   end if;
 
+  if not exists (
+    select 1
+    from public.trip_items
+    where id = 'e4300000-0000-0000-0000-000000000001'
+      and item_type = 'place_visit'
+      and accommodation_id is null
+      and transport_event_id is null
+  ) then
+    raise exception 'valid legacy schedule item required references were not preserved';
+  end if;
+
 
   begin
     update public.compute_runs

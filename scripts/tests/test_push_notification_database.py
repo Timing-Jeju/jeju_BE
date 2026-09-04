@@ -148,7 +148,8 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         docker_smoke = DOCKER_SMOKE.read_text(encoding="utf-8")
         migration_targets = tuple(target for _, target in mounts[:-1])
         for target in migration_targets:
-            self.assertEqual(2, docker_smoke.count(target), target)
+            expected_count = 3 if target.endswith("038_schedule_item_required_references.sql") else 2
+            self.assertEqual(expected_count, docker_smoke.count(target), target)
         for next_contract in (
             "/queries/legacy_v1_upgrade_contract.sql",
             "/queries/database_concurrency_contract.sql",

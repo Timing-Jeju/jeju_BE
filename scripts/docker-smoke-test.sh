@@ -229,6 +229,28 @@ do
 done
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname "$UPGRADE_DB" \
+  --file /queries/legacy_schedule_item_reference_conflict_fixture.sql
+
+: >"$RESULT_DAY_CONFLICT_LOG"
+if docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 --set VERBOSITY=verbose \
+  --single-transaction --username timing_jeju_test --dbname "$UPGRADE_DB" \
+  --file /docker-entrypoint-initdb.d/038_schedule_item_required_references.sql \
+  >"$RESULT_DAY_CONFLICT_LOG" 2>&1; then
+  echo "[Docker] v1 item 필수 참조 audit가 실패하지 않았습니다." >&2
+  exit 1
+fi
+if ! grep -q "23514.*legacy schedule item required reference audit failed" \
+  "$RESULT_DAY_CONFLICT_LOG" \
+   || ! grep -q "e4300000-0000-0000-0000-000000000001" \
+  "$RESULT_DAY_CONFLICT_LOG"; then
+  echo "[Docker] v1 item 필수 참조 audit가 예상한 오류를 반환하지 않았습니다." >&2
+  exit 1
+fi
+
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   dropdb --username timing_jeju_test "$UPGRADE_DB"
 echo "[Docker] v1→최신 migration 업그레이드 계약 검사 성공"
 

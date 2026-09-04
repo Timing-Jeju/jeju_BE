@@ -3016,6 +3016,71 @@ select pg_temp.expect_rejected(
   array['23514']
 );
 
+select pg_temp.expect_rejected(
+  'accommodation item requires accommodation reference',
+  $statement$
+    insert into trip_items (
+      trip_plan_id, trip_day_id, schedule_version_id, sequence_no, item_type,
+      place_id, title, planned_start_at, planned_end_at, stay_minutes, source
+    ) values (
+      'f5100000-0000-0000-0000-000000000001',
+      'f5200000-0000-0000-0000-000000000001',
+      'f5300000-0000-0000-0000-000000000002', 2, 'accommodation',
+      'f3000000-0000-0000-0000-000000000001', 'invalid accommodation',
+      '2026-08-10 13:00:00+09', '2026-08-10 14:00:00+09', 60, 'system'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'arrival item requires transport event reference',
+  $statement$
+    update trip_items set item_type = 'arrival'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'place item forbids accommodation reference',
+  $statement$
+    update trip_items
+    set accommodation_id = 'f5400000-0000-0000-0000-000000000099'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'accommodation item forbids transport event reference',
+  $statement$
+    update trip_items
+    set item_type = 'accommodation',
+        accommodation_id = 'f5400000-0000-0000-0000-000000000098',
+        transport_event_id = 'f5400000-0000-0000-0000-000000000097'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+alter table public.trip_items
+  disable trigger trg_validate_trip_item_required_references;
+alter table public.trip_items
+  drop constraint trip_items_required_references_by_type;
+update public.trip_items
+set item_type = 'accommodation', accommodation_id = null, transport_event_id = null
+where id = 'f5400000-0000-0000-0000-000000000003';
+
+select pg_temp.expect_rejected(
+  'sealed schedule rejects invalid required reference',
+  $statement$
+    update trip_schedule_versions set status = 'candidate'
+    where id = 'f5300000-0000-0000-0000-000000000002'
+  $statement$,
+  array['23514']
+);
+
 select 'database_negative_constraints' as check_name, 'PASS' as result;
 
 rollback;

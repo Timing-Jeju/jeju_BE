@@ -1494,4 +1494,31 @@ begin
 end;
 $$;
 
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.trip_items'::regclass
+      and constraint_row.conname = 'trip_items_required_references_by_type'
+      and constraint_row.contype = 'c'
+      and constraint_row.convalidated
+  ) then
+    raise exception 'trip item required references by type constraint is missing';
+  end if;
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.trip_items'::regclass
+      and trigger_row.tgname = 'trg_validate_trip_item_required_references'
+      and not trigger_row.tgisinternal
+  ) then
+    raise exception 'trip item required references trigger is missing';
+  end if;
+  if to_regprocedure('public.assert_schedule_item_required_references(uuid,uuid)') is null then
+    raise exception 'schedule item required references sealing validator is missing';
+  end if;
+end;
+$$;
+
 select 'schema_contract' as check_name, 'PASS' as result;
