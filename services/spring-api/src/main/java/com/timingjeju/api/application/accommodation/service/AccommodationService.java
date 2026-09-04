@@ -28,8 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 public class AccommodationService {
-  private static final Pattern IDEMPOTENCY_KEY =
-      Pattern.compile("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+  private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("^[\\x20-\\x7E]{1,128}$");
 
   private final AccommodationStore store;
   private final AccommodationIdentityGenerator identities;

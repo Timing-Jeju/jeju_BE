@@ -17,7 +17,16 @@ final class AccommodationRequestBoundary {
     Enumeration<String> values = request.getHeaders(name);
     if (values == null || !values.hasMoreElements()) throw AccommodationException.invalidRequest();
     String value = values.nextElement();
-    if (values.hasMoreElements() || value == null || value.isEmpty() || value.indexOf(',') >= 0) {
+    if (values.hasMoreElements() || value == null || value.isEmpty()) {
+      throw AccommodationException.invalidRequest();
+    }
+    return value;
+  }
+
+  static String requiredPrintableAsciiHeader(HttpServletRequest request, String name) {
+    String value = requiredSingleHeader(request, name);
+    if (value.length() > 128
+        || value.chars().anyMatch(character -> character < 0x20 || character > 0x7e)) {
       throw AccommodationException.invalidRequest();
     }
     return value;

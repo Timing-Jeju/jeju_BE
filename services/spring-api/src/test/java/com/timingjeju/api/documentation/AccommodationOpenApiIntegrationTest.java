@@ -54,12 +54,13 @@ class AccommodationOpenApiIntegrationTest {
             jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')]").value(hasSize(1)))
         .andExpect(
             jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')].schema.pattern")
-                .value(
-                    containsInAnyOrder(
-                        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")))
+                .value(containsInAnyOrder("^[\\x20-\\x7E]{1,128}$")))
         .andExpect(
-            jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')].schema.format")
-                .value(containsInAnyOrder("uuid")))
+            jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')].schema.minLength")
+                .value(containsInAnyOrder(1)))
+        .andExpect(
+            jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')].schema.maxLength")
+                .value(containsInAnyOrder(128)))
         .andExpect(jsonPath(collection + ".parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
             jsonPath(collection + ".parameters[?(@.name=='If-Match')].schema.pattern")

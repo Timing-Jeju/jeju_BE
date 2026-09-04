@@ -50,7 +50,7 @@ EXPECTED_SCHEMA_PROPERTIES = {
     },
     "CreateHeaders": {
         "Authorization": {"type": "string", "nullable": False, "pattern": r"^Bearer [^\s]{1,2048}$"},
-        "Idempotency-Key": {"type": "string", "nullable": False, "minLength": 36, "maxLength": 36, "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+        "Idempotency-Key": {"type": "string", "nullable": False, "minLength": 1, "maxLength": 128, "pattern": r"^[\x20-\x7E]{1,128}$"},
         "If-Match": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\"$'},
     },
     "MutationHeaders": {

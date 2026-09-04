@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,7 @@ class AccommodationServiceTest {
         service.create(
             OWNER,
             TRIP,
-            "68000000-0000-0000-0000-000000000099",
+            "client key,2026/09?retry=1",
             7,
             new CreateAccommodationCommand(
                 null,
@@ -48,6 +49,7 @@ class AccommodationServiceTest {
                 LocalTime.parse("11:00")));
 
     assertThat(store.created.command().customName()).isEqualTo("제주 숙소");
+    assertThat(store.created.idempotencyKey()).isEqualTo("client key,2026/09?retry=1");
     assertThat(store.created.expectedRevision()).isEqualTo(7);
     assertThat(store.completedSnapshot.etag()).isEqualTo("\"trip-" + TRIP + "-r8\"");
     assertThat(result.replayed()).isFalse();
@@ -60,9 +62,12 @@ class AccommodationServiceTest {
     long expected = 1;
     String validKey = "68000000-0000-0000-0000-000000000099";
 
-    assertCode(
-        () -> service.create(OWNER, TRIP, "space is forbidden", expected, create(null, "숙소")),
-        "INVALID_REQUEST");
+    for (String invalid :
+        List.of("control\u001fkey", "delete\u007fkey", "비ASCII", "Z".repeat(129))) {
+      assertCode(
+          () -> service.create(OWNER, TRIP, invalid, expected, create(null, "숙소")),
+          "INVALID_REQUEST");
+    }
     assertCode(
         () -> service.create(OWNER, TRIP, validKey, expected, create(null, null)),
         "INVALID_REQUEST");

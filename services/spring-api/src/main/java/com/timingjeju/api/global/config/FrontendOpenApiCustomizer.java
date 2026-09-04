@@ -581,11 +581,9 @@ final class FrontendOpenApiCustomizer {
         mergeRequiredHeader(
             operation,
             "Idempotency-Key",
-            "숙소 생성 요청을 여행과 사용자 범위에서 24시간 식별하는 lowercase canonical UUID입니다.",
-            new StringSchema()
-                .format("uuid")
-                .pattern("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
-            "018f6f2a-60a0-7f5b-8c61-8f548f34bc31");
+            "숙소 생성 요청을 여행과 사용자 범위에서 24시간 식별하는 1~128자 printable ASCII 값입니다.",
+            new StringSchema().minLength(1).maxLength(128).pattern("^[\\x20-\\x7E]{1,128}$"),
+            "accommodation-create-68");
       }
       mergeRequiredHeader(
           operation,

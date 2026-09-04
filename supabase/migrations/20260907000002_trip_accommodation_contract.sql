@@ -72,7 +72,7 @@ create table public.accommodation_idempotency (
   expires_at timestamptz not null,
   primary key (owner_sub, trip_plan_id, idempotency_key),
   constraint ck_accommodation_idempotency_key
-    check (idempotency_key ~ '^[!-~]{1,128}$'),
+    check (idempotency_key ~ '^[ -~]{1,128}$'),
   constraint ck_accommodation_idempotency_hash
     check (request_hash ~ '^[0-9a-f]{64}$'),
   constraint ck_accommodation_idempotency_retention
@@ -146,10 +146,12 @@ begin
   if exists (select 1 from pg_roles where rolname = 'anon') then
     execute 'revoke all on public.trip_accommodations from anon';
     execute 'revoke all on public.accommodation_idempotency from anon';
+    execute 'revoke execute on function public.protect_accommodation_idempotency_snapshot() from anon';
   end if;
   if exists (select 1 from pg_roles where rolname = 'authenticated') then
     execute 'revoke all on public.trip_accommodations from authenticated';
     execute 'revoke all on public.accommodation_idempotency from authenticated';
+    execute 'revoke execute on function public.protect_accommodation_idempotency_snapshot() from authenticated';
   end if;
   if exists (select 1 from pg_roles where rolname = 'service_role') then
     execute 'revoke all on public.trip_accommodations from service_role';

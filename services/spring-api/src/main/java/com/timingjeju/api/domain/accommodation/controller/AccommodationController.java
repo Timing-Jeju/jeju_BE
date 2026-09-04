@@ -57,8 +57,7 @@ public class AccommodationController implements AccommodationApiDocs {
     AccommodationRequestBoundary.requireNoQuery(request);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
     String canonicalKey =
-        AccommodationRequestBoundary.requiredSingleHeader(request, "Idempotency-Key");
-    parseCanonicalUuid(canonicalKey);
+        AccommodationRequestBoundary.requiredPrintableAsciiHeader(request, "Idempotency-Key");
     String canonicalIfMatch =
         AccommodationRequestBoundary.requiredSingleHeader(request, HttpHeaders.IF_MATCH);
     long expectedRevision = expectedRevision(canonicalTripId, canonicalIfMatch);

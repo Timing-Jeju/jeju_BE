@@ -21,11 +21,18 @@ class AccommodationMigrationContractTest {
         .contains("alter column check_in_time set not null")
         .contains("alter column check_out_time set not null")
         .contains("create table public.accommodation_idempotency")
+        .contains("check (idempotency_key ~ '^[ -~]{1,128}$')")
         .contains("create index ix_accommodation_idempotency_trip")
         .contains("expires_at = created_at + interval '24 hours'")
         .contains(
             "response_etag ~ '^\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\"$'")
         .contains("completed accommodation idempotency snapshot is immutable")
+        .contains(
+            "revoke all on function public.protect_accommodation_idempotency_snapshot() from public")
+        .contains(
+            "revoke execute on function public.protect_accommodation_idempotency_snapshot() from anon")
+        .contains(
+            "revoke execute on function public.protect_accommodation_idempotency_snapshot() from authenticated")
         .doesNotContain("delete from public.trip_accommodations")
         .doesNotContain("Flyway");
   }

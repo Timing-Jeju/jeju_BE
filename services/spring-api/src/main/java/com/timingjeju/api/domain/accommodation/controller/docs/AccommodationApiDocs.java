@@ -81,7 +81,12 @@ public interface AccommodationApiDocs {
               name = "Idempotency-Key",
               in = ParameterIn.HEADER,
               required = true,
-              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN))
+              schema =
+                  @Schema(
+                      type = "string",
+                      minLength = 1,
+                      maxLength = 128,
+                      pattern = "^[\\x20-\\x7E]{1,128}$"))
           String key,
       @Parameter(
               name = "If-Match",
