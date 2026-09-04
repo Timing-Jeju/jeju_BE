@@ -565,6 +565,17 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             manifest["DELETE /api/v1/trips/{tripId}/transport-event"]["problems"]["404"][0],
         )
 
+    def test_frontend_인계문서는_항공선박을_포함한_exact29로_표현한다(self):
+        document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "#47 항공·선박 이벤트까지 합친 exact 29개 operation의 프론트엔드 인계본",
+            document,
+        )
+        self.assertNotIn(
+            "#68 숙소 CRUD를 합친 27개 operation의 프론트엔드 인계본",
+            document,
+        )
+
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
         with mock.patch(

@@ -2,7 +2,7 @@
 
 > **#47 통합 공개 API 29개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 active `--mode 29`가 #68의 27개와 transport-event PUT/DELETE 2개를 exact inventory로 고정한다. operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사하며 historical `--mode 27`은 그대로 보존한다.
 
-이 문서는 최신 `develop` 공개 Spring API와 #68 숙소 CRUD를 합친 27개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 최신 `develop` 공개 Spring API와 #47 항공·선박 이벤트까지 합친 exact 29개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 

@@ -32,3 +32,9 @@
 - 검증:
   - Java DB-free unit 7건, Python 관련 48건, OpenAPI frontend-readiness 29 operations와 preferences-transport validator가 통과했다.
   - 지시된 제한에 따라 실제 DB, Testcontainers, Docker, live Supabase와 full heavy gate는 실행하지 않았다.
+
+### 재리뷰 MINOR 문서 정합성 보정
+
+- Red: `python3 -m unittest scripts.tests.test_openapi_frontend_readiness.OpenApiFrontendReadinessTest.test_frontend_인계문서는_항공선박을_포함한_exact29로_표현한다`가 stale `#68 숙소 CRUD를 합친 27개 operation의 프론트엔드 인계본`을 검출해 1건 실패했다.
+- Green: 프론트엔드 인계 문장을 #47 항공·선박 이벤트까지 포함한 exact 29개 operation으로 정렬하고 같은 독립 literal assertion이 통과했다.
+- 검증 범위: 관련 Python 문서/contract 테스트와 git diff-check, pre-commit만 실행했으며 실제 DB, Testcontainers, Docker, live Supabase와 full heavy gate는 제외했다.
