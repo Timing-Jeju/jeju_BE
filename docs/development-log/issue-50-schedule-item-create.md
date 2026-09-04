@@ -105,3 +105,21 @@ python3 -m unittest scripts.tests.test_push_notification_database scripts.tests.
 4. sealing helper 권한 test를 먼저 추가하고 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest.후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다'`를 실행했다. 정확한 테스트명은 `후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다`이며, `REVOKE EXECUTE ... assert_schedule_item_required_references` 문장이 없어 assertion RED였다. `6532690`에서 PUBLIC/anon/authenticated deny와 service_role allow 및 schema ACL introspection을 Green으로 만들었다. 실행 시각은 `미기록`이다.
 5. terminal trip 공개 계약 RED는 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest.POST_schedule_items는_종료된_trip을_schedule_canonical_409로_반환한다' --tests 'com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest.schedule_item_create는_필수_header_body와_응답을_OpenAPI에_공개한다'`로 실행했다. 정확한 두 테스트는 명령에 적힌 메서드이며 2 tests 모두 실패했다. 실제 HTTP detail은 global trip 문구였고 OpenAPI 409 examples에는 terminal code가 없었다. fixture/contract/runtime/OpenAPI를 정렬한 뒤 두 테스트와 전체 schedule HTTP/OpenAPI focused suite가 Green이 됐다. Python 단일 테스트는 class 이름을 `ScheduleContractTest`로 잘못 지정해 `AttributeError`가 났으며 기능 RED 증거로 계산하지 않는다. 이후 전체 `scripts.tests.test_schedules_contract` 19개 중 fixture instance 중복 1개 실패를 고친 뒤 19개 Green을 확인했다. 실행 시각은 `미기록`이다.
 6. 새 row trigger helper는 table trigger 실행 시 호출자에게 함수 EXECUTE가 필요하지 않고 외부 직접 호출도 필요 없다. 따라서 공개 표면을 남길 이유가 없다고 판단했다. migration source test에 deny 계약을 먼저 추가하고 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest.후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다'`를 실행했다. 정확한 테스트명은 `후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다`이며 `validate_trip_item_required_references()` REVOKE 부재 assertion으로 RED였다. 이후 PUBLIC/anon/authenticated/service_role 모두에서 EXECUTE를 회수하고 schema ACL contract로 고정했다. 당시 RED 및 Green 실행 시각은 `미기록`이며, 앞서 별도로 조회한 `2026-09-04 14:42 KST`는 이 실행의 시각 증거가 아니므로 연결하지 않는다.
+
+coordinator 적용과 stale ETag 예외 계약 정렬 후 schedule repository, controller/OpenAPI,
+trip repository 및 architecture 집중 스위트는 51초에 성공했다. 전체 `openApiDocs`, clean check,
+Docker와 공식 root gate는 보완 commit 생성 후 exact SHA에서 다시 실행한다.
+
+## Docker seed 통합 회귀 보정
+
+첫 공식 root gate의 Docker 초기화에서 038 제약 적용 후 기존 `099_seed_fixtures.sql`이
+typed item의 필수 FK를 생략해 PostgreSQL이 `arrival schedule item requires only
+transport_event_id`로 중단됐다. 애플리케이션은 기동했지만 DB 컨테이너가 종료되어 최종
+health check는 `UnknownHostException: postgres`로 실패했다.
+
+로컬 seed의 `trip_items` 열 목록에 `accommodation_id`, `transport_event_id`를 추가하고,
+세 schedule version의 arrival/departure/accommodation 항목이 같은 여행의 canonical 숙소·교통
+이벤트를 참조하도록 수정했다. 일반 방문·식사 항목은 두 참조를 모두 `null`로 명시했다.
+회귀 테스트 `test_local_seed_populates_required_schedule_item_references`가 seed 계약을 고정하며,
+격리 Compose에서 PostgreSQL을 새로 초기화해 `healthy` 상태를 확인했다. 이 보정 commit에서
+전체 공식 root gate를 다시 실행한다.
