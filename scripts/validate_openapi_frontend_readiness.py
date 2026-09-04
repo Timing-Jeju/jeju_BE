@@ -28,6 +28,10 @@ REQUIRED_REQUEST_HEADERS = {
     ("PATCH", "/api/v1/me/saved-places/{placeId}"): {"If-Match"},
     ("POST", "/api/v1/trips"): {"Idempotency-Key"},
     ("PATCH", "/api/v1/trips/{tripId}"): {"If-Match"},
+    ("POST", "/api/v1/trips/{tripId}/schedule-items"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
 }
 REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/me/saved-places", "200"): {"Location", "ETag", "Idempotency-Replayed"},
@@ -36,6 +40,11 @@ REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/trips", "201"): {"Location", "ETag", "Idempotency-Replayed"},
     ("GET", "/api/v1/trips/{tripId}", "200"): {"ETag"},
     ("PATCH", "/api/v1/trips/{tripId}", "200"): {"ETag"},
+    ("POST", "/api/v1/trips/{tripId}/schedule-items", "201"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("POST", "/api/v1/trips/{tripId}/schedule-items", "409"): {"Retry-After"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -72,6 +81,9 @@ PUSH_NOTIFICATION_OPERATIONS = {
 SCHEDULE_OPERATIONS = {
     ("GET", "/api/v1/trips/{tripId}/schedule"): "tripScheduleRead",
 }
+SCHEDULE_MUTATION_OPERATIONS = {
+    ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
+}
 EXPECTED_OPERATION_IDS = (
     CURRENT_OPERATIONS
     | SAVED_PLACE_OPERATIONS
@@ -79,6 +91,7 @@ EXPECTED_OPERATION_IDS = (
     | TRIP_MUTATION_OPERATIONS
     | PUSH_NOTIFICATION_OPERATIONS
     | SCHEDULE_OPERATIONS
+    | SCHEDULE_MUTATION_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
@@ -132,7 +145,7 @@ class Validator:
         self.operations = set()
         self.source_provenance = dict(
             SOURCE_PROVENANCE_21
-            if mode in (21, 23)
+            if mode in (21, 23, 24)
             else SOURCE_PROVENANCE_20
             if mode == 20
             else SOURCE_PROVENANCE_16
@@ -204,7 +217,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20, 21, 23):
+        if self.mode in (16, 20, 21, 23, 24):
             self.validate_source_provenance()
         return self.errors
 
@@ -257,15 +270,18 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20, 21, 23):
+        if self.mode in (16, 20, 21, 23, 24):
             trip_operations = dict(TRIP_OPERATIONS)
-            if self.mode == 23:
+            if self.mode in (23, 24):
                 trip_operations.update(TRIP_MUTATION_OPERATIONS)
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
-        if self.mode in (20, 21, 23):
+        if self.mode in (20, 21, 23, 24):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
-        if self.mode in (21, 23):
-            groups.append(("schedules", SCHEDULE_OPERATIONS))
+        if self.mode in (21, 23, 24):
+            schedule_operations = dict(SCHEDULE_OPERATIONS)
+            if self.mode == 24:
+                schedule_operations.update(SCHEDULE_MUTATION_OPERATIONS)
+            groups.append(("schedules", schedule_operations))
         for domain, operation_group in groups:
             contract = self.read_authority_json(
                 f"docs/contracts/domains/{domain}/contract.json"
@@ -385,6 +401,7 @@ class Validator:
         if not isinstance(runtime, dict):
             self.error(location, "runtime-only manifest projection이 없습니다")
             return
+        strict_problem_pairs = key == ("POST", "/api/v1/trips/{tripId}/schedule-items")
         for status, problem in (runtime.get("problems") or {}).items():
             if not isinstance(problem, list) or len(problem) != 2:
                 self.error(location, f"runtime Problem {status} manifest 형식이 올바르지 않습니다")
@@ -394,13 +411,40 @@ class Validator:
                 self.runtime_problem_definitions.get(problem[0]) == problem[1]
                 or str(status) in runtime.get("runtimeOnlyProblemStatuses", [])
             )
-            if (
-                domain_problem_pairs is not None
-                and not is_runtime_only
-                and pair not in domain_problem_pairs
-                and (problem[0], None) not in domain_problem_pairs
-            ):
+            pair_matches = (
+                self.canonical_problem_pair_matches(pair, domain_problem_pairs)
+                if strict_problem_pairs
+                else pair in domain_problem_pairs or (problem[0], None) in domain_problem_pairs
+            ) if domain_problem_pairs is not None else True
+            runtime_only_allowed = is_runtime_only and (
+                not strict_problem_pairs
+                or domain_problem_pairs is None
+                or not self.canonical_problem_code(problem[0], domain_problem_pairs)
+            )
+            if domain_problem_pairs is not None and not pair_matches and not runtime_only_allowed:
                 self.error(location, f"Problem {status} code/type이 domain endpoint matrix와 다릅니다")
+        for status, problem_set in (runtime.get("problemSets") or {}).items():
+            if not isinstance(problem_set, list):
+                self.error(location, f"runtime Problem 전체 집합 {status} manifest 형식이 올바르지 않습니다")
+                continue
+            for problem in problem_set:
+                if not isinstance(problem, list) or len(problem) != 2:
+                    self.error(location, f"runtime Problem 전체 집합 {status} 항목 형식이 올바르지 않습니다")
+                    continue
+                pair = tuple(problem)
+                is_runtime_only = self.runtime_problem_definitions.get(problem[0]) == problem[1]
+                pair_matches = (
+                    self.canonical_problem_pair_matches(pair, domain_problem_pairs)
+                    if strict_problem_pairs
+                    else pair in domain_problem_pairs or (problem[0], None) in domain_problem_pairs
+                ) if domain_problem_pairs is not None else True
+                runtime_only_allowed = is_runtime_only and (
+                    not strict_problem_pairs
+                    or domain_problem_pairs is None
+                    or not self.canonical_problem_code(problem[0], domain_problem_pairs)
+                )
+                if domain_problem_pairs is not None and not pair_matches and not runtime_only_allowed:
+                    self.error(location, f"Problem 전체 집합 {status} code/type이 domain endpoint matrix와 다릅니다")
         expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
         expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
         actual_statuses = {str(status) for status in responses if str(status).isdigit()}
@@ -412,25 +456,62 @@ class Validator:
         self.validate_contract_parameters(operation, catalog, schemas, location)
         self.validate_contract_body(operation, catalog, schemas, location)
         self.validate_contract_success(operation, endpoint, schemas, location)
+        canonical_problem_examples = {}
+        if key == ("POST", "/api/v1/trips/{tripId}/schedule-items"):
+            fixture = self.read_authority_json("fixtures/contracts/schedules/problem.json") or {}
+            canonical_problem_examples = {
+                example.get("code"): example
+                for example in (fixture.get("examples") or {}).values()
+                if isinstance(example, dict) and isinstance(example.get("code"), str)
+            }
+            retry_after = ((responses.get("409") or {}).get("headers") or {}).get("Retry-After")
+            if not isinstance(retry_after, dict) or "IDEMPOTENCY_KEY_REUSED" not in retry_after.get("description", ""):
+                self.error(location, "409의 조건부 Retry-After 계약이 문서화되지 않았습니다")
         for status, raw_response in responses.items():
             if not str(status).isdigit() or int(status) < 400:
                 continue
             response = self.resolve(raw_response, f"{location} response {status}")
             media = (response.get("content") or {}).get("application/problem+json") or {}
+            actual_problem_pairs = set()
             for example in self.examples(media):
                 if isinstance(example, dict):
-                    expected_code = self.expected_problem_code(key, int(status))
-                    if example.get("code") != expected_code:
-                        self.error(
-                            location,
-                            f"response {status} Problem code가 runtime representative와 다릅니다",
-                        )
-                    expected_type = self.expected_problem_type(expected_code)
-                    if example.get("type") != expected_type:
-                        self.error(
-                            location,
-                            f"response {status} Problem type이 runtime registry와 다릅니다",
-                        )
+                    actual_problem_pairs.add((example.get("code"), example.get("type")))
+                    canonical_example = canonical_problem_examples.get(example.get("code"))
+                    if canonical_example is not None:
+                        exact_fields = ("type", "title", "status", "detail", "code", "fieldErrors")
+                        if any(example.get(field) != canonical_example.get(field) for field in exact_fields):
+                            self.error(
+                                location,
+                                f"response {status} Problem {example.get('code')}가 canonical fixture와 다릅니다",
+                            )
+            configured_set = (runtime.get("problemSets") or {}).get(str(status))
+            if configured_set is not None:
+                expected_problem_pairs = {
+                    tuple(pair) for pair in configured_set if isinstance(pair, list) and len(pair) == 2
+                }
+                if actual_problem_pairs != expected_problem_pairs:
+                    self.error(
+                        location,
+                        f"response {status} Problem 전체 집합이 다릅니다: expected={sorted(expected_problem_pairs)}, actual={sorted(actual_problem_pairs)}",
+                    )
+            else:
+                expected_code = self.expected_problem_code(key, int(status))
+                expected_type = self.expected_problem_type(expected_code)
+                if actual_problem_pairs != {(expected_code, expected_type)}:
+                    self.error(
+                        location,
+                        f"response {status} Problem code/type이 runtime representative와 다릅니다",
+                    )
+
+    @staticmethod
+    def canonical_problem_code(code, pairs):
+        return any(candidate == code for candidate, _ in pairs)
+
+    @staticmethod
+    def canonical_problem_pair_matches(pair, pairs):
+        code, _ = pair
+        typed = {candidate for candidate in pairs if candidate[0] == code and candidate[1] is not None}
+        return pair in typed if typed else (code, None) in pairs
 
     def expected_problem_code(self, key, status):
         problem = (self.runtime_operations().get(f"{key[0]} {key[1]}") or {}).get("problems", {}).get(str(status))
@@ -601,20 +682,22 @@ class Validator:
 
     def validate_operation_inventory(self):
         required = dict(CURRENT_OPERATIONS)
-        if self.mode in (16, 20, 21, 23):
+        if self.mode in (16, 20, 21, 23, 24):
             required.update(SAVED_PLACE_OPERATIONS)
             required.update(TRIP_OPERATIONS)
-        if self.mode in (20, 21, 23):
+        if self.mode in (20, 21, 23, 24):
             required.update(PUSH_NOTIFICATION_OPERATIONS)
-        if self.mode in (21, 23):
+        if self.mode in (21, 23, 24):
             required.update(SCHEDULE_OPERATIONS)
-        if self.mode == 23:
+        if self.mode in (23, 24):
             required.update(TRIP_MUTATION_OPERATIONS)
+        if self.mode == 24:
+            required.update(SCHEDULE_MUTATION_OPERATIONS)
         for key, operation_id in required.items():
             if key not in self.operations:
                 prefix = (
                     f"{self.mode}-operation 완료 mode: "
-                    if self.mode in (16, 20, 21, 23)
+                    if self.mode in (16, 20, 21, 23, 24)
                     else ""
                 )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
@@ -742,6 +825,12 @@ class Validator:
                 "Idempotency-Replayed": ("type", "boolean"),
             }
             if name not in rules:
+                if name == "Retry-After" and (
+                    schema.get("type") != "integer"
+                    or schema.get("minimum", 0) < 1
+                    or "IDEMPOTENCY_KEY_REUSED" not in header.get("description", "")
+                ):
+                    self.error(location, f"response {status} Retry-After 조건부 schema가 올바르지 않습니다")
                 continue
             if not header.get("description") or "example" not in header:
                 self.error(location, f"response {status} {name} description/example이 없습니다")
@@ -1018,7 +1107,7 @@ def main(argv):
         type=Path,
         default=Path("services/spring-api/build/openapi/openapi.json"),
     )
-    parser.add_argument("--mode", type=int, choices=(9, 16, 20, 21, 23), default=23)
+    parser.add_argument("--mode", type=int, choices=(9, 16, 20, 21, 23, 24), default=24)
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])
     artifact = args.artifact

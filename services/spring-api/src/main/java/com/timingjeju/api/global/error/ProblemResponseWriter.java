@@ -24,7 +24,8 @@ public final class ProblemResponseWriter {
           "Access-Control-Expose-Headers",
           "Access-Control-Allow-Credentials",
           "Access-Control-Allow-Private-Network",
-          "WWW-Authenticate");
+          "WWW-Authenticate",
+          "Retry-After");
 
   private final ObjectMapper objectMapper;
   private final ProblemCodeRegistry registry;

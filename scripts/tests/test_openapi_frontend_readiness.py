@@ -11,6 +11,7 @@ from scripts.validate_openapi_frontend_readiness import (
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_MUTATION_OPERATIONS,
+    SCHEDULE_MUTATION_OPERATIONS,
     SCHEDULE_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
@@ -460,6 +461,40 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             ],
             call.args[3]["ScheduleVersion"]["required"],
         )
+
+    def test_mode24는_schedule_item_create를_exact_inventory로_검사한다(self):
+        """24-operation 모드가 #50 일정 항목 추가를 기존 공개 목록에 더한다."""
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            SCHEDULE_OPERATIONS,
+            SCHEDULE_MUTATION_OPERATIONS,
+        )
+        exact_operations = {key for operations in operation_maps for key in operations}
+        validator = Validator({}, 24, ROOT)
+        validator.operations = exact_operations
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for operations in operation_maps
+            for (method, path), operation_id in operations.items()
+        }
+
+        validator.validate_operation_inventory()
+
+        self.assertEqual([], validator.errors)
+        authority = Validator(valid_document(), 24, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        create = next(
+            call
+            for call in projection.call_args_list
+            if call.args[0] == ("POST", "/api/v1/trips/{tripId}/schedule-items")
+        )
+        self.assertEqual("MutationResponse", create.args[2]["successSchema"])
+        self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)

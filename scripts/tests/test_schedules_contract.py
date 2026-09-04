@@ -311,7 +311,10 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertFalse(any(value is None for key, value in create.items() if key != "memo"))
         spec = RDB_SPEC.read_text(encoding="utf-8")
         self.assertIn('"feasibilityStale": false', spec)
-        self.assertIn('"etag": "\\"trip-13\\""', spec)
+        self.assertIn(
+            '"etag": "\\"trip-50000000-0000-0000-0000-000000000001-r13\\""',
+            spec,
+        )
         self.assertNotIn('"title": null', spec[spec.index("### 12.3"):])
 
     def test_reorder_and_move_boundaries_are_exact(self) -> None:
@@ -332,6 +335,14 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("not-linked", external["notion"]["contractVersion"])
         self.assertEqual("not-linked", external["figma"]["contractVersion"])
         self.assertTrue(all(value["status"] == "not-ready" for value in self.contract["readiness"].values()))
+
+    def test_issue_50_schema_decision_is_recorded(self) -> None:
+        schema_gap = self.contract["schemaGap"]
+        self.assertEqual(4, len(schema_gap))
+        self.assertIn("20260907000000_schedule_item_create_contract.sql", schema_gap[0])
+        self.assertIn("1..1440", schema_gap[1])
+        self.assertIn("mobility_route_snapshot_id", schema_gap[2])
+        self.assertIn("Flyway는 도입하지 않는다", schema_gap[3])
 
     def test_validator_rejects_contract_drift(self) -> None:
         mutations = (

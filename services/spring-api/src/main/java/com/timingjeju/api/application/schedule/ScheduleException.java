@@ -20,6 +20,34 @@ public final class ScheduleException extends RuntimeException {
     return new ScheduleException("SCHEDULE_VERSION_NOT_FOUND");
   }
 
+  public static ScheduleException placeNotFound() {
+    return new ScheduleException("PLACE_NOT_FOUND");
+  }
+
+  public static ScheduleException accommodationNotFound() {
+    return new ScheduleException("ACCOMMODATION_NOT_FOUND");
+  }
+
+  public static ScheduleException transportEventNotFound() {
+    return new ScheduleException("TRANSPORT_EVENT_NOT_FOUND");
+  }
+
+  public static ScheduleException tripVersionConflict() {
+    return new ScheduleException("TRIP_VERSION_CONFLICT");
+  }
+
+  public static ScheduleException activeVersionConflict() {
+    return new ScheduleException("ACTIVE_SCHEDULE_VERSION_CONFLICT");
+  }
+
+  public static ScheduleException itemInvalid() {
+    return new ScheduleException("SCHEDULE_ITEM_INVALID");
+  }
+
+  public static ScheduleException legIncomplete() {
+    return new ScheduleException("SCHEDULE_LEG_INCOMPLETE");
+  }
+
   public static ScheduleException internalServerError() {
     return new ScheduleException("INTERNAL_SERVER_ERROR");
   }

@@ -1,14 +1,17 @@
 package com.timingjeju.api.global.config;
 
+import com.timingjeju.api.domain.schedule.exception.ScheduleProblemDefinitions;
 import com.timingjeju.api.global.error.ProblemCodeRegistry;
 import com.timingjeju.api.global.error.ProblemDefinition;
 import com.timingjeju.api.global.logging.RequestTraceId;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.oas.models.examples.Example;
 import io.swagger.v3.oas.models.headers.Header;
 import io.swagger.v3.oas.models.media.BooleanSchema;
 import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.IntegerSchema;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
@@ -97,6 +100,23 @@ final class FrontendOpenApiCustomizer {
                   "메모, 태그, 우선순위 또는 희망 Day 값을 확인해 주세요.")));
 
   private static final Map<String, OperationDocument> DOCUMENTS = operationDocuments();
+  private static final Map<String, List<String>> SCHEDULE_ITEM_PROBLEMS =
+      Map.of(
+          "400", List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID"),
+          "401", List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"),
+          "404",
+              List.of(
+                  "TRIP_NOT_FOUND",
+                  "PLACE_NOT_FOUND",
+                  "ACCOMMODATION_NOT_FOUND",
+                  "TRANSPORT_EVENT_NOT_FOUND",
+                  "SCHEDULE_VERSION_NOT_FOUND"),
+          "409",
+              List.of(
+                  "IDEMPOTENCY_KEY_REUSED",
+                  "TRIP_VERSION_CONFLICT",
+                  "ACTIVE_SCHEDULE_VERSION_CONFLICT"),
+          "422", List.of("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"));
 
   private final ObjectMapper objectMapper;
   private final ProblemCodeRegistry problemCodeRegistry;
@@ -479,6 +499,21 @@ final class FrontendOpenApiCustomizer {
               .pattern(
                   "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
           "\"trip-44000000-0000-4000-8000-000000000044-r1\"");
+    } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 상세 응답의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema()
+              .pattern(
+                  "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
+          "\"trip-50000000-0000-4000-8000-000000000001-r1\"");
+      mergeRequiredHeader(
+          operation,
+          "Idempotency-Key",
+          "일정 항목 추가 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
+          new StringSchema().format("uuid"),
+          "45000000-0000-4000-8000-000000000050");
     }
     if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
@@ -499,6 +534,9 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("GET /api/v1/trips/{tripId}")
         || key.equals("PATCH /api/v1/trips/{tripId}")) {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
+    } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
+      addResponseHeaderReferences(
+          operation, List.of("201"), List.of("ETag", "Idempotency-Replayed"));
     }
   }
 
@@ -582,13 +620,33 @@ final class FrontendOpenApiCustomizer {
     }
     String code = configuredCode == null ? defaultCode(status) : configuredCode;
     response.addHeaderObject(RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
+    MediaType media = new MediaType().schema(new Schema<>().$ref(PROBLEM_SCHEMA));
+    List<String> codes =
+        "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
+            ? SCHEDULE_ITEM_PROBLEMS.get(String.valueOf(status))
+            : null;
+    if (codes == null) {
+      media.setExample(problemExample(status, code, operationKey));
+    } else {
+      Map<String, Example> examples = new LinkedHashMap<>();
+      codes.forEach(
+          problemCode ->
+              examples.put(
+                  problemCode,
+                  new Example().value(problemExample(status, problemCode, operationKey))));
+      media.setExamples(examples);
+    }
     response.setContent(
         new Content()
             .addMediaType(
-                org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                new MediaType()
-                    .schema(new Schema<>().$ref(PROBLEM_SCHEMA))
-                    .example(problemExample(status, code, operationKey))));
+                org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, media));
+    if ("POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey) && status == 409) {
+      response.addHeaderObject(
+          "Retry-After",
+          new Header()
+              .description("동일 payload가 처리 중인 IDEMPOTENCY_KEY_REUSED 응답에만 재시도 대기 초를 제공합니다.")
+              .schema(new IntegerSchema().format("int32").minimum(BigDecimal.ONE)));
+    }
   }
 
   private void documentComponentProblems(OpenAPI openApi) {
@@ -614,7 +672,9 @@ final class FrontendOpenApiCustomizer {
     boolean savedPlaceOperation =
         operationKey != null && operationKey.contains("/api/v1/me/saved-places");
     ProblemDefinition definition =
-        savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
+        "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
+            ? ScheduleProblemDefinitions.mutationDefinition(code)
+            : savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
     if (definition == null) {
       definition = problemCodeRegistry.find(code);
     }
@@ -1057,6 +1117,24 @@ final class FrontendOpenApiCustomizer {
                 "400", "INVALID_REQUEST",
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "SCHEDULE_VERSION_NOT_FOUND",
+                "500", "INTERNAL_SERVER_ERROR")));
+    result.put(
+        "POST /api/v1/trips/{tripId}/schedule-items",
+        doc(
+            "tripScheduleItemCreate",
+            "일정",
+            """
+            {"expectedActiveScheduleVersionId":"60000000-0000-4000-8000-000000000001","dayNo":1,"sequenceNo":2,"itemType":"place_visit","placeId":"20000000-0000-4000-8000-000000000001","accommodationId":"70000000-0000-4000-8000-000000000001","transportEventId":"71000000-0000-4000-8000-000000000001","title":"성산일출봉 방문","plannedStartAt":"2026-10-01T11:00:00+09:00","stayMinutes":60,"bufferAfterMinutes":10,"required":true,"memo":"정상 도착 후 입장"}
+            """,
+            """
+            {"tripId":"50000000-0000-4000-8000-000000000001","previousScheduleVersionId":"60000000-0000-4000-8000-000000000001","activeScheduleVersionId":"60000000-0000-4000-8000-000000000002","versionNo":2,"sourceType":"user_edit","feasibilityStale":true,"changedItemIds":["61000000-0000-4000-8000-000000000002"],"etag":"\\\"trip-50000000-0000-4000-8000-000000000001-r2\\\"","updatedAt":"2026-10-01T09:30:00+09:00"}
+            """,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "SCHEDULE_VERSION_NOT_FOUND",
+                "409", "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                "422", "SCHEDULE_ITEM_INVALID",
                 "500", "INTERNAL_SERVER_ERROR")));
     return Map.copyOf(result);
   }

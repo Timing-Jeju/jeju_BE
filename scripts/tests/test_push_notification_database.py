@@ -40,6 +40,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260904000001_push_notification_server_writer_boundary.sql",
             "20260905000000_mcp_private_http_client.sql",
             "20260906000000_trip_update_delete_contract.sql",
+            "20260907000000_schedule_item_create_contract.sql",
         )
         migration_names = tuple(
             path.name
@@ -75,6 +76,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             (
                 "./supabase/migrations/20260906000000_trip_update_delete_contract.sql",
                 "/docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260907000000_schedule_item_create_contract.sql",
+                "/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",

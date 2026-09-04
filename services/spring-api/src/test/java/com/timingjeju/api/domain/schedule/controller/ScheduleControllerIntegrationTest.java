@@ -3,10 +3,12 @@ package com.timingjeju.api.domain.schedule.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,13 +18,18 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.timingjeju.api.application.idempotency.IdempotencyException;
+import com.timingjeju.api.application.idempotency.IdempotencyRequest;
+import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
 import com.timingjeju.api.application.schedule.ItemProgressSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleDaySnapshot;
 import com.timingjeju.api.application.schedule.ScheduleException;
 import com.timingjeju.api.application.schedule.ScheduleItemSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleLegSnapshot;
+import com.timingjeju.api.application.schedule.ScheduleMutationResult;
 import com.timingjeju.api.application.schedule.ScheduleSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleVersionSnapshot;
+import com.timingjeju.api.application.schedule.service.ScheduleMutationService;
 import com.timingjeju.api.application.schedule.service.ScheduleQueryService;
 import jakarta.servlet.ServletContext;
 import java.nio.charset.StandardCharsets;
@@ -34,6 +41,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,9 +79,24 @@ class ScheduleControllerIntegrationTest {
   @Autowired private MockMvc mvc;
   @MockitoBean private ScheduleQueryService schedules;
 
+  @MockitoBean(name = "scheduleMutationService")
+  private ScheduleMutationService mutations;
+
+  @MockitoBean private IdempotencyUseCase idempotency;
+
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
     registry.add("app.security.jwt.secret", () -> SECRET);
+  }
+
+  @BeforeEach
+  void 멱등성_operation을_동기_실행한다() {
+    when(idempotency.execute(any(), any()))
+        .thenAnswer(
+            invocation ->
+                invocation
+                    .<com.timingjeju.api.application.idempotency.IdempotencyOperation>getArgument(1)
+                    .execute());
   }
 
   @Test
@@ -173,6 +196,248 @@ class ScheduleControllerIntegrationTest {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("SCHEDULE_VERSION_NOT_FOUND"))
         .andExpect(jsonPath("$.cause").doesNotExist());
+  }
+
+  @Test
+  void POST_schedule_items는_새_user_edit_version을_활성화하고_201을_반환한다() throws Exception {
+    UUID newVersionId = UUID.fromString("49000000-0000-0000-0000-000000000008");
+    UUID changedItemId = UUID.fromString("49000000-0000-0000-0000-000000000009");
+    when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
+        .thenReturn(
+            new ScheduleMutationResult(
+                TRIP_ID,
+                VERSION_ID,
+                newVersionId,
+                2,
+                2,
+                List.of(changedItemId),
+                Instant.parse("2026-09-01T01:00:00Z")));
+
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "50000000-0000-0000-0000-000000000001")
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {
+                      "expectedActiveScheduleVersionId":"49000000-0000-0000-0000-000000000003",
+                      "dayNo":1,
+                      "sequenceNo":1,
+                      "itemType":"place_visit",
+                      "placeId":"49000000-0000-0000-0000-000000000007",
+                      "plannedStartAt":"2026-09-01T09:00:00+09:00",
+                      "stayMinutes":60
+                    }
+                    """))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.tripId").value(TRIP_ID.toString()))
+        .andExpect(jsonPath("$.previousScheduleVersionId").value(VERSION_ID.toString()))
+        .andExpect(jsonPath("$.activeScheduleVersionId").value(newVersionId.toString()))
+        .andExpect(jsonPath("$.versionNo").value(2))
+        .andExpect(jsonPath("$.sourceType").value("user_edit"))
+        .andExpect(jsonPath("$.feasibilityStale").value(true))
+        .andExpect(jsonPath("$.changedItemIds[0]").value(changedItemId.toString()))
+        .andExpect(jsonPath("$.etag").value("\"trip-" + TRIP_ID + "-r2\""));
+  }
+
+  @Test
+  void POST_schedule_items는_중복_JSON_필수누락과_유효하지_않은_item을_구분해_거부한다() throws Exception {
+    String prefix =
+        "{\"expectedActiveScheduleVersionId\":\"" + VERSION_ID + "\",\"dayNo\":1,\"sequenceNo\":1,";
+    for (var invalid :
+        List.of(
+            prefix
+                + "\"itemType\":\"place_visit\",\"itemType\":\"place_visit\",\"placeId\":\""
+                + UUID.fromString("49000000-0000-0000-0000-000000000007")
+                + "\",\"plannedStartAt\":\"2026-09-01T09:00:00+09:00\",\"stayMinutes\":60}",
+            prefix
+                + "\"itemType\":\"place_visit\",\"placeId\":\"49000000-0000-0000-0000-000000000007\",\"stayMinutes\":60}")) {
+      mvc.perform(
+              post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", UUID.randomUUID().toString())
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(invalid))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+          .andExpect(
+              jsonPath("$.type").value("https://api.timing-jeju.com/problems/invalid-request"))
+          .andExpect(jsonPath("$.title").value("요청 값이 올바르지 않습니다"))
+          .andExpect(jsonPath("$.detail").value("필수값과 형식, 일정 버전 식별자를 확인해 주세요."));
+    }
+
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    prefix
+                        + "\"itemType\":\"place_visit\",\"plannedStartAt\":\"2026-09-01T09:00:00+09:00\",\"stayMinutes\":60}"))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.code").value("SCHEDULE_ITEM_INVALID"));
+    verifyNoInteractions(mutations);
+  }
+
+  @Test
+  void POST_schedule_items는_Idempotency_Key와_strong_If_Match를_필수로_검증한다() throws Exception {
+    String body =
+        """
+        {"expectedActiveScheduleVersionId":"49000000-0000-0000-0000-000000000003",
+         "dayNo":1,"sequenceNo":1,"itemType":"place_visit",
+         "placeId":"49000000-0000-0000-0000-000000000007",
+         "plannedStartAt":"2026-09-01T09:00:00+09:00","stayMinutes":60}
+        """;
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"))
+        .andExpect(
+            jsonPath("$.type")
+                .value("https://api.timing-jeju.com/problems/idempotency-key-required"))
+        .andExpect(jsonPath("$.title").value("멱등성 키가 필요합니다"))
+        .andExpect(jsonPath("$.detail").value("Idempotency-Key 헤더를 입력해 주세요."));
+
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "not-a-uuid")
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_INVALID"))
+        .andExpect(
+            jsonPath("$.type")
+                .value("https://api.timing-jeju.com/problems/idempotency-key-invalid"))
+        .andExpect(jsonPath("$.title").value("멱등성 키가 유효하지 않습니다"))
+        .andExpect(jsonPath("$.detail").value("UUID 형식의 Idempotency-Key를 입력해 주세요."));
+
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .header("If-Match", "\"trip-1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+        .andExpect(jsonPath("$.detail").value("필수값과 형식, 일정 버전 식별자를 확인해 주세요."));
+    verifyNoInteractions(mutations);
+  }
+
+  @Test
+  void POST_schedule_items의_참조와_version_오류는_schedule_canonical_problem을_반환한다() throws Exception {
+    when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
+        .thenThrow(
+            ScheduleException.placeNotFound(),
+            ScheduleException.versionNotFound(),
+            ScheduleException.tripVersionConflict());
+    String body = validScheduleItemBody();
+    List<List<String>> expected =
+        List.of(
+            List.of("PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", "요청한 장소가 없거나 사용할 수 없습니다."),
+            List.of(
+                "SCHEDULE_VERSION_NOT_FOUND",
+                "일정 버전을 찾을 수 없습니다",
+                "요청한 일정 버전이 없거나 해당 여행에 속하지 않습니다."),
+            List.of(
+                "TRIP_VERSION_CONFLICT", "여행 조건이 이미 변경되었습니다", "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."));
+
+    for (List<String> problem : expected) {
+      mvc.perform(scheduleItemPost(body.getBytes(StandardCharsets.UTF_8), UUID.randomUUID()))
+          .andExpect(status().is4xxClientError())
+          .andExpect(jsonPath("$.code").value(problem.get(0)))
+          .andExpect(
+              jsonPath("$.type")
+                  .value(
+                      "https://api.timing-jeju.com/problems/"
+                          + problem.get(0).toLowerCase().replace('_', '-')))
+          .andExpect(jsonPath("$.title").value(problem.get(1)))
+          .andExpect(jsonPath("$.detail").value(problem.get(2)));
+    }
+  }
+
+  @Test
+  void POST_schedule_items의_처리중_멱등성_충돌은_canonical_problem과_Retry_After를_반환한다() throws Exception {
+    doThrow(IdempotencyException.processing()).when(idempotency).execute(any(), any());
+
+    mvc.perform(
+            scheduleItemPost(
+                validScheduleItemBody().getBytes(StandardCharsets.UTF_8), UUID.randomUUID()))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"))
+        .andExpect(
+            jsonPath("$.type").value("https://api.timing-jeju.com/problems/idempotency-key-reused"))
+        .andExpect(jsonPath("$.title").value("멱등성 키가 다른 요청에 사용되었습니다"))
+        .andExpect(
+            jsonPath("$.detail")
+                .value(
+                    "다른 요청이면 새 Idempotency-Key로 다시 보내고, 동일 요청이 처리 중이면 Retry-After 헤더의 초만큼 기다린 뒤 다시 요청해 주세요."))
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                .string("Retry-After", "1"));
+  }
+
+  @Test
+  void POST_schedule_items는_정확히_1MiB를_허용하고_초과_body를_400으로_거부한다() throws Exception {
+    UUID newVersionId = UUID.fromString("49000000-0000-0000-0000-000000000008");
+    when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
+        .thenReturn(
+            new ScheduleMutationResult(
+                TRIP_ID,
+                VERSION_ID,
+                newVersionId,
+                2,
+                2,
+                List.of(UUID.fromString("49000000-0000-0000-0000-000000000009")),
+                Instant.parse("2026-09-01T01:00:00Z")));
+    String json =
+        "{\"expectedActiveScheduleVersionId\":\""
+            + VERSION_ID
+            + "\",\"dayNo\":1,\"sequenceNo\":1,\"itemType\":\"place_visit\","
+            + "\"placeId\":\"49000000-0000-0000-0000-000000000007\","
+            + "\"plannedStartAt\":\"2026-09-01T09:00:00+09:00\",\"stayMinutes\":60}";
+    byte[] base = json.getBytes(StandardCharsets.UTF_8);
+    byte[] exact =
+        (json + " ".repeat(IdempotencyRequest.MAX_BODY_BYTES - base.length))
+            .getBytes(StandardCharsets.UTF_8);
+    byte[] over =
+        (json + " ".repeat(IdempotencyRequest.MAX_BODY_BYTES + 1 - base.length))
+            .getBytes(StandardCharsets.UTF_8);
+
+    mvc.perform(scheduleItemPost(exact, UUID.randomUUID())).andExpect(status().isCreated());
+    mvc.perform(scheduleItemPost(over, UUID.randomUUID()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+    verify(mutations).addItem(any(), eq(TRIP_ID), any(), any());
+  }
+
+  private AbstractMockHttpServletRequestBuilder<?> scheduleItemPost(byte[] body, UUID key)
+      throws Exception {
+    return post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+        .header("Idempotency-Key", key.toString())
+        .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(body);
+  }
+
+  private static String validScheduleItemBody() {
+    return "{\"expectedActiveScheduleVersionId\":\""
+        + VERSION_ID
+        + "\",\"dayNo\":1,\"sequenceNo\":1,\"itemType\":\"place_visit\","
+        + "\"placeId\":\"49000000-0000-0000-0000-000000000007\","
+        + "\"plannedStartAt\":\"2026-09-01T09:00:00+09:00\",\"stayMinutes\":60}";
   }
 
   private static ScheduleSnapshot snapshot() {

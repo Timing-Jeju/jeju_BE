@@ -99,6 +99,62 @@ class ScheduleOpenApiIntegrationTest {
                 .value("INTERNAL_SERVER_ERROR"));
   }
 
+  @Test
+  void schedule_item_create는_필수_header_body와_응답을_OpenAPI에_공개한다() throws Exception {
+    String path = "$.paths['/api/v1/trips/{tripId}/schedule-items'].post";
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath(path + ".operationId").value("tripScheduleItemCreate"))
+        .andExpect(jsonPath(path + ".parameters[?(@.name=='tripId')].required").value(true))
+        .andExpect(jsonPath(path + ".parameters[?(@.name=='If-Match')].required").value(true))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].required").value(true))
+        .andExpect(jsonPath(path + ".requestBody.required").value(true))
+        .andExpect(jsonPath(path + ".responses['201'].headers.ETag").exists())
+        .andExpect(jsonPath(path + ".responses['201'].headers.Idempotency-Replayed").exists())
+        .andExpect(
+            jsonPath(path + ".responses.keys()")
+                .value(containsInAnyOrder("201", "400", "401", "403", "404", "409", "422", "500")))
+        .andExpect(
+            jsonPath(path + ".responses['400'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "INVALID_REQUEST", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID")))
+        .andExpect(
+            jsonPath(path + ".responses['401'].content['application/problem+json'].examples.keys()")
+                .value(containsInAnyOrder("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN")))
+        .andExpect(
+            jsonPath(path + ".responses['404'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "TRIP_NOT_FOUND",
+                        "PLACE_NOT_FOUND",
+                        "ACCOMMODATION_NOT_FOUND",
+                        "TRANSPORT_EVENT_NOT_FOUND",
+                        "SCHEDULE_VERSION_NOT_FOUND")))
+        .andExpect(
+            jsonPath(
+                    path
+                        + ".responses['404'].content['application/problem+json'].examples.ACCOMMODATION_NOT_FOUND.value.detail")
+                .value("요청한 숙소가 없거나 해당 여행에 속하지 않습니다."))
+        .andExpect(
+            jsonPath(
+                    path
+                        + ".responses['404'].content['application/problem+json'].examples.TRANSPORT_EVENT_NOT_FOUND.value.detail")
+                .value("요청한 교통 이벤트가 없거나 해당 여행에 속하지 않습니다."))
+        .andExpect(
+            jsonPath(path + ".responses['409'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "IDEMPOTENCY_KEY_REUSED",
+                        "TRIP_VERSION_CONFLICT",
+                        "ACTIVE_SCHEDULE_VERSION_CONFLICT")))
+        .andExpect(jsonPath(path + ".responses['409'].headers['Retry-After']").exists())
+        .andExpect(
+            jsonPath(path + ".responses['422'].content['application/problem+json'].examples.keys()")
+                .value(containsInAnyOrder("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE")));
+  }
+
   private static String randomKey() {
     byte[] bytes = new byte[32];
     new SecureRandom().nextBytes(bytes);
