@@ -171,7 +171,13 @@ final class FrontendOpenApiCustomizer {
         endpointMap(readContractResource("/rest/catalog.json"));
     for (String domain :
         List.of(
-            "profile-legal", "places", "weather-forecast", "saved-places", "trips", "schedules")) {
+            "profile-legal",
+            "places",
+            "weather-forecast",
+            "saved-places",
+            "trips",
+            "schedules",
+            "accommodations")) {
       Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
       Map<String, Object> schemas = objectMap(contract.get("schemas"));
       for (Map<String, Object> endpoint : objectMapList(contract.get("endpoints"))) {
@@ -304,6 +310,9 @@ final class FrontendOpenApiCustomizer {
       boolean nullable = Boolean.TRUE.equals(canonical.get("nullable"));
       schema.setTypes(nullable ? Set.of(type, "null") : Set.of(type));
       schema.setNullable(nullable);
+    }
+    if (canonical.get("format") instanceof String format) {
+      schema.setFormat(format);
     }
     if (canonical.get("exclusiveMinimum") instanceof Number minimum) {
       schema.setExclusiveMinimumValue(new BigDecimal(minimum.toString()));
@@ -567,6 +576,25 @@ final class FrontendOpenApiCustomizer {
           "일정 항목 추가 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
           new StringSchema().format("uuid"),
           "45000000-0000-4000-8000-000000000050");
+    } else if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
+      if (key.startsWith("POST ")) {
+        mergeRequiredHeader(
+            operation,
+            "Idempotency-Key",
+            "숙소 생성 요청을 여행과 사용자 범위에서 24시간 식별하는 lowercase canonical UUID입니다.",
+            new StringSchema()
+                .format("uuid")
+                .pattern("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+            "018f6f2a-60a0-7f5b-8c61-8f548f34bc31");
+      }
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 aggregate의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema()
+              .pattern(
+                  "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
+          "\"trip-68000000-0000-4000-8000-000000000068-r1\"");
     }
     if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
@@ -591,6 +619,7 @@ final class FrontendOpenApiCustomizer {
       addResponseHeaderReferences(
           operation, List.of("201"), List.of("ETag", "Idempotency-Replayed"));
     }
+    addAccommodationResponseHeaders(key, operation);
   }
 
   private static void addAccommodationResponseHeaders(String key, Operation operation) {
@@ -1203,13 +1232,14 @@ final class FrontendOpenApiCustomizer {
                 "409", "ACTIVE_SCHEDULE_VERSION_CONFLICT",
                 "422", "SCHEDULE_ITEM_INVALID",
                 "500", "INTERNAL_SERVER_ERROR")));
+    addAccommodationDocuments(result);
     return Map.copyOf(result);
   }
 
   private static void addAccommodationDocuments(Map<String, OperationDocument> result) {
     String accommodationExample =
         """
-        {"tripId":"68000000-0000-4000-8000-000000000068","accommodationId":"68000000-0000-4000-8000-000000000069","accommodation":{"accommodationId":"68000000-0000-4000-8000-000000000069","placeId":null,"customName":"제주알호텔","name":"제주알호텔","checkInDate":"2026-09-10","checkOutDate":"2026-09-12","checkInTime":"15:00","checkOutTime":"11:00","sequenceNo":1},"scheduleEffect":"none","regenerationRequired":false,"activeScheduleVersionId":null,"tripStatus":"draft","etag":"\\\"trip-2\\\"","createdAt":"2026-09-01T14:00:00+09:00","updatedAt":"2026-09-01T14:00:00+09:00"}
+        {"tripId":"68000000-0000-4000-8000-000000000068","accommodationId":"68000000-0000-4000-8000-000000000069","accommodation":{"accommodationId":"68000000-0000-4000-8000-000000000069","placeId":null,"customName":"제주알호텔","name":"제주알호텔","checkInDate":"2026-09-10","checkOutDate":"2026-09-12","checkInTime":"15:00","checkOutTime":"11:00","sequenceNo":1},"scheduleEffect":"none","regenerationRequired":false,"activeScheduleVersionId":null,"tripStatus":"draft","etag":"\\\"trip-68000000-0000-4000-8000-000000000068-r2\\\"","createdAt":"2026-09-01T14:00:00+09:00","updatedAt":"2026-09-01T14:00:00+09:00"}
         """;
     result.put(
         "POST /api/v1/trips/{tripId}/accommodations",

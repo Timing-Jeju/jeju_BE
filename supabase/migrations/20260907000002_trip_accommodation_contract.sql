@@ -97,7 +97,7 @@ create table public.accommodation_idempotency (
         and response_status = 201
         and response_content_type = 'application/json'
         and response_location like '/api/v1/trips/%/accommodations/%'
-        and response_etag ~ '^"trip-[1-9][0-9]*"$'
+        and response_etag ~ '^"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*"$'
         and octet_length(response_body) <= 1048576
       )
     )

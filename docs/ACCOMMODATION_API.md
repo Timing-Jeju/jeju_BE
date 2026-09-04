@@ -5,7 +5,7 @@
 - 기준 HEAD: `763c43f02360f778fa97462c0d54cef7d5f632a0` (#45 완료 브랜치)
 - 기능 브랜치: `feat/68-trip-accommodations-crud`
 - 공개 API: 숙소 POST/PATCH/DELETE 3개
-- 생성 OpenAPI: 25 operations, frontend-readiness `--mode 25`
+- 생성 OpenAPI: 통합 26 operations, frontend-readiness `--mode 26`
 - FE 소스 변경: 없음
 - 외부 provider 호출, TMAP 원문·geometry, 사용자 원문 저장·로그 추가: 없음
 
@@ -91,7 +91,7 @@ cd ../..
 - controller integration: 인증, strict path/header/body/query, response header/media, Problem mapping
 - PostgreSQL integration: replay/hash conflict, gap/overlap/outside rollback, no-op, identity switch, delete edge/middle, active invalidation/delete, concurrent replay/stale writer
 - migration upgrade integration: invalid legacy row 보존과 target migration fail-closed
-- OpenAPI integration: closed schemas, examples, exact 25-operation inventory
+- OpenAPI integration: closed schemas, examples, exact 26-operation inventory
 - canonical fixtures/validator: accommodations v1과 #45 strong ETag 정렬
 
 #68은 독립 Reviewer 승인과 `develop` 병합 전이다. 이 문서의 Codegen READY는 wire artifact 검사를 뜻하며 배포 승인이나 FE 실제 호출 완료를 뜻하지 않는다.

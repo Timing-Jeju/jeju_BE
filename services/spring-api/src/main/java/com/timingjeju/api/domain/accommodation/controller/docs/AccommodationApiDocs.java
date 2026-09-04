@@ -18,10 +18,11 @@ import org.springframework.http.ResponseEntity;
 
 public interface AccommodationApiDocs {
   String UUID_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
-  String ETAG_PATTERN = "^\\\"trip-[1-9][0-9]*\\\"$";
+  String ETAG_PATTERN =
+      "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$";
 
   @Operation(
-      operationId = "createTripAccommodation",
+      operationId = "tripAccommodationsCreate",
       summary = "여행 숙소 추가",
       description = "여행 ETag를 검사하고 날짜순 sequence를 같은 transaction에서 재구성합니다.")
   @RequestBody(
@@ -80,7 +81,7 @@ public interface AccommodationApiDocs {
               name = "Idempotency-Key",
               in = ParameterIn.HEADER,
               required = true,
-              schema = @Schema(type = "string", pattern = UUID_PATTERN))
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN))
           String key,
       @Parameter(
               name = "If-Match",
@@ -91,7 +92,7 @@ public interface AccommodationApiDocs {
       @Parameter(hidden = true) HttpServletRequest request);
 
   @Operation(
-      operationId = "updateTripAccommodation",
+      operationId = "tripAccommodationsUpdate",
       summary = "여행 숙소 수정",
       description = "presence semantics와 canonical no-op을 보존해 숙소를 수정합니다.")
   @RequestBody(
@@ -153,7 +154,7 @@ public interface AccommodationApiDocs {
       @Parameter(hidden = true) HttpServletRequest request);
 
   @Operation(
-      operationId = "deleteTripAccommodation",
+      operationId = "tripAccommodationsDelete",
       summary = "여행 숙소 삭제",
       description = "활성 일정이 없고 남은 숙소에 내부 공백이 없을 때 삭제합니다.")
   @ApiResponses({

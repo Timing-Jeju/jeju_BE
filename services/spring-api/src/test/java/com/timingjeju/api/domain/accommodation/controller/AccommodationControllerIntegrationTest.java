@@ -77,7 +77,7 @@ class AccommodationControllerIntegrationTest {
   private static final UUID USER = UUID.fromString("68000000-0000-0000-0000-000000000201");
   private static final UUID TRIP = UUID.fromString("68000000-0000-0000-0000-000000000202");
   private static final UUID ACCOMMODATION = UUID.fromString("68000000-0000-0000-0000-000000000203");
-  private static final String ETAG = "\"trip-1\"";
+  private static final String ETAG = "\"trip-" + TRIP + "-r1\"";
   private static final String IDEMPOTENCY_KEY = "68abcdef-0000-0000-0000-000000000204";
 
   @Autowired private MockMvc mvc;

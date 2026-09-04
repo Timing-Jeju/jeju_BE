@@ -8,8 +8,8 @@
   "schemas": {
     "TripPath": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["tripId"], "properties": {"tripId": {"type": "string", "nullable": false, "format": "uuid"}}},
     "AccommodationPath": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["tripId", "accommodationId"], "properties": {"tripId": {"type": "string", "nullable": false, "format": "uuid"}, "accommodationId": {"type": "string", "nullable": false, "format": "uuid"}}},
-    "CreateHeaders": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["Authorization", "Idempotency-Key", "If-Match"], "properties": {"Authorization": {"type": "string", "nullable": false, "pattern": "^Bearer [^\\s]{1,2048}$"}, "Idempotency-Key": {"type": "string", "nullable": false, "minLength": 1, "maxLength": 128, "pattern": "^[!-~]+$"}, "If-Match": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9]+\\\"$"}}},
-    "MutationHeaders": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["Authorization", "If-Match"], "properties": {"Authorization": {"type": "string", "nullable": false, "pattern": "^Bearer [^\\s]{1,2048}$"}, "If-Match": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9]+\\\"$"}}},
+    "CreateHeaders": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["Authorization", "Idempotency-Key", "If-Match"], "properties": {"Authorization": {"type": "string", "nullable": false, "pattern": "^Bearer [^\\s]{1,2048}$"}, "Idempotency-Key": {"type": "string", "nullable": false, "minLength": 36, "maxLength": 36, "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}, "If-Match": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"}}},
+    "MutationHeaders": {"type": "object", "nullable": false, "additionalProperties": false, "required": ["Authorization", "If-Match"], "properties": {"Authorization": {"type": "string", "nullable": false, "pattern": "^Bearer [^\\s]{1,2048}$"}, "If-Match": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"}}},
     "CreateAccommodationRequest": {
       "type": "object", "nullable": false, "additionalProperties": false,
       "required": ["placeId", "customName", "checkInDate", "checkOutDate", "checkInTime", "checkOutTime"],
@@ -63,7 +63,7 @@
         "regenerationRequired": {"type": "boolean", "nullable": false},
         "activeScheduleVersionId": {"type": "string", "nullable": true, "format": "uuid"},
         "tripStatus": {"type": "string", "nullable": false, "enum": ["draft", "planned"]},
-        "etag": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9]+\\\"$"},
+        "etag": {"type": "string", "nullable": false, "pattern": "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"},
         "createdAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"},
         "updatedAt": {"type": "string", "nullable": false, "format": "date-time", "offset": "+09:00"}
       }

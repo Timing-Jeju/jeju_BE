@@ -50,12 +50,12 @@ EXPECTED_SCHEMA_PROPERTIES = {
     },
     "CreateHeaders": {
         "Authorization": {"type": "string", "nullable": False, "pattern": r"^Bearer [^\s]{1,2048}$"},
-        "Idempotency-Key": {"type": "string", "nullable": False, "minLength": 1, "maxLength": 128, "pattern": "^[!-~]+$"},
-        "If-Match": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9]+\"$'},
+        "Idempotency-Key": {"type": "string", "nullable": False, "minLength": 36, "maxLength": 36, "format": "uuid", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+        "If-Match": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\"$'},
     },
     "MutationHeaders": {
         "Authorization": {"type": "string", "nullable": False, "pattern": r"^Bearer [^\s]{1,2048}$"},
-        "If-Match": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9]+\"$'},
+        "If-Match": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\"$'},
     },
     "CreateAccommodationRequest": {
         "placeId": {"type": "string", "nullable": True, "format": "uuid"},
@@ -92,7 +92,7 @@ EXPECTED_SCHEMA_PROPERTIES = {
         "regenerationRequired": {"type": "boolean", "nullable": False},
         "activeScheduleVersionId": {"type": "string", "nullable": True, "format": "uuid"},
         "tripStatus": {"type": "string", "nullable": False, "enum": ["draft", "planned"]},
-        "etag": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9]+\"$'},
+        "etag": {"type": "string", "nullable": False, "pattern": r'^\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\"$'},
         "createdAt": {"type": "string", "nullable": False, "format": "date-time", "offset": "+09:00"},
         "updatedAt": {"type": "string", "nullable": False, "format": "date-time", "offset": "+09:00"},
     },

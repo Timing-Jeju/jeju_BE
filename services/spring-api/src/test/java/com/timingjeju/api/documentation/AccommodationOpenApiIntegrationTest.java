@@ -52,13 +52,23 @@ class AccommodationOpenApiIntegrationTest {
         .andExpect(jsonPath(item + ".delete.operationId").value("tripAccommodationsDelete"))
         .andExpect(
             jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')]").value(hasSize(1)))
+        .andExpect(
+            jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')].schema.pattern")
+                .value(
+                    containsInAnyOrder(
+                        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")))
+        .andExpect(
+            jsonPath(collection + ".parameters[?(@.name=='Idempotency-Key')].schema.format")
+                .value(containsInAnyOrder("uuid")))
         .andExpect(jsonPath(collection + ".parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
             jsonPath(collection + ".parameters[?(@.name=='If-Match')].schema.pattern")
-                .value(containsInAnyOrder("^\\\"trip-[1-9][0-9]*\\\"$")))
+                .value(
+                    containsInAnyOrder(
+                        "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$")))
         .andExpect(
             jsonPath(collection + ".parameters[?(@.name=='If-Match')].example")
-                .value(containsInAnyOrder("\"trip-1\"")))
+                .value(containsInAnyOrder("\"trip-68000000-0000-4000-8000-000000000068-r1\"")))
         .andExpect(jsonPath(item + ".patch.parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
             jsonPath(item + ".delete.parameters[?(@.name=='If-Match')].required").value(true))
