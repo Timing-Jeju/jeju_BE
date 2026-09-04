@@ -4,8 +4,8 @@
 
 Spring API는 TourAPI·TAGO·KMA와 기존 TMAP 호환 설정의 활성 여부를 typed configuration으로
 읽고, 공통 `ExternalApiExecutor`가 안전한 HTTP 실행 경계를 제공합니다. Issue #40의 `DEFER`에
-따라 Spring의 TMAP 설정은 비활성 호환 경계이며 #41의 provider-neutral port가 이를 자동
-활성화하지 않습니다. 승인된 TMAP 보행·자동차 on-demand 호출은 FastAPI 프로세스의 별도
+따라 Spring의 TMAP 설정은 비활성 호환 경계이며 route 호출·cache를 활성화하지 않습니다.
+승인된 TMAP 보행·자동차 on-demand 호출은 FastAPI 프로세스의 별도
 source contract와 secret 경계를 사용하고, 프론트에는 provider key나 원천 요청 설정을 전달하지 않습니다.
 
 운영 Secret Manager 제품, workload identity/IAM, rotation과 rollback 절차는 배포 ADR Issue #63에서 확정합니다. 현재 Issue는 로컬·CI 환경변수 계약과 애플리케이션 시작 검증만 소유합니다.

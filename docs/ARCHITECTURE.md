@@ -23,7 +23,7 @@
 └── AGENTS.md
 ```
 
-Spring은 외부 공개 API, 인증·인가, DB와 외부 API를 소유합니다. FastAPI 저장소는 Python 런타임, 패키지 구조, AI 계산 코드와 자체 CI를 독립적으로 결정합니다.
+Spring은 외부 공개 API, 인증·인가, 제품 DB, TourAPI·TAGO·KMA 적재와 private MCP 연결·계약 검증·결과 저장을 소유합니다. `jeju_AI`는 TMAP 호출, 경로 계산, route fact, TTL cache와 fallback을 포함한 AI 계산 런타임을 단독 소유합니다. FastAPI 저장소는 Python 런타임, 패키지 구조와 자체 CI를 독립적으로 결정합니다.
 
 ## Spring API 내부 구조
 
