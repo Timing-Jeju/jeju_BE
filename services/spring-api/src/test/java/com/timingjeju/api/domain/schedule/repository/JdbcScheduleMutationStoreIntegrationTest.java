@@ -7,6 +7,7 @@ import com.timingjeju.api.application.schedule.CreateScheduleItemCommand;
 import com.timingjeju.api.application.schedule.ScheduleException;
 import com.timingjeju.api.application.schedule.ScheduleMutationRecord;
 import com.timingjeju.api.application.schedule.ScheduleMutationResult;
+import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripExpectedRevision;
 import com.timingjeju.api.domain.schedule.adapter.JdbcScheduleMutationStore;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -192,10 +194,23 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     String before = aggregateFingerprint();
 
     assertThatThrownBy(() -> store.addItem(record(Position.MIDDLE, ACTIVE, 2)))
-        .isInstanceOf(ScheduleException.class)
-        .extracting(failure -> ((ScheduleException) failure).code())
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
         .isEqualTo("TRIP_VERSION_CONFLICT");
 
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"completed", "cancelled", "failed"})
+  void terminal_trip은_일정_항목_추가를_409로_원자거부한다(String status) {
+    jdbc.update("update public.trip_plans set status=? where id=?", status, TRIP);
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> store.addItem(record(Position.MIDDLE, ACTIVE, 1)))
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
+        .isEqualTo("TRIP_TERMINAL_STATE_CONFLICT");
     assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
