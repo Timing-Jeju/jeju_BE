@@ -99,6 +99,29 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
                 self.assertIn(f"revoke execute on function {signature} from authenticated", migration)
                 self.assertIn(f"grant execute on function {signature} to service_role", migration)
 
+    def test_local_seed_populates_required_schedule_item_references(self) -> None:
+        """038 뒤에 실행되는 로컬 seed도 typed item의 필수 참조를 명시한다."""
+        seed = compact_sql(
+            (ROOT / "db/local-postgres/seed_fixtures.sql").read_text(encoding="utf-8")
+        )
+
+        self.assertIn(
+            "facts, accommodation_id, transport_event_id ) values",
+            seed,
+        )
+        self.assertIn(
+            "'arrival', '20000000-0000-0000-0000-000000000001', '제주 도착'",
+            seed,
+        )
+        self.assertIn("null, '50100000-0000-0000-0000-000000000001')", seed)
+        self.assertIn(
+            "'departure', '20000000-0000-0000-0000-000000000001', '제주 출발'",
+            seed,
+        )
+        self.assertIn("null, '50100000-0000-0000-0000-000000000002')", seed)
+        self.assertIn("'50200000-0000-0000-0000-000000000001', null)", seed)
+        self.assertIn("'50200000-0000-0000-0000-000000000002', null)", seed)
+
 
 if __name__ == "__main__":
     unittest.main()

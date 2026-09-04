@@ -164,3 +164,17 @@ python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build
 coordinator 적용과 stale ETag 예외 계약 정렬 후 schedule repository, controller/OpenAPI,
 trip repository 및 architecture 집중 스위트는 51초에 성공했다. 전체 `openApiDocs`, clean check,
 Docker와 공식 root gate는 보완 commit 생성 후 exact SHA에서 다시 실행한다.
+
+## Docker seed 통합 회귀 보정
+
+첫 공식 root gate의 Docker 초기화에서 038 제약 적용 후 기존 `099_seed_fixtures.sql`이
+typed item의 필수 FK를 생략해 PostgreSQL이 `arrival schedule item requires only
+transport_event_id`로 중단됐다. 애플리케이션은 기동했지만 DB 컨테이너가 종료되어 최종
+health check는 `UnknownHostException: postgres`로 실패했다.
+
+로컬 seed의 `trip_items` 열 목록에 `accommodation_id`, `transport_event_id`를 추가하고,
+세 schedule version의 arrival/departure/accommodation 항목이 같은 여행의 canonical 숙소·교통
+이벤트를 참조하도록 수정했다. 일반 방문·식사 항목은 두 참조를 모두 `null`로 명시했다.
+회귀 테스트 `test_local_seed_populates_required_schedule_item_references`가 seed 계약을 고정하며,
+격리 Compose에서 PostgreSQL을 새로 초기화해 `healthy` 상태를 확인했다. 이 보정 commit에서
+전체 공식 root gate를 다시 실행한다.
