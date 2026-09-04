@@ -401,6 +401,7 @@ class Validator:
         if not isinstance(runtime, dict):
             self.error(location, "runtime-only manifest projection이 없습니다")
             return
+        strict_problem_pairs = key == ("POST", "/api/v1/trips/{tripId}/schedule-items")
         for status, problem in (runtime.get("problems") or {}).items():
             if not isinstance(problem, list) or len(problem) != 2:
                 self.error(location, f"runtime Problem {status} manifest 형식이 올바르지 않습니다")
@@ -410,12 +411,17 @@ class Validator:
                 self.runtime_problem_definitions.get(problem[0]) == problem[1]
                 or str(status) in runtime.get("runtimeOnlyProblemStatuses", [])
             )
-            if (
-                domain_problem_pairs is not None
-                and not is_runtime_only
-                and pair not in domain_problem_pairs
-                and (problem[0], None) not in domain_problem_pairs
-            ):
+            pair_matches = (
+                self.canonical_problem_pair_matches(pair, domain_problem_pairs)
+                if strict_problem_pairs
+                else pair in domain_problem_pairs or (problem[0], None) in domain_problem_pairs
+            ) if domain_problem_pairs is not None else True
+            runtime_only_allowed = is_runtime_only and (
+                not strict_problem_pairs
+                or domain_problem_pairs is None
+                or not self.canonical_problem_code(problem[0], domain_problem_pairs)
+            )
+            if domain_problem_pairs is not None and not pair_matches and not runtime_only_allowed:
                 self.error(location, f"Problem {status} code/type이 domain endpoint matrix와 다릅니다")
         for status, problem_set in (runtime.get("problemSets") or {}).items():
             if not isinstance(problem_set, list):
@@ -427,12 +433,17 @@ class Validator:
                     continue
                 pair = tuple(problem)
                 is_runtime_only = self.runtime_problem_definitions.get(problem[0]) == problem[1]
-                if (
-                    domain_problem_pairs is not None
-                    and not is_runtime_only
-                    and pair not in domain_problem_pairs
-                    and (problem[0], None) not in domain_problem_pairs
-                ):
+                pair_matches = (
+                    self.canonical_problem_pair_matches(pair, domain_problem_pairs)
+                    if strict_problem_pairs
+                    else pair in domain_problem_pairs or (problem[0], None) in domain_problem_pairs
+                ) if domain_problem_pairs is not None else True
+                runtime_only_allowed = is_runtime_only and (
+                    not strict_problem_pairs
+                    or domain_problem_pairs is None
+                    or not self.canonical_problem_code(problem[0], domain_problem_pairs)
+                )
+                if domain_problem_pairs is not None and not pair_matches and not runtime_only_allowed:
                     self.error(location, f"Problem 전체 집합 {status} code/type이 domain endpoint matrix와 다릅니다")
         expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
         expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
@@ -445,7 +456,14 @@ class Validator:
         self.validate_contract_parameters(operation, catalog, schemas, location)
         self.validate_contract_body(operation, catalog, schemas, location)
         self.validate_contract_success(operation, endpoint, schemas, location)
+        canonical_problem_examples = {}
         if key == ("POST", "/api/v1/trips/{tripId}/schedule-items"):
+            fixture = self.read_authority_json("fixtures/contracts/schedules/problem.json") or {}
+            canonical_problem_examples = {
+                example.get("code"): example
+                for example in (fixture.get("examples") or {}).values()
+                if isinstance(example, dict) and isinstance(example.get("code"), str)
+            }
             retry_after = ((responses.get("409") or {}).get("headers") or {}).get("Retry-After")
             if not isinstance(retry_after, dict) or "IDEMPOTENCY_KEY_REUSED" not in retry_after.get("description", ""):
                 self.error(location, "409의 조건부 Retry-After 계약이 문서화되지 않았습니다")
@@ -458,6 +476,14 @@ class Validator:
             for example in self.examples(media):
                 if isinstance(example, dict):
                     actual_problem_pairs.add((example.get("code"), example.get("type")))
+                    canonical_example = canonical_problem_examples.get(example.get("code"))
+                    if canonical_example is not None:
+                        exact_fields = ("type", "title", "status", "detail", "code", "fieldErrors")
+                        if any(example.get(field) != canonical_example.get(field) for field in exact_fields):
+                            self.error(
+                                location,
+                                f"response {status} Problem {example.get('code')}가 canonical fixture와 다릅니다",
+                            )
             configured_set = (runtime.get("problemSets") or {}).get(str(status))
             if configured_set is not None:
                 expected_problem_pairs = {
@@ -476,6 +502,16 @@ class Validator:
                         location,
                         f"response {status} Problem code/type이 runtime representative와 다릅니다",
                     )
+
+    @staticmethod
+    def canonical_problem_code(code, pairs):
+        return any(candidate == code for candidate, _ in pairs)
+
+    @staticmethod
+    def canonical_problem_pair_matches(pair, pairs):
+        code, _ = pair
+        typed = {candidate for candidate in pairs if candidate[0] == code and candidate[1] is not None}
+        return pair in typed if typed else (code, None) in pairs
 
     def expected_problem_code(self, key, status):
         problem = (self.runtime_operations().get(f"{key[0]} {key[1]}") or {}).get("problems", {}).get(str(status))

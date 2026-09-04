@@ -114,4 +114,17 @@ class ProblemResponseWriterTest {
     assertThat(unmatchedResponse.getContentAsString())
         .doesNotContain("provider-token", "user@example.test");
   }
+
+  @Test
+  void Problem으로_reset해도_조건부_Retry_After는_보존하고_임의_header는_제거한다() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/v1/test");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    response.setHeader("Retry-After", "1");
+    response.setHeader("X-Internal", "secret");
+
+    writer.write(request, response, "IDEMPOTENCY_KEY_REUSED");
+
+    assertThat(response.getHeader("Retry-After")).isEqualTo("1");
+    assertThat(response.getHeader("X-Internal")).isNull();
+  }
 }

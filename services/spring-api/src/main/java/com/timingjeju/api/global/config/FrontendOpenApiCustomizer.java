@@ -1,5 +1,6 @@
 package com.timingjeju.api.global.config;
 
+import com.timingjeju.api.domain.schedule.exception.ScheduleProblemDefinitions;
 import com.timingjeju.api.global.error.ProblemCodeRegistry;
 import com.timingjeju.api.global.error.ProblemDefinition;
 import com.timingjeju.api.global.logging.RequestTraceId;
@@ -671,7 +672,9 @@ final class FrontendOpenApiCustomizer {
     boolean savedPlaceOperation =
         operationKey != null && operationKey.contains("/api/v1/me/saved-places");
     ProblemDefinition definition =
-        savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
+        "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
+            ? ScheduleProblemDefinitions.mutationDefinition(code)
+            : savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
     if (definition == null) {
       definition = problemCodeRegistry.find(code);
     }
