@@ -605,6 +605,41 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
         self.assertEqual("temporary:tag", resources["new"][0]["name"])
         self.assertEqual("protected-volume", resources["removed"][0]["name"])
 
+    def test_fresh_runner_dependency_image_cache_is_not_runtime_residue(self) -> None:
+        cached_image = watchdog.DockerResourceIdentity(
+            "image",
+            "sha256:dependency",
+            "postgis/postgis:16-3.4",
+            "created",
+            (),
+        )
+        dangling_image = watchdog.DockerResourceIdentity(
+            "image", "sha256:dangling", "<none>:<none>", "created", ()
+        )
+        baseline = watchdog.DockerResourceInspection(trusted=True, resources=())
+
+        with patch.object(
+            watchdog,
+            "inspect_docker_resources",
+            return_value=watchdog.DockerResourceInspection(
+                trusted=True, resources=(cached_image,)
+            ),
+        ):
+            cached = watchdog.observe_docker_resources(baseline, grace_seconds=0)
+        with patch.object(
+            watchdog,
+            "inspect_docker_resources",
+            return_value=watchdog.DockerResourceInspection(
+                trusted=True, resources=(cached_image, dangling_image)
+            ),
+        ):
+            residue = watchdog.observe_docker_resources(baseline, grace_seconds=0)
+
+        self.assertEqual((), cached.new)
+        self.assertEqual((cached_image,), cached.cached)
+        self.assertEqual((dangling_image,), residue.new)
+        self.assertEqual((cached_image,), residue.cached)
+
     def test_every_terminal_path_fails_closed_on_each_new_docker_resource_kind(self) -> None:
         protected = tuple(
             watchdog.DockerResourceIdentity(kind, f"protected-{kind}", f"live-{kind}", "ready", ())
@@ -882,6 +917,107 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
                 )
                 self.assertEqual("missing-root-suite-marker", manifest["reason"])
                 self.assertFalse(manifest["rootSuiteComplete"])
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "GitHub Actions Linux contract")
+    def test_successful_root_allows_observed_collector_to_drain_without_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            temporary_path = Path(temporary)
+            diagnostics = temporary_path / "diagnostics"
+            completed = temporary_path / "collector-completed"
+            environment = self._watchdog_environment(temporary_path)
+            descendant = (
+                "import pathlib,time; "
+                "time.sleep(0.25); "
+                f"pathlib.Path({str(completed)!r}).write_text('natural', encoding='utf-8')"
+            )
+            root = (
+                "import subprocess,sys,time; "
+                "child=subprocess.Popen([sys.executable,'-c',"
+                + repr(descendant)
+                + "], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+                "print(child.pid, flush=True); "
+                f"print('{ROOT_COMPLETE_PREFIX} task=:integrationTest', flush=True); "
+                "time.sleep(0.1)"
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(WATCHDOG),
+                    "--stage",
+                    "integrationTest",
+                    "--timeout-seconds",
+                    "5",
+                    "--post-suite-timeout-seconds",
+                    "1",
+                    "--expected-marker",
+                    f"{ROOT_COMPLETE_PREFIX} task=:integrationTest",
+                    "--diagnostics-dir",
+                    str(diagnostics),
+                    "--",
+                    sys.executable,
+                    "-c",
+                    root,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                env=environment,
+                timeout=8,
+            )
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertEqual("natural", completed.read_text(encoding="utf-8"))
+            self.assertFalse(diagnostics.exists())
+
+    def test_completed_posix_group_waits_for_owned_collector_without_signaling(self) -> None:
+        root = watchdog.PosixProcessIdentity(100, 1, 100, "root-start")
+        collector = watchdog.PosixProcessIdentity(200, 100, 100, "collector-start")
+        guard = Mock()
+        guard.root = root
+        guard.revalidate.side_effect = ((collector,), ())
+        process = Mock(pid=100)
+        process.poll.return_value = 0
+
+        with (
+            patch.object(watchdog.time, "sleep"),
+            patch.object(
+                watchdog.time, "monotonic", side_effect=(0.0, 0.1, 0.2)
+            ),
+            patch.object(watchdog.os, "killpg") as killpg,
+        ):
+            drained = watchdog.wait_for_tracked_posix_process_group_drain(
+                process, guard, timeout_seconds=1.0
+            )
+
+        self.assertTrue(drained)
+        self.assertEqual(2, guard.revalidate.call_count)
+        killpg.assert_not_called()
+
+    def test_completed_posix_group_drain_is_bounded_and_identity_fail_closed(self) -> None:
+        root = watchdog.PosixProcessIdentity(100, 1, 100, "root-start")
+        collector = watchdog.PosixProcessIdentity(200, 100, 100, "collector-start")
+        process = Mock(pid=100)
+        process.poll.return_value = 0
+
+        for members in ((collector,), None):
+            with self.subTest(members=members):
+                guard = Mock()
+                guard.root = root
+                guard.revalidate.return_value = members
+                with (
+                    patch.object(watchdog.time, "sleep") as sleep,
+                    patch.object(watchdog.time, "monotonic", side_effect=(0.0, 0.0)),
+                    patch.object(watchdog.os, "killpg") as killpg,
+                ):
+                    drained = watchdog.wait_for_tracked_posix_process_group_drain(
+                        process, guard, timeout_seconds=0.0
+                    )
+
+                self.assertFalse(drained)
+                sleep.assert_not_called()
+                killpg.assert_not_called()
 
     @unittest.skipUnless(sys.platform != "win32", "POSIX process-group contract")
     def test_successful_root_with_unobserved_child_fails_closed_without_signaling_group(

@@ -110,6 +110,7 @@ class DockerResourceObservation:
     new: tuple[DockerResourceIdentity, ...]
     removed: tuple[DockerResourceIdentity, ...]
     state_changed: tuple[DockerResourceStateChange, ...] = ()
+    cached: tuple[DockerResourceIdentity, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -284,6 +285,16 @@ def container_health(status: str) -> str:
     return "none"
 
 
+def is_reusable_dependency_image(resource: DockerResourceIdentity) -> bool:
+    return (
+        resource.kind == "image"
+        and resource.id.startswith("sha256:")
+        and resource.name != "<none>:<none>"
+        and not resource.name.startswith("<none>:")
+        and ":" in resource.name
+    )
+
+
 def observe_docker_resources(
     baseline: DockerResourceInspection, grace_seconds: float = 15
 ) -> DockerResourceObservation:
@@ -292,6 +303,9 @@ def observe_docker_resources(
     baseline_identities = {
         (resource.kind, resource.id, resource.name): resource
         for resource in baseline.resources
+    }
+    baseline_image_ids = {
+        resource.id for resource in baseline.resources if resource.kind == "image"
     }
     deadline = time.monotonic() + grace_seconds
     while True:
@@ -302,11 +316,18 @@ def observe_docker_resources(
             (resource.kind, resource.id, resource.name): resource
             for resource in inspection.resources
         }
-        residue = tuple(
+        added = tuple(
             resource
             for resource in inspection.resources
             if (resource.kind, resource.id, resource.name) not in baseline_identities
         )
+        cached = tuple(
+            resource
+            for resource in added
+            if is_reusable_dependency_image(resource)
+            and resource.id not in baseline_image_ids
+        )
+        residue = tuple(resource for resource in added if resource not in cached)
         removed = tuple(
             resource
             for identity, resource in baseline_identities.items()
@@ -335,6 +356,7 @@ def observe_docker_resources(
                 new=residue,
                 removed=removed,
                 state_changed=state_changed,
+                cached=cached,
             )
         time.sleep(0.25)
 
@@ -576,6 +598,7 @@ def collect_diagnostics(
             "baseline": [docker_resource_record(item) for item in baseline.resources],
             "current": [docker_resource_record(item) for item in observation.current],
             "new": [docker_resource_record(item) for item in observation.new],
+            "cached": [docker_resource_record(item) for item in observation.cached],
             "removed": [docker_resource_record(item) for item in observation.removed],
             "stateChanged": [
                 {
@@ -844,6 +867,25 @@ def wait_for_posix_process_group_exit(
             if posix_guard is None and posix_process_group_exists(process_group_id) is False:
                 return True
         elif not members:
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(POSIX_PROCESS_POLL_SECONDS, remaining))
+
+
+def wait_for_tracked_posix_process_group_drain(
+    process: subprocess.Popen[str],
+    posix_guard: PosixProcessGroupGuard,
+    timeout_seconds: float,
+) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        process.poll()
+        members = posix_guard.revalidate()
+        if members is None:
+            return False
+        if not members:
             return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -1397,6 +1439,17 @@ def main() -> int:
             requested_exit_code = MARKER_EXIT_CODE
         elif requested_exit_code != 0:
             reason = "command-failed"
+        elif os.name == "posix" and posix_guard is not None:
+            remaining = max(
+                0.0,
+                args.post_suite_timeout_seconds
+                - (time.monotonic() - root_completed_at),
+            )
+            if not wait_for_tracked_posix_process_group_drain(
+                process, posix_guard, remaining
+            ):
+                reason = "post-suite-timeout"
+                requested_exit_code = TIMEOUT_EXIT_CODE
     return finalize_terminal(
         args=args,
         process=process,

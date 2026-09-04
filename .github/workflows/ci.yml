@@ -90,6 +90,7 @@ jobs:
           path: |
             services/spring-api/build/reports/tests/
             services/spring-api/build/reports/jacoco/
+            services/spring-api/build/diagnostics/
             services/spring-api/build/openapi/openapi.json
           if-no-files-found: warn
           retention-days: 14
