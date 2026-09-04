@@ -142,6 +142,7 @@ class TripPreferencesControllerIntegrationTest {
     List<byte[]> invalid =
         List.of(
             "".getBytes(StandardCharsets.UTF_8),
+            "null".getBytes(StandardCharsets.UTF_8),
             body.substring(0, body.length() - 2).getBytes(StandardCharsets.UTF_8),
             (body + " true").getBytes(StandardCharsets.UTF_8),
             body.replaceFirst("\\{", "{\"preferredCategories\":[\"cafe\"],")

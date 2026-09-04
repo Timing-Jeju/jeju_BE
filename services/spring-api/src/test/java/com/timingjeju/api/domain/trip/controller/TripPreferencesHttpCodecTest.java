@@ -49,6 +49,11 @@ class TripPreferencesHttpCodecTest {
   }
 
   @Test
+  void top_level_JSON_null은_INVALID_REQUEST다() {
+    assertInvalid(() -> codec.decode("null".getBytes(StandardCharsets.UTF_8)));
+  }
+
+  @Test
   void nested_transport_fields와_null_category_trim_blank_region은_INVALID_REQUEST다() {
     for (InvalidJson invalid : structuralInvalidBodies(validJson())) {
       assertInvalid(

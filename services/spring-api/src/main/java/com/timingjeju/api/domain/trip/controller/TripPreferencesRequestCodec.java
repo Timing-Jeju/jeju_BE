@@ -36,6 +36,9 @@ final class TripPreferencesRequestCodec {
   ReplaceTripPreferencesCommand decode(byte[] body) {
     try {
       ReplaceTripPreferencesRequest request = reader.readValue(body);
+      if (request == null) {
+        throw TripException.invalidRequest();
+      }
       return request.toCommand();
     } catch (JacksonException | TripException failure) {
       throw TripException.invalidRequest();
