@@ -90,6 +90,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
     UUID canonicalTripId = parseCanonicalUuid(tripId);
     var expectedTrip = TripEntityTag.parse(ifMatch);
     CurrentUser user = currentUsers.getRequired();
+    validateBodySize(body);
     IdempotencyRequest request =
         IdempotencyRequest.create(
             user.userId(),
@@ -122,9 +123,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
   }
 
   private CreateScheduleItemRequest parseRequest(byte[] body) {
-    if (body.length > IdempotencyRequest.MAX_BODY_BYTES) {
-      throw ScheduleException.invalidRequest();
-    }
+    validateBodySize(body);
     try {
       CreateScheduleItemRequest request = strictReader.readValue(body);
       JsonNode tree = objectMapper.readTree(body);
@@ -137,6 +136,12 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
       }
       return request;
     } catch (JacksonException failure) {
+      throw ScheduleException.invalidRequest();
+    }
+  }
+
+  private static void validateBodySize(byte[] body) {
+    if (body == null || body.length > IdempotencyRequest.MAX_BODY_BYTES) {
       throw ScheduleException.invalidRequest();
     }
   }

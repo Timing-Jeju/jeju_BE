@@ -17,12 +17,12 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
             404,
             "SCHEDULE_VERSION_NOT_FOUND",
             "요청한 일정 버전이 없거나 접근할 수 없습니다."),
-        problem("ACCOMMODATION_NOT_FOUND", "숙소를 찾을 수 없습니다", 404, "요청한 숙소가 없거나 접근할 수 없습니다."),
+        problem("ACCOMMODATION_NOT_FOUND", "숙소를 찾을 수 없습니다", 404, "요청한 숙소가 없거나 해당 여행에 속하지 않습니다."),
         problem(
             "TRANSPORT_EVENT_NOT_FOUND",
             "교통 이벤트를 찾을 수 없습니다",
             404,
-            "요청한 도착 또는 출발 정보가 없거나 접근할 수 없습니다."),
+            "요청한 교통 이벤트가 없거나 해당 여행에 속하지 않습니다."),
         problem(
             "ACTIVE_SCHEDULE_VERSION_CONFLICT",
             "활성 일정이 이미 변경되었습니다",

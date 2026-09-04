@@ -36,6 +36,12 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   private static final UUID ADDED_PLACE = UUID.fromString("50000000-0000-0000-0000-000000000109");
   private static final UUID ROUTE_SNAPSHOT =
       UUID.fromString("50000000-0000-0000-0000-000000000110");
+  private static final UUID ACCOMMODATION_ID =
+      UUID.fromString("50000000-0000-0000-0000-000000000111");
+  private static final UUID ARRIVAL_ID = UUID.fromString("50000000-0000-0000-0000-000000000112");
+  private static final UUID DEPARTURE_ID = UUID.fromString("50000000-0000-0000-0000-000000000113");
+  private static final UUID DAY_TWO = UUID.fromString("50000000-0000-0000-0000-000000000114");
+  private static final UUID DAY_TWO_ITEM = UUID.fromString("50000000-0000-0000-0000-000000000115");
   private static final Instant NOW = Instant.parse("2026-09-01T02:00:00Z");
 
   @Autowired private JdbcTemplate jdbc;
@@ -51,7 +57,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         insert into public.trip_plans
           (id, user_id, public_token, title, status, start_date, end_date,
            source_mode, data_version, revision)
-        values (?, ?, 'issue50-trip', '일정 추가', 'draft', '2026-09-01', '2026-09-01',
+        values (?, ?, 'issue50-trip', '일정 추가', 'draft', '2026-09-01', '2026-09-02',
                 'fixture', 'issue50-v1', 1)
         """,
         TRIP,
@@ -61,11 +67,16 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         DAY,
         TRIP);
     jdbc.update(
+        "insert into public.trip_days (id, trip_plan_id, day_no, trip_date) values (?, ?, 2, '2026-09-02')",
+        DAY_TWO,
+        TRIP);
+    jdbc.update(
         "insert into public.trip_schedule_versions (id, trip_plan_id, version_no, status, source_type) values (?, ?, 1, 'draft', 'initial')",
         ACTIVE,
         TRIP);
     insertItem(FIRST, FIRST_PLACE, 1, "2026-09-01T00:00:00Z");
     insertItem(SECOND, SECOND_PLACE, 2, "2026-09-01T03:00:00Z");
+    insertItem(DAY_TWO_ITEM, DAY_TWO, SECOND_PLACE, 1, "2026-09-02T00:00:00Z");
     jdbc.update(
         """
         insert into public.trip_legs
@@ -90,6 +101,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         "update public.trip_plans set active_schedule_version_id=?, status='planned' where id=?",
         ACTIVE,
         TRIP);
+    insertReferences();
     jdbc.execute("set constraints all immediate");
     jdbc.execute("set constraints all deferred");
   }
@@ -123,8 +135,8 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
                 "select id from public.trip_items where schedule_version_id=? order by sequence_no",
                 UUID.class,
                 result.activeScheduleVersionId()))
-        .hasSize(3)
-        .doesNotContain(FIRST, SECOND)
+        .hasSize(4)
+        .doesNotContain(FIRST, SECOND, DAY_TWO_ITEM)
         .contains(result.changedItemIds().getFirst());
     assertThat(
             jdbc.queryForObject(
@@ -219,6 +231,69 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         .isEqualTo(1);
   }
 
+  @ParameterizedTest
+  @EnumSource(ItemKind.class)
+  void 일곱_item_type은_저장된_정규화_장소를_결정론적으로_보존한다(ItemKind kind) {
+    ScheduleMutationResult result = store.addItem(record(kind.command(), ACTIVE, 1));
+
+    assertThat(
+            jdbc.queryForMap(
+                """
+                select item_type, place_id, accommodation_id, transport_event_id, title
+                from public.trip_items where schedule_version_id=? and id=?
+                """,
+                result.activeScheduleVersionId(),
+                result.changedItemIds().getFirst()))
+        .containsEntry("item_type", kind.itemType)
+        .containsEntry("place_id", ADDED_PLACE);
+  }
+
+  @Test
+  void 위치없는_숙소와_교통_event는_draft_전에_422이고_aggregate를_보존한다() {
+    jdbc.update(
+        "update public.trip_accommodations set place_id=null, custom_name='직접 숙소' where id=?",
+        ACCOMMODATION_ID);
+    jdbc.update(
+        "update public.trip_transport_events set terminal_place_id=null, terminal_name='직접 터미널' where id=?",
+        ARRIVAL_ID);
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> store.addItem(record(ItemKind.ACCOMMODATION.command(), ACTIVE, 1)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_INVALID");
+    assertThatThrownBy(() -> store.addItem(record(ItemKind.ARRIVAL.command(), ACTIVE, 1)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_INVALID");
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @ParameterizedTest
+  @EnumSource(LocationlessTitleKind.class)
+  void 위치없는_title_item은_draft_전에_422이고_aggregate를_보존한다(LocationlessTitleKind kind) {
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> store.addItem(record(kind.command(), ACTIVE, 1)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_INVALID");
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @ParameterizedTest
+  @EnumSource(UnusablePlace.class)
+  void 사용할수없는_정규화_장소는_404이고_aggregate를_보존한다(UnusablePlace state) {
+    jdbc.update(state.sql, ADDED_PLACE);
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> store.addItem(record(ItemKind.PLACE_VISIT.command(), ACTIVE, 1)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("PLACE_NOT_FOUND");
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
   private ScheduleMutationRecord record(Position position, UUID expectedActive, long revision) {
     CreateScheduleItemCommand command =
         new CreateScheduleItemCommand(
@@ -235,6 +310,11 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
             0,
             false,
             null);
+    return record(command, expectedActive, revision);
+  }
+
+  private ScheduleMutationRecord record(
+      CreateScheduleItemCommand command, UUID expectedActive, long revision) {
     return new ScheduleMutationRecord(
         OWNER, TRIP, new TripExpectedRevision(TRIP, revision), command, NOW);
   }
@@ -253,6 +333,31 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     insertPlace(ADDED_PLACE, "추가 장소", 126.5010, 33.5000);
   }
 
+  private void insertReferences() {
+    jdbc.update(
+        """
+        insert into public.trip_accommodations
+          (id, trip_plan_id, place_id, check_in_date, check_out_date, sequence_no)
+        values (?, ?, ?, '2026-09-01', '2026-09-02', 1)
+        """,
+        ACCOMMODATION_ID,
+        TRIP,
+        ADDED_PLACE);
+    jdbc.update(
+        """
+        insert into public.trip_transport_events
+          (id, trip_plan_id, event_type, transport_type, terminal_place_id, scheduled_at)
+        values (?, ?, 'arrival', 'flight', ?, '2026-09-01T00:00:00Z'),
+               (?, ?, 'departure', 'flight', ?, '2026-09-01T12:00:00Z')
+        """,
+        ARRIVAL_ID,
+        TRIP,
+        ADDED_PLACE,
+        DEPARTURE_ID,
+        TRIP,
+        ADDED_PLACE);
+  }
+
   private void insertPlace(UUID id, String name, double longitude, double latitude) {
     jdbc.update(
         """
@@ -268,6 +373,10 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   }
 
   private void insertItem(UUID id, UUID placeId, int sequence, String start) {
+    insertItem(id, DAY, placeId, sequence, start);
+  }
+
+  private void insertItem(UUID id, UUID dayId, UUID placeId, int sequence, String start) {
     Instant startsAt = Instant.parse(start);
     jdbc.update(
         """
@@ -278,7 +387,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         """,
         id,
         TRIP,
-        DAY,
+        dayId,
         ACTIVE,
         sequence,
         placeId,
@@ -321,6 +430,92 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     Position(int sequence, String start) {
       this.sequence = sequence;
       this.start = start;
+    }
+  }
+
+  private enum ItemKind {
+    PLACE_VISIT("place_visit", ADDED_PLACE, null, null, null),
+    MEAL("meal", ADDED_PLACE, null, null, "점심"),
+    ACCOMMODATION("accommodation", null, ACCOMMODATION_ID, null, null),
+    ARRIVAL("arrival", null, null, ARRIVAL_ID, null),
+    DEPARTURE("departure", null, null, DEPARTURE_ID, null),
+    FREE_TIME("free_time", ADDED_PLACE, null, null, "자유 시간"),
+    CUSTOM("custom", ADDED_PLACE, null, null, "사용자 일정");
+
+    private final String itemType;
+    private final UUID placeId;
+    private final UUID accommodationId;
+    private final UUID transportEventId;
+    private final String title;
+
+    ItemKind(
+        String itemType, UUID placeId, UUID accommodationId, UUID transportEventId, String title) {
+      this.itemType = itemType;
+      this.placeId = placeId;
+      this.accommodationId = accommodationId;
+      this.transportEventId = transportEventId;
+      this.title = title;
+    }
+
+    private CreateScheduleItemCommand command() {
+      return new CreateScheduleItemCommand(
+          ACTIVE,
+          1,
+          2,
+          itemType,
+          placeId,
+          accommodationId,
+          transportEventId,
+          title,
+          OffsetDateTime.parse("2026-09-01T10:30:00+09:00"),
+          30,
+          0,
+          false,
+          null);
+    }
+  }
+
+  private enum UnusablePlace {
+    STALE("update public.tour_places set stale=true where id=?"),
+    EXPIRED("update public.tour_places set stale_at=now() where id=?"),
+    TOMBSTONED("update public.tour_places set tombstoned_at=now() where id=?"),
+    SOURCE_DELETED("update public.tour_places set source_deleted_at=now() where id=?");
+
+    private final String sql;
+
+    UnusablePlace(String sql) {
+      this.sql = sql;
+    }
+  }
+
+  private enum LocationlessTitleKind {
+    MEAL("meal", "점심"),
+    FREE_TIME("free_time", "자유 시간"),
+    CUSTOM("custom", "사용자 일정");
+
+    private final String itemType;
+    private final String title;
+
+    LocationlessTitleKind(String itemType, String title) {
+      this.itemType = itemType;
+      this.title = title;
+    }
+
+    private CreateScheduleItemCommand command() {
+      return new CreateScheduleItemCommand(
+          ACTIVE,
+          1,
+          2,
+          itemType,
+          null,
+          null,
+          null,
+          title,
+          OffsetDateTime.parse("2026-09-01T10:30:00+09:00"),
+          30,
+          0,
+          false,
+          null);
     }
   }
 }

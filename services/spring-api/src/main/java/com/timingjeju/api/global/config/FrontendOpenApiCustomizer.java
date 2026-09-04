@@ -6,9 +6,11 @@ import com.timingjeju.api.global.logging.RequestTraceId;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
+import io.swagger.v3.oas.models.examples.Example;
 import io.swagger.v3.oas.models.headers.Header;
 import io.swagger.v3.oas.models.media.BooleanSchema;
 import io.swagger.v3.oas.models.media.Content;
+import io.swagger.v3.oas.models.media.IntegerSchema;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.media.StringSchema;
@@ -97,6 +99,23 @@ final class FrontendOpenApiCustomizer {
                   "메모, 태그, 우선순위 또는 희망 Day 값을 확인해 주세요.")));
 
   private static final Map<String, OperationDocument> DOCUMENTS = operationDocuments();
+  private static final Map<String, List<String>> SCHEDULE_ITEM_PROBLEMS =
+      Map.of(
+          "400", List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_KEY_INVALID"),
+          "401", List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"),
+          "404",
+              List.of(
+                  "TRIP_NOT_FOUND",
+                  "PLACE_NOT_FOUND",
+                  "ACCOMMODATION_NOT_FOUND",
+                  "TRANSPORT_EVENT_NOT_FOUND",
+                  "SCHEDULE_VERSION_NOT_FOUND"),
+          "409",
+              List.of(
+                  "IDEMPOTENCY_KEY_REUSED",
+                  "TRIP_VERSION_CONFLICT",
+                  "ACTIVE_SCHEDULE_VERSION_CONFLICT"),
+          "422", List.of("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"));
 
   private final ObjectMapper objectMapper;
   private final ProblemCodeRegistry problemCodeRegistry;
@@ -600,13 +619,33 @@ final class FrontendOpenApiCustomizer {
     }
     String code = configuredCode == null ? defaultCode(status) : configuredCode;
     response.addHeaderObject(RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
+    MediaType media = new MediaType().schema(new Schema<>().$ref(PROBLEM_SCHEMA));
+    List<String> codes =
+        "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
+            ? SCHEDULE_ITEM_PROBLEMS.get(String.valueOf(status))
+            : null;
+    if (codes == null) {
+      media.setExample(problemExample(status, code, operationKey));
+    } else {
+      Map<String, Example> examples = new LinkedHashMap<>();
+      codes.forEach(
+          problemCode ->
+              examples.put(
+                  problemCode,
+                  new Example().value(problemExample(status, problemCode, operationKey))));
+      media.setExamples(examples);
+    }
     response.setContent(
         new Content()
             .addMediaType(
-                org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE,
-                new MediaType()
-                    .schema(new Schema<>().$ref(PROBLEM_SCHEMA))
-                    .example(problemExample(status, code, operationKey))));
+                org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, media));
+    if ("POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey) && status == 409) {
+      response.addHeaderObject(
+          "Retry-After",
+          new Header()
+              .description("동일 payload가 처리 중인 IDEMPOTENCY_KEY_REUSED 응답에만 재시도 대기 초를 제공합니다.")
+              .schema(new IntegerSchema().format("int32").minimum(BigDecimal.ONE)));
+    }
   }
 
   private void documentComponentProblems(OpenAPI openApi) {

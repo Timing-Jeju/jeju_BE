@@ -17,6 +17,7 @@ import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
+import com.timingjeju.api.application.idempotency.IdempotencyRequest;
 import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
 import com.timingjeju.api.application.schedule.ItemProgressSnapshot;
 import com.timingjeju.api.application.schedule.ScheduleDaySnapshot;
@@ -304,6 +305,51 @@ class ScheduleControllerIntegrationTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("INVALID_IF_MATCH"));
     verifyNoInteractions(mutations);
+  }
+
+  @Test
+  void POST_schedule_items는_정확히_1MiB를_허용하고_초과_body를_400으로_거부한다() throws Exception {
+    UUID newVersionId = UUID.fromString("49000000-0000-0000-0000-000000000008");
+    when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
+        .thenReturn(
+            new ScheduleMutationResult(
+                TRIP_ID,
+                VERSION_ID,
+                newVersionId,
+                2,
+                2,
+                List.of(UUID.fromString("49000000-0000-0000-0000-000000000009")),
+                Instant.parse("2026-09-01T01:00:00Z")));
+    String json =
+        "{\"expectedActiveScheduleVersionId\":\""
+            + VERSION_ID
+            + "\",\"dayNo\":1,\"sequenceNo\":1,\"itemType\":\"place_visit\","
+            + "\"placeId\":\"49000000-0000-0000-0000-000000000007\","
+            + "\"plannedStartAt\":\"2026-09-01T09:00:00+09:00\",\"stayMinutes\":60}";
+    byte[] base = json.getBytes(StandardCharsets.UTF_8);
+    byte[] exact =
+        (json + " ".repeat(IdempotencyRequest.MAX_BODY_BYTES - base.length))
+            .getBytes(StandardCharsets.UTF_8);
+    byte[] over =
+        (json + " ".repeat(IdempotencyRequest.MAX_BODY_BYTES + 1 - base.length))
+            .getBytes(StandardCharsets.UTF_8);
+
+    mvc.perform(scheduleItemPost(exact, UUID.randomUUID())).andExpect(status().isCreated());
+    mvc.perform(scheduleItemPost(over, UUID.randomUUID()))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+    verify(mutations).addItem(any(), eq(TRIP_ID), any(), any());
+  }
+
+  private AbstractMockHttpServletRequestBuilder<?> scheduleItemPost(byte[] body, UUID key)
+      throws Exception {
+    return post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+        .header("Idempotency-Key", key.toString())
+        .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(body);
   }
 
   private static ScheduleSnapshot snapshot() {

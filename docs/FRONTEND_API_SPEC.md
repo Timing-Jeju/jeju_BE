@@ -2,14 +2,14 @@
 
 > **#50 기능 브랜치의 통합 공개 API 24개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 24` 명령이 병합된 23개와 일정 항목 추가 POST 1개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 21`, `--mode 23`은 이전 inventory를 그대로 보존한다.
 
-이 문서는 현재 `develop`의 공개 Spring API와 #45의 trip PATCH/DELETE를 합친 23개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 현재 `develop`의 공개 Spring API 23개와 #50의 일정 항목 추가 POST를 합친 24개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
 | 상태 | 범위 | 권위 자료 |
 |---|---|---|
-| `develop` 사용 가능 | 공개 API 21 | `origin/develop`의 Controller/OpenAPI와 canonical contract; #49 schedule read 포함 |
-| **#45 기능 브랜치** | trip PATCH/DELETE 2 | `feat/45-trip-update-delete`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
+| `develop` 사용 가능 | 공개 API 23 | `origin/develop`의 Controller/OpenAPI와 canonical contract; #45 trip PATCH/DELETE와 #49 schedule read 포함 |
+| **#50 기능 브랜치** | 일정 항목 추가 POST 1 | `feat/50-schedule-item-create`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 
 현재 `develop`에서는 23개를 호출할 수 있다. 일정 항목 추가 POST는 독립 리뷰와 병합 전까지 #50 기능 브랜치에서만 검증하며, 이 문서는 해당 브랜치가 실제 생성한 24-operation artifact를 기준으로 한다.
 

@@ -58,3 +58,15 @@ python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build
 - title-only item type은 위치 근거가 없으면 인접 leg를 만들 수 없으므로 자동 추측하지 않고 `422`로 닫힌다.
 - stored snapshot은 같은 정규화 place pair와 transport mode에 한해 사용한다. snapshot이 없고 좌표 기반 도보 구간도 다음 일정 시작 전에 도착하지 못하면 mutation 전체를 rollback한다.
 - 프론트엔드는 mutation 성공 응답의 새 ETag를 다음 편집 요청에 보존하고, `409`에서는 active schedule과 여행 상세를 다시 조회해야 한다.
+
+## 독립 리뷰 보완
+
+첫 독립 리뷰는 MAJOR 4건과 MINOR 1건으로 `CHANGES_REQUESTED`였다. 보완은 각 경계를 테스트로 고정한 뒤 다음과 같이 닫았다.
+
+- request body 크기를 idempotency request 생성 전에 검사해 정확히 1 MiB는 허용하고 1 byte 초과는 `400 INVALID_REQUEST`로 종료한다.
+- 일곱 item type 모두 저장된 정규화 장소 ID를 유지한다. `meal`, `free_time`, `custom`의 선택적 `placeId`도 버리지 않으며 위치 없는 숙소·교통 이벤트는 draft 생성 전에 `422 SCHEDULE_ITEM_INVALID`로 거부한다.
+- 장소는 `stale=false`, `source_deleted_at is null`, `tombstoned_at is null`, 유효한 `stale_at` 조건을 모두 만족해야 한다. 각 비활성 상태는 `404 PLACE_NOT_FOUND`이며 aggregate fingerprint가 변하지 않는다.
+- 숙소·교통 이벤트 Problem 문구를 canonical fixture와 일치시켰다. 생성 OpenAPI는 status별 대표 code 하나가 아니라 endpoint error matrix의 전체 code/type 예시를 공개하고, 처리 중 멱등성 충돌에만 적용되는 `Retry-After`를 문서화한다. mode 24 validator도 이 전체 집합을 fail-closed로 대조한다.
+- 프론트엔드 인계 표를 `develop` 23개와 #50 기능 브랜치 1개로 정정했다.
+
+위치 근거는 `place_id` 참조로 보존하고 raw provider 응답·상세 geometry를 item facts에 복제하지 않는다.

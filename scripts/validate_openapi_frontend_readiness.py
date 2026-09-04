@@ -44,6 +44,7 @@ REQUIRED_RESPONSE_HEADERS = {
         "ETag",
         "Idempotency-Replayed",
     },
+    ("POST", "/api/v1/trips/{tripId}/schedule-items", "409"): {"Retry-After"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -416,6 +417,23 @@ class Validator:
                 and (problem[0], None) not in domain_problem_pairs
             ):
                 self.error(location, f"Problem {status} code/type이 domain endpoint matrix와 다릅니다")
+        for status, problem_set in (runtime.get("problemSets") or {}).items():
+            if not isinstance(problem_set, list):
+                self.error(location, f"runtime Problem 전체 집합 {status} manifest 형식이 올바르지 않습니다")
+                continue
+            for problem in problem_set:
+                if not isinstance(problem, list) or len(problem) != 2:
+                    self.error(location, f"runtime Problem 전체 집합 {status} 항목 형식이 올바르지 않습니다")
+                    continue
+                pair = tuple(problem)
+                is_runtime_only = self.runtime_problem_definitions.get(problem[0]) == problem[1]
+                if (
+                    domain_problem_pairs is not None
+                    and not is_runtime_only
+                    and pair not in domain_problem_pairs
+                    and (problem[0], None) not in domain_problem_pairs
+                ):
+                    self.error(location, f"Problem 전체 집합 {status} code/type이 domain endpoint matrix와 다릅니다")
         expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
         expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
         actual_statuses = {str(status) for status in responses if str(status).isdigit()}
@@ -427,25 +445,37 @@ class Validator:
         self.validate_contract_parameters(operation, catalog, schemas, location)
         self.validate_contract_body(operation, catalog, schemas, location)
         self.validate_contract_success(operation, endpoint, schemas, location)
+        if key == ("POST", "/api/v1/trips/{tripId}/schedule-items"):
+            retry_after = ((responses.get("409") or {}).get("headers") or {}).get("Retry-After")
+            if not isinstance(retry_after, dict) or "IDEMPOTENCY_KEY_REUSED" not in retry_after.get("description", ""):
+                self.error(location, "409의 조건부 Retry-After 계약이 문서화되지 않았습니다")
         for status, raw_response in responses.items():
             if not str(status).isdigit() or int(status) < 400:
                 continue
             response = self.resolve(raw_response, f"{location} response {status}")
             media = (response.get("content") or {}).get("application/problem+json") or {}
+            actual_problem_pairs = set()
             for example in self.examples(media):
                 if isinstance(example, dict):
-                    expected_code = self.expected_problem_code(key, int(status))
-                    if example.get("code") != expected_code:
-                        self.error(
-                            location,
-                            f"response {status} Problem code가 runtime representative와 다릅니다",
-                        )
-                    expected_type = self.expected_problem_type(expected_code)
-                    if example.get("type") != expected_type:
-                        self.error(
-                            location,
-                            f"response {status} Problem type이 runtime registry와 다릅니다",
-                        )
+                    actual_problem_pairs.add((example.get("code"), example.get("type")))
+            configured_set = (runtime.get("problemSets") or {}).get(str(status))
+            if configured_set is not None:
+                expected_problem_pairs = {
+                    tuple(pair) for pair in configured_set if isinstance(pair, list) and len(pair) == 2
+                }
+                if actual_problem_pairs != expected_problem_pairs:
+                    self.error(
+                        location,
+                        f"response {status} Problem 전체 집합이 다릅니다: expected={sorted(expected_problem_pairs)}, actual={sorted(actual_problem_pairs)}",
+                    )
+            else:
+                expected_code = self.expected_problem_code(key, int(status))
+                expected_type = self.expected_problem_type(expected_code)
+                if actual_problem_pairs != {(expected_code, expected_type)}:
+                    self.error(
+                        location,
+                        f"response {status} Problem code/type이 runtime representative와 다릅니다",
+                    )
 
     def expected_problem_code(self, key, status):
         problem = (self.runtime_operations().get(f"{key[0]} {key[1]}") or {}).get("problems", {}).get(str(status))
@@ -759,6 +789,12 @@ class Validator:
                 "Idempotency-Replayed": ("type", "boolean"),
             }
             if name not in rules:
+                if name == "Retry-After" and (
+                    schema.get("type") != "integer"
+                    or schema.get("minimum", 0) < 1
+                    or "IDEMPOTENCY_KEY_REUSED" not in header.get("description", "")
+                ):
+                    self.error(location, f"response {status} Retry-After 조건부 schema가 올바르지 않습니다")
                 continue
             if not header.get("description") or "example" not in header:
                 self.error(location, f"response {status} {name} description/example이 없습니다")

@@ -229,21 +229,51 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
   }
 
   private ResolvedReference resolveReference(UUID tripId, CreateScheduleItemCommand command) {
-    return switch (command.itemType()) {
-      case "place_visit" -> resolvePlace(command.placeId());
-      case "accommodation" -> resolveAccommodation(tripId, command.accommodationId());
-      case "arrival", "departure" ->
-          resolveTransportEvent(tripId, command.transportEventId(), command.itemType());
-      default ->
-          new ResolvedReference(
-              null, command.title(), command.accommodationId(), command.transportEventId());
-    };
+    ResolvedReference resolved =
+        switch (command.itemType()) {
+          case "place_visit" -> resolvePlace(command.placeId());
+          case "accommodation" -> resolveAccommodation(tripId, command.accommodationId());
+          case "arrival", "departure" ->
+              resolveTransportEvent(tripId, command.transportEventId(), command.itemType());
+          case "meal", "free_time", "custom" ->
+              command.placeId() == null
+                  ? new ResolvedReference(null, command.title(), null, null)
+                  : resolvePlace(command.placeId()).withTitle(command.title());
+          default -> throw ScheduleException.itemInvalid();
+        };
+    if (resolved.placeId() == null) {
+      throw ScheduleException.itemInvalid();
+    }
+    if (!"place_visit".equals(command.itemType())
+        && !List.of("meal", "free_time", "custom").contains(command.itemType())) {
+      ensureActivePlace(resolved.placeId());
+    }
+    return resolved;
+  }
+
+  private void ensureActivePlace(UUID placeId) {
+    Integer count =
+        jdbc.queryForObject(
+            """
+            select count(*) from public.tour_places
+            where id=? and stale=false and source_deleted_at is null and tombstoned_at is null
+              and (stale_at is null or stale_at > now())
+            """,
+            Integer.class,
+            placeId);
+    if (count == null || count != 1) {
+      throw ScheduleException.placeNotFound();
+    }
   }
 
   private ResolvedReference resolvePlace(UUID placeId) {
     List<ResolvedReference> rows =
         jdbc.query(
-            "select id, name from public.tour_places where id=?",
+            """
+            select id, name from public.tour_places
+            where id=? and stale=false and source_deleted_at is null and tombstoned_at is null
+              and (stale_at is null or stale_at > now())
+            """,
             (rs, row) -> new ResolvedReference(placeId, rs.getString("name"), null, null),
             placeId);
     if (rows.isEmpty()) {
@@ -695,7 +725,11 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
   private record Day(UUID id, LocalDate date, LocalTime startTime, LocalTime endTime) {}
 
   private record ResolvedReference(
-      UUID placeId, String title, UUID accommodationId, UUID transportEventId) {}
+      UUID placeId, String title, UUID accommodationId, UUID transportEventId) {
+    private ResolvedReference withTitle(String replacement) {
+      return new ResolvedReference(placeId, replacement, accommodationId, transportEventId);
+    }
+  }
 
   private record ItemPair(UUID from, UUID to) {}
 
