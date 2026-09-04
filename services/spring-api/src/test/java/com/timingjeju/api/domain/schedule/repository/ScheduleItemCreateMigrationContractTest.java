@@ -71,6 +71,10 @@ class ScheduleItemCreateMigrationContractTest {
         .contains("create or replace function public.assert_schedule_item_required_references")
         .contains(
             "perform public.assert_schedule_item_required_references(new.id, new.trip_plan_id)")
+        .contains(
+            "revoke execute on function public.assert_schedule_item_required_references(uuid, uuid) from public, anon, authenticated")
+        .contains(
+            "grant execute on function public.assert_schedule_item_required_references(uuid, uuid) to service_role")
         .doesNotContain("delete from public.trip_items")
         .doesNotContain("update public.trip_items");
     for (String branch :
@@ -98,7 +102,8 @@ class ScheduleItemCreateMigrationContractTest {
     assertThat(schema)
         .contains("trip_items_required_references_by_type")
         .contains("trg_validate_trip_item_required_references")
-        .contains("assert_schedule_item_required_references(uuid,uuid)");
+        .contains("assert_schedule_item_required_references(uuid,uuid)")
+        .contains("schedule item required references function privilege boundary is invalid");
     assertThat(negative)
         .contains("accommodation item requires accommodation reference")
         .contains("arrival item requires transport event reference")

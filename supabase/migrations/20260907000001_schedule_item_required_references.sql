@@ -120,6 +120,11 @@ begin
 end;
 $$;
 
+revoke execute on function public.assert_schedule_item_required_references(uuid, uuid)
+from public, anon, authenticated;
+grant execute on function public.assert_schedule_item_required_references(uuid, uuid)
+to service_role;
+
 create or replace function public.validate_schedule_version_sealing()
 returns trigger
 language plpgsql

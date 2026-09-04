@@ -79,6 +79,8 @@ python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build
 
 Green에서는 기존 `20260907000000`을 수정하지 않고 후속 migration을 추가했다. migration은 기존 item 전체를 먼저 감사하고 첫 invalid item의 ID와 타입을 포함한 `23514`로 중단한다. 그 뒤 accommodation/arrival/departure와 나머지 타입의 필수·반대 참조를 동일한 exact predicate로 CHECK, row trigger, sealing validator에 적용한다. canonical schema introspection, insert/update/cross-type/sealing 음수 matrix, valid legacy 보존 contract, invalid legacy upgrade fixture/smoke를 추가했다. 실제 PostgreSQL migration 및 copied-invalid aggregate rollback 테스트도 작성했지만 이번 remediation 지시상 실행하지 않았다.
 
+추가 security RED에서는 새 sealing helper의 기본 함수 실행권한이 공개 RPC 경계를 열 수 있음을 고정했다. Green에서 `PUBLIC`, `anon`, `authenticated`의 EXECUTE를 명시적으로 회수하고 `service_role`만 허용했으며 schema contract가 PUBLIC ACL과 세 역할 권한을 직접 검사한다.
+
 여행 aggregate mutation은 #45의 canonical coordinator provenance(`d11b1f7`, `f25cfde`, 최종 `18408bd`)만 최소 이식했다. 일정 item store는 공용 coordinator의 owner lock, terminal/revision fence, root CAS를 사용하고 자체 lock/revision 증분을 제거했다. 일정 version 작성·sealing은 root CAS 전에, active pointer 교체는 CAS 뒤에 같은 transaction에서 수행하며 어느 단계든 실패하면 전체 rollback된다.
 
 DB-free Green 증거는 다음과 같다.

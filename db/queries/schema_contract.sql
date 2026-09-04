@@ -1518,6 +1518,31 @@ begin
   if to_regprocedure('public.assert_schedule_item_required_references(uuid,uuid)') is null then
     raise exception 'schedule item required references sealing validator is missing';
   end if;
+  if exists (
+    select 1
+    from pg_catalog.pg_proc function_row,
+         lateral pg_catalog.aclexplode(
+           coalesce(function_row.proacl, pg_catalog.acldefault('f', function_row.proowner))
+         ) privilege_row
+    where function_row.oid =
+        'public.assert_schedule_item_required_references(uuid,uuid)'::regprocedure
+      and privilege_row.grantee = 0
+      and privilege_row.privilege_type = 'EXECUTE'
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'anon')
+    and has_function_privilege(
+      'anon', 'public.assert_schedule_item_required_references(uuid,uuid)', 'EXECUTE')
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'authenticated')
+    and has_function_privilege(
+      'authenticated', 'public.assert_schedule_item_required_references(uuid,uuid)', 'EXECUTE')
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role')
+    and not has_function_privilege(
+      'service_role', 'public.assert_schedule_item_required_references(uuid,uuid)', 'EXECUTE')
+  ) then
+    raise exception 'schedule item required references function privilege boundary is invalid';
+  end if;
 end;
 $$;
 
