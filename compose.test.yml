@@ -91,7 +91,7 @@ services:
       KMA_CONNECT_TIMEOUT: 2s
       KMA_READ_TIMEOUT: 5s
     ports:
-      - "18080:8080"
+      - "127.0.0.1:${TIMING_JEJU_SMOKE_API_PORT:-28080}:8080"
     depends_on:
       postgres:
         condition: service_healthy
