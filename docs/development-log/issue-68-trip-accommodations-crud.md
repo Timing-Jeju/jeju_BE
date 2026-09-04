@@ -39,3 +39,10 @@
 - POST replay는 common stale/terminal 검사보다 먼저 반환해야 하므로 accommodation idempotency advisory lock과 marker `FOR UPDATE`만 store에 유지했다.
 - DB-free 테스트로 terminal, stale, no-op, active/no-active invalidation, before-root→CAS→after-effect rollback 경계, replay ordering과 common `TripException`의 canonical accommodation 오류 번역을 검증했다.
 - 최종 landing은 **#50fix-first → #68**이며, #50fix 반영 뒤 #68의 coordinator 9개 duplicate는 drop하고 accommodation 주입 diff만 유지한다.
+
+## 2026-09-04 canonical sequence payload 보완
+
+- DB compaction은 canonical sequence를 다시 쓰지만 create/patch plan payload가 pre-compaction sequence를 반환하는 문제를 발견했다.
+- 먼저 두 번째 숙소 append 응답/snapshot과 날짜 변경으로 재정렬되는 PATCH가 각각 저장될 canonical sequence `2` 대신 `1`을 반환하는 DB-free Red 2건을 확인했다.
+- 정렬·검증된 plan 목록에서 대상 accommodation의 index+1을 계산해 response payload에 사용하고, replay snapshot도 그 canonical payload를 그대로 보존하게 했다.
+- #50fix canonical coordinator 9개 파일, coordinator effect 순서와 trip root/CAS 경계는 변경하지 않았다.
