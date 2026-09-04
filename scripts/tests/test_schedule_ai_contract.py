@@ -103,6 +103,121 @@ class ScheduleAiContractTest(unittest.TestCase):
             lambda contract: contract["idempotencyPolicy"].update(ttl="PT12H")
         )
 
+    def test_apply_endpoints_share_exact_ordered_first_match_precedence(self):
+        expected = [
+            "AUTHENTICATION_REQUIRED",
+            "INVALID_ACCESS_TOKEN",
+            "INVALID_PATH_PARAMETER",
+            "INVALID_ASYNC_RUN_REQUEST",
+            "IDEMPOTENCY_KEY_REQUIRED",
+            "IDEMPOTENCY_KEY_INVALID",
+            "IF_MATCH_REQUIRED",
+            "IF_MATCH_INVALID",
+            "TRIP_NOT_FOUND",
+            "ASYNC_RUN_NOT_FOUND",
+            "CANDIDATE_NOT_FOUND",
+            "IDEMPOTENT_REPLAY",
+            "IDEMPOTENCY_KEY_REUSED",
+            "CANDIDATE_ALREADY_APPLIED",
+            "CANDIDATE_NOT_APPLICABLE_RUN_STATUS",
+            "CANDIDATE_EXPIRED",
+            "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+            "CANDIDATE_STALE",
+            "CANDIDATE_NOT_APPLICABLE_LINEAGE",
+            "ASYNC_RUN_QUOTA_EXCEEDED",
+            "ASYNC_RESULT_TEMPORARILY_UNAVAILABLE",
+            "APPLY_SUCCESS",
+        ]
+        apply_endpoints = [
+            endpoint for endpoint in self.contract["endpoints"] if endpoint["operation"] == "apply"
+        ]
+        self.assertEqual(2, len(apply_endpoints))
+        for endpoint in apply_endpoints:
+            with self.subTest(path=endpoint["path"]):
+                self.assertEqual(expected, endpoint["firstMatchPrecedence"])
+
+    def test_apply_overlap_resolves_to_one_deterministic_outcome(self):
+        from scripts.validate_schedule_ai_contract import resolve_apply_overlap
+
+        base = {
+            "authenticated": True,
+            "accessTokenValid": True,
+            "requestValid": True,
+            "tripVisible": True,
+            "runVisibleAndLinked": True,
+            "candidateVisibleAndLinked": True,
+            "replayCompleted": False,
+            "idempotencyConflict": False,
+            "alreadyApplied": False,
+            "runSucceeded": True,
+            "expired": False,
+            "requestedVersion": "A",
+            "lockedActiveVersion": "A",
+            "candidateBaseVersion": "A",
+            "candidateLineageApplicable": True,
+            "quotaAvailable": True,
+            "storageAvailable": True,
+        }
+        overlaps = [
+            (
+                {
+                    "alreadyApplied": True,
+                    "runSucceeded": False,
+                    "expired": True,
+                    "lockedActiveVersion": "B",
+                    "candidateLineageApplicable": False,
+                },
+                "CANDIDATE_ALREADY_APPLIED",
+            ),
+            (
+                {"runSucceeded": False, "expired": True, "lockedActiveVersion": "B"},
+                "CANDIDATE_NOT_APPLICABLE",
+            ),
+            (
+                {"expired": True, "lockedActiveVersion": "B"},
+                "CANDIDATE_EXPIRED",
+            ),
+            (
+                {"lockedActiveVersion": "B", "candidateLineageApplicable": False},
+                "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+            ),
+            (
+                {"requestedVersion": "B", "lockedActiveVersion": "B"},
+                "CANDIDATE_STALE",
+            ),
+            (
+                {"candidateLineageApplicable": False},
+                "CANDIDATE_NOT_APPLICABLE",
+            ),
+            (
+                {
+                    "replayCompleted": True,
+                    "alreadyApplied": True,
+                    "expired": True,
+                    "lockedActiveVersion": "B",
+                },
+                "IDEMPOTENT_REPLAY",
+            ),
+            (
+                {
+                    "idempotencyConflict": True,
+                    "alreadyApplied": True,
+                    "expired": True,
+                    "lockedActiveVersion": "B",
+                },
+                "IDEMPOTENCY_KEY_REUSED",
+            ),
+        ]
+        for patch, expected in overlaps:
+            with self.subTest(patch=patch):
+                outcome = resolve_apply_overlap({**base, **patch})
+                self.assertEqual(expected, outcome)
+
+    def test_apply_precedence_mutation_is_rejected(self):
+        self.assert_mutation_rejected(
+            lambda contract: contract["endpoints"][2]["firstMatchPrecedence"].reverse()
+        )
+
     def test_command_and_mcp_hashes_cannot_collapse(self):
         self.assert_mutation_rejected(
             lambda contract: contract["hashPolicy"].update(mcpInputHash="commandInputHash")
