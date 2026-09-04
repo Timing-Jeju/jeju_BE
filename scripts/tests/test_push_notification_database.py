@@ -49,12 +49,14 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260905000000_mcp_private_http_client.sql",
             "20260906000000_trip_update_delete_contract.sql",
             "20260907000000_schedule_item_create_contract.sql",
+            "20260907000001_schedule_item_required_references.sql",
             "20260907000002_trip_accommodation_contract.sql",
             "20260907000003_trip_preferences_replace_contract.sql",
             "20260907000004_trip_preferences_owner_read_helper.sql",
             "20260907000005_trip_transport_event_contract.sql",
             "20260908000000_trip_place_preference_contract.sql",
             "20260909000000_trip_calendar_child_invariant_correction.sql",
+            "20260913000000_profile_image_storage.sql",
         )
         migration_names = tuple(
             path.name
@@ -96,6 +98,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql",
             ),
             (
+                "./supabase/migrations/20260907000001_schedule_item_required_references.sql",
+                "/docker-entrypoint-initdb.d/038_schedule_item_required_references.sql",
+            ),
+            (
                 "./supabase/migrations/20260907000002_trip_accommodation_contract.sql",
                 "/docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql",
             ),
@@ -118,6 +124,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             (
                 "./supabase/migrations/20260909000000_trip_calendar_child_invariant_correction.sql",
                 "/docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql",
+            ),
+            (
+                "./supabase/migrations/20260913000000_profile_image_storage.sql",
+                "/docker-entrypoint-initdb.d/045_profile_image_storage.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",

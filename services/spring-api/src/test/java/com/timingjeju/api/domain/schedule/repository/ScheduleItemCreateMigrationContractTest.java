@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 @Tag("unit")
 class ScheduleItemCreateMigrationContractTest {
   private static final String MIGRATION = "20260907000000_schedule_item_create_contract.sql";
+  private static final String REQUIRED_REFERENCE_MIGRATION =
+      "20260907000001_schedule_item_required_references.sql";
   private static final String TARGET =
       "/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql";
 
@@ -44,6 +46,30 @@ class ScheduleItemCreateMigrationContractTest {
 
     String smoke = Files.readString(root.resolve("scripts/docker-smoke-test.sh"));
     assertThat(smoke.split(java.util.regex.Pattern.quote(TARGET), -1)).hasSize(3);
+  }
+
+  @Test
+  void 후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다() throws Exception {
+    Path migration =
+        repositoryRoot().resolve("supabase/migrations").resolve(REQUIRED_REFERENCE_MIGRATION);
+
+    assertThat(migration).isRegularFile();
+    String sql = Files.readString(migration).toLowerCase().replaceAll("\\s+", " ").trim();
+
+    int audit = sql.indexOf("legacy schedule item required reference audit failed");
+    int constraint = sql.indexOf("add constraint trip_items_required_references_by_type");
+    assertThat(audit).isGreaterThanOrEqualTo(0).isLessThan(constraint);
+    assertThat(sql)
+        .contains("item_type = 'accommodation' and accommodation_id is not null")
+        .contains("item_type in ('arrival', 'departure') and transport_event_id is not null")
+        .contains("accommodation_id is null")
+        .contains("transport_event_id is null")
+        .contains("create trigger trg_validate_trip_item_required_references")
+        .contains("create or replace function public.assert_schedule_item_required_references")
+        .contains(
+            "perform public.assert_schedule_item_required_references(new.id, new.trip_plan_id)")
+        .doesNotContain("delete from public.trip_items")
+        .doesNotContain("update public.trip_items");
   }
 
   private static Path repositoryRoot() {
