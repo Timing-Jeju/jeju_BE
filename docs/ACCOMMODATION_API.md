@@ -57,6 +57,7 @@ PATCH는 위 여섯 필드 중 하나 이상을 받는다. 생략은 보존한�
 - #50fix canonical `TripAggregateMutationCoordinator`가 owner-scoped trip root `SELECT ... FOR UPDATE`, expected revision/terminal status 검사와 root CAS를 단독 소유한다.
 - 숙소 구간은 trip 범위 안의 `[checkInDate, checkOutDate)`다. 내부 구간은 gap과 overlap 없이 연속이어야 한다.
 - canonical order는 `checkInDate`, `checkOutDate`, `accommodationId` 오름차순이며 sequence를 같은 transaction에서 1..N으로 압축한다.
+- create/patch 응답과 저장된 idempotency replay snapshot의 `sequenceNo`도 compact 이후 canonical index와 일치한다.
 - 실제 POST/PATCH는 trip revision을 정확히 한 번 증가시킨다.
 - 실제 변경에 active schedule이 있으면 version `superseded`, pointer/score null, trip `draft`를 원자 반영한다.
 - active schedule이 있는 DELETE는 `ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE`로 차단한다.

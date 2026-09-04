@@ -88,6 +88,8 @@ public class JdbcAccommodationStore implements AccommodationStore {
     List<Accommodation> desired = new ArrayList<>(load(record.tripId()));
     desired.add(candidate);
     validateAndSort(desired, state);
+    Accommodation canonical =
+        withSequence(candidate, indexOf(desired, candidate.accommodationId()) + 1);
     Runnable persist =
         () -> {
           jdbc.update(
@@ -114,14 +116,14 @@ public class JdbcAccommodationStore implements AccommodationStore {
       return TripAggregateMutationPlan.maintain(
           TripRootPatch.unchanged(),
           persist::run,
-          () -> remember(record, candidate.accommodationId()),
-          candidate);
+          () -> remember(record, canonical.accommodationId()),
+          canonical);
     }
     return TripAggregateMutationPlan.invalidate(
         TripRootPatch.unchanged(),
         persist::run,
-        () -> remember(record, candidate.accommodationId()),
-        candidate);
+        () -> remember(record, canonical.accommodationId()),
+        canonical);
   }
 
   @Override
@@ -193,6 +195,8 @@ public class JdbcAccommodationStore implements AccommodationStore {
     }
     current.set(targetIndex, desired);
     validateAndSort(current, state);
+    Accommodation canonical =
+        withSequence(desired, indexOf(current, desired.accommodationId()) + 1);
     Runnable persist =
         () -> {
           jdbc.update(
@@ -214,9 +218,9 @@ public class JdbcAccommodationStore implements AccommodationStore {
           compact(record.tripId(), current);
         };
     if (state.activeScheduleVersionId() == null) {
-      return TripAggregateMutationPlan.maintain(TripRootPatch.unchanged(), persist::run, desired);
+      return TripAggregateMutationPlan.maintain(TripRootPatch.unchanged(), persist::run, canonical);
     }
-    return TripAggregateMutationPlan.invalidate(TripRootPatch.unchanged(), persist::run, desired);
+    return TripAggregateMutationPlan.invalidate(TripRootPatch.unchanged(), persist::run, canonical);
   }
 
   @Override
@@ -484,6 +488,21 @@ public class JdbcAccommodationStore implements AccommodationStore {
         value.checkInTime(),
         value.checkOutTime(),
         value.sequenceNo(),
+        value.createdAt(),
+        value.updatedAt());
+  }
+
+  private static Accommodation withSequence(Accommodation value, int sequenceNo) {
+    return new Accommodation(
+        value.accommodationId(),
+        value.placeId(),
+        value.customName(),
+        value.name(),
+        value.checkInDate(),
+        value.checkOutDate(),
+        value.checkInTime(),
+        value.checkOutTime(),
+        sequenceNo,
         value.createdAt(),
         value.updatedAt());
   }
