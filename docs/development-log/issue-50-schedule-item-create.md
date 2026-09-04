@@ -93,7 +93,7 @@ PR #205 병합 뒤 독립 리뷰에서 `accommodation`, `arrival`, `departure` t
 
 - `20260907000001_schedule_item_required_references.sql`을 037 생성 계약 다음 append-only 슬롯에 추가했다.
 - migration은 constraint 설치 전에 legacy typed item을 감사하며, 임의 보정 없이 item ID와 type이 포함된 `23514` 오류로 중단한다.
-- CHECK는 `accommodation_id`와 `transport_event_id`의 유형별 필수·상호 배타성을 강제한다. trigger는 숙소와 교통 이벤트의 동일 여행 소유, arrival/departure와 교통 이벤트 type 일치를 강제하며 부모 교통 이벤트의 사후 type 변경도 차단한다.
+- CHECK는 `accommodation_id`와 `transport_event_id`의 유형별 필수·상호 배타성을 강제한다. child trigger는 명확한 오류로 숙소와 교통 이벤트의 동일 여행 소유 및 type 일치를 검사하고, `(transport_event_id, trip_plan_id, item_type)` 복합 FK가 부모 교통 이벤트의 사후 type 변경까지 원자적으로 차단한다.
 - 기존 timeline/leg sealing assertion을 core로 보존하고 공개 `assert_schedule_version_sealable` 진입점에서 required-reference assertion을 함께 실행한다.
 - 새 assertion/trigger helper와 공개 sealing helper는 `PUBLIC`, `anon`, `authenticated`의 EXECUTE를 회수하고 `service_role`에만 부여한다.
 - 세 compose 파일과 legacy/concurrency smoke migration 열에 038 슬롯을 연결했다.
@@ -178,3 +178,47 @@ health check는 `UnknownHostException: postgres`로 실패했다.
 회귀 테스트 `test_local_seed_populates_required_schedule_item_references`가 seed 계약을 고정하며,
 격리 Compose에서 PostgreSQL을 새로 초기화해 `healthy` 상태를 확인했다. 이 보정 commit에서
 전체 공식 root gate를 다시 실행한다.
+
+## 교통 이벤트 참조 동시성 보정
+
+독립 리뷰에서 child/parent trigger의 일반 `EXISTS` 조회만으로는 `trip_items` insert와
+`trip_transport_events.event_type` 변경이 서로의 미커밋 행을 보지 못해 둘 다 commit될 수
+있다는 race가 확인됐다.
+
+### First RED
+
+- 테스트:
+  - `test_transport_event_type_is_an_atomic_composite_foreign_key`
+  - `test_docker_contract_races_item_insert_against_event_type_update`
+- 명령: `python3 -m unittest scripts.tests.test_schedule_item_required_references.ScheduleItemRequiredReferencesTest.test_transport_event_type_is_an_atomic_composite_foreign_key scripts.tests.test_schedule_item_required_references.ScheduleItemRequiredReferencesTest.test_docker_contract_races_item_insert_against_event_type_update`
+- 실제 결과: parent `(id, trip_plan_id, event_type)` unique와 child 3열 FK, 두 세션 경합 시나리오가 없어 `FAILED (failures=2)`.
+
+### GREEN
+
+- 038 legacy audit 뒤에 `trip_transport_events (id, trip_plan_id, event_type)` unique와
+  `trip_items (transport_event_id, trip_plan_id, item_type)` FK를 추가했다.
+- FK key-share locking이 item insert와 event type update를 직렬화한다. 먼저 insert한 A가
+  commit되면 B의 type 변경은 `23503`으로 거부되므로 trigger snapshot 순서와 무관하다.
+- `database_concurrency_contract.sql`에 실제 dblink 두 세션을 추가했다. B가 A의 FK lock 뒤에서
+  실제 대기하는지 확인한 뒤 A를 commit하고, B의 `23503`, 최종 event type `arrival`, item 1건,
+  전체 transport reference mismatch 0건을 검증한다.
+
+검증:
+
+```text
+python3 -m unittest \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database \
+  scripts.tests.test_schedule_consistency_hardening \
+  scripts.tests.test_supabase_layout \
+  scripts.tests.test_database_hardening
+# Ran 87 tests ... OK
+
+# compose.test.yml의 PostgreSQL만 격리 기동하고 migration 열과
+# db/queries/database_concurrency_contract.sql을 별도 DB에 실행
+# focused PostgreSQL concurrency PASS
+```
+
+격리 프로젝트 `timing-jeju-ref-race`의 container, network, volume은 검증 직후 제거했다.
+`git diff --check`도 통과했다. API build, 전체 Docker smoke, full quality gate와 live Supabase는
+이 focused 보정에서 실행하지 않았다.

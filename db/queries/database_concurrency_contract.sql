@@ -1304,4 +1304,181 @@ $$;
 select public.dblink_disconnect('schedule_revision_a');
 select public.dblink_disconnect('schedule_revision_b');
 
+-- 일정 교통 참조 시나리오: A가 arrival item을 추가해 부모 event key-share를
+-- 보유하는 동안 B가 같은 event를 departure로 바꾸려 한다. B는 A 뒤에서
+-- 대기한 다음 복합 FK에 의해 23503으로 거부되고 최종 mismatch는 0이어야 한다.
+create function concurrency_contract.try_transport_event_type_update()
+returns text
+language plpgsql
+as $$
+begin
+  update public.trip_transport_events
+  set event_type = 'departure'
+  where id = 'fd640000-0000-0000-0000-000000000001';
+  return 'OK';
+exception when others then
+  return sqlstate;
+end;
+$$;
+
+insert into public.app_sessions (id, public_token)
+values (
+  'fd600000-0000-0000-0000-000000000001',
+  'schedule-reference-concurrency-session'
+);
+
+insert into public.trip_plans (
+  id, session_id, public_token, status, start_date, end_date, source_mode, data_version
+) values (
+  'fd610000-0000-0000-0000-000000000001',
+  'fd600000-0000-0000-0000-000000000001',
+  'schedule-reference-concurrency-trip',
+  'draft',
+  '2026-09-04',
+  '2026-09-04',
+  'fixture',
+  'contract-v1'
+);
+
+insert into public.trip_days (id, trip_plan_id, day_no, trip_date)
+values (
+  'fd620000-0000-0000-0000-000000000001',
+  'fd610000-0000-0000-0000-000000000001',
+  1,
+  '2026-09-04'
+);
+
+insert into public.trip_schedule_versions (
+  id, trip_plan_id, version_no, status, source_type
+) values (
+  'fd630000-0000-0000-0000-000000000001',
+  'fd610000-0000-0000-0000-000000000001',
+  1,
+  'draft',
+  'initial'
+);
+
+insert into public.trip_transport_events (
+  id, trip_plan_id, event_type, transport_type, terminal_name, scheduled_at
+) values (
+  'fd640000-0000-0000-0000-000000000001',
+  'fd610000-0000-0000-0000-000000000001',
+  'arrival',
+  'flight',
+  '동시성 계약 터미널',
+  '2026-09-04 08:00:00+09'
+);
+
+select public.dblink_connect(
+  'schedule_reference_a',
+  pg_catalog.format(
+    'dbname=%L user=%L application_name=%L',
+    current_database(), current_user, 'timing-jeju-schedule-reference-a'
+  )
+);
+select public.dblink_connect(
+  'schedule_reference_b',
+  pg_catalog.format(
+    'dbname=%L user=%L application_name=%L',
+    current_database(), current_user, 'timing-jeju-schedule-reference-b'
+  )
+);
+
+insert into concurrency_contract.connection_pids
+select 'schedule_reference', 'a', remote.backend_pid
+from public.dblink('schedule_reference_a', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+insert into concurrency_contract.connection_pids
+select 'schedule_reference', 'b', remote.backend_pid
+from public.dblink('schedule_reference_b', 'select pg_backend_pid()')
+  as remote(backend_pid integer);
+
+select public.dblink_exec('schedule_reference_a', 'begin');
+select public.dblink_exec(
+  'schedule_reference_a',
+  $query$
+    insert into public.trip_items (
+      id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no,
+      item_type, title, source, transport_event_id
+    ) values (
+      'fd650000-0000-0000-0000-000000000001',
+      'fd610000-0000-0000-0000-000000000001',
+      'fd620000-0000-0000-0000-000000000001',
+      'fd630000-0000-0000-0000-000000000001',
+      1,
+      'arrival',
+      '동시성 계약 도착',
+      'system',
+      'fd640000-0000-0000-0000-000000000001'
+    )
+  $query$
+);
+
+select public.dblink_exec('schedule_reference_b', 'begin');
+do $$
+begin
+  if public.dblink_send_query(
+       'schedule_reference_b',
+       'select concurrency_contract.try_transport_event_type_update()'
+     ) <> 1 then
+    raise exception 'transport event type writer query was not dispatched';
+  end if;
+end;
+$$;
+
+select concurrency_contract.assert_connection_is_blocked(
+  'schedule_reference', 'a', 'b', 'schedule_reference_b'
+);
+select public.dblink_exec('schedule_reference_a', 'commit');
+
+do $$
+declare
+  result_code text;
+begin
+  select remote.result_code into result_code
+  from public.dblink_get_result('schedule_reference_b') as remote(result_code text);
+  if result_code <> '23503' then
+    raise exception 'transport event type writer must return 23503, got %', result_code;
+  end if;
+end;
+$$;
+
+select concurrency_contract.drain_async_result('schedule_reference_b');
+select public.dblink_exec('schedule_reference_b', 'commit');
+
+do $$
+declare
+  item_count integer;
+  mismatch_count integer;
+  final_event_type text;
+begin
+  select count(*)::integer into item_count
+  from public.trip_items item
+  where item.id = 'fd650000-0000-0000-0000-000000000001';
+
+  select event.event_type into final_event_type
+  from public.trip_transport_events event
+  where event.id = 'fd640000-0000-0000-0000-000000000001';
+
+  select count(*)::integer into mismatch_count
+  from public.trip_items item
+  left join public.trip_transport_events event
+    on event.id = item.transport_event_id
+   and event.trip_plan_id = item.trip_plan_id
+   and event.event_type = item.item_type
+  where item.transport_event_id is not null
+    and event.id is null;
+
+  if item_count <> 1 or final_event_type <> 'arrival' then
+    raise exception 'schedule item insert and transport event type update both took effect';
+  end if;
+  if mismatch_count <> 0 then
+    raise exception 'schedule item transport reference mismatch count is not zero';
+  end if;
+end;
+$$;
+
+select public.dblink_disconnect('schedule_reference_a');
+select public.dblink_disconnect('schedule_reference_b');
+
 select 'database_concurrency_contract PASS' as result;

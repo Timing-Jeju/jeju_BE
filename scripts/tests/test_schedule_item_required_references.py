@@ -71,6 +71,40 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
         self.assertIn("accommodation.trip_plan_id = new.trip_plan_id", migration)
         self.assertIn("trg_trip_items_required_references", migration)
 
+    def test_transport_event_type_is_an_atomic_composite_foreign_key(self) -> None:
+        """교통 이벤트 유형과 item 유형은 동시 쓰기에도 깨지지 않는 복합 FK로 묶인다."""
+        migration = self.migration()
+
+        self.assertIn(
+            "add constraint uq_trip_transport_events_id_plan_event_type "
+            "unique (id, trip_plan_id, event_type)",
+            migration,
+        )
+        self.assertIn(
+            "foreign key (transport_event_id, trip_plan_id, item_type) "
+            "references public.trip_transport_events (id, trip_plan_id, event_type)",
+            migration,
+        )
+
+    def test_docker_contract_races_item_insert_against_event_type_update(self) -> None:
+        """Docker 계약은 item insert와 event type 변경의 실제 두 세션 경합을 검증한다."""
+        concurrency = compact_sql(
+            (ROOT / "db/queries/database_concurrency_contract.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        for connection in ("schedule_reference_a", "schedule_reference_b"):
+            self.assertIn(f"dblink_connect( '{connection}'", concurrency)
+            self.assertIn(f"dblink_disconnect('{connection}')", concurrency)
+        self.assertIn(
+            "assert_connection_is_blocked( 'schedule_reference', 'a', 'b', "
+            "'schedule_reference_b' )",
+            concurrency,
+        )
+        self.assertIn("transport event type writer must return 23503", concurrency)
+        self.assertIn("schedule item transport reference mismatch count is not zero", concurrency)
+
     def test_sealing_assertion_rechecks_required_references(self) -> None:
         """CHECK를 우회한 legacy 행도 candidate·active 봉인 시 공용 assertion에서 거부된다."""
         migration = self.migration()
@@ -87,7 +121,6 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
             "public.assert_schedule_version_core_sealable(uuid, uuid)",
             "public.assert_schedule_item_required_references(uuid, uuid)",
             "public.validate_trip_item_required_references()",
-            "public.protect_transport_event_schedule_item_references()",
             "public.assert_schedule_version_sealable(uuid, uuid)",
             "public.validate_schedule_version_sealing()",
         )

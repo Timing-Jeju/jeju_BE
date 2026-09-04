@@ -57,6 +57,17 @@ begin
 end;
 $$;
 
+-- The referenced type is part of the key. PostgreSQL's FK key-share locking then
+-- serializes a child insert against a concurrent parent event-type mutation.
+alter table public.trip_transport_events
+  add constraint uq_trip_transport_events_id_plan_event_type
+  unique (id, trip_plan_id, event_type);
+
+alter table public.trip_items
+  add constraint fk_trip_items_transport_event_type_plan
+  foreign key (transport_event_id, trip_plan_id, item_type)
+  references public.trip_transport_events (id, trip_plan_id, event_type);
+
 alter table public.trip_items
   add constraint chk_trip_items_required_references check (
     (
@@ -132,35 +143,6 @@ create trigger trg_trip_items_required_references
 before insert or update of item_type, trip_plan_id, accommodation_id, transport_event_id
 on public.trip_items
 for each row execute function public.validate_trip_item_required_references();
-
-create function public.protect_transport_event_schedule_item_references()
-returns trigger
-language plpgsql
-security invoker
-set search_path = ''
-as $$
-begin
-  if exists (
-    select 1
-    from public.trip_items item
-    where item.transport_event_id = old.id
-      and (
-        item.trip_plan_id <> new.trip_plan_id
-        or item.item_type <> new.event_type
-      )
-  ) then
-    raise exception using
-      errcode = '23514',
-      message = 'transport event update conflicts with a schedule item reference';
-  end if;
-
-  return new;
-end;
-$$;
-
-create trigger trg_trip_transport_events_schedule_item_references
-before update of trip_plan_id, event_type on public.trip_transport_events
-for each row execute function public.protect_transport_event_schedule_item_references();
 
 create function public.assert_schedule_item_required_references(
   target_schedule_version_id uuid,
@@ -251,11 +233,6 @@ revoke all on function public.validate_trip_item_required_references() from publ
 revoke execute on function public.validate_trip_item_required_references() from anon;
 revoke execute on function public.validate_trip_item_required_references() from authenticated;
 grant execute on function public.validate_trip_item_required_references() to service_role;
-
-revoke all on function public.protect_transport_event_schedule_item_references() from public;
-revoke execute on function public.protect_transport_event_schedule_item_references() from anon;
-revoke execute on function public.protect_transport_event_schedule_item_references() from authenticated;
-grant execute on function public.protect_transport_event_schedule_item_references() to service_role;
 
 revoke all on function public.assert_schedule_version_sealable(uuid, uuid) from public;
 revoke execute on function public.assert_schedule_version_sealable(uuid, uuid) from anon;
