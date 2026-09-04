@@ -1543,6 +1543,26 @@ begin
   ) then
     raise exception 'schedule item required references function privilege boundary is invalid';
   end if;
+  if exists (
+    select 1
+    from pg_catalog.pg_proc function_row,
+         lateral pg_catalog.aclexplode(
+           coalesce(function_row.proacl, pg_catalog.acldefault('f', function_row.proowner))
+         ) privilege_row
+    where function_row.oid =
+        'public.validate_trip_item_required_references()'::regprocedure
+      and (
+        privilege_row.grantee = 0
+        or privilege_row.grantee in (
+          select role_row.oid
+          from pg_catalog.pg_roles role_row
+          where role_row.rolname in ('anon', 'authenticated', 'service_role')
+        )
+      )
+      and privilege_row.privilege_type = 'EXECUTE'
+  ) then
+    raise exception 'trip item required references trigger function privilege boundary is invalid';
+  end if;
 end;
 $$;
 

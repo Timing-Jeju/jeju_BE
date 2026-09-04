@@ -81,6 +81,9 @@ begin
 end;
 $$;
 
+revoke execute on function public.validate_trip_item_required_references()
+from public, anon, authenticated, service_role;
+
 create trigger trg_validate_trip_item_required_references
 before insert or update of item_type, accommodation_id, transport_event_id
 on public.trip_items
