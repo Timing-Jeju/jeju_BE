@@ -5,7 +5,7 @@
 - 기능 브랜치: `feat/47-trip-transport-events`
 - 선행 스택: #45 → #68 → #180
 - 공개 API: transport-event PUT/DELETE 2개
-- 생성 OpenAPI: 27 operations, frontend-readiness `--mode 27`
+- 생성 OpenAPI: 29 operations, frontend-readiness active `--mode 29` (historical `--mode 27` 보존)
 - FE 소스 변경: 없음
 - 외부 provider·FastAPI MCP 호출: 없음
 

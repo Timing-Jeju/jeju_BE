@@ -19,3 +19,16 @@
   - Docker smoke가 `authenticated` direct SELECT grant를 검출해 transport-event를 Spring server-only 읽기·쓰기 경계로 정렬했다.
 - 보안:
   - request-time provider/MCP 호출이 없고 JWT·편명·terminal name·note·원천 payload를 로그/Problem Details에 남기지 않는다.
+
+## 2026-09-04 독립 리뷰 보정
+
+- Red:
+  - `./gradlew --no-daemon unitTest --tests '*JdbcTransportEventStoreArchitectureTest'`는 no-active 응답 변환 경계가 없어 `responseScheduleEffect(String)` compile error 3건으로 실패했다.
+  - mode29 literal inventory와 generator 테스트는 validator가 29-operation mode를 지원하지 않아 20개 endpoint를 allowlist 밖으로 판정하고 generator의 `--mode 27`을 검출해 실패했다.
+- Green:
+  - coordinator의 `none`은 canonical no-op `maintained`, 실제 변경의 `maintained`는 no-active `none`, `invalidated`는 그대로 응답하도록 repository 경계를 분리했다.
+  - historical mode27을 보존하면서 transport-event PUT/DELETE만 추가한 active mode29를 validator, generator, verifier, 양 플랫폼 quality gate와 runtime manifest에 연결했다.
+  - 독립 literal 29개 map으로 누락과 extra operation을 모두 거부하고 PUT/DELETE의 서로 다른 404 대표 code를 고정했다.
+- 검증:
+  - Java DB-free unit 7건, Python 관련 48건, OpenAPI frontend-readiness 29 operations와 preferences-transport validator가 통과했다.
+  - 지시된 제한에 따라 실제 DB, Testcontainers, Docker, live Supabase와 full heavy gate는 실행하지 않았다.

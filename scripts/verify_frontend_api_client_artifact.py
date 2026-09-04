@@ -12,6 +12,8 @@ REQUIRED_OPERATIONS = {
     "tripAccommodationsCreate",
     "tripAccommodationsUpdate",
     "tripAccommodationsDelete",
+    "tripTransportEventsUpdate",
+    "tripTransportEventsDelete",
 }
 
 

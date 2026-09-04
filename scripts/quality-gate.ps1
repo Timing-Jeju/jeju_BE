@@ -70,7 +70,7 @@ if ($Scope -in @("all", "spring")) {
       throw "stale OpenAPI artifact를 삭제하지 못했습니다."
     }
     Invoke-Native "Spring OpenAPI 문서 생성" { ./gradlew.bat --no-daemon openApiDocs }
-    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 27 --contracts-root ../.. }
+    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 29 --contracts-root ../.. }
     Invoke-Native "Spring 전체 검사" { ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar }
   } finally {
     Pop-Location

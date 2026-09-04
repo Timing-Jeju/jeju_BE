@@ -45,6 +45,7 @@ class TransportEventServiceTest {
     assertThat(store.upsert.expected().revision()).isEqualTo(7);
     assertThat(result.etag()).isEqualTo("\"trip-47000000-0000-0000-0000-000000000002-r8\"");
     assertThat(result.deleted()).isFalse();
+    assertThat(result.scheduleEffect()).isEqualTo("none");
   }
 
   @Test

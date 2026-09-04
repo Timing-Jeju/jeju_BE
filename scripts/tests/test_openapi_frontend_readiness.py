@@ -497,6 +497,74 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual("MutationResponse", create.args[2]["successSchema"])
         self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
 
+    def test_mode29는_독립_literal_29개_inventory와_manifest를_exact검사한다(self):
+        expected = {
+            ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
+            ("GET", "/api/v1/auth/social/naver/userinfo"): "authNaverUserInfoRead",
+            ("GET", "/api/v1/me"): "profileRead",
+            ("PATCH", "/api/v1/me"): "profileUpdate",
+            ("GET", "/api/v1/legal-documents"): "legalDocumentsList",
+            ("PUT", "/api/v1/me/consents"): "legalConsentsUpdate",
+            ("GET", "/api/v1/places"): "placesList",
+            ("GET", "/api/v1/places/{placeId}"): "placesRead",
+            ("GET", "/api/v1/weather/forecast"): "weatherForecastRead",
+            ("GET", "/api/v1/me/saved-places"): "savedPlacesList",
+            ("POST", "/api/v1/me/saved-places"): "savedPlacesCreate",
+            ("PATCH", "/api/v1/me/saved-places/{placeId}"): "savedPlacesUpdate",
+            ("DELETE", "/api/v1/me/saved-places/{placeId}"): "savedPlacesDelete",
+            ("GET", "/api/v1/trips"): "tripsList",
+            ("POST", "/api/v1/trips"): "tripsCreate",
+            ("GET", "/api/v1/trips/{tripId}"): "tripsRead",
+            ("PATCH", "/api/v1/trips/{tripId}"): "tripsUpdate",
+            ("DELETE", "/api/v1/trips/{tripId}"): "tripsDelete",
+            ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
+            ("DELETE", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesDelete",
+            ("GET", "/api/v1/me/notification-preferences"): "notificationPreferencesRead",
+            ("PATCH", "/api/v1/me/notification-preferences"): "notificationPreferencesUpdate",
+            ("GET", "/api/v1/trips/{tripId}/schedule"): "tripScheduleRead",
+            ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
+            ("POST", "/api/v1/trips/{tripId}/accommodations"): "tripAccommodationsCreate",
+            ("PATCH", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): "tripAccommodationsUpdate",
+            ("DELETE", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): "tripAccommodationsDelete",
+            ("PUT", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsUpdate",
+            ("DELETE", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsDelete",
+        }
+        self.assertEqual(29, len(expected))
+        validator = Validator({}, 29, ROOT)
+        validator.operations = set(expected)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        for operations, fragment in (
+            (set(expected) - {("PUT", "/api/v1/trips/{tripId}/transport-event")}, "29-operation"),
+            (set(expected) | {("GET", "/api/v1/unowned")}, "inventory allowlist"),
+        ):
+            drift = Validator({}, 29, ROOT)
+            drift.operations = operations
+            drift.operation_ids = validator.operation_ids
+            drift.validate_operation_inventory()
+            self.assertTrue(any(fragment in error for error in drift.errors), drift.errors)
+
+        manifest = json.loads(
+            (ROOT / "scripts/openapi_frontend_runtime_manifest.json").read_text()
+        )["operations"]
+        self.assertEqual(
+            {f"{method} {path}" for method, path in expected},
+            set(manifest),
+        )
+        self.assertEqual(
+            "TRIP_NOT_FOUND",
+            manifest["PUT /api/v1/trips/{tripId}/transport-event"]["problems"]["404"][0],
+        )
+        self.assertEqual(
+            "TRANSPORT_EVENT_NOT_FOUND",
+            manifest["DELETE /api/v1/trips/{tripId}/transport-event"]["problems"]["404"][0],
+        )
+
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
         with mock.patch(

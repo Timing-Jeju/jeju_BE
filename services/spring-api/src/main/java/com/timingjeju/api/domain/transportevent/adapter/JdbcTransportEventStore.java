@@ -239,12 +239,20 @@ public class JdbcTransportEventStore implements TransportEventStore {
         payload.eventType(),
         payload.deleted(),
         payload.event(),
-        "none".equals(commit.scheduleEffect()) ? "maintained" : commit.scheduleEffect(),
+        responseScheduleEffect(commit.scheduleEffect()),
         commit.regenerationRequired(),
         commit.activeScheduleVersionId(),
         commit.status(),
         commit.revision(),
         payload.updatedAt());
+  }
+
+  static String responseScheduleEffect(String coordinatorEffect) {
+    return switch (coordinatorEffect) {
+      case "none" -> "maintained";
+      case "maintained" -> "none";
+      default -> coordinatorEffect;
+    };
   }
 
   private static void validateExpectedTrip(UUID tripId, UUID expectedTripId) {

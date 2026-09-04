@@ -57,7 +57,7 @@ class Issue68Mode27ContractTest(unittest.TestCase):
             validator.source_provenance_for_mode(27),
         )
 
-    def test_cli_and_active_gates_select_mode27(self):
+    def test_cli_preserves_mode27_and_active_gates_select_mode29(self):
         result = subprocess.run(
             ["python3", str(VALIDATOR), "--help"],
             cwd=ROOT,
@@ -66,8 +66,10 @@ class Issue68Mode27ContractTest(unittest.TestCase):
             check=True,
         )
         self.assertIn("27", result.stdout)
+        self.assertIn("29", result.stdout)
         for path in ("scripts/quality-gate.sh", "scripts/quality-gate.ps1"):
-            self.assertIn("--mode 27", (ROOT / path).read_text(encoding="utf-8"), path)
+            gate = (ROOT / path).read_text(encoding="utf-8")
+            self.assertIn("--mode 29", gate, path)
 
 
 if __name__ == "__main__":
