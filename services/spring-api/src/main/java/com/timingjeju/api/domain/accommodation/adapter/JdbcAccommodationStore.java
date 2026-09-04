@@ -185,13 +185,13 @@ public class JdbcAccommodationStore implements AccommodationStore {
       MutationRoot root = lockOwned(record.ownerId(), record.tripId());
       validateExpected(record.expectedRevision(), root);
       validateMutable(root);
-      if (root.activeScheduleVersionId() != null) {
-        throw AccommodationException.of("ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE");
-      }
       List<Accommodation> remaining = new ArrayList<>(load(record.tripId()));
       int targetIndex = indexOf(remaining, record.accommodationId());
       if (targetIndex < 0) {
         throw AccommodationException.of("ACCOMMODATION_NOT_FOUND");
+      }
+      if (root.activeScheduleVersionId() != null) {
+        throw AccommodationException.of("ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE");
       }
       remaining.remove(targetIndex);
       validateAndSort(remaining, root);

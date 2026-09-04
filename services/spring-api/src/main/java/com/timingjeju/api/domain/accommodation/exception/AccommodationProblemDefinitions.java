@@ -41,7 +41,7 @@ public final class AccommodationProblemDefinitions implements ProblemDefinitionC
               "활성 일정에서 사용하는 숙소는 삭제할 수 없습니다",
               422,
               "일정을 재생성하거나 활성 일정을 해제한 뒤 숙소를 삭제해 주세요."),
-          problem("ACCOMMODATION_DATA_UNAVAILABLE", "숙소 데이터를 사용할 수 없습니다", 503, "잠시 후 다시 시도해 주세요."));
+          problem("INTERNAL_SERVER_ERROR", "서버 오류가 발생했습니다", 500, "잠시 후 다시 시도해 주세요."));
 
   @Override
   public List<ProblemDefinition> definitions() {
@@ -52,8 +52,7 @@ public final class AccommodationProblemDefinitions implements ProblemDefinitionC
                         "ACCOMMODATION_NOT_FOUND",
                         "ACCOMMODATION_CONCURRENT_CONFLICT",
                         "ACCOMMODATION_DATE_GAP_OR_OVERLAP",
-                        "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE",
-                        "ACCOMMODATION_DATA_UNAVAILABLE")
+                        "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE")
                     .contains(definition.code()))
         .toList();
   }
@@ -63,12 +62,7 @@ public final class AccommodationProblemDefinitions implements ProblemDefinitionC
         .filter(definition -> definition.code().equals(code))
         .findFirst()
         .orElseGet(
-            () ->
-                problem(
-                    "ACCOMMODATION_DATA_UNAVAILABLE",
-                    "숙소 데이터를 사용할 수 없습니다",
-                    503,
-                    "잠시 후 다시 시도해 주세요."));
+            () -> problem("INTERNAL_SERVER_ERROR", "서버 오류가 발생했습니다", 500, "잠시 후 다시 시도해 주세요."));
   }
 
   private static ProblemDefinition problem(String code, String title, int status, String detail) {

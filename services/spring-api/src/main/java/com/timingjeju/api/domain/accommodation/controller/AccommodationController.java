@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
 
 @RestController
@@ -137,6 +138,7 @@ public class AccommodationController implements AccommodationApiDocs {
       return objectMapper
           .readerFor(CreateAccommodationRequest.class)
           .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+          .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
           .readValue(body);
     } catch (JacksonException | AccommodationException failure) {
       throw AccommodationException.invalidRequest();
@@ -148,6 +150,7 @@ public class AccommodationController implements AccommodationApiDocs {
       return objectMapper
           .readerFor(PatchAccommodationRequest.class)
           .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+          .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
           .readValue(body);
     } catch (JacksonException | AccommodationException failure) {
       throw AccommodationException.invalidRequest();

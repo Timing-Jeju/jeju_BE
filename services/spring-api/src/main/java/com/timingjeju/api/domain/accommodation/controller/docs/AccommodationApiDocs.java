@@ -66,12 +66,6 @@ public interface AccommodationApiDocs {
         content =
             @Content(
                 mediaType = "application/problem+json",
-                schema = @Schema(implementation = ApiProblemDetails.class))),
-    @ApiResponse(
-        responseCode = "503",
-        content =
-            @Content(
-                mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   ResponseEntity<byte[]> create(
@@ -137,12 +131,6 @@ public interface AccommodationApiDocs {
         content =
             @Content(
                 mediaType = "application/problem+json",
-                schema = @Schema(implementation = ApiProblemDetails.class))),
-    @ApiResponse(
-        responseCode = "503",
-        content =
-            @Content(
-                mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   ResponseEntity<byte[]> patch(
@@ -190,12 +178,6 @@ public interface AccommodationApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "422",
-        content =
-            @Content(
-                mediaType = "application/problem+json",
-                schema = @Schema(implementation = ApiProblemDetails.class))),
-    @ApiResponse(
-        responseCode = "503",
         content =
             @Content(
                 mediaType = "application/problem+json",

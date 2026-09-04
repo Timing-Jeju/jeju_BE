@@ -135,6 +135,16 @@ class AccommodationControllerIntegrationTest {
   }
 
   @Test
+  void POST_PATCH는_정상_JSON뒤_trailing_token을_auth전에_거부한다() throws Exception {
+    for (MockHttpServletRequestBuilder request : List.of(validPost(), validPatch())) {
+      mvc.perform(request.content(validBody() + " true"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+    verifyNoInteractions(currentUsers, service);
+  }
+
+  @Test
   void POST_PATCH는_declared_length와_transfer_encoding을_auth전에_fail_closed한다() throws Exception {
     for (MockHttpServletRequestBuilder request :
         List.of(

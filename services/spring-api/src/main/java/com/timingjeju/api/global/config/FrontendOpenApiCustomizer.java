@@ -229,6 +229,14 @@ final class FrontendOpenApiCustomizer {
             .setSchema(canonicalSchema(String.valueOf(successSchema), schemas, key));
       }
     }
+    objectMap(endpoint.get("errorMatrix"))
+        .forEach(
+            (status, codes) -> {
+              ApiResponse response = operation.getResponses().get(status);
+              if (response != null) {
+                response.addExtension("x-error-codes", List.copyOf(valueList(codes)));
+              }
+            });
   }
 
   private void projectCanonicalParameters(
@@ -1253,8 +1261,7 @@ final class FrontendOpenApiCustomizer {
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "TRIP_NOT_FOUND",
                 "409", "IDEMPOTENCY_KEY_REUSED",
-                "422", "ACCOMMODATION_DATE_GAP_OR_OVERLAP",
-                "503", "ACCOMMODATION_DATA_UNAVAILABLE")));
+                "422", "ACCOMMODATION_DATE_GAP_OR_OVERLAP")));
     result.put(
         "PATCH /api/v1/trips/{tripId}/accommodations/{accommodationId}",
         doc(
@@ -1271,8 +1278,7 @@ final class FrontendOpenApiCustomizer {
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "ACCOMMODATION_NOT_FOUND",
                 "409", "TRIP_VERSION_CONFLICT",
-                "422", "ACCOMMODATION_DATE_GAP_OR_OVERLAP",
-                "503", "ACCOMMODATION_DATA_UNAVAILABLE")));
+                "422", "ACCOMMODATION_DATE_GAP_OR_OVERLAP")));
     result.put(
         "DELETE /api/v1/trips/{tripId}/accommodations/{accommodationId}",
         doc(
@@ -1285,8 +1291,7 @@ final class FrontendOpenApiCustomizer {
                 "401", "AUTHENTICATION_REQUIRED",
                 "404", "ACCOMMODATION_NOT_FOUND",
                 "409", "TRIP_VERSION_CONFLICT",
-                "422", "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE",
-                "503", "ACCOMMODATION_DATA_UNAVAILABLE")));
+                "422", "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE")));
   }
 
   private static OperationDocument doc(

@@ -43,6 +43,6 @@ public final class AccommodationProblemExceptionHandler {
   @ExceptionHandler(ProfileProvisioningException.class)
   void handleProvisioning(HttpServletRequest request, HttpServletResponse response)
       throws IOException {
-    writer.write(request, response, definitions.find("ACCOMMODATION_DATA_UNAVAILABLE"), List.of());
+    writer.write(request, response, definitions.find("INTERNAL_SERVER_ERROR"), List.of());
   }
 }

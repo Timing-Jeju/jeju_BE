@@ -102,6 +102,27 @@ class AccommodationOpenApiIntegrationTest {
             jsonPath(collection + ".responses['201'].headers['Idempotency-Replayed']").exists())
         .andExpect(jsonPath(item + ".patch.responses['200'].headers.ETag").exists())
         .andExpect(jsonPath(item + ".delete.responses['204'].content").doesNotExist())
+        .andExpect(jsonPath(collection + ".responses['503']").doesNotExist())
+        .andExpect(jsonPath(item + ".patch.responses['503']").doesNotExist())
+        .andExpect(jsonPath(item + ".delete.responses['503']").doesNotExist())
+        .andExpect(
+            jsonPath(collection + ".responses['404']['x-error-codes']")
+                .value(containsInAnyOrder("TRIP_NOT_FOUND", "PLACE_NOT_FOUND")))
+        .andExpect(
+            jsonPath(collection + ".responses['409']['x-error-codes']")
+                .value(
+                    containsInAnyOrder(
+                        "IDEMPOTENCY_KEY_REUSED",
+                        "TRIP_VERSION_CONFLICT",
+                        "ACCOMMODATION_CONCURRENT_CONFLICT")))
+        .andExpect(
+            jsonPath(item + ".patch.responses['404']['x-error-codes']")
+                .value(
+                    containsInAnyOrder(
+                        "TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "PLACE_NOT_FOUND")))
+        .andExpect(
+            jsonPath(item + ".delete.responses['404']['x-error-codes']")
+                .value(containsInAnyOrder("TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND")))
         .andExpect(
             jsonPath(
                     collection
