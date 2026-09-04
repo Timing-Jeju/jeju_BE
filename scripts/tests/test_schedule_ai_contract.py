@@ -113,6 +113,34 @@ class ScheduleAiContractTest(unittest.TestCase):
             lambda contract: contract["externalTraceability"]["notion"].update(status="ready")
         )
 
+    def test_external_contract_versions_and_readiness_are_fail_closed(self):
+        for system in ("notion", "figma"):
+            with self.subTest(system=system):
+                self.assertEqual(
+                    {
+                        "status": "not-linked",
+                        "contractVersion": "not-linked",
+                        "evidence": None,
+                    },
+                    {
+                        key: self.contract["externalTraceability"][system][key]
+                        for key in ("status", "contractVersion", "evidence")
+                    },
+                )
+
+        catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
+        domain = next(item for item in catalog["domainContracts"] if item["issue"] == 89)
+        self.assertEqual(
+            {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"},
+            domain["versions"],
+        )
+        self.assertTrue(
+            all(
+                value == {"status": "not-ready", "evidence": None}
+                for value in domain["readiness"].values()
+            )
+        )
+
     def test_required_auth_codes_match_common_contract_both_directions(self):
         self.assertEqual(["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], self.contract["problemMatrix"]["401"])
         self.assertEqual(

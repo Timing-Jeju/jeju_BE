@@ -78,3 +78,11 @@ REST 계약 readiness 검사 성공
 - running의 started-only polling을 허용하는 conditional oneOf와 terminal 전이 테스트를 먼저 추가해 focused 2개가 `runningStateVariants`와 payload validator 부재로 error 2건인 Red를 확인했다.
 - running을 `startedPreDispatch`(`startedAt` required, `mcpInputHash` omitted)와 `postDispatch`(두 필드 required)로 닫았다. 같은 DB/call-log provenance를 유지하며 polling 중 failed/cancelled 전이도 dispatch 전후 presence가 보존되고 post-dispatch hash loss는 거부된다.
 - 외부 Notion/Figma evidence blocker와 `not-linked/not-ready` 상태는 변하지 않았다.
+
+## 2026-09-04 최신 develop 재통합
+
+- `REMOTE_SETUP_MODE=apply`로 `origin/develop`을 fetch하고, 최신 `6cfa98fd3e65ba270eceea7150c843b33dbe2a56`에서 `docs/89-c08-api-contract-reintegrate` 전용 worktree를 새로 만들었다. 기존 #89 브랜치의 재통합 commit은 섞지 않고 #89 전용 source commit의 9개 파일만 의미 단위로 이식했다.
+- 새 브랜치에서도 테스트를 먼저 추가했다. `python3 -m unittest scripts.tests.test_schedule_ai_contract -v`는 네 테스트 모두 `docs/contracts/domains/schedule-ai/contract.json` 부재의 `FileNotFoundError`로 실패했다. Red commit은 `9fdc66c`이며, 최종 테스트는 같은 요구를 더 세밀한 mutation 계약으로 refactor했다.
+- 최신 catalog의 기존 40개 endpoint와 #89의 6개 endpoint를 합쳐 exactly 46개로 유지했다. #113 push endpoint와 다른 domain validator를 보존했고, catalog 중복·누락·범위 밖 추가도 거부한다.
+- 외부 live Notion/Figma를 호출하지 않았고 repository 안에도 여섯 endpoint의 authoritative readback이 없다. 양쪽 version은 `not-linked`, metadata/example/implementation은 `not-ready`, evidence는 `null`로 유지하며 local/source-ready만 주장한다.
+- 운영 Java, DB schema/migration, 실제 DB, PostgreSQL/Testcontainers, Docker, live Supabase/Notion/Figma와 전체 heavy gate는 부모 승인 범위에 따라 실행하거나 변경하지 않는다.
