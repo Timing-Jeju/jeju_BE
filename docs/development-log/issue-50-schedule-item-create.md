@@ -72,3 +72,23 @@ python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build
 위치 근거는 `place_id` 참조로 보존하고 raw provider 응답·상세 geometry를 item facts에 복제하지 않는다.
 
 두 번째 독립 리뷰에서는 전체 code 목록은 닫혔지만 전역 registry의 다른 domain 문구와 `.example` type을 재사용해 일부 `type/title/detail`이 schedule fixture와 다르다는 MAJOR 1건이 남았다. 이를 해결하기 위해 schedule mutation 전용 Problem 정의와 advice를 분리했다. 따라서 다른 API의 오류 계약을 바꾸지 않으면서 `INVALID_REQUEST`, idempotency 3종, 장소·일정 버전·여행 버전 충돌을 schedule canonical fixture와 exact하게 반환한다. Problem writer는 reset 과정에서도 조건부 `Retry-After`만 안전하게 보존한다. HTTP 통합 테스트와 OpenAPI readiness는 각각 실제 응답과 fixture의 `type/title/status/detail/code/fieldErrors`를 직접 대조한다.
+
+## 병합 후 PR #205 회귀 보완 Red → Green
+
+병합된 `develop` `6cfa98f`를 기준으로 Reviewer finding을 별도 fix branch에서 다시 TDD로 고정했다. 최초 DB-free RED는 `ScheduleItemCreateMigrationContractTest` 4개 중 2개 실패였다. append-only `20260907000001` migration이 없었고 `JdbcScheduleMutationStore`가 자체 `FOR UPDATE`와 revision CAS를 보유했다. 이어 DB coverage test를 먼저 추가했을 때 legacy-invalid upgrade fixture가 없어 `NoSuchFileException`으로 실패했다.
+
+Green에서는 기존 `20260907000000`을 수정하지 않고 후속 migration을 추가했다. migration은 기존 item 전체를 먼저 감사하고 첫 invalid item의 ID와 타입을 포함한 `23514`로 중단한다. 그 뒤 accommodation/arrival/departure와 나머지 타입의 필수·반대 참조를 동일한 exact predicate로 CHECK, row trigger, sealing validator에 적용한다. canonical schema introspection, insert/update/cross-type/sealing 음수 matrix, valid legacy 보존 contract, invalid legacy upgrade fixture/smoke를 추가했다. 실제 PostgreSQL migration 및 copied-invalid aggregate rollback 테스트도 작성했지만 이번 remediation 지시상 실행하지 않았다.
+
+여행 aggregate mutation은 #45의 canonical coordinator provenance(`d11b1f7`, `f25cfde`, 최종 `18408bd`)만 최소 이식했다. 일정 item store는 공용 coordinator의 owner lock, terminal/revision fence, root CAS를 사용하고 자체 lock/revision 증분을 제거했다. 일정 version 작성·sealing은 root CAS 전에, active pointer 교체는 CAS 뒤에 같은 transaction에서 수행하며 어느 단계든 실패하면 전체 rollback된다.
+
+DB-free Green 증거는 다음과 같다.
+
+```text
+./gradlew --no-daemon test --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateArchitectureSourceTest
+# BUILD SUCCESSFUL
+
+python3 -m unittest scripts.tests.test_push_notification_database scripts.tests.test_database_hardening
+# Ran 52 tests ... OK
+```
+
+실제 PostgreSQL/Testcontainers와 Docker smoke, 전체 heavy gate는 작업 범위에서 금지되어 실행하지 않았으며 해당 gate 전까지 상태는 `BLOCKED`다.
