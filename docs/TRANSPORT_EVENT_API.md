@@ -71,4 +71,3 @@ cd ../..
 ```
 
 결과는 `services/spring-api/build/frontend-api-client`와 `services/spring-api/build/distributions/timing-jeju-frontend-api-client.tgz`이며 FE 저장소에 자동 복사하지 않는다.
-

@@ -19,4 +19,3 @@
   - Docker smoke가 `authenticated` direct SELECT grant를 검출해 transport-event를 Spring server-only 읽기·쓰기 경계로 정렬했다.
 - 보안:
   - request-time provider/MCP 호출이 없고 JWT·편명·terminal name·note·원천 payload를 로그/Problem Details에 남기지 않는다.
-
