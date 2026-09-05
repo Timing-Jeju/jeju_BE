@@ -7,6 +7,7 @@ from pathlib import Path
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 REQUIRED_OPERATIONS = {
+    "tripPreferencesUpdate",
     "tripScheduleRead",
     "tripScheduleItemCreate",
     "tripAccommodationsCreate",

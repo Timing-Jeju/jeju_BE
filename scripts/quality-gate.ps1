@@ -95,7 +95,7 @@ if ($Scope -in @("all", "spring")) {
     if ((Get-Item -LiteralPath "build/openapi/openapi.json").Length -le 0) {
       throw "OpenAPI artifact가 비어 있습니다."
     }
-    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 29 --contracts-root ../.. }
+    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 30 --contracts-root ../.. }
     Invoke-Native "Spring 전체 검사" { ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar }
   } finally {
     Pop-Location

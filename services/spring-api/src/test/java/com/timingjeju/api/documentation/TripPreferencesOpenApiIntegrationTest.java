@@ -53,6 +53,7 @@ class TripPreferencesOpenApiIntegrationTest {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(jsonPath(PUT).exists())
+        .andExpect(jsonPath(PUT + ".operationId").value("tripPreferencesUpdate"))
         .andExpect(jsonPath(PUT + ".parameters[?(@.name=='If-Match')]").value(hasSize(1)))
         .andExpect(jsonPath(PUT + ".parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
@@ -116,12 +117,14 @@ class TripPreferencesOpenApiIntegrationTest {
         .andExpect(jsonPath(request + ".arrivalRegionCode").value("jeju-si"))
         .andExpect(jsonPath(request + ".preferredRegionCodes[0]").value("seongsan"))
         .andExpect(jsonPath(request + ".transportModes[1].mode").value("taxi"))
+        .andExpect(
+            jsonPath(request + ".startPlaceId").value("20000000-0000-4000-8000-000000000086"))
         .andExpect(jsonPath(success + ".*").value(hasSize(7)))
         .andExpect(jsonPath(success + ".preferences.*").value(hasSize(7)))
-        .andExpect(jsonPath(success + ".tripId").value("50000000-0000-0000-0000-000000000086"))
+        .andExpect(jsonPath(success + ".tripId").value("50000000-0000-4000-8000-000000000086"))
         .andExpect(
             jsonPath(success + ".preferences.startPlaceId")
-                .value("20000000-0000-0000-0000-000000000086"))
+                .value("20000000-0000-4000-8000-000000000086"))
         .andExpect(jsonPath(success + ".scheduleEffect").value("invalidated"))
         .andExpect(jsonPath(success + ".revision").doesNotExist())
         .andExpect(jsonPath(request + ".arrivalTransportModes").doesNotExist())
@@ -212,6 +215,9 @@ class TripPreferencesOpenApiIntegrationTest {
               .get("content")
               .get("application/problem+json")
               .get("examples");
+      JsonNode problemMedia =
+          operation.get("responses").get(statusCode).get("content").get("application/problem+json");
+      assertThat(problemMedia.has("example")).isFalse();
       assertThat(examples).isNotNull();
       assertThat(examples.size()).isEqualTo(expectedCodes.size());
       for (JsonNode expectedCode : expectedCodes) {

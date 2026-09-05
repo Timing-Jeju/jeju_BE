@@ -39,6 +39,21 @@ Red는 migration 통합 테스트 6개 중 후속 artifact 부재 1건, delivery
 
 Astra staged review에서는 latest migration 전체를 적용하는 기존 trip ACL 통합 테스트 두 곳이 `trip_transport_modes`의 `authenticated SELECT`를 여전히 거부로 기대하는 상충을 발견했다. 운영 SQL을 변경하지 않고 두 ACL matrix에 `trip_preferences`를 포함했으며, `authenticated SELECT`만 두 owner-readable table에서 true가 되도록 exact 예외를 두었다. `anon` SELECT, authenticated write, `trip_plans`와 `auth` schema 직접 접근 및 나머지 table ACL 기대는 유지했다. 기존 기대의 Red는 actual PostgreSQL 4개 중 2건 실패였고, 보정 후 #46 migration/JDBC 테스트를 합친 네 클래스 24개가 한 실행에서 모두 통과했다.
 
+## 2026-09-05 #195 통합 뒤 25-operation OpenAPI readiness 보정
+
+#195 포트 격리 commit `392fa4602fcc9c13b3110adb6a6209620030b8ee`를 일반 merge한 `ff3b900ad036b4609d4b5610794d38724e529b33`에서 전체 quality gate를 처음 실행했다. OpenAPI readiness 전 단계는 hooks 36/36, git-hooks 7/7, scripts 705/705(skip 3), unit 1,139개(skip 6), slice 43개, integration 541개(skip 4), openApiDocs 11개가 모두 통과했다. 생성 artifact의 #46 endpoint만 readiness 11건이 실패해 이후 단계와 내장 Docker는 실행되지 않았다.
+
+운영 HTTP·DB 동작은 바꾸지 않고 다음 delivery drift를 TDD로 보정했다.
+
+- canonical operation `update`와 validator suffix 규칙에 맞춰 operationId를 `tripPreferencesUpdate`로 고정했다.
+- request/success 예시의 장소·여행 ID를 RFC 4122 version 4/variant 8 UUID로 교체했다.
+- `200`의 strong `ETag`를 exact response header projection에 추가했다.
+- named Problem examples에 함께 직렬화되던 `example: null`을 제거했다.
+- historical mode24는 그대로 두고 #46 PUT만 추가한 mode25 exact inventory, `c6862499d71519d9efc7bfcf72855703d1e94f0a` source provenance, canonical authority와 runtime manifest를 추가했다.
+- canonical closed `allOf` response를 runtime의 flat closed object와 비교하도록 portable validator를 보완하고, `MutationHeaders.If-Match`를 문서 설명·runtime과 동일한 trip revision strong ETag pattern으로 정렬했다.
+
+최초 Red는 Python delivery 묶음 20개 중 4건과 Spring focused OpenAPI 4개 중 3건이었다. 후속 canonical projection Red 2건도 별도 고정했다. 보정 뒤 Python 관련 59개, Spring focused OpenAPI 4개가 통과했고 새로 생성한 단일 artifact는 `--mode 25`에서 25 operations 성공, historical `--mode 24`에서는 #46 PUT을 allowlist 밖으로 정확히 거부했다.
+
 ## 남은 검증 제한
 
-live Supabase·운영 DB 적용·배포는 승인 범위 밖이라 실행하지 않았다. root quality gate와 docker smoke는 #195 landing 및 OpenAPI inventory 정렬 전 실행 금지 상태이므로 이번 작업에서는 실행하지 않았으며, 이 두 gate 전에는 `READY_FOR_REVIEW`로 선언하지 않는다.
+live Supabase·운영 DB 적용·배포는 승인 범위 밖이라 실행하지 않았다. OpenAPI 보정 staged source의 독립 검토 전에는 전체 quality gate와 내장 Docker를 재실행하지 않으며 `READY_FOR_REVIEW`로 선언하지 않는다.

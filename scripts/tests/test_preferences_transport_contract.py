@@ -93,8 +93,12 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual([46, 47, 48], ownership["implementationIssues"])
         self.assertEqual(64, len(ownership["projectionSha256"]))
         self.assertEqual(
-            "d1cd2bd461cbd2e6dc9cda4b43dc66cf4b28fe2d423095c436b26ec606c40214",
+            "6955a6f977a7dfe482b991c619e8a90a622d4c10026dbe44d620b3bd01b6bd55",
             ownership["wireContractSha256"],
+        )
+        self.assertEqual(
+            ownership["wireContractSha256"],
+            VALIDATOR_MODULE.CANONICAL_WIRE_CONTRACT_SHA256,
         )
         self.assertEqual("not-ready", ownership["readiness"]["implementation"]["status"])
         self.assertEqual(VALIDATOR_MODULE._ownership_fixture(self.contract), ownership)
@@ -224,6 +228,13 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 self.assertEqual(2, len(schema["allOf"]))
                 self.assertEqual({"$ref": "MutationResponse"}, schema["allOf"][0])
                 self.assertEqual(child_required, set(schema["allOf"][1]["required"]))
+
+    def test_mutation_if_match는_trip_revision_strong_etag를_요구한다(self) -> None:
+        schema = self.contract["schemas"]["MutationHeaders"]["properties"]["If-Match"]
+        self.assertEqual(
+            '^\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\"$',
+            schema["pattern"],
+        )
 
     def test_validator_rejects_response_composition_required_mutations(self) -> None:
         mutations = (

@@ -52,6 +52,7 @@ REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/trips", "201"): {"Location", "ETag", "Idempotency-Replayed"},
     ("GET", "/api/v1/trips/{tripId}", "200"): {"ETag"},
     ("PATCH", "/api/v1/trips/{tripId}", "200"): {"ETag"},
+    ("PUT", "/api/v1/trips/{tripId}/preferences", "200"): {"ETag"},
     ("POST", "/api/v1/trips/{tripId}/schedule-items", "201"): {
         "ETag",
         "Idempotency-Replayed",
@@ -126,6 +127,9 @@ TRANSPORT_EVENT_OPERATIONS = {
     ("PUT", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsUpdate",
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsDelete",
 }
+PREFERENCES_OPERATIONS = {
+    ("PUT", "/api/v1/trips/{tripId}/preferences"): "tripPreferencesUpdate",
+}
 EXPECTED_OPERATION_IDS = (
     CURRENT_OPERATIONS
     | SAVED_PLACE_OPERATIONS
@@ -136,6 +140,7 @@ EXPECTED_OPERATION_IDS = (
     | SCHEDULE_MUTATION_OPERATIONS
     | ACCOMMODATION_OPERATIONS
     | TRANSPORT_EVENT_OPERATIONS
+    | PREFERENCES_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
@@ -162,37 +167,52 @@ SOURCE_PROVENANCE_21 = {
 SOURCE_PROVENANCE_23 = dict(SOURCE_PROVENANCE_21)
 ACCOMMODATION_SOURCE = "0335c49e5e60c11e5a365c67dbee970a11d247c5"
 SOURCE_PROVENANCE_27 = {**SOURCE_PROVENANCE_23, "accommodations": ACCOMMODATION_SOURCE}
+SOURCE_PROVENANCE_25 = {
+    **SOURCE_PROVENANCE_21,
+    "preferences-transport": "c6862499d71519d9efc7bfcf72855703d1e94f0a",
+}
 SOURCE_PROVENANCE_29 = {
     **SOURCE_PROVENANCE_27,
     "preferences-transport": "5914e3c82673f8f49f36c1a9944308e096e98ade",
+}
+SOURCE_PROVENANCE_30 = {
+    **SOURCE_PROVENANCE_27,
+    "preferences": "c6862499d71519d9efc7bfcf72855703d1e94f0a",
+    "transport-events": "5914e3c82673f8f49f36c1a9944308e096e98ade",
 }
 
 
 def operations_for_mode(mode):
     required = dict(CURRENT_OPERATIONS)
-    if mode in (16, 20, 21, 23, 24, 27, 29):
+    if mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
         required.update(SAVED_PLACE_OPERATIONS)
         required.update(TRIP_OPERATIONS)
-    if mode in (20, 21, 23, 24, 27, 29):
+    if mode in (20, 21, 23, 24, 25, 27, 29, 30):
         required.update(PUSH_NOTIFICATION_OPERATIONS)
-    if mode in (21, 23, 24, 27, 29):
+    if mode in (21, 23, 24, 25, 27, 29, 30):
         required.update(SCHEDULE_OPERATIONS)
-    if mode in (23, 24, 27, 29):
+    if mode in (23, 24, 25, 27, 29, 30):
         required.update(TRIP_MUTATION_OPERATIONS)
-    if mode in (24, 27, 29):
+    if mode in (24, 25, 27, 29, 30):
         required.update(SCHEDULE_MUTATION_OPERATIONS)
-    if mode in (27, 29):
+    if mode in (27, 29, 30):
         required.update(ACCOMMODATION_OPERATIONS)
-    if mode == 29:
+    if mode in (29, 30):
         required.update(TRANSPORT_EVENT_OPERATIONS)
+    if mode in (25, 30):
+        required.update(PREFERENCES_OPERATIONS)
     return required
 
 
 def source_provenance_for_mode(mode):
+    if mode == 30:
+        return dict(SOURCE_PROVENANCE_30)
     if mode == 29:
         return dict(SOURCE_PROVENANCE_29)
     if mode == 27:
         return dict(SOURCE_PROVENANCE_27)
+    if mode == 25:
+        return dict(SOURCE_PROVENANCE_25)
     if mode in (21, 23, 24):
         return dict(SOURCE_PROVENANCE_21)
     if mode == 20:
@@ -294,7 +314,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20, 21, 23, 24, 27, 29):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
             self.validate_source_provenance()
         return self.errors
 
@@ -347,22 +367,31 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20, 21, 23, 24, 27, 29):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
             trip_operations = dict(TRIP_OPERATIONS)
-            if self.mode in (23, 24, 27, 29):
+            if self.mode in (23, 24, 25, 27, 29, 30):
                 trip_operations.update(TRIP_MUTATION_OPERATIONS)
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
-        if self.mode in (20, 21, 23, 24, 27, 29):
+        if self.mode in (20, 21, 23, 24, 25, 27, 29, 30):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
-        if self.mode in (21, 23, 24, 27, 29):
+        if self.mode in (21, 23, 24, 25, 27, 29, 30):
             schedule_operations = dict(SCHEDULE_OPERATIONS)
-            if self.mode in (24, 27, 29):
+            if self.mode in (24, 25, 27, 29, 30):
                 schedule_operations.update(SCHEDULE_MUTATION_OPERATIONS)
             groups.append(("schedules", schedule_operations))
-        if self.mode in (27, 29):
+        if self.mode in (27, 29, 30):
             groups.append(("accommodations", ACCOMMODATION_OPERATIONS))
         if self.mode == 29:
             groups.append(("preferences-transport", TRANSPORT_EVENT_OPERATIONS))
+        if self.mode == 25:
+            groups.append(("preferences-transport", PREFERENCES_OPERATIONS))
+        if self.mode == 30:
+            groups.append(
+                (
+                    "preferences-transport",
+                    PREFERENCES_OPERATIONS | TRANSPORT_EVENT_OPERATIONS,
+                )
+            )
         for domain, operation_group in groups:
             contract = self.read_authority_json(
                 f"docs/contracts/domains/{domain}/contract.json"
@@ -668,6 +697,38 @@ class Validator:
             seen.add(name)
             siblings = {key: value for key, value in schema.items() if key != "$ref"}
             schema = {**schemas[name], **siblings}
+        if (
+            isinstance(schema, dict)
+            and schema.get("unevaluatedProperties") is False
+            and isinstance(schema.get("allOf"), list)
+        ):
+            properties = {}
+            required = []
+            for child in schema["allOf"]:
+                branch = self.canonical_schema(child, schemas, location)
+                if branch.get("type") not in (None, "object") or "allOf" in branch:
+                    self.error(location, "canonical closed allOf branch가 object가 아닙니다")
+                    return {}
+                for name, value in (branch.get("properties") or {}).items():
+                    if name in properties and properties[name] != value:
+                        self.error(location, f"canonical closed allOf property가 충돌합니다: {name}")
+                        return {}
+                    properties[name] = value
+                for name in branch.get("required") or []:
+                    if name not in required:
+                        required.append(name)
+            if not set(required).issubset(properties):
+                self.error(location, "canonical closed allOf required property가 없습니다")
+                return {}
+            flattened = {
+                "type": "object",
+                "additionalProperties": False,
+                "required": required,
+                "properties": properties,
+            }
+            if "nullable" in schema:
+                flattened["nullable"] = schema["nullable"]
+            return flattened
         return schema if isinstance(schema, dict) else {}
 
     def validate_contract_parameters(self, operation, catalog, schemas, location):
@@ -813,7 +874,7 @@ class Validator:
             if key not in self.operations:
                 prefix = (
                     f"{self.mode}-operation 완료 mode: "
-                    if self.mode in (16, 20, 21, 23, 24, 27, 29)
+                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30)
                     else ""
                 )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
@@ -1226,9 +1287,9 @@ def main(argv):
     parser.add_argument(
         "--mode",
         type=int,
-        choices=(9, 16, 20, 21, 23, 24, 27, 29),
-        default=29,
-        help="historical modes {9,16,20,21,23,24,27}; active mode29",
+        choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30),
+        default=30,
+        help="historical modes {9,16,20,21,23,24,25,27,29}; active mode30",
     )
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])

@@ -34,7 +34,7 @@ EXPECTED_IMPLEMENTATION_OWNERS = {
 }
 EXPECTED_IMPLEMENTATION_ISSUES = [46, 47, 48]
 CANONICAL_WIRE_CONTRACT_SHA256 = (
-    "d1cd2bd461cbd2e6dc9cda4b43dc66cf4b28fe2d423095c436b26ec606c40214"
+    "6955a6f977a7dfe482b991c619e8a90a622d4c10026dbe44d620b3bd01b6bd55"
 )
 COMMON_RESPONSE_FIELDS = {
     "tripId", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId",
