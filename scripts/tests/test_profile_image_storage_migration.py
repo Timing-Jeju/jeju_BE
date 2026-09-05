@@ -112,6 +112,33 @@ class ProfileImageStorageMigrationContractTest(unittest.TestCase):
         self.assertIn("as restrictive for insert to anon", self.sql)
         self.assertIn("as restrictive for select to anon", self.sql)
 
+    def test_orphan_scan_cursor_is_durable_private_and_app_owned(self) -> None:
+        self.assertRegex(
+            self.sql,
+            re.compile(
+                r"create\s+table\s+if\s+not\s+exists\s+public\.profile_image_orphan_scan_cursor"
+                r".*?scanner_name\s+text\s+primary\s+key"
+                r".*?owner_offset\s+integer\s+not\s+null"
+                r".*?object_offset\s+integer\s+not\s+null"
+                r".*?revision\s+bigint\s+not\s+null",
+                re.DOTALL,
+            ),
+        )
+        self.assertIn(
+            "alter table public.profile_image_orphan_scan_cursor enable row level security",
+            self.sql,
+        )
+        for role in ("public", "anon", "authenticated"):
+            self.assertIn(
+                f"revoke all on table public.profile_image_orphan_scan_cursor from {role}",
+                self.sql,
+            )
+        self.assertIn(
+            "grant select, insert, update on table public.profile_image_orphan_scan_cursor to service_role",
+            self.sql,
+        )
+        self.assertNotRegex(self.sql, r"profile_image_orphan_scan_cursor[^;]*storage\.")
+
     def test_security_contract_kills_all_reviewer_mutations(self) -> None:
         mutations = (
             (
