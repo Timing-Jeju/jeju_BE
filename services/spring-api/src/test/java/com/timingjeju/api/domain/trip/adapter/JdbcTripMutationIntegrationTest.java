@@ -162,6 +162,26 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   }
 
   @Test
+  void DB직접_root축소도_named_23514로_거부하고_preference와_revision을_보존한다() {
+    installExternalFactReference();
+    jdbc.update(
+        "insert into public.trip_place_preferences (trip_plan_id, place_id, preference_type, target_day_no, priority) values (?, ?, 'must_visit', 3, 90)",
+        TRIP,
+        PLACE);
+    String before = calendarFingerprint();
+
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "update public.trip_plans set end_date='2026-09-02', revision=revision+1 where id=?",
+                    TRIP))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+        .satisfies(failure -> assertThat(sqlState(failure)).isEqualTo("23514"));
+
+    assertThat(calendarFingerprint()).isEqualTo(before);
+  }
+
+  @Test
   void pace변경은_active를_superseded하고_pointer_score_status를_원자무효화한다() {
     installActiveSchedule();
 
@@ -687,6 +707,15 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   private int count(String table, String column, UUID id) {
     return jdbc.queryForObject(
         "select count(*) from public." + table + " where " + column + " = ?", Integer.class, id);
+  }
+
+  private static String sqlState(Throwable failure) {
+    Throwable current = failure;
+    while (current != null) {
+      if (current instanceof java.sql.SQLException sqlFailure) return sqlFailure.getSQLState();
+      current = current.getCause();
+    }
+    return null;
   }
 
   private static void assertCode(Runnable operation, String code) {

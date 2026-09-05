@@ -31,3 +31,13 @@
 - 외부 datasource, Supabase, MCP, Firebase 환경은 사용하지 않고 비밀정보를 출력하지 않는다.
 - 요청 범위에 따라 루트 전체 quality gate와 Docker smoke는 실행하지 않는다.
 - disposable PostgreSQL store/concurrency/RLS/migration QA와 generated OpenAPI mode31 검증을 완료했다. 전체 gate와 Docker smoke는 요청 범위에 따라 다음 승인 단계에 남긴다.
+
+## 2026-09-06 최종 리뷰 corrective TDD
+
+- Red commit `ec6c255`: transport event가 있는 여행의 시작·종료 확장이 성공했고, Day 3 장소 선호가 있는 여행의 2일 축소가 `TRIP_CONSTRAINT_VIOLATION` 대신 `TRIP_DATA_UNAVAILABLE`로 번역됐다. corrective migration과 compose slot `044` 부재도 함께 고정했다.
+- 동시성 Red commit `9e57ef0`: departure event와 root end date를 동시에 9월 4일로 확장하면 한 변경이 성공해 aggregate가 바뀌는 회귀를 actual PostgreSQL에서 확인했다.
+- Green: `JdbcTripStore`의 root lock 이후 precheck가 arrival=start, departure=end exact 일치와 preference target Day 범위를 함께 검사한다.
+- DB Green: append-only `20260909000000_trip_calendar_child_invariant_correction.sql`이 기존 중복 preference root trigger를 통합하고, root 변경을 명명된 SQLSTATE `23514`로 거부한다. root UPDATE 행 잠금과 기존 child mutex가 event/root 경합을 직렬화한다.
+- Migration Green: Issue #48 직후 schema에서 corrective migration을 실제 적용해 기존 valid row 보존, 양방향 날짜 변경 거부, PUBLIC·anon·authenticated·service_role 함수 EXECUTE 회수를 검증했다.
+- 회귀 Green: actual PostgreSQL trip mutation/migration 18건, transport-event/place-preference 28건 중 메시지 호환 수정 후 재검증, 관련 unit/architecture/OpenAPI와 Python trip·compose·smoke 계약이 통과했다.
+- 전체 heavy quality gate와 Docker smoke 재실행은 조정 주체인 root에게 남기고, 이번 단계에서는 필요한 최소 Testcontainers 검증만 수행했다.

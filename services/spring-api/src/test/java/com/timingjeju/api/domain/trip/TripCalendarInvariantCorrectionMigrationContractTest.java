@@ -14,20 +14,23 @@ class TripCalendarInvariantCorrectionMigrationContractTest {
       "20260909000000_trip_calendar_child_invariant_correction.sql";
 
   @Test
-  void corrective_migration은_root변경에서도_event_exact경계와_preference_day를_mutex안에서_검사한다()
-      throws Exception {
+  void corrective_migration은_root변경에서도_event_exact경계와_preference_day를_검사한다() throws Exception {
     String sql =
         Files.readString(repositoryRoot().resolve("supabase/migrations").resolve(MIGRATION));
 
     assertThat(sql)
-        .contains("perform public.lock_trip_plan_schedule_mutex(new.id)")
+        .doesNotContain("perform public.lock_trip_plan_schedule_mutex(new.id)")
         .contains("event.event_type = 'arrival'")
         .contains("event.event_type = 'departure'")
         .contains("preference.target_day_no")
         .contains("errcode = '23514'")
         .contains("constraint = 'ck_trip_calendar_children_match_root'")
-        .contains("before update of start_date, end_date")
-        .contains("on public.trip_plans");
+        .contains("before update of start_date, end_date, timezone")
+        .contains("on public.trip_plans")
+        .contains("revoke all on function public.protect_trip_date_range() from public")
+        .contains("from anon")
+        .contains("from authenticated")
+        .contains("from service_role");
   }
 
   @Test

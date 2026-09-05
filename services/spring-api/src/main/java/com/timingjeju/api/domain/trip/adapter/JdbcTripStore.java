@@ -369,7 +369,7 @@ public class JdbcTripStore implements TripStore {
       if (temporalChanged && hasScheduleVersion(record.tripId())) {
         throw TripException.regenerationRequired();
       }
-      if (temporalChanged && hasCalendarChildOutside(record.tripId(), startDate, endDate)) {
+      if (temporalChanged && hasCalendarChildConflict(record.tripId(), startDate, endDate)) {
         throw TripException.constraintViolation();
       }
 
@@ -795,7 +795,7 @@ public class JdbcTripStore implements TripStore {
             tripId));
   }
 
-  private boolean hasCalendarChildOutside(UUID tripId, LocalDate startDate, LocalDate endDate) {
+  private boolean hasCalendarChildConflict(UUID tripId, LocalDate startDate, LocalDate endDate) {
     return Boolean.TRUE.equals(
         jdbc.queryForObject(
             """
@@ -803,12 +803,23 @@ public class JdbcTripStore implements TripStore {
               exists(
                 select 1 from public.trip_transport_events event
                 where event.trip_plan_id = ?
-                  and timezone('Asia/Seoul', event.scheduled_at)::date not between ? and ?
+                  and (
+                    (event.event_type = 'arrival'
+                      and timezone('Asia/Seoul', event.scheduled_at)::date <> ?)
+                    or (event.event_type = 'departure'
+                      and timezone('Asia/Seoul', event.scheduled_at)::date <> ?)
+                  )
               )
               or exists(
                 select 1 from public.trip_accommodations accommodation
                 where accommodation.trip_plan_id = ?
                   and (accommodation.check_in_date < ? or accommodation.check_out_date > ?)
+              )
+              or exists(
+                select 1 from public.trip_place_preferences preference
+                where preference.trip_plan_id = ?
+                  and preference.target_day_no is not null
+                  and preference.target_day_no > ?
               )
             """,
             Boolean.class,
@@ -817,7 +828,9 @@ public class JdbcTripStore implements TripStore {
             Date.valueOf(endDate),
             tripId,
             Date.valueOf(startDate),
-            Date.valueOf(endDate)));
+            Date.valueOf(endDate),
+            tripId,
+            (int) (ChronoUnit.DAYS.between(startDate, endDate) + 1)));
   }
 
   private void replaceModes(UUID tripId, List<TripTransportMode> modes, Instant updatedAt) {
