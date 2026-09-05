@@ -116,3 +116,45 @@ source-approved final `44769320539a66eb73087fa4c51a4ca72207dea5`를 merge commit
 따라서 terminal 네 endpoint의 DB unchanged, legacy invalid-reference atomic rollback,
 동시성 및 required-reference migration은 작성된 PostgreSQL integration test를 실제 DB에서
 추가 확인해야 한다.
+
+## 최신 source stack 재통합 (2026-09-06)
+
+- exact base: `0d275a285f6cf66f5e414a3bac558338953f1508` (#50 source-approved current stack)
+- 브랜치: `fix/51-schedule-item-mutations-current-stack`
+- 보존 범위: #50 POST와 공용 `TripAggregateMutationCoordinator.executeMonotonic`, #46/#47/#48,
+  #78 compose/runtime 계약
+
+### Red → Green → Refactor 증거
+
+- 최초 architecture Red는 네 편집 endpoint와 printable-ASCII 멱등성 공통 경계,
+  monotonic coordinator, copied item namespace가 최신 base에 없음을 확인했다.
+- 추가 Red는 future PostgreSQL 동시 경합 fixture가 coordinator의 `TripException`이 아니라
+  `ScheduleException`을 잡고 있었고, 통합 migration의 현재 trigger/check 이름 대신 폐기된 이름을
+  사용함을 확인했다. source architecture test를 먼저 추가한 뒤 fixture를 보정했다.
+- OpenAPI Red는 cherry-pick 충돌 뒤 `SCHEDULE_MUTATION_OPERATIONS` half-merge와 edit 네 endpoint의
+  runtime manifest/operation documents/header inventory 누락을 드러냈다. mode24는 create-only,
+  mode28은 create+edit 네 개, later historical mode25/27/29/30/31은 출시 당시 목록,
+  active mode33 selector는 최신 37-operation inventory로 분리했다.
+- mocked HTTP에서 네 편집 endpoint의 stale ETag가 `TripException.versionConflict()`의 canonical
+  `409 TRIP_VERSION_CONFLICT`를 반환하고 `Retry-After`를 보내지 않음을 검증했다. OpenAPI 409는
+  처리 중 멱등성 충돌에서 사용할 수 있는 optional `Retry-After`를 문서화한다.
+
+### 합성 migration
+
+동일 `20260907000001` migration에 #50의 composite transport FK/index, sealing wrapper와 ACL을
+유지하면서 #51의 `place_visit`/숙소/교통-event/Java `Character.isWhitespace` 기반 title 계약과
+legacy audit를 합성했다. compose migration 순서 038→044→045와 #78 환경은 변경하지 않았다.
+
+### DB-free 검증
+
+- architecture source test: Green
+- mocked `ScheduleControllerIntegrationTest`와 `ScheduleOpenApiIntegrationTest`: Green
+- `openApiDocs`: Green
+- generated artifact frontend readiness active `--mode 33`: `37 operations` Green
+- schedule/OpenAPI/migration/current-stack Python: 70 tests Green
+- Spotless: Green
+
+승인 범위에 따라 실제 PostgreSQL/Testcontainers/Docker/root full quality gate/live Supabase는
+실행하지 않았다. 후속 DB 검증 대상은 `JdbcScheduleMutationStoreIntegrationTest`의 실제 2-thread
+동일 ETag 경합(성공 1, canonical conflict 1, active version 1), stale revision rollback,
+legacy invalid-reference rollback, N-1 leg/seal/activation 원자성이다.

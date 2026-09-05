@@ -33,6 +33,19 @@ REQUIRED_REQUEST_HEADERS = {
         "Idempotency-Key",
         "If-Match",
     },
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order"): {"Idempotency-Key", "If-Match"},
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
     ("POST", "/api/v1/trips/{tripId}/accommodations"): {
         "Idempotency-Key",
         "If-Match",
@@ -61,6 +74,28 @@ REQUIRED_RESPONSE_HEADERS = {
         "Idempotency-Replayed",
     },
     ("POST", "/api/v1/trips/{tripId}/schedule-items", "409"): {"Retry-After"},
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "409"): {"Retry-After"},
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "409"): {"Retry-After"},
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order", "409"): {"Retry-After"},
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move", "409"): {
+        "Retry-After"
+    },
     ("POST", "/api/v1/trips/{tripId}/accommodations", "201"): {
         "Location",
         "ETag",
@@ -133,6 +168,8 @@ SCHEDULE_EDIT_OPERATIONS = {
     ("PUT", "/api/v1/trips/{tripId}/schedule-order"): "tripScheduleOrderUpdate",
     ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move"): "tripScheduleItemMoveUpdate",
 }
+# Historical modes 24/25/27/29/30/31 were released with create only.
+SCHEDULE_MUTATION_OPERATIONS = SCHEDULE_ITEM_CREATE_OPERATIONS
 TRANSPORT_EVENT_OPERATIONS = {
     ("PUT", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsUpdate",
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsDelete",
@@ -155,6 +192,7 @@ EXPECTED_OPERATION_IDS = (
     | PUSH_NOTIFICATION_OPERATIONS
     | SCHEDULE_OPERATIONS
     | SCHEDULE_MUTATION_OPERATIONS
+    | SCHEDULE_EDIT_OPERATIONS
     | ACCOMMODATION_OPERATIONS
     | TRANSPORT_EVENT_OPERATIONS
     | PREFERENCES_OPERATIONS
@@ -211,17 +249,19 @@ SOURCE_PROVENANCE_33 = {
 
 def operations_for_mode(mode):
     required = dict(CURRENT_OPERATIONS)
-    if mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31, 33):
+    if mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(SAVED_PLACE_OPERATIONS)
         required.update(TRIP_OPERATIONS)
-    if mode in (20, 21, 23, 24, 25, 27, 29, 30, 31, 33):
+    if mode in (20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(PUSH_NOTIFICATION_OPERATIONS)
-    if mode in (21, 23, 24, 25, 27, 29, 30, 31, 33):
+    if mode in (21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(SCHEDULE_OPERATIONS)
-    if mode in (23, 24, 25, 27, 29, 30, 31, 33):
+    if mode in (23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(TRIP_MUTATION_OPERATIONS)
-    if mode in (24, 25, 27, 29, 30, 31, 33):
+    if mode in (24, 25, 27, 28, 29, 30, 31, 33):
         required.update(SCHEDULE_MUTATION_OPERATIONS)
+    if mode in (28, 33):
+        required.update(SCHEDULE_EDIT_OPERATIONS)
     if mode in (27, 29, 30, 31, 33):
         required.update(ACCOMMODATION_OPERATIONS)
     if mode in (29, 30, 31, 33):
@@ -248,7 +288,7 @@ def source_provenance_for_mode(mode):
         return dict(SOURCE_PROVENANCE_27)
     if mode == 25:
         return dict(SOURCE_PROVENANCE_25)
-    if mode in (21, 23, 24):
+    if mode in (21, 23, 24, 28):
         return dict(SOURCE_PROVENANCE_21)
     if mode == 20:
         return dict(SOURCE_PROVENANCE_20)
@@ -349,7 +389,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31, 33):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             self.validate_source_provenance()
         return self.errors
 
@@ -409,17 +449,19 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31, 33):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             trip_operations = dict(TRIP_OPERATIONS)
-            if self.mode in (23, 24, 25, 27, 29, 30, 31, 33):
+            if self.mode in (23, 24, 25, 27, 28, 29, 30, 31, 33):
                 trip_operations.update(TRIP_MUTATION_OPERATIONS)
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
-        if self.mode in (20, 21, 23, 24, 25, 27, 29, 30, 31, 33):
+        if self.mode in (20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
-        if self.mode in (21, 23, 24, 25, 27, 29, 30, 31, 33):
+        if self.mode in (21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             schedule_operations = dict(SCHEDULE_OPERATIONS)
-            if self.mode in (24, 25, 27, 29, 30, 31, 33):
+            if self.mode in (24, 25, 27, 28, 29, 30, 31, 33):
                 schedule_operations.update(SCHEDULE_MUTATION_OPERATIONS)
+            if self.mode in (28, 33):
+                schedule_operations.update(SCHEDULE_EDIT_OPERATIONS)
             groups.append(("schedules", schedule_operations))
         if self.mode in (27, 29, 30, 31, 33):
             groups.append(("accommodations", ACCOMMODATION_OPERATIONS))
@@ -925,7 +967,7 @@ class Validator:
             if key not in self.operations:
                 prefix = (
                     f"{self.mode}-operation 완료 mode: "
-                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31, 33)
+                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33)
                     else ""
                 )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
@@ -1338,9 +1380,9 @@ def main(argv):
     parser.add_argument(
         "--mode",
         type=int,
-        choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30, 31, 33),
+        choices=(9, 16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33),
         default=33,
-        help="historical modes {9,16,20,21,23,24,25,27,29,30,31}; active mode33",
+        help="historical modes {9,16,20,21,23,24,25,27,28,29,30,31}; active mode33",
     )
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])

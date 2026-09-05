@@ -525,7 +525,7 @@ class ScheduleControllerIntegrationTest {
         .thenThrow(
             ScheduleException.placeNotFound(),
             ScheduleException.versionNotFound(),
-            ScheduleException.tripVersionConflict());
+            TripException.versionConflict());
     String body = validScheduleItemBody();
     List<List<String>> expected =
         List.of(
@@ -620,6 +620,66 @@ class ScheduleControllerIntegrationTest {
           .andExpect(
               jsonPath("$.type")
                   .value("https://api.timing-jeju.com/problems/trip-terminal-state-conflict"));
+    }
+  }
+
+  @Test
+  void PATCH_DELETE_reorder_MOVE의_stale_ETag는_TripException_canonical_409를_반환한다() throws Exception {
+    when(mutations.patchItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(TripException.versionConflict());
+    when(mutations.deleteItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(TripException.versionConflict());
+    when(mutations.reorder(any(), eq(TRIP_ID), any(), any()))
+        .thenThrow(TripException.versionConflict());
+    when(mutations.moveItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(TripException.versionConflict());
+
+    var requests =
+        List.of(
+            patch(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .content(
+                    "{\"expectedActiveScheduleVersionId\":\""
+                        + VERSION_ID
+                        + "\",\"memo\":\"stale\"}"),
+            delete(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .queryParam("expectedActiveScheduleVersionId", VERSION_ID.toString()),
+            put("/api/v1/trips/{tripId}/schedule-order", TRIP_ID)
+                .content(
+                    "{\"expectedActiveScheduleVersionId\":\""
+                        + VERSION_ID
+                        + "\",\"days\":[{\"dayNo\":1,\"orderedItemIds\":[\"49000000-0000-0000-0000-000000000005\"]}]}"),
+            post(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .content(
+                    "{\"expectedActiveScheduleVersionId\":\""
+                        + VERSION_ID
+                        + "\",\"targetDayNo\":2,\"targetSequenceNo\":1,\"plannedStartAt\":\"2026-09-02T10:20:00+09:00\"}"));
+
+    for (var request : requests) {
+      mvc.perform(
+              request
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", "stale-printable-key")
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.code").value("TRIP_VERSION_CONFLICT"))
+          .andExpect(
+              jsonPath("$.type")
+                  .value("https://api.timing-jeju.com/problems/trip-version-conflict"))
+          .andExpect(jsonPath("$.title").value("여행 조건이 이미 변경되었습니다"))
+          .andExpect(jsonPath("$.detail").value("최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."))
+          .andExpect(
+              org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                  .doesNotExist("Retry-After"));
     }
   }
 

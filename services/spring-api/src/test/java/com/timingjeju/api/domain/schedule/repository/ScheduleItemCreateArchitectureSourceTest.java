@@ -82,6 +82,24 @@ class ScheduleItemCreateArchitectureSourceTest {
   }
 
   @Test
+  void 실제_동시성_fixture는_coordinator의_TripException과_현재_migration_객체명을_사용한다() throws Exception {
+    String source =
+        Files.readString(
+            repositoryRoot()
+                .resolve("services/spring-api/src/test/java")
+                .resolve(
+                    "com/timingjeju/api/domain/schedule/repository/JdbcScheduleMutationStoreIntegrationTest.java"));
+
+    assertThat(source)
+        .contains("catch (TripException failure)")
+        .contains("drop trigger trg_trip_items_required_references")
+        .contains("drop constraint chk_trip_items_required_references")
+        .doesNotContain("catch (ScheduleException failure)")
+        .doesNotContain("trg_validate_trip_item_required_references")
+        .doesNotContain("trip_items_required_references_by_type");
+  }
+
+  @Test
   void locationless_item은_참조검증을_통과하고_실제_인접_leg_재계산에서만_거부한다() throws Exception {
     String source = scheduleStoreSource();
 

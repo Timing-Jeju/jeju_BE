@@ -119,7 +119,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
             ROOT / "scripts/validate_openapi_frontend_readiness.py"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30, 31, 33)", validator
+            "choices=(9, 16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33)", validator
         )
 
         migration_names = {

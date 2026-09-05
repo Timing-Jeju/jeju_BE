@@ -917,7 +917,9 @@ final class FrontendOpenApiCustomizer {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
     } else if (isScheduleMutation(key)) {
       addResponseHeaderReferences(
-          operation, List.of("201"), List.of("ETag", "Idempotency-Replayed"));
+          operation,
+          List.of(key.equals("POST /api/v1/trips/{tripId}/schedule-items") ? "201" : "200"),
+          List.of("ETag", "Idempotency-Replayed"));
     } else if (key.equals("GET /api/v1/me/profile-image")) {
       addProfileImageResponseHeaders(operation, false);
     } else if (key.equals("PUT /api/v1/me/profile-image")) {
@@ -1686,6 +1688,55 @@ final class FrontendOpenApiCustomizer {
                 "409", "ACTIVE_SCHEDULE_VERSION_CONFLICT",
                 "422", "SCHEDULE_ITEM_INVALID",
                 "500", "INTERNAL_SERVER_ERROR")));
+    String mutationSuccess =
+        "{\"tripId\":\"50000000-0000-4000-8000-000000000001\","
+            + "\"previousScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\","
+            + "\"activeScheduleVersionId\":\"60000000-0000-4000-8000-000000000002\","
+            + "\"versionNo\":2,\"sourceType\":\"user_edit\",\"feasibilityStale\":true,"
+            + "\"changedItemIds\":[\"61000000-0000-4000-8000-000000000003\"],"
+            + "\"etag\":\"\\\"trip-50000000-0000-4000-8000-000000000001-r2\\\"\","
+            + "\"updatedAt\":\"2026-10-01T09:30:00+09:00\"}";
+    Map<String, String> mutationErrors =
+        Map.of(
+            "400",
+            "INVALID_REQUEST",
+            "401",
+            "AUTHENTICATION_REQUIRED",
+            "404",
+            "SCHEDULE_ITEM_NOT_FOUND",
+            "409",
+            "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+            "422",
+            "SCHEDULE_ITEM_INVALID",
+            "500",
+            "INTERNAL_SERVER_ERROR");
+    result.put(
+        "PATCH /api/v1/trips/{tripId}/schedule-items/{itemId}",
+        doc(
+            "tripScheduleItemPatch",
+            "일정",
+            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"placeId\":\"20000000-0000-4000-8000-000000000001\",\"accommodationId\":\"70000000-0000-4000-8000-000000000001\",\"transportEventId\":\"71000000-0000-4000-8000-000000000001\",\"title\":\"성산일출봉 방문\",\"plannedStartAt\":\"2026-10-01T11:00:00+09:00\",\"stayMinutes\":45,\"bufferAfterMinutes\":10,\"required\":true,\"memo\":null}",
+            mutationSuccess,
+            mutationErrors));
+    result.put(
+        "DELETE /api/v1/trips/{tripId}/schedule-items/{itemId}",
+        doc("tripScheduleItemDelete", "일정", null, mutationSuccess, mutationErrors));
+    result.put(
+        "PUT /api/v1/trips/{tripId}/schedule-order",
+        doc(
+            "tripScheduleOrderUpdate",
+            "일정",
+            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"days\":[{\"dayNo\":1,\"orderedItemIds\":[\"61000000-0000-4000-8000-000000000001\"]}]}",
+            mutationSuccess,
+            mutationErrors));
+    result.put(
+        "POST /api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+        doc(
+            "tripScheduleItemMoveUpdate",
+            "일정",
+            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"targetDayNo\":2,\"targetSequenceNo\":1,\"plannedStartAt\":\"2026-10-02T10:20:00+09:00\"}",
+            mutationSuccess,
+            mutationErrors));
     addAccommodationDocuments(result);
     addTransportEventDocuments(result);
     return Map.copyOf(result);

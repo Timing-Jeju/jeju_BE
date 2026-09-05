@@ -718,9 +718,9 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Test
   void legacy_invalid_non_target_reference의_PATCH는_aggregate_전체를_rollback한다() {
-    jdbc.execute("drop trigger trg_validate_trip_item_required_references on public.trip_items");
+    jdbc.execute("drop trigger trg_trip_items_required_references on public.trip_items");
     jdbc.execute(
-        "alter table public.trip_items drop constraint trip_items_required_references_by_type");
+        "alter table public.trip_items drop constraint chk_trip_items_required_references");
     jdbc.update("update public.trip_items set item_type='accommodation' where id=?", SECOND);
     String before = aggregateFingerprint();
     var patch =
@@ -765,7 +765,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
                                           null,
                                           "device-" + index)));
                               return "SUCCESS";
-                            } catch (ScheduleException failure) {
+                            } catch (TripException failure) {
                               return failure.code();
                             }
                           }))

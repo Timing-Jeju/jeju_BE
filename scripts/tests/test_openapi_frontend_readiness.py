@@ -15,6 +15,8 @@ from scripts.validate_openapi_frontend_readiness import (
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_MUTATION_OPERATIONS,
+    SCHEDULE_EDIT_OPERATIONS,
+    SCHEDULE_ITEM_CREATE_OPERATIONS,
     SCHEDULE_MUTATION_OPERATIONS,
     SCHEDULE_OPERATIONS,
     TRANSPORT_EVENT_OPERATIONS,
@@ -470,10 +472,6 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
 
     def test_mode24는_schedule_item_create를_exact_inventory로_검사한다(self):
         """24-operation 모드가 #50 일정 항목 추가를 기존 공개 목록에 더한다."""
-        schedule_create = {
-            ("POST", "/api/v1/trips/{tripId}/schedule-items"):
-                "tripScheduleItemCreate"
-        }
         operation_maps = (
             CURRENT_OPERATIONS,
             SAVED_PLACE_OPERATIONS,
@@ -481,7 +479,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             TRIP_MUTATION_OPERATIONS,
             PUSH_NOTIFICATION_OPERATIONS,
             SCHEDULE_OPERATIONS,
-            schedule_create,
+            SCHEDULE_ITEM_CREATE_OPERATIONS,
         )
         exact_operations = {key for operations in operation_maps for key in operations}
         validator = Validator({}, 24, ROOT)
@@ -505,6 +503,17 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
         self.assertEqual("MutationResponse", create.args[2]["successSchema"])
         self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
+
+    def test_mode28은_mode24에_schedule_edit_네개만_추가한다(self):
+        historical = operations_for_mode(24)
+        expected = operations_for_mode(28)
+
+        self.assertEqual(24, len(historical))
+        self.assertEqual(28, len(expected))
+        self.assertEqual(
+            SCHEDULE_EDIT_OPERATIONS,
+            {key: expected[key] for key in set(expected) - set(historical)},
+        )
 
     def test_mode29는_독립_literal_29개_historical_inventory를_exact검사한다(self):
         expected = {
@@ -694,14 +703,14 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             authority.source_provenance["place-preferences"],
         )
 
-    def test_mode33은_mode31에_profile_image_companion_두개만_추가한다(self):
+    def test_active_mode33은_historical_mode31에_schedule_edit과_profile_image를_합성한다(self):
         historical = operations_for_mode(31)
         expected = operations_for_mode(33)
 
         self.assertEqual(31, len(historical))
-        self.assertEqual(33, len(expected))
+        self.assertEqual(37, len(expected))
         self.assertEqual(
-            PROFILE_IMAGE_OPERATIONS,
+            SCHEDULE_EDIT_OPERATIONS | PROFILE_IMAGE_OPERATIONS,
             {key: expected[key] for key in set(expected) - set(historical)},
         )
 
@@ -737,13 +746,14 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             set(manifest),
         )
 
-    def test_frontend_인계문서는_통합_exact33을_표현한다(self):
+    def test_frontend_인계문서는_최신_exact37과_historical_mode를_분리한다(self):
         document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         self.assertIn(
-            "#78 프로필 이미지 companion GET/PUT까지 합친 exact 33개 operation의 프론트엔드 인계본",
+            "#51 일정 편집 4개까지 합친 exact 37개 operation의 프론트엔드 인계본",
             document,
         )
         self.assertIn("active `--mode 33`", document)
+        self.assertIn("mode24는 create만, mode28은 create와 edit 4개", document)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
