@@ -57,3 +57,9 @@ Astra staged review에서는 latest migration 전체를 적용하는 기존 trip
 ## 남은 검증 제한
 
 live Supabase·운영 DB 적용·배포는 승인 범위 밖이라 실행하지 않았다. OpenAPI 보정 staged source의 독립 검토 전에는 전체 quality gate와 내장 Docker를 재실행하지 않으며 `READY_FOR_REVIEW`로 선언하지 않는다.
+
+## 2026-09-05 Docker ACL smoke 계약 정렬
+
+OpenAPI 보정이 독립 검토·커밋된 뒤 전체 quality gate를 재실행했다. 첫 실행은 Docker Hub TLS handshake timeout으로 종료됐고, 승인된 1회 재시도는 애플리케이션 빌드·헬스와 migration·schema·negative constraint 검사를 모두 통과했으나 최종 smoke ACL 검사가 #46에서 의도적으로 허용한 `authenticated SELECT` 두 건을 예상하지 못해 실패했다.
+
+운영 migration과 권한은 변경하지 않았다. 먼저 `TripPreferencesMigrationContractTest`에 `authenticated`가 `trip_preferences`, `trip_transport_modes`를 조회하는 두 예외만 허용하고 `anon`과 다른 privilege는 계속 거부한다는 exact 계약을 추가했다. Red 6개 중 1건 실패를 확인한 뒤 `smoke_check.sql`의 allowlist를 같은 두 테이블의 `SELECT`로만 최소 확장했다. focused 테스트 6/6과 disposable Docker smoke 전체가 통과했고, 종료 뒤 smoke 컨테이너 잔여는 0이며 보호 baseline은 불변이었다.

@@ -152,6 +152,22 @@ class TripPreferencesMigrationContractTest {
         .contains("residue");
   }
 
+  @Test
+  void smoke_ACL은_authenticated_owner조회두테이블의_SELECT만_exact예외로허용한다() throws Exception {
+    String smoke = compact(Files.readString(root().resolve("db/queries/smoke_check.sql")));
+
+    assertThat(smoke)
+        .contains(
+            "grantee = 'authenticated' and table_name in ('trip_preferences',"
+                + " 'trip_transport_modes') and privilege_type = 'select'")
+        .doesNotContain(
+            "grantee = 'anon' and table_name in ('trip_preferences', 'trip_transport_modes')")
+        .doesNotContain(
+            "table_name in ('trip_preferences', 'trip_transport_modes') and privilege_type <>"
+                + " 'select'");
+    assertThat(count(smoke, "grantee = 'authenticated'")).isEqualTo(2);
+  }
+
   private static String source() throws Exception {
     return Files.readString(root().resolve("supabase/migrations").resolve(MIGRATION));
   }
