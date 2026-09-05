@@ -222,3 +222,9 @@ python3 -m unittest \
 격리 프로젝트 `timing-jeju-ref-race`의 container, network, volume은 검증 직후 제거했다.
 `git diff --check`도 통과했다. API build, 전체 Docker smoke, full quality gate와 live Supabase는
 이 focused 보정에서 실행하지 않았다.
+
+첫 full gate에서는 새 2세션 경합이 `database_concurrency_contract PASS`까지 성공했으나,
+이어진 schema contract가 3열 FK 전체를 선두 순서로 덮는 인덱스가 없다고 거부했다. 037의
+`(transport_event_id, trip_plan_id)` prefix 인덱스를 038에서 제거하고 같은 이름의
+`(transport_event_id, trip_plan_id, item_type)` partial index로 교체해 FK 검사와 조회를 함께
+지원한다. 이 인덱스 shape도 Python 회귀 테스트로 고정하고 full gate를 다시 실행한다.

@@ -85,6 +85,10 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
             "references public.trip_transport_events (id, trip_plan_id, event_type)",
             migration,
         )
+        self.assertIn(
+            "on public.trip_items (transport_event_id, trip_plan_id, item_type)",
+            migration,
+        )
 
     def test_docker_contract_races_item_insert_against_event_type_update(self) -> None:
         """Docker 계약은 item insert와 event type 변경의 실제 두 세션 경합을 검증한다."""

@@ -68,6 +68,13 @@ alter table public.trip_items
   foreign key (transport_event_id, trip_plan_id, item_type)
   references public.trip_transport_events (id, trip_plan_id, event_type);
 
+-- Replace the 037 two-column lookup index so the full composite FK is covered in
+-- leading-column order without keeping a redundant prefix index.
+drop index public.idx_trip_items_transport_event;
+create index idx_trip_items_transport_event
+  on public.trip_items (transport_event_id, trip_plan_id, item_type)
+  where transport_event_id is not null;
+
 alter table public.trip_items
   add constraint chk_trip_items_required_references check (
     (
