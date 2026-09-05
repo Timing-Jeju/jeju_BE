@@ -337,8 +337,9 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     jdbc.update(
         """
         insert into public.trip_accommodations
-          (id, trip_plan_id, place_id, check_in_date, check_out_date, sequence_no)
-        values (?, ?, ?, '2026-09-01', '2026-09-02', 1)
+          (id, trip_plan_id, place_id, check_in_date, check_out_date,
+           check_in_time, check_out_time, sequence_no)
+        values (?, ?, ?, '2026-09-01', '2026-09-02', '15:00', '11:00', 1)
         """,
         ACCOMMODATION_ID,
         TRIP,
@@ -348,7 +349,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         insert into public.trip_transport_events
           (id, trip_plan_id, event_type, transport_type, terminal_place_id, scheduled_at)
         values (?, ?, 'arrival', 'flight', ?, '2026-09-01T00:00:00Z'),
-               (?, ?, 'departure', 'flight', ?, '2026-09-01T12:00:00Z')
+               (?, ?, 'departure', 'flight', ?, '2026-09-02T12:00:00Z')
         """,
         ARRIVAL_ID,
         TRIP,

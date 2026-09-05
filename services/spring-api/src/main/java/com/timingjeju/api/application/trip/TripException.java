@@ -28,12 +28,24 @@ public final class TripException extends RuntimeException {
     return new TripException("TRIP_CONSTRAINT_VIOLATION");
   }
 
+  public static TripException preferenceConstraintViolation() {
+    return new TripException("PREFERENCE_CONSTRAINT_VIOLATION");
+  }
+
+  public static TripException placeNotFound() {
+    return new TripException("PLACE_NOT_FOUND");
+  }
+
   public static TripException notFound() {
     return new TripException("TRIP_NOT_FOUND");
   }
 
   public static TripException dataUnavailable() {
     return new TripException("TRIP_DATA_UNAVAILABLE");
+  }
+
+  public static TripException internalServerError() {
+    return new TripException("INTERNAL_SERVER_ERROR");
   }
 
   public static TripException ifMatchRequired() {
