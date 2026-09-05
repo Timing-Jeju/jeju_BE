@@ -172,3 +172,21 @@ legacy invalid-reference rollback, N-1 leg/seal/activation 원자성이다.
   UUID query 검증을 그대로 사용한다.
 - OpenAPI PATCH 예시는 place-visit reference 하나만 포함하는 실행 가능한 payload로 바꾸고,
   DELETE 성공 예시는 전용 `changedItemIds: []`를 사용한다. generated artifact test가 둘을 고정한다.
+
+## source-approved Python precheck 정렬 (2026-09-06)
+
+production migration은 reviewer가 승인한 current canonical 그대로였지만 base의
+`test_schedule_item_required_references` 두 assertion이 이전 predicate에 고정돼 있었다.
+
+- 첫 실패는 폐기된 broad fallback
+  `item_type not in ('accommodation', 'arrival', 'departure')`를 exact 요구해, 현재의
+  place_visit/place 및 meal/free_time/custom nonblank-title 명시 branch를 거부했다.
+- 둘째 실패는 legacy audit가 mismatch를 찾는 현재 음성 조건
+  `event.id is null or event.event_type <> item.item_type` 대신 옛 양성 join literal
+  `event.event_type = item.item_type`을 요구했다.
+
+assertion을 삭제하거나 단순 contains로 완화하지 않았다. legacy audit, CHECK, row trigger,
+sealing helper를 별도 section으로 잘라 네 곳 모두 place_visit/place, accommodation,
+arrival/departure transport, meal/free_time/custom Java-whitespace title predicate를 완전하게
+검사한다. 또한 legacy/sealing의 accommodation·event same-trip join과 missing/type-mismatch 음성
+조건, trigger의 same-trip/type positive lookup, composite transport FK/index를 구체적으로 고정했다.
