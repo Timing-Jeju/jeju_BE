@@ -457,7 +457,9 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         """,
         PLACE);
     jdbc.update(
-        "insert into public.trip_preferences (trip_plan_id, start_place_id) values (?, ?)",
+        "insert into public.trip_preferences"
+            + " (trip_plan_id, start_place_id, arrival_region_code, departure_region_code)"
+            + " values (?, ?, 'jeju-si', 'seogwipo-si')",
         TRIP,
         PLACE);
   }
