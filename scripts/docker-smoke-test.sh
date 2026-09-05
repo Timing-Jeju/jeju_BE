@@ -210,7 +210,9 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql \
   /docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql \
   /docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql \
-  /docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql \
+  /docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql \
+  /docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql \
+  /docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -389,7 +391,9 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql \
   /docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql \
   /docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql \
-  /docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql \
+  /docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql \
+  /docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql \
+  /docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -401,6 +405,42 @@ done
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   dropdb --username timing_jeju_test "$CONCURRENCY_DB"
 echo "[Docker] 실제 2세션 동시성 계약 검사 성공"
+
+PREFERENCE_MIGRATION_CATALOG=$(docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test \
+  --command "
+    select concat_ws(':',
+      (select count(*) from pg_catalog.pg_proc
+       where oid in (
+         'public.trip_preference_categories_valid(text[])'::regprocedure,
+         'public.trip_preference_regions_valid(text[])'::regprocedure,
+         'public.validate_trip_transport_mode_set()'::regprocedure
+       )),
+      (select count(*) from pg_catalog.pg_trigger
+       where not tgisinternal
+         and tgname in (
+           'trg_trip_preferences_transport_mode_aggregate',
+           'trg_trip_transport_modes_aggregate'
+         )),
+      (select count(*) from pg_catalog.pg_constraint
+       where conrelid = 'public.trip_preferences'::regclass
+         and conname in (
+           'ck_trip_preferences_categories_valid',
+           'ck_trip_preferences_arrival_region_valid',
+           'ck_trip_preferences_departure_region_valid',
+           'ck_trip_preferences_regions_valid'
+         )),
+      (select count(*) from pg_catalog.pg_proc
+       where oid = 'public.validate_trip_transport_mode_set()'::regprocedure
+         and prosrc like '%trip_transport_modes_aggregate_check%'))")
+
+if [ "$PREFERENCE_MIGRATION_CATALOG" != "3:2:4:1" ]; then
+  echo "[Docker] #46 migration residue/catalog 검사 실패: $PREFERENCE_MIGRATION_CATALOG" >&2
+  exit 1
+fi
+echo "[Docker] #46 migration residue/catalog 검사 성공"
+
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \

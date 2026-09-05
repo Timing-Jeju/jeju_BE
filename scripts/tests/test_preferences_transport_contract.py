@@ -137,6 +137,38 @@ class PreferencesTransportContractTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("wire contract digest", result.stdout + result.stderr)
 
+    def test_trim_nfc_uses_only_the_six_ascii_whitespace_characters(self) -> None:
+        trim = " \t\n\r\f\v"
+        preserved = "\x01jeju-si\x08"
+
+        self.assertEqual("제주시", VALIDATOR_MODULE._canonical_trim_nfc(trim + "제주시" + trim))
+        self.assertEqual(preserved, VALIDATOR_MODULE._canonical_trim_nfc(preserved))
+
+        schema = {"type": "string", "normalization": "trim+nfc"}
+        errors: list[str] = []
+        VALIDATOR_MODULE._validate_schema_value(preserved, schema, {}, "region", errors)
+        self.assertEqual([], errors)
+        array_schema = {"type": "array", "items": schema}
+        VALIDATOR_MODULE._validate_schema_value(
+            [preserved], array_schema, {}, "regions", errors
+        )
+        self.assertEqual([], errors)
+        for value, candidate_schema, path in (
+            ("jeju\x00-si", schema, "region"),
+            (["jeju\x00-si"], array_schema, "regions"),
+        ):
+            errors = []
+            VALIDATOR_MODULE._validate_schema_value(
+                value, candidate_schema, {}, path, errors
+            )
+            self.assertTrue(any("U+0000" in error for error in errors), path)
+        for whitespace in ("\t", "\n", "\r", "\f", "\v", " "):
+            errors = []
+            VALIDATOR_MODULE._validate_schema_value(
+                whitespace + "jeju-si", schema, {}, "region", errors
+            )
+            self.assertTrue(any("normalization" in error for error in errors), whitespace)
+
     def test_preferences_is_full_replace_with_closed_enums_and_primary_rule(self) -> None:
         policy = self.contract["preferencePolicy"]
         self.assertEqual("full-replace", policy["writeMode"])

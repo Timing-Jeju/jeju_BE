@@ -78,11 +78,14 @@ public class TransportEventController implements TransportEventApiDocs {
 
   private PutTransportEventRequest parse(byte[] body) {
     try {
-      return objectMapper
-          .readerFor(PutTransportEventRequest.class)
-          .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-          .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-          .readValue(body);
+      PutTransportEventRequest parsed =
+          objectMapper
+              .readerFor(PutTransportEventRequest.class)
+              .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+              .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+              .readValue(body);
+      if (parsed == null) throw TransportEventException.invalidRequest();
+      return parsed;
     } catch (JacksonException | TransportEventException failure) {
       throw TransportEventException.invalidRequest();
     }

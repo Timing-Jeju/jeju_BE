@@ -236,6 +236,37 @@ class TransportEventControllerIntegrationTest {
   }
 
   @Test
+  void PUT은_JSON_literal_null과_whitespace_null을_service전에_canonical_400으로_거부한다() throws Exception {
+    for (String body : List.of("null", " \n null \t")) {
+      reset(service);
+      mvc.perform(
+              put("/api/v1/trips/{tripId}/transport-event", TRIP)
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                  .header(HttpHeaders.IF_MATCH, ETAG)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest())
+          .andExpect(
+              header()
+                  .string(
+                      HttpHeaders.CONTENT_TYPE,
+                      org.hamcrest.Matchers.startsWith("application/problem+json")))
+          .andExpect(header().exists("X-Trace-Id"))
+          .andExpect(jsonPath("$", org.hamcrest.Matchers.aMapWithSize(8)))
+          .andExpect(
+              jsonPath("$.type").value("https://api.timing-jeju.com/problems/invalid-request"))
+          .andExpect(jsonPath("$.title").value("요청 값이 올바르지 않습니다"))
+          .andExpect(jsonPath("$.status").value(400))
+          .andExpect(jsonPath("$.detail").value("필수값, 형식과 If-Match를 확인해 주세요."))
+          .andExpect(jsonPath("$.instance").isNotEmpty())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+          .andExpect(jsonPath("$.traceId").isNotEmpty())
+          .andExpect(jsonPath("$.fieldErrors").isArray());
+      verifyNoInteractions(service);
+    }
+  }
+
+  @Test
   void DELETE는_eventType을_정확히한번_요구하고_body를_금지한다() throws Exception {
     mvc.perform(
             delete("/api/v1/trips/{tripId}/transport-event", TRIP)

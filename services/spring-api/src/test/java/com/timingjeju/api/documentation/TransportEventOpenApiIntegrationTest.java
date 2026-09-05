@@ -69,7 +69,22 @@ class TransportEventOpenApiIntegrationTest {
             jsonPath(putSchema + ".properties.terminalPlaceId.type")
                 .value(containsInAnyOrder("string", "null")))
         .andExpect(jsonPath(putSchema + ".properties.scheduledAt.format").value("date-time"))
-        .andExpect(jsonPath(responseSchema + ".allOf").value(hasSize(2)))
+        .andExpect(jsonPath(responseSchema + ".additionalProperties").value(false))
+        .andExpect(jsonPath(responseSchema + ".allOf").doesNotExist())
+        .andExpect(
+            jsonPath(responseSchema + ".required")
+                .value(
+                    containsInAnyOrder(
+                        "tripId",
+                        "scheduleEffect",
+                        "regenerationRequired",
+                        "activeScheduleVersionId",
+                        "tripStatus",
+                        "updatedAt",
+                        "eventType",
+                        "deleted",
+                        "event")))
+        .andExpect(jsonPath(responseSchema + ".properties.*").value(hasSize(9)))
         .andExpect(jsonPath(path + ".put.responses['200'].headers.ETag").exists())
         .andExpect(jsonPath(path + ".delete.responses['200'].headers.ETag").exists())
         .andExpect(jsonPath(path + ".put.responses['503']").doesNotExist())

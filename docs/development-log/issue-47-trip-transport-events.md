@@ -8,7 +8,7 @@
 - Green:
   - strict 7-property PUT, body 없는 selector DELETE, strong If-Match와 owner root lock을 구현했다.
   - canonical no-op, eventType upsert, active schedule invalidation, terminal trip와 stale writer 정책을 구현했다.
-  - `20260907000004_trip_transport_event_contract.sql`로 exact XOR, canonical text, boundary date, writer privilege를 강화했다.
+  - `20260907000005_trip_transport_event_contract.sql`로 exact XOR, canonical text, boundary date, writer privilege를 강화했다.
   - unit/controller/PostgreSQL/concurrency/migration-upgrade/OpenAPI 테스트를 추가했다.
 - Refactor:
   - #86 Pydantic/MCP와 분리된 REST canonical contract를 OpenAPI projection 원본으로 재사용했다.
@@ -38,3 +38,27 @@
 - Red: `python3 -m unittest scripts.tests.test_openapi_frontend_readiness.OpenApiFrontendReadinessTest.test_frontend_인계문서는_항공선박을_포함한_exact29로_표현한다`가 stale `#68 숙소 CRUD를 합친 27개 operation의 프론트엔드 인계본`을 검출해 1건 실패했다.
 - Green: 프론트엔드 인계 문장을 #47 항공·선박 이벤트까지 포함한 exact 29개 operation으로 정렬하고 같은 독립 literal assertion이 통과했다.
 - 검증 범위: 관련 Python 문서/contract 테스트와 git diff-check, pre-commit만 실행했으며 실제 DB, Testcontainers, Docker, live Supabase와 full heavy gate는 제외했다.
+
+## 2026-09-05 최신 #46 재통합
+
+- Red: 최신 #46의 owner-read helper migration도 `20260907000004`를 사용해 migration version
+  uniqueness 테스트가 `12 != 11`로 실패했다.
+- Green: #46 migration과 init 순서 `00004`/`041`을 보존하고, 아직 배포되지 않은 #47 migration만
+  `20260907000005`와 init `042`로 이동했다.
+- OpenAPI 재통합 Red: #46의 closed `allOf` flattening 뒤 #47 테스트가 과거 `allOf` 2개를
+  기대해 실패했다. 응답의 flat 9개 required property, `additionalProperties=false`, `allOf` 부재를
+  직접 검증하도록 최신 canonical projection과 정렬했다.
+- 실제 HTTP→PostgreSQL Red: random-port 통합 테스트 3건 중 2건이 실패했다. `Z` 입력은
+  JSON 경계에서 400으로 선차단되어 +09:00 도메인 검증을 확인하지 못했고, item 없는 active
+  fixture는 schedule sealing trigger가 거부했다. 테스트 입력을 `+08:00`으로 바꾸고 5일
+  day/item fixture를 완성해 도메인 검증과 active invalidation 경로를 실제로 실행한다.
+- fixture Green 보정 중 root와 active version의 양방향 consistency가 autocommit 중간 상태를
+  다시 거부해, production과 같은 단일 transaction으로 version 활성화와 root pointer 설정을 묶었다.
+- 실제 HTTP→PostgreSQL Green: random HTTP port와 disposable PostgreSQL에서 PUT create/replace/no-op,
+  DELETE selected/not-found/body/query, owner/CAS/terminal, KST/date/XOR/length, exact ETag·응답·Problem
+  Details와 실패 시 DB 불변, active schedule 무효화 3개 시나리오가 모두 통과했다.
+- Astra 재리뷰 Red: JSON literal `null`과 whitespace-wrapped `null`이 null DTO로 역직렬화된 뒤
+  `toCommand()` NPE로 500을 반환했다. MockMvc에서 expected 400/actual 500을 기록하고,
+  `parse()`가 null 결과를 `INVALID_REQUEST`로 변환하도록 최소 보정했다.
+- Astra 재리뷰 Green: 두 null 본문 모두 actual boundary에서 canonical 400 Problem을 반환하고
+  service 미호출, problem registry projection 동일성, PostgreSQL aggregate 불변을 확인했다.
