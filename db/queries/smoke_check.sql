@@ -83,9 +83,16 @@ begin
   where table_schema = 'public'
     and grantee in ('anon', 'authenticated')
     and not (
-      grantee = 'authenticated'
-      and table_name = 'notification_preferences'
-      and privilege_type = 'SELECT'
+      (
+        grantee = 'authenticated'
+        and table_name = 'notification_preferences'
+        and privilege_type = 'SELECT'
+      )
+      or (
+        grantee = 'authenticated'
+        and table_name in ('trip_preferences', 'trip_transport_modes')
+        and privilege_type = 'SELECT'
+      )
     );
 
   if invalid_count <> 0 then

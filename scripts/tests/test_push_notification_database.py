@@ -24,6 +24,14 @@ NEGATIVE_SQL = ROOT / "db/queries/database_negative_constraints.sql"
 LOCAL_HELPER_SQL = ROOT / "db/local-postgres/supabase_smoke_fixture_helper.sql"
 DOCKER_SMOKE = ROOT / "scripts/docker-smoke-test.sh"
 FIXTURE_USER = "f1130000-0000-0000-0000-000000000001"
+SMOKE_CLIENT_GRANT_ALLOWLIST = (
+    "and not ( "
+    "( grantee = 'authenticated' and table_name = 'notification_preferences' "
+    "and privilege_type = 'select' ) "
+    "or ( grantee = 'authenticated' and table_name in "
+    "('trip_preferences', 'trip_transport_modes') and privilege_type = 'select' ) "
+    ")"
+)
 
 
 def compact(value: str) -> str:
@@ -177,14 +185,37 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             )
 
         smoke_check = compact(SMOKE_CHECK.read_text(encoding="utf-8"))
-        self.assertIn(
-            "and not ( grantee = 'authenticated' and table_name = 'notification_preferences' and privilege_type = 'select' )",
+        self.assert_client_grant_allowlist_is_exact(smoke_check)
+        self.assertEqual(2, smoke_check.count("grantee = 'authenticated'"))
+        self.assertNotIn("grantee = 'anon' and table_name", smoke_check)
+        self.assertNotRegex(
             smoke_check,
+            r"grantee = 'authenticated' and table_name (?:= '[^']+'|in \([^)]*\)) and privilege_type = '(?!select')[^']+'",
         )
         self.assertIn(
             "unexpected anon/authenticated table grants must not exist",
             smoke_check,
         )
+
+    def test_smoke_client_grant_allowlist_rejects_predicate_bypass_mutations(self):
+        smoke_check = compact(SMOKE_CHECK.read_text(encoding="utf-8"))
+        mutations = {
+            "or_true": smoke_check.replace(
+                SMOKE_CLIENT_GRANT_ALLOWLIST,
+                SMOKE_CLIENT_GRANT_ALLOWLIST[:-1] + "or true )",
+                1,
+            ),
+            "not_removed": smoke_check.replace(
+                SMOKE_CLIENT_GRANT_ALLOWLIST,
+                SMOKE_CLIENT_GRANT_ALLOWLIST.removeprefix("and not "),
+                1,
+            ),
+        }
+
+        for name, mutation in mutations.items():
+            with self.subTest(mutation=name):
+                with self.assertRaises(AssertionError):
+                    self.assert_client_grant_allowlist_is_exact(mutation)
 
     def test_deploy_negative_sql_creates_owner_through_local_helper_before_push_rows(self):
         negative = compact(NEGATIVE_SQL.read_text(encoding="utf-8"))
@@ -195,6 +226,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "create function public.create_local_test_user(target_user_id uuid, target_email text)",
             helper,
         )
+
         fixture_call = (
             "select public.create_local_test_user( "
             f"'{FIXTURE_USER}', 'push-negative@issue113.test' );"
@@ -212,6 +244,9 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             with self.subTest(case=case):
                 self.assertIn(case, negative)
         self.assertTrue(negative.endswith("rollback;"))
+
+    def assert_client_grant_allowlist_is_exact(self, smoke_check: str):
+        self.assertEqual(1, smoke_check.count(SMOKE_CLIENT_GRANT_ALLOWLIST))
 
     def test_tables_constraints_indexes_and_owner_rls_are_explicit(self):
         self.assertTrue(MIGRATION.is_file())
