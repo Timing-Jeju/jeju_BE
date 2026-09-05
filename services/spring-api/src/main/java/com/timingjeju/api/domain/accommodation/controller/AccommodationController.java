@@ -135,11 +135,16 @@ public class AccommodationController implements AccommodationApiDocs {
 
   private CreateAccommodationRequest parseCreate(byte[] body) {
     try {
-      return objectMapper
-          .readerFor(CreateAccommodationRequest.class)
-          .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-          .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-          .readValue(body);
+      CreateAccommodationRequest request =
+          objectMapper
+              .readerFor(CreateAccommodationRequest.class)
+              .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+              .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+              .readValue(body);
+      if (request == null) {
+        throw AccommodationException.invalidRequest();
+      }
+      return request;
     } catch (JacksonException | AccommodationException failure) {
       throw AccommodationException.invalidRequest();
     }
@@ -147,11 +152,16 @@ public class AccommodationController implements AccommodationApiDocs {
 
   private PatchAccommodationRequest parsePatch(byte[] body) {
     try {
-      return objectMapper
-          .readerFor(PatchAccommodationRequest.class)
-          .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-          .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-          .readValue(body);
+      PatchAccommodationRequest request =
+          objectMapper
+              .readerFor(PatchAccommodationRequest.class)
+              .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+              .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+              .readValue(body);
+      if (request == null) {
+        throw AccommodationException.invalidRequest();
+      }
+      return request;
     } catch (JacksonException | AccommodationException failure) {
       throw AccommodationException.invalidRequest();
     }
