@@ -62,3 +62,14 @@
   `parse()`가 null 결과를 `INVALID_REQUEST`로 변환하도록 최소 보정했다.
 - Astra 재리뷰 Green: 두 null 본문 모두 actual boundary에서 canonical 400 Problem을 반환하고
   service 미호출, problem registry projection 동일성, PostgreSQL aggregate 불변을 확인했다.
+- 전체 clean check Red: 1,888건 중 `JdbcScheduleMutationStoreIntegrationTest` 22건이
+  #68 이후 NOT NULL인 accommodation `check_in_time`/`check_out_time`을 fixture에서 누락해
+  동일한 setup 오류로 실패했다. test-only fixture에 canonical `15:00`/`11:00`을 추가한다.
+- focused 재실행 Red: accommodation 보정 뒤 departure fixture도 trip end date가 아닌
+  시작일 KST로 저장되어 #47 calendar trigger가 22건을 거부했다. departure를 end-date
+  `2026-09-02T12:00:00Z`로 정렬한다.
+- focused Green: schedule mutation PostgreSQL 22건이 모두 통과해 두 reference fixture가
+  #68 accommodation과 #47 transport calendar 계약을 함께 만족함을 확인했다.
+- 전체 Green: 격리된 disposable PostgreSQL에서 `clean check`가 16분 5초에 통과했다.
+  test 1,888건(10 skip), integration 615건(4 skip), JaCoCo line 90.52%와 OpenAPI 생성,
+  Spotless/check가 모두 성공했고 외부 MCP/Firebase/Supabase live 테스트는 skip됐다.
