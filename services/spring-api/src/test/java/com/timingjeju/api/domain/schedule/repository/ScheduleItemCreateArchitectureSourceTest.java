@@ -10,6 +10,36 @@ import org.junit.jupiter.api.Test;
 @Tag("architecture")
 class ScheduleItemCreateArchitectureSourceTest {
   @Test
+  void 일정_편집_네_endpoint는_printable_ASCII_멱등성_namespace를_공통으로_사용한다() throws Exception {
+    String controller =
+        Files.readString(
+            repositoryRoot()
+                .resolve("services/spring-api/src/main/java")
+                .resolve(
+                    "com/timingjeju/api/domain/schedule/controller/ScheduleMutationController.java"));
+
+    assertThat(controller)
+        .contains("@PatchMapping(\"/{itemId}\")")
+        .contains("@DeleteMapping(\"/{itemId}\")")
+        .contains("@PutMapping(\"/schedule-order\")")
+        .contains("@PostMapping(\"/{itemId}/move\")")
+        .doesNotContain("IdempotencyRequest.create(");
+    assertThat(occurrences(controller, "ScheduleIdempotencyKey.createRequest(")).isEqualTo(5);
+  }
+
+  @Test
+  void 일정_편집은_monotonic_coordinator와_새_item_namespace를_사용한다() throws Exception {
+    String source = scheduleStoreSource();
+
+    assertThat(source)
+        .contains(".executeMonotonic(")
+        .contains("changedIds.stream().map(copiedIds::get)")
+        .contains("items -> delete(items, record), List.of())")
+        .doesNotContain("lockOwnedTrip(")
+        .doesNotContain("revision=revision+1");
+  }
+
+  @Test
   void 일정_item_store는_공용_trip_aggregate_coordinator_밖에서_lock_CAS_revision을_복제하지_않는다()
       throws Exception {
     String source =
@@ -55,5 +85,22 @@ class ScheduleItemCreateArchitectureSourceTest {
       current = current.getParent();
     }
     throw new AssertionError("repository root를 찾을 수 없습니다.");
+  }
+
+  private static String scheduleStoreSource() throws Exception {
+    return Files.readString(
+        repositoryRoot()
+            .resolve("services/spring-api/src/main/java")
+            .resolve("com/timingjeju/api/domain/schedule/adapter/JdbcScheduleMutationStore.java"));
+  }
+
+  private static int occurrences(String value, String target) {
+    int count = 0;
+    int offset = 0;
+    while ((offset = value.indexOf(target, offset)) >= 0) {
+      count++;
+      offset += target.length();
+    }
+    return count;
   }
 }
