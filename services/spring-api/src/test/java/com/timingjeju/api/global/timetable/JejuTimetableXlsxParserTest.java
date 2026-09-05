@@ -39,7 +39,7 @@ class JejuTimetableXlsxParserTest {
   void 공식_101은_long_sheet_B2_B3_B5_J5_row7_CK를_exact하게_파싱한다() throws Exception {
     byte[] xlsx = officialWorkbook("101", false);
     var parsed = parser.parse(xlsx, mapping101(), LocalDate.of(2024, 8, 15));
-    assertThat(parsed.entries()).hasSize(18);
+    assertThat(parsed.entries()).hasSize(396);
     assertThat(parsed.entries())
         .allSatisfy(
             entry -> {
@@ -60,7 +60,7 @@ class JejuTimetableXlsxParserTest {
                     mapping101(),
                     LocalDate.of(2024, 8, 15))
                 .entries())
-        .hasSize(18);
+        .hasSize(396);
     assertThat(
             parser
                 .parse(
@@ -68,7 +68,7 @@ class JejuTimetableXlsxParserTest {
                     mapping101(),
                     LocalDate.of(2024, 8, 15))
                 .entries())
-        .hasSize(12);
+        .hasSize(264);
   }
 
   @Test
@@ -76,9 +76,9 @@ class JejuTimetableXlsxParserTest {
     byte[] xlsx = ZipMutation.withBogusWorksheetDimension(officialWorkbook("201", true));
     var parsed = parser.parse(xlsx, mapping201(), LocalDate.of(2024, 8, 1));
     // 공식 시작 8~13행과 종료 65~70행의 병합 + 대표 normal 행. covered cell은 복제하지 않는다.
-    assertThat(parsed.entries()).hasSize(358);
+    assertThat(parsed.entries()).hasSize(1758);
     assertThat(parsed.omissions())
-        .hasSize(2)
+        .hasSize(102)
         .allSatisfy(value -> assertThat(value).contains("UNRESOLVED_OFFICIAL_COLUMN_OMITTED"));
     assertThat(parsed.entries())
         .allSatisfy(entry -> assertThat(entry.sourceRecordKey()).startsWith("3043887/405009/"));
@@ -110,7 +110,7 @@ class JejuTimetableXlsxParserTest {
   void duplicate_trip과_stop순서_time역행을_거부하지만_서로다른stop의_동일시각은_허용한다() throws Exception {
     byte[] sameTime = officialWorkbook("101", false, Mutation.SAME_TIME_DIFFERENT_STOP);
     assertThat(parser.parse(sameTime, mapping101(), LocalDate.of(2024, 8, 15)).entries())
-        .hasSize(18);
+        .hasSize(396);
     for (Mutation mutation : List.of(Mutation.DUPLICATE_TRIP, Mutation.REVERSED_TIME)) {
       assertThatThrownBy(
               () ->
@@ -132,8 +132,8 @@ class JejuTimetableXlsxParserTest {
             true);
     assertThat(report.entries()).isEmpty();
     assertThat(report.rejectedRows())
-        .hasSize(2)
-        .allSatisfy(rejected -> assertThat(rejected).contains("INVALID_TIME").contains("row=8"));
+        .hasSize(44)
+        .allSatisfy(rejected -> assertThat(rejected).contains("INVALID_TIME"));
   }
 
   @Test
@@ -151,7 +151,55 @@ class JejuTimetableXlsxParserTest {
                     officialWorkbook("201", true, Mutation.BAD_MERGE),
                     mapping201(),
                     LocalDate.of(2024, 8, 1)))
-        .hasMessageContaining("MERGED_EVENT_MAPPING_MISMATCH");
+        .hasMessageContaining("MERGE_TOPOLOGY_MISMATCH");
+  }
+
+  @Test
+  void 공식_merge_range는_하나라도_빠지거나_추가되면_전체거부한다() throws Exception {
+    for (Mutation mutation :
+        List.of(
+            Mutation.MERGE_REMOVED,
+            Mutation.BAD_MERGE,
+            Mutation.MERGE_MOVED,
+            Mutation.MERGE_RESIZED)) {
+      assertThatThrownBy(
+              () ->
+                  parser.parse(
+                      officialWorkbook("201", true, mutation),
+                      mapping201(),
+                      LocalDate.of(2024, 8, 1)))
+          .as(mutation.name())
+          .hasMessageContaining("MERGE_TOPOLOGY_MISMATCH");
+    }
+    byte[] valid = officialWorkbook("201", true);
+    try (var workbook = new XSSFWorkbook(new java.io.ByteArrayInputStream(valid))) {
+      for (int sheetIndex = 0; sheetIndex < workbook.getNumberOfSheets(); sheetIndex++) {
+        int mergeCount = workbook.getSheetAt(sheetIndex).getNumMergedRegions();
+        for (int mergeIndex = 0; mergeIndex < mergeCount; mergeIndex++) {
+          byte[] missing = workbookWithoutMerge(valid, sheetIndex, mergeIndex);
+          assertThatThrownBy(() -> parser.parse(missing, mapping201(), LocalDate.of(2024, 8, 1)))
+              .as("sheet=%s merge=%s", sheetIndex, mergeIndex)
+              .hasMessageContaining("MERGE_TOPOLOGY_MISMATCH");
+        }
+      }
+    }
+  }
+
+  @Test
+  void valid_workbook의_dry_run과_production_parse는_동일한_bounded_normalized_result다()
+      throws Exception {
+    byte[] xlsx = officialWorkbook("201", true);
+    var production = parser.parse(xlsx, mapping201(), LocalDate.of(2024, 8, 1), false);
+    var dryRun = parser.parse(xlsx, mapping201(), LocalDate.of(2024, 8, 1), true);
+    assertThat(dryRun.entries()).isEqualTo(production.entries());
+    assertThat(dryRun.omissions()).isEqualTo(production.omissions());
+    assertThat(dryRun.canonicalManifest()).isEqualTo(production.canonicalManifest());
+    assertThat(dryRun.entries())
+        .hasSizeLessThanOrEqualTo(JejuTimetableXlsxParser.MAX_TOTAL_ENTRIES);
+    assertThat(dryRun.omissions())
+        .hasSizeLessThanOrEqualTo(JejuTimetableXlsxParser.MAX_TOTAL_OMISSIONS);
+    assertThat(dryRun.canonicalManifest().getBytes(StandardCharsets.UTF_8).length)
+        .isLessThanOrEqualTo(JejuTimetableXlsxParser.MAX_MANIFEST_BYTES);
   }
 
   @Test
@@ -160,8 +208,33 @@ class JejuTimetableXlsxParserTest {
     for (byte[] invalid :
         List.of(
             ZipMutation.addEntry(valid, "../escape", new byte[] {1}),
+            ZipMutation.addEntry(
+                valid, "[content_types].xml", "<Types/>".getBytes(StandardCharsets.UTF_8)),
             ZipMutation.addEntry(valid, "xl/vbaProject.bin", new byte[] {1}),
             ZipMutation.addEntry(valid, "xl/externalLinks/externalLink1.xml", new byte[] {1}),
+            ZipMutation.addEntry(valid, "xl/embeddings/oleObject1.bin", new byte[] {1}),
+            ZipMutation.addEntry(
+                valid, "xl/connections.xml", "<connections/>".getBytes(StandardCharsets.UTF_8)),
+            ZipMutation.addEntry(
+                valid,
+                "xl/worksheets/_rels/sheet1.xml.rels",
+                """
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink"
+                    Target="https://example.invalid/" TargetMode="External"/>
+                </Relationships>
+                """
+                    .getBytes(StandardCharsets.UTF_8)),
+            ZipMutation.replaceEntry(
+                valid,
+                "[Content_Types].xml",
+                """
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Override PartName="/xl/workbook.xml"
+                    ContentType="application/vnd.ms-excel.sheet.macroEnabled.main+xml"/>
+                </Types>
+                """
+                    .getBytes(StandardCharsets.UTF_8)),
             ZipMutation.addEntry(valid, "xl/huge.bin", new byte[(32 * 1024 * 1024) + 1]))) {
       assertThatThrownBy(() -> parser.parse(invalid, mapping101(), LocalDate.of(2024, 8, 15)))
           .isInstanceOf(TimetableParseException.class);
@@ -187,6 +260,17 @@ class JejuTimetableXlsxParserTest {
                     mapping101(),
                     LocalDate.of(2024, 8, 15)))
         .hasMessageContaining("ROW_LIMIT");
+  }
+
+  @Test
+  void POI_process_global_zip_limit은_단일_owner가_한번만_설정하고_parse마다_변경하지_않는다() throws Exception {
+    PoiZipSecurityPolicy.ensureInitialized();
+    double ratio = org.apache.poi.openxml4j.util.ZipSecureFile.getMinInflateRatio();
+    long entrySize = org.apache.poi.openxml4j.util.ZipSecureFile.getMaxEntrySize();
+    parser.parse(officialWorkbook("101", false), mapping101(), LocalDate.of(2024, 8, 15));
+    parser.parse(officialWorkbook("101", false), mapping101(), LocalDate.of(2024, 8, 15));
+    assertThat(org.apache.poi.openxml4j.util.ZipSecureFile.getMinInflateRatio()).isEqualTo(ratio);
+    assertThat(org.apache.poi.openxml4j.util.ZipSecureFile.getMaxEntrySize()).isEqualTo(entrySize);
   }
 
   private static OperatorTimetableMapping mapping101() {
@@ -363,10 +447,11 @@ class JejuTimetableXlsxParserTest {
           for (int rowIndex = 7; rowIndex <= 12; rowIndex++)
             addDataRow(
                 sheet, rowIndex, rowIndex - 6, item.getValue(), mergeStart, merged, mutation);
-          addDataRow(sheet, 13, 7, item.getValue(), mergeStart, false, null);
+          for (int rowIndex = 13; rowIndex <= 63; rowIndex++)
+            addDataRow(sheet, rowIndex, rowIndex - 6, item.getValue(), mergeStart, false, mutation);
           for (int rowIndex = 64; rowIndex <= 69; rowIndex++) {
             addDataRow(
-                sheet, rowIndex, rowIndex - 56, item.getValue(), mergeStart, merged, mutation);
+                sheet, rowIndex, rowIndex - 6, item.getValue(), mergeStart, merged, mutation);
             if (item.getValue().directionKey().equals("OUT")) {
               var anchor = sheet.getRow(rowIndex).getCell(10);
               anchor.setCellValue(anchor.getStringCellValue() + " (성산일출봉 종료)");
@@ -374,7 +459,9 @@ class JejuTimetableXlsxParserTest {
             }
           }
         } else {
-          addDataRow(sheet, 7, 1, item.getValue(), mergeStart, merged, mutation);
+          for (int rowIndex = 7; rowIndex <= 28; rowIndex++)
+            addDataRow(
+                sheet, rowIndex, rowIndex - 6, item.getValue(), mergeStart, merged, mutation);
         }
         if (mutation == Mutation.DUPLICATE_TRIP)
           addDataRow(sheet, 8, 1, item.getValue(), -1, false, null);
@@ -383,6 +470,15 @@ class JejuTimetableXlsxParserTest {
         workbook.getSheetAt(0).getRow(6).getCell(2).setCellValue("drift");
       if (mutation == Mutation.BAD_MERGE)
         workbook.getSheetAt(0).addMergedRegion(new CellRangeAddress(7, 7, 2, 3));
+      if (mutation == Mutation.MERGE_REMOVED) workbook.getSheetAt(0).removeMergedRegion(0);
+      if (mutation == Mutation.MERGE_MOVED) {
+        workbook.getSheetAt(0).removeMergedRegion(0);
+        workbook.getSheetAt(0).addMergedRegion(new CellRangeAddress(5, 5, 8, 9));
+      }
+      if (mutation == Mutation.MERGE_RESIZED) {
+        workbook.getSheetAt(0).removeMergedRegion(0);
+        workbook.getSheetAt(0).addMergedRegion(new CellRangeAddress(6, 6, 8, 10));
+      }
       if (mutation == Mutation.DIRECTION)
         workbook.getSheetAt(0).getRow(2).getCell(1).setCellValue("drift");
       if (mutation == Mutation.OPERATIONS)
@@ -432,6 +528,16 @@ class JejuTimetableXlsxParserTest {
       sheet.addMergedRegion(new CellRangeAddress(rowIndex, rowIndex, mergeStart, mergeStart + 1));
   }
 
+  private static byte[] workbookWithoutMerge(byte[] source, int sheetIndex, int mergeIndex)
+      throws Exception {
+    try (var workbook = new XSSFWorkbook(new java.io.ByteArrayInputStream(source));
+        var output = new ByteArrayOutputStream()) {
+      workbook.getSheetAt(sheetIndex).removeMergedRegion(mergeIndex);
+      workbook.write(output);
+      return output.toByteArray();
+    }
+  }
+
   private static UUID id(String value) {
     return UUID.nameUUIDFromBytes(value.getBytes(StandardCharsets.UTF_8));
   }
@@ -462,6 +568,9 @@ class JejuTimetableXlsxParserTest {
     ROW_LIMIT,
     UNKNOWN_ANNOTATION,
     BAD_MERGE,
+    MERGE_REMOVED,
+    MERGE_MOVED,
+    MERGE_RESIZED,
     NEWLINE_ANNOTATION,
     MARKERS
   }

@@ -5,6 +5,7 @@ import com.timingjeju.api.application.timetable.ParsedTimetable;
 import com.timingjeju.api.application.timetable.TimetableEntryCandidate;
 import com.timingjeju.api.application.timetable.TimetableParseException;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.text.Normalizer;
@@ -15,15 +16,16 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
@@ -35,7 +37,10 @@ public final class JejuTimetableXlsxParser {
   public static final int MAX_FILE_BYTES = 8 * 1024 * 1024;
   private static final int MAX_ZIP_ENTRIES = 512;
   private static final long MAX_EXPANDED_BYTES = 32L * 1024 * 1024;
-  public static final int MAX_ROWS_PER_SHEET = 10_000;
+  public static final int MAX_ROWS_PER_SHEET = 70;
+  public static final int MAX_TOTAL_ENTRIES = 2_000;
+  public static final int MAX_TOTAL_OMISSIONS = 126;
+  public static final int MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
   private static final int MAX_COLUMNS = 256;
   private static final int HEADER_ROW = 6;
   private static final int TRIP_COLUMN = 1;
@@ -64,9 +69,7 @@ public final class JejuTimetableXlsxParser {
     if (bytes == null || bytes.length == 0) throw error("EMPTY_FILE", null, -1, -1);
     if (bytes.length > MAX_FILE_BYTES) throw error("FILE_TOO_LARGE", null, -1, -1);
     inspectZip(bytes);
-    ZipSecureFile.setMinInflateRatio(0.01d);
-    ZipSecureFile.setMaxEntrySize(MAX_EXPANDED_BYTES);
-    ZipSecureFile.setMaxTextSize(MAX_EXPANDED_BYTES);
+    PoiZipSecurityPolicy.ensureInitialized();
     try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
       requireSheets(workbook, mapping);
       rejectAllFormulas(workbook);
@@ -89,12 +92,15 @@ public final class JejuTimetableXlsxParser {
             sourceKeys);
       }
       entries.sort(Comparator.comparing(TimetableEntryCandidate::sourceRecordKey));
-      return new ParsedTimetable(
-          sha256(bytes),
-          manifest(mapping, effectiveDate, entries, omissions),
-          entries,
-          rejectedRows,
-          omissions);
+      omissions.sort(String::compareTo);
+      if (entries.size() > MAX_TOTAL_ENTRIES || omissions.size() > MAX_TOTAL_OMISSIONS) {
+        throw error("NORMALIZED_RESULT_LIMIT", null, -1, -1);
+      }
+      String manifest = manifest(mapping, effectiveDate, entries, omissions);
+      if (manifest.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_MANIFEST_BYTES) {
+        throw error("MANIFEST_LIMIT", null, -1, -1);
+      }
+      return new ParsedTimetable(sha256(bytes), manifest, entries, rejectedRows, omissions);
     } catch (TimetableParseException exception) {
       throw exception;
     } catch (Exception exception) {
@@ -141,9 +147,7 @@ public final class JejuTimetableXlsxParser {
       Set<String> sourceKeys) {
     String sheetName = sheet.getSheetName();
     var direction = mapping.directions().get(sheetName);
-    if (sheet.getLastRowNum() + 1 > MAX_ROWS_PER_SHEET) {
-      throw error("ROW_LIMIT", sheetName, sheet.getLastRowNum() + 1, -1);
-    }
+    validateOfficialShape(sheet, mapping.routeNo());
     if (!(mapping.routeNo() + "번").equals(normalizedString(sheet, 1, 1))) {
       throw error("HEADER_DRIFT", sheetName, 2, 2);
     }
@@ -293,6 +297,39 @@ public final class JejuTimetableXlsxParser {
     }
   }
 
+  private static void validateOfficialShape(Sheet sheet, String routeNo) {
+    int expectedLastRow = routeNo.equals("101") ? 28 : 69;
+    if (sheet.getLastRowNum() != expectedLastRow) {
+      throw error("ROW_LIMIT", sheet.getSheetName(), sheet.getLastRowNum() + 1, -1);
+    }
+    Set<String> expected = new HashSet<>();
+    if (routeNo.equals("201")) {
+      boolean outbound = sheet.getSheetName().equals("201 서귀포터미널-남원-성산-세화-조천-제주터미널");
+      String primary = outbound ? "I" : "J";
+      String covered = outbound ? "J" : "K";
+      expected.add(primary + "7:" + covered + "7");
+      for (int row = 8; row <= 13; row++) expected.add(primary + row + ":" + covered + row);
+      for (int row = 65; row <= 70; row++) {
+        expected.add(primary + row + ":" + covered + row);
+        if (outbound) expected.add("K" + row + ":L" + row);
+      }
+    }
+    Set<String> actual =
+        sheet.getMergedRegions().stream()
+            .map(CellRangeAddress::formatAsString)
+            .collect(java.util.stream.Collectors.toSet());
+    if (!actual.equals(expected)) {
+      throw error("MERGE_TOPOLOGY_MISMATCH", sheet.getSheetName(), -1, -1);
+    }
+    for (int row = HEADER_ROW + 1; row <= expectedLastRow; row++) {
+      Row expectedRow = sheet.getRow(row);
+      if (expectedRow == null
+          || expectedRow.getCell(TRIP_COLUMN, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL) == null) {
+        throw error("ROW_TOPOLOGY_MISMATCH", sheet.getSheetName(), row + 1, -1);
+      }
+    }
+  }
+
   private static void validateMergedEvent(
       List<Header> headers, CellRangeAddress range, String sheetName, int rowIndex) {
     boolean edgeRows = rowIndex >= 7 && rowIndex <= 12 || rowIndex >= 64 && rowIndex <= 69;
@@ -393,28 +430,109 @@ public final class JejuTimetableXlsxParser {
       int entries = 0;
       long expanded = 0;
       byte[] buffer = new byte[8192];
+      Set<String> normalizedNames = new HashSet<>();
+      Map<String, byte[]> securityXml = new LinkedHashMap<>();
       for (ZipEntry entry; (entry = input.getNextEntry()) != null; ) {
-        String name = entry.getName().replace('\\', '/');
+        String name = Normalizer.normalize(entry.getName(), Normalizer.Form.NFC).replace('\\', '/');
         String lower = name.toLowerCase(Locale.ROOT);
+        String normalized = normalizeZipName(lower);
         if (++entries > MAX_ZIP_ENTRIES
+            || normalized.isBlank()
+            || !normalizedNames.add(normalized)
             || entry.isDirectory() && (name.startsWith("/") || name.contains("../"))
             || name.startsWith("/")
             || name.equals("..")
             || name.startsWith("../")
             || name.contains("/../")
             || lower.endsWith("vbaproject.bin")
-            || lower.startsWith("xl/externallinks/")) {
+            || lower.startsWith("xl/externallinks/")
+            || lower.startsWith("xl/embeddings/")
+            || lower.startsWith("xl/activex/")
+            || lower.startsWith("customui/")
+            || lower.equals("xl/connections.xml")) {
           throw error("UNSAFE_XLSX", name, -1, -1);
         }
+        ByteArrayOutputStream securityContent =
+            normalized.equals("[content_types].xml") || normalized.endsWith(".rels")
+                ? new ByteArrayOutputStream()
+                : null;
         for (int read; (read = input.read(buffer)) >= 0; ) {
           expanded += read;
           if (expanded > MAX_EXPANDED_BYTES) throw error("UNSAFE_XLSX", name, -1, -1);
+          if (securityContent != null) securityContent.write(buffer, 0, read);
         }
+        if (securityContent != null) securityXml.put(normalized, securityContent.toByteArray());
       }
+      if (!normalizedNames.contains("[content_types].xml")
+          || !normalizedNames.contains("_rels/.rels")
+          || !normalizedNames.contains("xl/workbook.xml")) {
+        throw error("OOXML_CORE_PART_MISMATCH", null, -1, -1);
+      }
+      inspectSecurityXml(securityXml);
     } catch (TimetableParseException exception) {
       throw exception;
     } catch (Exception exception) {
       throw error("UNSAFE_XLSX", null, -1, -1);
+    }
+  }
+
+  private static String normalizeZipName(String name) {
+    if (name.startsWith("/")) throw error("UNSAFE_XLSX", name, -1, -1);
+    List<String> parts = new ArrayList<>();
+    for (String part : name.split("/")) {
+      if (part.isEmpty() || part.equals(".")) continue;
+      if (part.equals("..")) throw error("UNSAFE_XLSX", name, -1, -1);
+      parts.add(part);
+    }
+    return String.join("/", parts);
+  }
+
+  private static void inspectSecurityXml(Map<String, byte[]> documents) throws Exception {
+    var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+    factory.setNamespaceAware(true);
+    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+    factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+    factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+    factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+    factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+    for (var document : documents.entrySet()) {
+      var parsed =
+          factory.newDocumentBuilder().parse(new ByteArrayInputStream(document.getValue()));
+      if (document.getKey().endsWith(".rels")) {
+        var relationships = parsed.getElementsByTagNameNS("*", "Relationship");
+        for (int index = 0; index < relationships.getLength(); index++) {
+          var element = (org.w3c.dom.Element) relationships.item(index);
+          String mode = element.getAttribute("TargetMode");
+          String type = element.getAttribute("Type").toLowerCase(Locale.ROOT);
+          String target = element.getAttribute("Target").toLowerCase(Locale.ROOT);
+          if (mode.equalsIgnoreCase("External")
+              || type.contains("hyperlink")
+              || type.contains("oleobject")
+              || type.contains("externallink")
+              || type.contains("attachedtemplate")
+              || type.contains("externaldata")
+              || target.matches("^[a-z][a-z0-9+.-]*:.*")) {
+            throw error("OOXML_EXTERNAL_RELATIONSHIP", document.getKey(), -1, -1);
+          }
+        }
+      } else {
+        var nodes = parsed.getElementsByTagName("*");
+        for (int index = 0; index < nodes.getLength(); index++) {
+          if (!(nodes.item(index) instanceof org.w3c.dom.Element element)) continue;
+          String contentType = element.getAttribute("ContentType").toLowerCase(Locale.ROOT);
+          String partName = element.getAttribute("PartName").toLowerCase(Locale.ROOT);
+          if (contentType.contains("macroenabled")
+              || contentType.contains("oleobject")
+              || contentType.contains("activex")
+              || contentType.contains("externallink")
+              || contentType.contains("connections")
+              || partName.contains("/embeddings/")
+              || partName.contains("/activex/")
+              || partName.equals("/xl/connections.xml")) {
+            throw error("OOXML_ACTIVE_CONTENT", document.getKey(), -1, -1);
+          }
+        }
+      }
     }
   }
 
@@ -429,6 +547,8 @@ public final class JejuTimetableXlsxParser {
             .collect(java.util.stream.Collectors.joining(","));
     return "{\"datasetId\":\""
         + mapping.datasetId()
+        + "\",\"scheduleId\":\""
+        + mapping.scheduleId()
         + "\",\"effectiveDate\":\""
         + effectiveDate
         + "\",\"mappingVersion\":\""
@@ -437,6 +557,10 @@ public final class JejuTimetableXlsxParser {
         + omissions.size()
         + ",\"omissionCode\":\"UNRESOLVED_OFFICIAL_COLUMN_OMITTED\",\"parserVersion\":\"jeju-timetable-xlsx-v1\",\"recordKeys\":["
         + keys
+        + "],\"omissions\":["
+        + omissions.stream()
+            .map(value -> "\"" + value + "\"")
+            .collect(java.util.stream.Collectors.joining(","))
         + "]}";
   }
 

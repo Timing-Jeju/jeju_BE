@@ -1,23 +1,14 @@
 package com.timingjeju.api.global.timetable;
 
 import com.timingjeju.api.application.timetable.TimetableParseException;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.SeekableByteChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.SecureDirectoryStream;
-import java.nio.file.StandardOpenOption;
-import java.nio.file.attribute.BasicFileAttributeView;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
-import java.util.Set;
 
 /** StayPolicyCsvReader와 같은 anchored SecureDirectoryStream 경계를 XLSX에 적용한다. */
 public final class SafeTimetableFileReader {
@@ -62,33 +53,12 @@ public final class SafeTimetableFileReader {
         return readAnchored(child, parts);
       }
     }
-    beforeFileOpen.run();
-    BasicFileAttributeView view =
-        directory.getFileAttributeView(
-            component, BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-    BasicFileAttributes attributes = view.readAttributes();
-    if (!attributes.isRegularFile()) throw failure("UNSAFE_SOURCE_PATH");
-    Set<OpenOption> options = new HashSet<>();
-    options.add(StandardOpenOption.READ);
-    options.add(LinkOption.NOFOLLOW_LINKS);
-    try (SeekableByteChannel channel = directory.newByteChannel(component, options)) {
-      return readBounded(channel);
-    }
-  }
-
-  private static byte[] readBounded(SeekableByteChannel channel) throws IOException {
-    if (channel.size() > JejuTimetableXlsxParser.MAX_FILE_BYTES) throw failure("FILE_TOO_LARGE");
-    ByteArrayOutputStream output = new ByteArrayOutputStream();
-    ByteBuffer buffer = ByteBuffer.allocate(8192);
-    int total = 0;
-    while (channel.read(buffer) >= 0) {
-      buffer.flip();
-      total += buffer.remaining();
-      if (total > JejuTimetableXlsxParser.MAX_FILE_BYTES) throw failure("FILE_TOO_LARGE");
-      output.write(buffer.array(), buffer.position(), buffer.remaining());
-      buffer.clear();
-    }
-    return output.toByteArray();
+    return AnchoredBoundedFileReader.read(
+        directory,
+        component,
+        JejuTimetableXlsxParser.MAX_FILE_BYTES,
+        beforeFileOpen,
+        SafeTimetableFileReader::failure);
   }
 
   private Path validatedRelativePath(Path requested) {

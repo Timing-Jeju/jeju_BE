@@ -49,13 +49,59 @@ class TimetableMigrationContractTest {
         .contains("or source_operation <> 'timetable-import'")
         .contains("payload_format = 'JSON'")
         .contains("or source_operation <> 'timetable-import'")
-        .contains("jeju_timetable_manifest_is_safe(raw_payload)")
+        .contains("jeju_timetable_manifest_is_safe(raw_payload, request_metadata_redacted)")
         .contains("payload - array[")
         .contains("payload->>'datasetId' <> '3043887'")
+        .contains("jsonb_typeof(payload->'effectiveDate') <> 'string'")
+        .contains("payload->>'effectiveDate' <> request_metadata->>'effectiveDate'")
+        .contains("request_metadata - array['effectiveDate', 'omissionCount']::text[]")
+        .contains("jsonb_typeof(request_metadata->'effectiveDate') <> 'string'")
+        .contains("jsonb_typeof(request_metadata->'omissionCount') <> 'number'")
+        .contains("payload->'omissionCount' is distinct from request_metadata->'omissionCount'")
         .contains("jsonb_typeof(record_key) <> 'string'")
         .contains("record_key #>> '{}') !~ '^3043887/40500(1|9)/")
-        .contains("octet_length(payload::text) > 4194304")
+        .contains("(payload->>'omissionCount') !~ '^(0|[1-9][0-9]{0,5})$'")
+        .contains("octet_length(payload::text) > 2097152")
         .doesNotContain("'raw'", "'body'", "'content'");
+  }
+
+  @Test
+  void parser의_상세_lineage_manifest_key와_omission_schema를_DB에서도_exact하게_허용한다() throws Exception {
+    String sql = Files.readString(root().resolve("supabase/migrations").resolve(MIGRATION));
+    assertThat(sql)
+        .contains("'datasetId', 'scheduleId', 'effectiveDate', 'mappingVersion', 'omissionCount',")
+        .contains("'parserVersion', 'recordKeys', 'omissions'")
+        .contains("jsonb_typeof(payload->'scheduleId') <> 'string'")
+        .contains("payload->>'scheduleId' !~ '^40500(1|9)$'")
+        .contains("jsonb_typeof(payload->'omissions') <> 'array'")
+        .contains(
+            "(payload->>'omissionCount')::integer <> jsonb_array_length(payload->'omissions')")
+        .contains("jsonb_array_length(payload->'omissions') > 126")
+        .contains(
+            "for omission_detail in select value from jsonb_array_elements(payload->'omissions')")
+        .contains("jsonb_typeof(omission_detail) <> 'string'")
+        .contains("101 남원-성산-김녕-조천-공항")
+        .contains("101 공항-조천-김녕-성산-남원")
+        .contains("201 서귀포터미널-남원-성산-세화-조천-제주터미널")
+        .contains("201 제주터미널-조천-세화-성산-남원-서귀포터미널")
+        .contains("/UNRESOLVED_OFFICIAL_COLUMN_OMITTED$")
+        .contains("split_part(omission_detail #>> '{}', '/row=', 2)")
+        .contains("split_part(omission_detail #>> '{}', '/column=', 2)")
+        .contains("omission_row > 10000")
+        .contains("omission_column > 256")
+        .contains("payload->>'scheduleId' = '405001' and omission_text !~ '^101 '")
+        .contains("payload->>'scheduleId' = '405009' and omission_text !~ '^201 '")
+        .contains("'3043887/' || payload->>'scheduleId' || '/'");
+  }
+
+  @Test
+  void 교체된_trigger_function도_source_city_scope의_신규행_non_null을_보존한다() throws Exception {
+    String sql = Files.readString(root().resolve("supabase/migrations").resolve(MIGRATION));
+    assertThat(sql)
+        .contains("if new.city_code is null or btrim(new.city_code) = '' then")
+        .contains("new timetable row requires provider city scope")
+        .contains("create or replace function public.validate_timetable_source_scope()")
+        .doesNotContain("drop trigger trg_timetable_entries_validate_source_scope");
   }
 
   @Test

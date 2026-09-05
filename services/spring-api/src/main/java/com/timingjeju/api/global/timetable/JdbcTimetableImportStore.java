@@ -11,17 +11,26 @@ import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Repository
 public final class JdbcTimetableImportStore implements TimetableImportStore {
+  private static final int MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+  private static final int MAX_OMISSION_COUNT = 999_999;
   private final JdbcTemplate jdbc;
+  private final ObjectMapper objectMapper;
 
-  public JdbcTimetableImportStore(JdbcTemplate jdbc) {
-    this.jdbc = jdbc;
+  public JdbcTimetableImportStore(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    this.jdbc = Objects.requireNonNull(jdbc);
+    this.objectMapper = Objects.requireNonNull(objectMapper);
   }
 
   @Override
@@ -51,6 +60,7 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
   @Override
   @Transactional
   public TimetableWriteResult commit(TimetableAtomicWrite write) {
+    int omissionCount = validateManifest(write);
     jdbc.queryForObject(
         "select pg_advisory_xact_lock(hashtextextended(?, 38))",
         Object.class,
@@ -71,9 +81,10 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
         """
         insert into public.data_import_runs (
           id,source_kind,source_name,source_operation,data_version,status,started_at,finished_at,
-          row_count,metadata,parser_version,schema_version,sync_mode,scope_key,
+          row_count,fetched_count,inserted_count,skipped_count,rejected_count,
+          metadata,parser_version,schema_version,sync_mode,scope_key,
           request_fingerprint,idempotency_key,source_provider,source_service
-        ) values (?, 'jeju_bis', ?, 'timetable-import', ?, 'succeeded', ?, ?, ?, ?::jsonb,
+        ) values (?, 'jeju_bis', ?, 'timetable-import', ?, 'succeeded', ?, ?, ?, ?, ?, ?, ?, ?::jsonb,
           'jeju-timetable-xlsx-v1','timetable-v1','full',?,?,?,'JEJU_PROVINCE','jeju-bus-schedule-xlsx')
         """,
         runId,
@@ -82,6 +93,10 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
         Timestamp.from(write.fetchedAt()),
         Timestamp.from(write.fetchedAt()),
         write.entries().size(),
+        write.entries().size() + omissionCount,
+        write.entries().size(),
+        omissionCount,
+        0,
         sourceMetadataJson(write),
         scope,
         requestHash,
@@ -106,7 +121,9 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
         Timestamp.from(write.fetchedAt()),
         write.sha256(),
         Timestamp.from(write.fetchedAt()),
-        "{\"effectiveDate\":\"" + write.effectiveDate() + "\"}",
+        json(
+            Map.of(
+                "effectiveDate", write.effectiveDate().toString(), "omissionCount", omissionCount)),
         write.canonicalManifest(),
         write.canonicalManifest().getBytes(StandardCharsets.UTF_8).length);
     int inserted = 0;
@@ -142,14 +159,48 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
     return new TimetableWriteResult(inserted, 0, 0);
   }
 
-  private static String sourceMetadataJson(TimetableAtomicWrite write) {
-    return "{\"datasetId\":\"3043887\",\"effectiveDate\":\""
-        + write.effectiveDate()
-        + "\",\"license\":\"제한 없음\",\"licenseCheckedAt\":\"2026-09-04\",\"gscheduleId\":\""
-        + write.scheduleId()
-        + "\",\"sha256\":\""
-        + write.sha256()
-        + "\",\"uddi\":\"uddi:3e6924f3-f090-495a-bc59-ad7e159d78f2\"}";
+  private int validateManifest(TimetableAtomicWrite write) {
+    byte[] bytes = write.canonicalManifest().getBytes(StandardCharsets.UTF_8);
+    if (bytes.length > MAX_MANIFEST_BYTES) {
+      throw new IllegalArgumentException("TIMETABLE_MANIFEST_TOO_LARGE");
+    }
+    try {
+      JsonNode root = objectMapper.readTree(write.canonicalManifest());
+      JsonNode effectiveDate = root.path("effectiveDate");
+      JsonNode omissionCount = root.path("omissionCount");
+      if (!root.isObject()
+          || !effectiveDate.isTextual()
+          || !write.effectiveDate().toString().equals(effectiveDate.asString())
+          || !omissionCount.isIntegralNumber()
+          || !omissionCount.canConvertToInt()
+          || omissionCount.intValue() < 0
+          || omissionCount.intValue() > MAX_OMISSION_COUNT) {
+        throw new IllegalArgumentException("TIMETABLE_MANIFEST_INVALID");
+      }
+      return omissionCount.intValue();
+    } catch (JacksonException failure) {
+      throw new IllegalArgumentException("TIMETABLE_MANIFEST_INVALID", failure);
+    }
+  }
+
+  private String sourceMetadataJson(TimetableAtomicWrite write) {
+    return json(
+        Map.of(
+            "datasetId", write.source().datasetId(),
+            "effectiveDate", write.effectiveDate().toString(),
+            "license", write.source().license(),
+            "licenseCheckedAt", write.source().licenseCheckedAt(),
+            "gscheduleId", write.scheduleId(),
+            "sha256", write.sha256(),
+            "uddi", write.source().uddi()));
+  }
+
+  private String json(Map<String, ?> value) {
+    try {
+      return objectMapper.writeValueAsString(value);
+    } catch (JacksonException impossible) {
+      throw new IllegalStateException("TIMETABLE_METADATA_SERIALIZATION_FAILED", impossible);
+    }
   }
 
   private static String sha256(String value) {

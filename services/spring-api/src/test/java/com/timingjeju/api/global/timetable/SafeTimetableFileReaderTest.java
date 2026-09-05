@@ -3,12 +3,27 @@ package com.timingjeju.api.global.timetable;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.timingjeju.api.application.timetable.TimetableParseException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.SecureDirectoryStream;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributeView;
 import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -105,6 +120,36 @@ class SafeTimetableFileReaderTest {
     assertThatThrownBy(() -> unsupported.read(allowed.resolve("another.xlsx")))
         .isInstanceOf(TimetableParseException.class)
         .hasMessageContaining("UNSAFE_FILESYSTEM");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void 파일속성을_경로로_재조회하지_않고_nofollow로_연_단일_handle에서_읽는다() throws Exception {
+    Path allowed = Files.createDirectory(temporary.resolve("allowed"));
+    SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
+    SeekableByteChannel channel = mock(SeekableByteChannel.class);
+    byte[] content = {4, 5, 6};
+    AtomicBoolean firstRead = new AtomicBoolean(true);
+    when(root.newByteChannel(eq(Path.of("101.xlsx")), any(Set.class))).thenReturn(channel);
+    when(channel.size()).thenReturn((long) content.length);
+    when(channel.read(any(ByteBuffer.class)))
+        .thenAnswer(
+            invocation -> {
+              if (!firstRead.getAndSet(false)) return -1;
+              invocation.<ByteBuffer>getArgument(0).put(content);
+              return content.length;
+            });
+
+    var reader = new SafeTimetableFileReader(allowed, () -> {}, ignored -> root);
+
+    assertThat(reader.read(allowed.resolve("101.xlsx"))).containsExactly(content);
+    verify(root)
+        .newByteChannel(
+            Path.of("101.xlsx"),
+            Set.<OpenOption>of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS));
+    verify(root, never())
+        .getFileAttributeView(
+            any(Path.class), eq(BasicFileAttributeView.class), eq(LinkOption.NOFOLLOW_LINKS));
   }
 
   private static boolean supportsSecureDirectoryStream(Path directory) throws Exception {

@@ -46,6 +46,12 @@ begin
       message = 'new timetable row requires route reference scope';
   end if;
 
+  if new.city_code is null or btrim(new.city_code) = '' then
+    raise exception using
+      errcode = '23502',
+      message = 'new timetable row requires provider city scope';
+  end if;
+
   perform route_stop.route_id
   from public.route_stops route_stop
   join public.bus_routes route on route.id = route_stop.route_id
@@ -79,7 +85,10 @@ create index idx_timetable_route_stop_reference_scope
 
 -- JEJU_PROVINCE dataset PK 3043887 snapshot은 exact-byte SHA-256은 payload_hash에만 두고,
 -- raw XLSX bytes must not be persisted: 정규화 manifest JSON만 raw_payload에 허용한다.
-create or replace function public.jeju_timetable_manifest_is_safe(payload jsonb)
+create or replace function public.jeju_timetable_manifest_is_safe(
+  payload jsonb,
+  request_metadata jsonb
+)
 returns boolean
 language plpgsql
 immutable
@@ -88,25 +97,72 @@ set search_path = pg_catalog, public
 as $$
 declare
   record_key jsonb;
+  omission_detail jsonb;
+  omission_text text;
+  omission_row integer;
+  omission_column integer;
 begin
   if jsonb_typeof(payload) <> 'object'
+     or not (payload ?& array[
+       'datasetId', 'scheduleId', 'effectiveDate', 'mappingVersion', 'omissionCount',
+       'omissionCode', 'parserVersion', 'recordKeys', 'omissions'
+     ]::text[])
      or (payload - array[
-       'datasetId', 'effectiveDate', 'mappingVersion', 'omissionCount', 'omissionCode',
-       'parserVersion', 'recordKeys'
+       'datasetId', 'scheduleId', 'effectiveDate', 'mappingVersion', 'omissionCount',
+       'omissionCode', 'parserVersion', 'recordKeys', 'omissions'
      ]::text[]) <> '{}'::jsonb
      or payload->>'datasetId' <> '3043887'
+     or jsonb_typeof(payload->'scheduleId') <> 'string'
+     or payload->>'scheduleId' !~ '^40500(1|9)$'
      or payload->>'mappingVersion' <> 'operator-mapping-v1'
      or payload->>'parserVersion' <> 'jeju-timetable-xlsx-v1'
      or payload->>'omissionCode' <> 'UNRESOLVED_OFFICIAL_COLUMN_OMITTED'
+     or jsonb_typeof(payload->'effectiveDate') <> 'string'
+     or (payload->>'effectiveDate') !~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+     or to_char((payload->>'effectiveDate')::date, 'YYYY-MM-DD') <> payload->>'effectiveDate'
      or jsonb_typeof(payload->'omissionCount') <> 'number'
+     or (payload->>'omissionCount') !~ '^(0|[1-9][0-9]{0,5})$'
+     or jsonb_typeof(request_metadata) <> 'object'
+     or not (request_metadata ?& array['effectiveDate', 'omissionCount']::text[])
+     or (request_metadata - array['effectiveDate', 'omissionCount']::text[]) <> '{}'::jsonb
+     or jsonb_typeof(request_metadata->'effectiveDate') <> 'string'
+     or jsonb_typeof(request_metadata->'omissionCount') <> 'number'
+     or payload->>'effectiveDate' <> request_metadata->>'effectiveDate'
+     or payload->'omissionCount' is distinct from request_metadata->'omissionCount'
      or jsonb_typeof(payload->'recordKeys') <> 'array'
      or jsonb_array_length(payload->'recordKeys') > 640000
-     or octet_length(payload::text) > 4194304 then
+     or jsonb_typeof(payload->'omissions') <> 'array'
+     or jsonb_array_length(payload->'omissions') > 126
+     or (payload->>'omissionCount')::integer <> jsonb_array_length(payload->'omissions')
+     or octet_length(payload::text) > 2097152 then
     return false;
   end if;
   for record_key in select value from jsonb_array_elements(payload->'recordKeys') loop
     if jsonb_typeof(record_key) <> 'string'
        or (record_key #>> '{}') !~ '^3043887/40500(1|9)/[a-z0-9_-]{1,128}/(out|in)/[0-9]{1,5}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/daily/(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$' then
+      return false;
+    end if;
+    if not starts_with(
+      record_key #>> '{}',
+      '3043887/' || payload->>'scheduleId' || '/'
+    ) then
+      return false;
+    end if;
+  end loop;
+  for omission_detail in select value from jsonb_array_elements(payload->'omissions') loop
+    if jsonb_typeof(omission_detail) <> 'string' then
+      return false;
+    end if;
+    omission_text := omission_detail #>> '{}';
+    if omission_text !~ '^(101 남원-성산-김녕-조천-공항|101 공항-조천-김녕-성산-남원|201 서귀포터미널-남원-성산-세화-조천-제주터미널|201 제주터미널-조천-세화-성산-남원-서귀포터미널)/row=[1-9][0-9]{0,4}/column=[1-9][0-9]{0,2}/UNRESOLVED_OFFICIAL_COLUMN_OMITTED$' then
+      return false;
+    end if;
+    omission_row := split_part(split_part(omission_detail #>> '{}', '/row=', 2), '/column=', 1)::integer;
+    omission_column := split_part(split_part(omission_detail #>> '{}', '/column=', 2), '/', 1)::integer;
+    if omission_row > 10000
+       or omission_column > 256
+       or (payload->>'scheduleId' = '405001' and omission_text !~ '^101 ')
+       or (payload->>'scheduleId' = '405009' and omission_text !~ '^201 ') then
       return false;
     end if;
   end loop;
@@ -125,6 +181,6 @@ alter table public.external_api_snapshots
       or source_operation <> 'timetable-import'
       or (
         payload_format = 'JSON'
-        and public.jeju_timetable_manifest_is_safe(raw_payload)
+        and public.jeju_timetable_manifest_is_safe(raw_payload, request_metadata_redacted)
       )
     ) not valid;

@@ -45,4 +45,19 @@ final class ZipMutation {
     }
     return output.toByteArray();
   }
+
+  static byte[] replaceEntry(byte[] source, String targetName, byte[] replacement)
+      throws Exception {
+    var output = new ByteArrayOutputStream();
+    try (var zipOutput = new ZipOutputStream(output);
+        var zipInput = new ZipInputStream(new ByteArrayInputStream(source))) {
+      for (ZipEntry entry; (entry = zipInput.getNextEntry()) != null; ) {
+        zipOutput.putNextEntry(new ZipEntry(entry.getName()));
+        if (entry.getName().equals(targetName)) zipOutput.write(replacement);
+        else zipInput.transferTo(zipOutput);
+        zipOutput.closeEntry();
+      }
+    }
+    return output.toByteArray();
+  }
 }
