@@ -12,6 +12,8 @@ import com.timingjeju.api.application.security.CurrentUser;
 import com.timingjeju.api.application.trip.CreateTripCommand;
 import com.timingjeju.api.application.trip.CreateTripRecord;
 import com.timingjeju.api.application.trip.PatchTripCommand;
+import com.timingjeju.api.application.trip.ReplaceTripPreferencesCommand;
+import com.timingjeju.api.application.trip.ReplaceTripPreferencesRecord;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripExpectedRevision;
@@ -21,6 +23,8 @@ import com.timingjeju.api.application.trip.TripListSlice;
 import com.timingjeju.api.application.trip.TripMutationResult;
 import com.timingjeju.api.application.trip.TripPage;
 import com.timingjeju.api.application.trip.TripPatchValue;
+import com.timingjeju.api.application.trip.TripPreferencePolicy;
+import com.timingjeju.api.application.trip.TripPreferencesMutation;
 import com.timingjeju.api.application.trip.TripStore;
 import com.timingjeju.api.application.trip.TripSummary;
 import com.timingjeju.api.application.trip.TripTransportMode;
@@ -108,6 +112,16 @@ public final class TripService {
     Objects.requireNonNull(user);
     Objects.requireNonNull(tripId);
     trips.deleteOwned(user.userId(), tripId);
+  }
+
+  public TripPreferencesMutation replacePreferences(
+      CurrentUser user, UUID tripId, long expectedRevision, ReplaceTripPreferencesCommand command) {
+    Objects.requireNonNull(user);
+    Objects.requireNonNull(tripId);
+    ReplaceTripPreferencesCommand canonical = TripPreferencePolicy.canonicalizeAndValidate(command);
+    return trips.replacePreferences(
+        new ReplaceTripPreferencesRecord(
+            user.userId(), tripId, expectedRevision, canonical, clock.instant()));
   }
 
   public TripPage list(

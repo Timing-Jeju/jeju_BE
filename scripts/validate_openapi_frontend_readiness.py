@@ -32,6 +32,18 @@ REQUIRED_REQUEST_HEADERS = {
         "Idempotency-Key",
         "If-Match",
     },
+    ("POST", "/api/v1/trips/{tripId}/accommodations"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
+    ("PATCH", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "If-Match"
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): {
+        "If-Match"
+    },
+    ("PUT", "/api/v1/trips/{tripId}/transport-event"): {"If-Match"},
+    ("DELETE", "/api/v1/trips/{tripId}/transport-event"): {"If-Match"},
 }
 REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/me/saved-places", "200"): {"Location", "ETag", "Idempotency-Replayed"},
@@ -40,11 +52,24 @@ REQUIRED_RESPONSE_HEADERS = {
     ("POST", "/api/v1/trips", "201"): {"Location", "ETag", "Idempotency-Replayed"},
     ("GET", "/api/v1/trips/{tripId}", "200"): {"ETag"},
     ("PATCH", "/api/v1/trips/{tripId}", "200"): {"ETag"},
+    ("PUT", "/api/v1/trips/{tripId}/preferences", "200"): {"ETag"},
     ("POST", "/api/v1/trips/{tripId}/schedule-items", "201"): {
         "ETag",
         "Idempotency-Replayed",
     },
     ("POST", "/api/v1/trips/{tripId}/schedule-items", "409"): {"Retry-After"},
+    ("POST", "/api/v1/trips/{tripId}/accommodations", "201"): {
+        "Location",
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    (
+        "PATCH",
+        "/api/v1/trips/{tripId}/accommodations/{accommodationId}",
+        "200",
+    ): {"ETag"},
+    ("PUT", "/api/v1/trips/{tripId}/transport-event", "200"): {"ETag"},
+    ("DELETE", "/api/v1/trips/{tripId}/transport-event", "200"): {"ETag"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -72,6 +97,20 @@ TRIP_MUTATION_OPERATIONS = {
     ("PATCH", "/api/v1/trips/{tripId}"): "tripsUpdate",
     ("DELETE", "/api/v1/trips/{tripId}"): "tripsDelete",
 }
+ACCOMMODATION_OPERATIONS = {
+    (
+        "POST",
+        "/api/v1/trips/{tripId}/accommodations",
+    ): "tripAccommodationsCreate",
+    (
+        "PATCH",
+        "/api/v1/trips/{tripId}/accommodations/{accommodationId}",
+    ): "tripAccommodationsUpdate",
+    (
+        "DELETE",
+        "/api/v1/trips/{tripId}/accommodations/{accommodationId}",
+    ): "tripAccommodationsDelete",
+}
 PUSH_NOTIFICATION_OPERATIONS = {
     ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
     ("DELETE", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesDelete",
@@ -84,6 +123,13 @@ SCHEDULE_OPERATIONS = {
 SCHEDULE_MUTATION_OPERATIONS = {
     ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
 }
+TRANSPORT_EVENT_OPERATIONS = {
+    ("PUT", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsUpdate",
+    ("DELETE", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsDelete",
+}
+PREFERENCES_OPERATIONS = {
+    ("PUT", "/api/v1/trips/{tripId}/preferences"): "tripPreferencesUpdate",
+}
 EXPECTED_OPERATION_IDS = (
     CURRENT_OPERATIONS
     | SAVED_PLACE_OPERATIONS
@@ -92,6 +138,9 @@ EXPECTED_OPERATION_IDS = (
     | PUSH_NOTIFICATION_OPERATIONS
     | SCHEDULE_OPERATIONS
     | SCHEDULE_MUTATION_OPERATIONS
+    | ACCOMMODATION_OPERATIONS
+    | TRANSPORT_EVENT_OPERATIONS
+    | PREFERENCES_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
@@ -115,6 +164,60 @@ SOURCE_PROVENANCE_21 = {
     **SOURCE_PROVENANCE_20,
     "schedules": "a5f53adcf43a63672de76d2a0ec4579257cb664a",
 }
+SOURCE_PROVENANCE_23 = dict(SOURCE_PROVENANCE_21)
+ACCOMMODATION_SOURCE = "0335c49e5e60c11e5a365c67dbee970a11d247c5"
+SOURCE_PROVENANCE_27 = {**SOURCE_PROVENANCE_23, "accommodations": ACCOMMODATION_SOURCE}
+SOURCE_PROVENANCE_25 = {
+    **SOURCE_PROVENANCE_21,
+    "preferences-transport": "c6862499d71519d9efc7bfcf72855703d1e94f0a",
+}
+SOURCE_PROVENANCE_29 = {
+    **SOURCE_PROVENANCE_27,
+    "preferences-transport": "5914e3c82673f8f49f36c1a9944308e096e98ade",
+}
+SOURCE_PROVENANCE_30 = {
+    **SOURCE_PROVENANCE_27,
+    "preferences": "c6862499d71519d9efc7bfcf72855703d1e94f0a",
+    "transport-events": "5914e3c82673f8f49f36c1a9944308e096e98ade",
+}
+
+
+def operations_for_mode(mode):
+    required = dict(CURRENT_OPERATIONS)
+    if mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
+        required.update(SAVED_PLACE_OPERATIONS)
+        required.update(TRIP_OPERATIONS)
+    if mode in (20, 21, 23, 24, 25, 27, 29, 30):
+        required.update(PUSH_NOTIFICATION_OPERATIONS)
+    if mode in (21, 23, 24, 25, 27, 29, 30):
+        required.update(SCHEDULE_OPERATIONS)
+    if mode in (23, 24, 25, 27, 29, 30):
+        required.update(TRIP_MUTATION_OPERATIONS)
+    if mode in (24, 25, 27, 29, 30):
+        required.update(SCHEDULE_MUTATION_OPERATIONS)
+    if mode in (27, 29, 30):
+        required.update(ACCOMMODATION_OPERATIONS)
+    if mode in (29, 30):
+        required.update(TRANSPORT_EVENT_OPERATIONS)
+    if mode in (25, 30):
+        required.update(PREFERENCES_OPERATIONS)
+    return required
+
+
+def source_provenance_for_mode(mode):
+    if mode == 30:
+        return dict(SOURCE_PROVENANCE_30)
+    if mode == 29:
+        return dict(SOURCE_PROVENANCE_29)
+    if mode == 27:
+        return dict(SOURCE_PROVENANCE_27)
+    if mode == 25:
+        return dict(SOURCE_PROVENANCE_25)
+    if mode in (21, 23, 24):
+        return dict(SOURCE_PROVENANCE_21)
+    if mode == 20:
+        return dict(SOURCE_PROVENANCE_20)
+    return dict(SOURCE_PROVENANCE_16)
 SCHEMA_CONSTRAINT_KEYS = {
     "type",
     "minLength",
@@ -143,13 +246,7 @@ class Validator:
         self.errors = []
         self.operation_ids = {}
         self.operations = set()
-        self.source_provenance = dict(
-            SOURCE_PROVENANCE_21
-            if mode in (21, 23, 24)
-            else SOURCE_PROVENANCE_20
-            if mode == 20
-            else SOURCE_PROVENANCE_16
-        )
+        self.source_provenance = source_provenance_for_mode(mode)
         self.runtime_manifest = None
         self.runtime_problem_definitions = {}
 
@@ -217,7 +314,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20, 21, 23, 24):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
             self.validate_source_provenance()
         return self.errors
 
@@ -270,18 +367,31 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20, 21, 23, 24):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
             trip_operations = dict(TRIP_OPERATIONS)
-            if self.mode in (23, 24):
+            if self.mode in (23, 24, 25, 27, 29, 30):
                 trip_operations.update(TRIP_MUTATION_OPERATIONS)
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
-        if self.mode in (20, 21, 23, 24):
+        if self.mode in (20, 21, 23, 24, 25, 27, 29, 30):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
-        if self.mode in (21, 23, 24):
+        if self.mode in (21, 23, 24, 25, 27, 29, 30):
             schedule_operations = dict(SCHEDULE_OPERATIONS)
-            if self.mode == 24:
+            if self.mode in (24, 25, 27, 29, 30):
                 schedule_operations.update(SCHEDULE_MUTATION_OPERATIONS)
             groups.append(("schedules", schedule_operations))
+        if self.mode in (27, 29, 30):
+            groups.append(("accommodations", ACCOMMODATION_OPERATIONS))
+        if self.mode == 29:
+            groups.append(("preferences-transport", TRANSPORT_EVENT_OPERATIONS))
+        if self.mode == 25:
+            groups.append(("preferences-transport", PREFERENCES_OPERATIONS))
+        if self.mode == 30:
+            groups.append(
+                (
+                    "preferences-transport",
+                    PREFERENCES_OPERATIONS | TRANSPORT_EVENT_OPERATIONS,
+                )
+            )
         for domain, operation_group in groups:
             contract = self.read_authority_json(
                 f"docs/contracts/domains/{domain}/contract.json"
@@ -363,11 +473,18 @@ class Validator:
             for code in codes:
                 pairs.add((code, None))
         operation_key = f"{key[0]} {key[1]}"
+        matrix_codes = {
+            code
+            for codes in ((endpoint or {}).get("errorMatrix") or {}).values()
+            for code in codes
+        }
         for condition in contract.get("errorConditions") or []:
-            if operation_key not in (condition.get("endpoints") or []):
+            condition_endpoints = condition.get("endpoints") or []
+            if operation_key not in condition_endpoints and not (
+                not condition_endpoints and condition.get("code") in matrix_codes
+            ):
                 continue
-            example = condition.get("example") or {}
-            pairs.add((condition.get("code"), example.get("type")))
+            pairs.add((condition.get("code"), condition.get("type")))
         return pairs
 
     def read_authority_json(self, relative_path):
@@ -472,6 +589,16 @@ class Validator:
                 continue
             response = self.resolve(raw_response, f"{location} response {status}")
             media = (response.get("content") or {}).get("application/problem+json") or {}
+            canonical_codes = (endpoint.get("errorMatrix") or {}).get(str(status))
+            if key in ACCOMMODATION_OPERATIONS and canonical_codes is not None:
+                self.validate_named_problem_examples(
+                    media,
+                    canonical_codes,
+                    domain_problem_pairs or set(),
+                    int(status),
+                    location,
+                )
+                continue
             actual_problem_pairs = set()
             for example in self.examples(media):
                 if isinstance(example, dict):
@@ -513,11 +640,40 @@ class Validator:
         typed = {candidate for candidate in pairs if candidate[0] == code and candidate[1] is not None}
         return pair in typed if typed else (code, None) in pairs
 
+    def validate_named_problem_examples(
+        self, media, expected_codes, domain_problem_pairs, status, location
+    ):
+        if "example" in media:
+            self.error(location, f"response {status} 단일 Problem example은 허용하지 않습니다")
+        examples = media.get("examples") or {}
+        if set(examples) != set(expected_codes):
+            self.error(location, f"response {status} named Problem examples가 canonical matrix와 다릅니다")
+            return
+        expected_types = {
+            code: problem_type
+            for code, problem_type in domain_problem_pairs
+            if problem_type is not None
+        }
+        for code in expected_codes:
+            value = (examples.get(code) or {}).get("value") or {}
+            if value.get("code") != code or value.get("status") != status:
+                self.error(location, f"response {status} named Problem {code} payload가 다릅니다")
+            if value.get("type") != expected_types.get(code):
+                self.error(location, f"response {status} named Problem {code} type이 다릅니다")
+
     def expected_problem_code(self, key, status):
         problem = (self.runtime_operations().get(f"{key[0]} {key[1]}") or {}).get("problems", {}).get(str(status))
         return problem[0] if isinstance(problem, list) and len(problem) == 2 else None
 
-    def expected_problem_type(self, code):
+    def expected_problem_type(self, code, key=None, status=None):
+        if key is not None and status is not None:
+            problem = (
+                (self.runtime_operations().get(f"{key[0]} {key[1]}") or {})
+                .get("problems", {})
+                .get(str(status))
+            )
+            if isinstance(problem, list) and len(problem) == 2 and problem[0] == code:
+                return problem[1]
         for runtime in self.runtime_operations().values():
             for problem in (runtime.get("problems") or {}).values():
                 if isinstance(problem, list) and len(problem) == 2 and problem[0] == code:
@@ -541,6 +697,38 @@ class Validator:
             seen.add(name)
             siblings = {key: value for key, value in schema.items() if key != "$ref"}
             schema = {**schemas[name], **siblings}
+        if (
+            isinstance(schema, dict)
+            and schema.get("unevaluatedProperties") is False
+            and isinstance(schema.get("allOf"), list)
+        ):
+            properties = {}
+            required = []
+            for child in schema["allOf"]:
+                branch = self.canonical_schema(child, schemas, location)
+                if branch.get("type") not in (None, "object") or "allOf" in branch:
+                    self.error(location, "canonical closed allOf branch가 object가 아닙니다")
+                    return {}
+                for name, value in (branch.get("properties") or {}).items():
+                    if name in properties and properties[name] != value:
+                        self.error(location, f"canonical closed allOf property가 충돌합니다: {name}")
+                        return {}
+                    properties[name] = value
+                for name in branch.get("required") or []:
+                    if name not in required:
+                        required.append(name)
+            if not set(required).issubset(properties):
+                self.error(location, "canonical closed allOf required property가 없습니다")
+                return {}
+            flattened = {
+                "type": "object",
+                "additionalProperties": False,
+                "required": required,
+                "properties": properties,
+            }
+            if "nullable" in schema:
+                flattened["nullable"] = schema["nullable"]
+            return flattened
         return schema if isinstance(schema, dict) else {}
 
     def validate_contract_parameters(self, operation, catalog, schemas, location):
@@ -681,23 +869,12 @@ class Validator:
             )
 
     def validate_operation_inventory(self):
-        required = dict(CURRENT_OPERATIONS)
-        if self.mode in (16, 20, 21, 23, 24):
-            required.update(SAVED_PLACE_OPERATIONS)
-            required.update(TRIP_OPERATIONS)
-        if self.mode in (20, 21, 23, 24):
-            required.update(PUSH_NOTIFICATION_OPERATIONS)
-        if self.mode in (21, 23, 24):
-            required.update(SCHEDULE_OPERATIONS)
-        if self.mode in (23, 24):
-            required.update(TRIP_MUTATION_OPERATIONS)
-        if self.mode == 24:
-            required.update(SCHEDULE_MUTATION_OPERATIONS)
+        required = operations_for_mode(self.mode)
         for key, operation_id in required.items():
             if key not in self.operations:
                 prefix = (
                     f"{self.mode}-operation 완료 mode: "
-                    if self.mode in (16, 20, 21, 23, 24)
+                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30)
                     else ""
                 )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
@@ -1107,7 +1284,13 @@ def main(argv):
         type=Path,
         default=Path("services/spring-api/build/openapi/openapi.json"),
     )
-    parser.add_argument("--mode", type=int, choices=(9, 16, 20, 21, 23, 24), default=24)
+    parser.add_argument(
+        "--mode",
+        type=int,
+        choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30),
+        default=30,
+        help="historical modes {9,16,20,21,23,24,25,27,29}; active mode30",
+    )
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])
     artifact = args.artifact

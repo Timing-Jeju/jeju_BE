@@ -24,14 +24,14 @@ class SpringOpenApiTest(unittest.TestCase):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
         )
-        self.assertIn("run_spring_gradle openApiDocs", quality_gate)
-        self.assertIn("--mode 24", quality_gate)
+        self.assertIn('run_bounded_spring_gradle "openApiDocs"', quality_gate)
+        self.assertIn("--mode 30", quality_gate)
 
     def test_quality_gate_validates_generated_artifact_after_generation(self):
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
         )
-        generation = quality_gate.index("run_spring_gradle openApiDocs")
+        generation = quality_gate.index('run_bounded_spring_gradle "openApiDocs"')
         validation = quality_gate.index(
             "python3 scripts/validate_openapi_frontend_readiness.py"
         )
@@ -39,9 +39,7 @@ class SpringOpenApiTest(unittest.TestCase):
         windows_gate = (ROOT / "scripts" / "quality-gate.ps1").read_text(
             encoding="utf-8"
         )
-        windows_generation = windows_gate.index(
-            "./gradlew.bat --no-daemon openApiDocs"
-        )
+        windows_generation = windows_gate.index('Invoke-BoundedSpringGradle "openApiDocs"')
         windows_validation = windows_gate.index(
             "validate_openapi_frontend_readiness.py"
         )
@@ -51,23 +49,33 @@ class SpringOpenApiTest(unittest.TestCase):
             windows_gate,
         )
         self.assertIn("--contracts-root ../..", windows_gate)
-        self.assertIn("--mode 24", windows_gate)
+        self.assertIn("--mode 30", windows_gate)
         self.assert_windows_gate_fail_closed(windows_gate)
         unwrapped = windows_gate.replace(
-            'Invoke-Native "Spring OpenAPI 문서 생성" { ./gradlew.bat --no-daemon openApiDocs }',
+            'Invoke-BoundedSpringGradle "openApiDocs" 900 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:openApiDocsTest" @("openApiDocs")',
             './gradlew.bat --no-daemon openApiDocs',
         )
         with self.assertRaises(AssertionError):
             self.assert_windows_gate_fail_closed(unwrapped)
 
     def assert_windows_gate_fail_closed(self, windows_gate):
-        gradle_lines = [line.strip() for line in windows_gate.splitlines() if "./gradlew.bat" in line]
+        gradle_lines = [
+            line.strip()
+            for line in windows_gate.splitlines()
+            if "./gradlew.bat" in line
+        ]
         self.assertTrue(gradle_lines)
-        self.assertTrue(all(line.startswith("Invoke-Native") for line in gradle_lines))
+        self.assertTrue(
+            all(
+                line.startswith("Invoke-Native") or line.startswith("py -3 $watchdog")
+                for line in gradle_lines
+            )
+        )
+        self.assertIn('Invoke-BoundedSpringGradle "openApiDocs"', windows_gate)
         stale_delete = windows_gate.index(
             'Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction Stop'
         )
-        generation = windows_gate.index("./gradlew.bat --no-daemon openApiDocs")
+        generation = windows_gate.index('Invoke-BoundedSpringGradle "openApiDocs"')
         validation = windows_gate.index("validate_openapi_frontend_readiness.py")
         self.assertLess(stale_delete, generation)
         self.assertLess(generation, validation)
@@ -81,7 +89,11 @@ class SpringOpenApiTest(unittest.TestCase):
                 'if ($true) {',
                 1,
             ),
-            "locked": gate.replace("-ErrorAction Stop", "-ErrorAction SilentlyContinue", 1),
+            "locked": gate.replace(
+                'Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction Stop',
+                'Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction SilentlyContinue',
+                1,
+            ),
             "normal": gate.replace(
                 'if (Test-Path -LiteralPath "build/openapi/openapi.json") {\n      throw "stale OpenAPI artifact를 삭제하지 못했습니다."\n    }',
                 "",
@@ -92,14 +104,20 @@ class SpringOpenApiTest(unittest.TestCase):
                 self.assert_windows_stale_delete_contract(mutation)
 
     def assert_windows_stale_delete_contract(self, gate):
-        self.assertIn('if (Test-Path -LiteralPath "build/openapi/openapi.json")', gate)
+        generation = gate.index('Invoke-BoundedSpringGradle "openApiDocs"')
+        stale_boundary = gate[:generation]
+        self.assertIn(
+            'if (Test-Path -LiteralPath "build/openapi/openapi.json")',
+            stale_boundary,
+        )
         self.assertIn(
             'Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction Stop',
-            gate,
+            stale_boundary,
         )
-        self.assertIn("stale OpenAPI artifact", gate)
-        self.assertGreaterEqual(
-            gate.count('Test-Path -LiteralPath "build/openapi/openapi.json"'), 2
+        self.assertIn("stale OpenAPI artifact", stale_boundary)
+        self.assertEqual(
+            2,
+            stale_boundary.count('Test-Path -LiteralPath "build/openapi/openapi.json"'),
         )
 
     def test_frontend_customizer는_inferred_schema_drift를_false로_덮지_않는다(self):

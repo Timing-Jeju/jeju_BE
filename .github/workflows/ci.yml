@@ -64,6 +64,8 @@ jobs:
     if: needs.changes.outputs.spring == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      TESTCONTAINERS_RYUK_CONTAINER_IMAGE: testcontainers/ryuk:0.14.0
     steps:
       - name: 저장소 Checkout
         uses: actions/checkout@v4
@@ -90,6 +92,7 @@ jobs:
           path: |
             services/spring-api/build/reports/tests/
             services/spring-api/build/reports/jacoco/
+            services/spring-api/build/diagnostics/
             services/spring-api/build/openapi/openapi.json
           if-no-files-found: warn
           retention-days: 14
