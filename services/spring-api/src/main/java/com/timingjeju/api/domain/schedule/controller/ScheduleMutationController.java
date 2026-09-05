@@ -179,9 +179,9 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
     validateBodyFraming(servletRequest, body);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
     UUID canonicalItemId = parseCanonicalUuid(itemId);
-    PatchScheduleItemRequest request = read(body, patchReader, PatchScheduleItemRequest.class);
     JsonNode tree = readTree(body);
     requireFields(tree, Set.of("expectedActiveScheduleVersionId"));
+    validatePatchScalarTypes(tree);
     validateCanonicalUuidFields(
         tree,
         Set.of(
@@ -197,6 +197,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
             "stayMinutes",
             "bufferAfterMinutes",
             "required"));
+    PatchScheduleItemRequest request = read(body, patchReader, PatchScheduleItemRequest.class);
     Set<String> present = new java.util.HashSet<>();
     tree.properties()
         .forEach(
@@ -264,10 +265,11 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
     validateNoParameters(servletRequest);
     validateBodyFraming(servletRequest, body);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
-    ReorderScheduleRequest request = read(body, reorderReader, ReorderScheduleRequest.class);
     JsonNode tree = readTree(body);
     requireFields(tree, Set.of("expectedActiveScheduleVersionId", "days"));
+    validateReorderShape(tree);
     validateCanonicalUuidFields(tree, Set.of("expectedActiveScheduleVersionId", "orderedItemIds"));
+    ReorderScheduleRequest request = read(body, reorderReader, ReorderScheduleRequest.class);
     return executeMutation(
         "PUT",
         "/api/v1/trips/" + canonicalTripId + "/schedule-order",
@@ -291,7 +293,6 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
     validateBodyFraming(servletRequest, body);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
     UUID canonicalItemId = parseCanonicalUuid(itemId);
-    MoveScheduleItemRequest request = read(body, moveReader, MoveScheduleItemRequest.class);
     JsonNode tree = readTree(body);
     requireFields(
         tree,
@@ -300,7 +301,9 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
             "targetDayNo",
             "targetSequenceNo",
             "plannedStartAt"));
+    validateMoveScalarTypes(tree);
     validateCanonicalUuidFields(tree, Set.of("expectedActiveScheduleVersionId"));
+    MoveScheduleItemRequest request = read(body, moveReader, MoveScheduleItemRequest.class);
     return executeMutation(
         "POST",
         "/api/v1/trips/" + canonicalTripId + "/schedule-items/" + canonicalItemId + "/move",
@@ -379,6 +382,58 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
 
   private static void rejectNullFields(JsonNode tree, Set<String> fields) {
     if (fields.stream().anyMatch(name -> tree.has(name) && tree.get(name).isNull())) {
+      throw ScheduleException.invalidRequest();
+    }
+  }
+
+  private static void validatePatchScalarTypes(JsonNode tree) {
+    requireTextualWhenPresent(tree, Set.of("title", "plannedStartAt"), false);
+    requireTextualWhenPresent(tree, Set.of("memo"), true);
+    requireIntegralWhenPresent(tree, Set.of("stayMinutes", "bufferAfterMinutes"));
+    requireBooleanWhenPresent(tree, Set.of("required"));
+  }
+
+  private static void validateReorderShape(JsonNode tree) {
+    JsonNode days = tree.get("days");
+    if (!days.isArray()) throw ScheduleException.invalidRequest();
+    for (JsonNode day : days) {
+      if (!day.isObject()
+          || !day.hasNonNull("dayNo")
+          || !day.get("dayNo").isIntegralNumber()
+          || !day.hasNonNull("orderedItemIds")
+          || !day.get("orderedItemIds").isArray()) {
+        throw ScheduleException.invalidRequest();
+      }
+      for (JsonNode itemId : day.get("orderedItemIds")) {
+        if (!itemId.isTextual()) throw ScheduleException.invalidRequest();
+      }
+    }
+  }
+
+  private static void validateMoveScalarTypes(JsonNode tree) {
+    requireIntegralWhenPresent(tree, Set.of("targetDayNo", "targetSequenceNo"));
+    requireTextualWhenPresent(tree, Set.of("plannedStartAt"), false);
+  }
+
+  private static void requireTextualWhenPresent(
+      JsonNode tree, Set<String> fields, boolean allowNull) {
+    if (fields.stream()
+        .anyMatch(
+            name ->
+                tree.has(name)
+                    && !(tree.get(name).isTextual() || (allowNull && tree.get(name).isNull())))) {
+      throw ScheduleException.invalidRequest();
+    }
+  }
+
+  private static void requireIntegralWhenPresent(JsonNode tree, Set<String> fields) {
+    if (fields.stream().anyMatch(name -> tree.has(name) && !tree.get(name).isIntegralNumber())) {
+      throw ScheduleException.invalidRequest();
+    }
+  }
+
+  private static void requireBooleanWhenPresent(JsonNode tree, Set<String> fields) {
+    if (fields.stream().anyMatch(name -> tree.has(name) && !tree.get(name).isBoolean())) {
       throw ScheduleException.invalidRequest();
     }
   }

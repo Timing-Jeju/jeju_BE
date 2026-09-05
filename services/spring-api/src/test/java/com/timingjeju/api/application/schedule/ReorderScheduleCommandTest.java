@@ -13,10 +13,12 @@ class ReorderScheduleCommandTest {
 
   @Test
   void nested_null은_NPE가_아닌_INVALID_REQUEST다() {
+    assertInvalid(() -> new ReorderScheduleCommand(VERSION, null));
     assertInvalid(
         () ->
             new ReorderScheduleCommand(
                 VERSION, Arrays.asList((ReorderScheduleCommand.DayOrder) null)));
+    assertInvalid(() -> new ReorderScheduleCommand.DayOrder(1, null));
     assertInvalid(() -> new ReorderScheduleCommand.DayOrder(1, Arrays.asList((UUID) null)));
   }
 

@@ -1715,12 +1715,19 @@ final class FrontendOpenApiCustomizer {
         doc(
             "tripScheduleItemPatch",
             "일정",
-            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"placeId\":\"20000000-0000-4000-8000-000000000001\",\"accommodationId\":\"70000000-0000-4000-8000-000000000001\",\"transportEventId\":\"71000000-0000-4000-8000-000000000001\",\"title\":\"성산일출봉 방문\",\"plannedStartAt\":\"2026-10-01T11:00:00+09:00\",\"stayMinutes\":45,\"bufferAfterMinutes\":10,\"required\":true,\"memo\":null}",
+            "{\"expectedActiveScheduleVersionId\":\"60000000-0000-4000-8000-000000000001\",\"placeId\":\"20000000-0000-4000-8000-000000000001\",\"title\":\"성산일출봉 방문\",\"plannedStartAt\":\"2026-10-01T11:00:00+09:00\",\"stayMinutes\":45,\"bufferAfterMinutes\":10,\"required\":true,\"memo\":null}",
             mutationSuccess,
             mutationErrors));
     result.put(
         "DELETE /api/v1/trips/{tripId}/schedule-items/{itemId}",
-        doc("tripScheduleItemDelete", "일정", null, mutationSuccess, mutationErrors));
+        doc(
+            "tripScheduleItemDelete",
+            "일정",
+            null,
+            mutationSuccess.replace(
+                "\"changedItemIds\":[\"61000000-0000-4000-8000-000000000003\"]",
+                "\"changedItemIds\":[]"),
+            mutationErrors));
     result.put(
         "PUT /api/v1/trips/{tripId}/schedule-order",
         doc(

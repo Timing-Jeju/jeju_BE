@@ -6,7 +6,10 @@ import java.util.UUID;
 
 public record ReorderScheduleCommand(UUID expectedActiveScheduleVersionId, List<DayOrder> days) {
   public ReorderScheduleCommand {
-    days = days == null ? List.of() : List.copyOf(days);
+    if (days == null || days.stream().anyMatch(java.util.Objects::isNull)) {
+      throw ScheduleException.invalidRequest();
+    }
+    days = List.copyOf(days);
     var dayNumbers = new HashSet<Integer>();
     if (expectedActiveScheduleVersionId == null
         || days.isEmpty()
@@ -17,10 +20,11 @@ public record ReorderScheduleCommand(UUID expectedActiveScheduleVersionId, List<
 
   public record DayOrder(int dayNo, List<UUID> orderedItemIds) {
     public DayOrder {
-      orderedItemIds = orderedItemIds == null ? List.of() : List.copyOf(orderedItemIds);
-      if (dayNo < 1
-          || orderedItemIds.isEmpty()
-          || orderedItemIds.stream().anyMatch(java.util.Objects::isNull)) {
+      if (orderedItemIds == null || orderedItemIds.stream().anyMatch(java.util.Objects::isNull)) {
+        throw ScheduleException.invalidRequest();
+      }
+      orderedItemIds = List.copyOf(orderedItemIds);
+      if (dayNo < 1 || orderedItemIds.isEmpty()) {
         throw ScheduleException.invalidRequest();
       }
     }
