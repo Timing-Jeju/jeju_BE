@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class AuthenticationProblemContractTest(unittest.TestCase):
-    def test_runtime_manifest는_optional과_required의_canonical_401을_광고한다(self):
+    def test_runtime_manifest는_public_social_optional과_required_인증을_분리한다(self):
         manifest = json.loads(
             (ROOT / "scripts/openapi_frontend_runtime_manifest.json").read_text(
                 encoding="utf-8"
@@ -24,7 +24,22 @@ class AuthenticationProblemContractTest(unittest.TestCase):
             definitions["INVALID_ACCESS_TOKEN"],
             "https://api.timing-jeju.com/problems/invalid-access-token",
         )
+        self.assertEqual(
+            definitions["SOCIAL_NAVER_TOKEN_INVALID"],
+            "https://api.timing-jeju.example/problems/social-naver-token-invalid",
+        )
         self.assertNotIn("AUTH_TOKEN_INVALID", definitions)
+
+        public_social = {
+            "GET /api/v1/auth/social/providers": None,
+            "GET /api/v1/auth/social/naver/userinfo": [
+                "SOCIAL_NAVER_TOKEN_INVALID",
+                "https://api.timing-jeju.example/problems/social-naver-token-invalid",
+            ],
+        }
+        for operation, expected in public_social.items():
+            runtime = manifest["operations"][operation]
+            self.assertEqual(runtime["problems"].get("401"), expected, operation)
 
         optional = {
             "GET /api/v1/legal-documents",
@@ -33,6 +48,8 @@ class AuthenticationProblemContractTest(unittest.TestCase):
             "GET /api/v1/weather/forecast",
         }
         for operation, runtime in manifest["operations"].items():
+            if operation in public_social:
+                continue
             expected = (
                 [
                     "INVALID_ACCESS_TOKEN",

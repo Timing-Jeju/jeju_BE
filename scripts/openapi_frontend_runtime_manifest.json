@@ -2,6 +2,7 @@
   "runtimeProblemDefinitions": {
     "AUTHENTICATION_REQUIRED": "https://api.timing-jeju.com/problems/authentication-required",
     "INVALID_ACCESS_TOKEN": "https://api.timing-jeju.com/problems/invalid-access-token",
+    "SOCIAL_NAVER_TOKEN_INVALID": "https://api.timing-jeju.example/problems/social-naver-token-invalid",
     "AUTH_ACCESS_DENIED": "https://api.timing-jeju.example/problems/auth-access-denied",
     "INTERNAL_SERVER_ERROR": "https://api.timing-jeju.example/problems/internal-server-error",
     "INVALID_PROFILE_LEGAL_REQUEST": "https://api.timing-jeju.example/problems/invalid-profile-legal-request",
@@ -12,7 +13,7 @@
   },
   "operations": {
     "GET /api/v1/auth/social/providers": {"statusAdditions": [], "statusOmissions": [], "problems": {}},
-    "GET /api/v1/auth/social/naver/userinfo": {"statusAdditions": [], "statusOmissions": [], "problems": {}},
+    "GET /api/v1/auth/social/naver/userinfo": {"statusAdditions": [], "statusOmissions": [], "problems": {"401": ["SOCIAL_NAVER_TOKEN_INVALID", "https://api.timing-jeju.example/problems/social-naver-token-invalid"]}},
     "GET /api/v1/me": {"statusAdditions": [403, 500], "statusOmissions": [], "problems": {"401": ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"], "403": ["AUTH_ACCESS_DENIED", "https://api.timing-jeju.example/problems/auth-access-denied"], "500": ["INTERNAL_SERVER_ERROR", "https://api.timing-jeju.example/problems/internal-server-error"], "503": ["PROFILE_DATA_UNAVAILABLE", "https://api.timing-jeju.example/problems/profile-data-unavailable"]}},
     "PATCH /api/v1/me": {"statusAdditions": [403, 500], "statusOmissions": [], "problems": {"400": ["INVALID_PROFILE_LEGAL_REQUEST", "https://api.timing-jeju.example/problems/invalid-profile-legal-request"], "401": ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"], "403": ["AUTH_ACCESS_DENIED", "https://api.timing-jeju.example/problems/auth-access-denied"], "409": ["PROFILE_CONFLICT", "https://api.timing-jeju.example/problems/profile-conflict"], "500": ["INTERNAL_SERVER_ERROR", "https://api.timing-jeju.example/problems/internal-server-error"], "503": ["PROFILE_DATA_UNAVAILABLE", "https://api.timing-jeju.example/problems/profile-data-unavailable"]}},
     "GET /api/v1/legal-documents": {"statusAdditions": [500], "statusOmissions": [], "problems": {"400": ["INVALID_PROFILE_LEGAL_REQUEST", "https://api.timing-jeju.example/problems/invalid-profile-legal-request"], "401": ["INVALID_ACCESS_TOKEN", "https://api.timing-jeju.com/problems/invalid-access-token"], "500": ["INTERNAL_SERVER_ERROR", "https://api.timing-jeju.example/problems/internal-server-error"], "503": ["PROFILE_DATA_UNAVAILABLE", "https://api.timing-jeju.example/problems/profile-data-unavailable"]}},
