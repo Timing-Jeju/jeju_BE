@@ -347,7 +347,10 @@ DB 없는 focused 검증 결과:
 # BUILD SUCCESSFUL
 
 ./gradlew integrationTest \
-  --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest \
+  --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest
+# BUILD SUCCESSFUL
+
+./gradlew sliceTest \
   --tests com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest
 # BUILD SUCCESSFUL
 
@@ -367,3 +370,54 @@ python3 -m unittest scripts.tests.test_schedules_contract \
 이번 current-stack 통합에서는 사용자 승인 범위에 따라 실제 PostgreSQL, Testcontainers, Docker,
 root full quality gate, live Supabase 적용, push와 PR을 실행하지 않았다. 따라서 해당 gate가 실행될
 때까지 결과 상태는 `BLOCKED`이며 `READY_FOR_REVIEW`로 선언하지 않는다.
+
+## Astra review finding 보정
+
+### RED
+
+- `printable-key`의 결정 UUID `ba8cb334-92ef-8999-8eb6-8b95ecd8bb71`와 동일한 UUID 원문이
+  같은 owner/method/public path에서 하나의 registry identity로 겹치는 회귀 테스트를 추가했다.
+- namespaced request factory와 schedule resolver가 없어 `compileTestJava`가 네 곳의
+  `cannot find symbol`로 실패했다.
+- PostgreSQL fixture와 OpenAPI source test를 함께 실행했을 때 각각 #68의
+  `check_in_time/check_out_time` 부재, #47의 잘못된 departure 날짜, `\\x20-\\x7E` source
+  literal 때문에 2 tests, 2 failed가 발생했다.
+- runtime OpenAPI는 escape 표현을 이미 `^[ -~]{1,128}$`로 정규화하고 있었으므로, 별도 runtime
+  JSON literal assertion을 추가하고 annotation/customizer source도 같은 canonical 문자열로 고정했다.
+
+### GREEN과 REFACTOR
+
+- canonical UUID는 기존 owner/method/public path/key scope를 그대로 유지해 이전 replay를 보존한다.
+- non-UUID printable key는 같은 public trip path 아래 `schedule-printable-ascii-v1` durable internal
+  namespace와 full SHA-256 discriminator를 추가한다. 따라서 128-bit 결정 UUID가 같거나 그 값과
+  같은 UUID 원문이 와도 DB primary-key scope가 겹치지 않는다.
+- 두 scope가 각각 독립 replay하고 각각의 다른 payload를 `IDEMPOTENCY_KEY_REUSED`로 거부함을
+  실제 `TransactionalIdempotencyService` 단위 테스트로 검증했다.
+- space/case/1자/128자/129자/control/non-ASCII와 canonical UUID 호환 경계를 고정했다.
+- schedule PostgreSQL fixture 숙소에 `15:00/11:00`을 채우고 departure를 여행 종료일인
+  제주 2026-09-02로 정렬했다. 실제 PostgreSQL/Testcontainers는 승인 범위상 실행하지 않았다.
+- OpenAPI annotation, customizer, runtime slice test와 canonical 계약 pattern을
+  `^[ -~]{1,128}$` 하나로 정렬했다.
+
+정확한 DB-free 검증 명령:
+
+```text
+./gradlew unitTest \
+  --tests com.timingjeju.api.application.idempotency.IdempotencyServiceTest \
+  --tests com.timingjeju.api.domain.schedule.controller.ScheduleIdempotencyKeyTest \
+  --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest
+# BUILD SUCCESSFUL
+
+./gradlew integrationTest \
+  --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest
+# BUILD SUCCESSFUL
+
+./gradlew sliceTest \
+  --tests com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest
+# BUILD SUCCESSFUL
+
+python3 -m unittest scripts.tests.test_schedules_contract \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database
+# Ran 34 tests ... OK
+```

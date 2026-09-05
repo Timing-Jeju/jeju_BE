@@ -92,11 +92,11 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
     CurrentUser user = currentUsers.getRequired();
     validateBodySize(body);
     IdempotencyRequest request =
-        IdempotencyRequest.create(
+        ScheduleIdempotencyKey.createRequest(
             user.userId(),
             "POST",
             "/api/v1/trips/" + canonicalTripId + "/schedule-items",
-            ScheduleIdempotencyKey.toRegistryKey(idempotencyKey),
+            idempotencyKey,
             body);
     AtomicBoolean replayed = new AtomicBoolean(true);
     IdempotencyResponse result =

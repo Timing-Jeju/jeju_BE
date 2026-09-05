@@ -43,6 +43,7 @@ ENDPOINT_IDEMPOTENCY = {
 }
 MUTATION_IDEMPOTENCY = {
     "scope": "canonical sub + method + normalized path + Idempotency-Key",
+    "registryEncoding": "canonical UUID keeps the legacy scope; other printable ASCII uses the schedule-printable-ascii-v1 internal namespace with a full SHA-256 discriminator and a deterministic UUID",
     "processingLease": "2 minutes",
     "completedTtl": "24 hours from completion",
     "completedSameHash": ENDPOINT_IDEMPOTENCY["replay"],

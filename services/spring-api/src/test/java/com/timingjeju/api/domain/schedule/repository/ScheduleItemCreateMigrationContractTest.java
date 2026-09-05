@@ -10,6 +10,35 @@ import org.junit.jupiter.api.Test;
 
 @Tag("unit")
 class ScheduleItemCreateMigrationContractTest {
+
+  @Test
+  void PostgreSQL_fixture는_최신_숙소_시간과_여행_종료일_departure_계약을_따른다() throws Exception {
+    String fixture =
+        Files.readString(
+            Path.of(
+                "src/test/java/com/timingjeju/api/domain/schedule/repository/JdbcScheduleMutationStoreIntegrationTest.java"));
+
+    assertThat(fixture).contains("check_in_time, check_out_time");
+    assertThat(fixture).contains("'15:00:00', '11:00:00'");
+    assertThat(fixture).contains("'departure', 'flight', ?, '2026-09-02T00:00:00Z'");
+    assertThat(fixture).doesNotContain("'departure', 'flight', ?, '2026-09-01T12:00:00Z'");
+  }
+
+  @Test
+  void OpenAPI_source도_runtime_canonical_printable_ASCII_pattern을_그대로_사용한다() throws Exception {
+    String apiDocs =
+        Files.readString(
+            Path.of(
+                "src/main/java/com/timingjeju/api/domain/schedule/controller/docs/ScheduleMutationApiDocs.java"));
+    String customizer =
+        Files.readString(
+            Path.of(
+                "src/main/java/com/timingjeju/api/global/config/FrontendOpenApiCustomizer.java"));
+
+    assertThat(apiDocs).contains("pattern = \"^[ -~]{1,128}$\"");
+    assertThat(customizer).contains(".pattern(\"^[ -~]{1,128}$\")");
+  }
+
   private static final String MIGRATION = "20260907000000_schedule_item_create_contract.sql";
   private static final String REQUIRED_REFERENCE_MIGRATION =
       "20260907000001_schedule_item_required_references.sql";

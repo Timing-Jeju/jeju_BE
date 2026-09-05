@@ -1,11 +1,14 @@
 package com.timingjeju.api.documentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.security.SecureRandom;
 import java.util.Base64;
 import org.junit.jupiter.api.Tag;
@@ -31,6 +34,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class ScheduleOpenApiIntegrationTest {
   private static final String JWT_KEY = randomKey();
   @Autowired private MockMvc mvc;
+  private final ObjectMapper objectMapper = new ObjectMapper();
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -116,7 +120,7 @@ class ScheduleOpenApiIntegrationTest {
                 .value(128))
         .andExpect(
             jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.pattern")
-                .value("^[\\x20-\\x7E]{1,128}$"))
+                .value("^[ -~]{1,128}$"))
         .andExpect(
             jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.format")
                 .doesNotExist())
@@ -165,6 +169,24 @@ class ScheduleOpenApiIntegrationTest {
         .andExpect(
             jsonPath(path + ".responses['422'].content['application/problem+json'].examples.keys()")
                 .value(containsInAnyOrder("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE")));
+  }
+
+  @Test
+  void schedule_item_create_Idempotency_Key_pattern은_canonical_contract와_문자열까지_같다()
+      throws Exception {
+    String document =
+        mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsString();
+    JsonNode parameters =
+        objectMapper
+            .readTree(document)
+            .at("/paths/~1api~1v1~1trips~1{tripId}~1schedule-items/post/parameters");
+    JsonNode idempotencyKey =
+        java.util.stream.StreamSupport.stream(parameters.spliterator(), false)
+            .filter(parameter -> "Idempotency-Key".equals(parameter.path("name").asText()))
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(idempotencyKey.at("/schema/pattern").asText()).isEqualTo("^[ -~]{1,128}$");
   }
 
   private static String randomKey() {

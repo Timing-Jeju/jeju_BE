@@ -195,7 +195,7 @@ public interface ScheduleMutationApiDocs {
                       type = "string",
                       minLength = 1,
                       maxLength = 128,
-                      pattern = "^[\\x20-\\x7E]{1,128}$"))
+                      pattern = "^[ -~]{1,128}$"))
           String idempotencyKey,
       byte[] body,
       @Parameter(hidden = true) HttpServletRequest servletRequest);

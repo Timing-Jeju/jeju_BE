@@ -16,6 +16,7 @@ public final class IdempotencyRequest {
 
   private static final Pattern REPEATED_SLASH = Pattern.compile("/{2,}");
   private static final Pattern METHOD = Pattern.compile("[A-Z]{1,16}");
+  private static final Pattern SCOPE_NAMESPACE = Pattern.compile("[a-z][a-z0-9-]{0,127}");
 
   private final IdempotencyScope scope;
   private final byte[] body;
@@ -29,9 +30,34 @@ public final class IdempotencyRequest {
 
   public static IdempotencyRequest create(
       UUID ownerSub, String method, String path, String idempotencyKey, byte[] body) {
-    UUID parsedKey = parseKey(idempotencyKey);
     String canonicalMethod = normalizeMethod(method);
     String normalizedPath = normalizePath(path);
+    return createCanonical(ownerSub, canonicalMethod, normalizedPath, idempotencyKey, body);
+  }
+
+  public static IdempotencyRequest createInNamespace(
+      UUID ownerSub,
+      String method,
+      String path,
+      String scopeNamespace,
+      String idempotencyKey,
+      byte[] body) {
+    String canonicalMethod = normalizeMethod(method);
+    String normalizedPath = normalizePath(path);
+    if (scopeNamespace == null || !SCOPE_NAMESPACE.matcher(scopeNamespace).matches()) {
+      throw new IllegalArgumentException("idempotency scope namespace가 올바르지 않습니다.");
+    }
+    String namespacedPath = normalizePath(normalizedPath + "/.idempotency/" + scopeNamespace);
+    return createCanonical(ownerSub, canonicalMethod, namespacedPath, idempotencyKey, body);
+  }
+
+  private static IdempotencyRequest createCanonical(
+      UUID ownerSub,
+      String canonicalMethod,
+      String normalizedPath,
+      String idempotencyKey,
+      byte[] body) {
+    UUID parsedKey = parseKey(idempotencyKey);
     byte[] copiedBody = Objects.requireNonNull(body, "request body must not be null").clone();
     if (copiedBody.length > MAX_BODY_BYTES) {
       throw new IllegalArgumentException("request body는 1 MiB 이하여야 합니다.");
