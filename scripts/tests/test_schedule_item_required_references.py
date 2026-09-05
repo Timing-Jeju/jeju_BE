@@ -20,6 +20,67 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
         self.assertTrue(MIGRATION.is_file(), f"append-only migration이 없습니다: {MIGRATION_NAME}")
         return compact_sql(MIGRATION.read_text(encoding="utf-8"))
 
+    @staticmethod
+    def section(migration: str, start: str, end: str) -> str:
+        start_index = migration.index(start)
+        return migration[start_index:migration.index(end, start_index)]
+
+    def assert_current_reference_predicate(self, section: str, qualifier: str) -> None:
+        item = f"{qualifier}." if qualifier else ""
+        self.assertIn(
+            f"{item}item_type = 'place_visit' and {item}place_id is not null "
+            f"and {item}accommodation_id is null and {item}transport_event_id is null",
+            section,
+        )
+        self.assertIn(
+            f"{item}item_type = 'accommodation' and {item}accommodation_id is not null "
+            f"and {item}transport_event_id is null",
+            section,
+        )
+        self.assertIn(
+            f"{item}item_type in ('arrival', 'departure') and {item}accommodation_id is null "
+            f"and {item}transport_event_id is not null",
+            section,
+        )
+        self.assertIn(
+            f"{item}item_type in ('meal', 'free_time', 'custom') and "
+            f"{item}accommodation_id is null and {item}transport_event_id is null "
+            f"and {item}title is not null and translate( {item}title,",
+            section,
+        )
+        self.assertIn("u&'\\0009\\000a", section)
+        self.assertIn("<> ''", section)
+        self.assertNotIn("item_type not in ('accommodation', 'arrival', 'departure')", section)
+
+    def test_current_canonical_predicate_is_repeated_at_all_four_boundaries(self) -> None:
+        """audit/check/trigger/sealing은 같은 4-boundary predicate를 각각 명시한다."""
+        migration = self.migration()
+        audit = self.section(migration, "do $$", "alter table public.trip_transport_events")
+        check = self.section(
+            migration,
+            "add constraint chk_trip_items_required_references check",
+            "create function public.validate_trip_item_required_references()",
+        )
+        trigger = self.section(
+            migration,
+            "create function public.validate_trip_item_required_references()",
+            "create trigger trg_trip_items_required_references",
+        )
+        sealing = self.section(
+            migration,
+            "create function public.assert_schedule_item_required_references(",
+            "-- preserve the mature timeline/leg assertion",
+        )
+
+        for name, boundary, qualifier in (
+            ("legacy-audit", audit, "item"),
+            ("check", check, ""),
+            ("trigger", trigger, "new"),
+            ("sealing", sealing, "item"),
+        ):
+            with self.subTest(boundary=name):
+                self.assert_current_reference_predicate(boundary, qualifier)
+
     def test_append_only_migration_uses_slot_038_before_seed_everywhere(self) -> None:
         """필수 참조 보정은 기존 생성 계약 뒤 038 슬롯에서 seed 전에 실행된다."""
         source = f"./supabase/migrations/{MIGRATION_NAME}"
