@@ -13,7 +13,7 @@
 | FastAPI MCP 계약 | PASS | Phase 1 계산 도구 8개 + Phase 2 의도 파싱 도구 1개 정의 |
 | Spring-FastAPI wire 계약 | PASS | `/mcp` tools/call, structuredContent, service JWT, 저장 매핑 작성 |
 | 외부 API 필드 검증 | PASS | TourAPI/TAGO/KMA 공식 문서 기준 원천값과 계산값 분리 |
-| 길찾기 공급자 POC | DEFER | #40 Owner 승인에 따라 provider-neutral·TMAP 기본 비활성화, 대중교통은 공식 시간표/TAGO |
+| 길찾기 공급자 POC | DEFER | TMAP route/cache/fallback은 FastAPI MCP가 소유하고 Spring은 MCP 연결·결과 저장만 담당 |
 | Figma 우측 댓글 스레드 | PASS | 2026-07-21 브라우저에서 미해결 댓글과 답글을 직접 확인해 정책 반영 |
 
 `PASS`는 설계와 로컬 검증 완료, `PENDING`은 구현 전 POC 필요를 뜻한다.

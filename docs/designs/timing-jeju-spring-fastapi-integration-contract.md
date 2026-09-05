@@ -4,6 +4,8 @@
 
 planner runtime 계약은 [`Timing-Jeju/jeju_AI`](https://github.com/Timing-Jeju/jeju_AI)의 Pydantic `0.7.0`이 유일한 원본이다. transport·인증·경계 설명은 AI의 [`docs/FASTAPI_MCP_CONTRACT.md`](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)를 따른다. BE는 release artifact인 `mcp-tools-v0.7.json`만 포함하며 Pydantic schema를 Java DTO로 다시 정의하지 않는다.
 
+route 계산·route fact·TTL cache·fallback은 AI가 소유한다. Spring은 private MCP 연결·계약 검증·감사와 제품 DB 결과 저장을 소유한다. Spring은 AI의 TMAP route 정책이나 cache를 Java application package로 복제하지 않는다.
+
 | 항목 | 값 |
 | --- | --- |
 | 공개 API | Spring Boot `/api/v1/**` |

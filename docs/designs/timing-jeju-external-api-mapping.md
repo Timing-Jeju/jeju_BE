@@ -15,10 +15,10 @@
 | 관광지/숙소/음식점 기본정보 | TourAPI `KorService2` | 관리자 큐레이션 | Spring -> raw snapshot -> place tables |
 | 버스 정류장/노선/경유 순서 | TAGO | 제주 보조 데이터 | Spring -> raw snapshot -> transit tables |
 | 실시간 버스 도착 | TAGO | 최근 snapshot fallback | Spring -> raw snapshot -> arrival snapshots |
-| 대중교통 경로 후보 | 공식 시간표 | TAGO·provider-neutral graph | Spring facts -> FastAPI 선택/검증 |
-| 자동차/렌터카 경로 | provider-neutral port | TMAP 자동차 on-demand | FastAPI 프로세스 메모리 전용 |
-| 택시 시간/예상 요금 | provider-neutral port + 별도 요금 정책 | TMAP 자동차 on-demand | FastAPI 프로세스 메모리 전용 |
-| 도보 경로 | provider-neutral port | TMAP 보행자 on-demand·PostGIS 보수 추정 | FastAPI 프로세스 메모리 전용 |
+| 대중교통 경로 후보 | AI의 공식 시간표·TAGO fact | AI route graph | FastAPI MCP 계산, Spring 결과 저장 |
+| 자동차/렌터카 경로 | AI route runtime | TMAP 자동차 on-demand | FastAPI 프로세스 메모리 전용 |
+| 택시 시간/예상 요금 | AI route runtime + 요금 정책 | TMAP 자동차 on-demand | FastAPI 프로세스 메모리 전용 |
+| 도보 경로 | AI route runtime | TMAP 보행자 on-demand·보수 추정 | FastAPI 프로세스 메모리 전용 |
 | 날씨 실황/예보 | KMA 단기예보 | 마지막 유효 예보 | Spring -> raw snapshot -> weather tables |
 | 위험도/추천/복구 | 외부 API 아님 | - | FastAPI MCP 계산, Spring 저장 |
 
@@ -321,7 +321,7 @@ fallback하지 않는다. DB read/mapping 오류는 raw SQL·cause 없는 stable
 - 승인 source: `tmap.pedestrian`, `tmap.driving`.
 - 비승인 source: TMAP 대중교통. 대중교통은 공식 시간표와 TAGO를 사용한다.
 - 역할: 요청 시점의 보행·자동차 거리와 예상 시간. 결과는 프로세스 메모리에서만 사용한다.
-- 기본 상태: 비활성화. #41의 provider-neutral port가 capability를 확인한 뒤에만 호출한다.
+- 기본 상태: 비활성화. AI runtime이 승인 source capability를 확인한 뒤에만 호출한다.
 
 ### 5.1 메모리 전용 정규화
 
@@ -339,33 +339,16 @@ fingerprint를 사용하고 23시간 50분 전에 만료한다. 응답을 로그
 - 키가 없는 기본 품질 게이트는 `APPROVED_TMAP_KEY_NOT_PRESENT` 사유로 live 호출을 skip한다.
 - TMAP 원문·geometry·요청 좌표와 개별 route metric을 영속 저장하지 않는다.
 
-Issue #40의 최종 판정은 `DEFER`다. #41은 provider-neutral port를 유지하고 TMAP을 기본
-비활성화한다. 공급자를 활성화하거나 바꾸더라도 공개 DTO와 DB 계약은 공급자 응답에 결합하지 않는다.
+Issue #40의 최종 판정은 `DEFER`다. TMAP은 기본 비활성화하고 공급자를 활성화하거나 바꾸더라도
+공개 DTO와 DB 계약은 공급자 응답에 결합하지 않는다.
 
-### 5.3 Issue #41 provider-neutral cache 계약
+### 5.3 AI route runtime 소유권
 
-Spring의 #41 구현은 공개 Controller나 TMAP HTTP client가 아닌
-`application.mobility.MobilityRouteProvider` port와 프로세스 메모리 cache다. Spring에는
-TMAP adapter bean을 등록하지 않으며 기존 `TMAP_ENABLED=false`를 유지한다. 승인된
-`tmap.pedestrian`·`tmap.driving` 호출은 #40 결정대로 FastAPI/PoC 경계가 소유한다.
-
-cache key는 `mobility-route-request-v1`, source ID, mode, origin/destination 좌표,
-departure time을 길이 구분 SHA-256으로 만든다. 좌표와 시각 원문은 hash나 로그에 출력하지
-않는다. 동일 key 동시 요청은 프로세스 내 single-flight를 공유하고 `now < expiresAt`일 때만
-fresh hit다. `now == expiresAt`은 만료로 취급하며 이전 route를 stale fallback으로 반환하지
-않는다.
-
-정규화 mode는 `PUBLIC_TRANSIT`, `RENTAL_CAR`, `TAXI`, `WALK` 네 가지다. provider가 fact의
-mode, 거리, access/wait/ride/transfer/egress duration 구성요소, nullable fare와 TTL을
-제공하고 application이 합계 및 범위를 검증한다. TTL 상한은 walk 23시간 50분,
-rental-car/taxi 5분이다. public-transit은 공식 publication adapter가 더 짧은 실제 유효기간을
-전달해야 하며 application 안전 상한은 24시간이다.
-
-복구 가능한 rate-limit/timeout/unavailable에서만 `WALK`가 주입된 보수 추정 port를 사용할
-수 있고 reason은 `ESTIMATED_WALK_TIME`이다. 차량·택시·대중교통은 수치를 추정하지 않으며,
-malformed response도 fallback하지 않는다. provider 예외 message/cause는 버리고 안정 code만
-반환한다. 이 cache의 fact와 요청 좌표는 `mobility_route_snapshots`,
-`external_api_snapshots`, 파일, Redis와 로그에 쓰지 않는다.
+TMAP 호출, provider 응답 정규화, route fact, TTL cache와 보행 fallback 정책은
+`Timing-Jeju/jeju_AI`가 단독 소유한다. Spring은 route 계산이나 cache를 다시 구현하지 않고,
+private MCP 연결·JWT/TLS·schema checksum·ID allowlist·감사와 schema 검증 결과의 제품 DB
+저장만 소유한다. AI가 반환하는 `structuredContent`는 Spring의 MCP 계약 검증을 통과해야 하며
+TMAP 원문·geometry·요청 좌표는 Spring payload, DB, 파일, Redis와 로그에 쓰지 않는다.
 
 ## 6. 기상청 단기예보
 
@@ -494,8 +477,8 @@ KMA 원문은 먼저 `external_api_snapshots`에 저장하고, category 파싱�
 | TourAPI 목록/상세 | 24시간 | 최근 7일 | `stale=true` |
 | 정류장/노선/경유 순서 | 24시간 | 최근 7일 | `stale=true` |
 | 실시간 버스 도착 | 20~30초 | 최대 2분 | `STALE_TRANSIT_DATA` |
-| TMAP 자동차/택시 경로 | 프로세스 메모리 5분 | provider-neutral 대체 공급자 | `EXTERNAL_FACTS_UNAVAILABLE` |
-| TMAP 도보 경로 | 프로세스 메모리 최대 23시간 50분 미만 | PostGIS 보수 추정 | `ESTIMATED_WALK_TIME` |
+| TMAP 자동차/택시 경로 | AI runtime 정책 | AI의 검증된 대체 경로만 | `EXTERNAL_FACTS_UNAVAILABLE` |
+| TMAP 도보 경로 | AI runtime 정책 | AI의 보수 추정 | `ESTIMATED_WALK_TIME` |
 | 대중교통 경로 | 공식 시간표 publication 수명 | 검증된 대체 시간표만 | `EXTERNAL_FACTS_UNAVAILABLE` |
 | 초단기실황 | 10분 | 최근 30분 | `STALE_WEATHER_DATA` |
 | 단기예보 | 같은 발표 base | 이전 발표 1회 | `STALE_WEATHER_DATA` |
@@ -504,18 +487,17 @@ KMA 원문은 먼저 `external_api_snapshots`에 저장하고, category 파싱�
 
 ## 9. Adapter 계약
 
-Spring package boundary 예시:
+Spring 외부 적재 package boundary 예시:
 
 ```text
 external.tour.TourApiClient
 external.transit.TagoStopClient
 external.transit.TagoRouteClient
 external.transit.TagoArrivalClient
-external.mobility.MobilityRouteProvider
 external.weather.KmaForecastClient
 ```
 
-`MobilityRouteProvider` 구현체는 provider-neutral이며 TMAP 구현은 기본 비활성화한다. Controller나 FastAPI 계약이 공급자 응답 DTO를 직접 참조하면 안 된다.
+Spring에는 mobility route provider를 두지 않는다. TourAPI·TAGO·KMA adapter와 공개 Controller는 AI provider 응답 DTO를 직접 참조하면 안 된다.
 
 ## 10. 후속 Spring importer Integration Test 체크리스트
 
