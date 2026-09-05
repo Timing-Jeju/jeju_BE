@@ -264,6 +264,54 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   }
 
   @Test
+  void departure_event와_root_endDate를_동시에_확장해도_둘다_거부되고_revision과_event는_불변이다() throws Exception {
+    jdbc.update(
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'departure', 'flight', '제주공항', '2026-09-03T00:00:00Z')",
+        TRIP);
+    String before = calendarFingerprint();
+    CountDownLatch start = new CountDownLatch(1);
+
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var rootUpdate =
+          pool.submit(
+              () -> {
+                start.await();
+                try {
+                  store.updateOwned(
+                      record(
+                          dates(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-04")),
+                          1,
+                          NOW));
+                  return "success";
+                } catch (TripException failure) {
+                  return failure.code();
+                }
+              });
+      var eventUpdate =
+          pool.submit(
+              () -> {
+                start.await();
+                try {
+                  new TransactionTemplate(transactions)
+                      .executeWithoutResult(
+                          ignored ->
+                              jdbc.update(
+                                  "update public.trip_transport_events set scheduled_at='2026-09-04T00:00:00Z' where trip_plan_id=? and event_type='departure'",
+                                  TRIP));
+                  return "success";
+                } catch (org.springframework.dao.DataAccessException failure) {
+                  return "TRIP_CONSTRAINT_VIOLATION";
+                }
+              });
+      start.countDown();
+
+      assertThat(List.of(rootUpdate.get(), eventUpdate.get()))
+          .containsOnly("TRIP_CONSTRAINT_VIOLATION");
+    }
+    assertThat(calendarFingerprint()).isEqualTo(before);
+  }
+
+  @Test
   void PATCH와_DELETE_경합은_직렬화되고_삭제뒤_aggregate가_남지않는다() throws Exception {
     CountDownLatch start = new CountDownLatch(1);
     try (var pool = Executors.newFixedThreadPool(2)) {
