@@ -19,12 +19,13 @@ class ScheduleItemCreateArchitectureSourceTest {
                     "com/timingjeju/api/domain/schedule/controller/ScheduleMutationController.java"));
 
     assertThat(controller)
-        .contains("@PatchMapping(\"/{itemId}\")")
-        .contains("@DeleteMapping(\"/{itemId}\")")
+        .contains("@PatchMapping(\"/schedule-items/{itemId}\")")
+        .contains("@DeleteMapping(\"/schedule-items/{itemId}\")")
         .contains("@PutMapping(\"/schedule-order\")")
-        .contains("@PostMapping(\"/{itemId}/move\")")
+        .contains("@PostMapping(\"/schedule-items/{itemId}/move\")")
         .doesNotContain("IdempotencyRequest.create(");
-    assertThat(occurrences(controller, "ScheduleIdempotencyKey.createRequest(")).isEqualTo(5);
+    assertThat(occurrences(controller, "ScheduleIdempotencyKey.createRequest(")).isEqualTo(2);
+    assertThat(occurrences(controller, "return executeMutation(")).isEqualTo(4);
   }
 
   @Test

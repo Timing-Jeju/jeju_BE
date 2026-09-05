@@ -105,7 +105,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
                 ? source.sequenceNo() + 1
                 : source.sequenceNo();
         insertCopiedItem(record.tripId(), newVersionId, newId, sequence, source);
-        newItems.add(source.asNew(newId, sequence));
+        newItems.add(source.asNew(newId, sequence, source));
         copiedIds.put(source.id(), newId);
       }
 
