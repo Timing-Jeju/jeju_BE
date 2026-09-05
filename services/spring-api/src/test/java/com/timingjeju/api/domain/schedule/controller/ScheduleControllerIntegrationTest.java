@@ -335,6 +335,32 @@ class ScheduleControllerIntegrationTest {
   }
 
   @Test
+  void POST_schedule_items는_printable_ASCII_Idempotency_Key를_허용한다() throws Exception {
+    UUID newVersionId = UUID.fromString("49000000-0000-0000-0000-000000000008");
+    when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
+        .thenReturn(
+            new ScheduleMutationResult(
+                TRIP_ID,
+                VERSION_ID,
+                newVersionId,
+                2,
+                2,
+                List.of(UUID.fromString("49000000-0000-0000-0000-000000000009")),
+                Instant.parse("2026-09-01T01:00:00Z")));
+
+    mvc.perform(
+            post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header("Idempotency-Key", "printable-key")
+                .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(validScheduleItemBody()))
+        .andExpect(status().isCreated());
+
+    verify(mutations).addItem(any(), eq(TRIP_ID), any(), any());
+  }
+
+  @Test
   void POST_schedule_items의_참조와_version_오류는_schedule_canonical_problem을_반환한다() throws Exception {
     when(mutations.addItem(any(), eq(TRIP_ID), any(), any()))
         .thenThrow(
