@@ -233,7 +233,7 @@ public interface TripApiDocs {
       @Parameter(hidden = true) HttpServletRequest request);
 
   @Operation(
-      operationId = "replaceTripPreferences",
+      operationId = "tripPreferencesUpdate",
       summary = "여행 선호 조건 전체 교체",
       description = "persisted trip revision strong If-Match로 선호 조건과 이동수단을 원자 교체합니다.")
   @RequestBody(

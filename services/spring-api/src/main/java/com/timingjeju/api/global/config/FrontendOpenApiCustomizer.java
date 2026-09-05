@@ -530,10 +530,10 @@ final class FrontendOpenApiCustomizer {
                   .get(status)
                   .getContent()
                   .get(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-          media.setExample(null);
+          MediaType namedExamples = new MediaType().schema(media.getSchema());
           codes.forEach(
               code ->
-                  media.addExamples(
+                  namedExamples.addExamples(
                       code,
                       new Example()
                           .value(
@@ -541,6 +541,12 @@ final class FrontendOpenApiCustomizer {
                                   Integer.parseInt(status),
                                   code,
                                   "PUT /api/v1/trips/{tripId}/preferences"))));
+          operation
+              .getResponses()
+              .get(status)
+              .getContent()
+              .addMediaType(
+                  org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, namedExamples);
         });
   }
 
@@ -1204,13 +1210,13 @@ final class FrontendOpenApiCustomizer {
     result.put(
         "PUT /api/v1/trips/{tripId}/preferences",
         doc(
-            "replaceTripPreferences",
+            "tripPreferencesUpdate",
             "여행 선호 조건",
             """
-            {"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"jeju-si","preferredRegionCodes":["seongsan"],"startPlaceId":"20000000-0000-0000-0000-000000000086","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"taxi","priority":2,"primary":false}]}
+            {"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"jeju-si","preferredRegionCodes":["seongsan"],"startPlaceId":"20000000-0000-4000-8000-000000000086","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"taxi","priority":2,"primary":false}]}
             """,
             """
-            {"tripId":"50000000-0000-0000-0000-000000000086","preferences":{"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"jeju-si","preferredRegionCodes":["seongsan"],"startPlaceId":"20000000-0000-0000-0000-000000000086","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"taxi","priority":2,"primary":false}]},"scheduleEffect":"invalidated","regenerationRequired":true,"activeScheduleVersionId":null,"tripStatus":"draft","updatedAt":"2026-08-15T10:00:00+09:00"}
+            {"tripId":"50000000-0000-4000-8000-000000000086","preferences":{"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"jeju-si","preferredRegionCodes":["seongsan"],"startPlaceId":"20000000-0000-4000-8000-000000000086","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"taxi","priority":2,"primary":false}]},"scheduleEffect":"invalidated","regenerationRequired":true,"activeScheduleVersionId":null,"tripStatus":"draft","updatedAt":"2026-08-15T10:00:00+09:00"}
             """,
             Map.of(
                 "400", "INVALID_REQUEST",

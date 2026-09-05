@@ -134,6 +134,13 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 self.assertEqual({"$ref": "MutationResponse"}, schema["allOf"][0])
                 self.assertEqual(child_required, set(schema["allOf"][1]["required"]))
 
+    def test_mutation_if_match는_trip_revision_strong_etag를_요구한다(self) -> None:
+        schema = self.contract["schemas"]["MutationHeaders"]["properties"]["If-Match"]
+        self.assertEqual(
+            '^\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\"$',
+            schema["pattern"],
+        )
+
     def test_validator_rejects_response_composition_required_mutations(self) -> None:
         mutations = (
             ("allOf", lambda c: c["schemas"]["PreferencesResponse"].pop("allOf")),
