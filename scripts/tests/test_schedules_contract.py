@@ -92,6 +92,10 @@ class SchedulesContractTest(unittest.TestCase):
             self.contract["itemPolicy"]["requiredByType"],
         )
         self.assertEqual("reject-422; completed item cannot be patched, deleted, reordered or moved", self.contract["itemPolicy"]["completedItem"])
+        self.assertEqual(
+            "non-null 1..200 UTF-16 code units and Java String.isBlank=false; DB removes the explicit Character.isWhitespace code-point set without locale-sensitive regex; NBSP, figure space and narrow NBSP remain nonblank characters",
+            self.contract["itemPolicy"]["title"],
+        )
         self.assertEqual("DB constraints and synchronous deterministic validator only", self.contract["mutationPolicy"]["validator"])
         self.assertEqual("never call MCP/AI; correction requires separate schedule revision run owned by #89", self.contract["mutationPolicy"]["aiCorrection"])
 

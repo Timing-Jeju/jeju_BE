@@ -21,7 +21,7 @@ GET은 read-only다. active가 없거나 명시한 version이 없거나 다른 �
 
 ## 항목, 순서와 Day 이동
 
-itemType은 `place_visit|meal|accommodation|arrival|departure|free_time|custom`이다. 모든 type은 `plannedStartAt`과 `stayMinutes(1..1440)`가 필요하다. `place_visit`은 `placeId`, `accommodation`은 `accommodationId`, `arrival/departure`는 `transportEventId`, 나머지는 `title`이 추가로 필요하다. 시작과 계산된 종료는 모두 target `Asia/Seoul` Day 안에 있어야 한다.
+itemType은 `place_visit|meal|accommodation|arrival|departure|free_time|custom`이다. 모든 type은 `plannedStartAt`과 `stayMinutes(1..1440)`가 필요하다. `place_visit`은 `placeId`, `accommodation`은 `accommodationId`, `arrival/departure`는 `transportEventId`, 나머지는 `title`이 추가로 필요하다. title은 1..200 UTF-16 code unit이며 Java `String.isBlank=false`여야 한다. DB는 locale-sensitive 정규식 대신 Java `Character.isWhitespace` code point를 명시적으로 제거해 같은 의미를 강제하고, NBSP(U+00A0)·figure space(U+2007)·narrow NBSP(U+202F)는 Java와 동일하게 일반 문자로 취급한다. 시작과 계산된 종료는 모두 target `Asia/Seoul` Day 안에 있어야 한다.
 
 완료 progress가 있는 item은 PATCH/DELETE/reorder/move할 수 없고 `422 SCHEDULE_ITEM_COMPLETED`다. reorder는 active의 모든 item ID를 전체 Day에 걸쳐 정확히 한 번씩 제출하는 permutation이며 누락·중복·외부/추가 ID는 `400`이다. 적용 후 각 Day를 `1..N`으로 재번호하고 모든 인접 leg를 재구성한다. move는 target Day의 여행 귀속과 `plannedStartAt`의 제주 현지 날짜를 확인하고 source/target Day를 모두 compact한 뒤 영향 구간 leg를 재구성한다.
 

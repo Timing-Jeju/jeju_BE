@@ -9,6 +9,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class CreateScheduleItemCommandTest {
   private static final UUID VERSION = UUID.fromString("51000000-0000-0000-0000-000000000001");
@@ -37,6 +38,21 @@ class CreateScheduleItemCommandTest {
         .isInstanceOf(ScheduleException.class)
         .extracting(failure -> ((ScheduleException) failure).code())
         .isEqualTo("SCHEDULE_ITEM_INVALID");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"\t", "\n", "\r", "\f", "\u001c", "\u1680", "\u2000", "\u2028", "\u3000"})
+  void Java_isBlank_공백만_있는_title은_거부한다(String whitespace) {
+    assertThatThrownBy(() -> command("custom", null, null, null, whitespace))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_INVALID");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"\u00a0", "\u2007", "\u202f"})
+  void Java_isBlank가_문자로_취급하는_non_breaking_space는_title로_허용한다(String title) {
+    assertThatCode(() -> command("custom", null, null, null, title)).doesNotThrowAnyException();
   }
 
   private static Stream<Arguments> canonicalValidReferences() {

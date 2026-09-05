@@ -1407,6 +1407,7 @@
         "stayMinutes"
       ]
     },
+    "title": "non-null 1..200 UTF-16 code units and Java String.isBlank=false; DB removes the explicit Character.isWhitespace code-point set without locale-sensitive regex; NBSP, figure space and narrow NBSP remain nonblank characters",
     "timezone": "RFC 3339 +09:00; start and computed end must remain on target Asia/Seoul trip day",
     "stayMinutes": "integer 1..1440",
     "completedItem": "reject-422; completed item cannot be patched, deleted, reordered or moved"
