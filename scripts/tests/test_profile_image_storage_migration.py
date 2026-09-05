@@ -96,6 +96,22 @@ class ProfileImageStorageMigrationContractTest(unittest.TestCase):
         self.assertIn("alter table public.profile_image_cleanup_outbox enable row level security", self.sql)
         self._assert_storage_security_contract(self.sql)
 
+    def test_storage_schema_uses_only_supported_bucket_configuration_and_rls_surface(self) -> None:
+        self.assertNotRegex(
+            self.sql,
+            r"create\s+(?:or\s+replace\s+)?(?:function|table|index)\s+storage\.",
+        )
+        self.assertNotRegex(
+            self.sql,
+            r"(?:insert\s+into|update|delete\s+from)\s+storage\.objects",
+        )
+        self.assertNotIn("auth.role()", self.sql)
+        self.assertNotIn("security definer", self.sql)
+        self.assertIn("for insert to authenticated", self.sql)
+        self.assertIn("for select to authenticated", self.sql)
+        self.assertIn("as restrictive for insert to anon", self.sql)
+        self.assertIn("as restrictive for select to anon", self.sql)
+
     def test_security_contract_kills_all_reviewer_mutations(self) -> None:
         mutations = (
             (

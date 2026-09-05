@@ -12,6 +12,48 @@
     "ACCOMMODATION_DATA_UNAVAILABLE": "https://api.timing-jeju.com/problems/accommodation-data-unavailable"
   },
   "operations": {
+    "GET /api/v1/me/profile-image": {
+      "statusAdditions": [403, 500],
+      "statusOmissions": [],
+      "problems": {
+        "401": ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"],
+        "403": ["AUTH_ACCESS_DENIED", "https://api.timing-jeju.example/problems/auth-access-denied"],
+        "500": ["INTERNAL_SERVER_ERROR", "https://api.timing-jeju.example/problems/internal-server-error"],
+        "503": ["PROFILE_DATA_UNAVAILABLE", "https://api.timing-jeju.example/problems/profile-data-unavailable"]
+      },
+      "problemSets": {
+        "401": [
+          ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"],
+          ["INVALID_ACCESS_TOKEN", "https://api.timing-jeju.com/problems/invalid-access-token"]
+        ]
+      }
+    },
+    "PUT /api/v1/me/profile-image": {
+      "statusAdditions": [403, 500],
+      "statusOmissions": [],
+      "problems": {
+        "400": ["INVALID_PROFILE_IMAGE_REQUEST", "https://api.timing-jeju.com/problems/invalid-profile-image-request"],
+        "401": ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"],
+        "403": ["AUTH_ACCESS_DENIED", "https://api.timing-jeju.example/problems/auth-access-denied"],
+        "404": ["PROFILE_IMAGE_NOT_FOUND", "https://api.timing-jeju.com/problems/profile-image-not-found"],
+        "409": ["PROFILE_IMAGE_VERSION_CONFLICT", "https://api.timing-jeju.com/problems/profile-image-version-conflict"],
+        "413": ["PROFILE_IMAGE_TOO_LARGE", "https://api.timing-jeju.com/problems/profile-image-too-large"],
+        "415": ["PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED", "https://api.timing-jeju.com/problems/profile-image-media-type-unsupported"],
+        "500": ["INTERNAL_SERVER_ERROR", "https://api.timing-jeju.example/problems/internal-server-error"],
+        "503": ["PROFILE_IMAGE_STORAGE_UNAVAILABLE", "https://api.timing-jeju.com/problems/profile-image-storage-unavailable"]
+      },
+      "problemSets": {
+        "401": [
+          ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"],
+          ["INVALID_ACCESS_TOKEN", "https://api.timing-jeju.com/problems/invalid-access-token"]
+        ],
+        "409": [
+          ["PROFILE_IMAGE_VERSION_CONFLICT", "https://api.timing-jeju.com/problems/profile-image-version-conflict"],
+          ["IDEMPOTENCY_PAYLOAD_CONFLICT", "https://api.timing-jeju.com/problems/idempotency-payload-conflict"],
+          ["IDEMPOTENCY_REQUEST_IN_PROGRESS", "https://api.timing-jeju.com/problems/idempotency-request-in-progress"]
+        ]
+      }
+    },
     "GET /api/v1/auth/social/providers": {"statusAdditions": [], "statusOmissions": [], "problems": {}},
     "GET /api/v1/auth/social/naver/userinfo": {"statusAdditions": [], "statusOmissions": [], "problems": {"401": ["SOCIAL_NAVER_TOKEN_INVALID", "https://api.timing-jeju.example/problems/social-naver-token-invalid"]}},
     "GET /api/v1/me": {"statusAdditions": [403, 500], "statusOmissions": [], "problems": {"401": ["AUTHENTICATION_REQUIRED", "https://api.timing-jeju.com/problems/authentication-required"], "403": ["AUTH_ACCESS_DENIED", "https://api.timing-jeju.example/problems/auth-access-denied"], "500": ["INTERNAL_SERVER_ERROR", "https://api.timing-jeju.example/problems/internal-server-error"], "503": ["PROFILE_DATA_UNAVAILABLE", "https://api.timing-jeju.example/problems/profile-data-unavailable"]}},

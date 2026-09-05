@@ -30,7 +30,7 @@ IDENTITIES = [
     ("GET", "/api/v1/me/profile-image", "extension"),
     ("PUT", "/api/v1/me/profile-image", "extension"),
 ]
-CANONICAL_CONTRACT_SHA256 = "3c8b32965216b819a2c251c9472e3e2070ec45428ee6e75a2f192ee72a42ab29"
+CANONICAL_CONTRACT_SHA256 = "07863f9f04d25fbd131373fde9a93dbf18e05cd6c80cfc7e626281f76dded297"
 CANONICAL_CATALOG_SHA256 = "0314e9e3d7db062d5232ba261b7d8d761c350a77cd70c07da7abf25f44391fd0"
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
 CANONICAL_PROBLEM_TRACE_ID = "0123456789abcdef0123456789abcdef"

@@ -161,8 +161,10 @@
         },
         "Idempotency-Key": {
           "type": "string",
-          "format": "uuid",
-          "nullable": false
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[\\x20-\\x7E]{1,128}$"
         },
         "If-Match": {
           "type": "string",

@@ -58,6 +58,16 @@ class ProfileLegalContractTest(unittest.TestCase):
             {"Authorization", "Idempotency-Key", "If-Match"},
             set(contract["schemas"]["ProfileImageMutationHeaders"]["required"]),
         )
+        self.assertEqual(
+            {
+                "type": "string",
+                "nullable": False,
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": r"^[\x20-\x7E]{1,128}$",
+            },
+            contract["schemas"]["ProfileImageMutationHeaders"]["properties"]["Idempotency-Key"],
+        )
         request_key = contract["schemas"]["ProfileImageRequest"]["properties"]["profileImageObjectKey"]
         self.assertTrue(request_key["nullable"])
 

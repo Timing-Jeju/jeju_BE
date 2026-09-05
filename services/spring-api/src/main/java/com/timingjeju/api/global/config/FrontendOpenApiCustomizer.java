@@ -654,7 +654,48 @@ final class FrontendOpenApiCustomizer {
       documentTripPreferencesProblems(operation);
     } else if (key.equals("PUT /api/v1/trips/{tripId}/place-preferences")) {
       documentTripPlacePreferencesProblems(operation);
+    } else if (key.equals("GET /api/v1/me/profile-image")
+        || key.equals("PUT /api/v1/me/profile-image")) {
+      documentProfileImageProblems(key, operation);
     }
+  }
+
+  private void documentProfileImageProblems(String key, Operation operation) {
+    Map<String, List<String>> codesByStatus =
+        key.startsWith("GET ")
+            ? Map.of(
+                "401", List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"),
+                "503", List.of("PROFILE_DATA_UNAVAILABLE"))
+            : Map.of(
+                "400", List.of("INVALID_PROFILE_IMAGE_REQUEST"),
+                "401", List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"),
+                "404", List.of("PROFILE_IMAGE_NOT_FOUND"),
+                "409",
+                    List.of(
+                        "PROFILE_IMAGE_VERSION_CONFLICT",
+                        "IDEMPOTENCY_PAYLOAD_CONFLICT",
+                        "IDEMPOTENCY_REQUEST_IN_PROGRESS"),
+                "413", List.of("PROFILE_IMAGE_TOO_LARGE"),
+                "415", List.of("PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED"),
+                "503", List.of("PROFILE_IMAGE_STORAGE_UNAVAILABLE"));
+    codesByStatus.forEach(
+        (status, codes) -> {
+          ApiResponse response = operation.getResponses().get(status);
+          MediaType media =
+              response
+                  .getContent()
+                  .get(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+          MediaType namedExamples = new MediaType().schema(media.getSchema());
+          codes.forEach(
+              code ->
+                  namedExamples.addExamples(
+                      code,
+                      new Example().value(problemExample(Integer.parseInt(status), code, key))));
+          response
+              .getContent()
+              .addMediaType(
+                  org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, namedExamples);
+        });
   }
 
   private void documentTripPlacePreferencesProblems(Operation operation) {
@@ -801,6 +842,19 @@ final class FrontendOpenApiCustomizer {
           "일정 항목 추가 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
           new StringSchema().format("uuid"),
           "45000000-0000-4000-8000-000000000050");
+    } else if (key.equals("PUT /api/v1/me/profile-image")) {
+      mergeRequiredHeader(
+          operation,
+          "Idempotency-Key",
+          "프로필 이미지 확정 또는 해제 요청을 식별하는 1~128자 printable ASCII 값입니다.",
+          new StringSchema().minLength(1).maxLength(128).pattern("^[\\x20-\\x7E]{1,128}$"),
+          "profile-image-confirm-78");
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 프로필 이미지 응답의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          profileImageEtagSchema(),
+          "\"profile-image-0\"");
     } else if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
       if (key.startsWith("POST ")) {
         mergeRequiredHeader(
@@ -852,8 +906,36 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
       addResponseHeaderReferences(
           operation, List.of("201"), List.of("ETag", "Idempotency-Replayed"));
+    } else if (key.equals("GET /api/v1/me/profile-image")) {
+      addProfileImageResponseHeaders(operation, false);
+    } else if (key.equals("PUT /api/v1/me/profile-image")) {
+      addProfileImageResponseHeaders(operation, true);
     }
     addAccommodationResponseHeaders(key, operation);
+  }
+
+  private static void addProfileImageResponseHeaders(Operation operation, boolean mutation) {
+    ApiResponse response = operation.getResponses().get("200");
+    if (response == null) {
+      return;
+    }
+    response.addHeaderObject(
+        "ETag",
+        requiredHeader(
+            "프로필 이미지 version을 나타내는 strong ETag",
+            profileImageEtagSchema(),
+            mutation ? "\"profile-image-1\"" : "\"profile-image-0\""));
+    if (mutation) {
+      response.addHeaderObject(
+          "Idempotency-Replayed",
+          requiredHeader("동일 요청의 저장된 응답 replay 여부", new BooleanSchema(), Boolean.FALSE));
+    }
+  }
+
+  private static Schema<?> profileImageEtagSchema() {
+    return new StringSchema()
+        .format("profile-image-etag")
+        .pattern("^\\\"profile-image-(?:0|[1-9][0-9]*)\\\"$");
   }
 
   private static void addAccommodationResponseHeaders(String key, Operation operation) {
@@ -1182,6 +1264,37 @@ final class FrontendOpenApiCustomizer {
                 "401", "AUTHENTICATION_REQUIRED",
                 "409", "PROFILE_CONFLICT",
                 "503", "PROFILE_DATA_UNAVAILABLE")));
+    result.put(
+        "GET /api/v1/me/profile-image",
+        doc(
+            "profileImageRead",
+            "프로필 이미지",
+            null,
+            """
+            {"profileImageObjectKey":null,"profileImageUrl":"https://provider.example/avatar","profileImageSource":"provider","profileImageVersion":0,"updatedAt":"2026-08-25T10:00:00Z"}
+            """,
+            Map.of(
+                "401", "AUTHENTICATION_REQUIRED",
+                "503", "PROFILE_DATA_UNAVAILABLE")));
+    result.put(
+        "PUT /api/v1/me/profile-image",
+        doc(
+            "profileImageUpdate",
+            "프로필 이미지",
+            """
+            {"profileImageObjectKey":"18000000-0000-4000-8000-000000000018/profile/78000000-0000-4000-8000-000000000078"}
+            """,
+            """
+            {"profileImageObjectKey":"18000000-0000-4000-8000-000000000018/profile/78000000-0000-4000-8000-000000000078","profileImageUrl":"https://example.supabase.co/storage/v1/object/public/profile-images/18000000-0000-4000-8000-000000000018/profile/78000000-0000-4000-8000-000000000078","profileImageSource":"storage","profileImageVersion":1,"updatedAt":"2026-08-25T10:05:00Z"}
+            """,
+            Map.of(
+                "400", "INVALID_PROFILE_IMAGE_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "PROFILE_IMAGE_NOT_FOUND",
+                "409", "PROFILE_IMAGE_VERSION_CONFLICT",
+                "413", "PROFILE_IMAGE_TOO_LARGE",
+                "415", "PROFILE_IMAGE_MEDIA_TYPE_UNSUPPORTED",
+                "503", "PROFILE_IMAGE_STORAGE_UNAVAILABLE")));
     result.put(
         "GET /api/v1/legal-documents",
         doc(

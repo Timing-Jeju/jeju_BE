@@ -16,6 +16,8 @@ REQUIRED_OPERATIONS = {
     "tripTransportEventsUpdate",
     "tripTransportEventsDelete",
     "tripPlacePreferencesUpdate",
+    "profileImageRead",
+    "profileImageUpdate",
 }
 
 

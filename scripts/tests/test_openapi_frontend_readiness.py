@@ -10,6 +10,7 @@ from scripts.validate_openapi_frontend_readiness import (
     ACCOMMODATION_OPERATIONS,
     CURRENT_OPERATIONS,
     PLACE_PREFERENCE_OPERATIONS,
+    PROFILE_IMAGE_OPERATIONS,
     PREFERENCES_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
@@ -689,6 +690,34 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             authority.source_provenance["place-preferences"],
         )
 
+    def test_mode33은_mode31에_profile_image_companion_두개만_추가한다(self):
+        historical = operations_for_mode(31)
+        expected = operations_for_mode(33)
+
+        self.assertEqual(31, len(historical))
+        self.assertEqual(33, len(expected))
+        self.assertEqual(
+            PROFILE_IMAGE_OPERATIONS,
+            {key: expected[key] for key in set(expected) - set(historical)},
+        )
+
+        validator = Validator({}, 33, ROOT)
+        validator.operations = set(expected)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 33, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        projected = {call.args[0] for call in projection.call_args_list}
+        self.assertIn(("GET", "/api/v1/me/profile-image"), projected)
+        self.assertIn(("PUT", "/api/v1/me/profile-image"), projected)
+        self.assertEqual("525c736", authority.source_provenance["profile-images"][:7])
+
         manifest = json.loads(
             (ROOT / "scripts/openapi_frontend_runtime_manifest.json").read_text()
         )["operations"]
@@ -704,13 +733,13 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             set(manifest),
         )
 
-    def test_frontend_인계문서는_통합_exact31을_표현한다(self):
+    def test_frontend_인계문서는_통합_exact33을_표현한다(self):
         document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         self.assertIn(
-            "#46 여행 선호 조건, #47 항공·선박 이벤트, #48 장소 선호까지 합친 exact 31개 operation의 프론트엔드 인계본",
+            "#78 프로필 이미지 companion GET/PUT까지 합친 exact 33개 operation의 프론트엔드 인계본",
             document,
         )
-        self.assertIn("active `--mode 31`", document)
+        self.assertIn("active `--mode 33`", document)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
