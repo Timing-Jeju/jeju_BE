@@ -63,3 +63,5 @@ live Supabase·운영 DB 적용·배포는 승인 범위 밖이라 실행하지 
 OpenAPI 보정이 독립 검토·커밋된 뒤 전체 quality gate를 재실행했다. 첫 실행은 Docker Hub TLS handshake timeout으로 종료됐고, 승인된 1회 재시도는 애플리케이션 빌드·헬스와 migration·schema·negative constraint 검사를 모두 통과했으나 최종 smoke ACL 검사가 #46에서 의도적으로 허용한 `authenticated SELECT` 두 건을 예상하지 못해 실패했다.
 
 운영 migration과 권한은 변경하지 않았다. 먼저 `TripPreferencesMigrationContractTest`에 `authenticated`가 `trip_preferences`, `trip_transport_modes`를 조회하는 두 예외만 허용하고 `anon`과 다른 privilege는 계속 거부한다는 exact 계약을 추가했다. Red 6개 중 1건 실패를 확인한 뒤 `smoke_check.sql`의 allowlist를 같은 두 테이블의 `SELECT`로만 최소 확장했다. focused 테스트 6/6과 disposable Docker smoke 전체가 통과했고, 종료 뒤 smoke 컨테이너 잔여는 0이며 보호 baseline은 불변이었다.
+
+이 보정 커밋 뒤 전체 quality gate는 저장소 자동화 707개 중 push notification의 과거 단일 ACL 문자열 기대 1건만 실패했다. 운영 SQL은 다시 변경하지 않았다. 후속 검토에서 branch substring만 확인하면 `OR TRUE` 우회가 테스트를 통과하는 Red가 발견되어 전체 `AND NOT (...)` predicate를 exact 검증하고 `OR TRUE` 삽입·`NOT` 제거 mutation을 거부하도록 강화했다. notification preference SELECT와 #46 두-table SELECT 외에 `anon`·비-SELECT·그 밖의 table 예외가 없음을 함께 확인하며 관련 Python 파일 7/7이 통과했다.
