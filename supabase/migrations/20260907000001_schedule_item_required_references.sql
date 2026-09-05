@@ -11,8 +11,10 @@ begin
     item.id,
     item.item_type,
     item.trip_plan_id,
+    item.place_id,
     item.accommodation_id,
-    item.transport_event_id
+    item.transport_event_id,
+    item.title
     into invalid_item
   from public.trip_items item
   left join public.trip_accommodations accommodation
@@ -23,23 +25,37 @@ begin
    and event.trip_plan_id = item.trip_plan_id
   where not (
       (
+        item.item_type = 'place_visit'
+        and item.place_id is not null
+        and item.accommodation_id is null
+        and item.transport_event_id is null
+      )
+      or (
         item.item_type = 'accommodation'
         and item.accommodation_id is not null
         and item.transport_event_id is null
-        and accommodation.id is not null
       )
       or (
         item.item_type in ('arrival', 'departure')
         and item.accommodation_id is null
         and item.transport_event_id is not null
-        and event.id is not null
-        and event.event_type = item.item_type
       )
       or (
-        item.item_type not in ('accommodation', 'arrival', 'departure')
+        item.item_type in ('meal', 'free_time', 'custom')
         and item.accommodation_id is null
         and item.transport_event_id is null
+        and item.title is not null
+        and translate(
+          item.title,
+          U&'\0009\000A\000B\000C\000D\001C\001D\001E\001F\0020\1680\2000\2001\2002\2003\2004\2005\2006\2008\2009\200A\2028\2029\205F\3000',
+          ''
+        ) <> ''
       )
+    )
+    or (item.item_type = 'accommodation' and accommodation.id is null)
+    or (
+      item.item_type in ('arrival', 'departure')
+      and (event.id is null or event.event_type <> item.item_type)
     )
   limit 1;
 
@@ -47,12 +63,11 @@ begin
     raise exception using
       errcode = '23514',
       message = format(
-        'legacy schedule item required reference audit failed: item_id=%s, item_type=%s, trip_plan_id=%s, accommodation_id=%s, transport_event_id=%s',
+        'legacy schedule item required reference audit failed: item_id=%s, item_type=%s, trip_plan_id=%s, invalid_fields=%s',
         invalid_item.id,
         invalid_item.item_type,
         invalid_item.trip_plan_id,
-        invalid_item.accommodation_id,
-        invalid_item.transport_event_id
+        'required_reference_contract'
       );
   end if;
 end;
@@ -79,6 +94,12 @@ create index idx_trip_items_transport_event
 alter table public.trip_items
   add constraint chk_trip_items_required_references check (
     (
+      item_type = 'place_visit'
+      and place_id is not null
+      and accommodation_id is null
+      and transport_event_id is null
+    )
+    or (
       item_type = 'accommodation'
       and accommodation_id is not null
       and transport_event_id is null
@@ -89,9 +110,15 @@ alter table public.trip_items
       and transport_event_id is not null
     )
     or (
-      item_type not in ('accommodation', 'arrival', 'departure')
+      item_type in ('meal', 'free_time', 'custom')
       and accommodation_id is null
       and transport_event_id is null
+      and title is not null
+      and translate(
+        title,
+        U&'\0009\000A\000B\000C\000D\001C\001D\001E\001F\0020\1680\2000\2001\2002\2003\2004\2005\2006\2008\2009\200A\2028\2029\205F\3000',
+        ''
+      ) <> ''
     )
   );
 
@@ -102,13 +129,33 @@ security invoker
 set search_path = ''
 as $$
 begin
-  if new.item_type = 'accommodation' then
-    if new.accommodation_id is null or new.transport_event_id is not null then
-      raise exception using
-        errcode = '23514',
-        message = 'accommodation schedule item requires only accommodation_id';
-    end if;
+  if not (
+    (new.item_type = 'place_visit'
+      and new.place_id is not null
+      and new.accommodation_id is null
+      and new.transport_event_id is null)
+    or (new.item_type = 'accommodation'
+      and new.accommodation_id is not null
+      and new.transport_event_id is null)
+    or (new.item_type in ('arrival', 'departure')
+      and new.accommodation_id is null
+      and new.transport_event_id is not null)
+    or (new.item_type in ('meal', 'free_time', 'custom')
+      and new.accommodation_id is null
+      and new.transport_event_id is null
+      and new.title is not null
+      and translate(
+        new.title,
+        U&'\0009\000A\000B\000C\000D\001C\001D\001E\001F\0020\1680\2000\2001\2002\2003\2004\2005\2006\2008\2009\200A\2028\2029\205F\3000',
+        ''
+      ) <> '')
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'schedule item required reference does not match item type';
+  end if;
 
+  if new.item_type = 'accommodation' then
     if not exists (
       select 1
       from public.trip_accommodations accommodation
@@ -120,12 +167,6 @@ begin
         message = 'schedule item accommodation must belong to the same trip';
     end if;
   elsif new.item_type in ('arrival', 'departure') then
-    if new.accommodation_id is not null or new.transport_event_id is null then
-      raise exception using
-        errcode = '23514',
-        message = format('%s schedule item requires only transport_event_id', new.item_type);
-    end if;
-
     if not exists (
       select 1
       from public.trip_transport_events event
@@ -137,10 +178,6 @@ begin
         errcode = '23503',
         message = 'schedule item transport event must match the same trip and item type';
     end if;
-  elsif new.accommodation_id is not null or new.transport_event_id is not null then
-    raise exception using
-      errcode = '23514',
-      message = 'schedule item type does not allow accommodation or transport event references';
   end if;
 
   return new;
@@ -148,7 +185,7 @@ end;
 $$;
 
 create trigger trg_trip_items_required_references
-before insert or update of item_type, trip_plan_id, accommodation_id, transport_event_id
+before insert or update of item_type, trip_plan_id, place_id, accommodation_id, transport_event_id, title
 on public.trip_items
 for each row execute function public.validate_trip_item_required_references();
 
@@ -173,25 +210,41 @@ begin
      and event.trip_plan_id = item.trip_plan_id
     where item.schedule_version_id = target_schedule_version_id
       and item.trip_plan_id = target_trip_plan_id
-      and not (
+      and (
+      not (
         (
+          item.item_type = 'place_visit'
+          and item.place_id is not null
+          and item.accommodation_id is null
+          and item.transport_event_id is null
+        )
+        or (
           item.item_type = 'accommodation'
           and item.accommodation_id is not null
           and item.transport_event_id is null
-          and accommodation.id is not null
         )
         or (
           item.item_type in ('arrival', 'departure')
           and item.accommodation_id is null
           and item.transport_event_id is not null
-          and event.id is not null
-          and event.event_type = item.item_type
         )
         or (
-          item.item_type not in ('accommodation', 'arrival', 'departure')
+          item.item_type in ('meal', 'free_time', 'custom')
           and item.accommodation_id is null
           and item.transport_event_id is null
+          and item.title is not null
+          and translate(
+            item.title,
+            U&'\0009\000A\000B\000C\000D\001C\001D\001E\001F\0020\1680\2000\2001\2002\2003\2004\2005\2006\2008\2009\200A\2028\2029\205F\3000',
+            ''
+          ) <> ''
         )
+      )
+      or (item.item_type = 'accommodation' and accommodation.id is null)
+      or (
+        item.item_type in ('arrival', 'departure')
+        and (event.id is null or event.event_type <> item.item_type)
+      )
       )
   ) then
     raise exception using

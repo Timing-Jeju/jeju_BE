@@ -3017,6 +3017,33 @@ select pg_temp.expect_rejected(
 );
 
 select pg_temp.expect_rejected(
+  'place_visit requires place reference',
+  $statement$
+    update trip_items set place_id = null
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'meal requires nonblank title',
+  $statement$
+    update trip_items set item_type = 'meal', place_id = null, title = null
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'meal rejects tab-only title',
+  $statement$
+    update trip_items set item_type = 'meal', place_id = null, title = E'\t'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
   'accommodation item requires accommodation reference',
   $statement$
     insert into trip_items (
@@ -3037,6 +3064,42 @@ select pg_temp.expect_rejected(
   'arrival item requires transport event reference',
   $statement$
     update trip_items set item_type = 'arrival'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'departure item requires transport event reference',
+  $statement$
+    update trip_items set item_type = 'departure', place_id = null
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'free_time requires nonblank title',
+  $statement$
+    update trip_items set item_type = 'free_time', place_id = null, title = ' '
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'free_time rejects newline-only title',
+  $statement$
+    update trip_items set item_type = 'free_time', place_id = null, title = E'\n'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'custom requires nonblank title',
+  $statement$
+    update trip_items set item_type = 'custom', place_id = null, title = null
     where id = 'f5400000-0000-0000-0000-000000000003'
   $statement$,
   array['23514']
@@ -3069,8 +3132,20 @@ alter table public.trip_items
 alter table public.trip_items
   drop constraint chk_trip_items_required_references;
 update public.trip_items
-set item_type = 'accommodation', accommodation_id = null, transport_event_id = null
+set item_type = 'custom', place_id = null, accommodation_id = null,
+    transport_event_id = null, title = E'\t'
 where id = 'f5400000-0000-0000-0000-000000000003';
+
+select pg_temp.expect_rejected(
+  'direct helper rejects invalid required reference',
+  $statement$
+    select public.assert_schedule_item_required_references(
+      'f5300000-0000-0000-0000-000000000002',
+      'f5100000-0000-0000-0000-000000000001'
+    )
+  $statement$,
+  array['23514']
+);
 
 select pg_temp.expect_rejected(
   'sealed schedule rejects invalid required reference',

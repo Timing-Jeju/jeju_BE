@@ -83,17 +83,32 @@ class ScheduleItemCreateMigrationContractTest {
         repositoryRoot().resolve("supabase/migrations").resolve(REQUIRED_REFERENCE_MIGRATION);
 
     assertThat(migration).isRegularFile();
-    String sql = Files.readString(migration).toLowerCase().replaceAll("\\s+", " ").trim();
+    String sql =
+        Files.readString(migration)
+            .toLowerCase()
+            .replaceAll("\\s+", " ")
+            .trim()
+            .replace("( ", "(")
+            .replace(" )", ")")
+            .replaceAll("translate\\(\\s+", "translate(")
+            .replaceAll(",\\s*''\\s*\\)", ", '')");
+    String predicates = sql.replace("new.", "").replace("item.", "");
+    String javaBlankWhitespace =
+        "translate(title, u&'\\0009\\000a\\000b\\000c\\000d\\001c\\001d\\001e\\001f\\0020\\1680\\2000\\2001\\2002\\2003\\2004\\2005\\2006\\2008\\2009\\200a\\2028\\2029\\205f\\3000', '') <> ''";
     int audit = sql.indexOf("legacy schedule item required reference audit failed");
     int constraint = sql.indexOf("add constraint chk_trip_items_required_references");
     assertThat(audit).isGreaterThanOrEqualTo(0).isLessThan(constraint);
     assertThat(sql)
         .contains(
+            "(item_type = 'place_visit' and place_id is not null and accommodation_id is null and transport_event_id is null)")
+        .contains(
             "item_type = 'accommodation' and accommodation_id is not null and transport_event_id is null")
         .contains(
             "item_type in ('arrival', 'departure') and accommodation_id is null and transport_event_id is not null")
         .contains(
-            "item_type not in ('accommodation', 'arrival', 'departure') and accommodation_id is null and transport_event_id is null")
+            "(item_type in ('meal', 'free_time', 'custom') and accommodation_id is null and transport_event_id is null and title is not null and "
+                + javaBlankWhitespace
+                + ")")
         .contains("create trigger trg_trip_items_required_references")
         .contains("create function public.assert_schedule_item_required_references")
         .contains(
@@ -102,7 +117,7 @@ class ScheduleItemCreateMigrationContractTest {
             "foreign key (transport_event_id, trip_plan_id, item_type) references public.trip_transport_events (id, trip_plan_id, event_type)")
         .contains("on public.trip_items (transport_event_id, trip_plan_id, item_type)")
         .contains(
-            "perform public.assert_schedule_item_required_references( target_schedule_version_id, target_trip_plan_id )")
+            "perform public.assert_schedule_item_required_references(target_schedule_version_id, target_trip_plan_id)")
         .contains(
             "revoke all on function public.assert_schedule_item_required_references(uuid, uuid) from public")
         .contains(
@@ -121,6 +136,16 @@ class ScheduleItemCreateMigrationContractTest {
             "revoke execute on function public.validate_trip_item_required_references() from service_role")
         .doesNotContain("delete from public.trip_items")
         .doesNotContain("update public.trip_items");
+    for (String branch :
+        List.of(
+            "(item_type = 'place_visit' and place_id is not null and accommodation_id is null and transport_event_id is null)",
+            "(item_type = 'accommodation' and accommodation_id is not null and transport_event_id is null)",
+            "(item_type in ('arrival', 'departure') and accommodation_id is null and transport_event_id is not null)",
+            "(item_type in ('meal', 'free_time', 'custom') and accommodation_id is null and transport_event_id is null and title is not null and "
+                + javaBlankWhitespace
+                + ")")) {
+      assertThat(predicates.split(java.util.regex.Pattern.quote(branch), -1)).as(branch).hasSize(5);
+    }
   }
 
   @Test

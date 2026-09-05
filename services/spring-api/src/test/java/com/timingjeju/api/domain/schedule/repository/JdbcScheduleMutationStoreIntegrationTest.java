@@ -298,7 +298,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   }
 
   @Test
-  void 위치없는_숙소와_교통_event는_draft_전에_422이고_aggregate를_보존한다() {
+  void 위치없는_숙소와_교통_event가_인접_leg를_요구하면_422이고_aggregate를_보존한다() {
     jdbc.update(
         "update public.trip_accommodations set place_id=null, custom_name='직접 숙소' where id=?",
         ACCOMMODATION_ID);
@@ -307,27 +307,76 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         ARRIVAL_ID);
     String before = aggregateFingerprint();
 
-    assertThatThrownBy(() -> store.addItem(record(ItemKind.ACCOMMODATION.command(), ACTIVE, 1)))
+    assertThatThrownBy(
+            () -> addInNestedTransaction(record(ItemKind.ACCOMMODATION.command(), ACTIVE, 1)))
         .isInstanceOf(ScheduleException.class)
         .extracting(failure -> ((ScheduleException) failure).code())
-        .isEqualTo("SCHEDULE_ITEM_INVALID");
-    assertThatThrownBy(() -> store.addItem(record(ItemKind.ARRIVAL.command(), ACTIVE, 1)))
+        .isEqualTo("SCHEDULE_LEG_INCOMPLETE");
+    assertThatThrownBy(() -> addInNestedTransaction(record(ItemKind.ARRIVAL.command(), ACTIVE, 1)))
         .isInstanceOf(ScheduleException.class)
         .extracting(failure -> ((ScheduleException) failure).code())
-        .isEqualTo("SCHEDULE_ITEM_INVALID");
+        .isEqualTo("SCHEDULE_LEG_INCOMPLETE");
     assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
   @ParameterizedTest
   @EnumSource(LocationlessTitleKind.class)
-  void 위치없는_title_item은_draft_전에_422이고_aggregate를_보존한다(LocationlessTitleKind kind) {
+  void 위치없는_title_item이_인접_leg를_새로_요구하면_422이고_aggregate를_보존한다(LocationlessTitleKind kind) {
     String before = aggregateFingerprint();
 
-    assertThatThrownBy(() -> store.addItem(record(kind.command(), ACTIVE, 1)))
+    assertThatThrownBy(() -> addInNestedTransaction(record(kind.command(), ACTIVE, 1)))
         .isInstanceOf(ScheduleException.class)
         .extracting(failure -> ((ScheduleException) failure).code())
-        .isEqualTo("SCHEDULE_ITEM_INVALID");
+        .isEqualTo("SCHEDULE_LEG_INCOMPLETE");
     assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void sole_locationless_title_item의_memo_only_PATCH는_새_version으로_copy된다() {
+    jdbc.update(
+        "update public.trip_items set item_type='custom', place_id=null, title='메모 일정' where id=?",
+        DAY_TWO_ITEM);
+    var command =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("memo"), null, null, null, null, null, null, null, null, "변경 메모");
+
+    ScheduleMutationResult result = store.patchItem(edit(DAY_TWO_ITEM, command));
+
+    assertThat(
+            jdbc.queryForMap(
+                "select item_type,place_id,title,memo from public.trip_items where schedule_version_id=? and trip_day_id=?",
+                result.activeScheduleVersionId(),
+                DAY_TWO))
+        .containsEntry("item_type", "custom")
+        .containsEntry("place_id", null)
+        .containsEntry("title", "메모 일정")
+        .containsEntry("memo", "변경 메모");
+  }
+
+  @Test
+  void 기존_adjacent_leg가_있는_locationless_title_item의_memo_only_PATCH는_leg를_재사용한다() {
+    jdbc.update(
+        "update public.trip_items set item_type='free_time', place_id=null, title='자유 시간' where id=?",
+        FIRST);
+    var command =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("memo"), null, null, null, null, null, null, null, null, "천천히 이동");
+
+    ScheduleMutationResult result = store.patchItem(edit(FIRST, command));
+
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_legs where schedule_version_id=?",
+                Integer.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select memo from public.trip_items where schedule_version_id=? and trip_day_id=? and sequence_no=1",
+                String.class,
+                result.activeScheduleVersionId(),
+                DAY))
+        .isEqualTo("천천히 이동");
   }
 
   @ParameterizedTest

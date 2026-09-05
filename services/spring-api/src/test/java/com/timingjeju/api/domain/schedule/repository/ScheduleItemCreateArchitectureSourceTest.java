@@ -82,6 +82,16 @@ class ScheduleItemCreateArchitectureSourceTest {
   }
 
   @Test
+  void locationless_item은_참조검증을_통과하고_실제_인접_leg_재계산에서만_거부한다() throws Exception {
+    String source = scheduleStoreSource();
+
+    assertThat(source)
+        .doesNotContain("if (resolved.placeId() == null)")
+        .contains("from.placeId() == null || to.placeId() == null")
+        .contains(".orElseThrow(ScheduleException::legIncomplete)");
+  }
+
+  @Test
   void 공용_coordinator는_lock_beforeRoot_CAS_effect_순서를_단일_경계에_둔다() throws Exception {
     String source =
         Files.readString(

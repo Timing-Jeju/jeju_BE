@@ -718,10 +718,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
                   : resolvePlace(command.placeId()).withTitle(command.title());
           default -> throw ScheduleException.itemInvalid();
         };
-    if (resolved.placeId() == null) {
-      throw ScheduleException.itemInvalid();
-    }
-    if (!"place_visit".equals(command.itemType())
+    if (resolved.placeId() != null
+        && !"place_visit".equals(command.itemType())
         && !List.of("meal", "free_time", "custom").contains(command.itemType())) {
       ensureActivePlace(resolved.placeId());
     }
