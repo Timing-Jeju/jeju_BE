@@ -27,6 +27,7 @@ INSPECTION_EXIT_CODE = 127
 DIAGNOSTIC_EXIT_CODE = 128
 TERMINATION_EXIT_CODE = 129
 SAFE_STAGE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 MAX_RESOURCE_FIELD_LENGTH = 160
 MAX_RAW_RESOURCE_FIELD_LENGTH = 4096
 MAX_CAPTURED_DESCENDANTS = 256
@@ -48,6 +49,16 @@ FILETIME_EPOCH = dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc)
 ALLOWLISTED_DOCKER_LABELS = frozenset(
     {"org.testcontainers", "com.docker.compose.project", "com.docker.compose.service"}
 )
+APPROVED_TESTCONTAINERS_IMAGE_PROVENANCE = {
+    # Registry manifest digest for the compose/factory-pinned linux/amd64 image.
+    "postgis/postgis:16-3.4": (
+        "sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5"
+    ),
+    # Registry manifest-list digest shared by the CI linux/amd64 and local arm64 images.
+    "testcontainers/ryuk:0.14.0": (
+        "sha256:7c1a8a9a47c780ed0f983770a662f80deb115d95cce3e2daa3d12115b8cd28f0"
+    ),
+}
 POSIX_GUARD_UNSET = object()
 DOCKER_RESOURCE_COMMANDS = {
     "container": [
@@ -73,9 +84,10 @@ DOCKER_RESOURCE_COMMANDS = {
         "image",
         "ls",
         "-a",
+        "--digests",
         "--no-trunc",
         "--format",
-        "{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.CreatedSince}}",
+        "{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.Digest}}",
     ],
 }
 
@@ -286,12 +298,12 @@ def container_health(status: str) -> str:
 
 
 def is_reusable_dependency_image(resource: DockerResourceIdentity) -> bool:
+    expected_digest = APPROVED_TESTCONTAINERS_IMAGE_PROVENANCE.get(resource.name)
     return (
         resource.kind == "image"
-        and resource.id.startswith("sha256:")
-        and resource.name != "<none>:<none>"
-        and not resource.name.startswith("<none>:")
-        and ":" in resource.name
+        and SHA256_DIGEST.fullmatch(resource.id) is not None
+        and expected_digest is not None
+        and expected_digest == resource.status
     )
 
 

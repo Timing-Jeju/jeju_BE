@@ -23,6 +23,12 @@ BUILD_GRADLE = SPRING / "build.gradle"
 QUALITY_GATE = ROOT / "scripts" / "quality-gate.sh"
 WINDOWS_GATE = ROOT / "scripts" / "quality-gate.ps1"
 WATCHDOG = ROOT / "scripts" / "gradle_stage_watchdog.py"
+COMPOSE_TEST = ROOT / "compose.test.yml"
+CI_WORKFLOW = ROOT / ".github/workflows/ci.yml"
+POSTGRES_FACTORY = (
+    SPRING
+    / "src/test/java/com/timingjeju/api/support/postgresql/PostgreSqlTestContainerFactory.java"
+)
 ROOT_COMPLETE_PREFIX = "TIMING_JEJU_TEST_ROOT_COMPLETE"
 
 
@@ -306,6 +312,7 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
         self.assertNotIn("os.environ", source)
 
     def test_watchdog_snapshots_all_docker_resource_identities_without_mutation(self) -> None:
+        image_digest = "sha256:" + ("a" * 64)
         outputs = (
             subprocess.CompletedProcess(
                 [],
@@ -320,7 +327,7 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
                 [], 0, "network-id\tprotected-network\tbridge\n", ""
             ),
             subprocess.CompletedProcess(
-                [], 0, "sha256:image\trepository:tag\t2 days ago\n", ""
+                [], 0, f"sha256:{'1' * 64}\trepository:tag\t{image_digest}\n", ""
             ),
         )
         with patch.object(watchdog, "run_quiet", side_effect=outputs) as run:
@@ -340,6 +347,9 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
         self.assertTrue(all("rm" not in command and "prune" not in command for command in commands))
         self.assertIn("--no-trunc", commands[0])
         self.assertIn("--no-trunc", commands[2])
+        self.assertIn("--digests", commands[3])
+        self.assertIn("{{.Digest}}", commands[3][-1])
+        self.assertNotIn("{{.CreatedSince}}", commands[3][-1])
         for resource in inspection.resources:
             self.assertLessEqual(len(resource.id), watchdog.MAX_RESOURCE_FIELD_LENGTH)
             self.assertLessEqual(len(resource.name), watchdog.MAX_RESOURCE_FIELD_LENGTH)
@@ -606,12 +616,27 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
         self.assertEqual("protected-volume", resources["removed"][0]["name"])
 
     def test_fresh_runner_dependency_image_cache_is_not_runtime_residue(self) -> None:
-        cached_image = watchdog.DockerResourceIdentity(
-            "image",
-            "sha256:dependency",
-            "postgis/postgis:16-3.4",
-            "created",
-            (),
+        postgis_digest = (
+            "sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5"
+        )
+        ryuk_digest = (
+            "sha256:7c1a8a9a47c780ed0f983770a662f80deb115d95cce3e2daa3d12115b8cd28f0"
+        )
+        cached_images = (
+            watchdog.DockerResourceIdentity(
+                "image",
+                "sha256:" + ("1" * 64),
+                "postgis/postgis:16-3.4",
+                postgis_digest,
+                (),
+            ),
+            watchdog.DockerResourceIdentity(
+                "image",
+                "sha256:" + ("2" * 64),
+                "testcontainers/ryuk:0.14.0",
+                ryuk_digest,
+                (),
+            ),
         )
         dangling_image = watchdog.DockerResourceIdentity(
             "image", "sha256:dangling", "<none>:<none>", "created", ()
@@ -622,7 +647,7 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
             watchdog,
             "inspect_docker_resources",
             return_value=watchdog.DockerResourceInspection(
-                trusted=True, resources=(cached_image,)
+                trusted=True, resources=cached_images
             ),
         ):
             cached = watchdog.observe_docker_resources(baseline, grace_seconds=0)
@@ -630,15 +655,72 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
             watchdog,
             "inspect_docker_resources",
             return_value=watchdog.DockerResourceInspection(
-                trusted=True, resources=(cached_image, dangling_image)
+                trusted=True, resources=(*cached_images, dangling_image)
             ),
         ):
             residue = watchdog.observe_docker_resources(baseline, grace_seconds=0)
 
         self.assertEqual((), cached.new)
-        self.assertEqual((cached_image,), cached.cached)
+        self.assertEqual(cached_images, cached.cached)
         self.assertEqual((dangling_image,), residue.new)
-        self.assertEqual((cached_image,), residue.cached)
+        self.assertEqual(cached_images, residue.cached)
+
+    def test_dependency_image_cache_rejects_unapproved_provenance(self) -> None:
+        approved_digest = (
+            "sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5"
+        )
+        unapproved = (
+            ("attacker/payload:persisted", approved_digest),
+            ("postgis/postgis-malicious:16-3.4", approved_digest),
+            ("postgis/postgis:16-3.5", approved_digest),
+            ("postgis/postgis:16-3.4", "sha256:" + ("0" * 64)),
+            ("timing-jeju-api:latest", "<none>"),
+            ("unknown/dependency:latest", None),
+        )
+        baseline = watchdog.DockerResourceInspection(trusted=True, resources=())
+
+        for name, digest in unapproved:
+            with self.subTest(name=name, digest=digest):
+                image = watchdog.DockerResourceIdentity(
+                    "image", "sha256:" + ("f" * 64), name, digest, ()
+                )
+                with patch.object(
+                    watchdog,
+                    "inspect_docker_resources",
+                    return_value=watchdog.DockerResourceInspection(
+                        trusted=True, resources=(image,)
+                    ),
+                ):
+                    observation = watchdog.observe_docker_resources(
+                        baseline, grace_seconds=0
+                    )
+
+                self.assertEqual((image,), observation.new)
+                self.assertEqual((), observation.cached)
+
+    def test_dependency_image_allowlist_matches_repository_test_configuration(self) -> None:
+        compose = COMPOSE_TEST.read_text(encoding="utf-8")
+        workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+        factory = POSTGRES_FACTORY.read_text(encoding="utf-8")
+        approved = watchdog.APPROVED_TESTCONTAINERS_IMAGE_PROVENANCE
+
+        self.assertEqual(
+            {
+                "postgis/postgis:16-3.4": (
+                    "sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5"
+                ),
+                "testcontainers/ryuk:0.14.0": (
+                    "sha256:7c1a8a9a47c780ed0f983770a662f80deb115d95cce3e2daa3d12115b8cd28f0"
+                ),
+            },
+            approved,
+        )
+        self.assertIn("image: postgis/postgis:16-3.4", compose)
+        self.assertIn('DockerImageName.parse("postgis/postgis:16-3.4")', factory)
+        self.assertIn(
+            "TESTCONTAINERS_RYUK_CONTAINER_IMAGE: testcontainers/ryuk:0.14.0",
+            workflow,
+        )
 
     def test_every_terminal_path_fails_closed_on_each_new_docker_resource_kind(self) -> None:
         protected = tuple(
