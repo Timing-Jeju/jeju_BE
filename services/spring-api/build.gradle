@@ -1,3 +1,5 @@
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
+
 plugins {
 	id 'java'
 	id 'jacoco'
@@ -81,7 +83,17 @@ spotless {
 }
 
 tasks.withType(Test).configureEach {
+	def jacocoExecutionData = layout.buildDirectory.file("jacoco/${name}.exec")
+	extensions.configure(JacocoTaskExtension) { JacocoTaskExtension extension ->
+		extension.destinationFile = jacocoExecutionData.get().asFile
+	}
+	outputs.file(jacocoExecutionData).withPropertyName("jacocoExecutionData")
 	useJUnitPlatform()
+	afterSuite { descriptor, result ->
+		if (descriptor.parent == null) {
+			logger.lifecycle("TIMING_JEJU_TEST_ROOT_COMPLETE task=${path}")
+		}
+	}
 	testLogging {
 		events 'failed', 'skipped'
 		exceptionFormat 'full'
@@ -106,6 +118,8 @@ taggedTest('sliceTest', 'slice', 'Controller/Repository 슬라이스 테스트�
 def integrationTestTask = taggedTest('integrationTest', 'integration', '통합 테스트를 실행합니다.')
 taggedTest('architectureTest', 'architecture', 'ArchUnit 아키텍처 테스트를 실행합니다.')
 
+def openApiWriterClass = 'com.timingjeju.api.documentation.OpenApiDocumentationTest'
+
 def repositoryTestSchema = files(
 	file('../../db/local-postgres/auth_compat.sql'),
 	fileTree('../../supabase/migrations') {
@@ -115,24 +129,49 @@ def repositoryTestSchema = files(
 
 integrationTestTask.configure {
 	inputs.files(repositoryTestSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+	filter {
+		excludeTestsMatching openApiWriterClass
+	}
 }
 tasks.named('test', Test) {
 	inputs.files(repositoryTestSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+	useJUnitPlatform {
+		excludeTags 'integration'
+	}
 }
 
 def openApiOutput = layout.buildDirectory.file('openapi/openapi.json')
-integrationTestTask.configure {
+def openApiDocsTestTask = tasks.register('openApiDocsTest', Test) {
+	description = 'OpenAPI JSON writer 통합 테스트만 실행합니다.'
+	group = 'documentation'
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	filter {
+		includeTestsMatching openApiWriterClass
+	}
+	shouldRunAfter integrationTestTask
 	outputs.file openApiOutput
+	outputs.upToDateWhen { false }
+	doFirst {
+		delete openApiOutput
+	}
+	doLast {
+		File output = openApiOutput.get().asFile
+		if (!output.isFile() || output.length() == 0) {
+			throw new GradleException('OpenAPI JSON이 생성되지 않았거나 비어 있습니다.')
+		}
+	}
 }
 
 tasks.register('openApiDocs') {
 	description = '프론트엔드 공유용 OpenAPI JSON을 생성합니다.'
 	group = 'documentation'
-	dependsOn integrationTestTask
-	outputs.file openApiOutput
+	dependsOn openApiDocsTestTask
+	inputs.file openApiOutput
 	doLast {
-		if (!openApiOutput.get().asFile.isFile()) {
-			throw new GradleException('OpenAPI JSON이 생성되지 않았습니다.')
+		File output = openApiOutput.get().asFile
+		if (!output.isFile() || output.length() == 0) {
+			throw new GradleException('OpenAPI JSON이 생성되지 않았거나 비어 있습니다.')
 		}
 	}
 }
@@ -141,8 +180,38 @@ jacoco {
 	toolVersion = '0.8.13'
 }
 
+def requiredCoverageTaskNames = [
+	'unitTest',
+	'sliceTest',
+	'integrationTest',
+	'openApiDocsTest',
+	'architectureTest',
+	'test'
+]
+def requiredCoverageTestTasks = requiredCoverageTaskNames.collect { taskName ->
+	tasks.named(taskName, Test)
+}
+def requiredCoverageExecutionData = requiredCoverageTaskNames.collect { taskName ->
+	layout.buildDirectory.file("jacoco/${taskName}.exec")
+}
+def verifyRequiredCoverageExecutionData = tasks.register('verifyRequiredCoverageExecutionData') {
+	description = '현재 품질 게이트의 필수 JaCoCo execution data를 검증합니다.'
+	group = 'verification'
+	inputs.files(requiredCoverageExecutionData)
+	mustRunAfter requiredCoverageTestTasks
+	doLast {
+		requiredCoverageExecutionData.each { executionData ->
+			File executionFile = executionData.get().asFile
+			if (!executionFile.isFile() || executionFile.length() == 0) {
+				throw new GradleException("필수 JaCoCo execution data가 없거나 비어 있습니다: ${executionFile.name}")
+			}
+		}
+	}
+}
+
 jacocoTestReport {
-	dependsOn test
+	dependsOn verifyRequiredCoverageExecutionData
+	executionData requiredCoverageExecutionData
 	reports {
 		xml.required = true
 		html.required = true
@@ -150,7 +219,8 @@ jacocoTestReport {
 }
 
 jacocoTestCoverageVerification {
-	dependsOn test
+	dependsOn verifyRequiredCoverageExecutionData
+	executionData requiredCoverageExecutionData
 	violationRules {
 		rule {
 			limit {
@@ -163,5 +233,6 @@ jacocoTestCoverageVerification {
 }
 
 check {
-	dependsOn spotlessCheck, jacocoTestReport, jacocoTestCoverageVerification, openApiDocs
+	dependsOn requiredCoverageTestTasks
+	dependsOn spotlessCheck, jacocoTestReport, jacocoTestCoverageVerification, integrationTestTask, openApiDocs
 }
