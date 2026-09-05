@@ -21,7 +21,13 @@ class TimetableMigrationContractTest {
         .contains("add column route_source_provider text")
         .contains("add column route_city_code text")
         .contains("set route_source_provider = source_provider")
-        .contains("set route_city_code = city_code")
+        .contains("route_city_code = city_code")
+        .contains("timetable route scope backfill violated audited old/new scope")
+        .contains("old.route_source_provider is null")
+        .contains("new.route_source_provider is not distinct from old.source_provider")
+        .contains("new.route_city_code is not distinct from old.city_code")
+        .contains(
+            "revoke execute on function public.validate_timetable_source_scope() from public, anon, authenticated")
         .contains("not valid")
         .contains("new timetable row requires route reference scope")
         .contains("route_stop.source_provider = new.route_source_provider")
@@ -91,7 +97,8 @@ class TimetableMigrationContractTest {
         .contains("omission_column > 256")
         .contains("payload->>'scheduleId' = '405001' and omission_text !~ '^101 '")
         .contains("payload->>'scheduleId' = '405009' and omission_text !~ '^201 '")
-        .contains("'3043887/' || payload->>'scheduleId' || '/'");
+        .contains("'3043887/' || (payload->>'scheduleId') || '/'")
+        .doesNotContain("'3043887/' || payload->>'scheduleId' || '/'");
   }
 
   @Test

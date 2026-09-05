@@ -60,6 +60,20 @@ class Issue38CurrentStackContractTest(unittest.TestCase):
         self.assertIn("IGNORE_UNRESOLVED", readme)
         self.assertIn("JEJU_PROVINCE", migration)
 
+    def test_manifest_prefix_expression_and_legacy_backfill_are_fail_closed(self) -> None:
+        migration = (ROOT / "supabase/migrations" / MIGRATION).read_text()
+        self.assertIn("'3043887/' || (payload->>'scheduleId') || '/'", migration)
+        self.assertNotIn("'3043887/' || payload->>'scheduleId' || '/'", migration)
+        self.assertIn("old.route_source_provider is null", migration)
+        self.assertIn(
+            "new.route_source_provider is not distinct from old.source_provider",
+            migration,
+        )
+        self.assertIn(
+            "new.route_city_code is not distinct from old.city_code", migration
+        )
+        self.assertNotIn("delete from public.timetable_entries", migration.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

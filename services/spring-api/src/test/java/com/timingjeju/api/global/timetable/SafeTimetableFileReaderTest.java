@@ -2,6 +2,7 @@ package com.timingjeju.api.global.timetable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -21,11 +22,15 @@ import java.nio.file.Path;
 import java.nio.file.SecureDirectoryStream;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 @Tag("unit")
@@ -124,12 +129,19 @@ class SafeTimetableFileReaderTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void 파일속성을_경로로_재조회하지_않고_nofollow로_연_단일_handle에서_읽는다() throws Exception {
+  void anchored_handle의_파일속성이_regular일때만_nofollow로_연_단일_handle에서_읽는다() throws Exception {
     Path allowed = Files.createDirectory(temporary.resolve("allowed"));
     SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
     SeekableByteChannel channel = mock(SeekableByteChannel.class);
+    BasicFileAttributeView attributesView = mock(BasicFileAttributeView.class);
+    BasicFileAttributes attributes = mock(BasicFileAttributes.class);
     byte[] content = {4, 5, 6};
     AtomicBoolean firstRead = new AtomicBoolean(true);
+    when(root.getFileAttributeView(
+            Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS))
+        .thenReturn(attributesView);
+    when(attributesView.readAttributes()).thenReturn(attributes);
+    when(attributes.isRegularFile()).thenReturn(true);
     when(root.newByteChannel(eq(Path.of("101.xlsx")), any(Set.class))).thenReturn(channel);
     when(channel.size()).thenReturn((long) content.length);
     when(channel.read(any(ByteBuffer.class)))
@@ -147,9 +159,45 @@ class SafeTimetableFileReaderTest {
         .newByteChannel(
             Path.of("101.xlsx"),
             Set.<OpenOption>of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS));
-    verify(root, never())
+    verify(root)
         .getFileAttributeView(
-            any(Path.class), eq(BasicFileAttributeView.class), eq(LinkOption.NOFOLLOW_LINKS));
+            Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void anchored_handle에서_regular가_아닌_파일은_open전에_거부한다() throws Exception {
+    Path allowed = Files.createDirectory(temporary.resolve("allowed"));
+    SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
+    BasicFileAttributeView attributesView = mock(BasicFileAttributeView.class);
+    BasicFileAttributes attributes = mock(BasicFileAttributes.class);
+    when(root.getFileAttributeView(
+            Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS))
+        .thenReturn(attributesView);
+    when(attributesView.readAttributes()).thenReturn(attributes);
+    when(attributes.isRegularFile()).thenReturn(false);
+
+    var reader = new SafeTimetableFileReader(allowed, () -> {}, ignored -> root);
+
+    assertThatThrownBy(() -> reader.read(allowed.resolve("101.xlsx")))
+        .isInstanceOf(TimetableParseException.class)
+        .hasMessageContaining("NOT_REGULAR_FILE");
+    verify(root, never()).newByteChannel(any(Path.class), any(Set.class));
+  }
+
+  @Test
+  @EnabledOnOs(OS.LINUX)
+  void Linux_FIFO는_block하지_않고_bounded_fail한다() throws Exception {
+    Path allowed = Files.createDirectory(temporary.resolve("allowed"));
+    Path fifo = allowed.resolve("fifo.xlsx");
+    assertThat(new ProcessBuilder("mkfifo", fifo.toString()).start().waitFor()).isZero();
+
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(1),
+        () ->
+            assertThatThrownBy(() -> new SafeTimetableFileReader(allowed).read(fifo))
+                .isInstanceOf(TimetableParseException.class)
+                .hasMessageContaining("NOT_REGULAR_FILE"));
   }
 
   private static boolean supportsSecureDirectoryStream(Path directory) throws Exception {

@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.timetable;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -23,13 +24,45 @@ import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.annotation.PersistenceExceptionTranslationAdvisor;
+import org.springframework.dao.support.PersistenceExceptionTranslator;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.BeanFactoryTransactionAttributeSourceAdvisor;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import tools.jackson.databind.ObjectMapper;
 
 @Tag("unit")
 class JdbcTimetableAdaptersTest {
+  @Test
+  void transactional_store와_exception_translation_catalog는_CGLIB_proxy를_생성할수있다() {
+    var transactionAttributes = new AnnotationTransactionAttributeSource();
+    var transactionAdvisor = new BeanFactoryTransactionAttributeSourceAdvisor();
+    transactionAdvisor.setTransactionAttributeSource(transactionAttributes);
+    transactionAdvisor.setAdvice(
+        new TransactionInterceptor(mock(PlatformTransactionManager.class), transactionAttributes));
+
+    ProxyFactory storeProxy =
+        new ProxyFactory(
+            new JdbcTimetableImportStore(mock(JdbcTemplate.class), new ObjectMapper()));
+    storeProxy.setProxyTargetClass(true);
+    storeProxy.addAdvisor(transactionAdvisor);
+    assertThatCode(storeProxy::getProxy).doesNotThrowAnyException();
+
+    ProxyFactory catalogProxy =
+        new ProxyFactory(new JdbcTimetableCatalog(mock(JdbcTemplate.class)));
+    catalogProxy.setProxyTargetClass(true);
+    catalogProxy.addAdvisor(
+        new PersistenceExceptionTranslationAdvisor(
+            mock(PersistenceExceptionTranslator.class), Repository.class));
+    assertThatCode(catalogProxy::getProxy).doesNotThrowAnyException();
+  }
+
   @Test
   void atomic_store_commit은_Spring_transaction_경계이고_제주_provider가_snapshot_allowlist다()
       throws Exception {
@@ -97,6 +130,10 @@ class JdbcTimetableAdaptersTest {
     assertThat(sql.getAllValues().get(runIndex))
         .contains("fetched_count", "inserted_count", "skipped_count", "rejected_count");
     assertThat(parameters.getAllValues().get(runIndex)).containsSequence(3, 1, 2, 0);
+    var runMetadata =
+        new ObjectMapper().readTree((String) parameters.getAllValues().get(runIndex)[10]);
+    assertThat(runMetadata.path("sha256").asString()).isEqualTo("a".repeat(64));
+    assertThat(runMetadata.path("importFingerprint").asString()).matches("[0-9a-f]{64}");
     int snapshotIndex =
         indexContaining(sql.getAllValues(), "insert into public.external_api_snapshots");
     Object[] snapshotParameters = parameters.getAllValues().get(snapshotIndex);
@@ -106,6 +143,23 @@ class JdbcTimetableAdaptersTest {
     assertThat(metadata.path("effectiveDate").asString()).isEqualTo("2024-08-01");
     assertThat(metadata.path("omissionCount").isIntegralNumber()).isTrue();
     assertThat(metadata.path("omissionCount").intValue()).isEqualTo(2);
+  }
+
+  @Test
+  void replay는_raw_XLSX_SHA가_아니라_canonical_import_fingerprint를_조회한다() {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    when(jdbc.queryForList(anyString(), eq(String.class), any(), any()))
+        .thenReturn(List.of("b".repeat(64)));
+    JdbcTimetableImportStore store = new JdbcTimetableImportStore(jdbc, new ObjectMapper());
+
+    assertThat(store.inspect("405001", LocalDate.of(2024, 8, 1), "a".repeat(64)))
+        .isEqualTo(com.timingjeju.api.application.timetable.TimetableVersionState.CONFLICT);
+
+    ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+    verify(jdbc).queryForList(sql.capture(), eq(String.class), any(), any());
+    assertThat(sql.getValue())
+        .contains("metadata->>'importFingerprint'")
+        .doesNotContain("select metadata->>'sha256'");
   }
 
   private static int indexContaining(List<String> values, String expected) {
