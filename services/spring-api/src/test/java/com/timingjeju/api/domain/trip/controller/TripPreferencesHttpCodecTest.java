@@ -3,7 +3,9 @@ package com.timingjeju.api.domain.trip.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.trip.ReplaceTripPreferencesCommand;
 import com.timingjeju.api.application.trip.TripException;
+import com.timingjeju.api.application.trip.TripPreferencePolicy;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
@@ -87,6 +89,34 @@ class TripPreferencesHttpCodecTest {
 
     assertThat(command.arrivalRegionCode()).isEqualTo(preserved);
     assertThat(command.preferredRegionCodes()).containsExactly(preserved);
+  }
+
+  @Test
+  void 세_region필드는_ASCII_trim_NFC후_50을허용하고_51을거부한다() {
+    String encodedTrim = " \\t\\n\\r\\f" + unicode("000b");
+    String composed50 = "é".repeat(50);
+    String decomposed50 = "e\u0301".repeat(50);
+
+    for (String field :
+        List.of("arrivalRegionCode", "departureRegionCode", "preferredRegionCodes")) {
+      ReplaceTripPreferencesCommand composed =
+          TripPreferencePolicy.canonicalizeAndValidate(
+              codec.decode(
+                  regionJson(field, encodedTrim + composed50 + encodedTrim)
+                      .getBytes(StandardCharsets.UTF_8)));
+      ReplaceTripPreferencesCommand decomposed =
+          TripPreferencePolicy.canonicalizeAndValidate(
+              codec.decode(
+                  regionJson(field, encodedTrim + decomposed50 + encodedTrim)
+                      .getBytes(StandardCharsets.UTF_8)));
+
+      assertThat(regionValue(composed, field)).isEqualTo(composed50);
+      assertThat(regionValue(decomposed, field)).isEqualTo(composed50);
+      for (String tooLong : List.of("é".repeat(51), "e\u0301".repeat(51))) {
+        assertInvalid(
+            () -> codec.decode(regionJson(field, tooLong).getBytes(StandardCharsets.UTF_8)), field);
+      }
+    }
   }
 
   @Test
@@ -221,6 +251,35 @@ class TripPreferencesHttpCodecTest {
 
   private static String unicode(String hex) {
     return "\\" + "u" + hex;
+  }
+
+  private static String regionJson(String field, String encodedValue) {
+    return switch (field) {
+      case "arrivalRegionCode" ->
+          validJson().replace("\"arrivalRegionCode\":\"jeju-si\"", jsonField(field, encodedValue));
+      case "departureRegionCode" ->
+          validJson()
+              .replace("\"departureRegionCode\":\"jeju-si\"", jsonField(field, encodedValue));
+      case "preferredRegionCodes" ->
+          validJson()
+              .replace(
+                  "\"preferredRegionCodes\":[]",
+                  "\"preferredRegionCodes\":[\"" + encodedValue + "\"]");
+      default -> throw new IllegalArgumentException(field);
+    };
+  }
+
+  private static String jsonField(String field, String encodedValue) {
+    return "\"" + field + "\":\"" + encodedValue + "\"";
+  }
+
+  private static String regionValue(ReplaceTripPreferencesCommand command, String field) {
+    return switch (field) {
+      case "arrivalRegionCode" -> command.arrivalRegionCode();
+      case "departureRegionCode" -> command.departureRegionCode();
+      case "preferredRegionCodes" -> command.preferredRegionCodes().getFirst();
+      default -> throw new IllegalArgumentException(field);
+    };
   }
 
   private static void assertInvalid(org.assertj.core.api.ThrowableAssert.ThrowingCallable action) {

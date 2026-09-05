@@ -65,3 +65,9 @@ OpenAPI 보정이 독립 검토·커밋된 뒤 전체 quality gate를 재실행�
 운영 migration과 권한은 변경하지 않았다. 먼저 `TripPreferencesMigrationContractTest`에 `authenticated`가 `trip_preferences`, `trip_transport_modes`를 조회하는 두 예외만 허용하고 `anon`과 다른 privilege는 계속 거부한다는 exact 계약을 추가했다. Red 6개 중 1건 실패를 확인한 뒤 `smoke_check.sql`의 allowlist를 같은 두 테이블의 `SELECT`로만 최소 확장했다. focused 테스트 6/6과 disposable Docker smoke 전체가 통과했고, 종료 뒤 smoke 컨테이너 잔여는 0이며 보호 baseline은 불변이었다.
 
 이 보정 커밋 뒤 전체 quality gate는 저장소 자동화 707개 중 push notification의 과거 단일 ACL 문자열 기대 1건만 실패했다. 운영 SQL은 다시 변경하지 않았다. 후속 검토에서 branch substring만 확인하면 `OR TRUE` 우회가 테스트를 통과하는 Red가 발견되어 전체 `AND NOT (...)` predicate를 exact 검증하고 `OR TRUE` 삽입·`NOT` 제거 mutation을 거부하도록 강화했다. notification preference SELECT와 #46 두-table SELECT 외에 `anon`·비-SELECT·그 밖의 table 예외가 없음을 함께 확인하며 관련 Python 파일 7/7이 통과했다.
+
+## 2026-09-05 region NFC 경계 정렬
+
+Final Reviewer가 request DTO는 ASCII trim 뒤 NFC 전 길이를 재고 domain policy는 NFC 뒤 길이를 재는 불일치를 발견했다. `e`와 combining acute accent의 decomposed 입력을 50회 반복하면 canonical 길이는 50인데 DTO 단계에서 100으로 거부됐다. 운영 코드보다 먼저 arrival·departure·preferred region 세 필드에 ASCII trim, composed/decomposed 동등성, normalized 50 허용·51 거부 회귀 테스트를 추가했고 focused 12개 중 신규 1건 실패로 Red를 확인했다.
+
+DTO의 NUL·blank·상한 의미와 domain canonical output은 유지하고, 길이를 계산할 문자열만 ASCII trim 뒤 NFC 정규화하도록 최소 수정했다. DTO·domain unit 24개와 controller integration 10개가 통과했고 Spotless도 성공했다. 전체 quality gate와 Docker는 새 staged source의 독립 검토 뒤로 보류했다.

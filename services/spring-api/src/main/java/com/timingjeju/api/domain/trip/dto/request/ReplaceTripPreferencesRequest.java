@@ -6,6 +6,7 @@ import com.timingjeju.api.application.trip.ReplaceTripPreferencesCommand;
 import com.timingjeju.api.application.trip.TripException;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.text.Normalizer;
 import java.util.List;
 import java.util.UUID;
 
@@ -172,8 +173,8 @@ public final class ReplaceTripPreferencesRequest {
 
   private static boolean invalidRegion(String value) {
     if (value == null || value.indexOf('\0') >= 0) return true;
-    String trimmed = asciiTrim(value);
-    int count = trimmed.codePointCount(0, trimmed.length());
+    String normalized = Normalizer.normalize(asciiTrim(value), Normalizer.Form.NFC);
+    int count = normalized.codePointCount(0, normalized.length());
     return count < 1 || count > 50;
   }
 
