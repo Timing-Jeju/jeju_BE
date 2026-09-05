@@ -54,3 +54,13 @@
   앞쪽 객체를 넘는 진행과 삭제로 당겨진 offset의 cycle-wrap 재방문을 DB-free 테스트했다.
 - 실제 DB, Testcontainers, Docker, live Supabase와 전체 heavy gate는 승인 범위 밖이라
   실행하지 않았다.
+
+## 2026-09-06 표준 Supabase 환경 바인딩 보정
+
+- Red commit `ef7a93d`: main `application.yml`에 `app.profile-image`가 없어
+  `SUPABASE_URL`과 `SUPABASE_SERVICE_ROLE_KEY`가 설정돼도 binding root 자체가 없는
+  실패를 정적 계약과 compiled Binder fixture로 재현했다.
+- main 설정은 표준 URL과 서버 전용 service-role key, bounded timeout 및 기본 비활성
+  maintenance 환경변수를 명시적으로 바인딩한다. live Compose도 root 비추적 환경을 API
+  container에 전달하고 test Compose는 빈 credential·maintenance off로 격리한다.
+- 실제 `.env`와 secret 값은 읽거나 출력·수정하지 않았고 외부 endpoint도 호출하지 않았다.
