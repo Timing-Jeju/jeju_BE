@@ -145,6 +145,22 @@ class AccommodationControllerIntegrationTest {
   }
 
   @Test
+  void POST_PATCH는_JSON_null과_공백_null을_canonical_400으로_거부하고_service를_호출하지않는다() throws Exception {
+    for (String body : List.of("null", " \n null \t")) {
+      mvc.perform(validPost().content(body))
+          .andExpect(status().isBadRequest())
+          .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+      mvc.perform(validPatch().content(body))
+          .andExpect(status().isBadRequest())
+          .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    verifyNoInteractions(service);
+  }
+
+  @Test
   void POST_PATCH는_declared_length와_transfer_encoding을_auth전에_fail_closed한다() throws Exception {
     for (MockHttpServletRequestBuilder request :
         List.of(
