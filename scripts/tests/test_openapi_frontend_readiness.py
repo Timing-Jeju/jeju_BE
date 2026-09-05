@@ -201,6 +201,30 @@ def valid_document():
 
 
 class OpenApiFrontendReadinessTest(unittest.TestCase):
+    def test_mutually_exclusive_reference_example은_선택한_한개만_요구한다(self):
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["expectedActiveScheduleVersionId"],
+            "properties": {
+                "expectedActiveScheduleVersionId": {"type": "string", "format": "uuid"},
+                "placeId": {"type": "string", "format": "uuid"},
+                "accommodationId": {"type": "string", "format": "uuid"},
+                "transportEventId": {"type": "string", "format": "uuid"},
+            },
+        }
+        validator = Validator({}, 33, ROOT)
+        validator.validate_schema_value(
+            {
+                "expectedActiveScheduleVersionId": "60000000-0000-4000-8000-000000000001",
+                "placeId": "20000000-0000-4000-8000-000000000001",
+            },
+            schema,
+            "PATCH schedule request example",
+        )
+
+        self.assertEqual([], validator.errors)
+
     def run_validator(self, document=None, path=None, *arguments):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(path) if path else Path(directory) / "openapi.json"

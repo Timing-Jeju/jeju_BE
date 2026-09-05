@@ -20,6 +20,11 @@ SECRET_LIKE = re.compile(
     r"AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)",
     re.IGNORECASE,
 )
+MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES = {
+    "placeId",
+    "accommodationId",
+    "transportEventId",
+}
 UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATE_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
@@ -1281,6 +1286,12 @@ class Validator:
                 for key in sorted(set(value) - set(properties)):
                     self.error(location, f"additional property {key!r}가 schema에 없습니다")
             undocumented = set(properties) - set(value)
+            present_references = MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES & set(value)
+            if (
+                MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES <= set(properties)
+                and len(present_references) == 1
+            ):
+                undocumented -= MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES
             for key in sorted(undocumented):
                 self.error(location, f"schema property {key!r}를 example이 보여주지 않습니다")
             for key, item in value.items():

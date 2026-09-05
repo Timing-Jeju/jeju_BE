@@ -158,3 +158,17 @@ legacy audit를 합성했다. compose migration 순서 038→044→045와 #78 �
 실행하지 않았다. 후속 DB 검증 대상은 `JdbcScheduleMutationStoreIntegrationTest`의 실제 2-thread
 동일 ETag 경합(성공 1, canonical conflict 1, active version 1), stale revision rollback,
 legacy invalid-reference rollback, N-1 leg/seal/activation 원자성이다.
+
+## Astra 리뷰 엄격 JSON 보정 (2026-09-06)
+
+- Red: `ReorderScheduleCommand`의 top-level/nested null 요소가 `ScheduleException` 대신 NPE를
+  던졌고, 실제 HTTP에서 PATCH `stayMinutes:1.9`, `memo:123`, `required:"true"` 및
+  reorder/move의 잘못된 scalar·collection shape가 400 경계 밖으로 누출됐다.
+- Green: DTO 역직렬화 전에 endpoint-local raw `JsonNode` shape를 검사한다. PATCH의 memo null과
+  omitted 의미는 유지하면서 textual/integral/boolean을 exact 검사하고, reorder의 Day/object/list
+  중첩 구조와 move scalar를 엄격히 검사한다. 전역 ObjectMapper는 변경하지 않았다.
+- Refactor: command 생성자도 `List.copyOf` 전에 null collection/element를 검사해 service 직접 호출도
+  canonical `400 INVALID_REQUEST`로 수렴한다. DELETE selector는 body가 없고 기존 lowercase canonical
+  UUID query 검증을 그대로 사용한다.
+- OpenAPI PATCH 예시는 place-visit reference 하나만 포함하는 실행 가능한 payload로 바꾸고,
+  DELETE 성공 예시는 전용 `changedItemIds: []`를 사용한다. generated artifact test가 둘을 고정한다.
