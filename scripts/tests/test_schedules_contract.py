@@ -336,6 +336,28 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("not-linked", external["figma"]["contractVersion"])
         self.assertTrue(all(value["status"] == "not-ready" for value in self.contract["readiness"].values()))
 
+    def test_schedule_mutations_reject_terminal_trip_with_canonical_conflict(self) -> None:
+        """완료·취소·실패 여행의 모든 일정 변경은 canonical 409로 거부한다."""
+        conditions = {item["code"]: item for item in self.contract["errorConditions"]}
+        terminal = conditions["TRIP_TERMINAL_STATE_CONFLICT"]
+        self.assertEqual(409, terminal["status"])
+        self.assertEqual(
+            "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+            terminal["type"],
+        )
+        self.assertEqual("종료된 여행은 변경할 수 없습니다", terminal["title"])
+        self.assertEqual(
+            "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다.",
+            terminal["detail"],
+        )
+        self.assertEqual("409_trip_terminal_state_conflict", terminal["fixture"])
+        for endpoint in self.contract["endpoints"][1:]:
+            with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
+                self.assertIn(
+                    "TRIP_TERMINAL_STATE_CONFLICT",
+                    endpoint["errorMatrix"]["409"],
+                )
+
     def test_issue_50_schema_decision_is_recorded(self) -> None:
         schema_gap = self.contract["schemaGap"]
         self.assertEqual(4, len(schema_gap))

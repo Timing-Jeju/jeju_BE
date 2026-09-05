@@ -72,3 +72,159 @@ python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build
 위치 근거는 `place_id` 참조로 보존하고 raw provider 응답·상세 geometry를 item facts에 복제하지 않는다.
 
 두 번째 독립 리뷰에서는 전체 code 목록은 닫혔지만 전역 registry의 다른 domain 문구와 `.example` type을 재사용해 일부 `type/title/detail`이 schedule fixture와 다르다는 MAJOR 1건이 남았다. 이를 해결하기 위해 schedule mutation 전용 Problem 정의와 advice를 분리했다. 따라서 다른 API의 오류 계약을 바꾸지 않으면서 `INVALID_REQUEST`, idempotency 3종, 장소·일정 버전·여행 버전 충돌을 schedule canonical fixture와 exact하게 반환한다. Problem writer는 reset 과정에서도 조건부 `Retry-After`만 안전하게 보존한다. HTTP 통합 테스트와 OpenAPI readiness는 각각 실제 응답과 fixture의 `type/title/status/detail/code/fieldErrors`를 직접 대조한다.
+
+## 병합 후 DB required-reference 보정
+
+PR #205 병합 뒤 독립 리뷰에서 `accommodation`, `arrival`, `departure` typed item의 필수 참조가 DB sealing 경계에서 강제되지 않는 문제가 확인됐다. 이 보정은 최신 `origin/develop` `6cfa98fd3e65ba270eceea7150c843b33dbe2a56` 기반 `fix/50-pr205-review-findings`에서 append-only migration으로 진행했다.
+
+### First RED
+
+- 테스트 파일: `scripts/tests/test_schedule_item_required_references.py`
+- 명령: `python3 -m unittest scripts.tests.test_schedule_item_required_references`
+- 정확한 시나리오:
+  - `test_append_only_migration_uses_slot_038_before_seed_everywhere`
+  - `test_legacy_rows_are_audited_before_required_reference_check`
+  - `test_check_and_trigger_enforce_type_consistency_and_trip_ownership`
+  - `test_sealing_assertion_rechecks_required_references`
+  - `test_assertion_and_trigger_helpers_are_not_client_executable`
+- 예상 실패: `20260907000001_schedule_item_required_references.sql`과 038 compose/smoke mount가 아직 없어 5개 테스트가 실패했다. compose subtest를 포함한 unittest 출력은 `FAILED (failures=8)`이었다.
+
+### 최소 GREEN
+
+- `20260907000001_schedule_item_required_references.sql`을 037 생성 계약 다음 append-only 슬롯에 추가했다.
+- migration은 constraint 설치 전에 legacy typed item을 감사하며, 임의 보정 없이 item ID와 type이 포함된 `23514` 오류로 중단한다.
+- CHECK는 `accommodation_id`와 `transport_event_id`의 유형별 필수·상호 배타성을 강제한다. child trigger는 명확한 오류로 숙소와 교통 이벤트의 동일 여행 소유 및 type 일치를 검사하고, `(transport_event_id, trip_plan_id, item_type)` 복합 FK가 부모 교통 이벤트의 사후 type 변경까지 원자적으로 차단한다.
+- 기존 timeline/leg sealing assertion을 core로 보존하고 공개 `assert_schedule_version_sealable` 진입점에서 required-reference assertion을 함께 실행한다.
+- 새 assertion/trigger helper와 공개 sealing helper는 `PUBLIC`, `anon`, `authenticated`의 EXECUTE를 회수하고 `service_role`에만 부여한다.
+- 세 compose 파일과 legacy/concurrency smoke migration 열에 038 슬롯을 연결했다.
+
+검증 명령:
+
+```text
+python3 -m unittest \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database
+# Ran 11 tests ... OK
+```
+
+더 넓은 `test_database_hardening`, `test_schedule_consistency_hardening` 및 schedule canonical
+계약까지 포함한 최종 Python focused 묶음 99건도 모두 통과했다. 실제 PostgreSQL,
+Testcontainers, Docker smoke, full quality gate와 live Supabase 적용은 이 시점에는 실행하지
+않았으며 아래 통합 검증에서 별도로 확인한다.
+
+## 병합 후 terminal 여행 공개 계약 보정
+
+일정 항목 추가 저장소가 `completed`, `cancelled`, `failed` 여행을 변경할 수 있었고 schedule
+canonical 계약과 생성 OpenAPI도 `409 TRIP_TERMINAL_STATE_CONFLICT`를 공개하지 않던 리뷰
+finding을 TDD로 보정했다.
+
+### First RED
+
+- 테스트: `test_schedule_mutations_reject_terminal_trip_with_canonical_conflict`
+- 명령: `python3 -m unittest scripts.tests.test_schedules_contract.SchedulesContractTest.test_schedule_mutations_reject_terminal_trip_with_canonical_conflict`
+- 기대: 다섯 schedule mutation의 `409` matrix와 canonical Problem fixture에 `TRIP_TERMINAL_STATE_CONFLICT`가 존재한다.
+- 실제 실패: `conditions["TRIP_TERMINAL_STATE_CONFLICT"]` 조회에서 `KeyError: 'TRIP_TERMINAL_STATE_CONFLICT'`, `FAILED (errors=1)`.
+
+### 최소 GREEN
+
+- 일정 저장소와 여행 저장소가 함께 사용하는 `TripAggregateMutationCoordinator`를 추가했다.
+  이 coordinator가 owner row lock, strong ETag 검증, terminal 상태 차단과 schedule pointer
+  revision CAS를 소유하며 일정 adapter의 중복 lock/CAS SQL을 제거했다.
+- 다섯 mutation error matrix, schedule error condition과 Problem fixture를 같은 `409` code/type/title/detail로 닫았다.
+- `ScheduleProblemDefinitions`의 mutation 전용 정의를 추가해 전역 다른 domain 문구에 의존하지 않고 실제 schedule 응답을 fixture와 일치시켰다.
+- POST 일정 항목 추가 OpenAPI 전체 Problem 집합과 runtime manifest에 terminal conflict를 투영했다.
+- Controller와 OpenAPI 통합 테스트에서 실제 `type/title/status/detail/code`와 409 example 집합을 확인했다.
+
+검증:
+
+```text
+python3 -m unittest scripts.tests.test_schedules_contract scripts.tests.test_spring_openapi
+# Ran 34 tests ... OK
+
+python3 scripts/validate_schedules_contract.py
+# [OK] Issue #88 불변 일정 조회·편집 계약 검증 통과
+
+./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest' --rerun-tasks
+# BUILD SUCCESSFUL
+
+./gradlew --no-daemon test --tests 'com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest' --rerun-tasks
+# BUILD SUCCESSFUL
+
+python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 24
+# OpenAPI frontend-readiness 검사 성공: 24 operations
+```
+
+저장소 구현 RED도 별도로 실행했다.
+
+```text
+./gradlew test --tests 'com.timingjeju.api.domain.schedule.repository.JdbcScheduleMutationStoreIntegrationTest.terminal_trip은_일정_항목_추가를_409로_원자거부한다'
+# completed/cancelled/failed 3 cases: Expecting code to raise a throwable, 3 failed
+```
+
+coordinator 적용과 stale ETag 예외 계약 정렬 후 schedule repository, controller/OpenAPI,
+trip repository 및 architecture 집중 스위트는 51초에 성공했다. 전체 `openApiDocs`, clean check,
+Docker와 공식 root gate는 보완 commit 생성 후 exact SHA에서 다시 실행한다.
+
+## Docker seed 통합 회귀 보정
+
+첫 공식 root gate의 Docker 초기화에서 038 제약 적용 후 기존 `099_seed_fixtures.sql`이
+typed item의 필수 FK를 생략해 PostgreSQL이 `arrival schedule item requires only
+transport_event_id`로 중단됐다. 애플리케이션은 기동했지만 DB 컨테이너가 종료되어 최종
+health check는 `UnknownHostException: postgres`로 실패했다.
+
+로컬 seed의 `trip_items` 열 목록에 `accommodation_id`, `transport_event_id`를 추가하고,
+세 schedule version의 arrival/departure/accommodation 항목이 같은 여행의 canonical 숙소·교통
+이벤트를 참조하도록 수정했다. 일반 방문·식사 항목은 두 참조를 모두 `null`로 명시했다.
+회귀 테스트 `test_local_seed_populates_required_schedule_item_references`가 seed 계약을 고정하며,
+격리 Compose에서 PostgreSQL을 새로 초기화해 `healthy` 상태를 확인했다. 이 보정 commit에서
+전체 공식 root gate를 다시 실행한다.
+
+## 교통 이벤트 참조 동시성 보정
+
+독립 리뷰에서 child/parent trigger의 일반 `EXISTS` 조회만으로는 `trip_items` insert와
+`trip_transport_events.event_type` 변경이 서로의 미커밋 행을 보지 못해 둘 다 commit될 수
+있다는 race가 확인됐다.
+
+### First RED
+
+- 테스트:
+  - `test_transport_event_type_is_an_atomic_composite_foreign_key`
+  - `test_docker_contract_races_item_insert_against_event_type_update`
+- 명령: `python3 -m unittest scripts.tests.test_schedule_item_required_references.ScheduleItemRequiredReferencesTest.test_transport_event_type_is_an_atomic_composite_foreign_key scripts.tests.test_schedule_item_required_references.ScheduleItemRequiredReferencesTest.test_docker_contract_races_item_insert_against_event_type_update`
+- 실제 결과: parent `(id, trip_plan_id, event_type)` unique와 child 3열 FK, 두 세션 경합 시나리오가 없어 `FAILED (failures=2)`.
+
+### GREEN
+
+- 038 legacy audit 뒤에 `trip_transport_events (id, trip_plan_id, event_type)` unique와
+  `trip_items (transport_event_id, trip_plan_id, item_type)` FK를 추가했다.
+- FK key-share locking이 item insert와 event type update를 직렬화한다. 먼저 insert한 A가
+  commit되면 B의 type 변경은 `23503`으로 거부되므로 trigger snapshot 순서와 무관하다.
+- `database_concurrency_contract.sql`에 실제 dblink 두 세션을 추가했다. B가 A의 FK lock 뒤에서
+  실제 대기하는지 확인한 뒤 A를 commit하고, B의 `23503`, 최종 event type `arrival`, item 1건,
+  전체 transport reference mismatch 0건을 검증한다.
+
+검증:
+
+```text
+python3 -m unittest \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database \
+  scripts.tests.test_schedule_consistency_hardening \
+  scripts.tests.test_supabase_layout \
+  scripts.tests.test_database_hardening
+# Ran 87 tests ... OK
+
+# compose.test.yml의 PostgreSQL만 격리 기동하고 migration 열과
+# db/queries/database_concurrency_contract.sql을 별도 DB에 실행
+# focused PostgreSQL concurrency PASS
+```
+
+격리 프로젝트 `timing-jeju-ref-race`의 container, network, volume은 검증 직후 제거했다.
+`git diff --check`도 통과했다. API build, 전체 Docker smoke, full quality gate와 live Supabase는
+이 focused 보정에서 실행하지 않았다.
+
+첫 full gate에서는 새 2세션 경합이 `database_concurrency_contract PASS`까지 성공했으나,
+이어진 schema contract가 3열 FK 전체를 선두 순서로 덮는 인덱스가 없다고 거부했다. 037의
+`(transport_event_id, trip_plan_id)` prefix 인덱스를 038에서 제거하고 같은 이름의
+`(transport_event_id, trip_plan_id, item_type)` partial index로 교체해 FK 검사와 조회를 함께
+지원한다. 이 인덱스 shape도 Python 회귀 테스트로 고정하고 full gate를 다시 실행한다.
