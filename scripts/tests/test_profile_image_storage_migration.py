@@ -64,6 +64,11 @@ EXPECTED_PRIVILEGES = {
     "revoke all on table public.profile_image_cleanup_outbox from authenticated",
     "revoke all on table public.profile_image_cleanup_outbox from service_role",
     "grant select, insert, update on table public.profile_image_cleanup_outbox to service_role",
+    "revoke all on table public.profile_image_orphan_scan_cursor from public",
+    "revoke all on table public.profile_image_orphan_scan_cursor from anon",
+    "revoke all on table public.profile_image_orphan_scan_cursor from authenticated",
+    "revoke all on table public.profile_image_orphan_scan_cursor from service_role",
+    "grant select, insert, update on table public.profile_image_orphan_scan_cursor to service_role",
 }
 
 

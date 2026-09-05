@@ -81,9 +81,12 @@ class ProfileLegalContractTest(unittest.TestCase):
             policy["storageIdentity"],
         )
         self.assertEqual("canonical lowercase UUID JWT sub", policy["canonicalSub"])
-        self.assertEqual("storage.objects.owner_id == canonicalSub", policy["ownerCheck"])
-        self.assertEqual("storage.objects.metadata.mimetype", policy["storageMetadataFields"]["mime"])
-        self.assertEqual("storage.objects.metadata.size integer bytes", policy["storageMetadataFields"]["size"])
+        self.assertIn("authenticated immutable INSERT RLS", policy["ownerCheck"])
+        self.assertIn("runtime InfoRenderer has no owner field", policy["ownerCheck"])
+        self.assertEqual("/object/info.content_type", policy["storageMetadataFields"]["mime"])
+        self.assertEqual("/object/info.size integer bytes", policy["storageMetadataFields"]["size"])
+        self.assertIn("never user metadata", policy["storageMetadataFields"]["owner"])
+        self.assertIn("byte-exact", policy["storageMetadataFields"]["storageEtag"])
         self.assertIn("orphan cutoff", policy["storageMetadataFields"]["updatedAt"])
         self.assertEqual(["image/jpeg", "image/png", "image/webp"], policy["allowedMimeTypes"])
         self.assertEqual(5_242_880, policy["maximumBytes"])
@@ -773,6 +776,7 @@ class ProfileLegalContractTest(unittest.TestCase):
         self.assertEqual({"status": 200, "code": None}, cases["png-maximum"])
         self.assertEqual({"status": 200, "code": None}, cases["webp-valid"])
         self.assertEqual(413, cases["one-byte-over"]["status"])
+
         self.assertEqual(415, cases["unsupported-mime"]["status"])
         self.assertEqual(cases["missing-object"], cases["owner-mismatch"])
         self.assertEqual(cases["missing-object"], cases["wrong-bucket"])
@@ -805,6 +809,31 @@ class ProfileLegalContractTest(unittest.TestCase):
             "code": "PROFILE_IMAGE_STORAGE_UNAVAILABLE",
         }
         self.assertTrue(self._storage_fixture_errors(validator, concealment_mutation))
+
+    def test_issue_78_official_info_fixture_has_pinned_provenance_and_no_owner_claim(self) -> None:
+        fixture = json.loads(
+            (FIXTURES / "supabase-storage-info.json").read_text(encoding="utf-8")
+        )
+        self.assertIn("/supabase/storage/blob/a87300a", fixture["provenance"]["renderer"])
+        self.assertIn("/supabase/storage-js/blob/891375b", fixture["provenance"]["client"])
+        response = fixture["response"]
+        self.assertEqual(
+            {
+                "id",
+                "name",
+                "version",
+                "bucket_id",
+                "size",
+                "content_type",
+                "etag",
+                "metadata",
+                "last_modified",
+                "created_at",
+            },
+            set(response),
+        )
+        self.assertNotIn("owner_id", response)
+        self.assertNotIn("user_metadata", response)
 
     @staticmethod
     def _storage_fixture_errors(validator: object, fixture: dict) -> list[str]:

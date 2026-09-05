@@ -8,6 +8,8 @@ import com.timingjeju.api.application.profile.ProfileImageMetadata;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.List;
@@ -27,7 +29,7 @@ class SupabaseProfileImageMetadataReaderTest {
   private static final String KEY = OWNER + "/profile/" + GENERATION;
 
   @Test
-  void confirmation은_info_metadata와_독립_HEAD_strong_ETag를_모두_확인한다() {
+  void confirmation은_공식_InfoRenderer_shape와_독립_HEAD_strong_ETag를_모두_확인한다() {
     RecordingTransport transport = new RecordingTransport();
     transport.enqueue(response(200, Map.of(), metadata(GENERATION)));
     transport.enqueue(response(200, Map.of("ETag", List.of("\"head-etag\"")), new byte[0]));
@@ -40,6 +42,33 @@ class SupabaseProfileImageMetadataReaderTest {
         .isEqualTo("/storage/v1/object/info/profile-images/" + KEY);
     assertThat(transport.requests.get(1).uri().getPath())
         .isEqualTo("/storage/v1/object/profile-images/" + KEY);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void pinned_공식_InfoRenderer_fixture를_compiled_parser가_해석한다() throws Exception {
+    Path fixture =
+        Path.of("..", "..", "fixtures", "contracts", "profile-legal", "supabase-storage-info.json")
+            .toAbsolutePath()
+            .normalize();
+    Map<String, Object> document =
+        JsonMapper.builder()
+            .findAndAddModules()
+            .build()
+            .readValue(Files.readAllBytes(fixture), Map.class);
+    byte[] response =
+        JsonMapper.builder()
+            .findAndAddModules()
+            .build()
+            .writeValueAsBytes(document.get("response"));
+    RecordingTransport transport = new RecordingTransport();
+    transport.enqueue(response(200, Map.of(), response));
+    transport.enqueue(response(200, Map.of("ETag", List.of("\"head-etag\"")), new byte[0]));
+
+    ProfileImageMetadata parsed = reader(transport).read(KEY).orElseThrow();
+
+    assertThat(parsed.ownerId()).isEqualTo(OWNER);
+    assertThat(parsed.storageEtag()).isEqualTo("\"head-etag\"");
   }
 
   @Test
@@ -71,23 +100,28 @@ class SupabaseProfileImageMetadataReaderTest {
   }
 
   @Test
-  void canonical_metadata_owner가_object_key_owner와_다르면_객체_부재_404로_은닉한다() {
+  void 공식_info의_name이나_bucket이_expected_key와_다르면_객체_부재로_은닉한다() {
     RecordingTransport transport = new RecordingTransport();
     transport.enqueue(
-        response(200, Map.of(), metadata(GENERATION, "19000000-0000-4000-8000-000000000001")));
+        response(
+            200,
+            Map.of(),
+            metadata(
+                GENERATION,
+                KEY.replace(OWNER.toString(), "19000000-0000-4000-8000-000000000001"))));
 
     assertCode(() -> reader(transport).read(KEY), "PROFILE_IMAGE_NOT_FOUND");
     assertThat(transport.requests).extracting(HttpRequest::method).containsExactly("GET");
   }
 
   @Test
-  void malformed_metadata_owner는_503으로_fail_closed한다() {
+  void 공식_info의_top_level_ETag와_HEAD_ETag가_byte_exact하지_않으면_503이다() {
     RecordingTransport transport = new RecordingTransport();
-    transport.enqueue(
-        response(200, Map.of(), metadata(GENERATION, "09000000-0000-4000-8000-00000000000A")));
+    transport.enqueue(response(200, Map.of(), metadataWithEtag(GENERATION, KEY, "info-etag")));
+    transport.enqueue(response(200, Map.of("ETag", List.of("\"head-etag\"")), new byte[0]));
 
     assertStorageUnavailable(() -> reader(transport).read(KEY));
-    assertThat(transport.requests).extracting(HttpRequest::method).containsExactly("GET");
+    assertThat(transport.requests).extracting(HttpRequest::method).containsExactly("GET", "HEAD");
   }
 
   @Test
@@ -129,26 +163,30 @@ class SupabaseProfileImageMetadataReaderTest {
   }
 
   private static byte[] metadata(String generation) {
-    return metadata(generation, OWNER.toString());
+    return metadata(generation, KEY);
   }
 
-  private static byte[] metadata(String generation, String owner) {
+  private static byte[] metadata(String generation, String key) {
+    return metadataWithEtag(generation, key, "head-etag");
+  }
+
+  private static byte[] metadataWithEtag(String generation, String key, String etag) {
     return ("""
             {
+              "id":"79000000-0000-4000-8000-000000000001",
               "name":"%s",
+              "version":"79000000-0000-4000-8000-000000000002",
               "bucket_id":"profile-images",
-              "owner_id":"%s",
-              "updated_at":"2026-08-25T11:00:00Z",
-              "user_metadata":{
+              "size":1024,
+              "content_type":"image/webp",
+              "etag":"\\\"%s\\\"",
+              "metadata":{
                 "generation":"%s"
               },
-              "metadata":{
-                "mimetype":"image/webp",
-                "size":1024
-              }
+              "last_modified":"2026-08-25T11:00:00Z"
             }
             """
-            .formatted(KEY, owner, generation))
+            .formatted(key, etag, generation))
         .getBytes(StandardCharsets.UTF_8);
   }
 

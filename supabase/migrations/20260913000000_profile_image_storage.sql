@@ -137,6 +137,39 @@ create table if not exists public.profile_image_cleanup_outbox (
 create index if not exists idx_profile_image_cleanup_claim
   on public.profile_image_cleanup_outbox (status, next_attempt_at, created_at);
 
+create table if not exists public.profile_image_orphan_scan_cursor (
+  scanner_name text primary key,
+  owner_offset integer not null default 0,
+  object_offset integer not null default 0,
+  revision bigint not null default 0,
+  updated_at timestamptz not null default now(),
+  constraint ck_profile_image_orphan_owner_offset check (owner_offset >= 0),
+  constraint ck_profile_image_orphan_object_offset check (object_offset >= 0),
+  constraint ck_profile_image_orphan_revision check (revision >= 0)
+);
+
+insert into public.profile_image_orphan_scan_cursor (
+  scanner_name, owner_offset, object_offset, revision
+) values ('profile-images-orphan-scan', 0, 0, 0)
+on conflict (scanner_name) do nothing;
+
+alter table public.profile_image_orphan_scan_cursor enable row level security;
+revoke all on table public.profile_image_orphan_scan_cursor from public;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on table public.profile_image_orphan_scan_cursor from anon';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    execute 'revoke all on table public.profile_image_orphan_scan_cursor from authenticated';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    execute 'revoke all on table public.profile_image_orphan_scan_cursor from service_role';
+    execute 'grant select, insert, update on table public.profile_image_orphan_scan_cursor to service_role';
+  end if;
+end $$;
+
 alter table public.profile_image_cleanup_outbox enable row level security;
 revoke all on table public.profile_image_cleanup_outbox from public;
 

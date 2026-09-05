@@ -39,3 +39,18 @@
   출력하지 않았다. live Supabase와 운영 DB에는 적용하지 않았다.
 - #78의 disposable Testcontainers/Docker 실행은 사용자 승인 범위에서 제외돼 permission
   reviewer가 거부했다. 전체 quality gate와 Docker smoke는 추가 승인 전까지 남아 있다.
+
+## 2026-09-06 Source review 보정
+
+- Red commit `22b65cf`에서 app-owned durable orphan scan cursor가 없는 migration을
+  재현했다. 공식 InfoRenderer fixture로 기존 DB row shape parser 실패, literal JSON
+  `null`의 service 전 거부, stale UUID OpenAPI assertion도 각각 Red로 고정했다.
+- InfoRenderer의 실제 `id/name/version/bucket_id/size/content_type/etag/metadata/last_modified`
+  shape와 별도 HEAD strong ETag byte-exact를 검증한다. owner 권위는 사용자 metadata가
+  아니라 canonical current subject/key와 authenticated exact-owner immutable INSERT RLS에서
+  도출한다.
+- app-owned private cursor를 owner/object offset+revision CAS로 보존하고 공식 list v1
+  `limit/offset`, `name asc`로 owner/profile/leaf를 bounded page한다. 재시작 뒤 1001개
+  앞쪽 객체를 넘는 진행과 삭제로 당겨진 offset의 cycle-wrap 재방문을 DB-free 테스트했다.
+- 실제 DB, Testcontainers, Docker, live Supabase와 전체 heavy gate는 승인 범위 밖이라
+  실행하지 않았다.

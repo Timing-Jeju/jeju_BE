@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.profile.ProfileImageException;
 import com.timingjeju.api.application.profile.ProfileImageMetadata;
+import com.timingjeju.api.application.profile.ProfileImageScanCursor;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
@@ -111,47 +112,37 @@ class SupabaseProfileImageStorageCleanupTest {
   }
 
   @Test
-  void orphan_list는_folder_only_entry를_재귀_page하고_global_order를_중복누락없이_복원한다() {
+  void orphan_list는_durable_cursor로_owner_profile_leaf를_bounded_page한다() {
     RecordingTransport transport = new RecordingTransport();
-    enqueueRecursiveCatalog(transport);
-    enqueueRecursiveCatalog(transport);
+    enqueueJson(transport, "[{\"name\":\"" + OWNER + "\",\"id\":null}]");
+    enqueueJson(transport, "[{\"name\":\"profile\",\"id\":null}]");
+    enqueueJson(
+        transport,
+        "[{\"name\":\"018f47a1-43d2-7b6e-9fa2-11a1cc32c675\",\"id\":\"object-1\"},"
+            + "{\"name\":\"118f47a1-43d2-7b6e-9fa2-11a1cc32c675\",\"id\":\"object-2\"}]");
+    enqueueJson(transport, "[{\"name\":\"" + OWNER + "\",\"id\":null}]");
+    enqueueJson(transport, "[{\"name\":\"profile\",\"id\":null}]");
+    enqueueJson(
+        transport, "[{\"name\":\"218f47a1-43d2-7b6e-9fa2-11a1cc32c675\",\"id\":\"object-3\"}]");
 
-    var first = gateway(transport).list(0, 2);
-    var second = gateway(transport).list(2, 2);
+    var first = gateway(transport).list(ProfileImageScanCursor.initial(), 2);
+    var second = gateway(transport).list(first.nextCursor(), 2);
 
     assertThat(first.objectKeys())
         .containsExactly(KEY, OWNER + "/profile/118f47a1-43d2-7b6e-9fa2-11a1cc32c675");
-    assertThat(first.hasMore()).isTrue();
+    assertThat(first.nextCursor()).isEqualTo(new ProfileImageScanCursor(0, 2, 0));
     assertThat(second.objectKeys())
-        .containsExactly(
-            OWNER + "/profile/218f47a1-43d2-7b6e-9fa2-11a1cc32c675",
-            "19000000-0000-4000-8000-000000000001/profile/318f47a1-43d2-7b6e-9fa2-11a1cc32c675");
-    assertThat(second.hasMore()).isFalse();
+        .containsExactly(OWNER + "/profile/218f47a1-43d2-7b6e-9fa2-11a1cc32c675");
+    assertThat(second.nextCursor()).isEqualTo(new ProfileImageScanCursor(1, 0, 0));
     List<String> allKeys = new ArrayList<>(first.objectKeys());
     allKeys.addAll(second.objectKeys());
-    assertThat(allKeys).hasSize(4).doesNotHaveDuplicates().isSorted();
+    assertThat(allKeys).hasSize(3).doesNotHaveDuplicates().isSorted();
     assertThat(transport.requests).allMatch(request -> request.method().equals("POST"));
-    assertListRequest(transport.requestBodies.get(0), "", 0, 2);
-    assertListRequest(transport.requestBodies.get(2), OWNER.toString(), 0, 2);
-    assertListRequest(transport.requestBodies.get(3), OWNER + "/profile", 0, 2);
-    assertListRequest(transport.requestBodies.get(4), OWNER + "/profile", 2, 2);
-  }
-
-  private static void enqueueRecursiveCatalog(RecordingTransport transport) {
-    String otherOwner = "19000000-0000-4000-8000-000000000001";
-    enqueueJson(
-        transport,
-        "[{\"name\":\"" + OWNER + "\",\"id\":null},{\"name\":\"" + otherOwner + "\",\"id\":null}]");
-    enqueueJson(transport, "[]");
-    enqueueJson(transport, "[{\"name\":\"profile\",\"id\":null}]");
-    enqueueJson(
-        transport,
-        "[{\"name\":\"018f47a1-43d2-7b6e-9fa2-11a1cc32c675\",\"id\":\"object-1\"},{\"name\":\"118f47a1-43d2-7b6e-9fa2-11a1cc32c675\",\"id\":\"object-2\"}]");
-    enqueueJson(
-        transport, "[{\"name\":\"218f47a1-43d2-7b6e-9fa2-11a1cc32c675\",\"id\":\"object-3\"}]");
-    enqueueJson(transport, "[{\"name\":\"profile\",\"id\":null}]");
-    enqueueJson(
-        transport, "[{\"name\":\"318f47a1-43d2-7b6e-9fa2-11a1cc32c675\",\"id\":\"object-4\"}]");
+    assertListRequest(transport.requestBodies.get(0), "", 0, 1);
+    assertListRequest(transport.requestBodies.get(1), OWNER.toString(), 0, 1);
+    assertListRequest(transport.requestBodies.get(2), OWNER + "/profile", 0, 2);
+    assertListRequest(transport.requestBodies.get(3), "", 0, 1);
+    assertListRequest(transport.requestBodies.get(5), OWNER + "/profile", 2, 2);
   }
 
   private static void enqueueJson(RecordingTransport transport, String json) {
@@ -194,20 +185,20 @@ class SupabaseProfileImageStorageCleanupTest {
   private static byte[] metadata() {
     return ("""
             {
+              "id":"79000000-0000-4000-8000-000000000001",
               "name":"%s",
+              "version":"79000000-0000-4000-8000-000000000002",
               "bucket_id":"profile-images",
-              "owner_id":"%s",
-              "updated_at":"2026-09-01T00:00:00Z",
-              "user_metadata":{
+              "size":1024,
+              "content_type":"image/webp",
+              "etag":"\\\"etag-1\\\"",
+              "metadata":{
                 "generation":"018f47a1-43d2-7b6e-9fa2-11a1cc32c675"
               },
-              "metadata":{
-                "mimetype":"image/webp",
-                "size":1024
-              }
+              "last_modified":"2026-09-01T00:00:00Z"
             }
             """
-            .formatted(KEY, OWNER))
+            .formatted(KEY))
         .getBytes(StandardCharsets.UTF_8);
   }
 

@@ -30,7 +30,7 @@ IDENTITIES = [
     ("GET", "/api/v1/me/profile-image", "extension"),
     ("PUT", "/api/v1/me/profile-image", "extension"),
 ]
-CANONICAL_CONTRACT_SHA256 = "07863f9f04d25fbd131373fde9a93dbf18e05cd6c80cfc7e626281f76dded297"
+CANONICAL_CONTRACT_SHA256 = "98f3c1cfcc04fd02d22e38bc5318a58ebbf6cc6a08ed916babf1aa445171aa0d"
 CANONICAL_CATALOG_SHA256 = "0314e9e3d7db062d5232ba261b7d8d761c350a77cd70c07da7abf25f44391fd0"
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
 CANONICAL_PROBLEM_TRACE_ID = "0123456789abcdef0123456789abcdef"
@@ -195,16 +195,16 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
         "storageIdentity": "profile-images/{canonicalSub}/profile/{lowercaseGenerationUuid}",
         "canonicalSub": "canonical lowercase UUID JWT sub",
         "canonicalization": "server validates lowercase canonicalSub and lowercase generation UUID segments byte-for-byte; no trim, percent decoding, Unicode normalization, extension, alternate slash or user-supplied owner",
-        "ownerCheck": "storage.objects.owner_id == canonicalSub",
+        "ownerCheck": "authenticated immutable INSERT RLS owner_id == auth.uid() plus exact canonicalSub key; runtime InfoRenderer has no owner field",
         "storageMetadataFields": {
-            "bucket": "storage.objects.bucket_id",
-            "name": "storage.objects.name",
-            "owner": "storage.objects.owner_id",
-            "mime": "storage.objects.metadata.mimetype",
-            "size": "storage.objects.metadata.size integer bytes",
-            "generation": "storage.objects.metadata.generation lowercase UUID equal to key generation",
-            "storageEtag": "immutable Storage HEAD ETag persisted internally and never exposed",
-            "updatedAt": "RFC3339 storage.objects.updated_at for orphan cutoff only",
+            "bucket": "/object/info.bucket_id",
+            "name": "/object/info.name",
+            "owner": "canonical key plus authenticated immutable INSERT RLS; never user metadata",
+            "mime": "/object/info.content_type",
+            "size": "/object/info.size integer bytes",
+            "generation": "/object/info.metadata.generation lowercase UUID equal to key generation; consistency signal only",
+            "storageEtag": "/object/info.etag and immutable Storage HEAD ETag byte-exact; persisted internally and never exposed",
+            "updatedAt": "RFC3339 /object/info.last_modified for orphan cutoff only",
             "malformed": "missing, null, wrong type, non-RFC3339 time, missing ETag or key/metadata generation contradiction returns 503 without raw metadata",
         },
         "allowedMimeTypes": ["image/jpeg", "image/png", "image/webp"],
@@ -221,14 +221,14 @@ def _validate_contract(contract: Any, errors: list[str]) -> None:
         "directUploadMutation": "authenticated client INSERT only; upsert=false; UPDATE forbidden; DELETE forbidden",
         "deleteAuthority": "server cleanup worker only via Storage API; Issue #106 uses the same server delete authority before Auth deletion",
         "coreProfileProjection": "GET /api/v1/me profileImageUrl uses storage > provider > none while preserving the existing response field shape",
-        "storageMetadataBoundary": "Spring performs read-only storage.objects metadata plus Storage HEAD ETag confirmation; storage schema SQL DML is forbidden",
+        "storageMetadataBoundary": "Spring performs read-only official Storage /object/info plus Storage HEAD ETag confirmation; storage.objects Data API and storage schema SQL DML are forbidden",
         "confirmationTransaction": "read metadata and Storage ETag, lock current user_profiles row, resolve replay before strong If-Match, re-read the exact immutable generation/ETag, then atomically store key/source/storage ETag/version, completed response and old-generation cleanup outbox",
         "replacement": "each replacement uses a new immutable generation key; Storage UPDATE/upsert cannot overwrite confirmed or pending bytes",
         "clearCleanup": "after clear commit, outbox targets only the former immutable object key plus persisted Storage ETag; worker claims once, locks profile, verifies key is not current and owner/key/Storage ETag still match before delete",
-        "orphanCleanup": "Issue #78 deletes only unreferenced immutable generation keys older than the cutoff after owner/key/generation/Storage ETag validation; current profile reference is rechecked under lock",
+        "orphanCleanup": "Issue #78 deletes only unreferenced immutable generation keys older than the cutoff after canonical-key RLS ownership proof and name/bucket/id/version/generation/Storage ETag validation; durable bounded cursor revisits skipped offsets after cycle wrap; current profile reference is rechecked under lock",
         "failureAtomicity": "validation, Storage lookup, stale If-Match or idempotency conflict leaves profile metadata unchanged and enqueues no cleanup",
         "legacyCompatibility": "legacy profile_image_url is provider fallback read compatibility only; #78 backfills object key/source and new writers never persist storage public or signed URLs",
-        "accountDeletion": "Issue #106 lists the canonical user prefix, removes only owner_id=canonicalSub objects through Storage API before Auth deletion and retries before safe terminalization",
+        "accountDeletion": "Issue #106 lists only the canonical user prefix and removes exact canonical-key objects through the server Storage API before Auth deletion and retries before safe terminalization",
     }
     if contract.get("profileImagePolicy") != expected_profile_image:
         errors.append("Issue #181 profile image ownership/fallback/cleanup 정책이 다릅니다.")

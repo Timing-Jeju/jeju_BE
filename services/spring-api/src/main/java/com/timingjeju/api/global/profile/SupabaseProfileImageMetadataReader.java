@@ -3,6 +3,8 @@ package com.timingjeju.api.global.profile;
 import com.timingjeju.api.application.profile.ProfileImageException;
 import com.timingjeju.api.application.profile.ProfileImageMetadata;
 import com.timingjeju.api.application.profile.ProfileImageObjectPage;
+import com.timingjeju.api.application.profile.ProfileImageOwnershipProof;
+import com.timingjeju.api.application.profile.ProfileImageScanCursor;
 import com.timingjeju.api.application.profile.ProfileImageStorageCatalog;
 import com.timingjeju.api.application.profile.ProfileImageStorageMetadataReader;
 import com.timingjeju.api.application.profile.ProfileImageStorageObjectDeleter;
@@ -14,7 +16,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.regex.Pattern;
 import tools.jackson.databind.ObjectMapper;
 
@@ -25,7 +26,6 @@ final class SupabaseProfileImageMetadataReader
 
   private static final int MAXIMUM_INFO_BYTES = 64 * 1024;
   private static final int MAXIMUM_LIST_BYTES = 256 * 1024;
-  private static final int MAXIMUM_CATALOG_PAGES = 1_000;
   private static final Pattern STRONG_ETAG = Pattern.compile("^\\\"[^\\\"\\p{Cntrl}]+\\\"$");
   private static final Pattern OBJECT_KEY =
       Pattern.compile(
@@ -66,31 +66,41 @@ final class SupabaseProfileImageMetadataReader
     if (etag.isEmpty()) {
       return Optional.empty();
     }
+    if (!metadata.storageEtag().equals(etag.orElseThrow())) {
+      throw ProfileImageException.storageUnavailable();
+    }
     return Optional.of(
         new ProfileImageMetadata(
             metadata.objectKey(),
             metadata.ownerId(),
             metadata.contentType(),
             metadata.sizeBytes(),
-            etag.orElseThrow(),
+            metadata.storageEtag(),
             metadata.updatedAt()));
   }
 
   @Override
-  public ProfileImageObjectPage list(int offset, int limit) {
+  public ProfileImageObjectPage list(ProfileImageScanCursor cursor, int limit) {
     requireEnabled();
-    if (offset < 0 || limit < 1 || limit > 100) {
+    java.util.Objects.requireNonNull(cursor);
+    if (limit < 1 || limit > 100) {
       throw ProfileImageException.storageUnavailable();
     }
-    List<String> keys = new ArrayList<>();
-    int[] pages = {0};
-    listDirectory("", limit, keys, pages);
-    keys.sort(String::compareTo);
-    if (offset >= keys.size()) {
-      return new ProfileImageObjectPage(List.of(), false);
+    List<Map<?, ?>> owners = listDirectory("", cursor.ownerOffset(), 1);
+    if (owners.isEmpty()) {
+      return new ProfileImageObjectPage(List.of(), cursor.wrap(), true);
     }
-    int end = Math.min(keys.size(), Math.addExact(offset, limit));
-    return new ProfileImageObjectPage(keys.subList(offset, end), end < keys.size());
+    String owner = requireFolder(owners.getFirst(), "");
+    List<Map<?, ?>> profiles = listDirectory(owner, 0, 1);
+    if (profiles.size() != 1 || !"profile".equals(requireFolder(profiles.getFirst(), owner))) {
+      return new ProfileImageObjectPage(List.of(), cursor.nextOwner(), false);
+    }
+    String prefix = owner + "/profile";
+    List<Map<?, ?>> objects = listDirectory(prefix, cursor.objectOffset(), limit);
+    List<String> keys = objects.stream().map(row -> requireObject(row, prefix)).sorted().toList();
+    ProfileImageScanCursor next =
+        objects.size() == limit ? cursor.nextObjects(objects.size()) : cursor.nextOwner();
+    return new ProfileImageObjectPage(keys, next, false);
   }
 
   @Override
@@ -113,54 +123,50 @@ final class SupabaseProfileImageMetadataReader
   }
 
   @SuppressWarnings("unchecked")
-  private void listDirectory(String prefix, int limit, List<String> keys, int[] pages) {
-    List<String> folders = new ArrayList<>();
-    int directoryOffset = 0;
-    while (true) {
-      if (++pages[0] > MAXIMUM_CATALOG_PAGES) {
-        throw ProfileImageException.storageUnavailable();
-      }
-      byte[] body =
-          objectMapper.writeValueAsBytes(
-              Map.of(
-                  "prefix", prefix,
-                  "limit", limit,
-                  "offset", directoryOffset,
-                  "sortBy", Map.of("column", "name", "order", "asc")));
-      ProfileImageStorageHttpResponse response =
-          exchange("POST", "/storage/v1/object/list/profile-images", body, MAXIMUM_LIST_BYTES);
-      if (response.status() != 200) {
-        throw ProfileImageException.storageUnavailable();
-      }
-      Object decoded = objectMapper.readValue(response.body(), List.class);
-      if (!(decoded instanceof List<?> rows)) {
-        throw ProfileImageException.storageUnavailable();
-      }
-      for (Object row : rows) {
-        if (!(row instanceof Map<?, ?> item)) {
-          throw ProfileImageException.storageUnavailable();
-        }
-        String name = string(item, "name");
-        String fullName = prefix.isEmpty() ? name : prefix + "/" + name;
-        Object id = item.get("id");
-        if (id == null) {
-          requireCatalogFolder(fullName);
-          folders.add(fullName);
-        } else if (id instanceof String objectId && !objectId.isBlank()) {
-          requireCanonicalObjectKey(fullName);
-          keys.add(fullName);
-        } else {
-          throw ProfileImageException.storageUnavailable();
-        }
-      }
-      if (rows.size() < limit) {
-        break;
-      }
-      directoryOffset = Math.addExact(directoryOffset, limit);
+  private List<Map<?, ?>> listDirectory(String prefix, int offset, int limit) {
+    byte[] body =
+        objectMapper.writeValueAsBytes(
+            Map.of(
+                "prefix", prefix,
+                "limit", limit,
+                "offset", offset,
+                "sortBy", Map.of("column", "name", "order", "asc")));
+    ProfileImageStorageHttpResponse response =
+        exchange("POST", "/storage/v1/object/list/profile-images", body, MAXIMUM_LIST_BYTES);
+    if (response.status() != 200) {
+      throw ProfileImageException.storageUnavailable();
     }
-    for (String folder : folders) {
-      listDirectory(folder, limit, keys, pages);
+    Object decoded = objectMapper.readValue(response.body(), List.class);
+    if (!(decoded instanceof List<?> rows)) {
+      throw ProfileImageException.storageUnavailable();
     }
+    List<Map<?, ?>> result = new ArrayList<>(rows.size());
+    for (Object row : rows) {
+      if (!(row instanceof Map<?, ?> item)) {
+        throw ProfileImageException.storageUnavailable();
+      }
+      result.add(item);
+    }
+    return List.copyOf(result);
+  }
+
+  private static String requireFolder(Map<?, ?> item, String prefix) {
+    if (item.get("id") != null) {
+      throw ProfileImageException.storageUnavailable();
+    }
+    String name = string(item, "name");
+    String fullName = prefix.isEmpty() ? name : prefix + "/" + name;
+    requireCatalogFolder(fullName);
+    return name;
+  }
+
+  private static String requireObject(Map<?, ?> item, String prefix) {
+    if (!(item.get("id") instanceof String id) || id.isBlank()) {
+      throw ProfileImageException.storageUnavailable();
+    }
+    String fullName = prefix + "/" + string(item, "name");
+    requireCanonicalObjectKey(fullName);
+    return fullName;
   }
 
   @SuppressWarnings("unchecked")
@@ -201,35 +207,35 @@ final class SupabaseProfileImageMetadataReader
       throw ProfileImageException.storageUnavailable();
     }
     Object rawMetadata = root.get("metadata");
-    if (!(rawMetadata instanceof Map<?, ?> metadata)) {
+    if (!(rawMetadata instanceof Map<?, ?> userMetadata)) {
       throw ProfileImageException.storageUnavailable();
     }
-    Object rawUserMetadata = root.get("user_metadata");
-    if (!(rawUserMetadata instanceof Map<?, ?> userMetadata)) {
-      throw ProfileImageException.storageUnavailable();
-    }
+    ProfileImageOwnershipProof proof = ProfileImageOwnershipProof.fromCanonicalKey(expectedKey);
     String key = string(root, "name");
     if (!expectedKey.equals(key) || !"profile-images".equals(string(root, "bucket_id"))) {
       throw ProfileImageException.notFound();
     }
-    String ownerValue = string(root, "owner_id");
-    UUID owner = UUID.fromString(ownerValue);
-    if (!owner.toString().equals(ownerValue)) {
-      throw ProfileImageException.storageUnavailable();
-    }
-    if (!expectedKey.startsWith(ownerValue + "/profile/")) {
-      throw ProfileImageException.notFound();
-    }
+    requireOpaqueInfoField(root, "id");
+    requireOpaqueInfoField(root, "version");
     String generation = string(userMetadata, "generation");
-    String expectedGeneration = expectedKey.substring(expectedKey.lastIndexOf('/') + 1);
-    if (!UUID.fromString(generation).toString().equals(generation)
-        || !expectedGeneration.equals(generation)) {
+    if (!proof.generation().equals(generation)) {
       throw ProfileImageException.storageUnavailable();
     }
-    String mime = string(metadata, "mimetype");
-    long size = number(metadata, "size").longValueExact();
-    Instant updatedAt = Instant.parse(string(root, "updated_at"));
-    return new ProfileImageMetadata(key, owner, mime, size, null, updatedAt);
+    String mime = string(root, "content_type");
+    long size = number(root, "size").longValueExact();
+    String etag = string(root, "etag");
+    if (!STRONG_ETAG.matcher(etag).matches()) {
+      throw ProfileImageException.storageUnavailable();
+    }
+    Instant updatedAt = Instant.parse(string(root, "last_modified"));
+    return new ProfileImageMetadata(key, proof.ownerId(), mime, size, etag, updatedAt);
+  }
+
+  private static void requireOpaqueInfoField(Map<?, ?> root, String key) {
+    String value = string(root, key);
+    if (value.length() > 256 || value.chars().anyMatch(Character::isISOControl)) {
+      throw ProfileImageException.storageUnavailable();
+    }
   }
 
   private Optional<String> head(String objectKey) {

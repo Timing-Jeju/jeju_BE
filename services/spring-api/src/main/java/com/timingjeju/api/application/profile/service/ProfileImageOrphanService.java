@@ -3,6 +3,8 @@ package com.timingjeju.api.application.profile.service;
 import com.timingjeju.api.application.profile.ProfileImageCleanupStore;
 import com.timingjeju.api.application.profile.ProfileImageMetadata;
 import com.timingjeju.api.application.profile.ProfileImageObjectPage;
+import com.timingjeju.api.application.profile.ProfileImageOrphanScanCursorStore;
+import com.timingjeju.api.application.profile.ProfileImageScanCursor;
 import com.timingjeju.api.application.profile.ProfileImageStorageCatalog;
 import com.timingjeju.api.application.profile.ProfileImageStorageMetadataReader;
 import java.time.Clock;
@@ -15,6 +17,7 @@ public final class ProfileImageOrphanService {
   private final ProfileImageStorageMetadataReader metadataReader;
   private final ProfileImageStorageCatalog catalog;
   private final ProfileImageCleanupStore store;
+  private final ProfileImageOrphanScanCursorStore cursors;
   private final Clock clock;
   private final Duration grace;
   private final int pageSize;
@@ -24,6 +27,7 @@ public final class ProfileImageOrphanService {
       ProfileImageStorageMetadataReader metadataReader,
       ProfileImageStorageCatalog catalog,
       ProfileImageCleanupStore store,
+      ProfileImageOrphanScanCursorStore cursors,
       Clock clock,
       Duration grace,
       int pageSize,
@@ -31,6 +35,7 @@ public final class ProfileImageOrphanService {
     this.metadataReader = Objects.requireNonNull(metadataReader);
     this.catalog = Objects.requireNonNull(catalog);
     this.store = Objects.requireNonNull(store);
+    this.cursors = Objects.requireNonNull(cursors);
     this.clock = Objects.requireNonNull(clock);
     this.grace = Objects.requireNonNull(grace);
     this.pageSize = pageSize;
@@ -41,9 +46,10 @@ public final class ProfileImageOrphanService {
     Instant now = clock.instant();
     Instant cutoff = now.minus(grace);
     int enqueued = 0;
-    int offset = 0;
+    ProfileImageScanCursor expected = cursors.load();
+    ProfileImageScanCursor cursor = expected;
     for (int pageNumber = 0; pageNumber < maximumPages; pageNumber++) {
-      ProfileImageObjectPage page = catalog.list(offset, pageSize);
+      ProfileImageObjectPage page = catalog.list(cursor, pageSize);
       for (String objectKey : page.objectKeys()) {
         try {
           ProfileImageMetadata metadata = metadataReader.read(objectKey).orElse(null);
@@ -57,10 +63,13 @@ public final class ProfileImageOrphanService {
           // A malformed or concurrently removed generation is never enqueued or deleted.
         }
       }
-      if (!page.hasMore()) {
+      cursor = page.nextCursor();
+      if (page.cycleComplete()) {
         break;
       }
-      offset = Math.addExact(offset, pageSize);
+    }
+    if (!cursors.advance(expected, cursor)) {
+      throw com.timingjeju.api.application.profile.ProfileImageException.storageUnavailable();
     }
     return enqueued;
   }

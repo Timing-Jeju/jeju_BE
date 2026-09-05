@@ -6,6 +6,8 @@ import com.timingjeju.api.application.profile.ProfileImageCleanupJob;
 import com.timingjeju.api.application.profile.ProfileImageCleanupStore;
 import com.timingjeju.api.application.profile.ProfileImageMetadata;
 import com.timingjeju.api.application.profile.ProfileImageObjectPage;
+import com.timingjeju.api.application.profile.ProfileImageOrphanScanCursorStore;
+import com.timingjeju.api.application.profile.ProfileImageScanCursor;
 import com.timingjeju.api.application.profile.ProfileImageStorageCatalog;
 import java.time.Clock;
 import java.time.Duration;
@@ -33,8 +35,12 @@ class ProfileImageOrphanServiceTest {
   @Test
   void list_pagination은_끝까지_진행하고_grace보다_strictly_old만_enqueue한다() {
     RecordingCatalog catalog = new RecordingCatalog();
-    catalog.pages.add(new ProfileImageObjectPage(List.of(OLD, EQUALITY), true));
-    catalog.pages.add(new ProfileImageObjectPage(List.of(RECENT, INVALID), false));
+    catalog.pages.add(
+        new ProfileImageObjectPage(
+            List.of(OLD, EQUALITY), new ProfileImageScanCursor(0, 2, 0), false));
+    catalog.pages.add(
+        new ProfileImageObjectPage(
+            List.of(RECENT, INVALID), new ProfileImageScanCursor(0, 0, 1), true));
     Map<String, ProfileImageMetadata> metadata =
         Map.of(
             OLD, metadata(OLD, NOW.minus(GRACE).minusMillis(1)),
@@ -50,6 +56,7 @@ class ProfileImageOrphanServiceTest {
                 key -> Optional.ofNullable(metadata.get(key)),
                 catalog,
                 store,
+                new RecordingCursorStore(),
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 GRACE,
                 2,
@@ -57,27 +64,91 @@ class ProfileImageOrphanServiceTest {
             .scanOnce();
 
     assertThat(enqueued).isEqualTo(1);
-    assertThat(catalog.offsets).containsExactly(0, 2);
+    assertThat(catalog.cursors)
+        .containsExactly(ProfileImageScanCursor.initial(), new ProfileImageScanCursor(0, 2, 0));
     assertThat(store.enqueued).extracting(ProfileImageMetadata::objectKey).containsExactly(OLD);
   }
 
   @Test
   void pagination은_configured_max_pages에서_반드시_중단한다() {
     RecordingCatalog catalog = new RecordingCatalog();
-    catalog.pages.add(new ProfileImageObjectPage(List.of(OLD), true));
-    catalog.pages.add(new ProfileImageObjectPage(List.of(OLD), true));
+    catalog.pages.add(
+        new ProfileImageObjectPage(List.of(OLD), new ProfileImageScanCursor(0, 1, 0), false));
+    catalog.pages.add(
+        new ProfileImageObjectPage(List.of(OLD), new ProfileImageScanCursor(0, 2, 0), false));
+    RecordingCursorStore cursors = new RecordingCursorStore();
 
     new ProfileImageOrphanService(
             key -> Optional.of(metadata(key, NOW.minus(GRACE).minusSeconds(1))),
             catalog,
             new RecordingStore(),
+            cursors,
             Clock.fixed(NOW, ZoneOffset.UTC),
             GRACE,
             1,
             2)
         .scanOnce();
 
-    assertThat(catalog.offsets).containsExactly(0, 1);
+    assertThat(catalog.cursors)
+        .containsExactly(ProfileImageScanCursor.initial(), new ProfileImageScanCursor(0, 1, 0));
+    assertThat(cursors.current).isEqualTo(new ProfileImageScanCursor(0, 2, 0));
+  }
+
+  @Test
+  void durable_cursor는_재시작후_1001개_fixed_front_current를_지나_orphan에_도달한다() {
+    RecordingCursorStore cursors = new RecordingCursorStore();
+    RecordingStore store = new RecordingStore();
+    ProfileImageStorageCatalog catalog =
+        (cursor, limit) ->
+            new ProfileImageObjectPage(
+                List.of(cursor.objectOffset() == 1001 ? OLD : RECENT),
+                cursor.nextObjects(1),
+                false);
+
+    for (int tick = 0; tick <= 1001; tick++) {
+      service(catalog, store, cursors, 1).scanOnce();
+    }
+
+    assertThat(cursors.current).isEqualTo(new ProfileImageScanCursor(0, 1002, 0));
+    assertThat(store.enqueued).extracting(ProfileImageMetadata::objectKey).containsExactly(OLD);
+  }
+
+  @Test
+  void 앞쪽_delete로_offset이_당겨져_skip되어도_cycle_wrap후_다음_tick에_재방문한다() {
+    RecordingCursorStore cursors = new RecordingCursorStore();
+    cursors.current = new ProfileImageScanCursor(0, 1, 0);
+    RecordingStore store = new RecordingStore();
+    RecordingCatalog skipped = new RecordingCatalog();
+    skipped.pages.add(
+        new ProfileImageObjectPage(List.of(), new ProfileImageScanCursor(1, 0, 0), false));
+    skipped.pages.add(
+        new ProfileImageObjectPage(List.of(), new ProfileImageScanCursor(0, 0, 1), true));
+
+    service(skipped, store, cursors, 10).scanOnce();
+
+    RecordingCatalog nextCycle = new RecordingCatalog();
+    nextCycle.pages.add(
+        new ProfileImageObjectPage(List.of(OLD), new ProfileImageScanCursor(0, 1, 1), false));
+    service(nextCycle, store, cursors, 1).scanOnce();
+
+    assertThat(nextCycle.cursors).containsExactly(new ProfileImageScanCursor(0, 0, 1));
+    assertThat(store.enqueued).extracting(ProfileImageMetadata::objectKey).containsExactly(OLD);
+  }
+
+  private static ProfileImageOrphanService service(
+      ProfileImageStorageCatalog catalog,
+      RecordingStore store,
+      RecordingCursorStore cursors,
+      int maximumPages) {
+    return new ProfileImageOrphanService(
+        key -> Optional.of(metadata(key, key.equals(OLD) ? NOW.minus(GRACE).minusSeconds(1) : NOW)),
+        catalog,
+        store,
+        cursors,
+        Clock.fixed(NOW, ZoneOffset.UTC),
+        GRACE,
+        1,
+        maximumPages);
   }
 
   private static String key(String generation) {
@@ -90,12 +161,30 @@ class ProfileImageOrphanServiceTest {
 
   private static final class RecordingCatalog implements ProfileImageStorageCatalog {
     private final List<ProfileImageObjectPage> pages = new ArrayList<>();
-    private final List<Integer> offsets = new ArrayList<>();
+    private final List<ProfileImageScanCursor> cursors = new ArrayList<>();
 
     @Override
-    public ProfileImageObjectPage list(int offset, int limit) {
-      offsets.add(offset);
+    public ProfileImageObjectPage list(ProfileImageScanCursor cursor, int limit) {
+      cursors.add(cursor);
       return pages.removeFirst();
+    }
+  }
+
+  private static final class RecordingCursorStore implements ProfileImageOrphanScanCursorStore {
+    private ProfileImageScanCursor current = ProfileImageScanCursor.initial();
+
+    @Override
+    public ProfileImageScanCursor load() {
+      return current;
+    }
+
+    @Override
+    public boolean advance(ProfileImageScanCursor expected, ProfileImageScanCursor next) {
+      if (!current.equals(expected)) {
+        return false;
+      }
+      current = next;
+      return true;
     }
   }
 

@@ -4,6 +4,7 @@ import com.timingjeju.api.application.profile.CurrentUserProvisioningService;
 import com.timingjeju.api.application.profile.ProfileImageCleanupStore;
 import com.timingjeju.api.application.profile.ProfileImageException;
 import com.timingjeju.api.application.profile.ProfileImageMutationExecutor;
+import com.timingjeju.api.application.profile.ProfileImageOrphanScanCursorStore;
 import com.timingjeju.api.application.profile.ProfileImagePublicUrl;
 import com.timingjeju.api.application.profile.ProfileImageStorageCatalog;
 import com.timingjeju.api.application.profile.ProfileImageStorageMetadataReader;
@@ -101,8 +102,9 @@ public class ProfileImageConfiguration {
       ProfileImageStorageMetadataReader metadataReader,
       ProfileImageStorageCatalog catalog,
       ProfileImageCleanupStore store,
+      ProfileImageOrphanScanCursorStore cursors,
       Clock clock) {
     return new ProfileImageOrphanService(
-        metadataReader, catalog, store, clock, Duration.ofHours(24), 100, 10);
+        metadataReader, catalog, store, cursors, clock, Duration.ofHours(24), 100, 10);
   }
 }

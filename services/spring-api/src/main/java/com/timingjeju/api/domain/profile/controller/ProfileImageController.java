@@ -70,7 +70,11 @@ public class ProfileImageController implements ProfileImageApiDocs {
 
   private ProfileImageRequest parse(byte[] body) {
     try {
-      return jsonReader.readValue(body);
+      ProfileImageRequest request = jsonReader.readValue(body);
+      if (request == null) {
+        throw com.timingjeju.api.application.profile.ProfileImageException.invalidRequest();
+      }
+      return request;
     } catch (JacksonException failure) {
       throw com.timingjeju.api.application.profile.ProfileImageException.invalidRequest();
     }

@@ -198,6 +198,20 @@ class ProfileImageControllerIntegrationTest {
   }
 
   @Test
+  void PUT_profile_image의_JSON_null은_service전에_canonical_400으로_닫는다() throws Exception {
+    mvc.perform(
+            put("/api/v1/me/profile-image")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("Idempotency-Key", "profile-image-confirm-78")
+                .header(HttpHeaders.IF_MATCH, "\"profile-image-0\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("null"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_PROFILE_IMAGE_REQUEST"));
+    verifyNoInteractions(service);
+  }
+
+  @Test
   void PUT_profile_image는_valid_JSON뒤의_second_JSON을_service전에_400으로_거부한다() throws Exception {
     mvc.perform(
             put("/api/v1/me/profile-image")
@@ -243,8 +257,24 @@ class ProfileImageControllerIntegrationTest {
                 .value(true))
         .andExpect(
             jsonPath(
+                    "$.paths['/api/v1/me/profile-image'].put.parameters[?(@.name=='Idempotency-Key')].schema.type")
+                .value("string"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/profile-image'].put.parameters[?(@.name=='Idempotency-Key')].schema.minLength")
+                .value(1))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/profile-image'].put.parameters[?(@.name=='Idempotency-Key')].schema.maxLength")
+                .value(128))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/profile-image'].put.parameters[?(@.name=='Idempotency-Key')].schema.pattern")
+                .value("^[\\x20-\\x7E]{1,128}$"))
+        .andExpect(
+            jsonPath(
                     "$.paths['/api/v1/me/profile-image'].put.parameters[?(@.name=='Idempotency-Key')].schema.format")
-                .value("uuid"))
+                .doesNotExist())
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/me/profile-image'].put.parameters[?(@.name=='If-Match')].required")
