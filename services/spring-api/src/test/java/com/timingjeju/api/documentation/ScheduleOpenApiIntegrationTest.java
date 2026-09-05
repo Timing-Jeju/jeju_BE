@@ -172,6 +172,30 @@ class ScheduleOpenApiIntegrationTest {
   }
 
   @Test
+  void schedule_edit_OpenAPI_example은_실행가능한_단일_reference와_DELETE_empty_changedIds를_쓴다()
+      throws Exception {
+    JsonNode document =
+        objectMapper.readTree(
+            mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray());
+    JsonNode patch =
+        document.at(
+            "/paths/~1api~1v1~1trips~1{tripId}~1schedule-items~1{itemId}/patch/requestBody/content/application~1json/example");
+    JsonNode deleted =
+        document.at(
+            "/paths/~1api~1v1~1trips~1{tripId}~1schedule-items~1{itemId}/delete/responses/200/content/application~1json/example");
+
+    assertThat(patch.path("placeId").isTextual()).isTrue();
+    assertThat(patch.has("accommodationId")).isFalse();
+    assertThat(patch.has("transportEventId")).isFalse();
+    assertThat(deleted.path("changedItemIds").isArray()).isTrue();
+    assertThat(deleted.path("changedItemIds")).isEmpty();
+  }
+
+  @Test
   void schedule_item_create_Idempotency_Key_pattern은_canonical_contract와_문자열까지_같다()
       throws Exception {
     String document =

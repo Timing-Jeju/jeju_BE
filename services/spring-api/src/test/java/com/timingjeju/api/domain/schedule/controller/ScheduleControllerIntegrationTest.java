@@ -283,6 +283,80 @@ class ScheduleControllerIntegrationTest {
   }
 
   @Test
+  void PATCH는_JSON_scalar_coercion을_모두_400으로_거부하고_mutation을_호출하지_않는다() throws Exception {
+    for (String field : List.of("\"stayMinutes\":1.9", "\"memo\":123", "\"required\":\"true\"")) {
+      mvc.perform(
+              patch(
+                      "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+                      TRIP_ID,
+                      "49000000-0000-0000-0000-000000000005")
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", UUID.randomUUID().toString())
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      "{\"expectedActiveScheduleVersionId\":\"" + VERSION_ID + "\"," + field + "}"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+    verifyNoInteractions(mutations);
+  }
+
+  @Test
+  void reorder는_nested_null과_잘못된_scalar_collection을_400으로_거부한다() throws Exception {
+    for (String days :
+        List.of(
+            "[null]",
+            "[{\"dayNo\":1,\"orderedItemIds\":[null]}]",
+            "[{\"dayNo\":1.9,\"orderedItemIds\":[\"49000000-0000-0000-0000-000000000005\"]}]",
+            "[{\"dayNo\":1,\"orderedItemIds\":\"49000000-0000-0000-0000-000000000005\"}]")) {
+      mvc.perform(
+              put("/api/v1/trips/{tripId}/schedule-order", TRIP_ID)
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", UUID.randomUUID().toString())
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      "{\"expectedActiveScheduleVersionId\":\""
+                          + VERSION_ID
+                          + "\",\"days\":"
+                          + days
+                          + "}"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+    verifyNoInteractions(mutations);
+  }
+
+  @Test
+  void MOVE는_숫자와_문자열_scalar_coercion을_400으로_거부한다() throws Exception {
+    for (String fields :
+        List.of(
+            "\"targetDayNo\":1.9,\"targetSequenceNo\":1,\"plannedStartAt\":\"2026-09-02T10:20:00+09:00\"",
+            "\"targetDayNo\":2,\"targetSequenceNo\":\"1\",\"plannedStartAt\":\"2026-09-02T10:20:00+09:00\"",
+            "\"targetDayNo\":2,\"targetSequenceNo\":1,\"plannedStartAt\":123")) {
+      mvc.perform(
+              post(
+                      "/api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+                      TRIP_ID,
+                      "49000000-0000-0000-0000-000000000005")
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", UUID.randomUUID().toString())
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      "{\"expectedActiveScheduleVersionId\":\""
+                          + VERSION_ID
+                          + "\","
+                          + fields
+                          + "}"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+    verifyNoInteractions(mutations);
+  }
+
+  @Test
   void DELETE_reorder_MOVE는_각_canonical_route와_멱등성_scope로_200을_반환한다() throws Exception {
     UUID newVersionId = UUID.fromString("49000000-0000-0000-0000-000000000008");
     ScheduleMutationResult result =
