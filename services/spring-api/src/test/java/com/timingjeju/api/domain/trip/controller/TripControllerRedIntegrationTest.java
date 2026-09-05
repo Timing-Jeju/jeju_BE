@@ -282,6 +282,22 @@ class TripControllerRedIntegrationTest {
   }
 
   @Test
+  void PATCH_trip의_calendar_child_constraint는_422_problem으로_반환한다() throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    when(tripService.update(any(), eq(tripId), any(), any()))
+        .thenThrow(TripException.constraintViolation());
+
+    mvc.perform(
+            patch("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header(HttpHeaders.IF_MATCH, "\"trip-" + tripId + "-r7\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"endDate\":\"2026-09-02\"}"))
+        .andExpect(status().isUnprocessableContent())
+        .andExpect(jsonPath("$.code").value("TRIP_CONSTRAINT_VIOLATION"));
+  }
+
+  @Test
   void trips_controller의_공용_problem은_trips_fixture_3개와_exact_8필드다() throws Exception {
     JsonNode fixture =
         objectMapper.readTree(
