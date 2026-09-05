@@ -101,36 +101,57 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
     def test_legacy_rows_are_audited_before_required_reference_check(self) -> None:
         """기존 typed item의 누락·오염 참조는 CHECK 설치 전에 식별 가능한 오류로 중단된다."""
         migration = self.migration()
+        legacy = self.section(migration, "do $$", "alter table public.trip_transport_events")
         audit = "legacy schedule item required reference audit failed"
         check = "add constraint chk_trip_items_required_references"
 
-        self.assertIn(audit, migration)
-        self.assertIn("item_id=%s", migration)
-        self.assertIn("item_type=%s", migration)
+        self.assertIn(audit, legacy)
+        self.assertIn("item_id=%s", legacy)
+        self.assertIn("item_type=%s", legacy)
+        self.assertIn("trip_plan_id=%s", legacy)
+        self.assertIn("invalid_fields=%s", legacy)
         self.assertLess(migration.index(audit), migration.index(check))
-        self.assertIn("item_type = 'accommodation' and accommodation_id is not null", migration)
+        self.assert_current_reference_predicate(legacy, "item")
         self.assertIn(
-            "item.item_type in ('arrival', 'departure') and item.accommodation_id is null "
-            "and item.transport_event_id is not null",
-            migration,
+            "accommodation.id = item.accommodation_id and "
+            "accommodation.trip_plan_id = item.trip_plan_id",
+            legacy,
         )
-        self.assertIn("event.event_type = item.item_type", migration)
+        self.assertIn(
+            "event.id = item.transport_event_id and event.trip_plan_id = item.trip_plan_id",
+            legacy,
+        )
+        self.assertIn("item.item_type = 'accommodation' and accommodation.id is null", legacy)
+        self.assertIn("event.id is null or event.event_type <> item.item_type", legacy)
 
     def test_check_and_trigger_enforce_type_consistency_and_trip_ownership(self) -> None:
         """새 일정 항목은 유형별 필수 참조·상호 배타성과 동일 여행 소유를 모두 지킨다."""
         migration = self.migration()
+        check = self.section(
+            migration,
+            "add constraint chk_trip_items_required_references check",
+            "create function public.validate_trip_item_required_references()",
+        )
+        trigger = self.section(
+            migration,
+            "create function public.validate_trip_item_required_references()",
+            "create trigger trg_trip_items_required_references",
+        )
 
-        self.assertIn("add constraint chk_trip_items_required_references check", migration)
-        self.assertIn("item_type = 'accommodation'", migration)
-        self.assertIn("item_type in ('arrival', 'departure')", migration)
-        self.assertIn("item_type not in ('accommodation', 'arrival', 'departure')", migration)
-        self.assertIn("accommodation_id is null", migration)
-        self.assertIn("transport_event_id is null", migration)
-        self.assertIn("create function public.validate_trip_item_required_references()", migration)
-        self.assertIn("event.trip_plan_id = new.trip_plan_id", migration)
-        self.assertIn("event.event_type = new.item_type", migration)
-        self.assertIn("accommodation.trip_plan_id = new.trip_plan_id", migration)
-        self.assertIn("trg_trip_items_required_references", migration)
+        self.assert_current_reference_predicate(check, "")
+        self.assert_current_reference_predicate(trigger, "new")
+        self.assertIn("if not (", trigger)
+        self.assertIn("accommodation.id = new.accommodation_id", trigger)
+        self.assertIn("accommodation.trip_plan_id = new.trip_plan_id", trigger)
+        self.assertIn("event.id = new.transport_event_id", trigger)
+        self.assertIn("event.trip_plan_id = new.trip_plan_id", trigger)
+        self.assertIn("event.event_type = new.item_type", trigger)
+        self.assertIn("if not exists", trigger)
+        self.assertIn(
+            "before insert or update of item_type, trip_plan_id, place_id, accommodation_id, "
+            "transport_event_id, title",
+            migration,
+        )
 
     def test_transport_event_type_is_an_atomic_composite_foreign_key(self) -> None:
         """교통 이벤트 유형과 item 유형은 동시 쓰기에도 깨지지 않는 복합 FK로 묶인다."""
@@ -173,11 +194,28 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
     def test_sealing_assertion_rechecks_required_references(self) -> None:
         """CHECK를 우회한 legacy 행도 candidate·active 봉인 시 공용 assertion에서 거부된다."""
         migration = self.migration()
+        sealing = self.section(
+            migration,
+            "create function public.assert_schedule_item_required_references(",
+            "-- preserve the mature timeline/leg assertion",
+        )
 
         self.assertIn("create function public.assert_schedule_version_sealable", migration)
         self.assertIn("perform public.assert_schedule_item_required_references", migration)
-        self.assertIn("target_schedule_version_id", migration)
-        self.assertIn("target_trip_plan_id", migration)
+        self.assert_current_reference_predicate(sealing, "item")
+        self.assertIn("item.schedule_version_id = target_schedule_version_id", sealing)
+        self.assertIn("item.trip_plan_id = target_trip_plan_id", sealing)
+        self.assertIn(
+            "accommodation.id = item.accommodation_id and "
+            "accommodation.trip_plan_id = item.trip_plan_id",
+            sealing,
+        )
+        self.assertIn(
+            "event.id = item.transport_event_id and event.trip_plan_id = item.trip_plan_id",
+            sealing,
+        )
+        self.assertIn("item.item_type = 'accommodation' and accommodation.id is null", sealing)
+        self.assertIn("event.id is null or event.event_type <> item.item_type", sealing)
 
     def test_assertion_and_trigger_helpers_are_not_client_executable(self) -> None:
         """public assertion과 trigger helper는 클라이언트 역할에 EXECUTE를 노출하지 않는다."""
