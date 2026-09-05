@@ -71,3 +71,12 @@ heavy quality gate는 실행하지 않았다. 따라서 이 변경은 해당 검
   현재 canonical인 `Spring 신규 writer 없음; TMAP 저장 금지`와 어긋났다.
 - Green: 테스트를 현재 AI runtime memory-only·Spring writer 0 소유권 문구에 맞추되,
   TMAP 원문·geometry·개별 metric 비영속 assertion은 그대로 보존했다.
+
+## 2026-09-05 Reviewer 서비스 경계 보완
+
+- Red: `MobilityOwnershipContractTest`에 Spring 적재 외부 API와 AI TMAP 호출을 구분하는 회귀
+  테스트를 먼저 추가했다. 기존 서비스 경계의 포괄적인 `DB와 외부 API는 Spring API가 담당`
+  문구 때문에 3개 테스트 중 신규 테스트 1개가 실패했다.
+- Green: Spring은 제품 DB 및 TourAPI·TAGO·KMA 적재를, AI 계산 런타임은 승인된 TMAP route
+  호출을 소유한다고 서비스 경계를 분리했다. FastAPI의 제품 DB·사용자 JWT 직접 접근 금지는
+  유지했다.

@@ -188,10 +188,12 @@ Spring 공개 API · 일정 계산용 facts
 
 ## 서비스 간 경계
 
-- 외부 공개 `/api/v1/**`, 사용자 인증·인가, DB와 외부 API는 Spring API가 담당합니다.
+- 외부 공개 `/api/v1/**`, 사용자 인증·인가와 제품 DB는 Spring API가 담당합니다.
+- TourAPI·TAGO·KMA 외부 API 적재는 Spring API가 담당합니다.
+- 승인된 TMAP route 호출은 AI 계산 런타임이 담당합니다.
 - FastAPI MCP는 private network의 `/mcp`로만 호출합니다.
 - Spring은 정규화된 facts를 전달하고 FastAPI는 계산 결과를 `structuredContent`로 반환합니다.
-- FastAPI는 DB·외부 API·사용자 JWT에 직접 접근하지 않습니다.
+- FastAPI는 제품 DB·사용자 JWT에 직접 접근하지 않습니다.
 - Spring 관점의 wire 계약은 이 저장소의 `docs/designs`에서 관리하고, FastAPI 구현 계약은 [AI 저장소 문서](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)에서 관리합니다.
 - 양쪽 계약을 바꿀 때는 두 저장소에 Issue와 PR을 각각 만들고 계약 버전과 fixture 호환 순서를 먼저 합의합니다.
 

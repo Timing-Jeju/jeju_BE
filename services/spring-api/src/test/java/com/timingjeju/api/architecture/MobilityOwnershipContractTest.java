@@ -49,6 +49,17 @@ class MobilityOwnershipContractTest {
   }
 
   @Test
+  void 서비스경계는_Spring적재_API와_AI_TMAP호출을_구분한다() throws IOException {
+    String architecture = Files.readString(REPOSITORY_ROOT.resolve("docs/ARCHITECTURE.md"));
+
+    assertThat(architecture)
+        .contains("TourAPI·TAGO·KMA 외부 API 적재는 Spring API가 담당합니다")
+        .contains("승인된 TMAP route 호출은 AI 계산 런타임이 담당합니다")
+        .contains("FastAPI는 제품 DB·사용자 JWT에 직접 접근하지 않습니다")
+        .doesNotContain("DB와 외부 API는 Spring API가 담당합니다");
+  }
+
+  @Test
   void MCP_보안계약감사와_공개endpoint_migration_inventory는_유지된다() throws IOException {
     assertThat(
             List.of(
