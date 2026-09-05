@@ -160,17 +160,25 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("command-scoped bijection oldItemIdToNewItemId", policy["itemIdentityMapping"]["mapping"])
         self.assertIn("new item IDs", policy["reuse"])
 
-    def test_db_source_types_and_uuid_idempotency_key_are_exact(self) -> None:
+    def test_db_source_types_and_printable_ascii_idempotency_key_are_exact(self) -> None:
         schemas = self.contract["schemas"]
         db_sources = ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]
         self.assertEqual(db_sources, schemas["ScheduleVersion"]["properties"]["sourceType"]["enum"])
         fixture_sources = json.loads((ROOT / "fixtures/contracts/schedules/success.json").read_text(encoding="utf-8"))["sourceTypeFixtures"]
         self.assertEqual(db_sources, fixture_sources)
         key_schema = schemas["MutationHeaders"]["properties"]["Idempotency-Key"]
-        self.assertEqual({"type": "string", "format": "uuid", "nullable": False}, key_schema)
-        errors = []
-        self.validator._validate_schema_value("not-a-uuid", key_schema, schemas, "Idempotency-Key", errors)
-        self.assertTrue(any("UUID" in error for error in errors))
+        self.assertEqual(
+            {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[ -~]{1,128}$", "nullable": False},
+            key_schema,
+        )
+        for valid in ("!", "printable-key", "~" * 128):
+            errors = []
+            self.validator._validate_schema_value(valid, key_schema, schemas, "Idempotency-Key", errors)
+            self.assertEqual([], errors)
+        for invalid in ("", "x" * 129, "line\nbreak", "제주"):
+            errors = []
+            self.validator._validate_schema_value(invalid, key_schema, schemas, "Idempotency-Key", errors)
+            self.assertTrue(errors)
 
     def test_all_mutations_inherit_fail_fast_idempotency_state_contract(self) -> None:
         endpoint_policy = {
@@ -237,10 +245,10 @@ class SchedulesContractTest(unittest.TestCase):
             },
             "IDEMPOTENCY_KEY_INVALID": {
                 "status": 400,
-                "condition": "Idempotency-Key header is present but is not a canonical UUID",
+                "condition": "Idempotency-Key header is present but is outside 1..128 printable ASCII",
                 "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
                 "title": "멱등성 키가 유효하지 않습니다",
-                "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+                "detail": "1~128자 printable ASCII Idempotency-Key를 입력해 주세요.",
                 "fixture": "400_idempotency_key_invalid",
             },
         }
@@ -366,7 +374,7 @@ class SchedulesContractTest(unittest.TestCase):
             ("endpoint schema binding", lambda c: c["endpoints"][1]["schemas"].update(body="none")),
             ("leg derivation", lambda c: c["legDerivationPolicy"].update(requestTimeCall="private MCP")),
             ("sourceType", lambda c: c["schemas"]["ScheduleVersion"]["properties"]["sourceType"]["enum"].append("bogus")),
-            ("Idempotency-Key UUID", lambda c: c["schemas"]["MutationHeaders"]["properties"]["Idempotency-Key"].pop("format")),
+            ("Idempotency-Key 1~128자 printable ASCII", lambda c: c["schemas"]["MutationHeaders"]["properties"]["Idempotency-Key"].pop("pattern")),
             ("item identity mapping", lambda c: c["legDerivationPolicy"].pop("itemIdentityMapping")),
             ("error condition", lambda c: c["errorConditions"][0].update(condition="different but non-empty condition")),
             ("error condition", lambda c: c["errorConditions"][0].update(code="BOGUS")),

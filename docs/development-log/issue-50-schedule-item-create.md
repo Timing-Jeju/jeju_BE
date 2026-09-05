@@ -83,14 +83,7 @@ Green에서는 기존 `20260907000000`을 수정하지 않고 후속 migration�
 
 여행 aggregate mutation은 #45의 canonical coordinator provenance(`d11b1f7`, `f25cfde`, 최종 `18408bd`)만 최소 이식했다. 일정 item store는 공용 coordinator의 owner lock, terminal/revision fence, root CAS를 사용하고 자체 lock/revision 증분을 제거했다. 일정 version 작성·sealing은 root CAS 전에, active pointer 교체는 CAS 뒤에 같은 transaction에서 수행하며 어느 단계든 실패하면 전체 rollback된다.
 
-- `20260907000001_schedule_item_required_references.sql`을 037 생성 계약 다음 append-only 슬롯에 추가했다.
-- migration은 constraint 설치 전에 legacy typed item을 감사하며, 임의 보정 없이 item ID와 type이 포함된 `23514` 오류로 중단한다.
-- CHECK는 `accommodation_id`와 `transport_event_id`의 유형별 필수·상호 배타성을 강제한다. child trigger는 명확한 오류로 숙소와 교통 이벤트의 동일 여행 소유 및 type 일치를 검사하고, `(transport_event_id, trip_plan_id, item_type)` 복합 FK가 부모 교통 이벤트의 사후 type 변경까지 원자적으로 차단한다.
-- 기존 timeline/leg sealing assertion을 core로 보존하고 공개 `assert_schedule_version_sealable` 진입점에서 required-reference assertion을 함께 실행한다.
-- 새 assertion/trigger helper와 공개 sealing helper는 `PUBLIC`, `anon`, `authenticated`의 EXECUTE를 회수하고 `service_role`에만 부여한다.
-- 세 compose 파일과 legacy/concurrency smoke migration 열에 038 슬롯을 연결했다.
-
-DB-free Green 검증 명령은 다음과 같다.
+DB-free Green 증거는 다음과 같다.
 
 ```text
 ./gradlew --no-daemon test --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateArchitectureSourceTest
@@ -112,6 +105,93 @@ python3 -m unittest scripts.tests.test_push_notification_database scripts.tests.
 4. sealing helper 권한 test를 먼저 추가하고 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest.후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다'`를 실행했다. 정확한 테스트명은 `후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다`이며, `REVOKE EXECUTE ... assert_schedule_item_required_references` 문장이 없어 assertion RED였다. `6532690`에서 PUBLIC/anon/authenticated deny와 service_role allow 및 schema ACL introspection을 Green으로 만들었다. 실행 시각은 `미기록`이다.
 5. terminal trip 공개 계약 RED는 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest.POST_schedule_items는_종료된_trip을_schedule_canonical_409로_반환한다' --tests 'com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest.schedule_item_create는_필수_header_body와_응답을_OpenAPI에_공개한다'`로 실행했다. 정확한 두 테스트는 명령에 적힌 메서드이며 2 tests 모두 실패했다. 실제 HTTP detail은 global trip 문구였고 OpenAPI 409 examples에는 terminal code가 없었다. fixture/contract/runtime/OpenAPI를 정렬한 뒤 두 테스트와 전체 schedule HTTP/OpenAPI focused suite가 Green이 됐다. Python 단일 테스트는 class 이름을 `ScheduleContractTest`로 잘못 지정해 `AttributeError`가 났으며 기능 RED 증거로 계산하지 않는다. 이후 전체 `scripts.tests.test_schedules_contract` 19개 중 fixture instance 중복 1개 실패를 고친 뒤 19개 Green을 확인했다. 실행 시각은 `미기록`이다.
 6. 새 row trigger helper는 table trigger 실행 시 호출자에게 함수 EXECUTE가 필요하지 않고 외부 직접 호출도 필요 없다. 따라서 공개 표면을 남길 이유가 없다고 판단했다. migration source test에 deny 계약을 먼저 추가하고 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest.후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다'`를 실행했다. 정확한 테스트명은 `후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다`이며 `validate_trip_item_required_references()` REVOKE 부재 assertion으로 RED였다. 이후 PUBLIC/anon/authenticated/service_role 모두에서 EXECUTE를 회수하고 schema ACL contract로 고정했다. 당시 RED 및 Green 실행 시각은 `미기록`이며, 앞서 별도로 조회한 `2026-09-04 14:42 KST`는 이 실행의 시각 증거가 아니므로 연결하지 않는다.
+## 병렬 보정 브랜치의 DB required-reference 추가 증거
+
+PR #205 병합 뒤 독립 리뷰에서 `accommodation`, `arrival`, `departure` typed item의 필수 참조가 DB sealing 경계에서 강제되지 않는 문제가 확인됐다. 이 보정은 최신 `origin/develop` `6cfa98fd3e65ba270eceea7150c843b33dbe2a56` 기반 `fix/50-pr205-review-findings`에서 append-only migration으로 진행했다.
+
+### First RED
+
+- 테스트 파일: `scripts/tests/test_schedule_item_required_references.py`
+- 명령: `python3 -m unittest scripts.tests.test_schedule_item_required_references`
+- 정확한 시나리오:
+  - `test_append_only_migration_uses_slot_038_before_seed_everywhere`
+  - `test_legacy_rows_are_audited_before_required_reference_check`
+  - `test_check_and_trigger_enforce_type_consistency_and_trip_ownership`
+  - `test_sealing_assertion_rechecks_required_references`
+  - `test_assertion_and_trigger_helpers_are_not_client_executable`
+- 예상 실패: `20260907000001_schedule_item_required_references.sql`과 038 compose/smoke mount가 아직 없어 5개 테스트가 실패했다. compose subtest를 포함한 unittest 출력은 `FAILED (failures=8)`이었다.
+
+### 최소 GREEN
+
+- `20260907000001_schedule_item_required_references.sql`을 037 생성 계약 다음 append-only 슬롯에 추가했다.
+- migration은 constraint 설치 전에 legacy typed item을 감사하며, 임의 보정 없이 item ID와 type이 포함된 `23514` 오류로 중단한다.
+- CHECK는 `accommodation_id`와 `transport_event_id`의 유형별 필수·상호 배타성을 강제한다. child trigger는 명확한 오류로 숙소와 교통 이벤트의 동일 여행 소유 및 type 일치를 검사하고, `(transport_event_id, trip_plan_id, item_type)` 복합 FK가 부모 교통 이벤트의 사후 type 변경까지 원자적으로 차단한다.
+- 기존 timeline/leg sealing assertion을 core로 보존하고 공개 `assert_schedule_version_sealable` 진입점에서 required-reference assertion을 함께 실행한다.
+- 새 assertion/trigger helper와 공개 sealing helper는 `PUBLIC`, `anon`, `authenticated`의 EXECUTE를 회수하고 `service_role`에만 부여한다.
+- 세 compose 파일과 legacy/concurrency smoke migration 열에 038 슬롯을 연결했다.
+
+검증 명령:
+
+```text
+python3 -m unittest \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database
+# Ran 11 tests ... OK
+```
+
+더 넓은 `test_database_hardening`, `test_schedule_consistency_hardening` 및 schedule canonical
+계약까지 포함한 최종 Python focused 묶음 99건도 모두 통과했다. 실제 PostgreSQL,
+Testcontainers, Docker smoke, full quality gate와 live Supabase 적용은 이 시점에는 실행하지
+않았으며 아래 통합 검증에서 별도로 확인한다.
+
+## 병합 후 terminal 여행 공개 계약 보정
+
+일정 항목 추가 저장소가 `completed`, `cancelled`, `failed` 여행을 변경할 수 있었고 schedule
+canonical 계약과 생성 OpenAPI도 `409 TRIP_TERMINAL_STATE_CONFLICT`를 공개하지 않던 리뷰
+finding을 TDD로 보정했다.
+
+### First RED
+
+- 테스트: `test_schedule_mutations_reject_terminal_trip_with_canonical_conflict`
+- 명령: `python3 -m unittest scripts.tests.test_schedules_contract.SchedulesContractTest.test_schedule_mutations_reject_terminal_trip_with_canonical_conflict`
+- 기대: 다섯 schedule mutation의 `409` matrix와 canonical Problem fixture에 `TRIP_TERMINAL_STATE_CONFLICT`가 존재한다.
+- 실제 실패: `conditions["TRIP_TERMINAL_STATE_CONFLICT"]` 조회에서 `KeyError: 'TRIP_TERMINAL_STATE_CONFLICT'`, `FAILED (errors=1)`.
+
+### 최소 GREEN
+
+- 일정 저장소와 여행 저장소가 함께 사용하는 `TripAggregateMutationCoordinator`를 추가했다.
+  이 coordinator가 owner row lock, strong ETag 검증, terminal 상태 차단과 schedule pointer
+  revision CAS를 소유하며 일정 adapter의 중복 lock/CAS SQL을 제거했다.
+- 다섯 mutation error matrix, schedule error condition과 Problem fixture를 같은 `409` code/type/title/detail로 닫았다.
+- `ScheduleProblemDefinitions`의 mutation 전용 정의를 추가해 전역 다른 domain 문구에 의존하지 않고 실제 schedule 응답을 fixture와 일치시켰다.
+- POST 일정 항목 추가 OpenAPI 전체 Problem 집합과 runtime manifest에 terminal conflict를 투영했다.
+- Controller와 OpenAPI 통합 테스트에서 실제 `type/title/status/detail/code`와 409 example 집합을 확인했다.
+
+검증:
+
+```text
+python3 -m unittest scripts.tests.test_schedules_contract scripts.tests.test_spring_openapi
+# Ran 34 tests ... OK
+
+python3 scripts/validate_schedules_contract.py
+# [OK] Issue #88 불변 일정 조회·편집 계약 검증 통과
+
+./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest' --rerun-tasks
+# BUILD SUCCESSFUL
+
+./gradlew --no-daemon test --tests 'com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest' --rerun-tasks
+# BUILD SUCCESSFUL
+
+python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 24
+# OpenAPI frontend-readiness 검사 성공: 24 operations
+```
+
+저장소 구현 RED도 별도로 실행했다.
+
+```text
+./gradlew test --tests 'com.timingjeju.api.domain.schedule.repository.JdbcScheduleMutationStoreIntegrationTest.terminal_trip은_일정_항목_추가를_409로_원자거부한다'
+# completed/cancelled/failed 3 cases: Expecting code to raise a throwable, 3 failed
+```
 
 coordinator 적용과 stale ETag 예외 계약 정렬 후 schedule repository, controller/OpenAPI,
 trip repository 및 architecture 집중 스위트는 51초에 성공했다. 전체 `openApiDocs`, clean check,
@@ -180,3 +260,56 @@ python3 -m unittest \
 `(transport_event_id, trip_plan_id)` prefix 인덱스를 038에서 제거하고 같은 이름의
 `(transport_event_id, trip_plan_id, item_type)` partial index로 교체해 FK 검사와 조회를 함께
 지원한다. 이 인덱스 shape도 Python 회귀 테스트로 고정하고 full gate를 다시 실행한다.
+
+## 병렬 보정 재통합과 실제 HTTP QA
+
+로컬 application/domain schedule coordinator 보정과 원격 trip update/delete 잠금 보정을
+최신 develop 위에서 양쪽 ancestry를 보존하는 일반 merge로 재통합했다. 이번 범위에서는
+JdbcTripStore의 기존 owner row lock, update CAS·terminal 차단, delete의 live/실행 중 작업
+차단 의미를 원격 global.trip.TripAggregateMutationCoordinator와 함께 원형 보존했다.
+schedule item mutation은 application.trip port와 domain adapter를 계속 사용한다. 두 경로의
+공통 lock primitive 통합은 transaction 경계와 DELETE 계약을 함께 설계해야 하므로 후속
+기술 부채이며, 이번 결과를 전체 단일-writer 통합으로 간주하지 않는다.
+
+병합 Red에서는 JSON/Java의 중복 TRIP_TERMINAL_STATE_CONFLICT, 이전 migration 제약명,
+trigger helper ACL 기대와 legacy fixture의 draft-only trigger 우회 누락을 확인했다. 최종
+계약은 terminal detail을 완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다.로
+단일화하고, typed transport composite FK/index와 required-reference ACL을 보존했다.
+
+실제 QA는 RANDOM_PORT Spring 서버, 로컬 생성 HS256 JWT, disposable PostgreSQL
+Testcontainers를 사용했다. first/middle/last POST가 201을 반환하고 새 active version의 항목
+순서와 인접 leg 두 개, exact 9-field mutation body, KST timestamp, body/header ETag 및 이어진
+GET을 검증했다. 같은 key replay는 status/body/ETag를 재사용했고 다른 payload는
+409 IDEMPOTENCY_KEY_REUSED와 Retry-After 부재를 반환했으며 추가 aggregate mutation과
+registry row 생성이 없었다. owner 404, 인증 401, stale active selector, stale If-Match,
+invalid item, 현재 분리 브랜치의 non-UUID key 400도 Problem Details와 trace header까지
+확인했다. non-UUID rejection은 #68의 printable ASCII 1..128 승인 계약이 아직 통합되지 않은
+상태의 관찰 결과이며 최종 공통 계약으로 확정하지 않는다.
+
+검증:
+
+    python3 -m unittest scripts.tests.test_schedule_item_required_references \
+      scripts.tests.test_push_notification_database scripts.tests.test_schedules_contract \
+      scripts.tests.test_database_hardening scripts.tests.test_schedule_consistency_hardening
+    # Ran 88 tests ... OK
+
+    ./gradlew integrationTest \
+      --tests com.timingjeju.api.domain.schedule.controller.ScheduleMutationHttpPostgreSqlIntegrationTest
+    # 4 tests, failures=0, errors=0, skipped=0
+
+    ./gradlew integrationTest \
+      --tests com.timingjeju.api.domain.schedule.repository.JdbcScheduleMutationStoreIntegrationTest \
+      --tests com.timingjeju.api.domain.trip.adapter.JdbcTripMutationIntegrationTest \
+      --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest
+    # 48 tests, failures=0, errors=0, skipped=0
+
+    ./gradlew sliceTest \
+      --tests com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest
+    # 2 tests, failures=0, errors=0, skipped=0
+
+    ./gradlew integrationTest \
+      --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemRequiredReferencesMigrationIntegrationTest
+    # 4 tests, failures=0, errors=0, skipped=0
+
+실제 운영 Supabase 적용과 provider 호출은 수행하지 않았다. 각 Testcontainers 실행 뒤 생성된
+container/network/volume 잔여는 0이었고 기존 live-demo/faithlog 리소스는 변경하지 않았다.

@@ -35,7 +35,7 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
                 self.assertLess(compose.index(target), compose.index(seed))
 
         smoke = (ROOT / "scripts/docker-smoke-test.sh").read_text(encoding="utf-8")
-        self.assertEqual(2, smoke.count(target))
+        self.assertEqual(3, smoke.count(target))
 
     def test_legacy_rows_are_audited_before_required_reference_check(self) -> None:
         """기존 typed item의 누락·오염 참조는 CHECK 설치 전에 식별 가능한 오류로 중단된다."""
@@ -121,20 +121,26 @@ class ScheduleItemRequiredReferencesTest(unittest.TestCase):
     def test_assertion_and_trigger_helpers_are_not_client_executable(self) -> None:
         """public assertion과 trigger helper는 클라이언트 역할에 EXECUTE를 노출하지 않는다."""
         migration = self.migration()
-        signatures = (
+        service_role_signatures = (
             "public.assert_schedule_version_core_sealable(uuid, uuid)",
             "public.assert_schedule_item_required_references(uuid, uuid)",
-            "public.validate_trip_item_required_references()",
             "public.assert_schedule_version_sealable(uuid, uuid)",
             "public.validate_schedule_version_sealing()",
         )
 
-        for signature in signatures:
+        for signature in service_role_signatures:
             with self.subTest(signature=signature):
                 self.assertIn(f"revoke all on function {signature} from public", migration)
                 self.assertIn(f"revoke execute on function {signature} from anon", migration)
                 self.assertIn(f"revoke execute on function {signature} from authenticated", migration)
                 self.assertIn(f"grant execute on function {signature} to service_role", migration)
+
+        trigger_signature = "public.validate_trip_item_required_references()"
+        self.assertIn(f"revoke all on function {trigger_signature} from public", migration)
+        self.assertIn(f"revoke execute on function {trigger_signature} from anon", migration)
+        self.assertIn(f"revoke execute on function {trigger_signature} from authenticated", migration)
+        self.assertIn(f"revoke execute on function {trigger_signature} from service_role", migration)
+        self.assertNotIn(f"grant execute on function {trigger_signature} to service_role", migration)
 
     def test_local_seed_populates_required_schedule_item_references(self) -> None:
         """038 뒤에 실행되는 로컬 seed도 typed item의 필수 참조를 명시한다."""

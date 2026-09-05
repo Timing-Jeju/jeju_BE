@@ -1500,7 +1500,7 @@ begin
     select 1
     from pg_catalog.pg_constraint constraint_row
     where constraint_row.conrelid = 'public.trip_items'::regclass
-      and constraint_row.conname = 'trip_items_required_references_by_type'
+      and constraint_row.conname = 'chk_trip_items_required_references'
       and constraint_row.contype = 'c'
       and constraint_row.convalidated
   ) then
@@ -1508,9 +1508,44 @@ begin
   end if;
   if not exists (
     select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.trip_transport_events'::regclass
+      and constraint_row.conname = 'uq_trip_transport_events_id_plan_event_type'
+      and constraint_row.contype = 'u'
+      and constraint_row.convalidated
+      and pg_catalog.pg_get_constraintdef(constraint_row.oid)
+        = 'UNIQUE (id, trip_plan_id, event_type)'
+  ) then
+    raise exception 'trip transport event typed composite unique constraint is missing';
+  end if;
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.trip_items'::regclass
+      and constraint_row.conname = 'fk_trip_items_transport_event_type_plan'
+      and constraint_row.contype = 'f'
+      and constraint_row.convalidated
+      and pg_catalog.pg_get_constraintdef(constraint_row.oid)
+        = 'FOREIGN KEY (transport_event_id, trip_plan_id, item_type) REFERENCES trip_transport_events(id, trip_plan_id, event_type)'
+  ) then
+    raise exception 'trip item typed transport event composite foreign key is missing';
+  end if;
+  if not exists (
+    select 1
+    from pg_catalog.pg_indexes index_row
+    where index_row.schemaname = 'public'
+      and index_row.tablename = 'trip_items'
+      and index_row.indexname = 'idx_trip_items_transport_event'
+      and index_row.indexdef like '%(transport_event_id, trip_plan_id, item_type)%'
+      and index_row.indexdef like '%WHERE (transport_event_id IS NOT NULL)%'
+  ) then
+    raise exception 'trip item typed transport event lookup index is invalid';
+  end if;
+  if not exists (
+    select 1
     from pg_catalog.pg_trigger trigger_row
     where trigger_row.tgrelid = 'public.trip_items'::regclass
-      and trigger_row.tgname = 'trg_validate_trip_item_required_references'
+      and trigger_row.tgname = 'trg_trip_items_required_references'
       and not trigger_row.tgisinternal
   ) then
     raise exception 'trip item required references trigger is missing';

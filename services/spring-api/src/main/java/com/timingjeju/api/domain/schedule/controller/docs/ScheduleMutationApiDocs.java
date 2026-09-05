@@ -188,9 +188,14 @@ public interface ScheduleMutationApiDocs {
               name = "Idempotency-Key",
               in = ParameterIn.HEADER,
               required = true,
-              description = "이 일정 변경 요청을 24시간 식별하는 lowercase canonical UUID",
-              example = "45000000-0000-4000-8000-000000000050",
-              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN))
+              description = "이 일정 변경 요청을 24시간 식별하는 1~128자 printable ASCII 값",
+              example = "schedule-item-create-20260906-001",
+              schema =
+                  @Schema(
+                      type = "string",
+                      minLength = 1,
+                      maxLength = 128,
+                      pattern = "^[\\x20-\\x7E]{1,128}$"))
           String idempotencyKey,
       byte[] body,
       @Parameter(hidden = true) HttpServletRequest servletRequest);

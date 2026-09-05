@@ -54,7 +54,7 @@ IDEMPOTENCY_RESPONSE_HEADERS = {"differentHash": {}, "leaseActiveSameHash": {"Re
 EXPECTED_ERROR_CONDITIONS = {
     "INVALID_REQUEST": "request path/query/body or a non-idempotency header violates the bound closed schema",
     "IDEMPOTENCY_KEY_REQUIRED": "required Idempotency-Key header is missing",
-    "IDEMPOTENCY_KEY_INVALID": "Idempotency-Key header is present but is not a canonical UUID",
+    "IDEMPOTENCY_KEY_INVALID": "Idempotency-Key header is present but is outside 1..128 printable ASCII",
     "SCHEDULE_ORDER_NOT_PERMUTATION": "reorder omits, duplicates, adds or references a foreign active item ID",
     "AUTHENTICATION_REQUIRED": "Authorization header is missing",
     "INVALID_ACCESS_TOKEN": "Bearer token is malformed, invalid or expired",
@@ -143,8 +143,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         if source_types != ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]:
             errors.append("sourceType enum이 DB trip_schedule_versions와 다릅니다.")
         key_schema = schemas.get("MutationHeaders", {}).get("properties", {}).get("Idempotency-Key")
-        if key_schema != {"type": "string", "format": "uuid", "nullable": False}:
-            errors.append("Idempotency-Key UUID schema가 api_idempotency_records와 다릅니다.")
+        if key_schema != {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[ -~]{1,128}$", "nullable": False}:
+            errors.append("Idempotency-Key 1~128자 printable ASCII schema가 다릅니다.")
 
     endpoints = contract.get("endpoints")
     identities = {(e.get("method"), e.get("path")) for e in endpoints} if isinstance(endpoints, list) and all(isinstance(e, dict) for e in endpoints) else set()
@@ -248,7 +248,7 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
             errors.append("idempotency condition/status/type/detail/Retry-After가 exact하지 않습니다.")
         required_invalid = {
             "IDEMPOTENCY_KEY_REQUIRED": ("https://api.timing-jeju.com/problems/idempotency-key-required", "멱등성 키가 필요합니다", "Idempotency-Key 헤더를 입력해 주세요."),
-            "IDEMPOTENCY_KEY_INVALID": ("https://api.timing-jeju.com/problems/idempotency-key-invalid", "멱등성 키가 유효하지 않습니다", "UUID 형식의 Idempotency-Key를 입력해 주세요."),
+            "IDEMPOTENCY_KEY_INVALID": ("https://api.timing-jeju.com/problems/idempotency-key-invalid", "멱등성 키가 유효하지 않습니다", "1~128자 printable ASCII Idempotency-Key를 입력해 주세요."),
         }
         if condition.get("code") in required_invalid:
             expected_type, expected_title, expected_detail = required_invalid[condition["code"]]

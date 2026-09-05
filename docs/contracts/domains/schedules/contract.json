@@ -90,10 +90,12 @@
           "pattern": "^Bearer [^\\s]{1,2048}$",
           "nullable": false
         },
-      "Idempotency-Key": {
-        "type": "string",
-        "format": "uuid",
-        "nullable": false
+        "Idempotency-Key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[ -~]{1,128}$",
+          "nullable": false
         },
         "If-Match": {
           "type": "string",
@@ -1512,10 +1514,10 @@
     {
       "status": 400,
       "code": "IDEMPOTENCY_KEY_INVALID",
-      "condition": "Idempotency-Key header is present but is not a canonical UUID",
+      "condition": "Idempotency-Key header is present but is outside 1..128 printable ASCII",
       "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
       "title": "멱등성 키가 유효하지 않습니다",
-      "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+      "detail": "1~128자 printable ASCII Idempotency-Key를 입력해 주세요.",
       "fixture": "400_idempotency_key_invalid"
     },
     {

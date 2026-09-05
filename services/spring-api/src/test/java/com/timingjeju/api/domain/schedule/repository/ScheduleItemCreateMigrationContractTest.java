@@ -55,37 +55,43 @@ class ScheduleItemCreateMigrationContractTest {
 
     assertThat(migration).isRegularFile();
     String sql = Files.readString(migration).toLowerCase().replaceAll("\\s+", " ").trim();
-    String predicates = sql.replace("new.", "").replace("item.", "");
-
     int audit = sql.indexOf("legacy schedule item required reference audit failed");
-    int constraint = sql.indexOf("add constraint trip_items_required_references_by_type");
+    int constraint = sql.indexOf("add constraint chk_trip_items_required_references");
     assertThat(audit).isGreaterThanOrEqualTo(0).isLessThan(constraint);
     assertThat(sql)
         .contains(
-            "(item_type = 'accommodation' and accommodation_id is not null and transport_event_id is null)")
+            "item_type = 'accommodation' and accommodation_id is not null and transport_event_id is null")
         .contains(
-            "(item_type in ('arrival', 'departure') and transport_event_id is not null and accommodation_id is null)")
+            "item_type in ('arrival', 'departure') and accommodation_id is null and transport_event_id is not null")
         .contains(
-            "(item_type not in ('accommodation', 'arrival', 'departure') and accommodation_id is null and transport_event_id is null)")
-        .contains("create trigger trg_validate_trip_item_required_references")
-        .contains("create or replace function public.assert_schedule_item_required_references")
+            "item_type not in ('accommodation', 'arrival', 'departure') and accommodation_id is null and transport_event_id is null")
+        .contains("create trigger trg_trip_items_required_references")
+        .contains("create function public.assert_schedule_item_required_references")
         .contains(
-            "perform public.assert_schedule_item_required_references(new.id, new.trip_plan_id)")
+            "add constraint uq_trip_transport_events_id_plan_event_type unique (id, trip_plan_id, event_type)")
         .contains(
-            "revoke execute on function public.assert_schedule_item_required_references(uuid, uuid) from public, anon, authenticated")
+            "foreign key (transport_event_id, trip_plan_id, item_type) references public.trip_transport_events (id, trip_plan_id, event_type)")
+        .contains("on public.trip_items (transport_event_id, trip_plan_id, item_type)")
+        .contains(
+            "perform public.assert_schedule_item_required_references( target_schedule_version_id, target_trip_plan_id )")
+        .contains(
+            "revoke all on function public.assert_schedule_item_required_references(uuid, uuid) from public")
+        .contains(
+            "revoke execute on function public.assert_schedule_item_required_references(uuid, uuid) from anon")
+        .contains(
+            "revoke execute on function public.assert_schedule_item_required_references(uuid, uuid) from authenticated")
         .contains(
             "grant execute on function public.assert_schedule_item_required_references(uuid, uuid) to service_role")
         .contains(
-            "revoke execute on function public.validate_trip_item_required_references() from public, anon, authenticated, service_role")
+            "revoke all on function public.validate_trip_item_required_references() from public")
+        .contains(
+            "revoke execute on function public.validate_trip_item_required_references() from anon")
+        .contains(
+            "revoke execute on function public.validate_trip_item_required_references() from authenticated")
+        .contains(
+            "revoke execute on function public.validate_trip_item_required_references() from service_role")
         .doesNotContain("delete from public.trip_items")
         .doesNotContain("update public.trip_items");
-    for (String branch :
-        List.of(
-            "(item_type = 'accommodation' and accommodation_id is not null and transport_event_id is null)",
-            "(item_type in ('arrival', 'departure') and transport_event_id is not null and accommodation_id is null)",
-            "(item_type not in ('accommodation', 'arrival', 'departure') and accommodation_id is null and transport_event_id is null)")) {
-      assertThat(predicates.split(java.util.regex.Pattern.quote(branch), -1)).as(branch).hasSize(5);
-    }
   }
 
   @Test
@@ -102,8 +108,10 @@ class ScheduleItemCreateMigrationContractTest {
     String smoke = Files.readString(root.resolve("scripts/docker-smoke-test.sh"));
 
     assertThat(schema)
-        .contains("trip_items_required_references_by_type")
-        .contains("trg_validate_trip_item_required_references")
+        .contains("chk_trip_items_required_references")
+        .contains("trg_trip_items_required_references")
+        .contains("uq_trip_transport_events_id_plan_event_type")
+        .contains("fk_trip_items_transport_event_type_plan")
         .contains("assert_schedule_item_required_references(uuid,uuid)")
         .contains("trip item required references trigger function privilege boundary is invalid")
         .contains("schedule item required references function privilege boundary is invalid");
@@ -115,7 +123,7 @@ class ScheduleItemCreateMigrationContractTest {
         .contains("sealed schedule rejects invalid required reference");
     assertThat(legacyFixture)
         .contains("e4300000-0000-0000-0000-000000000001")
-        .contains("drop constraint trip_items_required_references_by_type");
+        .contains("drop constraint chk_trip_items_required_references");
     assertThat(legacyContract)
         .contains("valid legacy schedule item required references were not preserved");
     assertThat(smoke)

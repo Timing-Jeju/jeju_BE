@@ -7,6 +7,7 @@ import com.timingjeju.api.application.schedule.CreateScheduleItemCommand;
 import com.timingjeju.api.application.schedule.ScheduleException;
 import com.timingjeju.api.application.schedule.ScheduleMutationRecord;
 import com.timingjeju.api.application.schedule.ScheduleMutationResult;
+import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripExpectedRevision;
 import com.timingjeju.api.domain.schedule.adapter.JdbcScheduleMutationStore;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -183,9 +185,11 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Test
   void legacy_invalid_source_item_copy는_필수참조_validator에서_aggregate_전체를_rollback한다() {
-    jdbc.execute("drop trigger trg_validate_trip_item_required_references on public.trip_items");
+    jdbc.execute("drop trigger trg_trip_items_required_references on public.trip_items");
     jdbc.execute(
-        "alter table public.trip_items drop constraint trip_items_required_references_by_type");
+        "alter table public.trip_items disable trigger trg_trip_items_require_draft_version");
+    jdbc.execute(
+        "alter table public.trip_items drop constraint chk_trip_items_required_references");
     jdbc.update("update public.trip_items set item_type='accommodation' where id=?", FIRST);
     String before = aggregateFingerprint();
 
@@ -208,10 +212,23 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     String before = aggregateFingerprint();
 
     assertThatThrownBy(() -> store.addItem(record(Position.MIDDLE, ACTIVE, 2)))
-        .isInstanceOf(ScheduleException.class)
-        .extracting(failure -> ((ScheduleException) failure).code())
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
         .isEqualTo("TRIP_VERSION_CONFLICT");
 
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"completed", "cancelled", "failed"})
+  void terminal_trip은_일정_항목_추가를_409로_원자거부한다(String status) {
+    jdbc.update("update public.trip_plans set status=? where id=?", status, TRIP);
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> store.addItem(record(Position.MIDDLE, ACTIVE, 1)))
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
+        .isEqualTo("TRIP_TERMINAL_STATE_CONFLICT");
     assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
@@ -353,9 +370,8 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     jdbc.update(
         """
         insert into public.trip_accommodations
-          (id, trip_plan_id, place_id, check_in_date, check_out_date,
-           check_in_time, check_out_time, sequence_no)
-        values (?, ?, ?, '2026-09-01', '2026-09-02', '15:00', '11:00', 1)
+          (id, trip_plan_id, place_id, check_in_date, check_out_date, sequence_no)
+        values (?, ?, ?, '2026-09-01', '2026-09-02', 1)
         """,
         ACCOMMODATION_ID,
         TRIP,
@@ -365,7 +381,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         insert into public.trip_transport_events
           (id, trip_plan_id, event_type, transport_type, terminal_place_id, scheduled_at)
         values (?, ?, 'arrival', 'flight', ?, '2026-09-01T00:00:00Z'),
-               (?, ?, 'departure', 'flight', ?, '2026-09-02T12:00:00Z')
+               (?, ?, 'departure', 'flight', ?, '2026-09-01T12:00:00Z')
         """,
         ARRIVAL_ID,
         TRIP,

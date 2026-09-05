@@ -96,7 +96,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
             user.userId(),
             "POST",
             "/api/v1/trips/" + canonicalTripId + "/schedule-items",
-            idempotencyKey,
+            ScheduleIdempotencyKey.toRegistryKey(idempotencyKey),
             body);
     AtomicBoolean replayed = new AtomicBoolean(true);
     IdempotencyResponse result =

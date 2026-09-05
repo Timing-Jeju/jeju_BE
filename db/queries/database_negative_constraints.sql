@@ -3065,9 +3065,9 @@ select pg_temp.expect_rejected(
 );
 
 alter table public.trip_items
-  disable trigger trg_validate_trip_item_required_references;
+  disable trigger trg_trip_items_required_references;
 alter table public.trip_items
-  drop constraint trip_items_required_references_by_type;
+  drop constraint chk_trip_items_required_references;
 update public.trip_items
 set item_type = 'accommodation', accommodation_id = null, transport_event_id = null
 where id = 'f5400000-0000-0000-0000-000000000003';

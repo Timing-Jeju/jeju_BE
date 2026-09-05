@@ -310,7 +310,7 @@ class ScheduleControllerIntegrationTest {
     mvc.perform(
             post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
-                .header("Idempotency-Key", "not-a-uuid")
+                .header("Idempotency-Key", "x".repeat(129))
                 .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
@@ -320,7 +320,7 @@ class ScheduleControllerIntegrationTest {
             jsonPath("$.type")
                 .value("https://api.timing-jeju.com/problems/idempotency-key-invalid"))
         .andExpect(jsonPath("$.title").value("멱등성 키가 유효하지 않습니다"))
-        .andExpect(jsonPath("$.detail").value("UUID 형식의 Idempotency-Key를 입력해 주세요."));
+        .andExpect(jsonPath("$.detail").value("1~128자 printable ASCII Idempotency-Key를 입력해 주세요."));
 
     mvc.perform(
             post("/api/v1/trips/{tripId}/schedule-items", TRIP_ID)

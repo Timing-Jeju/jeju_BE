@@ -840,9 +840,9 @@ final class FrontendOpenApiCustomizer {
       mergeRequiredHeader(
           operation,
           "Idempotency-Key",
-          "일정 항목 추가 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
-          new StringSchema().format("uuid"),
-          "45000000-0000-4000-8000-000000000050");
+          "일정 항목 추가 요청을 24시간 식별하는 1~128자 printable ASCII 값입니다.",
+          new StringSchema().minLength(1).maxLength(128).pattern("^[\\x20-\\x7E]{1,128}$"),
+          "schedule-item-create-20260906-001");
     } else if (key.equals("PUT /api/v1/me/profile-image")) {
       mergeRequiredHeader(
           operation,

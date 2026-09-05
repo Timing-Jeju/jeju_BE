@@ -109,6 +109,17 @@ class ScheduleOpenApiIntegrationTest {
         .andExpect(jsonPath(path + ".parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
             jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].required").value(true))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.minLength").value(1))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.maxLength")
+                .value(128))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.pattern")
+                .value("^[\\x20-\\x7E]{1,128}$"))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.format")
+                .doesNotExist())
         .andExpect(jsonPath(path + ".requestBody.required").value(true))
         .andExpect(jsonPath(path + ".responses['201'].headers.ETag").exists())
         .andExpect(jsonPath(path + ".responses['201'].headers.Idempotency-Replayed").exists())

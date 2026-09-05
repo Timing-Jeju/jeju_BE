@@ -17,7 +17,7 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
               "IDEMPOTENCY_KEY_INVALID",
               "멱등성 키가 유효하지 않습니다",
               400,
-              "UUID 형식의 Idempotency-Key를 입력해 주세요."),
+              "1~128자 printable ASCII Idempotency-Key를 입력해 주세요."),
           mutation("AUTHENTICATION_REQUIRED", "인증이 필요합니다", 401, "로그인 후 다시 요청해 주세요."),
           mutation("INVALID_ACCESS_TOKEN", "인증 정보가 올바르지 않습니다", 401, "유효한 인증 정보로 다시 요청해 주세요."),
           mutation("TRIP_NOT_FOUND", "여행을 찾을 수 없습니다", 404, "요청한 여행이 없거나 접근할 수 없습니다."),
