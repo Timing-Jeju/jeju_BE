@@ -11,6 +11,7 @@ import com.timingjeju.api.application.trip.TripTransportMode;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -25,8 +26,10 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class JdbcTripPreferencesPostgreSqlIntegrationTest
@@ -40,6 +43,7 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
 
   @Autowired private JdbcTripStore store;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private PlatformTransactionManager transactions;
 
   @BeforeEach
   void setUp() {
@@ -59,6 +63,15 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
         OWNER,
         Timestamp.from(INITIAL),
         Timestamp.from(INITIAL));
+    for (int index = 0; index < 3; index++) {
+      jdbc.update(
+          "insert into public.trip_days (id,trip_plan_id,day_no,trip_date) values (?,?,?,?)",
+          UUID.nameUUIDFromBytes(
+              ("issue46-day-" + index).getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+          TRIP,
+          index + 1,
+          java.sql.Date.valueOf(LocalDate.parse("2026-09-10").plusDays(index)));
+    }
     insertCurrentPreferences();
   }
 
@@ -211,10 +224,6 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
             store.replacePreferences(
                 new ReplaceTripPreferencesRecord(OTHER, TRIP, 7, changed(), MUTATION)),
         "TRIP_NOT_FOUND");
-    jdbc.update("update public.trip_plans set status='completed' where id=?", TRIP);
-    assertCode(
-        () -> store.replacePreferences(record(7, changed())), "TRIP_TERMINAL_STATE_CONFLICT");
-    jdbc.update("update public.trip_plans set status='draft' where id=?", TRIP);
     ReplaceTripPreferencesCommand missing =
         new ReplaceTripPreferencesCommand(
             List.of("cafe"),
@@ -226,6 +235,13 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
             List.of(new TripTransportMode("taxi", 1, true)));
     assertCode(() -> store.replacePreferences(record(7, missing)), "PLACE_NOT_FOUND");
     assertThat(fingerprint()).isEqualTo(before);
+
+    activateScheduleAndScore();
+    jdbc.update("update public.trip_plans set status='completed' where id=?", TRIP);
+    String terminalBefore = fingerprint();
+    assertCode(
+        () -> store.replacePreferences(record(7, changed())), "TRIP_TERMINAL_STATE_CONFLICT");
+    assertThat(fingerprint()).isEqualTo(terminalBefore);
   }
 
   @Test
@@ -253,7 +269,8 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
   @Test
   void future_stale_at은_current_place로허용하고_replace한다() {
     jdbc.update(
-        "update public.tour_places set stale=false,stale_at=now()+interval '1 hour' where id=?",
+        "update public.tour_places set stale=false,"
+            + "stale_at=timestamptz '2026-09-02T01:00:00Z' where id=?",
         PLACE);
     assertThat(store.replacePreferences(record(7, changed())).revision()).isEqualTo(8);
   }
@@ -263,7 +280,8 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
         Arguments.of("stale", "update public.tour_places set stale=true,stale_at=now() where id=?"),
         Arguments.of(
             "effective-stale",
-            "update public.tour_places set stale=false,stale_at=now()-interval '1 second' where"
+            "update public.tour_places set stale=false,"
+                + "stale_at=timestamptz '2026-09-01T23:59:59Z' where"
                 + " id=?"),
         Arguments.of("tombstone", "update public.tour_places set tombstoned_at=now() where id=?"),
         Arguments.of(
@@ -320,26 +338,65 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
 
   private UUID activateScheduleAndScore() {
     UUID version = UUID.fromString("46000000-0000-0000-0000-000000000048");
+    new TransactionTemplate(transactions)
+        .executeWithoutResult(
+            ignored -> {
+              jdbc.update(
+                  "insert into"
+                      + " public.trip_schedule_versions(id,trip_plan_id,version_no,status,source_type,resulting_score,created_at)"
+                      + " values (?,?,1,'draft','initial',80,?)",
+                  version,
+                  TRIP,
+                  Timestamp.from(INITIAL));
+              for (int index = 0; index < 3; index++) {
+                LocalDate date = LocalDate.parse("2026-09-10").plusDays(index);
+                UUID day =
+                    jdbc.queryForObject(
+                        "select id from public.trip_days where trip_plan_id=? and day_no=?",
+                        UUID.class,
+                        TRIP,
+                        index + 1);
+                jdbc.update(
+                    """
+                    insert into public.trip_items (
+                      id,trip_plan_id,trip_day_id,schedule_version_id,sequence_no,item_type,title,
+                      planned_start_at,planned_end_at,stay_minutes,source,facts
+                    ) values (?,?,?,?,1,'custom','일정 항목',
+                              (?::date + time '09:00') at time zone 'Asia/Seoul',
+                              (?::date + time '10:00') at time zone 'Asia/Seoul',
+                              60,'user_input',
+                              '{"location":{"lat":33.5,"lng":126.5}}'::jsonb)
+                    """,
+                    UUID.nameUUIDFromBytes(
+                        ("issue46-item-" + index)
+                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                    TRIP,
+                    day,
+                    version,
+                    java.sql.Date.valueOf(date),
+                    java.sql.Date.valueOf(date));
+              }
+              jdbc.update(
+                  "update public.trip_plans set status='planned',active_schedule_version_id=?"
+                      + " where id=?",
+                  version,
+                  TRIP);
+              jdbc.update(
+                  "update public.trip_schedule_versions set status='active',applied_at=?"
+                      + " where id=? and trip_plan_id=?",
+                  Timestamp.from(INITIAL),
+                  version,
+                  TRIP);
+            });
     jdbc.update(
         "insert into"
-            + " public.trip_schedule_versions(id,trip_plan_id,version_no,status,source_type,resulting_score,created_at,applied_at)"
-            + " values (?,?,1,'active','initial',80,?,?)",
-        version,
-        TRIP,
-        Timestamp.from(INITIAL),
-        Timestamp.from(INITIAL));
-    jdbc.update(
-        "update public.trip_plans set status='planned',active_schedule_version_id=? where id=?",
-        version,
-        TRIP);
-    jdbc.update(
-        "insert into"
-            + " public.compute_runs(id,trip_plan_id,schedule_version_id,run_type,status,input_hash,contract_version,algorithm_version,facts_snapshot_at,source_data_version,result_summary,completed_at)"
+            + " public.compute_runs(id,trip_plan_id,schedule_version_id,run_type,status,input_hash,contract_version,algorithm_version,facts_snapshot_at,source_data_version,result_summary,result_source,started_at,completed_at)"
             + " values"
-            + " (?,?,?,'feasibility','succeeded','issue46','v1','v1',?,'fixture','{\"score\":80}',?)",
+            + " (?,?,?,'feasibility','succeeded','issue46','v1','v1',?,'fixture','{\"score\":80}','computed',?,?)",
         UUID.fromString("46000000-0000-0000-0000-000000000049"),
         TRIP,
         version,
+        Timestamp.from(INITIAL),
         Timestamp.from(INITIAL),
         Timestamp.from(INITIAL));
     return version;

@@ -27,6 +27,18 @@ Reviewer 지적에 따라 운영 코드보다 다음 두 회귀 테스트를 먼
 
 최소 수정으로 `ObjectReader.readValue(body)` 결과가 `null`이면 `TripException.invalidRequest()`를 던지게 했다. 같은 21개 테스트가 모두 통과했고 malformed body는 현재 사용자 조회와 service/store 호출 전에 차단된다.
 
-## 검증 제한
+## 2026-09-05 실제 PostgreSQL QA와 owner 조회 RLS 보정
 
-재통합 및 Reviewer 보완에서는 요청에 따라 실제 PostgreSQL, Testcontainers, Docker, live Supabase와 전체 heavy quality gate를 실행하지 않았다. 해당 검증 전에는 `READY_FOR_REVIEW`로 선언하지 않는다.
+사용자가 disposable Docker/PostgreSQL QA를 승인한 뒤 두 actual PostgreSQL 통합 테스트를 실행했다. 최초 20개 중 JDBC 5개는 canonical schedule·compute run fixture drift였고, RLS 1개는 `authenticated`가 `auth` schema를 사용할 수 없어 기존 security-invoker `public.owns_trip_plan` 호출이 `42501`로 실패했다. 운영 계약을 바꾸지 않고 JDBC fixture만 현재 canonical 계약에 맞춘 결과 14개가 모두 통과했다.
+
+owner 조회 문제는 먼저 후속 migration 부재를 고정하는 Red를 추가한 뒤 `supabase` CLI 2.116.0의 `migration new`로 migration을 생성했다. CLI의 당일 timestamp가 미래 시각으로 예약된 기존 `20260907000003`보다 앞섰으므로, append-only 단조 순서를 지키기 위해 생성 파일을 `20260907000004_trip_preferences_owner_read_helper.sql`로 이름만 정렬했다.
+
+후속 migration은 비공개 `timing_jeju_private` schema에 `STABLE SECURITY DEFINER`, 빈 `search_path`, fully-qualified `auth.uid()`와 `public.trip_plans`만 사용하는 boolean owner helper를 둔다. `PUBLIC`·`anon`·`service_role`에는 schema·함수 접근을 주지 않고 `authenticated`에 schema `USAGE`와 해당 함수 `EXECUTE`만 허용했다. #46의 SELECT policy 두 개만 helper를 참조하도록 교체했고 기존 `public.owns_trip_plan`, 다른 policy·grant·RLS·data는 불변으로 검증했다.
+
+Red는 migration 통합 테스트 6개 중 후속 artifact 부재 1건, delivery 계약은 Python 6개 중 4건 및 Java 5개 중 1건이었다. Green은 actual PostgreSQL migration 6/6, JDBC 14/14, Python 관련 계약 23/23, Java delivery 계약 5/5다. Docker init delivery는 compose 세 종류와 smoke의 기존 `040` 바로 뒤에 `041`만 추가했다. 각 actual PostgreSQL 실행 전후 Testcontainers/Ryuk 잔여는 0이었고 보호 baseline은 변경하지 않았다.
+
+Astra staged review에서는 latest migration 전체를 적용하는 기존 trip ACL 통합 테스트 두 곳이 `trip_transport_modes`의 `authenticated SELECT`를 여전히 거부로 기대하는 상충을 발견했다. 운영 SQL을 변경하지 않고 두 ACL matrix에 `trip_preferences`를 포함했으며, `authenticated SELECT`만 두 owner-readable table에서 true가 되도록 exact 예외를 두었다. `anon` SELECT, authenticated write, `trip_plans`와 `auth` schema 직접 접근 및 나머지 table ACL 기대는 유지했다. 기존 기대의 Red는 actual PostgreSQL 4개 중 2건 실패였고, 보정 후 #46 migration/JDBC 테스트를 합친 네 클래스 24개가 한 실행에서 모두 통과했다.
+
+## 남은 검증 제한
+
+live Supabase·운영 DB 적용·배포는 승인 범위 밖이라 실행하지 않았다. root quality gate와 docker smoke는 #195 landing 및 OpenAPI inventory 정렬 전 실행 금지 상태이므로 이번 작업에서는 실행하지 않았으며, 이 두 gate 전에는 `READY_FOR_REVIEW`로 선언하지 않는다.

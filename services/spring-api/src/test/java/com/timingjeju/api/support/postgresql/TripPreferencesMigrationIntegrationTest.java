@@ -3,6 +3,9 @@ package com.timingjeju.api.support.postgresql;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -28,6 +31,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @TestMethodOrder(OrderAnnotation.class)
 class TripPreferencesMigrationIntegrationTest {
   private static final String TARGET = "20260907000003_trip_preferences_replace_contract.sql";
+  private static final String OWNER_READ_TARGET_SUFFIX = "_trip_preferences_owner_read_helper.sql";
+  private static final String OWNER_READ_HELPER =
+      "timing_jeju_private.trip_preferences_owner(uuid)";
+  private static final String OWNER_READ_HELPER_CALL =
+      "timing_jeju_private.trip_preferences_owner(?)";
   private static final UUID OWNER = UUID.fromString("46200000-0000-0000-0000-000000000001");
   private static final UUID OTHER = UUID.fromString("46200000-0000-0000-0000-000000000002");
   private static final UUID TRIP = UUID.fromString("46200000-0000-0000-0000-000000000046");
@@ -228,6 +236,45 @@ class TripPreferencesMigrationIntegrationTest {
     for (String table : List.of("trip_preferences", "trip_transport_modes")) {
       assertSqlDenied("anon", null, "select count(*) from public." + table);
     }
+    assertThatThrownBy(
+            () ->
+                withRole(
+                    "authenticated",
+                    OWNER,
+                    connection ->
+                        queryCount(connection, "select count(*) from public.trip_preferences")))
+        .isInstanceOf(SQLException.class)
+        .satisfies(
+            failure -> {
+              SQLException postgres = (SQLException) failure;
+              assertThat(postgres.getSQLState()).isEqualTo("42501");
+              assertThat(postgres.getMessage()).contains("permission denied for schema auth");
+            });
+
+    java.util.Map<String, Object> publicHelperBefore = publicOwnsTripPlanCatalog();
+    List<java.util.Map<String, Object>> otherPoliciesBefore = otherPolicies();
+    List<java.util.Map<String, Object>> grantsBefore = roleTableGrants();
+    List<java.util.Map<String, Object>> rowsBefore = preferenceRows();
+    List<java.util.Map<String, Object>> rlsBefore = preferenceRlsState();
+    Path ownerReadTarget = ownerReadTarget();
+    String ownerReadSql = Files.readString(ownerReadTarget, StandardCharsets.UTF_8).trim();
+    assertThat(ownerReadSql).startsWith("begin;").endsWith("commit;");
+
+    PostgreSqlTestContainerFactory.executeScript(container, ownerReadTarget);
+
+    assertOwnerReadHelperCatalog();
+    assertThat(publicOwnsTripPlanCatalog()).isEqualTo(publicHelperBefore);
+    assertThat(otherPolicies()).isEqualTo(otherPoliciesBefore);
+    assertThat(roleTableGrants()).isEqualTo(grantsBefore);
+    assertThat(preferenceRows()).isEqualTo(rowsBefore);
+    assertThat(preferenceRlsState()).isEqualTo(rlsBefore);
+    assertOwnerReadPolicies();
+    assertOwnerReadSchemaPrivileges();
+    assertOwnerReadHelperBehavior();
+    for (String table : List.of("trip_preferences", "trip_transport_modes")) {
+      assertSqlDenied("anon", null, "select count(*) from public." + table);
+    }
+
     withRole(
         "authenticated",
         OWNER,
@@ -254,6 +301,17 @@ class TripPreferencesMigrationIntegrationTest {
           assertThat(queryCount(connection, "select count(*) from public.trip_transport_modes"))
               .isZero();
         });
+    withRole(
+        "authenticated",
+        null,
+        connection -> {
+          assertThat(queryCount(connection, "select count(*) from public.trip_preferences"))
+              .isZero();
+          assertThat(queryCount(connection, "select count(*) from public.trip_transport_modes"))
+              .isZero();
+        });
+    assertSqlDenied("anon", null, "select " + OWNER_READ_HELPER_CALL, TRIP);
+    assertSqlDenied("authenticated", OWNER, "select count(*) from public.trip_plans");
     assertSqlDenied(
         "authenticated",
         OWNER,
@@ -326,6 +384,17 @@ class TripPreferencesMigrationIntegrationTest {
                       OTHER_TRIP))
               .isOne();
         });
+
+    java.util.Map<String, Object> helperAfter = ownerReadHelperCatalog();
+    List<java.util.Map<String, Object>> policiesAfter = ownerReadPolicies();
+    PostgreSqlTestContainerFactory.executeScript(container, ownerReadTarget);
+    assertThat(ownerReadHelperCatalog()).isEqualTo(helperAfter);
+    assertThat(ownerReadPolicies()).isEqualTo(policiesAfter);
+    assertThat(publicOwnsTripPlanCatalog()).isEqualTo(publicHelperBefore);
+    assertThat(otherPolicies()).isEqualTo(otherPoliciesBefore);
+    assertThat(roleTableGrants()).isEqualTo(grantsBefore);
+    assertThat(preferenceRows()).isEqualTo(rowsBefore);
+    assertThat(preferenceRlsState()).isEqualTo(rlsBefore);
   }
 
   @Test
@@ -503,6 +572,263 @@ class TripPreferencesMigrationIntegrationTest {
         .resolve(TARGET);
   }
 
+  private static Path ownerReadTarget() {
+    Path migrations =
+        PostgreSqlTestContainerFactory.locateRepositoryRoot().resolve("supabase/migrations");
+    try (var files = Files.list(migrations)) {
+      List<Path> targets =
+          files
+              .filter(Files::isRegularFile)
+              .filter(path -> path.getFileName().toString().endsWith(OWNER_READ_TARGET_SUFFIX))
+              .sorted()
+              .toList();
+      assertThat(targets).as("owner read helper migration").hasSize(1);
+      assertThat(targets.getFirst().getFileName().toString()).isGreaterThan(TARGET);
+      return targets.getFirst();
+    } catch (IOException exception) {
+      throw new IllegalStateException("owner read helper migration을 조회할 수 없습니다.", exception);
+    }
+  }
+
+  private static void assertOwnerReadHelperCatalog() {
+    java.util.Map<String, Object> catalog = ownerReadHelperCatalog();
+    assertThat(catalog)
+        .containsEntry("schema_name", "timing_jeju_private")
+        .containsEntry("security_definer", true)
+        .containsEntry("volatility", "s")
+        .containsEntry("parallel", "u")
+        .containsEntry("strict", false)
+        .containsEntry("config", "{\"search_path=\\\"\\\"\"}");
+    assertThat(catalog.get("function_owner")).isEqualTo(catalog.get("schema_owner"));
+    assertThat(catalog.get("function_owner")).isEqualTo(container.getUsername());
+    assertThat(ownerReadHelperAcl())
+        .extracting(
+            row -> row.get("grantee"),
+            row -> row.get("grantor"),
+            row -> row.get("privilege_type"),
+            row -> row.get("is_grantable"))
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple(
+                "authenticated", container.getUsername(), "EXECUTE", "NO"),
+            org.assertj.core.groups.Tuple.tuple(
+                container.getUsername(), container.getUsername(), "EXECUTE", "NO"));
+    assertThat((String) catalog.get("definition"))
+        .contains("SECURITY DEFINER")
+        .contains("SET search_path TO ''")
+        .contains("auth.uid()")
+        .contains("public.trip_plans")
+        .doesNotContain("public.owns_trip_plan");
+    assertThat(
+            jdbc.queryForObject(
+                "select has_function_privilege('authenticated',?, 'EXECUTE')",
+                Boolean.class,
+                OWNER_READ_HELPER))
+        .isTrue();
+    for (String role : List.of("anon", "service_role")) {
+      assertThat(
+              jdbc.queryForObject(
+                  "select has_function_privilege(?, ?, 'EXECUTE')",
+                  Boolean.class,
+                  role,
+                  OWNER_READ_HELPER))
+          .as("%s helper execute", role)
+          .isFalse();
+    }
+  }
+
+  private static void assertOwnerReadPolicies() {
+    List<java.util.Map<String, Object>> policies = ownerReadPolicies();
+    assertThat(policies).hasSize(2);
+    assertThat(policies)
+        .extracting(row -> row.get("policyname"))
+        .containsExactly("trip_preferences_owner_select", "trip_transport_modes_owner_select");
+    assertThat(policies)
+        .allSatisfy(
+            row -> {
+              assertThat(row.get("cmd")).isEqualTo("SELECT");
+              assertThat(row.get("permissive")).isEqualTo("PERMISSIVE");
+              assertThat(row.get("roles")).isEqualTo("{authenticated}");
+              assertThat(row.get("qual"))
+                  .isEqualTo("timing_jeju_private.trip_preferences_owner(trip_plan_id)");
+              assertThat(row.get("with_check")).isNull();
+            });
+  }
+
+  private static void assertOwnerReadSchemaPrivileges() {
+    assertSchemaPrivilege("authenticated", "USAGE", true);
+    assertSchemaPrivilege("authenticated", "CREATE", false);
+    for (String role : List.of("anon", "service_role")) {
+      assertSchemaPrivilege(role, "USAGE", false);
+      assertSchemaPrivilege(role, "CREATE", false);
+    }
+    for (String role : List.of("anon", "authenticated", "service_role")) {
+      assertThat(
+              jdbc.queryForObject(
+                  "select has_schema_privilege(?, 'auth', 'USAGE')", Boolean.class, role))
+          .as("%s auth schema usage", role)
+          .isFalse();
+    }
+    assertSqlDenied(
+        "authenticated", OWNER, "create table timing_jeju_private.shadow_attack(id integer)");
+  }
+
+  private static void assertOwnerReadHelperBehavior() throws Exception {
+    withRole(
+        "authenticated",
+        OWNER,
+        connection -> {
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, TRIP)).isTrue();
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, OTHER_TRIP))
+              .isFalse();
+          assertThat(
+                  queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, UUID.randomUUID()))
+              .isFalse();
+
+          setSubject(connection, OTHER.toString());
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, TRIP)).isFalse();
+          setSubject(connection, OWNER.toString());
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, TRIP)).isTrue();
+
+          execute(connection, "create temp table trip_plans(id uuid, user_id uuid)");
+          execute(
+              connection,
+              "insert into pg_temp.trip_plans(id,user_id) values (?,?)",
+              OTHER_TRIP,
+              OWNER);
+          execute(connection, "set local search_path=pg_temp,public");
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, TRIP)).isTrue();
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, OTHER_TRIP))
+              .isFalse();
+
+          setSubject(connection, "not-a-uuid");
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, TRIP)).isFalse();
+          setSubject(connection, "");
+          assertThat(queryBoolean(connection, "select " + OWNER_READ_HELPER_CALL, TRIP)).isFalse();
+        });
+  }
+
+  private static java.util.Map<String, Object> ownerReadHelperCatalog() {
+    return jdbc.queryForMap(
+        """
+        select namespace.nspname as schema_name,
+               function_owner.rolname as function_owner,
+               schema_owner.rolname as schema_owner,
+               function.prosecdef as security_definer,
+               function.provolatile::text as volatility,
+               function.proparallel::text as parallel,
+               function.proisstrict as strict,
+               function.proconfig::text as config,
+               function.proacl::text as acl,
+               pg_get_functiondef(function.oid) as definition
+        from pg_proc function
+        join pg_namespace namespace on namespace.oid=function.pronamespace
+        join pg_roles function_owner on function_owner.oid=function.proowner
+        join pg_roles schema_owner on schema_owner.oid=namespace.nspowner
+        where function.oid=?::regprocedure
+        """,
+        OWNER_READ_HELPER);
+  }
+
+  private static List<java.util.Map<String, Object>> ownerReadHelperAcl() {
+    return jdbc.queryForList(
+        """
+        select coalesce(grantee.rolname, 'PUBLIC') as grantee,
+               grantor.rolname as grantor,
+               acl.privilege_type,
+               case when acl.is_grantable then 'YES' else 'NO' end as is_grantable
+        from pg_proc function
+        cross join lateral aclexplode(
+          coalesce(function.proacl, acldefault('f', function.proowner))
+        ) acl
+        left join pg_roles grantee on grantee.oid=acl.grantee
+        join pg_roles grantor on grantor.oid=acl.grantor
+        where function.oid=?::regprocedure
+        order by grantee,privilege_type
+        """,
+        OWNER_READ_HELPER);
+  }
+
+  private static java.util.Map<String, Object> publicOwnsTripPlanCatalog() {
+    return jdbc.queryForMap(
+        """
+        select pg_get_functiondef(function.oid) as definition,
+               function.proowner,
+               function.proacl::text as acl,
+               function.prosecdef,
+               function.proconfig::text as config
+        from pg_proc function
+        where function.oid='public.owns_trip_plan(uuid)'::regprocedure
+        """);
+  }
+
+  private static List<java.util.Map<String, Object>> ownerReadPolicies() {
+    return jdbc.queryForList(
+        """
+        select policyname, permissive, roles::text, cmd, qual, with_check
+        from pg_policies
+        where schemaname='public'
+          and tablename in ('trip_preferences','trip_transport_modes')
+        order by policyname
+        """);
+  }
+
+  private static List<java.util.Map<String, Object>> otherPolicies() {
+    return jdbc.queryForList(
+        """
+        select schemaname,tablename,policyname,permissive,roles::text,cmd,qual,with_check
+        from pg_policies
+        where not (
+          schemaname='public'
+          and tablename in ('trip_preferences','trip_transport_modes')
+        )
+        order by schemaname,tablename,policyname
+        """);
+  }
+
+  private static List<java.util.Map<String, Object>> roleTableGrants() {
+    return jdbc.queryForList(
+        """
+        select grantee,table_schema,table_name,privilege_type,is_grantable
+        from information_schema.role_table_grants
+        where grantee in ('anon','authenticated','service_role')
+        order by grantee,table_schema,table_name,privilege_type
+        """);
+  }
+
+  private static List<java.util.Map<String, Object>> preferenceRows() {
+    return jdbc.queryForList(
+        """
+        select 'preference' as row_type,trip_plan_id::text as trip_plan_id,
+               row_to_json(preference)::text as row_value
+        from public.trip_preferences preference
+        union all
+        select 'mode',trip_plan_id::text,row_to_json(mode)::text
+        from public.trip_transport_modes mode
+        order by row_type,trip_plan_id,row_value
+        """);
+  }
+
+  private static List<java.util.Map<String, Object>> preferenceRlsState() {
+    return jdbc.queryForList(
+        """
+        select relname,relrowsecurity,relforcerowsecurity
+        from pg_class
+        where oid in ('public.trip_preferences'::regclass,'public.trip_transport_modes'::regclass)
+        order by relname
+        """);
+  }
+
+  private static void assertSchemaPrivilege(String role, String privilege, boolean expected) {
+    assertThat(
+            jdbc.queryForObject(
+                "select has_schema_privilege(?, 'timing_jeju_private', ?)",
+                Boolean.class,
+                role,
+                privilege))
+        .as("%s %s on timing_jeju_private", role, privilege)
+        .isEqualTo(expected);
+  }
+
   private static int policyCount() {
     return jdbc.queryForObject(
         "select count(*) from pg_policies where schemaname='public' and tablename in"
@@ -622,6 +948,25 @@ class TripPreferencesMigrationIntegrationTest {
         result.next();
         return result.getInt(1);
       }
+    }
+  }
+
+  private static boolean queryBoolean(Connection connection, String sql, Object... parameters)
+      throws SQLException {
+    try (PreparedStatement statement = connection.prepareStatement(sql)) {
+      bind(statement, parameters);
+      try (ResultSet result = statement.executeQuery()) {
+        result.next();
+        return result.getBoolean(1);
+      }
+    }
+  }
+
+  private static void setSubject(Connection connection, String subject) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement("select set_config('request.jwt.claim.sub',?,true)")) {
+      statement.setString(1, subject);
+      statement.executeQuery();
     }
   }
 
