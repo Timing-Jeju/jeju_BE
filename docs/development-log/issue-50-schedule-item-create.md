@@ -313,3 +313,57 @@ invalid item, 현재 분리 브랜치의 non-UUID key 400도 Problem Details와 
 
 실제 운영 Supabase 적용과 provider 호출은 수행하지 않았다. 각 Testcontainers 실행 뒤 생성된
 container/network/volume 잔여는 0이었고 기존 live-demo/faithlog 리소스는 변경하지 않았다.
+
+## #78 current stack 최종 통합과 #68 멱등키 계약 정렬
+
+검증된 #78 source stack `b05d966f68e2ac81a1948823069507ef9c29ccd9` 위에 #50의 논리 변경을
+재적용했다. 이전 단락의 병합 관찰과 달리 최종 current stack에는 legacy `global.trip`
+coordinator를 두지 않는다. 최신 `application.trip.TripAggregateMutationCoordinator`와 domain
+JDBC adapter 하나만 유지하며 schedule mutation은 `executeMonotonic`의 단일 timestamp와
+owner lock, revision/terminal 검증, 실제 CAS 안에서 version/item/leg를 원자 재구축한다.
+`JdbcTripStore`는 base와 동일해 UPDATE의 owner `FOR UPDATE` → expected revision → terminal 차단,
+DELETE의 owner lock → live/queued/running 차단 의미가 바뀌지 않았다.
+
+### RED
+
+- 테스트: `POST_schedule_items는_printable_ASCII_Idempotency_Key를_허용한다`
+- 명령: `./gradlew integrationTest --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest`
+- 실제 실패: printable key `printable-key` 요청의 기대 `201`에 실제 `400`이 반환됐다.
+
+### GREEN과 REFACTOR
+
+- 공개 `Idempotency-Key`를 1~128자 printable ASCII로 검증한다.
+- 기존 lowercase canonical UUID는 그대로 registry scope를 보존한다.
+- 나머지 유효 키는 domain-separated SHA-256으로 결정적 UUID에 매핑해 배포된
+  `api_idempotency_records.idempotency_key uuid` schema를 변경하지 않고 replay/conflict를 유지한다.
+- Controller, Problem Details, OpenAPI customizer, canonical schedule 계약과 fixture를 같은 경계로 정렬했다.
+- migration init slot은 038 schedule reference, 044 calendar child correction, 045 profile image 순서를
+  유지했고 #78 환경 전달 파일과 #46/#47/#48 current-stack 구현은 변경하지 않았다.
+
+DB 없는 focused 검증 결과:
+
+```text
+./gradlew unitTest --tests com.timingjeju.api.domain.schedule.controller.ScheduleIdempotencyKeyTest
+# BUILD SUCCESSFUL
+
+./gradlew integrationTest \
+  --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest \
+  --tests com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest
+# BUILD SUCCESSFUL
+
+./gradlew architectureTest \
+  --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateArchitectureSourceTest
+# BUILD SUCCESSFUL
+
+python3 -m unittest scripts.tests.test_schedules_contract \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database
+# Ran 34 tests ... OK
+
+./gradlew spotlessApply spotlessCheck
+# BUILD SUCCESSFUL
+```
+
+이번 current-stack 통합에서는 사용자 승인 범위에 따라 실제 PostgreSQL, Testcontainers, Docker,
+root full quality gate, live Supabase 적용, push와 PR을 실행하지 않았다. 따라서 해당 gate가 실행될
+때까지 결과 상태는 `BLOCKED`이며 `READY_FOR_REVIEW`로 선언하지 않는다.
