@@ -164,7 +164,10 @@ class JdbcSnapshotRetentionRepositoryTest {
 
   private static SnapshotRetentionCommand command() {
     return new SnapshotRetentionCommand(
-        Instant.parse("2026-08-24T12:00:00Z"), List.of("TAGO", "kma", "tour-api"), 500, true);
+        Instant.parse("2026-08-24T12:00:00Z"),
+        List.of("JEJU_PROVINCE", "TAGO", "kma", "tour-api"),
+        500,
+        true);
   }
 
   private static String canonical(String sql) {

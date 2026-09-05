@@ -220,6 +220,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql \
   /docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql \
   /docker-entrypoint-initdb.d/045_profile_image_storage.sql \
+  /docker-entrypoint-initdb.d/046_jeju_timetable_route_scope.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -427,6 +428,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql \
   /docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql \
   /docker-entrypoint-initdb.d/045_profile_image_storage.sql \
+  /docker-entrypoint-initdb.d/046_jeju_timetable_route_scope.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

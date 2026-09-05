@@ -10,9 +10,10 @@ import org.junit.jupiter.api.Test;
 class PersistedSnapshotProviderCatalogTest {
 
   @Test
-  void 영속_snapshot_공급자는_TourAPI_TAGO_KMA로_고정하고_TMAP은_제외한다() {
+  void 영속_snapshot_공급자는_제주도_TourAPI_TAGO_KMA로_고정하고_TMAP은_제외한다() {
     assertThat(PersistedSnapshotProviderCatalog.providers())
-        .containsExactly("TAGO", "kma", "tour-api");
+        .containsExactly("JEJU_PROVINCE", "TAGO", "kma", "tour-api");
+    assertThat(PersistedSnapshotProviderCatalog.allows("JEJU_PROVINCE")).isTrue();
     assertThat(PersistedSnapshotProviderCatalog.allows("TAGO")).isTrue();
     assertThat(PersistedSnapshotProviderCatalog.allows("kma")).isTrue();
     assertThat(PersistedSnapshotProviderCatalog.allows("tour-api")).isTrue();
