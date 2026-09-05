@@ -348,6 +348,11 @@ class TripServiceTest {
     }
 
     @Override
+    public TripPreferencesMutation replacePreferences(ReplaceTripPreferencesRecord record) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void deleteOwned(UUID ownerId, UUID tripId) {
       throw new UnsupportedOperationException();
     }

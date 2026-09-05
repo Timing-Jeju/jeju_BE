@@ -4,12 +4,14 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 ## endpoint와 쓰기 의미
 
-| Method | Path | 입력 | 성공 |
-| --- | --- | --- | --- |
-| PUT | `/api/v1/trips/{tripId}/preferences` | 7개 필드 전체, 강한 `If-Match` | `200 PreferencesResponse` |
-| PUT | `/api/v1/trips/{tripId}/place-preferences` | `items` 전체, 강한 `If-Match` | `200 PlacePreferencesResponse` |
-| PUT | `/api/v1/trips/{tripId}/transport-event` | event 전체, 강한 `If-Match` | `200 TransportEventMutationResponse` |
-| DELETE | `/api/v1/trips/{tripId}/transport-event?eventType=arrival|departure` | body 없음, 강한 `If-Match` | `200 TransportEventMutationResponse` |
+| Method | Path | 구현 owner | 입력 | 성공 |
+| --- | --- | --- | --- | --- |
+| PUT | `/api/v1/trips/{tripId}/preferences` | #46 | 7개 필드 전체, 강한 `If-Match` | `200 PreferencesResponse` |
+| PUT | `/api/v1/trips/{tripId}/place-preferences` | #48 | `items` 전체, 강한 `If-Match` | `200 PlacePreferencesResponse` |
+| PUT | `/api/v1/trips/{tripId}/transport-event` | #47 | event 전체, 강한 `If-Match` | `200 TransportEventMutationResponse` |
+| DELETE | `/api/v1/trips/{tripId}/transport-event?eventType=arrival|departure` | #47 | body 없음, 강한 `If-Match` | `200 TransportEventMutationResponse` |
+
+`implementationIssues`는 `[46,47,48]`이며 각 endpoint의 `dbOwner`는 위 구현 owner 하나만 참조한다. DELETE의 `eventType` query는 별도 구현 endpoint로 세지 않고 #47의 transport-event 삭제 계약에 포함한다. [`ownership.json`](../../../fixtures/contracts/preferences-transport/ownership.json)은 이 endpoint→Issue projection과 readiness의 canonical JSON SHA-256을 보존한다. validator는 owner 누락·복수 표기·미등록 Issue·endpoint 불일치와 digest drift를 fail-closed로 거부한다. 이 정렬은 구현 책임 메타데이터만 변경하며 request/response schema, status, Problem Details와 data lineage는 바꾸지 않는다.
 
 두 선호 PUT은 부분 upsert가 아니라 전체 교체다. `preferences`의 배열은 빈 배열로 지울 수 있지만 누락과 `null`은 거부한다. `startPlaceId`와 `endPlaceId`만 명시적 `null`을 허용한다. 교통수단은 `public_transit/rental_car/taxi` 중 1~3개이며 mode와 priority가 중복되지 않고 priority가 `1..N`으로 연속이어야 한다. primary는 정확히 한 건이고 priority 1이다.
 
@@ -27,8 +29,8 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 오류는 #72의 `application/problem+json`과 정확한 `type,title,status,detail,instance,code,traceId,fieldErrors`를 상속한다. endpoint별 matrix는 설명 문자열이 아니라 canonical error code를 직접 참조하며, 각 code는 condition과 한국어 problem fixture에 양방향으로 정확히 한 번 연결된다. 세 PUT에서 non-null 장소 참조가 없으면 `404 PLACE_NOT_FOUND`, DELETE selector에 이벤트가 없으면 `404 TRANSPORT_EVENT_NOT_FOUND`다. 두 오류의 canonical occurrence URI도 `urn:timing-jeju:problem:{traceId}`로 고정한다. request-time 외부 API 또는 MCP 호출은 없다.
 
-Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. 하지만 Figma 자체에 API contract version과 loading/empty/error response 연결이 없으므로 `figma=not-linked`, catalog readiness는 과장하지 않고 모두 `not-ready`다. Controller/OpenAPI/contract test가 없는 문서 Issue이므로 catalog의 Implementation Ready도 승격하지 않는다.
+Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. Controller/OpenAPI/contract test 구현은 존재하지만 #48 Reviewer 승인과 전체 품질 게이트 전이므로 catalog readiness는 과장하지 않고 모두 `not-ready`를 유지한다. Figma 자체의 API contract version과 loading/empty/error response 연결도 아직 없다.
 
 ## 발견한 schema 후속 범위
 
-현재 schema는 terminal 둘 중 하나 이상만 요구하여 둘 다 허용하고, 같은 place의 `must_visit/avoid` 교차 중복도 허용한다. active 일정 무효화 transaction 또한 구현 API 범위다. 이 Issue에서는 migration을 바꾸지 않고 #46/#47에서 명시적으로 검증한다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.
+현재 #46 preferences, #47 transport-event, #48 place-preferences는 각 owner 범위의 CHECK·uniqueness·active 일정 무효화 transaction을 append-only migration과 API 테스트로 구현한다. #48은 `20260908000000_trip_place_preference_contract.sql`과 Docker init `043`을 소유하며 이미 검증된 #46/#47 migration을 수정하거나 재번호하지 않는다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.

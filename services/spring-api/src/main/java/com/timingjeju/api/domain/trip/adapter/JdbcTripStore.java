@@ -1,12 +1,17 @@
 package com.timingjeju.api.domain.trip.adapter;
 
 import com.timingjeju.api.application.trip.CreateTripRecord;
+import com.timingjeju.api.application.trip.ReplaceTripPreferencesCommand;
+import com.timingjeju.api.application.trip.ReplaceTripPreferencesRecord;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripDay;
+import com.timingjeju.api.application.trip.TripEntityTag;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripListCursor;
 import com.timingjeju.api.application.trip.TripListSlice;
 import com.timingjeju.api.application.trip.TripMutationResult;
+import com.timingjeju.api.application.trip.TripPreferencePolicy;
+import com.timingjeju.api.application.trip.TripPreferencesMutation;
 import com.timingjeju.api.application.trip.TripScore;
 import com.timingjeju.api.application.trip.TripStore;
 import com.timingjeju.api.application.trip.TripSummary;
@@ -26,8 +31,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
+import org.postgresql.util.PSQLException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -39,6 +46,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class JdbcTripStore implements TripStore {
+  private static final Set<String> PREFERENCE_CONSTRAINTS =
+      Set.of(
+          "trip_transport_modes_aggregate_check",
+          "trip_transport_modes_transport_mode_check",
+          "trip_transport_modes_priority_check",
+          "trip_transport_modes_trip_plan_id_priority_key",
+          "trip_transport_modes_pkey",
+          "uq_trip_transport_modes_primary");
+  private static final Set<String> PREFERENCE_PLACE_FOREIGN_KEYS =
+      Set.of("trip_preferences_start_place_id_fkey", "trip_preferences_end_place_id_fkey");
   private static final String SUMMARY_COLUMNS =
       """
       p.id, p.revision, p.title, p.status, p.start_date, p.end_date, p.timezone, p.user_pace,
@@ -352,7 +369,7 @@ public class JdbcTripStore implements TripStore {
       if (temporalChanged && hasScheduleVersion(record.tripId())) {
         throw TripException.regenerationRequired();
       }
-      if (temporalChanged && hasCalendarChildOutside(record.tripId(), startDate, endDate)) {
+      if (temporalChanged && hasCalendarChildConflict(record.tripId(), startDate, endDate)) {
         throw TripException.constraintViolation();
       }
 
@@ -409,6 +426,306 @@ public class JdbcTripStore implements TripStore {
 
   @Override
   @Transactional
+  public TripPreferencesMutation replacePreferences(ReplaceTripPreferencesRecord record) {
+    ReplaceTripPreferencesCommand command =
+        TripPreferencePolicy.canonicalizeAndValidate(record.command());
+    try {
+      MutationRoot root = lockOwned(record.ownerId(), record.tripId());
+      if (root.revision() != record.expectedRevision()) {
+        throw TripException.versionConflict();
+      }
+      if (Set.of("completed", "cancelled", "failed").contains(root.status())) {
+        throw TripException.terminalStateConflict();
+      }
+      validatePreferencePlaces(command, record.updatedAt());
+      if (command.equals(loadPreferences(record.tripId()))) {
+        return new TripPreferencesMutation(
+            record.tripId(),
+            command,
+            root.revision(),
+            root.updatedAt(),
+            "maintained",
+            false,
+            root.activeScheduleVersionId(),
+            root.status(),
+            TripEntityTag.strong(record.tripId(), root.revision()));
+      }
+
+      replacePreferenceRows(record, command);
+      boolean invalidated = root.activeScheduleVersionId() != null;
+      if (invalidated
+          && jdbc.update(
+                  """
+                  update public.trip_schedule_versions
+                  set status = 'superseded'
+                  where id = ? and trip_plan_id = ? and status = 'active'
+                  """,
+                  root.activeScheduleVersionId(),
+                  record.tripId())
+              != 1) {
+        throw TripException.versionConflict();
+      }
+      if (jdbc.update(
+              """
+              update public.trip_plans
+              set active_schedule_version_id = case when ? then null else active_schedule_version_id end,
+                  status = case when ? then 'draft' else status end,
+                  total_score = case when ? then null else total_score end,
+                  revision = revision + 1,
+                  updated_at = ?
+              where id = ? and user_id = ? and revision = ?
+              """,
+              invalidated,
+              invalidated,
+              invalidated,
+              Timestamp.from(record.updatedAt()),
+              record.tripId(),
+              record.ownerId(),
+              record.expectedRevision())
+          != 1) {
+        throw TripException.versionConflict();
+      }
+      PreferenceReload reload =
+          loadPreferenceReload(record.ownerId(), record.tripId())
+              .orElseThrow(TripException::notFound);
+      String scheduleEffect = invalidated ? "invalidated" : "none";
+      return new TripPreferencesMutation(
+          record.tripId(),
+          reload.preferences(),
+          reload.revision(),
+          reload.updatedAt(),
+          scheduleEffect,
+          "invalidated".equals(scheduleEffect),
+          reload.activeScheduleVersionId(),
+          reload.status(),
+          TripEntityTag.strong(record.tripId(), reload.revision()));
+    } catch (DataAccessException failure) {
+      throw TripException.dataUnavailable();
+    }
+  }
+
+  private ReplaceTripPreferencesCommand loadPreferences(UUID tripId) {
+    List<PreferenceRow> preferences =
+        jdbc.query(
+            """
+            select preferred_categories, arrival_region_code, departure_region_code,
+                   preferred_region_codes, start_place_id, end_place_id
+            from public.trip_preferences
+            where trip_plan_id = ?
+            """,
+            (rs, row) ->
+                new PreferenceRow(
+                    textArray(rs, "preferred_categories"),
+                    rs.getString("arrival_region_code"),
+                    rs.getString("departure_region_code"),
+                    textArray(rs, "preferred_region_codes"),
+                    rs.getObject("start_place_id", UUID.class),
+                    rs.getObject("end_place_id", UUID.class)),
+            tripId);
+    if (preferences.isEmpty()) {
+      return null;
+    }
+    PreferenceRow preference = preferences.getFirst();
+    try {
+      return TripPreferencePolicy.canonicalizeAndValidate(
+          new ReplaceTripPreferencesCommand(
+              preference.preferredCategories(),
+              preference.arrivalRegionCode(),
+              preference.departureRegionCode(),
+              preference.preferredRegionCodes(),
+              preference.startPlaceId(),
+              preference.endPlaceId(),
+              loadPreferenceModes(tripId)));
+    } catch (TripException corruptProjection) {
+      throw TripException.internalServerError();
+    }
+  }
+
+  private List<TripTransportMode> loadPreferenceModes(UUID tripId) {
+    return jdbc.query(
+        """
+        select transport_mode, priority, is_primary
+        from public.trip_transport_modes
+        where trip_plan_id = ?
+        order by priority
+        """,
+        (rs, row) ->
+            new TripTransportMode(
+                rs.getString("transport_mode"), rs.getInt("priority"), rs.getBoolean("is_primary")),
+        tripId);
+  }
+
+  private Optional<PreferenceReload> loadPreferenceReload(UUID ownerId, UUID tripId) {
+    List<PreferenceReloadRoot> roots =
+        jdbc.query(
+            """
+            select p.revision, p.updated_at, p.status, p.active_schedule_version_id
+            from public.trip_plans p
+            where p.id = ? and p.user_id = ?
+            """,
+            (rs, row) ->
+                new PreferenceReloadRoot(
+                    rs.getLong("revision"),
+                    rs.getTimestamp("updated_at").toInstant(),
+                    rs.getString("status"),
+                    rs.getObject("active_schedule_version_id", UUID.class)),
+            tripId,
+            ownerId);
+    if (roots.isEmpty()) {
+      return Optional.empty();
+    }
+    ReplaceTripPreferencesCommand preferences =
+        requirePreferenceProjection(loadPreferences(tripId));
+    PreferenceReloadRoot root = roots.getFirst();
+    return Optional.of(
+        new PreferenceReload(
+            preferences,
+            root.revision(),
+            root.updatedAt(),
+            root.status(),
+            root.activeScheduleVersionId()));
+  }
+
+  static ReplaceTripPreferencesCommand requirePreferenceProjectionForTest(
+      ReplaceTripPreferencesCommand projection) {
+    return requirePreferenceProjection(projection);
+  }
+
+  private static ReplaceTripPreferencesCommand requirePreferenceProjection(
+      ReplaceTripPreferencesCommand projection) {
+    if (projection == null) {
+      throw TripException.internalServerError();
+    }
+    return projection;
+  }
+
+  private void validatePreferencePlaces(ReplaceTripPreferencesCommand command, Instant now) {
+    for (UUID placeId :
+        java.util.stream.Stream.of(command.startPlaceId(), command.endPlaceId())
+            .filter(java.util.Objects::nonNull)
+            .distinct()
+            .toList()) {
+      Boolean current =
+          jdbc
+              .query(
+                  """
+                  select stale = false
+                     and (stale_at is null or stale_at > ?)
+                     and tombstoned_at is null
+                     and source_deleted_at is null
+                  from public.tour_places
+                  where id = ?
+                  """,
+                  (rs, row) -> rs.getBoolean(1),
+                  Timestamp.from(now),
+                  placeId)
+              .stream()
+              .findFirst()
+              .orElse(false);
+      if (!Boolean.TRUE.equals(current)) {
+        throw TripException.placeNotFound();
+      }
+    }
+  }
+
+  private void replacePreferenceRows(
+      ReplaceTripPreferencesRecord record, ReplaceTripPreferencesCommand command) {
+    try {
+      jdbc.update(
+          "delete from public.trip_transport_modes where trip_plan_id = ?", record.tripId());
+      jdbc.update("delete from public.trip_preferences where trip_plan_id = ?", record.tripId());
+      jdbc.update(
+          """
+          insert into public.trip_preferences (
+            trip_plan_id, preferred_categories, arrival_region_code, departure_region_code,
+            preferred_region_codes, start_place_id, end_place_id, raw_answers,
+            created_at, updated_at
+          ) values (?, ?, ?, ?, ?, ?, ?, '{}'::jsonb, ?, ?)
+          """,
+          record.tripId(),
+          command.preferredCategories().toArray(String[]::new),
+          command.arrivalRegionCode(),
+          command.departureRegionCode(),
+          command.preferredRegionCodes().toArray(String[]::new),
+          command.startPlaceId(),
+          command.endPlaceId(),
+          Timestamp.from(record.updatedAt()),
+          Timestamp.from(record.updatedAt()));
+      List<Object[]> modes =
+          command.transportModes().stream()
+              .map(
+                  mode ->
+                      new Object[] {
+                        record.tripId(),
+                        mode.mode(),
+                        mode.priority(),
+                        mode.primary(),
+                        Timestamp.from(record.updatedAt())
+                      })
+              .toList();
+      jdbc.batchUpdate(
+          """
+          insert into public.trip_transport_modes (
+            trip_plan_id, transport_mode, priority, is_primary, created_at
+          ) values (?, ?, ?, ?, ?)
+          """,
+          modes);
+    } catch (DataIntegrityViolationException failure) {
+      throw translatePreferenceWriteFailure(failure);
+    }
+  }
+
+  static RuntimeException translatePreferenceWriteFailureForTest(
+      DataIntegrityViolationException failure) {
+    return translatePreferenceWriteFailure(failure);
+  }
+
+  private static RuntimeException translatePreferenceWriteFailure(
+      DataIntegrityViolationException failure) {
+    Throwable current = failure;
+    while (current != null) {
+      if (current instanceof PSQLException postgres && postgres.getServerErrorMessage() != null) {
+        String sqlState = postgres.getSQLState();
+        String constraint = postgres.getServerErrorMessage().getConstraint();
+        if ("23503".equals(sqlState) && PREFERENCE_PLACE_FOREIGN_KEYS.contains(constraint)) {
+          return TripException.placeNotFound();
+        }
+        if (("23505".equals(sqlState) || "23514".equals(sqlState))
+            && PREFERENCE_CONSTRAINTS.contains(constraint)) {
+          return TripException.preferenceConstraintViolation();
+        }
+        break;
+      }
+      current = current.getCause();
+    }
+    return failure;
+  }
+
+  private static List<String> textArray(ResultSet result, String column) throws SQLException {
+    String[] values = (String[]) result.getArray(column).getArray();
+    return List.of(values);
+  }
+
+  private record PreferenceRow(
+      List<String> preferredCategories,
+      String arrivalRegionCode,
+      String departureRegionCode,
+      List<String> preferredRegionCodes,
+      UUID startPlaceId,
+      UUID endPlaceId) {}
+
+  private record PreferenceReloadRoot(
+      long revision, Instant updatedAt, String status, UUID activeScheduleVersionId) {}
+
+  private record PreferenceReload(
+      ReplaceTripPreferencesCommand preferences,
+      long revision,
+      Instant updatedAt,
+      String status,
+      UUID activeScheduleVersionId) {}
+
+  @Override
+  @Transactional
   public void deleteOwned(UUID ownerId, UUID tripId) {
     try {
       MutationRoot root = lockOwned(ownerId, tripId);
@@ -430,7 +747,7 @@ public class JdbcTripStore implements TripStore {
     List<MutationRoot> rows =
         jdbc.query(
             """
-            select revision, title, status, start_date, end_date, timezone, user_pace,
+            select revision, title, status, start_date, end_date, timezone, user_pace, updated_at,
                    active_schedule_version_id, total_score
             from public.trip_plans
             where id = ? and user_id = ?
@@ -445,6 +762,7 @@ public class JdbcTripStore implements TripStore {
                     rs.getDate("end_date").toLocalDate(),
                     rs.getString("timezone"),
                     rs.getString("user_pace"),
+                    rs.getTimestamp("updated_at").toInstant(),
                     rs.getObject("active_schedule_version_id", UUID.class),
                     rs.getObject("total_score", Integer.class)),
             tripId,
@@ -477,7 +795,7 @@ public class JdbcTripStore implements TripStore {
             tripId));
   }
 
-  private boolean hasCalendarChildOutside(UUID tripId, LocalDate startDate, LocalDate endDate) {
+  private boolean hasCalendarChildConflict(UUID tripId, LocalDate startDate, LocalDate endDate) {
     return Boolean.TRUE.equals(
         jdbc.queryForObject(
             """
@@ -485,12 +803,23 @@ public class JdbcTripStore implements TripStore {
               exists(
                 select 1 from public.trip_transport_events event
                 where event.trip_plan_id = ?
-                  and timezone('Asia/Seoul', event.scheduled_at)::date not between ? and ?
+                  and (
+                    (event.event_type = 'arrival'
+                      and timezone('Asia/Seoul', event.scheduled_at)::date <> ?)
+                    or (event.event_type = 'departure'
+                      and timezone('Asia/Seoul', event.scheduled_at)::date <> ?)
+                  )
               )
               or exists(
                 select 1 from public.trip_accommodations accommodation
                 where accommodation.trip_plan_id = ?
                   and (accommodation.check_in_date < ? or accommodation.check_out_date > ?)
+              )
+              or exists(
+                select 1 from public.trip_place_preferences preference
+                where preference.trip_plan_id = ?
+                  and preference.target_day_no is not null
+                  and preference.target_day_no > ?
               )
             """,
             Boolean.class,
@@ -499,7 +828,9 @@ public class JdbcTripStore implements TripStore {
             Date.valueOf(endDate),
             tripId,
             Date.valueOf(startDate),
-            Date.valueOf(endDate)));
+            Date.valueOf(endDate),
+            tripId,
+            (int) (ChronoUnit.DAYS.between(startDate, endDate) + 1)));
   }
 
   private void replaceModes(UUID tripId, List<TripTransportMode> modes, Instant updatedAt) {
@@ -582,6 +913,7 @@ public class JdbcTripStore implements TripStore {
       LocalDate endDate,
       String timezone,
       String userPace,
+      Instant updatedAt,
       UUID activeScheduleVersionId,
       Integer totalScore) {}
 

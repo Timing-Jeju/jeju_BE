@@ -12,7 +12,7 @@ Issue #87의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 POST는 `placeId/customName` 두 property를 모두 보내되 정확히 하나만 non-null이어야 한다. PATCH에서 누락은 기존 값 유지이고, `null`은 반대 identity를 같은 요청에서 non-null로 설정할 때 losing identity를 지우는 용도로만 허용한다. 적용 결과는 항상 XOR이다. `checkInTime/checkOutTime`은 `Asia/Seoul` local wall-clock `HH:mm`이며 offset 없는 다른 timezone 의미로 해석하지 않는다.
 
-POST의 `Idempotency-Key` scope는 canonical sub + method + path + tripId, TTL은 24시간이다. 같은 payload replay는 최초 `201` status/body/ETag를 재사용한다. 같은 key의 다른 payload는 `409 IDEMPOTENCY_KEY_REUSED`, 동일 key 동시 요청은 최초 transaction 종료까지 기다린 뒤 replay한다. 모든 변경은 여행 aggregate의 강한 ETag를 `If-Match`로 검사하고 stale writer는 `409 TRIP_VERSION_CONFLICT`다.
+POST의 `Idempotency-Key`는 1~128자의 printable ASCII(`U+0020`~`U+007E`)이며 scope는 canonical sub + method + path + tripId, TTL은 24시간이다. 같은 payload replay는 최초 `201` status/body/ETag를 재사용한다. 같은 key의 다른 payload는 `409 IDEMPOTENCY_KEY_REUSED`, 동일 key 동시 요청은 최초 transaction 종료까지 기다린 뒤 replay한다. 모든 변경은 여행 aggregate의 강한 ETag를 `If-Match`로 검사하고 stale writer는 `409 TRIP_VERSION_CONFLICT`다.
 
 ## 기간, coverage와 복수 순서
 

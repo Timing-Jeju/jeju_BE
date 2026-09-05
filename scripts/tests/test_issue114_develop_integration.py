@@ -101,7 +101,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         self.assertIn("databaseNow().minusSeconds(1)", method)
         self.assertNotIn("Instant.now().minusSeconds(1)", method)
 
-    def test_firebase_adapter와_현재_mode24_historical_mode23이_함께_유지된다(self):
+    def test_firebase_adapter와_현재_mode31_historical_modes가_함께_유지된다(self):
         firebase_adapter = (
             ROOT
             / "services/spring-api/src/main/java/com/timingjeju/api/global/push/firebase"
@@ -111,14 +111,16 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
 
         for gate_name in ("quality-gate.sh", "quality-gate.ps1"):
             gate = (ROOT / "scripts" / gate_name).read_text(encoding="utf-8")
-            self.assertIn("--mode 24", gate, gate_name)
+            self.assertIn("--mode 31", gate, gate_name)
             self.assertNotIn("--mode 20", gate, gate_name)
             self.assertNotIn("--mode 16", gate, gate_name)
 
         validator = (
             ROOT / "scripts/validate_openapi_frontend_readiness.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("choices=(9, 16, 20, 21, 23, 24)", validator)
+        self.assertIn(
+            "choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30, 31)", validator
+        )
 
         migration_names = {
             path.name for path in (ROOT / "supabase/migrations").glob("*.sql")

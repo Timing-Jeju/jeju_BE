@@ -109,6 +109,79 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   }
 
   @Test
+  void 도착출발_event가_있으면_여행경계_확장도_exact_date_invariant로_원자거부한다() {
+    jdbc.update(
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'arrival', 'flight', '제주공항', '2026-09-01T00:00:00Z')",
+        TRIP);
+    jdbc.update(
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'departure', 'flight', '제주공항', '2026-09-03T00:00:00Z')",
+        TRIP);
+    String before = calendarFingerprint();
+
+    assertCode(
+        () ->
+            store.updateOwned(
+                record(
+                    dates(LocalDate.parse("2026-08-31"), LocalDate.parse("2026-09-03")), 1, NOW)),
+        "TRIP_CONSTRAINT_VIOLATION");
+    assertThat(calendarFingerprint()).isEqualTo(before);
+
+    assertCode(
+        () ->
+            store.updateOwned(
+                record(
+                    dates(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-04")), 1, NOW)),
+        "TRIP_CONSTRAINT_VIOLATION");
+    assertThat(calendarFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void Day3_장소선호가_있는_여행을_2일로_축소하면_도메인422와_aggregate무변경을_보장한다() {
+    installExternalFactReference();
+    jdbc.update(
+        "insert into public.trip_place_preferences (trip_plan_id, place_id, preference_type, target_day_no, priority) values (?, ?, 'must_visit', 3, 90)",
+        TRIP,
+        PLACE);
+    String before = calendarFingerprint();
+
+    assertCode(
+        () ->
+            store.updateOwned(
+                record(
+                    dates(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-02")), 1, NOW)),
+        "TRIP_CONSTRAINT_VIOLATION");
+
+    assertThat(calendarFingerprint()).isEqualTo(before);
+    assertThat(
+            jdbc.queryForObject(
+                "select target_day_no from public.trip_place_preferences where trip_plan_id=? and place_id=?",
+                Integer.class,
+                TRIP,
+                PLACE))
+        .isEqualTo(3);
+  }
+
+  @Test
+  void DB직접_root축소도_named_23514로_거부하고_preference와_revision을_보존한다() {
+    installExternalFactReference();
+    jdbc.update(
+        "insert into public.trip_place_preferences (trip_plan_id, place_id, preference_type, target_day_no, priority) values (?, ?, 'must_visit', 3, 90)",
+        TRIP,
+        PLACE);
+    String before = calendarFingerprint();
+
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "update public.trip_plans set end_date='2026-09-02', revision=revision+1 where id=?",
+                    TRIP))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+        .satisfies(failure -> assertThat(sqlState(failure)).isEqualTo("23514"));
+
+    assertThat(calendarFingerprint()).isEqualTo(before);
+  }
+
+  @Test
   void pace변경은_active를_superseded하고_pointer_score_status를_원자무효화한다() {
     installActiveSchedule();
 
@@ -208,6 +281,54 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
       assertThat(outcomes).containsExactlyInAnyOrder("success", "TRIP_VERSION_CONFLICT");
       assertThat(root("revision", Long.class)).isEqualTo(2L);
     }
+  }
+
+  @Test
+  void departure_event와_root_endDate를_동시에_확장해도_둘다_거부되고_revision과_event는_불변이다() throws Exception {
+    jdbc.update(
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'departure', 'flight', '제주공항', '2026-09-03T00:00:00Z')",
+        TRIP);
+    String before = calendarFingerprint();
+    CountDownLatch start = new CountDownLatch(1);
+
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var rootUpdate =
+          pool.submit(
+              () -> {
+                start.await();
+                try {
+                  store.updateOwned(
+                      record(
+                          dates(LocalDate.parse("2026-09-01"), LocalDate.parse("2026-09-04")),
+                          1,
+                          NOW));
+                  return "success";
+                } catch (TripException failure) {
+                  return failure.code();
+                }
+              });
+      var eventUpdate =
+          pool.submit(
+              () -> {
+                start.await();
+                try {
+                  new TransactionTemplate(transactions)
+                      .executeWithoutResult(
+                          ignored ->
+                              jdbc.update(
+                                  "update public.trip_transport_events set scheduled_at='2026-09-04T00:00:00Z' where trip_plan_id=? and event_type='departure'",
+                                  TRIP));
+                  return "success";
+                } catch (org.springframework.dao.DataAccessException failure) {
+                  return "TRIP_CONSTRAINT_VIOLATION";
+                }
+              });
+      start.countDown();
+
+      assertThat(List.of(rootUpdate.get(), eventUpdate.get()))
+          .containsOnly("TRIP_CONSTRAINT_VIOLATION");
+    }
+    assertThat(calendarFingerprint()).isEqualTo(before);
   }
 
   @Test
@@ -457,7 +578,9 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         """,
         PLACE);
     jdbc.update(
-        "insert into public.trip_preferences (trip_plan_id, start_place_id) values (?, ?)",
+        "insert into public.trip_preferences"
+            + " (trip_plan_id, start_place_id, arrival_region_code, departure_region_code)"
+            + " values (?, ?, 'jeju-si', 'seogwipo-si')",
         TRIP,
         PLACE);
   }
@@ -565,9 +688,34 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         TRIP);
   }
 
+  private String calendarFingerprint() {
+    return jdbc.queryForObject(
+        """
+        select concat_ws('|', revision, start_date, end_date,
+          (select string_agg(concat(day_no, ':', trip_date), ',' order by day_no)
+           from public.trip_days where trip_plan_id = p.id),
+          (select string_agg(concat(event_type, ':', scheduled_at), ',' order by event_type)
+           from public.trip_transport_events where trip_plan_id = p.id),
+          (select string_agg(concat(place_id, ':', target_day_no), ',' order by place_id)
+           from public.trip_place_preferences where trip_plan_id = p.id))
+        from public.trip_plans p where id = ?
+        """,
+        String.class,
+        TRIP);
+  }
+
   private int count(String table, String column, UUID id) {
     return jdbc.queryForObject(
         "select count(*) from public." + table + " where " + column + " = ?", Integer.class, id);
+  }
+
+  private static String sqlState(Throwable failure) {
+    Throwable current = failure;
+    while (current != null) {
+      if (current instanceof java.sql.SQLException sqlFailure) return sqlFailure.getSQLState();
+      current = current.getCause();
+    }
+    return null;
   }
 
   private static void assertCode(Runnable operation, String code) {

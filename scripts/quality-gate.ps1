@@ -17,6 +17,17 @@ function Invoke-Native([string]$Description, [scriptblock]$Command) {
   }
 }
 
+function Invoke-BoundedSpringGradle(
+  [string]$Stage,
+  [int]$TimeoutSeconds,
+  [string]$ExpectedMarker,
+  [string[]]$GradleArgs
+) {
+  $watchdog = Join-Path $root "scripts/gradle_stage_watchdog.py"
+  $diagnostics = Join-Path $springDir "build/diagnostics"
+  Invoke-Native "Spring $Stage" { py -3 $watchdog --stage $Stage --timeout-seconds $TimeoutSeconds --post-suite-timeout-seconds 120 --expected-marker $ExpectedMarker --diagnostics-dir $diagnostics -- ./gradlew.bat --no-daemon @GradleArgs }
+}
+
 $root = git rev-parse --show-toplevel
 Set-Location $root
 $springDir = Join-Path $root "services/spring-api"
@@ -62,15 +73,29 @@ if ($Scope -in @("all", "spring")) {
   try {
     Invoke-Native "Spring 포맷 검사" { ./gradlew.bat --no-daemon spotlessCheck }
     Invoke-Native "Spring 컴파일" { ./gradlew.bat --no-daemon classes testClasses }
-    Invoke-Native "Spring 분류 테스트" { ./gradlew.bat --no-daemon unitTest sliceTest integrationTest architectureTest }
+    $jacocoDir = Join-Path $springDir "build/jacoco"
+    if (Test-Path -LiteralPath $jacocoDir) {
+      Remove-Item -LiteralPath $jacocoDir -Recurse -Force -ErrorAction Stop
+    }
+    if (Test-Path -LiteralPath $jacocoDir) {
+      throw "stale JaCoCo execution data를 삭제하지 못했습니다."
+    }
+    Invoke-Native "Spring 분류 테스트" { ./gradlew.bat --no-daemon unitTest sliceTest architectureTest }
+    Invoke-BoundedSpringGradle "integrationTest" 7200 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" @("integrationTest")
     if (Test-Path -LiteralPath "build/openapi/openapi.json") {
       Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction Stop
     }
     if (Test-Path -LiteralPath "build/openapi/openapi.json") {
       throw "stale OpenAPI artifact를 삭제하지 못했습니다."
     }
-    Invoke-Native "Spring OpenAPI 문서 생성" { ./gradlew.bat --no-daemon openApiDocs }
-    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 24 --contracts-root ../.. }
+    Invoke-BoundedSpringGradle "openApiDocs" 900 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:openApiDocsTest" @("openApiDocs")
+    if (-not (Test-Path -LiteralPath "build/openapi/openapi.json")) {
+      throw "OpenAPI artifact가 생성되지 않았습니다."
+    }
+    if ((Get-Item -LiteralPath "build/openapi/openapi.json").Length -le 0) {
+      throw "OpenAPI artifact가 비어 있습니다."
+    }
+    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 31 --contracts-root ../.. }
     Invoke-Native "Spring 전체 검사" { ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar }
   } finally {
     Pop-Location

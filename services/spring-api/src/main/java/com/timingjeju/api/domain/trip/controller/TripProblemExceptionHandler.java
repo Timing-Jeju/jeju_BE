@@ -16,15 +16,22 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice(assignableTypes = TripController.class)
 public class TripProblemExceptionHandler {
   private final ProblemResponseWriter writer;
+  private final TripPreferencesProblemWriter preferencesWriter;
 
-  public TripProblemExceptionHandler(ProblemResponseWriter writer) {
+  public TripProblemExceptionHandler(
+      ProblemResponseWriter writer, TripPreferencesProblemWriter preferencesWriter) {
     this.writer = writer;
+    this.preferencesWriter = preferencesWriter;
   }
 
   @ExceptionHandler(TripException.class)
   void handleTrip(TripException failure, HttpServletRequest request, HttpServletResponse response)
       throws IOException {
-    writer.write(request, response, failure.code());
+    if (isPreferencesRequest(request)) {
+      preferencesWriter.write(request, response, failure.code());
+    } else {
+      writer.write(request, response, failure.code());
+    }
   }
 
   @ExceptionHandler(IdempotencyException.class)
@@ -49,5 +56,9 @@ public class TripProblemExceptionHandler {
           case INVALID_AUTH_IDENTITY, STORAGE_UNAVAILABLE -> "TRIP_DATA_UNAVAILABLE";
         };
     writer.write(request, response, publicCode);
+  }
+
+  private static boolean isPreferencesRequest(HttpServletRequest request) {
+    return request.getRequestURI().matches(".*/api/v1/trips/[^/]+/preferences$");
   }
 }

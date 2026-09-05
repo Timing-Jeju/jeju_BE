@@ -7,14 +7,19 @@ from pathlib import Path
 from unittest import mock
 
 from scripts.validate_openapi_frontend_readiness import (
+    ACCOMMODATION_OPERATIONS,
     CURRENT_OPERATIONS,
+    PLACE_PREFERENCE_OPERATIONS,
+    PREFERENCES_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_MUTATION_OPERATIONS,
     SCHEDULE_MUTATION_OPERATIONS,
     SCHEDULE_OPERATIONS,
+    TRANSPORT_EVENT_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
+    operations_for_mode,
 )
 
 
@@ -496,6 +501,217 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual("MutationResponse", create.args[2]["successSchema"])
         self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
 
+    def test_mode29는_독립_literal_29개_historical_inventory를_exact검사한다(self):
+        expected = {
+            ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
+            ("GET", "/api/v1/auth/social/naver/userinfo"): "authNaverUserInfoRead",
+            ("GET", "/api/v1/me"): "profileRead",
+            ("PATCH", "/api/v1/me"): "profileUpdate",
+            ("GET", "/api/v1/legal-documents"): "legalDocumentsList",
+            ("PUT", "/api/v1/me/consents"): "legalConsentsUpdate",
+            ("GET", "/api/v1/places"): "placesList",
+            ("GET", "/api/v1/places/{placeId}"): "placesRead",
+            ("GET", "/api/v1/weather/forecast"): "weatherForecastRead",
+            ("GET", "/api/v1/me/saved-places"): "savedPlacesList",
+            ("POST", "/api/v1/me/saved-places"): "savedPlacesCreate",
+            ("PATCH", "/api/v1/me/saved-places/{placeId}"): "savedPlacesUpdate",
+            ("DELETE", "/api/v1/me/saved-places/{placeId}"): "savedPlacesDelete",
+            ("GET", "/api/v1/trips"): "tripsList",
+            ("POST", "/api/v1/trips"): "tripsCreate",
+            ("GET", "/api/v1/trips/{tripId}"): "tripsRead",
+            ("PATCH", "/api/v1/trips/{tripId}"): "tripsUpdate",
+            ("DELETE", "/api/v1/trips/{tripId}"): "tripsDelete",
+            ("PUT", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesUpdate",
+            ("DELETE", "/api/v1/me/push-devices/{deviceId}"): "pushDevicesDelete",
+            ("GET", "/api/v1/me/notification-preferences"): "notificationPreferencesRead",
+            ("PATCH", "/api/v1/me/notification-preferences"): "notificationPreferencesUpdate",
+            ("GET", "/api/v1/trips/{tripId}/schedule"): "tripScheduleRead",
+            ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
+            ("POST", "/api/v1/trips/{tripId}/accommodations"): "tripAccommodationsCreate",
+            ("PATCH", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): "tripAccommodationsUpdate",
+            ("DELETE", "/api/v1/trips/{tripId}/accommodations/{accommodationId}"): "tripAccommodationsDelete",
+            ("PUT", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsUpdate",
+            ("DELETE", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsDelete",
+        }
+        self.assertEqual(29, len(expected))
+        validator = Validator({}, 29, ROOT)
+        validator.operations = set(expected)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        for operations, fragment in (
+            (set(expected) - {("PUT", "/api/v1/trips/{tripId}/transport-event")}, "29-operation"),
+            (set(expected) | {("GET", "/api/v1/unowned")}, "inventory allowlist"),
+        ):
+            drift = Validator({}, 29, ROOT)
+            drift.operations = operations
+            drift.operation_ids = validator.operation_ids
+            drift.validate_operation_inventory()
+            self.assertTrue(any(fragment in error for error in drift.errors), drift.errors)
+
+    def test_mode25는_trip_preferences_update를_exact_inventory와_authority로_검사한다(self):
+        """25-operation 모드가 #46 preferences PUT만 historical mode24에 더한다."""
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            SCHEDULE_OPERATIONS,
+            SCHEDULE_MUTATION_OPERATIONS,
+            PREFERENCES_OPERATIONS,
+        )
+        validator = Validator({}, 25, ROOT)
+        validator.operations = {
+            key for operations in operation_maps for key in operations
+        }
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for operations in operation_maps
+            for (method, path), operation_id in operations.items()
+        }
+
+        validator.validate_operation_inventory()
+
+        self.assertEqual([], validator.errors)
+        authority = Validator(valid_document(), 25, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        preferences = next(
+            call
+            for call in projection.call_args_list
+            if call.args[0] == ("PUT", "/api/v1/trips/{tripId}/preferences")
+        )
+        self.assertEqual("PreferencesResponse", preferences.args[2]["successSchema"])
+        self.assertEqual("PreferencesRequest", preferences.args[1]["schemas"]["body"])
+        flattened = authority.canonical_schema(
+            {"$ref": "PreferencesResponse"},
+            preferences.args[3],
+            "PUT /api/v1/trips/{tripId}/preferences response 200",
+        )
+        self.assertEqual("object", flattened["type"])
+        self.assertEqual(False, flattened["additionalProperties"])
+        self.assertEqual(
+            {
+                "tripId",
+                "preferences",
+                "scheduleEffect",
+                "regenerationRequired",
+                "activeScheduleVersionId",
+                "tripStatus",
+                "updatedAt",
+            },
+            set(flattened["required"]),
+        )
+        self.assertEqual(
+            "c6862499d71519d9efc7bfcf72855703d1e94f0a",
+            authority.source_provenance["preferences-transport"],
+        )
+
+    def test_mode30은_preferences_accommodations_transport를_exact검사한다(self):
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            SCHEDULE_OPERATIONS,
+            SCHEDULE_MUTATION_OPERATIONS,
+            PREFERENCES_OPERATIONS,
+            ACCOMMODATION_OPERATIONS,
+            TRANSPORT_EVENT_OPERATIONS,
+        )
+        expected = {
+            key: operation_id
+            for operations in operation_maps
+            for key, operation_id in operations.items()
+        }
+        self.assertEqual(30, len(expected))
+
+        validator = Validator({}, 30, ROOT)
+        validator.operations = set(expected)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 30, ROOT)
+        self.assertEqual(
+            "c6862499d71519d9efc7bfcf72855703d1e94f0a",
+            authority.source_provenance["preferences"],
+        )
+        self.assertEqual(
+            "5914e3c82673f8f49f36c1a9944308e096e98ade",
+            authority.source_provenance["transport-events"],
+        )
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        projected = {call.args[0] for call in projection.call_args_list}
+        self.assertIn(("PUT", "/api/v1/trips/{tripId}/preferences"), projected)
+        self.assertIn(("PUT", "/api/v1/trips/{tripId}/transport-event"), projected)
+        self.assertIn(
+            ("POST", "/api/v1/trips/{tripId}/accommodations"), projected
+        )
+
+    def test_mode31은_mode30에_place_preferences_하나만_추가해_exact검사한다(self):
+        historical = operations_for_mode(30)
+        expected = operations_for_mode(31)
+
+        self.assertEqual(30, len(historical))
+        self.assertEqual(31, len(expected))
+        self.assertEqual(
+            PLACE_PREFERENCE_OPERATIONS,
+            {key: expected[key] for key in set(expected) - set(historical)},
+        )
+
+        validator = Validator({}, 31, ROOT)
+        validator.operations = set(expected)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 31, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        projected = {call.args[0] for call in projection.call_args_list}
+        self.assertIn(("PUT", "/api/v1/trips/{tripId}/place-preferences"), projected)
+        self.assertEqual(
+            "d8c148dcf9eafba30380d8e7a75aa5e944f8c5ef",
+            authority.source_provenance["place-preferences"],
+        )
+
+        manifest = json.loads(
+            (ROOT / "scripts/openapi_frontend_runtime_manifest.json").read_text()
+        )["operations"]
+        place_runtime = manifest["PUT /api/v1/trips/{tripId}/place-preferences"]
+        self.assertIn(503, place_runtime["statusAdditions"])
+        self.assertIn("503", place_runtime["runtimeOnlyProblemStatuses"])
+        self.assertEqual(
+            ["TRIP_DATA_UNAVAILABLE", "https://api.timing-jeju.com/problems/trip-data-unavailable"],
+            place_runtime["problems"]["503"],
+        )
+        self.assertEqual(
+            {f"{method} {path}" for method, path in expected},
+            set(manifest),
+        )
+
+    def test_frontend_인계문서는_통합_exact31을_표현한다(self):
+        document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "#46 여행 선호 조건, #47 항공·선박 이벤트, #48 장소 선호까지 합친 exact 31개 operation의 프론트엔드 인계본",
+            document,
+        )
+        self.assertIn("active `--mode 31`", document)
+
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
         with mock.patch(
@@ -790,6 +1006,14 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual(
             "https://api.timing-jeju.example/problems/idempotency-key-reused",
             validator.expected_problem_type("IDEMPOTENCY_KEY_REUSED"),
+        )
+        self.assertEqual(
+            "https://api.timing-jeju.com/problems/idempotency-key-reused",
+            validator.expected_problem_type(
+                "IDEMPOTENCY_KEY_REUSED",
+                ("POST", "/api/v1/trips/{tripId}/accommodations"),
+                409,
+            ),
         )
 
     def test_secret_like_example과_internal_endpoint를_거부한다(self):
