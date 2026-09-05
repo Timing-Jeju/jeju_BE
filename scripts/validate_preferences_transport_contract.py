@@ -115,6 +115,10 @@ def _non_empty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _canonical_trim_nfc(value: str) -> str:
+    return unicodedata.normalize("NFC", value.strip(" \t\n\r\f\v"))
+
+
 def _validate_schema(contract: dict[str, Any], errors: list[str]) -> None:
     schemas = contract.get("schemas")
     if not isinstance(schemas, dict):
@@ -491,6 +495,8 @@ def _validate_schema_value(
         return
 
     if expected_type == "string":
+        if "\x00" in value:
+            errors.append(f"{path} schema U+0000 문자는 허용되지 않습니다.")
         minimum = flattened.get("minLength")
         maximum = flattened.get("maxLength")
         if isinstance(minimum, int) and len(value) < minimum:
@@ -500,7 +506,7 @@ def _validate_schema_value(
         pattern = flattened.get("pattern")
         if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
             errors.append(f"{path} schema pattern과 다릅니다.")
-        if flattened.get("normalization") == "trim+nfc" and value != unicodedata.normalize("NFC", value.strip()):
+        if flattened.get("normalization") == "trim+nfc" and value != _canonical_trim_nfc(value):
             errors.append(f"{path} schema normalization과 다릅니다.")
         value_format = flattened.get("format")
         if value_format == "uuid":

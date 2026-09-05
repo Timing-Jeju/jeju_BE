@@ -2,6 +2,7 @@ package com.timingjeju.api.domain.trip.controller.docs;
 
 import com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse;
 import com.timingjeju.api.domain.trip.dto.response.TripListResponse;
+import com.timingjeju.api.domain.trip.dto.response.TripPreferencesResponse;
 import com.timingjeju.api.global.error.ApiProblemDetails;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -229,6 +230,90 @@ public interface TripApiDocs {
               schema = @Schema(type = "string"))
           String ifMatch,
       byte[] body,
+      @Parameter(hidden = true) HttpServletRequest request);
+
+  @Operation(
+      operationId = "tripPreferencesUpdate",
+      summary = "여행 선호 조건 전체 교체",
+      description = "persisted trip revision strong If-Match로 선호 조건과 이동수단을 원자 교체합니다.")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema =
+                  @Schema(
+                      implementation =
+                          com.timingjeju.api.domain.trip.dto.request.ReplaceTripPreferencesRequest
+                              .class)))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        headers =
+            @Header(
+                name = "ETag",
+                required = true,
+                schema =
+                    @Schema(
+                        type = "string",
+                        pattern =
+                            "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$")),
+        content =
+            @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = TripPreferencesResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "403",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "422",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "500",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "503",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
+  ResponseEntity<TripPreferencesResponse> replacePreferences(
+      @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
+          String tripId,
       @Parameter(hidden = true) HttpServletRequest request);
 
   @Operation(summary = "여행 삭제", description = "실행 중 일정이나 비동기 run이 없는 소유 여행을 삭제합니다.")

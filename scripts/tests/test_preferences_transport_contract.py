@@ -45,6 +45,39 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual(EXPECTED_ENDPOINTS, actual)
         self.assertEqual(4, len(self.contract["endpoints"]))
 
+    def test_trim_nfc_uses_only_the_six_ascii_whitespace_characters(self) -> None:
+        trim = " \t\n\r\f\v"
+        preserved = "\x01jeju-si\x08"
+
+        self.assertEqual("제주시", VALIDATOR_MODULE._canonical_trim_nfc(trim + "제주시" + trim))
+        self.assertEqual(preserved, VALIDATOR_MODULE._canonical_trim_nfc(preserved))
+
+        schema = {"type": "string", "normalization": "trim+nfc"}
+        errors: list[str] = []
+        VALIDATOR_MODULE._validate_schema_value(preserved, schema, {}, "region", errors)
+        self.assertEqual([], errors)
+        array_schema = {"type": "array", "items": schema}
+        VALIDATOR_MODULE._validate_schema_value(
+            [preserved], array_schema, {}, "regions", errors
+        )
+        self.assertEqual([], errors)
+        for value, candidate_schema, path in (
+            ("jeju\x00-si", schema, "region"),
+            (["jeju\x00-si"], array_schema, "regions"),
+        ):
+            errors = []
+            VALIDATOR_MODULE._validate_schema_value(
+                value, candidate_schema, {}, path, errors
+            )
+            self.assertTrue(any("U+0000" in error for error in errors), path)
+        for whitespace in ("\t", "\n", "\r", "\f", "\v", " "):
+            errors = []
+            VALIDATOR_MODULE._validate_schema_value(
+                whitespace + "jeju-si", schema, {}, "region", errors
+            )
+            self.assertTrue(any("normalization" in error for error in errors), whitespace)
+
+
     def test_preferences_is_full_replace_with_closed_enums_and_primary_rule(self) -> None:
         policy = self.contract["preferencePolicy"]
         self.assertEqual("full-replace", policy["writeMode"])
@@ -100,6 +133,13 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 self.assertEqual(2, len(schema["allOf"]))
                 self.assertEqual({"$ref": "MutationResponse"}, schema["allOf"][0])
                 self.assertEqual(child_required, set(schema["allOf"][1]["required"]))
+
+    def test_mutation_if_match는_trip_revision_strong_etag를_요구한다(self) -> None:
+        schema = self.contract["schemas"]["MutationHeaders"]["properties"]["If-Match"]
+        self.assertEqual(
+            '^\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\"$',
+            schema["pattern"],
+        )
 
     def test_validator_rejects_response_composition_required_mutations(self) -> None:
         mutations = (

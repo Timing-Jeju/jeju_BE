@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.config;
 
 import com.timingjeju.api.domain.schedule.exception.ScheduleProblemDefinitions;
+import com.timingjeju.api.domain.trip.exception.TripPreferencesProblemDefinitions;
 import com.timingjeju.api.global.error.ProblemCodeRegistry;
 import com.timingjeju.api.global.error.ProblemDefinition;
 import com.timingjeju.api.global.logging.RequestTraceId;
@@ -23,6 +24,7 @@ import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -120,10 +122,15 @@ final class FrontendOpenApiCustomizer {
 
   private final ObjectMapper objectMapper;
   private final ProblemCodeRegistry problemCodeRegistry;
+  private final TripPreferencesProblemDefinitions tripPreferencesProblemDefinitions;
 
-  FrontendOpenApiCustomizer(ObjectMapper objectMapper, ProblemCodeRegistry problemCodeRegistry) {
+  FrontendOpenApiCustomizer(
+      ObjectMapper objectMapper,
+      ProblemCodeRegistry problemCodeRegistry,
+      TripPreferencesProblemDefinitions tripPreferencesProblemDefinitions) {
     this.objectMapper = objectMapper;
     this.problemCodeRegistry = problemCodeRegistry;
+    this.tripPreferencesProblemDefinitions = tripPreferencesProblemDefinitions;
   }
 
   void customise(OpenAPI openApi) {
@@ -139,7 +146,13 @@ final class FrontendOpenApiCustomizer {
         endpointMap(readContractResource("/rest/catalog.json"));
     for (String domain :
         List.of(
-            "profile-legal", "places", "weather-forecast", "saved-places", "trips", "schedules")) {
+            "profile-legal",
+            "places",
+            "weather-forecast",
+            "saved-places",
+            "trips",
+            "schedules",
+            "preferences-transport")) {
       Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
       Map<String, Object> schemas = objectMap(contract.get("schemas"));
       for (Map<String, Object> endpoint : objectMapList(contract.get("endpoints"))) {
@@ -168,6 +181,9 @@ final class FrontendOpenApiCustomizer {
     }
     Map<String, Object> schemaNames = objectMap(catalog.get("schemas"));
     projectCanonicalParameters(openApi, operation, schemaNames, schemas, key);
+    if ("PUT /api/v1/trips/{tripId}/preferences".equals(key)) {
+      documentConditionalHeaders(key, operation);
+    }
     Object bodyName = schemaNames.get("body");
     if (bodyName != null && !"none".equals(bodyName)) {
       if (operation.getRequestBody() == null) {
@@ -322,9 +338,17 @@ final class FrontendOpenApiCustomizer {
       seen = new java.util.HashSet<>(seen);
       seen.add(name);
     }
+    if (Boolean.FALSE.equals(raw.get("unevaluatedProperties"))
+        && raw.get("allOf") instanceof List<?>) {
+      return flattenClosedObjectComposition(raw, schemas, key, seen);
+    }
     Map<String, Object> result = new LinkedHashMap<>();
     Set<String> currentSeen = seen;
     for (Map.Entry<String, Object> entry : raw.entrySet()) {
+      if ("normalization".equals(entry.getKey())
+          || "unevaluatedProperties".equals(entry.getKey())) {
+        continue;
+      }
       Object child = entry.getValue();
       if (child instanceof Map<?, ?>) {
         child = expandCanonical(objectMap(child), schemas, key, currentSeen);
@@ -340,6 +364,41 @@ final class FrontendOpenApiCustomizer {
       }
       result.put(entry.getKey(), child);
     }
+    return result;
+  }
+
+  private Map<String, Object> flattenClosedObjectComposition(
+      Map<String, Object> raw, Map<String, Object> schemas, String key, Set<String> seen) {
+    if (raw.get("type") != null && !"object".equals(raw.get("type"))) {
+      throw new IllegalStateException("OpenAPI closed allOf parent가 object가 아닙니다: " + key);
+    }
+    Map<String, Object> properties = new LinkedHashMap<>();
+    Set<String> required = new LinkedHashSet<>();
+    for (Object value : valueList(raw.get("allOf"))) {
+      Map<String, Object> branch = expandCanonical(objectMap(value), schemas, key, seen);
+      if (!"object".equals(branch.get("type")) || branch.containsKey("allOf")) {
+        throw new IllegalStateException("OpenAPI closed allOf branch가 object가 아닙니다: " + key);
+      }
+      required.addAll(stringList(branch.get("required")));
+      for (Map.Entry<String, Object> property : objectMap(branch.get("properties")).entrySet()) {
+        Object previous = properties.putIfAbsent(property.getKey(), property.getValue());
+        if (previous != null && !previous.equals(property.getValue())) {
+          throw new IllegalStateException(
+              "OpenAPI closed allOf property가 충돌합니다: " + key + " " + property.getKey());
+        }
+      }
+    }
+    if (!properties.keySet().containsAll(required)) {
+      throw new IllegalStateException("OpenAPI closed allOf required property가 없습니다: " + key);
+    }
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("type", "object");
+    if (raw.containsKey("nullable")) {
+      result.put("nullable", raw.get("nullable"));
+    }
+    result.put("additionalProperties", false);
+    result.put("required", List.copyOf(required));
+    result.put("properties", properties);
     return result;
   }
 
@@ -450,6 +509,45 @@ final class FrontendOpenApiCustomizer {
                     response, Integer.parseInt(status), document.errorCodes().get(status), key);
               }
             });
+    if (key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
+      documentTripPreferencesProblems(operation);
+    }
+  }
+
+  private void documentTripPreferencesProblems(Operation operation) {
+    Map<String, List<String>> codesByStatus =
+        Map.of(
+            "400", List.of("INVALID_REQUEST"),
+            "401", List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"),
+            "404", List.of("TRIP_NOT_FOUND", "PLACE_NOT_FOUND"),
+            "409", List.of("TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"),
+            "422", List.of("PREFERENCE_CONSTRAINT_VIOLATION"));
+    codesByStatus.forEach(
+        (status, codes) -> {
+          MediaType media =
+              operation
+                  .getResponses()
+                  .get(status)
+                  .getContent()
+                  .get(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+          MediaType namedExamples = new MediaType().schema(media.getSchema());
+          codes.forEach(
+              code ->
+                  namedExamples.addExamples(
+                      code,
+                      new Example()
+                          .value(
+                              problemExample(
+                                  Integer.parseInt(status),
+                                  code,
+                                  "PUT /api/v1/trips/{tripId}/preferences"))));
+          operation
+              .getResponses()
+              .get(status)
+              .getContent()
+              .addMediaType(
+                  org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, namedExamples);
+        });
   }
 
   private static void documentParameters(Operation operation) {
@@ -490,7 +588,8 @@ final class FrontendOpenApiCustomizer {
           "44000000-0000-4000-8000-000000000044");
     } else if (key.equals("GET /api/v1/trips")) {
       setParameterExample(operation, "sort", "updated_at_desc");
-    } else if (key.equals("PATCH /api/v1/trips/{tripId}")) {
+    } else if (key.equals("PATCH /api/v1/trips/{tripId}")
+        || key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
       mergeRequiredHeader(
           operation,
           "If-Match",
@@ -532,7 +631,8 @@ final class FrontendOpenApiCustomizer {
       addResponseHeaderReferences(
           operation, List.of("201"), List.of("Location", "ETag", "Idempotency-Replayed"));
     } else if (key.equals("GET /api/v1/trips/{tripId}")
-        || key.equals("PATCH /api/v1/trips/{tripId}")) {
+        || key.equals("PATCH /api/v1/trips/{tripId}")
+        || key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
     } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
       addResponseHeaderReferences(
@@ -675,6 +775,9 @@ final class FrontendOpenApiCustomizer {
         "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
             ? ScheduleProblemDefinitions.mutationDefinition(code)
             : savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
+    if (definition == null && "PUT /api/v1/trips/{tripId}/preferences".equals(operationKey)) {
+      definition = tripPreferencesProblemDefinitions.find(code);
+    }
     if (definition == null) {
       definition = problemCodeRegistry.find(code);
     }
@@ -1104,6 +1207,27 @@ final class FrontendOpenApiCustomizer {
                 "404", "TRIP_NOT_FOUND",
                 "409", "TRIP_DELETE_CONFLICT",
                 "503", "TRIP_DATA_UNAVAILABLE")));
+    result.put(
+        "PUT /api/v1/trips/{tripId}/preferences",
+        doc(
+            "tripPreferencesUpdate",
+            "여행 선호 조건",
+            """
+            {"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"jeju-si","preferredRegionCodes":["seongsan"],"startPlaceId":"20000000-0000-4000-8000-000000000086","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"taxi","priority":2,"primary":false}]}
+            """,
+            """
+            {"tripId":"50000000-0000-4000-8000-000000000086","preferences":{"preferredCategories":["tourist_attraction","cafe"],"arrivalRegionCode":"jeju-si","departureRegionCode":"jeju-si","preferredRegionCodes":["seongsan"],"startPlaceId":"20000000-0000-4000-8000-000000000086","endPlaceId":null,"transportModes":[{"mode":"public_transit","priority":1,"primary":true},{"mode":"taxi","priority":2,"primary":false}]},"scheduleEffect":"invalidated","regenerationRequired":true,"activeScheduleVersionId":null,"tripStatus":"draft","updatedAt":"2026-08-15T10:00:00+09:00"}
+            """,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "403", "AUTH_ACCESS_DENIED",
+                "404", "TRIP_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "PREFERENCE_CONSTRAINT_VIOLATION",
+                "500", "INTERNAL_SERVER_ERROR",
+                "503", "TRIP_DATA_UNAVAILABLE")));
+
     result.put(
         "GET /api/v1/trips/{tripId}/schedule",
         doc(
