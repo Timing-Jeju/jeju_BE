@@ -57,5 +57,5 @@
     ], "observedStates": ["기본 조건 설정 전", "날짜 입력 후", "항공 도착/선박 출발 표시"], "missingStateEvidence": ["loading", "empty", "error"], "reason": "node/action은 관찰됐지만 API contractVersion 1.0.0과 loading/empty/error response field 연결이 없다"}
   },
   "readiness": {"metadata": {"status": "not-ready", "evidence": null}, "example": {"status": "not-ready", "evidence": null}, "implementation": {"status": "not-ready", "evidence": null}},
-  "schemaGap": {"migrationChanged": false, "followUp": "#46 preferences, #47 transport-event, #48 place-preferences에서 각 owner 범위의 CHECK·uniqueness·active schedule invalidation transaction을 migration/API로 검증", "flyway": "forbidden; supabase/migrations remains canonical"}
+  "schemaGap": {"migrationChanged": true, "followUp": "#46 preferences, #47 transport-event, #48 place-preferences의 각 owner 범위가 append-only migration과 API 테스트로 구현됨; #48 Reviewer 승인과 전체 gate 전 implementation readiness는 not-ready 유지", "flyway": "forbidden; supabase/migrations remains canonical"}
 }

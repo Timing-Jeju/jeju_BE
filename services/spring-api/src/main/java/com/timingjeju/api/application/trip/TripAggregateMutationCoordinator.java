@@ -10,4 +10,11 @@ public interface TripAggregateMutationCoordinator {
       long expectedRevision,
       Instant updatedAt,
       TripAggregateMutationOperation<T> operation);
+
+  <T> TripAggregateMutationCommit<T> executeMonotonic(
+      UUID ownerId,
+      UUID tripId,
+      long expectedRevision,
+      Instant requestedAt,
+      TripAggregateTimestampedMutationOperation<T> operation);
 }

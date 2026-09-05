@@ -216,6 +216,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql \
   /docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql \
   /docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql \
+  /docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -397,6 +398,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql \
   /docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql \
   /docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql \
+  /docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

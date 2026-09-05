@@ -1,6 +1,7 @@
 package com.timingjeju.api.global.config;
 
 import com.timingjeju.api.domain.schedule.exception.ScheduleProblemDefinitions;
+import com.timingjeju.api.domain.trip.exception.TripPlacePreferencesProblemDefinitions;
 import com.timingjeju.api.domain.trip.exception.TripPreferencesProblemDefinitions;
 import com.timingjeju.api.global.error.ProblemCodeRegistry;
 import com.timingjeju.api.global.error.ProblemDefinition;
@@ -176,14 +177,17 @@ final class FrontendOpenApiCustomizer {
 
   private final ObjectMapper objectMapper;
   private final ProblemCodeRegistry problemCodeRegistry;
+  private final TripPlacePreferencesProblemDefinitions tripPlacePreferencesProblemDefinitions;
   private final TripPreferencesProblemDefinitions tripPreferencesProblemDefinitions;
 
   FrontendOpenApiCustomizer(
       ObjectMapper objectMapper,
       ProblemCodeRegistry problemCodeRegistry,
+      TripPlacePreferencesProblemDefinitions tripPlacePreferencesProblemDefinitions,
       TripPreferencesProblemDefinitions tripPreferencesProblemDefinitions) {
     this.objectMapper = objectMapper;
     this.problemCodeRegistry = problemCodeRegistry;
+    this.tripPlacePreferencesProblemDefinitions = tripPlacePreferencesProblemDefinitions;
     this.tripPreferencesProblemDefinitions = tripPreferencesProblemDefinitions;
   }
 
@@ -353,9 +357,11 @@ final class FrontendOpenApiCustomizer {
 
   private Schema<?> canonicalSchema(Object value, Map<String, Object> schemas, String key) {
     Map<String, Object> canonical =
-        value instanceof String name
-            ? resolveCanonical(name, schemas, key)
-            : expandCanonical(objectMap(value), schemas, key, Set.of());
+        objectMap(
+            normalizeCanonicalForOpenApi(
+                value instanceof String name
+                    ? resolveCanonical(name, schemas, key)
+                    : expandCanonical(objectMap(value), schemas, key, Set.of())));
     try {
       Schema<?> schema =
           objectMapper.readValue(objectMapper.writeValueAsString(canonical), Schema.class);
@@ -364,6 +370,26 @@ final class FrontendOpenApiCustomizer {
     } catch (JacksonException exception) {
       throw new IllegalStateException("OpenAPI canonical schema 변환에 실패했습니다: " + key, exception);
     }
+  }
+
+  private static Object normalizeCanonicalForOpenApi(Object value) {
+    if (value instanceof Map<?, ?> map) {
+      Map<String, Object> normalized = new LinkedHashMap<>();
+      map.forEach(
+          (key, nested) -> {
+            String name = String.valueOf(key);
+            if ("unevaluatedProperties".equals(name) && Boolean.FALSE.equals(nested)) {
+              normalized.put("additionalProperties", false);
+            } else {
+              normalized.put(name, normalizeCanonicalForOpenApi(nested));
+            }
+          });
+      return normalized;
+    }
+    if (value instanceof List<?> list) {
+      return list.stream().map(FrontendOpenApiCustomizer::normalizeCanonicalForOpenApi).toList();
+    }
+    return value;
   }
 
   private static void restoreCanonicalTypes(Schema<?> schema, Map<String, Object> canonical) {
@@ -626,7 +652,53 @@ final class FrontendOpenApiCustomizer {
             });
     if (key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
       documentTripPreferencesProblems(operation);
+    } else if (key.equals("PUT /api/v1/trips/{tripId}/place-preferences")) {
+      documentTripPlacePreferencesProblems(operation);
     }
+  }
+
+  private void documentTripPlacePreferencesProblems(Operation operation) {
+    Map<String, List<String>> codesByStatus =
+        Map.of(
+            "400", List.of("INVALID_REQUEST"),
+            "401", List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"),
+            "404", List.of("TRIP_NOT_FOUND", "PLACE_NOT_FOUND"),
+            "409", List.of("TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"),
+            "422", List.of("PLACE_PREFERENCE_CONSTRAINT_VIOLATION"),
+            "503", List.of("TRIP_DATA_UNAVAILABLE"));
+    operation
+        .getResponses()
+        .keySet()
+        .removeIf(
+            status ->
+                !"200".equals(status)
+                    && !"403".equals(status)
+                    && !"500".equals(status)
+                    && !"503".equals(status)
+                    && !codesByStatus.containsKey(status));
+    codesByStatus.forEach(
+        (status, codes) -> {
+          ApiResponse response = operation.getResponses().get(status);
+          MediaType media =
+              response
+                  .getContent()
+                  .get(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+          MediaType namedExamples = new MediaType().schema(media.getSchema());
+          codes.forEach(
+              code ->
+                  namedExamples.addExamples(
+                      code,
+                      new Example()
+                          .value(
+                              problemExample(
+                                  Integer.parseInt(status),
+                                  code,
+                                  "PUT /api/v1/trips/{tripId}/place-preferences"))));
+          response
+              .getContent()
+              .addMediaType(
+                  org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, namedExamples);
+        });
   }
 
   private void documentTripPreferencesProblems(Operation operation) {
@@ -704,7 +776,8 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("GET /api/v1/trips")) {
       setParameterExample(operation, "sort", "updated_at_desc");
     } else if (key.equals("PATCH /api/v1/trips/{tripId}")
-        || key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
+        || key.equals("PUT /api/v1/trips/{tripId}/preferences")
+        || key.equals("PUT /api/v1/trips/{tripId}/place-preferences")) {
       mergeRequiredHeader(
           operation,
           "If-Match",
@@ -773,7 +846,8 @@ final class FrontendOpenApiCustomizer {
           operation, List.of("201"), List.of("Location", "ETag", "Idempotency-Replayed"));
     } else if (key.equals("GET /api/v1/trips/{tripId}")
         || key.equals("PATCH /api/v1/trips/{tripId}")
-        || key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
+        || key.equals("PUT /api/v1/trips/{tripId}/preferences")
+        || key.equals("PUT /api/v1/trips/{tripId}/place-preferences")) {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
     } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
       addResponseHeaderReferences(
@@ -940,6 +1014,9 @@ final class FrontendOpenApiCustomizer {
                     : savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
     if (definition == null && "PUT /api/v1/trips/{tripId}/preferences".equals(operationKey)) {
       definition = tripPreferencesProblemDefinitions.find(code);
+    }
+    if (definition == null && "PUT /api/v1/trips/{tripId}/place-preferences".equals(operationKey)) {
+      definition = tripPlacePreferencesProblemDefinitions.find(code);
     }
     if (definition == null) {
       definition = problemCodeRegistry.find(code);
@@ -1390,7 +1467,24 @@ final class FrontendOpenApiCustomizer {
                 "422", "PREFERENCE_CONSTRAINT_VIOLATION",
                 "500", "INTERNAL_SERVER_ERROR",
                 "503", "TRIP_DATA_UNAVAILABLE")));
-
+    result.put(
+        "PUT /api/v1/trips/{tripId}/place-preferences",
+        doc(
+            "tripPlacePreferencesUpdate",
+            "여행",
+            """
+            {"items":[{"placeId":"48000000-0000-4000-8000-000000000010","type":"must_visit","targetDayNo":2,"priority":90},{"placeId":"48000000-0000-4000-8000-000000000011","type":"avoid","targetDayNo":null,"priority":10}]}
+            """,
+            """
+            {"tripId":"48000000-0000-4000-8000-000000000002","scheduleEffect":"none","regenerationRequired":false,"activeScheduleVersionId":null,"tripStatus":"draft","updatedAt":"2026-09-01T03:04:05.123456Z","items":[{"placeId":"48000000-0000-4000-8000-000000000010","type":"must_visit","targetDayNo":2,"priority":90},{"placeId":"48000000-0000-4000-8000-000000000011","type":"avoid","targetDayNo":null,"priority":10}]}
+            """,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "PLACE_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "PLACE_PREFERENCE_CONSTRAINT_VIOLATION",
+                "503", "TRIP_DATA_UNAVAILABLE")));
     result.put(
         "GET /api/v1/trips/{tripId}/schedule",
         doc(

@@ -25,9 +25,14 @@ public class TripProblemDefinitions implements ProblemDefinitionContributor {
             "여행 선호 조건을 처리할 수 없습니다",
             422,
             "중복 값과 교통수단 primary·priority를 확인해 주세요."),
+        problem(
+            "PLACE_PREFERENCE_CONSTRAINT_VIOLATION",
+            "장소 선호 조건을 처리할 수 없습니다",
+            422,
+            "같은 장소의 희망·회피 중복과 적용 Day를 확인해 주세요."),
         problem("IF_MATCH_REQUIRED", "If-Match가 필요합니다", 400, "현재 여행 ETag를 If-Match로 보내 주세요."),
         problem("INVALID_IF_MATCH", "If-Match가 올바르지 않습니다", 400, "strong 여행 ETag 형식을 사용해 주세요."),
-        problem("TRIP_VERSION_CONFLICT", "여행 버전이 충돌했습니다", 409, "최신 여행을 다시 조회한 뒤 수정해 주세요."),
+        problem("TRIP_VERSION_CONFLICT", "여행이 이미 변경되었습니다", 409, "최신 여행과 ETag를 조회한 뒤 다시 수정해 주세요."),
         problem(
             "TRIP_REGENERATION_REQUIRED",
             "일정 재생성이 필요합니다",
@@ -37,7 +42,7 @@ public class TripProblemDefinitions implements ProblemDefinitionContributor {
             "TRIP_TERMINAL_STATE_CONFLICT",
             "종료된 여행은 변경할 수 없습니다",
             409,
-            "완료, 취소 또는 실패 상태의 여행은 변경하거나 삭제할 수 없습니다."),
+            "완료, 취소 또는 실패한 여행은 이 API로 변경할 수 없습니다."),
         problem(
             "TRIP_DELETE_CONFLICT",
             "여행을 삭제할 수 없습니다",

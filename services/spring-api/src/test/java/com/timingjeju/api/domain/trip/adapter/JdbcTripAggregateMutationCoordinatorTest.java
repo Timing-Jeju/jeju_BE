@@ -16,12 +16,14 @@ import com.timingjeju.api.application.trip.TripAggregateMutationPlan;
 import com.timingjeju.api.application.trip.TripAggregateMutationState;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripRootPatch;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,6 +55,37 @@ class JdbcTripAggregateMutationCoordinatorTest {
     assertThat(commit.scheduleEffect()).isEqualTo("none");
     verify(named, never()).update(anyString(), any(MapSqlParameterSource.class));
     verifyNoInteractions(jdbc);
+  }
+
+  @Test
+  void executeMonotonic은_root_lock뒤_계산한_timestamp를_operation과_root_CAS에_같이_전달한다() {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    NamedParameterJdbcTemplate named = named(state("draft", null, 7));
+    Instant requestedAt = NOW.minusSeconds(60);
+    Instant expectedAt = NOW.plusNanos(1_000);
+    AtomicReference<Instant> operationAt = new AtomicReference<>();
+    when(jdbc.queryForObject(anyString(), any(Class.class), any(Object[].class)))
+        .thenReturn(Timestamp.from(NOW));
+    when(named.update(anyString(), any(MapSqlParameterSource.class)))
+        .thenAnswer(
+            invocation -> {
+              MapSqlParameterSource parameters = invocation.getArgument(1);
+              assertThat(parameters.getValue("updatedAt")).isEqualTo(Timestamp.from(expectedAt));
+              return 1;
+            });
+
+    new JdbcTripAggregateMutationCoordinator(jdbc, named)
+        .executeMonotonic(
+            OWNER,
+            TRIP,
+            7,
+            requestedAt,
+            (ignored, committedAt) -> {
+              operationAt.set(committedAt);
+              return TripAggregateMutationPlan.maintain(TripRootPatch.unchanged(), "changed");
+            });
+
+    assertThat(operationAt).hasValue(expectedAt);
   }
 
   @Test

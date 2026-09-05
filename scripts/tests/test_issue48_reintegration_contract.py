@@ -22,7 +22,7 @@ class Issue48ReintegrationContractTest(unittest.TestCase):
         source = STORE.read_text(encoding="utf-8")
 
         self.assertIn("TripAggregateMutationCoordinator", source)
-        self.assertIn("mutations.execute(", source)
+        self.assertIn("mutations.executeMonotonic(", source)
         self.assertNotIn(" for update", source.lower())
         self.assertNotRegex(source, r"revision\s*=\s*revision\s*\+\s*1")
 
@@ -44,14 +44,14 @@ class Issue48ReintegrationContractTest(unittest.TestCase):
             )
         self.assertNotIn("grant execute", sql)
 
-    def test_every_compose_and_smoke_sequence_mounts_issue48_as_slot_042(self):
-        mount = f"./supabase/migrations/{MIGRATION_NAME}:/docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql:ro"
+    def test_every_compose_and_smoke_sequence_mounts_issue48_as_slot_043(self):
+        mount = f"./supabase/migrations/{MIGRATION_NAME}:/docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql:ro"
         for relative in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             self.assertIn(mount, (ROOT / relative).read_text(encoding="utf-8"))
 
         smoke = (ROOT / "scripts/docker-smoke-test.sh").read_text(encoding="utf-8")
         self.assertGreaterEqual(
-            smoke.count("/docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql"),
+            smoke.count("/docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql"),
             2,
         )
 

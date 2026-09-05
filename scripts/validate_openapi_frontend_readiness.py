@@ -70,6 +70,7 @@ REQUIRED_RESPONSE_HEADERS = {
     ): {"ETag"},
     ("PUT", "/api/v1/trips/{tripId}/transport-event", "200"): {"ETag"},
     ("DELETE", "/api/v1/trips/{tripId}/transport-event", "200"): {"ETag"},
+    ("PUT", "/api/v1/trips/{tripId}/place-preferences", "200"): {"ETag"},
 }
 CURRENT_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
@@ -130,6 +131,9 @@ TRANSPORT_EVENT_OPERATIONS = {
 PREFERENCES_OPERATIONS = {
     ("PUT", "/api/v1/trips/{tripId}/preferences"): "tripPreferencesUpdate",
 }
+PLACE_PREFERENCE_OPERATIONS = {
+    ("PUT", "/api/v1/trips/{tripId}/place-preferences"): "tripPlacePreferencesUpdate",
+}
 EXPECTED_OPERATION_IDS = (
     CURRENT_OPERATIONS
     | SAVED_PLACE_OPERATIONS
@@ -141,6 +145,7 @@ EXPECTED_OPERATION_IDS = (
     | ACCOMMODATION_OPERATIONS
     | TRANSPORT_EVENT_OPERATIONS
     | PREFERENCES_OPERATIONS
+    | PLACE_PREFERENCE_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
@@ -180,31 +185,39 @@ SOURCE_PROVENANCE_30 = {
     "preferences": "c6862499d71519d9efc7bfcf72855703d1e94f0a",
     "transport-events": "5914e3c82673f8f49f36c1a9944308e096e98ade",
 }
+SOURCE_PROVENANCE_31 = {
+    **SOURCE_PROVENANCE_30,
+    "place-preferences": "d8c148dcf9eafba30380d8e7a75aa5e944f8c5ef",
+}
 
 
 def operations_for_mode(mode):
     required = dict(CURRENT_OPERATIONS)
-    if mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
+    if mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31):
         required.update(SAVED_PLACE_OPERATIONS)
         required.update(TRIP_OPERATIONS)
-    if mode in (20, 21, 23, 24, 25, 27, 29, 30):
+    if mode in (20, 21, 23, 24, 25, 27, 29, 30, 31):
         required.update(PUSH_NOTIFICATION_OPERATIONS)
-    if mode in (21, 23, 24, 25, 27, 29, 30):
+    if mode in (21, 23, 24, 25, 27, 29, 30, 31):
         required.update(SCHEDULE_OPERATIONS)
-    if mode in (23, 24, 25, 27, 29, 30):
+    if mode in (23, 24, 25, 27, 29, 30, 31):
         required.update(TRIP_MUTATION_OPERATIONS)
-    if mode in (24, 25, 27, 29, 30):
+    if mode in (24, 25, 27, 29, 30, 31):
         required.update(SCHEDULE_MUTATION_OPERATIONS)
-    if mode in (27, 29, 30):
+    if mode in (27, 29, 30, 31):
         required.update(ACCOMMODATION_OPERATIONS)
-    if mode in (29, 30):
+    if mode in (29, 30, 31):
         required.update(TRANSPORT_EVENT_OPERATIONS)
-    if mode in (25, 30):
+    if mode in (25, 30, 31):
         required.update(PREFERENCES_OPERATIONS)
+    if mode == 31:
+        required.update(PLACE_PREFERENCE_OPERATIONS)
     return required
 
 
 def source_provenance_for_mode(mode):
+    if mode == 31:
+        return dict(SOURCE_PROVENANCE_31)
     if mode == 30:
         return dict(SOURCE_PROVENANCE_30)
     if mode == 29:
@@ -314,7 +327,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31):
             self.validate_source_provenance()
         return self.errors
 
@@ -367,19 +380,19 @@ class Validator:
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31):
             trip_operations = dict(TRIP_OPERATIONS)
-            if self.mode in (23, 24, 25, 27, 29, 30):
+            if self.mode in (23, 24, 25, 27, 29, 30, 31):
                 trip_operations.update(TRIP_MUTATION_OPERATIONS)
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
-        if self.mode in (20, 21, 23, 24, 25, 27, 29, 30):
+        if self.mode in (20, 21, 23, 24, 25, 27, 29, 30, 31):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
-        if self.mode in (21, 23, 24, 25, 27, 29, 30):
+        if self.mode in (21, 23, 24, 25, 27, 29, 30, 31):
             schedule_operations = dict(SCHEDULE_OPERATIONS)
-            if self.mode in (24, 25, 27, 29, 30):
+            if self.mode in (24, 25, 27, 29, 30, 31):
                 schedule_operations.update(SCHEDULE_MUTATION_OPERATIONS)
             groups.append(("schedules", schedule_operations))
-        if self.mode in (27, 29, 30):
+        if self.mode in (27, 29, 30, 31):
             groups.append(("accommodations", ACCOMMODATION_OPERATIONS))
         if self.mode == 29:
             groups.append(("preferences-transport", TRANSPORT_EVENT_OPERATIONS))
@@ -390,6 +403,15 @@ class Validator:
                 (
                     "preferences-transport",
                     PREFERENCES_OPERATIONS | TRANSPORT_EVENT_OPERATIONS,
+                )
+            )
+        if self.mode == 31:
+            groups.append(
+                (
+                    "preferences-transport",
+                    PREFERENCES_OPERATIONS
+                    | TRANSPORT_EVENT_OPERATIONS
+                    | PLACE_PREFERENCE_OPERATIONS,
                 )
             )
         for domain, operation_group in groups:
@@ -874,7 +896,7 @@ class Validator:
             if key not in self.operations:
                 prefix = (
                     f"{self.mode}-operation 완료 mode: "
-                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30)
+                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31)
                     else ""
                 )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
@@ -1287,9 +1309,9 @@ def main(argv):
     parser.add_argument(
         "--mode",
         type=int,
-        choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30),
-        default=30,
-        help="historical modes {9,16,20,21,23,24,25,27,29}; active mode30",
+        choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30, 31),
+        default=31,
+        help="historical modes {9,16,20,21,23,24,25,27,29,30}; active mode31",
     )
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])

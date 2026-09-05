@@ -49,6 +49,7 @@ services:
       - ./supabase/migrations/20260907000003_trip_preferences_replace_contract.sql:/docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql:ro
       - ./supabase/migrations/20260907000004_trip_preferences_owner_read_helper.sql:/docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql:ro
       - ./supabase/migrations/20260907000005_trip_transport_event_contract.sql:/docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql:ro
+      - ./supabase/migrations/20260908000000_trip_place_preference_contract.sql:/docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
