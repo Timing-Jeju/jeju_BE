@@ -56,13 +56,16 @@ trap cleanup EXIT INT TERM
 
 command -v docker >/dev/null || { echo "Docker가 설치되지 않았습니다." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker daemon이 실행 중이 아닙니다." >&2; exit 1; }
+SMOKE_API_PORT=${TIMING_JEJU_SMOKE_API_PORT:-28080}
+SMOKE_API_PORT=$(python3 scripts/validate_smoke_api_port.py "$SMOKE_API_PORT")
+export TIMING_JEJU_SMOKE_API_PORT=$SMOKE_API_PORT
 
 echo "[Docker] 이미지 빌드와 격리 Compose 실행"
 docker compose -p "$PROJECT" -f compose.test.yml up -d --build
 
 attempt=1
 while [ "$attempt" -le 60 ]; do
-  if curl --fail --silent http://127.0.0.1:18080/actuator/health | grep -q '"status":"UP"'; then
+  if curl --fail --silent "http://127.0.0.1:$SMOKE_API_PORT/actuator/health" | grep -q '"status":"UP"'; then
     break
   fi
   attempt=$((attempt + 1))
