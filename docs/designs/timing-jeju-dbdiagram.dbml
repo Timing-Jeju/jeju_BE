@@ -771,6 +771,8 @@ Table timetable_entries {
   source_provider text [not null]
   source_service text [not null]
   city_code text [note: "legacy 경유 누락/provider 불일치는 NULL 보존; 신규/변경은 필수"]
+  route_source_provider text [note: "legacy source_provider backfill; 신규 참조 provider는 TAGO"]
+  route_city_code text [note: "legacy city_code backfill; 신규 제주 참조 city는 39"]
   import_run_id uuid [ref: > data_import_runs.id]
   source_snapshot_id uuid [ref: > external_api_snapshots.id]
   confidence numeric [not null]
@@ -784,7 +786,7 @@ Table timetable_entries {
     (source_provider, source_service, city_code, source_record_key, valid_from) [unique]
   }
 
-  Note: "(route_id,direction_key,stop_id) 3열 FK가 route_stop 존재를 보장하고 trigger가 provider/city까지 잠금 검증한다. legacy city NULL은 NOT VALID로 보존하며 같은 source record 유효기간은 겹칠 수 없다."
+  Note: "source_provider/source_service는 시간표 원천(JEJU_PROVINCE/jeju-bus-schedule-xlsx), route_source_provider/route_city_code는 참조 catalog(TAGO/39)다. trigger는 route reference scope를 잠금 검증하며 legacy NULL은 NOT VALID로 보존한다."
 }
 
 Table tago_arrival_flights {

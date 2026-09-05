@@ -313,7 +313,7 @@ fallback하지 않는다. DB read/mapping 오류는 raw SQL·cause 없는 stable
 | 환승 가능성/안전 버퍼 | FastAPI MCP 계산 |
 | 버스를 놓쳤을 때 다음 일정 | FastAPI MCP 복구 계산 |
 
-`timetable_entries`는 TAGO에서 항상 채워지는 테이블이 아니다. 확보한 반복 시간표는 source record와 유효기간으로 멱등 upsert한다. UUID FK가 route/stop 존재와 삭제 전파를 보장하고 source scope trigger가 route·stop·route_stop의 `(route_id, direction_key, stop_id, source_provider, city_code)` 조합을 잠금과 함께 검증한다. v1의 경유 누락/provider 불일치 `city_code=NULL`은 보존하되 lineage 없이 내용을 바꿀 수 없다. 유효한 `parsed`/`tombstoned` snapshot과 같은 범위 run을 함께 연결해 정상 scope로 복구하는 재수집은 허용한다. 외부 신규 시간표도 같은 snapshot·run을 연결한다.
+`timetable_entries`는 TAGO에서 항상 채워지는 테이블이 아니다. 공식 제주 시간표 provenance는 `JEJU_PROVINCE/jeju-bus-schedule-xlsx`, 참조 노선 범위는 별도 `route_source_provider/route_city_code=TAGO/39`로 저장한다. 확보한 반복 시간표는 dataset/schedule/sheet/row/stop/service-day/time을 포함한 source record key와 유효기간으로 멱등 upsert한다. UUID FK와 trigger는 route reference scope를 잠금 검증하며 legacy 누락은 조용히 보정하지 않는다. XLSX 원본 bytes는 저장하지 않고 exact-byte SHA-256과 closed canonical parsed manifest만 run/snapshot lineage로 보존한다.
 
 ## 5. TMAP 경로 API DEFER 경계
 

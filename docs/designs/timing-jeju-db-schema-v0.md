@@ -208,7 +208,7 @@ trigger가 거부하고, 같은 lineage의 여러 노선 행은 허용한다. �
 유효한 도착·잔여 정류장 범위만 대상으로 `observed_at DESC, source_snapshot_id DESC` 순서를 사용한다.
 `idx_bus_arrivals_source_stop_freshness`가 이 lookup을 지원하고 anon/authenticated 직접 접근은 차단한다.
 
-TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취급하지 않는다. 정류장과 노선은 provider/service/city 범위로 식별한다. `route_stops`도 provider와 city를 소유해 다른 공급자·도시의 노선과 정류장을 섞지 못한다. UUID FK는 route/stop 존재와 삭제 전파를 담당하고, source scope trigger가 route·stop·route_stop의 provider/city 조합을 잠금과 함께 정확히 검증한다. `timetable_entries.city_code`는 legacy의 경유지 누락·provider 불일치 행을 보존하기 위해 물리적으로 nullable이다. 신규·관련 컬럼 변경에는 trigger가 non-null provider/city와 동일 route/direction/stop/provider/city의 유효한 route_stop을 요구한다. lineage 없는 legacy 행은 그대로 변경할 수 없지만 `parsed`/`tombstoned` snapshot과 일치 run을 함께 연결해 유효 범위로 복구할 수 있다. 같은 source record의 유효기간은 GiST exclusion으로 겹칠 수 없다.
+TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취급하지 않는다. 정류장과 노선은 provider/service/city 범위로 식별한다. `route_stops`도 provider와 city를 소유해 다른 공급자·도시의 노선과 정류장을 섞지 못한다. 시간표의 `source_provider/source_service`는 원천 provenance이며 제주 공식 XLSX canonical 값은 `JEJU_PROVINCE/jeju-bus-schedule-xlsx`다. `route_source_provider/route_city_code`는 참조 catalog 범위이며 현재 `TAGO/39`다. UUID FK와 trigger는 `(route_id,direction_key,stop_id,route_source_provider,route_city_code)`를 잠금 검증한다. additive migration은 기존 provider/city를 새 컬럼에 backfill하되 누락 legacy를 조용히 수정·삭제하지 않고 `NOT VALID`로 보존한다. 같은 source record의 유효기간은 GiST exclusion으로 겹칠 수 없다.
 
 ### 4.4 Weather
 
