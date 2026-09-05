@@ -63,3 +63,11 @@ git diff --check
 Issue #207의 승인 범위에 따라 실제 DB/Postgres/Testcontainers, Docker, live MCP/Supabase와 전체
 heavy quality gate는 실행하지 않았다. 따라서 이 변경은 해당 검증이 별도 승인 아래 완료되기 전
 `READY_FOR_REVIEW`로 선언하지 않는다.
+
+## 2026-09-05 전체 품질 게이트
+
+- Red: #195 포트 격리를 병합한 뒤 quality gate의 저장소 자동화 704건 중 1건이 실패했다.
+  TMAP 계약 테스트가 #207 이전의 `TMAP 저장 금지; #40 DEFER 경계` 문구를 요구해,
+  현재 canonical인 `Spring 신규 writer 없음; TMAP 저장 금지`와 어긋났다.
+- Green: 테스트를 현재 AI runtime memory-only·Spring writer 0 소유권 문구에 맞추되,
+  TMAP 원문·geometry·개별 metric 비영속 assertion은 그대로 보존했다.

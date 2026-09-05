@@ -298,8 +298,9 @@ class TmapRoutePocContractTest(unittest.TestCase):
         self.assertIn("대중교통은 공식 시간표와 TAGO", design)
 
         db_design = DB_DESIGN.read_text(encoding="utf-8")
-        self.assertIn("TMAP 저장 금지; #40 DEFER 경계", db_design)
+        self.assertIn("Spring 신규 writer 없음; TMAP 저장 금지", db_design)
         self.assertIn("TMAP 원문·geometry·개별 route metric", db_design)
+        self.assertIn("AI 런타임의", db_design)
 
         checklist = VALIDATION_CHECKLIST.read_text(encoding="utf-8")
         self.assertIn("| 길찾기 공급자 POC | DEFER |", checklist)
