@@ -366,6 +366,14 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
     ScheduleMutationResult result = store.patchItem(edit(FIRST, command));
 
+    UUID copiedPatchedItemId =
+        jdbc.queryForObject(
+            "select id from public.trip_items where schedule_version_id=? and trip_day_id=? and sequence_no=1",
+            UUID.class,
+            result.activeScheduleVersionId(),
+            DAY);
+    assertThat(result.changedItemIds()).containsExactly(copiedPatchedItemId).doesNotContain(FIRST);
+
     assertThat(
             jdbc.queryForMap(
                 "select id,stay_minutes,memo from public.trip_items where schedule_version_id=? and sequence_no=1 and trip_day_id=?",
@@ -432,6 +440,8 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
     ScheduleMutationResult result =
         store.deleteItem(edit(FIRST, new DeleteScheduleItemCommand(ACTIVE)));
+
+    assertThat(result.changedItemIds()).isEmpty();
 
     assertThat(
             jdbc.queryForList(
@@ -531,6 +541,14 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
     ScheduleMutationResult result = store.reorder(edit(null, command));
 
+    assertThat(result.changedItemIds())
+        .containsExactlyElementsOf(
+            jdbc.queryForList(
+                "select id from public.trip_items where schedule_version_id=? order by trip_day_id, sequence_no",
+                UUID.class,
+                result.activeScheduleVersionId()));
+    assertThat(result.changedItemIds()).doesNotContain(FIRST, SECOND, DAY_TWO_ITEM);
+
     assertThat(
             jdbc.queryForList(
                 "select place_id from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
@@ -572,6 +590,16 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
     ScheduleMutationResult result = store.moveItem(edit(FIRST, command));
 
+    assertThat(result.changedItemIds())
+        .containsExactly(
+            jdbc.queryForObject(
+                "select id from public.trip_items where schedule_version_id=? and trip_day_id=? and place_id=?",
+                UUID.class,
+                result.activeScheduleVersionId(),
+                DAY_TWO,
+                FIRST_PLACE))
+        .doesNotContain(FIRST);
+
     assertThat(
             jdbc.queryForList(
                 "select sequence_no from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
@@ -592,6 +620,69 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
                 Integer.class,
                 result.activeScheduleVersionId()))
         .isEqualTo(1);
+  }
+
+  @Test
+  void 단일_item_Day의_DELETE와_cross_Day_MOVE는_422_DAY_EMPTY로_원자거부한다() {
+    String before = aggregateFingerprint();
+
+    assertDayEmpty(
+        () -> store.deleteItem(edit(DAY_TWO_ITEM, new DeleteScheduleItemCommand(ACTIVE))));
+    assertDayEmpty(
+        () ->
+            store.moveItem(
+                edit(
+                    DAY_TWO_ITEM,
+                    new MoveScheduleItemCommand(
+                        ACTIVE, 1, 3, OffsetDateTime.parse("2026-09-01T15:00:00+09:00")))));
+
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"completed", "cancelled", "failed"})
+  void terminal_trip의_네_편집_endpoint는_409이고_DB를_변경하지_않는다(String status) {
+    jdbc.update("update public.trip_plans set status=? where id=?", status, TRIP);
+    String before = aggregateFingerprint();
+    var patch =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("memo"), null, null, null, null, null, null, null, null, "terminal");
+    var reorder =
+        new ReorderScheduleCommand(
+            ACTIVE,
+            List.of(
+                new ReorderScheduleCommand.DayOrder(1, List.of(FIRST, SECOND)),
+                new ReorderScheduleCommand.DayOrder(2, List.of(DAY_TWO_ITEM))));
+
+    assertTerminal(() -> store.patchItem(edit(FIRST, patch)));
+    assertTerminal(() -> store.deleteItem(edit(FIRST, new DeleteScheduleItemCommand(ACTIVE))));
+    assertTerminal(() -> store.reorder(edit(null, reorder)));
+    assertTerminal(
+        () ->
+            store.moveItem(
+                edit(
+                    FIRST,
+                    new MoveScheduleItemCommand(
+                        ACTIVE, 2, 2, OffsetDateTime.parse("2026-09-02T10:30:00+09:00")))));
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void legacy_invalid_non_target_reference의_PATCH는_aggregate_전체를_rollback한다() {
+    jdbc.execute("drop trigger trg_validate_trip_item_required_references on public.trip_items");
+    jdbc.execute(
+        "alter table public.trip_items drop constraint trip_items_required_references_by_type");
+    jdbc.update("update public.trip_items set item_type='accommodation' where id=?", SECOND);
+    String before = aggregateFingerprint();
+    var patch =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("memo"), null, null, null, null, null, null, null, null, "검증");
+
+    assertThatThrownBy(() -> patchInNestedTransaction(edit(FIRST, patch)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_INVALID");
+    assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
   @Test
@@ -677,6 +768,20 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         .isInstanceOf(ScheduleException.class)
         .extracting(failure -> ((ScheduleException) failure).code())
         .isEqualTo("SCHEDULE_ITEM_COMPLETED");
+  }
+
+  private static void assertDayEmpty(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+    assertThatThrownBy(call)
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_DAY_EMPTY");
+  }
+
+  private static void assertTerminal(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+    assertThatThrownBy(call)
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
+        .isEqualTo("TRIP_TERMINAL_STATE_CONFLICT");
   }
 
   private ScheduleMutationRecord record(Position position, UUID expectedActive, long revision) {

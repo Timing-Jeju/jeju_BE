@@ -1044,6 +1044,7 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT",
           "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
@@ -1131,10 +1132,12 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT",
           "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
+          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },
@@ -1218,6 +1221,7 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT",
           "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
@@ -1306,11 +1310,13 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT",
           "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
           "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },
@@ -1351,7 +1357,8 @@
   "versionPolicy": {
     "immutable": "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed",
     "activation": "copy active, apply edit, validate, seal new user_edit version, supersede previous active and switch pointer atomically",
-    "legCompleteness": "exactly one adjacent leg for every consecutive item pair; zero for fewer than two"
+    "legCompleteness": "exactly one adjacent leg for every consecutive item pair; zero for fewer than two",
+    "dayCoverage": "every trip day has at least one item in a sealed version; delete or cross-day move that empties a day returns 422 SCHEDULE_DAY_EMPTY"
   },
   "itemPolicy": {
     "itemTypes": [
@@ -1426,6 +1433,13 @@
       }
     },
     "concurrency": "strong trip aggregate ETag plus expected active schedule version",
+    "changedItemIds": {
+      "create": "newly created item ID in the new active version namespace",
+      "patch": "patched old item ID mapped to its copied ID in the new active version namespace",
+      "delete": "empty array because the deleted old item has no counterpart in the new active version namespace",
+      "reorder": "submitted old item IDs mapped in submitted order to copied IDs in the new active version namespace",
+      "move": "moved old item ID mapped to its copied ID in the new active version namespace"
+    },
     "validator": "DB constraints and synchronous deterministic validator only",
     "aiCorrection": "never call MCP/AI; correction requires separate schedule revision run owned by #89"
   },
@@ -1639,7 +1653,7 @@
     {
       "status": 409,
       "code": "TRIP_TERMINAL_STATE_CONFLICT",
-      "condition": "trip status is completed, cancelled or failed when creating a schedule item",
+      "condition": "trip status is completed, cancelled or failed for any schedule mutation endpoint",
       "type": "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
       "title": "종료된 여행은 변경할 수 없습니다",
       "detail": "완료, 취소 또는 실패한 여행 일정은 변경할 수 없습니다.",
@@ -1680,6 +1694,15 @@
       "title": "이동 구간을 완성할 수 없습니다",
       "detail": "인접 일정 항목 사이의 이동 구간을 확인해 주세요.",
       "fixture": "422_schedule_leg_incomplete"
+    },
+    {
+      "status": 422,
+      "code": "SCHEDULE_DAY_EMPTY",
+      "condition": "delete or cross-day move would leave a trip day without any schedule item",
+      "type": "https://api.timing-jeju.com/problems/schedule-day-empty",
+      "title": "여행 Day를 비울 수 없습니다",
+      "detail": "각 여행 Day에는 일정 항목이 하나 이상 있어야 합니다.",
+      "fixture": "422_schedule_day_empty"
     }
   ],
   "externalTraceability": {

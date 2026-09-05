@@ -60,6 +60,28 @@ class ScheduleItemCreateArchitectureSourceTest {
   }
 
   @Test
+  void 일정_편집_네_endpoint도_공용_coordinator와_새_item_namespace를_사용한다() throws Exception {
+    String source = scheduleStoreSource();
+
+    assertThat(source)
+        .contains("createEditMutationPlan(record, state")
+        .contains("changedIds.stream().map(copiedIds::get)")
+        .contains("items -> delete(items, record), List.of())")
+        .doesNotContain("activate(record, root")
+        .doesNotContain("validateExpected(record, root");
+  }
+
+  @Test
+  void 일정_편집은_필수참조를_봉인전에_검증하고_빈_Day를_정확한_problem으로_거부한다() throws Exception {
+    String source = scheduleStoreSource();
+
+    assertThat(source)
+        .contains("assert_schedule_item_required_references")
+        .contains("ScheduleException.dayEmpty()")
+        .doesNotContain("count() <= 1) {\n      throw ScheduleException.legIncomplete()");
+  }
+
+  @Test
   void 공용_coordinator는_lock_beforeRoot_CAS_effect_순서를_단일_경계에_둔다() throws Exception {
     String source =
         Files.readString(

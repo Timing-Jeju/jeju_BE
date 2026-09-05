@@ -124,8 +124,10 @@ PUSH_NOTIFICATION_OPERATIONS = {
 SCHEDULE_OPERATIONS = {
     ("GET", "/api/v1/trips/{tripId}/schedule"): "tripScheduleRead",
 }
-SCHEDULE_MUTATION_OPERATIONS = {
+SCHEDULE_ITEM_CREATE_OPERATIONS = {
     ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
+}
+SCHEDULE_EDIT_OPERATIONS = {
     ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemPatch",
     ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemDelete",
     ("PUT", "/api/v1/trips/{tripId}/schedule-order"): "tripScheduleOrderUpdate",

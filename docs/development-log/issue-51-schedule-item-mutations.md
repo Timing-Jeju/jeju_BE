@@ -65,3 +65,54 @@ Swagger operation 계약도 Controller 구현에서 `controller/docs/ScheduleMut
   `400 INVALID_REQUEST`로 거부한다.
 - 기존 Supabase schema의 schedule version/item/leg/progress와 deferred constraint로 충분하므로
   이 Issue는 새 migration이나 환경변수를 추가하지 않는다.
+
+## PR #206 리뷰 보정 (2026-09-04)
+
+이 절은 최초 구현 기록을 소급해 바꾸지 않고, 리뷰 보정 브랜치
+`fix/51-pr206-review-remediation`에서 새로 관측한 증거만 기록한다. PR #206의 exact HEAD
+`af00c21fafbadb78a4c0728c6f16bd72e172ec5c`에서 시작했고, #51의 선행 조건인 #50
+source-approved final `44769320539a66eb73087fa4c51a4ca72207dea5`를 merge commit
+`8a0105f`로 full history와 함께 통합했다.
+
+### 실제 RED
+
+- `./gradlew --no-daemon test --tests '*ScheduleItemCreateArchitectureSourceTest'`
+  - 4건 중 3건 실패: 편집 네 endpoint가 canonical coordinator를 쓰지 않았고,
+    `changedItemIds`가 old namespace였으며, required-reference sealing 및 빈 Day Problem 계약이 없었다.
+- `python3 -m unittest scripts.tests.test_openapi_frontend_readiness.OpenApiFrontendReadinessTest.test_mode24는_schedule_item_create를_exact_inventory로_검사한다 scripts.tests.test_openapi_frontend_readiness.OpenApiFrontendReadinessTest.test_mode28은_일정_편집_전체를_exact_inventory로_검사한다`
+  - mode24가 편집 네 endpoint까지 요구해 historical 24-operation 계약이 실패했다.
+- `./gradlew --no-daemon sliceTest --tests '*ScheduleOpenApiIntegrationTest'`
+  - 새 OpenAPI 회귀 1건 실패: PATCH 409 examples에
+    `TRIP_TERMINAL_STATE_CONFLICT`가 없었다.
+
+### Green과 Refactor
+
+- 일정 생성·편집 store의 별도 trip row lock/CAS를
+  `TripAggregateMutationCoordinator` 계획으로 통합했다. completed/cancelled/failed 상태는
+  coordinator가 mutation body 실행 전에 `409 TRIP_TERMINAL_STATE_CONFLICT`로 닫는다.
+- 새 version을 seal/activate하기 전에 `assert_schedule_item_required_references`를 명시적으로
+  실행한다. #50 migration의 CHECK, deferred trigger, helper ACL과 함께 legacy invalid reference를
+  포함한 실패는 transaction 전체를 rollback한다.
+- PATCH/move/reorder의 `changedItemIds`는 복제 과정의 old→new map을 사용해 새 active version
+  namespace를 반환한다. DELETE는 제거된 old ID를 노출하지 않고 빈 배열을 반환한다.
+- 모든 Day는 sealed version에서 적어도 한 항목을 유지한다. 단일 항목 DELETE와 다른 Day로의
+  이동은 정확히 `422 SCHEDULE_DAY_EMPTY`로 거부한다. 이 금지 정책은 기존
+  `assert_schedule_day_coverage`가 candidate/active sealing 때 모든 trip Day를 검사하는 DB
+  product contract에 맞춘 것이다.
+- frontend readiness를 historical mode24(기존 23 + create)와 mode28(24 + 네 edit)로 분리했고,
+  missing/extra를 각 모드에서 독립적으로 검증한다.
+
+### 보정 검증 범위
+
+- architecture source: 4건 성공
+- Controller bounded integration: `ScheduleControllerIntegrationTest` 성공
+- OpenAPI bounded slice: 3건 성공
+- Python schedule/OpenAPI: 55건 성공
+- `testClasses` 성공으로 PostgreSQL 회귀 test source의 컴파일을 확인했다.
+
+사용자 승인 범위에 따라 실제 DB, Testcontainers, Docker, live Supabase, 전체 heavy gate는
+실행하지 않았다. `openApiDocs`는 내부적으로 broad `integrationTest`를 실행해 4분 이상
+진행되었으므로 중단하고 위 bounded OpenAPI slice와 exact Python mode 테스트로 대체했다.
+따라서 terminal 네 endpoint의 DB unchanged, legacy invalid-reference atomic rollback,
+동시성 및 required-reference migration은 작성된 PostgreSQL integration test를 실제 DB에서
+추가 확인해야 한다.

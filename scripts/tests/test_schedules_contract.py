@@ -63,6 +63,20 @@ class SchedulesContractTest(unittest.TestCase):
             "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed",
             self.contract["versionPolicy"]["immutable"],
         )
+        self.assertEqual(
+            "every trip day has at least one item in a sealed version; delete or cross-day move that empties a day returns 422 SCHEDULE_DAY_EMPTY",
+            self.contract["versionPolicy"]["dayCoverage"],
+        )
+        self.assertEqual(
+            {
+                "create": "newly created item ID in the new active version namespace",
+                "patch": "patched old item ID mapped to its copied ID in the new active version namespace",
+                "delete": "empty array because the deleted old item has no counterpart in the new active version namespace",
+                "reorder": "submitted old item IDs mapped in submitted order to copied IDs in the new active version namespace",
+                "move": "moved old item ID mapped to its copied ID in the new active version namespace",
+            },
+            self.contract["mutationPolicy"]["changedItemIds"],
+        )
 
     def test_item_type_required_fields_completed_item_and_manual_validation_are_closed(self) -> None:
         self.assertEqual(
@@ -340,10 +354,15 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(409, conditions["ACTIVE_SCHEDULE_VERSION_CONFLICT"]["status"])
         self.assertEqual(409, conditions["TRIP_VERSION_CONFLICT"]["status"])
         self.assertEqual(409, conditions["TRIP_TERMINAL_STATE_CONFLICT"]["status"])
-        self.assertIn(
-            "TRIP_TERMINAL_STATE_CONFLICT",
-            self.contract["endpoints"][1]["errorMatrix"]["409"],
-        )
+        for endpoint in self.contract["endpoints"][1:]:
+            self.assertIn(
+                "TRIP_TERMINAL_STATE_CONFLICT", endpoint["errorMatrix"]["409"]
+            )
+        self.assertEqual(422, conditions["SCHEDULE_DAY_EMPTY"]["status"])
+        self.assertIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][3]["errorMatrix"]["422"])
+        self.assertIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][5]["errorMatrix"]["422"])
+        self.assertNotIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][2]["errorMatrix"]["422"])
+        self.assertNotIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][4]["errorMatrix"]["422"])
         self.assertEqual(422, conditions["SCHEDULE_ITEM_COMPLETED"]["status"])
         self.assertTrue(all(item["title"] and item["detail"] for item in conditions.values()))
         external = self.contract["externalTraceability"]
@@ -386,6 +405,9 @@ class SchedulesContractTest(unittest.TestCase):
             ("idempotency required/invalid", lambda c: c["errorConditions"].remove(next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REQUIRED"))),
             ("idempotency required/invalid", lambda c: next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_INVALID").update(code="INVALID_REQUEST")),
             ("error condition/matrix", lambda c: c["endpoints"][1]["errorMatrix"]["400"].remove("IDEMPOTENCY_KEY_INVALID")),
+            ("terminal trip", lambda c: c["endpoints"][3]["errorMatrix"]["409"].remove("TRIP_TERMINAL_STATE_CONFLICT")),
+            ("빈 Day", lambda c: c["versionPolicy"].pop("dayCoverage")),
+            ("changedItemIds", lambda c: c["mutationPolicy"]["changedItemIds"].update(delete="removed old ID")),
         )
         for expected, mutate in mutations:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:

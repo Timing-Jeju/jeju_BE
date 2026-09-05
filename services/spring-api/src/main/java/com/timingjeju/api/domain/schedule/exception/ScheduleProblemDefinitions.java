@@ -66,6 +66,8 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
           mutation(
               "SCHEDULE_ITEM_COMPLETED", "완료한 일정 항목은 변경할 수 없습니다", 422, "완료되지 않은 일정 항목만 편집해 주세요."),
           mutation(
+              "SCHEDULE_DAY_EMPTY", "여행 Day를 비울 수 없습니다", 422, "각 여행 Day에는 일정 항목이 하나 이상 있어야 합니다."),
+          mutation(
               "SCHEDULE_LEG_INCOMPLETE", "이동 구간을 완성할 수 없습니다", 422, "인접 일정 항목 사이의 이동 구간을 확인해 주세요."));
 
   public static ProblemDefinition mutationDefinition(String code) {
@@ -98,6 +100,7 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
         problem(
             "SCHEDULE_ITEM_INVALID", "일정 항목을 적용할 수 없습니다", 422, "항목 유형별 필수값과 Day 시간 범위를 확인해 주세요."),
         problem("SCHEDULE_ITEM_COMPLETED", "완료한 일정 항목은 변경할 수 없습니다", 422, "완료되지 않은 일정 항목만 편집해 주세요."),
+        problem("SCHEDULE_DAY_EMPTY", "여행 Day를 비울 수 없습니다", 422, "각 여행 Day에는 일정 항목이 하나 이상 있어야 합니다."),
         problem(
             "SCHEDULE_LEG_INCOMPLETE", "이동 구간을 완성할 수 없습니다", 422, "인접 일정 항목 사이의 이동 구간을 확인해 주세요."));
   }

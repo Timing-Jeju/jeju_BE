@@ -569,6 +569,97 @@ class ScheduleControllerIntegrationTest {
   }
 
   @Test
+  void PATCH_DELETE_reorder_MOVE도_종료된_trip을_동일한_canonical_409로_반환한다() throws Exception {
+    when(mutations.patchItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(TripException.terminalStateConflict());
+    when(mutations.deleteItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(TripException.terminalStateConflict());
+    when(mutations.reorder(any(), eq(TRIP_ID), any(), any()))
+        .thenThrow(TripException.terminalStateConflict());
+    when(mutations.moveItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(TripException.terminalStateConflict());
+
+    var requests =
+        List.of(
+            patch(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .content(
+                    "{\"expectedActiveScheduleVersionId\":\""
+                        + VERSION_ID
+                        + "\",\"memo\":\"terminal\"}"),
+            delete(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .queryParam("expectedActiveScheduleVersionId", VERSION_ID.toString()),
+            put("/api/v1/trips/{tripId}/schedule-order", TRIP_ID)
+                .content(
+                    "{\"expectedActiveScheduleVersionId\":\""
+                        + VERSION_ID
+                        + "\",\"days\":[{\"dayNo\":1,\"orderedItemIds\":[\"49000000-0000-0000-0000-000000000005\"]}]}"),
+            post(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .content(
+                    "{\"expectedActiveScheduleVersionId\":\""
+                        + VERSION_ID
+                        + "\",\"targetDayNo\":2,\"targetSequenceNo\":1,\"plannedStartAt\":\"2026-09-02T10:20:00+09:00\"}"));
+
+    for (var request : requests) {
+      mvc.perform(
+              request
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", UUID.randomUUID().toString())
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON))
+          .andExpect(status().isConflict())
+          .andExpect(jsonPath("$.code").value("TRIP_TERMINAL_STATE_CONFLICT"))
+          .andExpect(
+              jsonPath("$.type")
+                  .value("https://api.timing-jeju.com/problems/trip-terminal-state-conflict"));
+    }
+  }
+
+  @Test
+  void DELETE와_MOVE의_빈_Day는_leg가_아닌_canonical_DAY_EMPTY를_반환한다() throws Exception {
+    when(mutations.deleteItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(ScheduleException.dayEmpty());
+    when(mutations.moveItem(any(), eq(TRIP_ID), any(), any(), any()))
+        .thenThrow(ScheduleException.dayEmpty());
+
+    for (var request :
+        List.of(
+            delete(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .queryParam("expectedActiveScheduleVersionId", VERSION_ID.toString()),
+            post(
+                    "/api/v1/trips/{tripId}/schedule-items/{itemId}/move",
+                    TRIP_ID,
+                    "49000000-0000-0000-0000-000000000005")
+                .content(
+                    "{\"expectedActiveScheduleVersionId\":\""
+                        + VERSION_ID
+                        + "\",\"targetDayNo\":2,\"targetSequenceNo\":1,\"plannedStartAt\":\"2026-09-02T10:20:00+09:00\"}"))) {
+      mvc.perform(
+              request
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header("Idempotency-Key", UUID.randomUUID().toString())
+                  .header("If-Match", "\"trip-" + TRIP_ID + "-r1\"")
+                  .contentType(MediaType.APPLICATION_JSON))
+          .andExpect(status().isUnprocessableEntity())
+          .andExpect(jsonPath("$.code").value("SCHEDULE_DAY_EMPTY"))
+          .andExpect(
+              jsonPath("$.type").value("https://api.timing-jeju.com/problems/schedule-day-empty"))
+          .andExpect(jsonPath("$.title").value("여행 Day를 비울 수 없습니다"));
+    }
+  }
+
+  @Test
   void POST_schedule_items의_처리중_멱등성_충돌은_canonical_problem과_Retry_After를_반환한다() throws Exception {
     doThrow(IdempotencyException.processing()).when(idempotency).execute(any(), any());
 

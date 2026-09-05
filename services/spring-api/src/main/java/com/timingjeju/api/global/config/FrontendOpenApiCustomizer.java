@@ -1156,11 +1156,16 @@ final class FrontendOpenApiCustomizer {
     }
     if ("409".equals(status))
       return List.of(
-          "IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT");
+          "IDEMPOTENCY_KEY_REUSED",
+          "TRIP_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT");
     if ("422".equals(status)) {
       var base =
           new java.util.ArrayList<>(List.of("SCHEDULE_ITEM_COMPLETED", "SCHEDULE_LEG_INCOMPLETE"));
       if (!operationKey.startsWith("DELETE")) base.add("SCHEDULE_ITEM_INVALID");
+      if (operationKey.startsWith("DELETE") || operationKey.endsWith("/move"))
+        base.add("SCHEDULE_DAY_EMPTY");
       return base;
     }
     return null;

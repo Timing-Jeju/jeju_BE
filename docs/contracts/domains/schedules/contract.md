@@ -25,6 +25,8 @@ itemType은 `place_visit|meal|accommodation|arrival|departure|free_time|custom`�
 
 완료 progress가 있는 item은 PATCH/DELETE/reorder/move할 수 없고 `422 SCHEDULE_ITEM_COMPLETED`다. reorder는 active의 모든 item ID를 전체 Day에 걸쳐 정확히 한 번씩 제출하는 permutation이며 누락·중복·외부/추가 ID는 `400`이다. 적용 후 각 Day를 `1..N`으로 재번호하고 모든 인접 leg를 재구성한다. move는 target Day의 여행 귀속과 `plannedStartAt`의 제주 현지 날짜를 확인하고 source/target Day를 모두 compact한 뒤 영향 구간 leg를 재구성한다.
 
+DB의 sealed schedule day-coverage 불변식에 따라 모든 여행 Day에는 항목이 하나 이상 있어야 한다. 따라서 단일 항목만 남은 Day에서 DELETE하거나 그 항목을 다른 Day로 이동하는 요청은 leg 문제가 아닌 `422 SCHEDULE_DAY_EMPTY`로 거부하고 transaction 전체를 rollback한다. PATCH와 move의 `changedItemIds`는 새 active version으로 복사된 대상 ID를, reorder는 제출 순서의 각 old ID를 새 ID로 변환한 목록을 반환한다. DELETE 대상은 새 version에 존재하지 않으므로 DELETE 성공 응답의 `changedItemIds`는 빈 배열이다.
+
 수동 변경은 DB constraint와 동기 deterministic validator만 사용한다. 이 요청 경로에서 MCP/AI를 호출하거나 실패한 편집을 자동 보정하지 않는다. AI 보정은 #89의 별도 schedule revision run으로만 접수한다.
 
 ## 인접 leg 결정 규칙

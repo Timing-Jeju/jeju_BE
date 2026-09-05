@@ -68,10 +68,11 @@ EXPECTED_ERROR_CONDITIONS = {
     "TRANSPORT_EVENT_NOT_FOUND": "referenced transport event is missing, cross-owner or wrong-trip",
     "IDEMPOTENCY_KEY_REUSED": "same idempotency scope/key has a different request hash, or the same hash is still PROCESSING with an active lease",
     "TRIP_VERSION_CONFLICT": "If-Match does not equal the current strong trip aggregate ETag",
-    "TRIP_TERMINAL_STATE_CONFLICT": "trip status is completed, cancelled or failed when creating a schedule item",
+    "TRIP_TERMINAL_STATE_CONFLICT": "trip status is completed, cancelled or failed for any schedule mutation endpoint",
     "ACTIVE_SCHEDULE_VERSION_CONFLICT": "expectedActiveScheduleVersionId does not equal the current active schedule version",
     "SCHEDULE_ITEM_INVALID": "item violates type-required fields, range, target day or time-window invariants",
     "SCHEDULE_ITEM_COMPLETED": "patch, delete, reorder or move targets an item whose progress status is completed",
+    "SCHEDULE_DAY_EMPTY": "delete or cross-day move would leave a trip day without any schedule item",
     "SCHEDULE_LEG_INCOMPLETE": "an adjacent pair cannot be reused, derived from an eligible snapshot or conservatively synthesized",
 }
 
@@ -189,7 +190,7 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         matrix = endpoint.get("errorMatrix", {})
         if "ACTIVE_SCHEDULE_VERSION_CONFLICT" not in matrix.get("409", []) or "TRIP_VERSION_CONFLICT" not in matrix.get("409", []):
             errors.append(f"{identity} expected-version/If-Match 409가 모두 필요합니다.")
-        if endpoint.get("method") == "POST" and endpoint.get("path") == "/api/v1/trips/{tripId}/schedule-items" and "TRIP_TERMINAL_STATE_CONFLICT" not in matrix.get("409", []):
+        if "TRIP_TERMINAL_STATE_CONFLICT" not in matrix.get("409", []):
             errors.append(f"{identity} terminal trip 409가 필요합니다.")
         if endpoint["method"] in {"POST", "PATCH"} and endpoint["path"].endswith(("/schedule-items", "/{itemId}")):
             if not {"ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"}.issubset(matrix.get("404", [])):
@@ -213,8 +214,20 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         errors.append("Day move boundary가 다릅니다.")
     if contract.get("versionPolicy", {}).get("legCompleteness") != "exactly one adjacent leg for every consecutive item pair; zero for fewer than two":
         errors.append("인접 leg 완전성 계약이 다릅니다.")
+    if contract.get("versionPolicy", {}).get("dayCoverage") != "every trip day has at least one item in a sealed version; delete or cross-day move that empties a day returns 422 SCHEDULE_DAY_EMPTY":
+        errors.append("빈 Day 금지와 SCHEDULE_DAY_EMPTY 계약이 다릅니다.")
     if contract.get("versionPolicy", {}).get("immutable") != "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed":
         errors.append("불변 version과 허용 status transition 계약이 다릅니다.")
+
+    changed_ids = policy.get("changedItemIds", {})
+    if changed_ids != {
+        "create": "newly created item ID in the new active version namespace",
+        "patch": "patched old item ID mapped to its copied ID in the new active version namespace",
+        "delete": "empty array because the deleted old item has no counterpart in the new active version namespace",
+        "reorder": "submitted old item IDs mapped in submitted order to copied IDs in the new active version namespace",
+        "move": "moved old item ID mapped to its copied ID in the new active version namespace",
+    }:
+        errors.append("changedItemIds 새 version namespace 계약이 다릅니다.")
 
     leg_policy = contract.get("legDerivationPolicy", {})
     if leg_policy.get("sourcePriority") != ["reuse-unchanged-active-leg", "stored-route-snapshot", "conservative-walk-fallback", "reject-422"] or leg_policy.get("requestTimeCall") != "none" or leg_policy.get("durationInvariant") != "walkMinutes + waitMinutes + rideMinutes + transferMinutes" or leg_policy.get("stableFailure") != "422 SCHEDULE_LEG_INCOMPLETE; rollback draft, prior active pointer unchanged" or set(leg_policy.get("operations", {})) != {"add", "delete", "reorder", "move"}:

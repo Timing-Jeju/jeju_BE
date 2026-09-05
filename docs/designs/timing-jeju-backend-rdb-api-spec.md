@@ -1075,7 +1075,7 @@ Request:
 }
 ```
 
-Response `200`: 일정 변경 공통 응답.
+Response `200`: 일정 변경 공통 응답. `changedItemIds`는 수정 대상을 새 active version에 복사하며 발급한 새 ID다.
 
 ### 12.5 `DELETE /schedule-items/{itemId}`
 
@@ -1087,6 +1087,8 @@ Idempotency-Key: 018f6f2a-60a0-7f5b-8c61-8f548f34bc32
 ```
 
 Response `200`: 일정 변경 공통 응답.
+
+DELETE 대상은 새 active version에 복사되지 않으므로 성공 응답의 `changedItemIds`는 빈 배열이다. 해당 항목이 Day의 마지막 항목이면 sealed schedule의 day-coverage 불변식을 보존하기 위해 `422 SCHEDULE_DAY_EMPTY`로 거부한다.
 
 ### 12.6 `PUT /schedule-order`
 
@@ -1109,7 +1111,7 @@ Request:
 }
 ```
 
-Response `200`: 일정 변경 공통 응답.
+Response `200`: 일정 변경 공통 응답. `changedItemIds`는 제출한 old ID 순서를 새 active version의 copied ID 순서로 변환한 목록이다.
 
 ### 12.7 `POST /schedule-items/{itemId}/move`
 
@@ -1125,6 +1127,8 @@ Request:
 ```
 
 Response `200`: 일정 변경 공통 응답.
+
+`changedItemIds`는 이동 대상을 새 active version에 복사하며 발급한 새 ID다. source Day의 마지막 항목을 다른 Day로 이동해 source Day가 비게 되는 요청은 `422 SCHEDULE_DAY_EMPTY`로 거부한다.
 
 ## 13. 상세 계약: AI 일정 생성
 
