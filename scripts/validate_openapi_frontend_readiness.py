@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 HTTP_METHODS = {"get", "put", "post", "delete", "patch", "options", "head", "trace"}
 AUTO_OPERATION_ID = re.compile(r"(?:_\d+|^(?:get|list|read|create|update|patch|delete)$)")
-STABLE_OPERATION_ID = re.compile(r"^[a-z][A-Za-z0-9]*(?:List|Read|Create|Update|Delete)$")
+STABLE_OPERATION_ID = re.compile(r"^[a-z][A-Za-z0-9]*(?:List|Read|Create|Update|Delete|Patch)$")
 SECRET_LIKE = re.compile(
     r"(?:sk_(?:live|test)_[A-Za-z0-9]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|"
     r"AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)",
@@ -126,6 +126,10 @@ SCHEDULE_OPERATIONS = {
 }
 SCHEDULE_MUTATION_OPERATIONS = {
     ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemPatch",
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemDelete",
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order"): "tripScheduleOrderUpdate",
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move"): "tripScheduleItemMoveUpdate",
 }
 TRANSPORT_EVENT_OPERATIONS = {
     ("PUT", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsUpdate",
