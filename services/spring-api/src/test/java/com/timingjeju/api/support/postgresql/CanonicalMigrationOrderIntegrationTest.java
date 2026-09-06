@@ -19,6 +19,8 @@ class CanonicalMigrationOrderIntegrationTest {
   private static final String SCHEDULE_50 = "20260918000007_schedule_item_required_references.sql";
   private static final String SCHEDULE_51 =
       "20260918000008_schedule_item_required_references_correction.sql";
+  private static final List<String> POSTGIS_IMAGES =
+      List.of("postgis/postgis:16-3.4", "postgis/postgis:17-3.5");
   private static final List<String> CANONICAL_SUFFIX =
       List.of(
           FIRST_SUFFIX,
@@ -80,6 +82,68 @@ class CanonicalMigrationOrderIntegrationTest {
     }
   }
 
+  @Test
+  void Postgis_PG16과_PG17은_extension_aggregate_오류없이_fingerprint를_비교한다() throws Exception {
+    for (String image : POSTGIS_IMAGES) {
+      PostgreSQLContainer container =
+          PostgreSqlTestContainerFactory.createBefore(FIRST_SUFFIX, image);
+      try {
+        container.start();
+        applyCanonicalSuffix(container);
+        String first = schemaAndAclFingerprint(jdbc(container));
+
+        assertThat(first).as(image).isNotBlank();
+        assertThat(schemaAndAclFingerprint(jdbc(container))).as(image).isEqualTo(first);
+      } finally {
+        container.stop();
+      }
+    }
+  }
+
+  @Test
+  void schemaAndAclFingerprint는_security_projection_변조를_모두_탐지한다() throws Exception {
+    PostgreSQLContainer container = PostgreSqlTestContainerFactory.create();
+    try {
+      container.start();
+      JdbcTemplate jdbc = jdbc(container);
+      String freshFingerprint = schemaAndAclFingerprint(jdbc);
+      List<SecurityMutation> mutations =
+          List.of(
+              new SecurityMutation(
+                  "grant select (token_ciphertext) on public.push_devices to authenticated",
+                  "revoke select (token_ciphertext) on public.push_devices from authenticated"),
+              new SecurityMutation(
+                  "grant select on public.push_devices to public",
+                  "revoke select on public.push_devices from public"),
+              new SecurityMutation(
+                  "grant usage on schema auth to authenticated",
+                  "revoke usage on schema auth from authenticated"),
+              new SecurityMutation(
+                  "grant create on schema timing_jeju_private to authenticated",
+                  "revoke create on schema timing_jeju_private from authenticated"),
+              new SecurityMutation(
+                  "alter policy push_devices_owner_select on public.push_devices to public",
+                  "alter policy push_devices_owner_select on public.push_devices to authenticated"),
+              new SecurityMutation(
+                  "create policy fingerprint_restrictive_probe on public.push_devices "
+                      + "as restrictive for select to authenticated using (true)",
+                  "drop policy fingerprint_restrictive_probe on public.push_devices"));
+
+      for (SecurityMutation mutation : mutations) {
+        jdbc.execute(mutation.apply());
+        try {
+          String mutatedUpgradeFingerprint = schemaAndAclFingerprint(jdbc);
+          assertThat(mutatedUpgradeFingerprint).as(mutation.apply()).isNotEqualTo(freshFingerprint);
+        } finally {
+          jdbc.execute(mutation.revert());
+        }
+        assertThat(schemaAndAclFingerprint(jdbc)).as(mutation.revert()).isEqualTo(freshFingerprint);
+      }
+    } finally {
+      container.stop();
+    }
+  }
+
   private static String freshInstall() throws Exception {
     PostgreSQLContainer container = PostgreSqlTestContainerFactory.create();
     try {
@@ -94,12 +158,16 @@ class CanonicalMigrationOrderIntegrationTest {
     PostgreSQLContainer container = PostgreSqlTestContainerFactory.createBefore(FIRST_SUFFIX);
     try {
       container.start();
-      for (String migration : CANONICAL_SUFFIX) {
-        PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
-      }
+      applyCanonicalSuffix(container);
       return schemaAndAclFingerprint(jdbc(container));
     } finally {
       container.stop();
+    }
+  }
+
+  private static void applyCanonicalSuffix(PostgreSQLContainer container) throws Exception {
+    for (String migration : CANONICAL_SUFFIX) {
+      PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
     }
   }
 
@@ -137,4 +205,6 @@ class CanonicalMigrationOrderIntegrationTest {
   private static Path repositoryPath(String relative) {
     return PostgreSqlTestContainerFactory.locateRepositoryRoot().resolve(relative);
   }
+
+  private record SecurityMutation(String apply, String revert) {}
 }

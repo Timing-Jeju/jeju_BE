@@ -28,6 +28,16 @@ function Invoke-SqlFile([string] $database, [string] $file) {
   )
 }
 
+function Invoke-CanonicalManifest([string] $database) {
+  Invoke-SqlFile $database "/docker-entrypoint-initdb.d/001_auth_compat.sql"
+  foreach ($entry in $manifest.immutablePrefix) {
+    Invoke-SqlFile $database (Resolve-MountedMigration $entry.path)
+  }
+  foreach ($entry in $manifest.canonicalSuffix) {
+    Invoke-SqlFile $database (Resolve-MountedMigration $entry.path)
+  }
+}
+
 function Get-CanonicalFingerprint([string] $database) {
   $result = & docker compose -p $project -f compose.test.yml exec -T postgres `
     psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 `
@@ -73,24 +83,16 @@ try {
   $freshFingerprint = Get-CanonicalFingerprint "timing_jeju_test"
   Invoke-ComposePostgres @("createdb", "--username", "timing_jeju_test", $originDevelopDatabase)
 
-  foreach ($entry in $manifest.immutablePrefix) {
-    Invoke-SqlFile $originDevelopDatabase (Resolve-MountedMigration $entry.path)
-  }
-
   # canonical_schedule_50_51_upgrade: immutable #50 and additive #51 remain separate
   # history entries inside canonical_origin_develop_upgrade.
-  foreach ($entry in $manifest.canonicalSuffix) {
-    Invoke-SqlFile $originDevelopDatabase (Resolve-MountedMigration $entry.path)
-  }
+  Invoke-CanonicalManifest $originDevelopDatabase
   $upgradeFingerprint = Get-CanonicalFingerprint $originDevelopDatabase
   if ($upgradeFingerprint -ne $freshFingerprint) {
     throw "Fresh and origin/develop-upgrade schema/ACL fingerprints differ"
   }
 
   Invoke-ComposePostgres @("createdb", "--username", "timing_jeju_test", $concurrencyDatabase)
-  foreach ($entry in @($manifest.immutablePrefix) + @($manifest.canonicalSuffix)) {
-    Invoke-SqlFile $concurrencyDatabase (Resolve-MountedMigration $entry.path)
-  }
+  Invoke-CanonicalManifest $concurrencyDatabase
   Invoke-SqlFile $concurrencyDatabase "/queries/database_concurrency_contract.sql"
   Write-Host "[Docker] canonical migration fresh/upgrade/fingerprint/concurrency 성공"
 } finally {
