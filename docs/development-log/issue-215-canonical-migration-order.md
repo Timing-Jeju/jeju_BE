@@ -41,6 +41,7 @@ Supabase CLI는 로컬에 없어 `supabase --help`가 `command not found`로 끝
 - 첫 `./gradlew clean check`는 724건 중 13건 실패로 끝났다. 원인은 누적 migration을 반영하지 못한 세 fixture 클래스였고 운영 adapter 오류가 아니었다.
 - fixture를 정식 required-reference와 timetable migration 순서에 맞춘 뒤, 회귀 3개 클래스와 #215 핵심 3개 클래스를 합친 75건이 모두 성공했다.
 - 이 과정에서 #51이 허용한 제목 기반 `meal/free_time/custom`을 과거 core seal 함수가 다시 거부하는 누적 스키마 충돌을 발견했다. frozen migration을 수정하지 않고 `20260918000012_schedule_title_only_sealing_correction.sql`을 추가해 core location 검사만 좁혔으며, PG16/17에서 제목 기반 item seal 성공과 blank title 거부를 확인했다.
+- 전체 테스트는 성공했지만 첫 coverage 집계가 line 22,149/24,685(89.73%)로 90% gate에 미달했다. 여섯 execution data가 모두 반영됐음을 확인한 뒤 #78 cleanup store의 실제 claim/retry/exact-delete/current-reference/orphan enqueue PostgreSQL 생명주기 테스트를 추가했고, 해당 클래스 line coverage를 5/102에서 87/102로 높였다. threshold나 exclude는 변경하지 않았다.
 
 ## 독립 리뷰 보정
 

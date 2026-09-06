@@ -3,13 +3,17 @@ package com.timingjeju.api.support.postgresql;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.timingjeju.api.application.profile.ProfileImageCleanupJob;
 import com.timingjeju.api.application.profile.ProfileImageException;
 import com.timingjeju.api.application.profile.ProfileImageMetadata;
 import com.timingjeju.api.domain.profile.exception.ProfileImageProblemDefinitions;
+import com.timingjeju.api.global.profile.JdbcProfileImageCleanupStore;
 import com.timingjeju.api.global.profile.JdbcProfileImageStore;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -278,6 +282,86 @@ class ProfileImageMigrationIntegrationTest {
                 SECOND_KEY,
                 "\"etag-2\""))
         .isOne();
+  }
+
+  @Test
+  void cleanup_store는_claim_retry_exactDelete_success를_DB_generation으로_fence한다() {
+    JdbcProfileImageCleanupStore cleanup = new JdbcProfileImageCleanupStore(jdbc);
+    Instant firstClaimAt = Instant.parse("2030-09-03T00:00:00Z");
+    insertOutbox("018f47a1-43d2-7b6e-9fa2-11a1cc32c701", "orphan", null, null, null, null, 0, 0);
+
+    ProfileImageCleanupJob firstClaim =
+        transactions.execute(
+            ignored -> cleanup.claim(firstClaimAt, Duration.ofMinutes(5), 10).getFirst());
+    assertThat(firstClaim.attemptCount()).isOne();
+    assertThat(firstClaim.reason()).isEqualTo("orphan");
+
+    Instant retryAt = firstClaimAt.plusSeconds(60);
+    transactions.executeWithoutResult(ignored -> cleanup.retry(firstClaim, retryAt));
+    assertThat(
+            jdbc.queryForMap(
+                "select status,claim_token,claimed_at,next_attempt_at from public.profile_image_cleanup_outbox where id=?",
+                firstClaim.id()))
+        .containsEntry("status", "retry")
+        .containsEntry("claim_token", null)
+        .containsEntry("claimed_at", null);
+
+    ProfileImageCleanupJob secondClaim =
+        transactions.execute(
+            ignored -> cleanup.claim(retryAt, Duration.ofMinutes(5), 10).getFirst());
+    assertThat(secondClaim.claimToken()).isNotEqualTo(firstClaim.claimToken());
+    assertThat(secondClaim.attemptCount()).isEqualTo(2);
+    AtomicInteger exactDeletes = new AtomicInteger();
+    boolean deleted =
+        transactions.execute(
+            ignored ->
+                cleanup.deleteIfNotCurrent(
+                    secondClaim, exactDeletes::incrementAndGet, retryAt.plusSeconds(1)));
+
+    assertThat(deleted).isTrue();
+    assertThat(exactDeletes).hasValue(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select status from public.profile_image_cleanup_outbox where id=?",
+                String.class,
+                secondClaim.id()))
+        .isEqualTo("succeeded");
+  }
+
+  @Test
+  void cleanup_store는_currentGeneration_delete와_orphan_enqueue를_원자적으로_차단한다() {
+    JdbcProfileImageCleanupStore cleanup = new JdbcProfileImageCleanupStore(jdbc);
+    Instant now = Instant.parse("2030-09-03T01:00:00Z");
+    ProfileImageMetadata current = metadata(FIRST_KEY, "\"current-etag\"", now);
+    transactions.executeWithoutResult(
+        ignored -> new JdbcProfileImageStore(jdbc).confirm(NONE, 0, current, () -> current, now));
+    insertOutbox(
+        "018f47a1-43d2-7b6e-9fa2-11a1cc32c675", "replacement", null, null, null, null, 0, 0);
+
+    ProfileImageCleanupJob job =
+        transactions.execute(
+            ignored -> cleanup.claim(now.plusSeconds(1), Duration.ofMinutes(5), 10).getFirst());
+    AtomicInteger exactDeletes = new AtomicInteger();
+    boolean deleted =
+        transactions.execute(
+            ignored -> cleanup.deleteIfNotCurrent(job, exactDeletes::incrementAndGet, now));
+    assertThat(deleted).isFalse();
+    assertThat(exactDeletes).hasValue(0);
+
+    ProfileImageMetadata referenced = metadata(FIRST_KEY, "\"orphan-etag\"", now);
+    boolean referencedEnqueued =
+        transactions.execute(
+            ignored -> cleanup.enqueueOrphanIfUnreferenced(referenced, now.plusSeconds(2)));
+    assertThat(referencedEnqueued).isFalse();
+    ProfileImageMetadata orphan = metadata(SECOND_KEY, "\"orphan-etag\"", now);
+    boolean firstOrphanEnqueued =
+        transactions.execute(
+            ignored -> cleanup.enqueueOrphanIfUnreferenced(orphan, now.plusSeconds(3)));
+    assertThat(firstOrphanEnqueued).isTrue();
+    boolean duplicateOrphanEnqueued =
+        transactions.execute(
+            ignored -> cleanup.enqueueOrphanIfUnreferenced(orphan, now.plusSeconds(4)));
+    assertThat(duplicateOrphanEnqueued).isFalse();
   }
 
   @Test
