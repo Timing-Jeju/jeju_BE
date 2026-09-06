@@ -10,9 +10,9 @@ import org.junit.jupiter.api.Test;
 
 @Tag("unit")
 class TimetableMigrationContractTest {
-  private static final String MIGRATION = "20260915000000_jeju_timetable_route_scope.sql";
+  private static final String MIGRATION = "20260918000009_jeju_timetable_route_scope.sql";
   private static final String TARGET =
-      "/docker-entrypoint-initdb.d/046_jeju_timetable_route_scope.sql";
+      "/docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql";
 
   @Test
   void migration은_시간표_source와_TAGO_route_reference_scope를_분리하고_legacy를_보존한다() throws Exception {

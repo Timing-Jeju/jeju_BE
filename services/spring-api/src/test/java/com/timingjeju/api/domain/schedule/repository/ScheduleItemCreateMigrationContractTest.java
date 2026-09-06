@@ -41,7 +41,9 @@ class ScheduleItemCreateMigrationContractTest {
 
   private static final String MIGRATION = "20260907000000_schedule_item_create_contract.sql";
   private static final String REQUIRED_REFERENCE_MIGRATION =
-      "20260907000001_schedule_item_required_references.sql";
+      "20260918000008_schedule_item_required_references_correction.sql";
+  private static final String REQUIRED_REFERENCE_BASELINE =
+      "20260918000007_schedule_item_required_references.sql";
   private static final String TARGET =
       "/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql";
 
@@ -83,7 +85,7 @@ class ScheduleItemCreateMigrationContractTest {
         repositoryRoot().resolve("supabase/migrations").resolve(REQUIRED_REFERENCE_MIGRATION);
 
     assertThat(migration).isRegularFile();
-    String sql =
+    String correctionSql =
         Files.readString(migration)
             .toLowerCase()
             .replaceAll("\\s+", " ")
@@ -92,7 +94,21 @@ class ScheduleItemCreateMigrationContractTest {
             .replace(" )", ")")
             .replaceAll("translate\\(\\s+", "translate(")
             .replaceAll(",\\s*''\\s*\\)", ", '')");
-    String predicates = sql.replace("new.", "").replace("item.", "");
+    String sql =
+        (Files.readString(
+                    repositoryRoot()
+                        .resolve("supabase/migrations")
+                        .resolve(REQUIRED_REFERENCE_BASELINE))
+                + "\n"
+                + Files.readString(migration))
+            .toLowerCase()
+            .replaceAll("\\s+", " ")
+            .trim()
+            .replace("( ", "(")
+            .replace(" )", ")")
+            .replaceAll("translate\\(\\s+", "translate(")
+            .replaceAll(",\\s*''\\s*\\)", ", '')");
+    String predicates = correctionSql.replace("new.", "").replace("item.", "");
     String javaBlankWhitespace =
         "translate(title, u&'\\0009\\000a\\000b\\000c\\000d\\001c\\001d\\001e\\001f\\0020\\1680\\2000\\2001\\2002\\2003\\2004\\2005\\2006\\2008\\2009\\200a\\2028\\2029\\205f\\3000', '') <> ''";
     int audit = sql.indexOf("legacy schedule item required reference audit failed");

@@ -17,7 +17,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @Tag("integration")
 class PrivateTripOwnershipHelperMigrationIntegrationTest {
-  private static final String TARGET = "20260917000000_private_trip_ownership_helper.sql";
+  private static final String TARGET = "20260918000011_private_trip_ownership_helper.sql";
   private static final List<String> TABLES =
       List.of(
           "trip_preferences",

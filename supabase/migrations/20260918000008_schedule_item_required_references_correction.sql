@@ -1,8 +1,8 @@
--- Issue #50 remediation: typed schedule items must keep their canonical references.
--- Both remediation branches recorded that live Supabase application was not executed.
+-- Issue #51: strengthen the immutable Issue #50 required-reference contract additively.
+begin;
 
--- Fail the upgrade before installing constraints when a legacy row cannot satisfy the
--- public schedule-item contract. Do not silently invent or discard a reference.
+-- Fail before replacing any catalog object. This keeps the whole migration rollback-safe
+-- when a legacy item does not satisfy the canonical mutation contract.
 do $$
 declare
   invalid_item record;
@@ -73,23 +73,10 @@ begin
 end;
 $$;
 
--- The referenced type is part of the key. PostgreSQL's FK key-share locking then
--- serializes a child insert against a concurrent parent event-type mutation.
-alter table public.trip_transport_events
-  add constraint uq_trip_transport_events_id_plan_event_type
-  unique (id, trip_plan_id, event_type);
+drop trigger trg_trip_items_required_references on public.trip_items;
 
 alter table public.trip_items
-  add constraint fk_trip_items_transport_event_type_plan
-  foreign key (transport_event_id, trip_plan_id, item_type)
-  references public.trip_transport_events (id, trip_plan_id, event_type);
-
--- Replace the two-column lookup index so the full composite FK is covered in
--- leading-column order without keeping a redundant prefix index.
-drop index public.idx_trip_items_transport_event;
-create index idx_trip_items_transport_event
-  on public.trip_items (transport_event_id, trip_plan_id, item_type)
-  where transport_event_id is not null;
+  drop constraint chk_trip_items_required_references;
 
 alter table public.trip_items
   add constraint chk_trip_items_required_references check (
@@ -122,7 +109,7 @@ alter table public.trip_items
     )
   );
 
-create function public.validate_trip_item_required_references()
+create or replace function public.validate_trip_item_required_references()
 returns trigger
 language plpgsql
 security invoker
@@ -189,7 +176,7 @@ before insert or update of item_type, trip_plan_id, place_id, accommodation_id, 
 on public.trip_items
 for each row execute function public.validate_trip_item_required_references();
 
-create function public.assert_schedule_item_required_references(
+create or replace function public.assert_schedule_item_required_references(
   target_schedule_version_id uuid,
   target_trip_plan_id uuid
 )
@@ -211,40 +198,40 @@ begin
     where item.schedule_version_id = target_schedule_version_id
       and item.trip_plan_id = target_trip_plan_id
       and (
-      not (
-        (
-          item.item_type = 'place_visit'
-          and item.place_id is not null
-          and item.accommodation_id is null
-          and item.transport_event_id is null
+        not (
+          (
+            item.item_type = 'place_visit'
+            and item.place_id is not null
+            and item.accommodation_id is null
+            and item.transport_event_id is null
+          )
+          or (
+            item.item_type = 'accommodation'
+            and item.accommodation_id is not null
+            and item.transport_event_id is null
+          )
+          or (
+            item.item_type in ('arrival', 'departure')
+            and item.accommodation_id is null
+            and item.transport_event_id is not null
+          )
+          or (
+            item.item_type in ('meal', 'free_time', 'custom')
+            and item.accommodation_id is null
+            and item.transport_event_id is null
+            and item.title is not null
+            and translate(
+              item.title,
+              U&'\0009\000A\000B\000C\000D\001C\001D\001E\001F\0020\1680\2000\2001\2002\2003\2004\2005\2006\2008\2009\200A\2028\2029\205F\3000',
+              ''
+            ) <> ''
+          )
         )
-        or (
-          item.item_type = 'accommodation'
-          and item.accommodation_id is not null
-          and item.transport_event_id is null
-        )
+        or (item.item_type = 'accommodation' and accommodation.id is null)
         or (
           item.item_type in ('arrival', 'departure')
-          and item.accommodation_id is null
-          and item.transport_event_id is not null
+          and (event.id is null or event.event_type <> item.item_type)
         )
-        or (
-          item.item_type in ('meal', 'free_time', 'custom')
-          and item.accommodation_id is null
-          and item.transport_event_id is null
-          and item.title is not null
-          and translate(
-            item.title,
-            U&'\0009\000A\000B\000C\000D\001C\001D\001E\001F\0020\1680\2000\2001\2002\2003\2004\2005\2006\2008\2009\200A\2028\2029\205F\3000',
-            ''
-          ) <> ''
-        )
-      )
-      or (item.item_type = 'accommodation' and accommodation.id is null)
-      or (
-        item.item_type in ('arrival', 'departure')
-        and (event.id is null or event.event_type <> item.item_type)
-      )
       )
   ) then
     raise exception using
@@ -254,54 +241,14 @@ begin
 end;
 $$;
 
--- Preserve the mature timeline/leg assertion as a core function and compose it
--- with the typed-reference assertion at the existing public sealing entry point.
-alter function public.assert_schedule_version_sealable(uuid, uuid)
-  rename to assert_schedule_version_core_sealable;
-
-create function public.assert_schedule_version_sealable(
-  target_schedule_version_id uuid,
-  target_trip_plan_id uuid
-)
-returns void
-language plpgsql
-security invoker
-set search_path = ''
-as $$
-begin
-  perform public.assert_schedule_version_core_sealable(
-    target_schedule_version_id,
-    target_trip_plan_id
-  );
-  perform public.assert_schedule_item_required_references(
-    target_schedule_version_id,
-    target_trip_plan_id
-  );
-end;
-$$;
-
-revoke all on function public.assert_schedule_version_core_sealable(uuid, uuid) from public;
-revoke execute on function public.assert_schedule_version_core_sealable(uuid, uuid) from anon;
-revoke execute on function public.assert_schedule_version_core_sealable(uuid, uuid) from authenticated;
-grant execute on function public.assert_schedule_version_core_sealable(uuid, uuid) to service_role;
+revoke all on function public.validate_trip_item_required_references() from public;
+revoke execute on function public.validate_trip_item_required_references() from anon;
+revoke execute on function public.validate_trip_item_required_references() from authenticated;
+revoke execute on function public.validate_trip_item_required_references() from service_role;
 
 revoke all on function public.assert_schedule_item_required_references(uuid, uuid) from public;
 revoke execute on function public.assert_schedule_item_required_references(uuid, uuid) from anon;
 revoke execute on function public.assert_schedule_item_required_references(uuid, uuid) from authenticated;
 grant execute on function public.assert_schedule_item_required_references(uuid, uuid) to service_role;
 
--- Trigger invocation does not require caller EXECUTE, so no RPC-capable role needs it.
-revoke all on function public.validate_trip_item_required_references() from public;
-revoke execute on function public.validate_trip_item_required_references() from anon;
-revoke execute on function public.validate_trip_item_required_references() from authenticated;
-revoke execute on function public.validate_trip_item_required_references() from service_role;
-
-revoke all on function public.assert_schedule_version_sealable(uuid, uuid) from public;
-revoke execute on function public.assert_schedule_version_sealable(uuid, uuid) from anon;
-revoke execute on function public.assert_schedule_version_sealable(uuid, uuid) from authenticated;
-grant execute on function public.assert_schedule_version_sealable(uuid, uuid) to service_role;
-
-revoke all on function public.validate_schedule_version_sealing() from public;
-revoke execute on function public.validate_schedule_version_sealing() from anon;
-revoke execute on function public.validate_schedule_version_sealing() from authenticated;
-grant execute on function public.validate_schedule_version_sealing() to service_role;
+commit;

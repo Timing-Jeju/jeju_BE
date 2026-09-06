@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 @Tag("unit")
 class AccommodationMigrationContractTest {
-  private static final String MIGRATION = "20260907000002_trip_accommodation_contract.sql";
+  private static final String MIGRATION = "20260918000002_trip_accommodation_contract.sql";
 
   @Test
   void migration은_legacy를_추측보정하지않고_XOR_time_idempotency를_강제한다() throws Exception {
@@ -68,7 +68,7 @@ class AccommodationMigrationContractTest {
   @Test
   void compose와_Docker_upgrade는_036을_seed전에_정확히_적용한다() throws Exception {
     Path root = root();
-    String target = "039_trip_accommodation_contract.sql";
+    String target = "040_trip_accommodation_contract.sql";
     for (String compose :
         java.util.List.of("compose.yml", "compose.test.yml", "docker-compose.yml")) {
       String text = Files.readString(root.resolve(compose));
@@ -78,7 +78,7 @@ class AccommodationMigrationContractTest {
           .isLessThan(text.indexOf("099_seed_fixtures.sql"));
     }
     assertThat(Files.readString(root.resolve("scripts/docker-smoke-test.sh")))
-        .contains("/docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql");
+        .contains("/docker-entrypoint-initdb.d/040_trip_accommodation_contract.sql");
   }
 
   private static Path root() {

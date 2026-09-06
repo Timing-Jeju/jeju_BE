@@ -6,10 +6,10 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION_NAME = "20260913000000_profile_image_storage.sql"
+MIGRATION_NAME = "20260918000006_profile_image_storage.sql"
 MIGRATION = ROOT / "supabase" / "migrations" / MIGRATION_NAME
 COMPOSE_FILES = ("compose.yml", "compose.test.yml", "docker-compose.yml")
-SLOT = "045_profile_image_storage.sql"
+SLOT = "044_profile_image_storage.sql"
 CANONICAL_KEY_PREDICATE = (
     "owner_id = (select auth.uid()::text) and name ~ (''^'' || "
     "(select auth.uid()::text) || "
@@ -192,13 +192,13 @@ class ProfileImageStorageMigrationContractTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 self._assert_storage_security_contract(self.sql.replace(service_revoke, "", 1))
 
-    def test_compose_and_smoke_use_append_only_slot_045(self) -> None:
+    def test_compose_and_smoke_use_append_only_slot_044(self) -> None:
         mount = f"./supabase/migrations/{MIGRATION_NAME}:/docker-entrypoint-initdb.d/{SLOT}:ro"
         for relative_path in COMPOSE_FILES:
             with self.subTest(relative_path=relative_path):
                 content = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertIn(mount, content)
-                self.assertLess(content.index("044_trip_calendar_child_invariant_correction.sql"), content.index(SLOT))
+                self.assertLess(content.index("043_trip_calendar_child_invariant_correction.sql"), content.index(SLOT))
                 self.assertLess(content.index(SLOT), content.index("099_seed_fixtures.sql"))
 
         smoke = (ROOT / "scripts" / "docker-smoke-test.sh").read_text(encoding="utf-8")

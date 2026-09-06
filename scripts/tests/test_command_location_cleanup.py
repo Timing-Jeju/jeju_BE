@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION_NAME = "20260916000000_compute_run_input_location_cleanup.sql"
+MIGRATION_NAME = "20260918000010_compute_run_input_location_cleanup.sql"
 MIGRATION = ROOT / "supabase" / "migrations" / MIGRATION_NAME
 PREDECESSOR = ROOT / "supabase/migrations/20260831000000_compute_run_input_snapshot.sql"
 
@@ -51,7 +51,7 @@ class CommandLocationCleanupMigrationContractTest(unittest.TestCase):
 
     def test_additive_migration_is_mounted_after_all_existing_migrations(self):
         mount = f"./supabase/migrations/{MIGRATION_NAME}"
-        previous_mount = "./supabase/migrations/20260915000000_jeju_timetable_route_scope.sql"
+        previous_mount = "./supabase/migrations/20260918000009_jeju_timetable_route_scope.sql"
         seed = "./db/local-postgres/seed_fixtures.sql"
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             contents = (ROOT / compose_name).read_text(encoding="utf-8")
@@ -63,7 +63,7 @@ class CommandLocationCleanupMigrationContractTest(unittest.TestCase):
         self.assertEqual(
             2,
             docker_smoke.count(
-                "/docker-entrypoint-initdb.d/047_compute_run_input_location_cleanup.sql"
+                "/docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql"
             ),
         )
 

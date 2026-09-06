@@ -24,7 +24,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("integration")
 class ProfileImageMigrationIntegrationTest {
 
-  private static final String TARGET = "20260913000000_profile_image_storage.sql";
+  private static final String TARGET = "20260918000006_profile_image_storage.sql";
   private static final UUID PROVIDER = UUID.fromString("78000000-0000-4000-8000-000000000001");
   private static final UUID NONE = UUID.fromString("78000000-0000-4000-8000-000000000002");
   private static final UUID OVERFLOW = UUID.fromString("78000000-0000-4000-8000-000000000003");

@@ -19,7 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class ScheduleItemRequiredReferencesMigrationIntegrationTest
     extends PostgreSqlRepositoryIntegrationTestSupport {
-  private static final String MIGRATION = "20260907000001_schedule_item_required_references.sql";
+  private static final String MIGRATION =
+      "20260918000008_schedule_item_required_references_correction.sql";
 
   @Autowired private DataSource dataSource;
 

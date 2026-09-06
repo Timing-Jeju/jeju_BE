@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class ProfileImageMigrationContractTest {
 
   private static final Path MIGRATION =
-      Path.of("../../supabase/migrations/20260913000000_profile_image_storage.sql");
+      Path.of("../../supabase/migrations/20260918000006_profile_image_storage.sql");
 
   @Test
   void user_profiles는_URL대신_generation_source_strong_ETag_version을_저장한다() throws Exception {
@@ -174,8 +174,8 @@ class ProfileImageMigrationContractTest {
   @Test
   void 모든_PostgreSQL_compose가_profile_image_migration을_동일_순서로_mount한다() throws Exception {
     String mount =
-        "./supabase/migrations/20260913000000_profile_image_storage.sql:"
-            + "/docker-entrypoint-initdb.d/045_profile_image_storage.sql:ro";
+        "./supabase/migrations/20260918000006_profile_image_storage.sql:"
+            + "/docker-entrypoint-initdb.d/044_profile_image_storage.sql:ro";
     for (String compose :
         new String[] {"../../compose.yml", "../../compose.test.yml", "../../docker-compose.yml"}) {
       assertThat(Files.readString(Path.of(compose))).contains(mount);
@@ -186,10 +186,10 @@ class ProfileImageMigrationContractTest {
             .lines()
             .map(String::strip)
             .filter(
-                line -> line.equals("/docker-entrypoint-initdb.d/045_profile_image_storage.sql \\"))
+                line -> line.equals("/docker-entrypoint-initdb.d/044_profile_image_storage.sql \\"))
             .count();
     assertThat(executableMounts).isEqualTo(2);
     assertThat(Files.readString(Path.of("../../docs/ARCHITECTURE.md")))
-        .contains("20260913000000` `#78`");
+        .contains("20260918000006` `#78`");
   }
 }

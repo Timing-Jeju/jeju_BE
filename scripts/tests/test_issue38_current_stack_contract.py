@@ -3,14 +3,14 @@ import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-MIGRATION = "20260915000000_jeju_timetable_route_scope.sql"
-PROFILE_SLOT = "/docker-entrypoint-initdb.d/045_profile_image_storage.sql"
-TIMETABLE_SLOT = "/docker-entrypoint-initdb.d/046_jeju_timetable_route_scope.sql"
+MIGRATION = "20260918000009_jeju_timetable_route_scope.sql"
+PROFILE_SLOT = "/docker-entrypoint-initdb.d/044_profile_image_storage.sql"
+TIMETABLE_SLOT = "/docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql"
 SEED_SLOT = "/docker-entrypoint-initdb.d/099_seed_fixtures.sql"
 
 
 class Issue38CurrentStackContractTest(unittest.TestCase):
-    def test_timetable_migration_uses_slot_046_after_profile_and_before_seed(self) -> None:
+    def test_timetable_migration_uses_slot_047_after_profile_and_before_seed(self) -> None:
         self.assertTrue((ROOT / "supabase/migrations" / MIGRATION).is_file())
         mount = (
             f"./supabase/migrations/{MIGRATION}:"

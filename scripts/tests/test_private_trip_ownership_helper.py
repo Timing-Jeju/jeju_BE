@@ -6,9 +6,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION_NAME = "20260917000000_private_trip_ownership_helper.sql"
+MIGRATION_NAME = "20260918000011_private_trip_ownership_helper.sql"
 MIGRATION = ROOT / "supabase" / "migrations" / MIGRATION_NAME
-INIT_SLOT = "048_private_trip_ownership_helper.sql"
+INIT_SLOT = "049_private_trip_ownership_helper.sql"
 ACTUAL_PG_CONTRACT = ROOT / "db" / "queries" / "private_trip_ownership_helper_contract.sql"
 
 EXPECTED_POLICIES = {

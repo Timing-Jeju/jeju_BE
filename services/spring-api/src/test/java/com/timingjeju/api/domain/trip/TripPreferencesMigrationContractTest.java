@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Test;
 
 @Tag("unit")
 class TripPreferencesMigrationContractTest {
-  private static final String MIGRATION = "20260907000003_trip_preferences_replace_contract.sql";
+  private static final String MIGRATION = "20260918000000_trip_preferences_replace_contract.sql";
   private static final String OWNER_READ_MIGRATION =
-      "20260907000004_trip_preferences_owner_read_helper.sql";
+      "20260918000001_trip_preferences_owner_read_helper.sql";
 
   @Test
   void migration은_legacy를_fail_closed감사하고_row및_deferred_aggregate제약을_고정한다() throws Exception {
@@ -132,11 +132,11 @@ class TripPreferencesMigrationContractTest {
     String replaceContractMount =
         "./supabase/migrations/"
             + MIGRATION
-            + ":/docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql:ro";
+            + ":/docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql:ro";
     String ownerReadMount =
         "./supabase/migrations/"
             + OWNER_READ_MIGRATION
-            + ":/docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql:ro";
+            + ":/docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql:ro";
     String seed =
         "./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro";
     for (String compose :
@@ -147,8 +147,8 @@ class TripPreferencesMigrationContractTest {
       assertThat(text.indexOf(ownerReadMount)).isLessThan(text.indexOf(seed));
     }
     assertThat(Files.readString(root.resolve("scripts/docker-smoke-test.sh")))
-        .contains("/docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql")
-        .contains("/docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql")
+        .contains("/docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql")
+        .contains("/docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql")
         .contains("residue");
   }
 

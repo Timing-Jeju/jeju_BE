@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION = ROOT / "supabase/migrations/20260907000001_schedule_item_required_references.sql"
+MIGRATION = ROOT / "supabase/migrations/20260918000008_schedule_item_required_references_correction.sql"
 NEGATIVE = ROOT / "db/queries/database_negative_constraints.sql"
 LEGACY_FIXTURE = ROOT / "db/queries/legacy_schedule_item_reference_conflict_fixture.sql"
 
@@ -40,7 +40,7 @@ class ScheduleRequiredReferencesMigrationTest(unittest.TestCase):
 
     def test_legacy_audit_detail_never_contains_user_title_or_reference_values(self) -> None:
         sql = MIGRATION.read_text(encoding="utf-8").lower()
-        audit = sql[: sql.index("alter table public.trip_transport_events")]
+        audit = sql[: sql.index("drop trigger trg_trip_items_required_references")]
         self.assertNotIn("invalid_item.title", audit)
         self.assertNotIn("title=%s", audit)
         self.assertNotIn("place_id=%s", audit)
