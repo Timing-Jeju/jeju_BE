@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.timingjeju.api.application.timetable.TimetableParseException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,5 +43,16 @@ class SafeOperatorMappingFileReaderTest {
     assertThatThrownBy(() -> new OperatorTimetableMappingLoader(new ObjectMapper()).load(oversized))
         .isInstanceOf(TimetableParseException.class)
         .hasMessageContaining("OPERATOR_MAPPING_FILE_UNSAFE");
+  }
+
+  @Test
+  void timetable_FIFO방어가_read_only_mapping계약을_바꾸지_않는다() throws Exception {
+    Path mapping = temporary.resolve("read-only-mapping.json");
+    Files.writeString(mapping, "{}");
+    if (Files.getFileStore(mapping).supportsFileAttributeView("posix")) {
+      Files.setPosixFilePermissions(mapping, PosixFilePermissions.fromString("r--r--r--"));
+    }
+
+    assertThat(new SafeOperatorMappingFileReader(mapping).read()).containsExactly('{', '}');
   }
 }

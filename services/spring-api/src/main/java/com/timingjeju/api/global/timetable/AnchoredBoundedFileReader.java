@@ -31,6 +31,10 @@ final class AnchoredBoundedFileReader {
   private static final long OPEN_TIMEOUT_MILLIS = 250;
   private static final long OPEN_CLEANUP_TIMEOUT_MILLIS = 500;
   private static final AtomicLong OPENER_SEQUENCE = new AtomicLong();
+  private static final Set<OpenOption> READ_OPTIONS =
+      Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+  private static final Set<OpenOption> TIMETABLE_READ_OPTIONS =
+      Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
 
   private AnchoredBoundedFileReader() {}
 
@@ -43,7 +47,8 @@ final class AnchoredBoundedFileReader {
       if (!(rootStream instanceof SecureDirectoryStream<Path> secureRoot)) {
         throw failure.apply("UNSAFE_FILESYSTEM");
       }
-      return readAnchored(secureRoot, relative.iterator(), maxBytes, failure);
+      return readAnchored(
+          secureRoot, relative.iterator(), maxBytes, TIMETABLE_READ_OPTIONS, failure);
     } catch (RuntimeException exception) {
       throw exception;
     } catch (IOException exception) {
@@ -58,7 +63,7 @@ final class AnchoredBoundedFileReader {
       Function<String, ? extends RuntimeException> failure) {
     try (DirectoryStream<Path> rootStream = Files.newDirectoryStream(root)) {
       if (rootStream instanceof SecureDirectoryStream<Path> secureRoot) {
-        return readAnchored(secureRoot, relative.iterator(), maxBytes, failure);
+        return readAnchored(secureRoot, relative.iterator(), maxBytes, READ_OPTIONS, failure);
       }
     } catch (RuntimeException exception) {
       throw exception;
@@ -66,10 +71,7 @@ final class AnchoredBoundedFileReader {
       throw failure.apply("SOURCE_READ_FAILED");
     }
 
-    Set<OpenOption> options =
-        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
-    try (SeekableByteChannel channel = Files.newByteChannel(root.resolve(relative), options)) {
-      ensureSeekableRegularHandle(channel, failure);
+    try (SeekableByteChannel channel = Files.newByteChannel(root.resolve(relative), READ_OPTIONS)) {
       return readBounded(channel, maxBytes, failure);
     } catch (RuntimeException exception) {
       throw exception;
@@ -85,16 +87,18 @@ final class AnchoredBoundedFileReader {
       Runnable beforeFileOpen,
       Function<String, ? extends RuntimeException> failure)
       throws IOException {
-    return readAnchored(root, relative.iterator(), maxBytes, beforeFileOpen, failure);
+    return readAnchored(
+        root, relative.iterator(), maxBytes, beforeFileOpen, TIMETABLE_READ_OPTIONS, failure);
   }
 
   private static byte[] readAnchored(
       SecureDirectoryStream<Path> directory,
       Iterator<Path> parts,
       long maxBytes,
+      Set<OpenOption> openOptions,
       Function<String, ? extends RuntimeException> failure)
       throws IOException {
-    return readAnchored(directory, parts, maxBytes, () -> {}, failure);
+    return readAnchored(directory, parts, maxBytes, () -> {}, openOptions, failure);
   }
 
   private static byte[] readAnchored(
@@ -102,13 +106,14 @@ final class AnchoredBoundedFileReader {
       Iterator<Path> parts,
       long maxBytes,
       Runnable beforeFileOpen,
+      Set<OpenOption> openOptions,
       Function<String, ? extends RuntimeException> failure)
       throws IOException {
     Path component = parts.next();
     if (parts.hasNext()) {
       try (SecureDirectoryStream<Path> child =
           directory.newDirectoryStream(component, LinkOption.NOFOLLOW_LINKS)) {
-        return readAnchored(child, parts, maxBytes, beforeFileOpen, failure);
+        return readAnchored(child, parts, maxBytes, beforeFileOpen, openOptions, failure);
       }
     }
 
@@ -125,8 +130,10 @@ final class AnchoredBoundedFileReader {
     // FIFO open non-blocking without a second path lookup; the seek probe rejects that FIFO handle
     // before any read. This fail-closed boundary therefore requires the import file to be writable.
     beforeFileOpen.run();
-    try (SeekableByteChannel channel = openBounded(directory, component, failure)) {
-      ensureSeekableRegularHandle(channel, failure);
+    try (SeekableByteChannel channel = openBounded(directory, component, openOptions, failure)) {
+      if (openOptions.contains(StandardOpenOption.WRITE)) {
+        ensureSeekableRegularHandle(channel, failure);
+      }
       return readBounded(channel, maxBytes, failure);
     }
   }
@@ -134,10 +141,9 @@ final class AnchoredBoundedFileReader {
   private static SeekableByteChannel openBounded(
       SecureDirectoryStream<Path> directory,
       Path component,
+      Set<OpenOption> openOptions,
       Function<String, ? extends RuntimeException> failure)
       throws IOException {
-    Set<OpenOption> readOptions =
-        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
     ExecutorService executor =
         Executors.newSingleThreadExecutor(
             runnable ->
@@ -146,7 +152,7 @@ final class AnchoredBoundedFileReader {
                     .name("timing-jeju-timetable-open-" + OPENER_SEQUENCE.incrementAndGet())
                     .unstarted(runnable));
     Future<SeekableByteChannel> opening =
-        executor.submit(() -> directory.newByteChannel(component, readOptions));
+        executor.submit(() -> directory.newByteChannel(component, openOptions));
     try {
       return opening.get(OPEN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     } catch (TimeoutException timeout) {
