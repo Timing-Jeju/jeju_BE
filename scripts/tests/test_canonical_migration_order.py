@@ -28,6 +28,7 @@ CANONICAL_SUFFIX = (
     ("20260918000009_jeju_timetable_route_scope.sql", "047", 38),
     ("20260918000010_compute_run_input_location_cleanup.sql", "048", 109),
     ("20260918000011_private_trip_ownership_helper.sql", "049", 210),
+    ("20260918000012_schedule_title_only_sealing_correction.sql", "050", 215),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -139,6 +140,20 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn(f"revoke all on function {signature} from public", correction)
             self.assertIn(f"revoke execute on function {signature} from anon", correction)
             self.assertIn(f"revoke execute on function {signature} from authenticated", correction)
+
+    def test_issue_215_additively_aligns_core_sealing_with_title_only_items(self) -> None:
+        correction_path = ROOT / "supabase/migrations" / CANONICAL_SUFFIX[-1][0]
+        source = re.sub(r"\s+", " ", correction_path.read_text(encoding="utf-8").lower())
+
+        self.assertIn(
+            "create or replace function public.assert_schedule_version_core_sealable", source
+        )
+        self.assertIn("i.item_type not in ('meal', 'free_time', 'custom')", source)
+        self.assertIn("sealed schedule items require a place or explicit location facts", source)
+        self.assertIn(
+            "revoke execute on function public.assert_schedule_version_core_sealable(uuid, uuid) from authenticated",
+            source,
+        )
 
     def test_compose_and_both_smoke_scripts_follow_the_manifest(self) -> None:
         expected_mounts = [

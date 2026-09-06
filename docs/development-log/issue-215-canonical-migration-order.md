@@ -19,9 +19,9 @@
 
 Supabase CLI는 로컬에 없어 `supabase --help`가 `command not found`로 끝났다. 공식 문서상 remote history는 timestamp를 기준으로 비교하고 적용된 migration을 건너뛰므로, 동일 경로 overwrite 대신 고유 additive timestamp를 사용했다.
 
-## 실행 제한
+## 환경 검증 범위
 
-요청 범위에 따라 actual PostgreSQL/Testcontainers, Docker, live Supabase, 전체 quality gate와 `clean check`는 실행하지 않는다. deterministic Python/static 검사와 Gradle unit/architecture/format/compile만 실행한다.
+후속 승인에 따라 disposable PostgreSQL 16/17, 실제 Testcontainers, Docker smoke, Spring `clean check`와 루트 quality gate를 로컬에서 검증한다. live Supabase, production DB와 deployment는 계속 금지한다.
 
 ## 검증 결과
 
@@ -33,7 +33,14 @@ Supabase CLI는 로컬에 없어 `supabase --help`가 `command not found`로 끝
 - 변경된 migration Java 계약: 16건 성공
 - `spotlessCheck`, shell syntax, manifest JSON, deploy SQL 정책, REST/domain 정적 validator, diff whitespace, 전체 파일 비밀정보 검사 성공
 
-로컬에는 `supabase` CLI와 `pwsh`가 없어 각각 실제 CLI 검증과 PowerShell parser 검증은 실행하지 못했다. actual PostgreSQL/Testcontainers, Docker smoke, 전체 quality gate, `clean check`는 Issue #215의 명시적 실행 제한에 따라 후속 독립 검토의 환경 gate로 남긴다.
+로컬에는 `supabase` CLI와 `pwsh`가 없어 각각 실제 CLI 검증과 PowerShell parser 검증은 실행하지 못했다. PowerShell smoke는 manifest 기반 동적 replay와 정적 계약으로 검증하고, POSIX Docker smoke를 실제 실행한다.
+
+## 로컬 PostgreSQL QA 보정
+
+- 최초 실제 Testcontainers 집중 실행은 19건 중 8건 실패로 fingerprint scalar 직렬화, Storage fixture schema 권한, JDBC array 비교 문제를 재현했다. 보정 후 관련 3개 클래스 20건이 모두 성공했다.
+- 첫 `./gradlew clean check`는 724건 중 13건 실패로 끝났다. 원인은 누적 migration을 반영하지 못한 세 fixture 클래스였고 운영 adapter 오류가 아니었다.
+- fixture를 정식 required-reference와 timetable migration 순서에 맞춘 뒤, 회귀 3개 클래스와 #215 핵심 3개 클래스를 합친 75건이 모두 성공했다.
+- 이 과정에서 #51이 허용한 제목 기반 `meal/free_time/custom`을 과거 core seal 함수가 다시 거부하는 누적 스키마 충돌을 발견했다. frozen migration을 수정하지 않고 `20260918000012_schedule_title_only_sealing_correction.sql`을 추가해 core location 검사만 좁혔으며, PG16/17에서 제목 기반 item seal 성공과 blank title 거부를 확인했다.
 
 ## 독립 리뷰 보정
 

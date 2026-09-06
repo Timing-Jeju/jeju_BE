@@ -250,6 +250,10 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Test
   void 미만료_저장_route_snapshot은_도보_fallback보다_먼저_새_leg에_연결한다() {
+    Instant committedAt =
+        jdbc.queryForObject(
+                "select updated_at from public.trip_plans where id=?", Timestamp.class, TRIP)
+            .toInstant();
     jdbc.update(
         """
         insert into public.mobility_route_snapshots
@@ -264,10 +268,18 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         where origin.id=? and destination.id=?
         """,
         ROUTE_SNAPSHOT,
-        Timestamp.from(NOW.minusSeconds(60)),
-        Timestamp.from(NOW.plusSeconds(3600)),
+        Timestamp.from(committedAt.minusSeconds(60)),
+        Timestamp.from(committedAt.plusSeconds(3600)),
         FIRST_PLACE,
         ADDED_PLACE);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.mobility_route_snapshots where id=? and observed_at<=? and expires_at>?",
+                Integer.class,
+                ROUTE_SNAPSHOT,
+                Timestamp.from(committedAt),
+                Timestamp.from(committedAt)))
+        .isEqualTo(1);
 
     ScheduleMutationResult result = store.addItem(record(Position.MIDDLE, ACTIVE, 1));
 
@@ -333,7 +345,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Test
   void sole_locationless_title_item의_memo_only_PATCH는_새_version으로_copy된다() {
-    jdbc.update(
+    mutateLegacyItem(
         "update public.trip_items set item_type='custom', place_id=null, title='메모 일정' where id=?",
         DAY_TWO_ITEM);
     var command =
@@ -355,7 +367,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Test
   void 기존_adjacent_leg가_있는_locationless_title_item의_memo_only_PATCH는_leg를_재사용한다() {
-    jdbc.update(
+    mutateLegacyItem(
         "update public.trip_items set item_type='free_time', place_id=null, title='자유 시간' where id=?",
         FIRST);
     var command =
@@ -721,7 +733,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     jdbc.execute("drop trigger trg_trip_items_required_references on public.trip_items");
     jdbc.execute(
         "alter table public.trip_items drop constraint chk_trip_items_required_references");
-    jdbc.update("update public.trip_items set item_type='accommodation' where id=?", SECOND);
+    mutateLegacyItem("update public.trip_items set item_type='accommodation' where id=?", SECOND);
     String before = aggregateFingerprint();
     var patch =
         new PatchScheduleItemCommand(
@@ -803,6 +815,15 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   private <T> ScheduleEditRecord<T> edit(UUID itemId, T command) {
     return new ScheduleEditRecord<>(
         OWNER, TRIP, itemId, new TripExpectedRevision(TRIP, 1), command, NOW);
+  }
+
+  private void mutateLegacyItem(String sql, Object... arguments) {
+    jdbc.execute("set local session_replication_role = replica");
+    try {
+      jdbc.update(sql, arguments);
+    } finally {
+      jdbc.execute("set local session_replication_role = origin");
+    }
   }
 
   private ScheduleMutationResult patchInNestedTransaction(

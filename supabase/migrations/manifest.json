@@ -54,7 +54,8 @@
     {"path":"supabase/migrations/20260918000008_schedule_item_required_references_correction.sql","initSlot":"046","owner":{"issue":51,"pullRequest":null},"sha256":"e5adf32b5d289d7ec164924f8aa2ff189e745037ed0d50f4f52d6ed4535e9725","dependencies":["20260918000007_schedule_item_required_references.sql"]},
     {"path":"supabase/migrations/20260918000009_jeju_timetable_route_scope.sql","initSlot":"047","owner":{"issue":38,"pullRequest":null},"sha256":"0829b07952db332868aac9c79458f4157b89cc71d12023f05addfc4ae8ab6ce0","dependencies":["20260918000008_schedule_item_required_references_correction.sql"]},
     {"path":"supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql","initSlot":"048","owner":{"issue":109,"pullRequest":null},"sha256":"b353bb234ca1b12b39c068c26c2929d3080308fb6358a82c8197381de2da44e6","dependencies":["20260918000009_jeju_timetable_route_scope.sql"]},
-    {"path":"supabase/migrations/20260918000011_private_trip_ownership_helper.sql","initSlot":"049","owner":{"issue":210,"pullRequest":null},"sha256":"0d67ec2ffd4ee178b4a085bc3424358eb414dded0d613dadcb055d13c60523f7","dependencies":["20260918000010_compute_run_input_location_cleanup.sql"]}
+    {"path":"supabase/migrations/20260918000011_private_trip_ownership_helper.sql","initSlot":"049","owner":{"issue":210,"pullRequest":null},"sha256":"0d67ec2ffd4ee178b4a085bc3424358eb414dded0d613dadcb055d13c60523f7","dependencies":["20260918000010_compute_run_input_location_cleanup.sql"]},
+    {"path":"supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql","initSlot":"050","owner":{"issue":215,"pullRequest":null},"sha256":"9ef919874e53a5dd9a57d480a68580849cd4eb5ba840caedc4717f50db233887","dependencies":["20260918000011_private_trip_ownership_helper.sql"]}
   ],
   "seedInitSlot": "099"
 }

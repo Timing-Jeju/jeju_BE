@@ -261,6 +261,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql \
   /docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql \
   /docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql \
+  /docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -472,6 +473,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql \
   /docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql \
   /docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql \
+  /docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

@@ -1,6 +1,7 @@
 package com.timingjeju.api.support.postgresql;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Files;
@@ -34,7 +35,8 @@ class CanonicalMigrationOrderIntegrationTest {
           SCHEDULE_51,
           "20260918000009_jeju_timetable_route_scope.sql",
           "20260918000010_compute_run_input_location_cleanup.sql",
-          "20260918000011_private_trip_ownership_helper.sql");
+          "20260918000011_private_trip_ownership_helper.sql",
+          "20260918000012_schedule_title_only_sealing_correction.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -97,6 +99,66 @@ class CanonicalMigrationOrderIntegrationTest {
 
         assertThat(first).as(image).isNotBlank();
         assertThat(schemaAndAclFingerprint(jdbc(container))).as(image).isEqualTo(first);
+      } finally {
+        container.stop();
+      }
+    }
+  }
+
+  @Test
+  void Postgis_PG16과_PG17은_titleOnly_item을_seal하고_blankTitle은_거부한다() throws Exception {
+    for (String image : POSTGIS_IMAGES) {
+      PostgreSQLContainer container =
+          PostgreSqlTestContainerFactory.createBefore(
+              "20260918000009_jeju_timetable_route_scope.sql", image);
+      try {
+        container.start();
+        PostgreSqlTestContainerFactory.executeScript(
+            container, repositoryPath("db/local-postgres/seed_fixtures.sql"));
+        for (String migration : CANONICAL_SUFFIX.subList(9, CANONICAL_SUFFIX.size())) {
+          PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
+        }
+        JdbcTemplate jdbc = jdbc(container);
+        var mutation =
+            container.execInContainer(
+                "psql",
+                "--no-psqlrc",
+                "--set",
+                "ON_ERROR_STOP=1",
+                "--username",
+                container.getUsername(),
+                "--dbname",
+                container.getDatabaseName(),
+                "--command",
+                "set session_replication_role=replica; update public.trip_items set item_type='custom', place_id=null, title='메모 일정', facts='{}'::jsonb where id='61200000-0000-0000-0000-000000000006'; set session_replication_role=origin;");
+        assertThat(mutation.getExitCode()).as(mutation.getStderr()).isZero();
+
+        assertThatCode(
+                () ->
+                    jdbc.execute(
+                        "select public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
+            .as(image)
+            .doesNotThrowAnyException();
+        var invalidMutation =
+            container.execInContainer(
+                "psql",
+                "--no-psqlrc",
+                "--set",
+                "ON_ERROR_STOP=1",
+                "--username",
+                container.getUsername(),
+                "--dbname",
+                container.getDatabaseName(),
+                "--command",
+                "alter table public.trip_items drop constraint chk_trip_items_required_references; set session_replication_role=replica; update public.trip_items set title=E'\\n' where id='61200000-0000-0000-0000-000000000006'; set session_replication_role=origin;");
+        assertThat(invalidMutation.getExitCode()).as(invalidMutation.getStderr()).isZero();
+        assertThatThrownBy(
+                () ->
+                    jdbc.execute(
+                        "select public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
+            .as(image)
+            .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
+            .hasMessageContaining("required reference invariants");
       } finally {
         container.stop();
       }

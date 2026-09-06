@@ -18,6 +18,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("integration")
 class PrivateTripOwnershipHelperMigrationIntegrationTest {
   private static final String TARGET = "20260918000011_private_trip_ownership_helper.sql";
+  private static final String TIMETABLE_SCOPE = "20260918000009_jeju_timetable_route_scope.sql";
+  private static final String LOCATION_CLEANUP =
+      "20260918000010_compute_run_input_location_cleanup.sql";
   private static final List<String> TABLES =
       List.of(
           "trip_preferences",
@@ -43,9 +46,13 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void migration은_PG16과_PG17에서_원자적으로전환되고_replay된다(String image) throws Exception {
-    PostgreSQLContainer container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    PostgreSQLContainer container =
+        PostgreSqlTestContainerFactory.createBefore(TIMETABLE_SCOPE, image);
     try {
       container.start();
+      PostgreSqlTestContainerFactory.executeScript(container, seed());
+      PostgreSqlTestContainerFactory.executeScript(container, migration(TIMETABLE_SCOPE));
+      PostgreSqlTestContainerFactory.executeScript(container, migration(LOCATION_CLEANUP));
       JdbcTemplate jdbc = jdbc(container);
       List<Map<String, Object>> policiesBefore = policies(jdbc);
       List<Map<String, Object>> grantsBefore = grants(jdbc);
@@ -99,7 +106,6 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
       assertThat(rls(jdbc)).isEqualTo(rlsBefore);
       assertThat(rowCounts(jdbc)).isEqualTo(dataBefore);
 
-      PostgreSqlTestContainerFactory.executeScript(container, seed());
       PostgreSqlTestContainerFactory.executeScript(container, actualRlsContract());
 
       assertContractRejectsMutation(
@@ -140,9 +146,13 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
   }
 
   private static Path target() {
+    return migration(TARGET);
+  }
+
+  private static Path migration(String name) {
     return PostgreSqlTestContainerFactory.locateRepositoryRoot()
         .resolve("supabase/migrations")
-        .resolve(TARGET);
+        .resolve(name);
   }
 
   private static Path seed() {
