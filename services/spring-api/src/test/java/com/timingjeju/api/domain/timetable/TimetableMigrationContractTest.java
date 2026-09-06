@@ -25,6 +25,16 @@ class TimetableMigrationContractTest {
         .contains("add column route_city_code text")
         .contains("set route_source_provider = source_provider")
         .contains("route_city_code = city_code")
+        .contains("con.conname = 'ck_timetable_source_key_lengths'")
+        .contains("if found and not legacy_constraint.convalidated")
+        .contains(
+            "alter table public.timetable_entries\n"
+                + "      drop constraint ck_timetable_source_key_lengths")
+        .contains("add constraint ck_timetable_source_key_lengths")
+        .contains("octet_length(source_provider) <= 128")
+        .contains("octet_length(route_source_provider) <= 128")
+        .contains("octet_length(direction_key)")
+        .contains("+ octet_length(route_city_code) <= 1024")
         .contains("timetable route scope backfill violated audited old/new scope")
         .contains("drop trigger trg_timetable_source_lineage on public.timetable_entries")
         .contains("public.validate_timetable_route_scope_backfill_lineage()")
@@ -45,6 +55,7 @@ class TimetableMigrationContractTest {
         .contains("route_stop.source_provider = new.route_source_provider")
         .contains("route_stop.city_code = new.route_city_code")
         .doesNotContain("delete from public.timetable_entries")
+        .doesNotContain("session_replication_role")
         .doesNotContain("update public.timetable_entries\nset source_provider = 'JEJU_PROVINCE'")
         .endsWith("commit;\n");
     assertThat(

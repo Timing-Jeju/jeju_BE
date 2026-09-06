@@ -7,6 +7,35 @@ begin;
 -- ALTER와 backfill 사이에 다른 writer가 끼지 못하도록 같은 transaction에서 선점한다.
 lock table public.timetable_entries in access exclusive mode;
 
+-- PostgreSQL은 NOT VALID CHECK도 기존 행을 UPDATE할 때 다시 검사한다. v1에서
+-- 합법이었던 장문 식별자는 그대로 보존하고, 이 transaction의 두 신규 컬럼
+-- backfill 동안에만 기존 named legacy length CHECK를 정확히 해제한다.
+do $$
+declare
+  legacy_constraint record;
+begin
+  select con.contype, con.convalidated
+    into legacy_constraint
+  from pg_catalog.pg_constraint con
+  join pg_catalog.pg_class rel on rel.oid = con.conrelid
+  join pg_catalog.pg_namespace ns on ns.oid = rel.relnamespace
+  where ns.nspname = 'public'
+    and rel.relname = 'timetable_entries'
+    and con.conname = 'ck_timetable_source_key_lengths';
+
+  if found and legacy_constraint.contype <> 'c' then
+    raise exception using
+      errcode = '42809',
+      message = 'ck_timetable_source_key_lengths must remain a CHECK constraint';
+  end if;
+
+  if found and not legacy_constraint.convalidated then
+    alter table public.timetable_entries
+      drop constraint ck_timetable_source_key_lengths;
+  end if;
+end;
+$$;
+
 alter table public.timetable_entries
   add column route_source_provider text,
   add column route_city_code text;
@@ -95,6 +124,37 @@ begin
 end;
 $$;
 
+-- validated CHECK는 그대로 두어 절대 NOT VALID로 downgrade하지 않는다. 위에서
+-- 실제로 해제된 legacy NOT VALID CHECK만 동일 정의로 복원한다.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint con
+    join pg_catalog.pg_class rel on rel.oid = con.conrelid
+    join pg_catalog.pg_namespace ns on ns.oid = rel.relnamespace
+    where ns.nspname = 'public'
+      and rel.relname = 'timetable_entries'
+      and con.conname = 'ck_timetable_source_key_lengths'
+  ) then
+    alter table public.timetable_entries
+      add constraint ck_timetable_source_key_lengths
+      check (
+        octet_length(source_provider) <= 128
+        and octet_length(source_service) <= 128
+        and octet_length(city_code) <= 64
+        and octet_length(direction_key) <= 512
+        and octet_length(source_record_key) <= 512
+        and octet_length(source_provider)
+          + octet_length(source_service)
+          + octet_length(city_code)
+          + octet_length(direction_key)
+          + octet_length(source_record_key) <= 1800
+      ) not valid;
+  end if;
+end;
+$$;
+
 -- ACCESS EXCLUSIVE lock을 유지한 채 원래 strict lineage trigger를 즉시 복원하고
 -- backfill 전용 함수는 남기지 않는다.
 drop trigger trg_timetable_source_lineage on public.timetable_entries;
@@ -176,7 +236,14 @@ create index idx_timetable_route_stop_reference_scope
   on public.timetable_entries (
     route_id, direction_key, stop_id, route_source_provider, route_city_code
   )
-  where route_source_provider is not null and route_city_code is not null;
+  where route_source_provider is not null
+    and route_city_code is not null
+    and octet_length(direction_key) <= 512
+    and octet_length(route_source_provider) <= 128
+    and octet_length(route_city_code) <= 64
+    and octet_length(direction_key)
+      + octet_length(route_source_provider)
+      + octet_length(route_city_code) <= 1024;
 
 -- JEJU_PROVINCE dataset PK 3043887 snapshot은 exact-byte SHA-256은 payload_hash에만 두고,
 -- raw XLSX bytes must not be persisted: 정규화 manifest JSON만 raw_payload에 허용한다.

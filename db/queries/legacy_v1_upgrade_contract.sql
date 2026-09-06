@@ -530,7 +530,7 @@ begin
     );
     raise exception 'new timetable reused an invalid legacy route-stop parent';
   exception
-    when check_violation then null;
+    when check_violation or not_null_violation then null;
   end;
 
   begin
@@ -589,6 +589,8 @@ begin
 
   update public.timetable_entries
   set city_code = '39',
+      route_source_provider = 'TAGO',
+      route_city_code = '39',
       import_run_id = 'e1100000-0000-0000-0000-000000000001',
       source_snapshot_id = 'e1200000-0000-0000-0000-000000000001'
   where id = 'e3500000-0000-0000-0000-000000000002';

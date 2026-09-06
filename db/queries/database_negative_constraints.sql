@@ -2068,12 +2068,13 @@ select pg_temp.expect_rejected(
 
 insert into timetable_entries (
   route_id, stop_id, direction_key, service_day_type, departure_time,
-  source_provider, source_service, city_code, source_record_key, import_run_id
+  source_provider, source_service, city_code, source_record_key,
+  route_source_provider, route_city_code, import_run_id
 ) values (
   'f4100000-0000-0000-0000-000000000001',
   'f4000000-0000-0000-0000-000000000001', 'outbound',
   'weekday', '09:00', 'fixture', 'TimetableService', '39',
-  'route-1-stop-1-0900', null
+  'route-1-stop-1-0900', 'fixture', '39', null
 );
 
 select pg_temp.expect_rejected(
@@ -2081,12 +2082,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
       'weekday', '09:30', 'fixture', 'TimetableService', '39',
-      repeat('t', 513)
+      repeat('t', 513), 'fixture', '39'
     )
   $statement$,
   array['23514']
@@ -2097,12 +2099,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
       'weekday', '09:00', 'fixture', 'TimetableService', '39',
-      'route-1-stop-1-0900'
+      'route-1-stop-1-0900', 'fixture', '39'
     )
   $statement$,
   array['23505']
@@ -2113,12 +2116,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000003', 'outbound',
       'weekday', '10:00', 'fixture', 'TimetableService', '39',
-      'route-1-wrong-stop-1000'
+      'route-1-wrong-stop-1000', 'fixture', '39'
     )
   $statement$,
   array['23514']
@@ -2129,12 +2133,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', '',
       'weekday', '10:30', 'fixture', 'TimetableService', '39',
-      'blank-direction'
+      'blank-direction', 'fixture', '39'
     )
   $statement$,
   array['23514']
@@ -2146,12 +2151,13 @@ select pg_temp.expect_rejected(
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
       valid_from, valid_to, source_provider, source_service, city_code,
-      source_record_key
+      source_record_key, route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
       'weekday', '09:00', '2026-01-01', '2026-12-31',
-      'fixture', 'TimetableService', '39', 'route-1-stop-1-0900'
+      'fixture', 'TimetableService', '39', 'route-1-stop-1-0900',
+      'fixture', '39'
     )
   $statement$,
   array['23P01']
@@ -2160,13 +2166,13 @@ select pg_temp.expect_rejected(
 insert into timetable_entries (
   route_id, stop_id, direction_key, service_day_type, departure_time,
   valid_from, valid_to, source_provider, source_service, city_code,
-  source_record_key, import_run_id
+  source_record_key, route_source_provider, route_city_code, import_run_id
 ) values (
   'f4100000-0000-0000-0000-000000000001',
   'f4000000-0000-0000-0000-000000000001', 'outbound',
   'weekday', '09:00', '2026-01-01', '2026-12-31',
   'fixture', 'OtherTimetableService', '39', 'route-1-stop-1-0900',
-  null
+  'fixture', '39', null
 );
 
 insert into app_sessions (id, public_token)

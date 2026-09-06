@@ -1,4 +1,5 @@
 import pathlib
+import re
 import unittest
 
 
@@ -92,6 +93,53 @@ class Issue38CurrentStackContractTest(unittest.TestCase):
             migration.index("update public.timetable_entries"),
         )
         self.assertNotIn("delete from public.timetable_entries", migration.lower())
+
+    def test_canonical_seed_supplies_explicit_timetable_route_reference_scope(self) -> None:
+        seed = (ROOT / "db/local-postgres/seed_fixtures.sql").read_text()
+        timetable_insert = re.search(
+            r"insert into timetable_entries \((?P<columns>.*?)\) values(?P<values>.*?);",
+            seed,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(timetable_insert)
+        assert timetable_insert is not None
+        self.assertIn("route_source_provider", timetable_insert.group("columns"))
+        self.assertIn("route_city_code", timetable_insert.group("columns"))
+        self.assertEqual(3, timetable_insert.group("values").count("'TAGO', '39'"))
+
+    def test_legacy_upgrade_fixture_keeps_oversized_transport_boundaries(self) -> None:
+        fixture = (ROOT / "db/queries/legacy_v1_upgrade_fixture.sql").read_text()
+
+        self.assertIn("'e3500000-0000-0000-0000-000000000010'", fixture)
+        self.assertIn("'e3500000-0000-0000-0000-000000000011'", fixture)
+        self.assertIn("'e3300000-0000-0000-0000-000000000010'", fixture)
+        self.assertIn("'e3400000-0000-0000-0000-000000000010'", fixture)
+
+    def test_negative_contract_timetable_fixtures_supply_route_reference_scope(self) -> None:
+        contract = (ROOT / "db/queries/database_negative_constraints.sql").read_text()
+        timetable_section = contract[
+            contract.index("insert into timetable_entries") : contract.index(
+                "insert into app_sessions"
+            )
+        ]
+        inserts = re.findall(
+            r"insert into timetable_entries \((?P<columns>.*?)\) values",
+            timetable_section,
+            re.DOTALL,
+        )
+
+        self.assertEqual(7, len(inserts))
+        for columns in inserts:
+            self.assertIn("route_source_provider", columns)
+            self.assertIn("route_city_code", columns)
+
+    def test_legacy_upgrade_contract_accepts_both_strict_route_scope_sqlstates(self) -> None:
+        contract = (ROOT / "db/queries/legacy_v1_upgrade_contract.sql").read_text()
+
+        self.assertIn("when check_violation or not_null_violation then null", contract)
+        self.assertIn("route_source_provider = 'TAGO'", contract)
+        self.assertIn("route_city_code = '39'", contract)
 
 
 if __name__ == "__main__":

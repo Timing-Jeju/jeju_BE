@@ -50,8 +50,8 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
         PostgreSqlTestContainerFactory.createBefore(TIMETABLE_SCOPE, image);
     try {
       container.start();
-      PostgreSqlTestContainerFactory.executeScript(container, seed());
       PostgreSqlTestContainerFactory.executeScript(container, migration(TIMETABLE_SCOPE));
+      PostgreSqlTestContainerFactory.executeScript(container, seed());
       PostgreSqlTestContainerFactory.executeScript(container, migration(LOCATION_CLEANUP));
       JdbcTemplate jdbc = jdbc(container);
       List<Map<String, Object>> policiesBefore = policies(jdbc);

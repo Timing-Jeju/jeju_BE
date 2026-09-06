@@ -374,6 +374,24 @@ insert into route_stops (
 ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'eastbound', 2, 80, '00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000022', 'TAGO', '39'),
 ('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'eastbound', 3, 18, '00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000022', 'TAGO', '39');
 
+do $$
+begin
+if exists (
+  select 1
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'timetable_entries'
+    and column_name = 'route_source_provider'
+) then
+insert into timetable_entries (
+  id, route_id, stop_id, direction_key, service_day_type, departure_time,
+  trip_key, valid_from, source_provider, source_service, city_code,
+  route_source_provider, route_city_code, source_record_key, source_snapshot_id, import_run_id
+) values
+('41000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'eastbound', 'daily', '09:40', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'TAGO', '39', 'fixture-201-eastbound-airport-0940', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023'),
+('41000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'eastbound', 'daily', '11:00', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'TAGO', '39', 'fixture-201-eastbound-seongsan-1100', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023'),
+('41000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'eastbound', 'daily', '11:18', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'TAGO', '39', 'fixture-201-eastbound-seopji-1118', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023');
+else
 insert into timetable_entries (
   id, route_id, stop_id, direction_key, service_day_type, departure_time,
   trip_key, valid_from, source_provider, source_service, city_code,
@@ -382,6 +400,9 @@ insert into timetable_entries (
 ('41000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'eastbound', 'daily', '09:40', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-airport-0940', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023'),
 ('41000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'eastbound', 'daily', '11:00', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-seongsan-1100', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023'),
 ('41000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'eastbound', 'daily', '11:18', '201-0940', current_date, 'TAGO', 'fixture timetable', '39', 'fixture-201-eastbound-seopji-1118', '00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000023');
+end if;
+end;
+$$;
 
 insert into bus_arrival_snapshots (
   id, stop_id, route_id, external_route_id, route_no, direction_name,

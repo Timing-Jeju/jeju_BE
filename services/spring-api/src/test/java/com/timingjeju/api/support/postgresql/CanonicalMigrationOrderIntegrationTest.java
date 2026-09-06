@@ -20,6 +20,8 @@ class CanonicalMigrationOrderIntegrationTest {
   private static final String SCHEDULE_50 = "20260918000007_schedule_item_required_references.sql";
   private static final String SCHEDULE_51 =
       "20260918000008_schedule_item_required_references_correction.sql";
+  private static final String TIMETABLE_ROUTE_SCOPE =
+      "20260918000009_jeju_timetable_route_scope.sql";
   private static final List<String> POSTGIS_IMAGES =
       List.of("postgis/postgis:16-3.4", "postgis/postgis:17-3.5");
   private static final List<String> CANONICAL_SUFFIX =
@@ -114,8 +116,10 @@ class CanonicalMigrationOrderIntegrationTest {
       try {
         container.start();
         PostgreSqlTestContainerFactory.executeScript(
+            container, migrationPath(TIMETABLE_ROUTE_SCOPE));
+        PostgreSqlTestContainerFactory.executeScript(
             container, repositoryPath("db/local-postgres/seed_fixtures.sql"));
-        for (String migration : CANONICAL_SUFFIX.subList(9, CANONICAL_SUFFIX.size())) {
+        for (String migration : CANONICAL_SUFFIX.subList(10, CANONICAL_SUFFIX.size())) {
           PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
         }
         JdbcTemplate jdbc = jdbc(container);
@@ -159,6 +163,87 @@ class CanonicalMigrationOrderIntegrationTest {
             .as(image)
             .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
             .hasMessageContaining("required reference invariants");
+      } finally {
+        container.stop();
+      }
+    }
+  }
+
+  @Test
+  void Postgis_PG16과_PG17은_oversizedLegacy시간표를_보존하고_NOT_VALID제약을_복원한다() throws Exception {
+    for (String image : POSTGIS_IMAGES) {
+      PostgreSQLContainer container = legacyUpgradeBeforeTimetable(image);
+      try {
+        JdbcTemplate jdbc = jdbc(container);
+        ConstraintState before = timetableSourceLengthConstraint(jdbc);
+        assertThat(before.validated()).as(image).isFalse();
+
+        jdbc.execute(
+            "alter table public.timetable_entries add constraint "
+                + "ck_timetable_route_source_provider_nonblank check (true) not valid");
+        assertThatThrownBy(
+                () ->
+                    PostgreSqlTestContainerFactory.executeScript(
+                        container, migrationPath(TIMETABLE_ROUTE_SCOPE)))
+            .as(image)
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("ck_timetable_route_source_provider_nonblank");
+        assertThat(timetableSourceLengthConstraint(jdbc)).as(image).isEqualTo(before);
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from information_schema.columns "
+                        + "where table_schema='public' and table_name='timetable_entries' "
+                        + "and column_name in ('route_source_provider','route_city_code')",
+                    Integer.class))
+            .as(image)
+            .isZero();
+        jdbc.execute(
+            "alter table public.timetable_entries drop constraint "
+                + "ck_timetable_route_source_provider_nonblank");
+
+        PostgreSqlTestContainerFactory.executeScript(
+            container, migrationPath(TIMETABLE_ROUTE_SCOPE));
+
+        assertThat(timetableSourceLengthConstraint(jdbc)).as(image).isEqualTo(before);
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from public.timetable_entries "
+                        + "where id in ('e3500000-0000-0000-0000-000000000010',"
+                        + "'e3500000-0000-0000-0000-000000000011') "
+                        + "and route_source_provider is not distinct from source_provider "
+                        + "and route_city_code is not distinct from city_code",
+                    Integer.class))
+            .as(image)
+            .isEqualTo(2);
+        assertThat(
+                jdbc.queryForObject(
+                    "select pg_get_expr(indpred, indrelid) "
+                        + "from pg_index where indexrelid="
+                        + "'public.idx_timetable_route_stop_reference_scope'::regclass",
+                    String.class))
+            .as(image)
+            .contains("octet_length(direction_key) <= 512")
+            .contains("octet_length(route_source_provider) <= 128")
+            .contains("octet_length(route_city_code) <= 64");
+        assertThatThrownBy(
+                () ->
+                    jdbc.update(
+                        "update public.timetable_entries set departure_time='13:01' "
+                            + "where id='e3500000-0000-0000-0000-000000000011'"))
+            .as(image)
+            .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class);
+        assertThatThrownBy(
+                () ->
+                    jdbc.update(
+                        "insert into public.timetable_entries "
+                            + "(route_id,stop_id,direction_key,service_day_type,departure_time,"
+                            + "source_provider,source_service,city_code,source_record_key) values "
+                            + "('e3400000-0000-0000-0000-000000000001',"
+                            + "'e3300000-0000-0000-0000-000000000001','outbound','daily',"
+                            + "'14:30','TAGO','legacy','39','missing-route-scope')"))
+            .as(image)
+            .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
+            .hasMessageContaining("route reference scope");
       } finally {
         container.stop();
       }
@@ -257,6 +342,56 @@ class CanonicalMigrationOrderIntegrationTest {
         String.class);
   }
 
+  private static PostgreSQLContainer legacyUpgradeBeforeTimetable(String image) throws Exception {
+    PostgreSQLContainer container =
+        PostgreSqlTestContainerFactory.createBefore(
+            "20260730000000_database_integrity_hardening.sql", image);
+    container.start();
+    PostgreSqlTestContainerFactory.executeScript(
+        container, repositoryPath("db/queries/legacy_v1_upgrade_fixture.sql"));
+    String compose = Files.readString(repositoryPath("compose.test.yml"));
+    String smoke = Files.readString(repositoryPath("scripts/docker-smoke-test.sh"));
+    int replayStart = smoke.indexOf("for upgrade_sql in");
+    String replay =
+        smoke.substring(
+            replayStart, smoke.indexOf("/queries/legacy_v1_upgrade_contract.sql", replayStart));
+    boolean apply = false;
+    for (Path migration :
+        PostgreSqlTestContainerFactory.canonicalInitScripts(
+            PostgreSqlTestContainerFactory.locateRepositoryRoot())) {
+      String name = migration.getFileName().toString();
+      if (name.equals("20260730000000_database_integrity_hardening.sql")) apply = true;
+      if (!apply) continue;
+      if (name.equals(TIMETABLE_ROUTE_SCOPE)) break;
+      String source = "./supabase/migrations/" + name + ":";
+      int sourceIndex = compose.indexOf(source);
+      if (sourceIndex < 0) continue;
+      int targetStart = sourceIndex + source.length();
+      String target = compose.substring(targetStart, compose.indexOf(":ro", targetStart));
+      if (!replay.contains(target)) continue;
+      if (name.equals("20260730020000_ingestion_consistency_hardening.sql")) {
+        PostgreSqlTestContainerFactory.executeScript(
+            container, repositoryPath("db/queries/legacy_foundation_running_scope_fixture.sql"));
+      }
+      if (name.equals("20260813010000_external_snapshot_storage.sql")) {
+        PostgreSqlTestContainerFactory.executeScript(
+            container, repositoryPath("db/queries/legacy_snapshot_storage_upgrade_fixture.sql"));
+      }
+      PostgreSqlTestContainerFactory.executeScript(container, migration);
+    }
+    return container;
+  }
+
+  private static ConstraintState timetableSourceLengthConstraint(JdbcTemplate jdbc) {
+    return jdbc.queryForObject(
+        "select pg_get_constraintdef(con.oid), con.convalidated "
+            + "from pg_constraint con "
+            + "where con.conrelid='public.timetable_entries'::regclass "
+            + "and con.conname='ck_timetable_source_key_lengths'",
+        (resultSet, rowNum) ->
+            new ConstraintState(resultSet.getString(1), resultSet.getBoolean(2)));
+  }
+
   private static JdbcTemplate jdbc(PostgreSQLContainer container) {
     return new JdbcTemplate(
         new DriverManagerDataSource(
@@ -272,4 +407,6 @@ class CanonicalMigrationOrderIntegrationTest {
   }
 
   private record SecurityMutation(String apply, String revert) {}
+
+  private record ConstraintState(String definition, boolean validated) {}
 }
