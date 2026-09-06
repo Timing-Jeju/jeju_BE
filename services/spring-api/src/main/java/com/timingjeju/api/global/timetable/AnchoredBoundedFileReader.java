@@ -151,16 +151,27 @@ final class AnchoredBoundedFileReader {
                     .daemon(true)
                     .name("timing-jeju-timetable-open-" + OPENER_SEQUENCE.incrementAndGet())
                     .unstarted(runnable));
-    Future<SeekableByteChannel> opening =
-        executor.submit(() -> directory.newByteChannel(component, openOptions));
+    ChannelHandoff handoff = new ChannelHandoff();
+    Future<Void> opening =
+        executor.submit(
+            () -> {
+              handoff.offer(directory.newByteChannel(component, openOptions));
+              return null;
+            });
     try {
-      return opening.get(OPEN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+      opening.get(OPEN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+      return handoff.claim();
     } catch (TimeoutException timeout) {
+      RuntimeException timeoutFailure = failure.apply("SOURCE_OPEN_TIMEOUT");
+      abortHandoff(handoff, timeoutFailure);
       opening.cancel(true);
-      throw failure.apply("SOURCE_OPEN_TIMEOUT");
+      throw timeoutFailure;
     } catch (InterruptedException interrupted) {
+      RuntimeException interruptFailure = failure.apply("SOURCE_READ_FAILED");
+      abortHandoff(handoff, interruptFailure);
+      opening.cancel(true);
       Thread.currentThread().interrupt();
-      throw failure.apply("SOURCE_READ_FAILED");
+      throw interruptFailure;
     } catch (ExecutionException failed) {
       if (failed.getCause() instanceof IOException ioFailure) throw ioFailure;
       if (failed.getCause() instanceof RuntimeException runtimeFailure) throw runtimeFailure;
@@ -169,6 +180,51 @@ final class AnchoredBoundedFileReader {
       if (!opening.isDone()) opening.cancel(true);
       executor.shutdownNow();
       awaitOpenerTermination(executor, failure);
+    }
+  }
+
+  private static void abortHandoff(ChannelHandoff handoff, RuntimeException primaryFailure) {
+    try {
+      handoff.abort();
+    } catch (IOException cleanupFailure) {
+      primaryFailure.addSuppressed(cleanupFailure);
+    }
+  }
+
+  /**
+   * Transfers exactly one opened channel either to the caller or back to the opener for cleanup.
+   */
+  private static final class ChannelHandoff {
+    private SeekableByteChannel offered;
+    private boolean aborted;
+
+    synchronized void offer(SeekableByteChannel channel) throws IOException {
+      if (aborted) {
+        channel.close();
+        return;
+      }
+      if (offered != null) {
+        channel.close();
+        throw new IOException("anchored source opener offered more than one channel");
+      }
+      offered = channel;
+    }
+
+    synchronized SeekableByteChannel claim() throws IOException {
+      if (aborted || offered == null) {
+        throw new IOException("anchored source channel was not available for handoff");
+      }
+      SeekableByteChannel claimed = offered;
+      offered = null;
+      return claimed;
+    }
+
+    synchronized void abort() throws IOException {
+      aborted = true;
+      if (offered == null) return;
+      SeekableByteChannel cleanup = offered;
+      offered = null;
+      cleanup.close();
     }
   }
 
