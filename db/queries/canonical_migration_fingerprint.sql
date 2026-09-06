@@ -25,7 +25,7 @@ catalog_rows as (
 
   select 'schema_acl' || ':' || namespace.nspname || ':'
       || coalesce(grantee_role.rolname, 'PUBLIC') || ':' || acl_record.privilege_type || ':'
-      || acl_record.is_grantable || ':' || coalesce(grantor_role.rolname, 'PUBLIC')
+      || acl_record.is_grantable::text || ':' || coalesce(grantor_role.rolname, 'PUBLIC')
   from pg_catalog.pg_namespace namespace
   cross join lateral pg_catalog.aclexplode(
     coalesce(namespace.nspacl, pg_catalog.acldefault('n', namespace.nspowner))
@@ -37,7 +37,8 @@ catalog_rows as (
   union all
 
   select 'relation' || ':' || namespace.nspname || ':' || relation.relname || ':'
-      || relation.relkind || ':' || relation.relrowsecurity || ':' || relation.relforcerowsecurity
+      || relation.relkind::text || ':' || relation.relrowsecurity::text || ':'
+      || relation.relforcerowsecurity::text
   from pg_catalog.pg_class relation
   join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
   where namespace.nspname in ('public', 'timing_jeju_private')
@@ -47,7 +48,7 @@ catalog_rows as (
 
   select 'relation_acl' || ':' || namespace.nspname || ':' || relation.relname || ':'
       || coalesce(grantee_role.rolname, 'PUBLIC') || ':' || acl_record.privilege_type || ':'
-      || acl_record.is_grantable || ':' || coalesce(grantor_role.rolname, 'PUBLIC')
+      || acl_record.is_grantable::text || ':' || coalesce(grantor_role.rolname, 'PUBLIC')
   from pg_catalog.pg_class relation
   join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
   cross join lateral pg_catalog.aclexplode(
@@ -77,7 +78,7 @@ catalog_rows as (
 
   select 'column_acl' || ':' || namespace.nspname || ':' || relation.relname || ':'
       || attribute.attname || ':' || coalesce(grantee_role.rolname, 'PUBLIC') || ':'
-      || acl_record.privilege_type || ':' || acl_record.is_grantable || ':'
+      || acl_record.privilege_type || ':' || acl_record.is_grantable::text || ':'
       || coalesce(grantor_role.rolname, 'PUBLIC')
   from pg_catalog.pg_attribute attribute
   join pg_catalog.pg_class relation on relation.oid = attribute.attrelid
@@ -146,7 +147,7 @@ catalog_rows as (
 
   select 'function_acl' || ':' || procedure_record.oid::regprocedure::text || ':'
       || coalesce(grantee_role.rolname, 'PUBLIC') || ':' || acl_record.privilege_type || ':'
-      || acl_record.is_grantable || ':' || coalesce(grantor_role.rolname, 'PUBLIC')
+      || acl_record.is_grantable::text || ':' || coalesce(grantor_role.rolname, 'PUBLIC')
   from application_routines procedure_record
   cross join lateral pg_catalog.aclexplode(
     coalesce(procedure_record.proacl, pg_catalog.acldefault('f', procedure_record.proowner))

@@ -213,6 +213,33 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         self.assertIn("dependency_record.classid = 'pg_proc'::regclass", fingerprint_sql)
         self.assertIn("not exists", fingerprint_sql)
 
+    def test_fingerprint_serializes_catalog_scalar_types_without_ambiguous_concat(self) -> None:
+        fingerprint_sql = (ROOT / "db/queries/canonical_migration_fingerprint.sql").read_text(
+            encoding="utf-8"
+        ).lower()
+        for marker in (
+            "relation.relkind::text",
+            "relation.relrowsecurity::text",
+            "relation.relforcerowsecurity::text",
+            "acl_record.is_grantable::text",
+        ):
+            self.assertIn(marker, fingerprint_sql)
+
+    def test_storage_policy_actual_postgresql_contract_covers_pg16_and_pg17(self) -> None:
+        source = (ROOT / (
+            "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/"
+            "ProfileImageStoragePolicyMigrationIntegrationTest.java"
+        )).read_text(encoding="utf-8").lower()
+        for marker in (
+            "postgis/postgis:16-3.4",
+            "postgis/postgis:17-3.5",
+            "returning id",
+            'versiondatasource,\n                        "anon"',
+            "update storage.objects",
+            "delete from storage.objects",
+        ):
+            self.assertIn(marker, source)
+
     def test_powershell_bootstraps_auth_before_both_manifest_replays(self) -> None:
         powershell = (ROOT / "scripts/docker-smoke-test.ps1").read_text(encoding="utf-8")
         auth = 'Invoke-SqlFile $database "/docker-entrypoint-initdb.d/001_auth_compat.sql"'

@@ -74,7 +74,10 @@ class CanonicalMigrationOrderIntegrationTest {
       assertThat(schemaAndAclFingerprint(jdbc)).isEqualTo(before);
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from public.trip_items where item_type='custom' and title=E'\\n'",
+                  "select count(*) from public.trip_items where id in "
+                      + "('e4300000-0000-0000-0000-000000000001',"
+                      + "'61000000-0000-0000-0000-000000000001') "
+                      + "and item_type='custom' and title=E'\\n'",
                   Integer.class))
           .isEqualTo(1);
     } finally {

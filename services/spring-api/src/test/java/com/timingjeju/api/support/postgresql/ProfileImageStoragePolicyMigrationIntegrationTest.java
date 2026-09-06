@@ -26,6 +26,8 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
   private static final UUID OWNER = UUID.fromString("78000000-0000-4000-8000-000000000011");
   private static final UUID OTHER = UUID.fromString("78000000-0000-4000-8000-000000000012");
   private static final String GENERATION = "018f47a1-43d2-7b6e-9fa2-11a1cc32c675";
+  private static final List<String> POSTGIS_IMAGES =
+      List.of("postgis/postgis:16-3.4", "postgis/postgis:17-3.5");
   private static PostgreSQLContainer container;
   private static DriverManagerDataSource dataSource;
   private static JdbcTemplate jdbc;
@@ -38,7 +40,7 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
         new DriverManagerDataSource(
             container.getJdbcUrl(), container.getUsername(), container.getPassword());
     jdbc = new JdbcTemplate(dataSource);
-    createStorageCompatibility();
+    createStorageCompatibility(jdbc);
     PostgreSqlTestContainerFactory.executeScript(container, targetPath());
   }
 
@@ -294,6 +296,90 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
         .isOne();
   }
 
+  @Test
+  void storage_DO는_PostgreSQL16과17에서_insertReturning_select와_불변정책을_보존한다() throws Exception {
+    for (String image : POSTGIS_IMAGES) {
+      PostgreSQLContainer versionContainer =
+          PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+      try {
+        versionContainer.start();
+        DriverManagerDataSource versionDataSource =
+            new DriverManagerDataSource(
+                versionContainer.getJdbcUrl(),
+                versionContainer.getUsername(),
+                versionContainer.getPassword());
+        JdbcTemplate versionJdbc = new JdbcTemplate(versionDataSource);
+        createStorageCompatibility(versionJdbc);
+        PostgreSqlTestContainerFactory.executeScript(versionContainer, targetPath());
+
+        assertThat(
+                versionJdbc.queryForObject(
+                    "select public from storage.buckets where id='profile-images'", Boolean.class))
+            .as(image)
+            .isTrue();
+        String key = OWNER + "/profile/" + GENERATION;
+        asRole(
+            versionDataSource,
+            "authenticated",
+            OWNER,
+            statement -> {
+              try (var result =
+                  statement.executeQuery(
+                      insertSqlWithoutUserMetadata("profile-images", key, OWNER, "{}")
+                          + " returning id")) {
+                assertThat(result.next()).as(image).isTrue();
+              }
+              try (var result =
+                  statement.executeQuery(
+                      "select count(*) from storage.objects where bucket_id='profile-images'")) {
+                result.next();
+                assertThat(result.getInt(1)).as(image).isOne();
+              }
+              assertThat(
+                      statement.executeUpdate(
+                          "update storage.objects set metadata=metadata where name='" + key + "'"))
+                  .as(image)
+                  .isZero();
+              assertThat(
+                      statement.executeUpdate(
+                          "delete from storage.objects where name='" + key + "'"))
+                  .as(image)
+                  .isZero();
+            });
+
+        String anonKey = OTHER + "/profile/118f47a1-43d2-7b6e-9fa2-11a1cc32c675";
+        assertThatThrownBy(
+                () ->
+                    asRole(
+                        versionDataSource,
+                        "anon",
+                        null,
+                        statement ->
+                            statement.executeUpdate(
+                                insertSqlWithoutUserMetadata(
+                                    "profile-images", anonKey, OTHER, "{}"))))
+            .as(image)
+            .isInstanceOf(SQLException.class)
+            .extracting(failure -> ((SQLException) failure).getSQLState())
+            .isEqualTo("42501");
+        asRole(
+            versionDataSource,
+            "anon",
+            null,
+            statement -> {
+              try (var result =
+                  statement.executeQuery(
+                      "select count(*) from storage.objects where bucket_id='profile-images'")) {
+                result.next();
+                assertThat(result.getInt(1)).as(image).isZero();
+              }
+            });
+      } finally {
+        versionContainer.stop();
+      }
+    }
+  }
+
   private static void assertDenied(UUID owner, String sql) {
     assertThatThrownBy(() -> asAuthenticated(owner, statement -> statement.executeUpdate(sql)))
         .isInstanceOf(SQLException.class);
@@ -334,20 +420,24 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
   }
 
   private static void asAuthenticated(UUID owner, SqlWork work) throws Exception {
-    try (Connection connection = dataSource.getConnection();
+    asRole(dataSource, "authenticated", owner, work);
+  }
+
+  private static void asRole(
+      DriverManagerDataSource targetDataSource, String role, UUID owner, SqlWork work)
+      throws Exception {
+    try (Connection connection = targetDataSource.getConnection();
         Statement statement = connection.createStatement()) {
-      statement.execute("set role authenticated");
-      statement.execute("select set_config('request.jwt.claim.sub','" + owner + "',false)");
+      statement.execute("set role " + role);
+      if (owner != null) {
+        statement.execute("select set_config('request.jwt.claim.sub','" + owner + "',false)");
+      }
       work.run(statement);
     }
   }
 
   private static void asRole(String role, SqlWork work) throws Exception {
-    try (Connection connection = dataSource.getConnection();
-        Statement statement = connection.createStatement()) {
-      statement.execute("set role " + role);
-      work.run(statement);
-    }
+    asRole(dataSource, role, null, work);
   }
 
   private static String insertSql(
@@ -403,7 +493,7 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
   private static List<Object> storageFingerprint() {
     return List.of(
         jdbc.queryForList(
-            "select id,name,public,file_size_limit,allowed_mime_types from storage.buckets order by id"),
+            "select id,name,public,file_size_limit,allowed_mime_types::text from storage.buckets order by id"),
         jdbc.queryForList(
             "select policyname,permissive,roles::text,cmd,coalesce(qual,'') qual,coalesce(with_check,'') with_check from pg_catalog.pg_policies where schemaname='storage' and tablename='objects' order by policyname"),
         jdbc.queryForList(
@@ -416,31 +506,31 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
         .resolve(TARGET);
   }
 
-  private static void createStorageCompatibility() {
-    jdbc.execute("create schema storage");
-    jdbc.execute(
+  private static void createStorageCompatibility(JdbcTemplate targetJdbc) {
+    targetJdbc.execute("create schema storage");
+    targetJdbc.execute(
         "create table storage.buckets(id text primary key,name text not null,public boolean not null default false,file_size_limit bigint,allowed_mime_types text[])");
-    jdbc.execute(
+    targetJdbc.execute(
         "create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text not null,name text not null,owner_id text,metadata jsonb default '{}'::jsonb,user_metadata jsonb default '{}'::jsonb,unique(bucket_id,name))");
-    jdbc.execute("alter table storage.objects enable row level security");
-    jdbc.execute("grant usage on schema storage,auth to authenticated,anon");
-    jdbc.execute("grant execute on function auth.uid() to authenticated,anon");
-    jdbc.execute("grant select,insert,update,delete on storage.objects to authenticated");
-    jdbc.execute("grant select,insert on storage.objects to anon");
-    jdbc.execute("grant all on storage.objects to service_role");
-    jdbc.execute(
+    targetJdbc.execute("alter table storage.objects enable row level security");
+    targetJdbc.execute("grant usage on schema storage,auth to authenticated,anon,service_role");
+    targetJdbc.execute("grant execute on function auth.uid() to authenticated,anon");
+    targetJdbc.execute("grant select,insert,update,delete on storage.objects to authenticated");
+    targetJdbc.execute("grant select,insert on storage.objects to anon");
+    targetJdbc.execute("grant all on storage.objects to service_role");
+    targetJdbc.execute(
         "create policy existing_permissive_insert on storage.objects for insert to authenticated with check (true)");
-    jdbc.execute(
+    targetJdbc.execute(
         "create policy existing_permissive_update on storage.objects for update to authenticated using (true) with check (true)");
-    jdbc.execute(
+    targetJdbc.execute(
         "create policy existing_permissive_delete on storage.objects for delete to authenticated using (true)");
-    jdbc.execute(
+    targetJdbc.execute(
         "create policy existing_permissive_select on storage.objects for select to authenticated using (true)");
-    jdbc.execute(
+    targetJdbc.execute(
         "create policy existing_permissive_anon_select on storage.objects for select to anon using (true)");
-    jdbc.execute(
+    targetJdbc.execute(
         "create policy existing_permissive_anon_insert on storage.objects for insert to anon with check (true)");
-    jdbc.execute(
+    targetJdbc.execute(
         "insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values ('profile-images','stale-profile',false,1,array['text/plain']),('other-bucket','other-bucket',true,42,array['text/plain'])");
   }
 

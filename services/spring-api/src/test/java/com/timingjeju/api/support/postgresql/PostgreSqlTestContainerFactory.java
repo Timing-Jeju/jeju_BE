@@ -72,6 +72,10 @@ final class PostgreSqlTestContainerFactory {
               + script.getFileName()
               + " (exit="
               + result.getExitCode()
+              + ", stdout="
+              + result.getStdout()
+              + ", stderr="
+              + result.getStderr()
               + ")");
     }
   }

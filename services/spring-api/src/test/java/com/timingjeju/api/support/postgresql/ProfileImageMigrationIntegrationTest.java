@@ -382,9 +382,9 @@ class ProfileImageMigrationIntegrationTest {
         .isFalse();
     assertThat(
             jdbc.queryForObject(
-                "select proconfig::text from pg_catalog.pg_proc where oid='public.sync_provider_profile_image_source()'::regprocedure",
-                String.class))
-        .contains("search_path=\"\"");
+                "select 'search_path=\"\"'=any(proconfig) from pg_catalog.pg_proc where oid='public.sync_provider_profile_image_source()'::regprocedure",
+                Boolean.class))
+        .isTrue();
   }
 
   @Test
