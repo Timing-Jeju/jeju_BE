@@ -2,6 +2,95 @@
 
 -- PostgreSQL 16/17 actual-RLS contract: run this file after the canonical init and seed paths.
 -- The transaction-local grants exercise every policy and are removed by ROLLBACK.
+
+-- Canonical parent ACL: helper and the two already granted policies work without
+-- widening direct trip_plans or auth access.
+set role authenticated;
+select pg_catalog.set_config(
+  'request.jwt.claim.sub',
+  '09000000-0000-0000-0000-000000000001',
+  false
+);
+select timing_jeju_private.owns_trip_plan(
+  '50000000-0000-0000-0000-000000000001'
+) as canonical_helper_owner \gset
+select (count(*) > 0) as canonical_preferences_owner
+from public.trip_preferences \gset
+select (count(*) > 0) as canonical_modes_owner
+from public.trip_transport_modes \gset
+\if :canonical_helper_owner
+\else
+  \quit 1
+\endif
+\if :canonical_preferences_owner
+\else
+  \quit 1
+\endif
+\if :canonical_modes_owner
+\else
+  \quit 1
+\endif
+
+select pg_catalog.set_config(
+  'request.jwt.claim.sub',
+  '09000000-0000-0000-0000-000000000002',
+  false
+);
+select not timing_jeju_private.owns_trip_plan(
+  '50000000-0000-0000-0000-000000000001'
+) as canonical_helper_other \gset
+\if :canonical_helper_other
+\else
+  \quit 1
+\endif
+
+select pg_catalog.set_config('request.jwt.claim.sub', '', false);
+select not timing_jeju_private.owns_trip_plan(
+  '50000000-0000-0000-0000-000000000001'
+) as canonical_helper_missing \gset
+\if :canonical_helper_missing
+\else
+  \quit 1
+\endif
+
+select pg_catalog.set_config('request.jwt.claim.sub', 'malformed-jwt-subject', false);
+select not timing_jeju_private.owns_trip_plan(
+  '50000000-0000-0000-0000-000000000001'
+) as canonical_helper_malformed \gset
+\if :canonical_helper_malformed
+\else
+  \quit 1
+\endif
+reset role;
+
+\set ON_ERROR_STOP off
+set role authenticated;
+select count(*) from public.trip_plans;
+\set canonical_trip_plans_sqlstate :SQLSTATE
+reset role;
+set role authenticated;
+select count(*) from auth.users;
+\set canonical_auth_sqlstate :SQLSTATE
+reset role;
+\set ON_ERROR_STOP on
+select :'canonical_trip_plans_sqlstate' = '42501' as canonical_trip_plans_denied \gset
+select :'canonical_auth_sqlstate' = '42501' as canonical_auth_denied \gset
+\if :canonical_trip_plans_denied
+\else
+  \quit 1
+\endif
+\if :canonical_auth_denied
+\else
+  \quit 1
+\endif
+
+do $$
+begin
+  if pg_catalog.has_schema_privilege('authenticated', 'auth', 'USAGE') then
+    raise exception 'canonical auth schema USAGE must remain denied';
+  end if;
+end $$;
+
 begin;
 set local statement_timeout = '2s'; -- statement_timeout recursion guard
 
@@ -84,7 +173,8 @@ begin
     select 1 from pg_catalog.pg_policies
     where schemaname = 'public'
       and policyname = 'trip_plans_owner_select'
-      and qual <> '(user_id = ( SELECT auth.uid() AS uid))'
+      and pg_catalog.lower(pg_catalog.regexp_replace(qual, '\s+', '', 'g'))
+        not in ('(user_id=(selectauth.uid()asuid))', '(user_id=(selectauth.uid()))')
   ) then
     raise exception 'trip_plans direct owner policy changed';
   end if;
@@ -132,7 +222,6 @@ begin
 end $$;
 
 grant select on table
-  public.trip_plans,
   public.trip_preferences,
   public.trip_transport_modes,
   public.trip_transport_events,
@@ -276,6 +365,28 @@ begin
 end $$;
 
 rollback; -- exact grants and pg_temp objects are transaction-local and rolled back
+
+-- Post-rollback parent ACL: temporary policy grants must not leak.
+\set ON_ERROR_STOP off
+set role authenticated;
+select count(*) from public.trip_plans;
+\set post_rollback_trip_plans_sqlstate :SQLSTATE
+reset role;
+set role authenticated;
+select count(*) from auth.users;
+\set post_rollback_auth_sqlstate :SQLSTATE
+reset role;
+\set ON_ERROR_STOP on
+select :'post_rollback_trip_plans_sqlstate' = '42501' as post_rollback_trip_denied \gset
+select :'post_rollback_auth_sqlstate' = '42501' as post_rollback_auth_denied \gset
+\if :post_rollback_trip_denied
+\else
+  \quit 1
+\endif
+\if :post_rollback_auth_denied
+\else
+  \quit 1
+\endif
 
 -- Atomic rollback/replay is covered by the Testcontainers source using an extra legacy dependency.
 -- Markers retained for static audit: atomic rollback, legacy dependency, replay.

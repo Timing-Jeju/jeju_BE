@@ -51,32 +51,45 @@ class PrivateTripOwnershipHelperContractTest(unittest.TestCase):
         self.assertNotIn("alter table public.trip_plans disable row level security", self.sql)
 
     def test_helper_is_private_fail_closed_and_least_privileged(self) -> None:
+        self._assert_target_security_contract(self.sql)
+
+    def test_security_contract_kills_parent_and_auth_grant_widening(self) -> None:
+        for mutation in (
+            "grant select on table public.trip_plans to authenticated;",
+            "grant usage on schema auth to authenticated;",
+        ):
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(AssertionError):
+                    self._assert_target_security_contract(f"{self.sql} {mutation}")
+
+    def _assert_target_security_contract(self, sql: str) -> None:
         self.assertIn(
             "create or replace function timing_jeju_private.owns_trip_plan( target_trip_plan_id uuid )",
-            self.sql,
+            sql,
         )
-        self.assertIn("language plpgsql stable security definer set search_path = ''", self.sql)
-        self.assertIn("current_user_id := (select auth.uid())", self.sql)
-        self.assertIn("when invalid_text_representation then return false", self.sql)
-        self.assertIn("if current_user_id is null or target_trip_plan_id is null then return false", self.sql)
-        self.assertIn("from public.trip_plans trip_plan", self.sql)
-        body = self.sql.split("as $$", 1)[1].split("$$;", 1)[0]
+        self.assertIn("language plpgsql stable security definer set search_path = ''", sql)
+        self.assertIn("current_user_id := (select auth.uid())", sql)
+        self.assertIn("when invalid_text_representation then return false", sql)
+        self.assertIn("if current_user_id is null or target_trip_plan_id is null then return false", sql)
+        self.assertIn("from public.trip_plans trip_plan", sql)
+        body = sql.split("as $$", 1)[1].split("$$;", 1)[0]
         self.assertNotRegex(body, r"\bexecute\b|\braise\b|\binsert\b|\bupdate\b|\bdelete\b")
 
         for role in ("public", "anon", "authenticated", "service_role"):
-            self.assertIn(f"revoke all on schema timing_jeju_private from {role}", self.sql)
+            self.assertIn(f"revoke all on schema timing_jeju_private from {role}", sql)
             self.assertIn(
                 "revoke all on function timing_jeju_private.owns_trip_plan(uuid) "
                 f"from {role}",
-                self.sql,
+                sql,
             )
-        self.assertIn("grant usage on schema timing_jeju_private to authenticated", self.sql)
+        self.assertIn("grant usage on schema timing_jeju_private to authenticated", sql)
         self.assertIn(
             "grant execute on function timing_jeju_private.owns_trip_plan(uuid) to authenticated",
-            self.sql,
+            sql,
         )
-        self.assertNotIn("grant create on schema timing_jeju_private", self.sql)
-        self.assertNotRegex(self.sql, r"grant\s+\w+(?:\s*,\s*\w+)*\s+on\s+table")
+        self.assertNotIn("grant create on schema timing_jeju_private", sql)
+        self.assertNotRegex(sql, r"grant\s+\w+(?:\s*,\s*\w+)*\s+on\s+table")
+        self.assertNotRegex(sql, r"grant\s+usage\s+on\s+schema\s+auth\b")
 
     def test_exact_19_policy_inventory_uses_one_canonical_helper(self) -> None:
         creates = re.findall(r"create policy (\w+)", self.sql)
@@ -163,6 +176,21 @@ class PrivateTripOwnershipHelperContractTest(unittest.TestCase):
         self.assertIn("postgis/postgis:17-3.5", integration_source)
         self.assertIn("issue210_legacy_dependency", integration_source)
         self.assertIn("executescript(container, target())", integration_source)
+        self.assertIn("seed_fixtures.sql", integration_source)
+        self.assertIn("private_trip_ownership_helper_contract.sql", integration_source)
+        self.assertIn("helper authorization mutation", integration_source)
+
+    def test_actual_contract_proves_canonical_parent_acl_before_and_after_temp_grants(self) -> None:
+        source = compact(ACTUAL_PG_CONTRACT.read_text(encoding="utf-8"))
+        grant_start = source.index("grant select on table")
+        rollback = source.index("rollback;")
+        self.assertIn("canonical parent acl", source[:grant_start])
+        self.assertIn("42501", source[:grant_start])
+        self.assertIn("public.trip_preferences", source[:grant_start])
+        self.assertIn("public.trip_transport_modes", source[:grant_start])
+        self.assertNotIn("public.trip_plans,", source[grant_start:rollback])
+        self.assertIn("post-rollback parent acl", source[rollback:])
+        self.assertIn("42501", source[rollback:])
 
     def _policy(self, name: str) -> str:
         start = self.sql.index(f"create policy {name}")

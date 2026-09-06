@@ -20,3 +20,11 @@ Refactor에서는 PostgreSQL 16/17 고정 이미지 Testcontainers source에 ext
 Supabase 최신 RLS·Database Functions 문서에 따라 definer 함수의 빈 `search_path`, 완전 수식 객체, 비노출 schema, 기본 PUBLIC EXECUTE 회수 원칙을 적용했다. SECURITY DEFINER는 authenticated에 `auth` schema와 `trip_plans` 직접 SELECT를 열지 않고 parent RLS 재귀를 끊기 위해서만 사용한다. 함수는 boolean `EXISTS` 외에 동적 SQL, 쓰기, 로그와 상세 오류를 사용하지 않으며 malformed subject는 false로 닫힌다.
 
 로컬에 Supabase CLI가 없어 `supabase --version`, `supabase --help`, `supabase migration new --help` 탐색은 `command not found`로 끝났다. 기존 최종 timestamp와 init slot을 감사한 뒤 충돌 없는 `20260917000000`/`048` 파일을 수동 생성했다. 요청 범위에 따라 actual PostgreSQL/Testcontainers, Docker, live Supabase, 전체 quality gate와 clean check는 실행하지 않았다.
+
+## Astra MAJOR 보정
+
+최초 PG16/17 parameterized 테스트가 migration·catalog와 비어 있는 table count만 확인하고 실제 fixture/RLS 계약 SQL을 실행하지 않는다는 지적을 받았다. 또한 actual-RLS SQL이 policy 검사 전에 `trip_plans` SELECT를 임시 허용해 canonical parent ACL 회귀를 가릴 수 있었다.
+
+먼저 actual test source의 seed/계약 호출, canonical ACL의 전후 42501, migration의 `trip_plans` SELECT·`auth` USAGE 확대 mutation 거부를 정적 계약으로 추가했다. focused 테스트 9개 중 신규 2개가 실제 wiring과 canonical ACL proof 부재로 실패했다.
+
+보정 후 같은 parameterized Testcontainers 경로가 PG16·PG17 각각에서 migration rollback/replay 뒤 canonical seed와 단일 actual-RLS SQL을 실행한다. 정상 계약 후 helper의 user 비교를 약화한 mutation migration을 적용하고 동일 계약이 실패하는지도 확인한다. actual-RLS SQL은 임시 grant 전에 helper와 기존 owner-readable 2개 policy를 실행하며, `trip_plans`와 `auth.users` 직접 접근의 SQLSTATE 42501 및 `auth` schema USAGE 부재를 검증한다. 전체 19개 policy를 위한 transaction-local grant에는 `trip_plans`를 포함하지 않고 rollback 뒤 parent/auth 42501을 다시 검증한다. actual PostgreSQL 자체는 승인 범위에 따라 실행하지 않았다.

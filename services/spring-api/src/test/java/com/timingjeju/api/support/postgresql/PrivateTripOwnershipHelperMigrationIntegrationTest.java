@@ -3,6 +3,8 @@ package com.timingjeju.api.support.postgresql;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -96,6 +98,20 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
       assertThat(grants(jdbc)).isEqualTo(grantsBefore);
       assertThat(rls(jdbc)).isEqualTo(rlsBefore);
       assertThat(rowCounts(jdbc)).isEqualTo(dataBefore);
+
+      PostgreSqlTestContainerFactory.executeScript(container, seed());
+      PostgreSqlTestContainerFactory.executeScript(container, actualRlsContract());
+
+      Path authorizationMutation = helperAuthorizationMutation();
+      try {
+        PostgreSqlTestContainerFactory.executeScript(container, authorizationMutation);
+        assertThatThrownBy(
+                () -> PostgreSqlTestContainerFactory.executeScript(container, actualRlsContract()))
+            .as("helper authorization mutation must be killed on " + image)
+            .isInstanceOf(IllegalStateException.class);
+      } finally {
+        Files.deleteIfExists(authorizationMutation);
+      }
     } finally {
       container.stop();
     }
@@ -111,6 +127,27 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
     return PostgreSqlTestContainerFactory.locateRepositoryRoot()
         .resolve("supabase/migrations")
         .resolve(TARGET);
+  }
+
+  private static Path seed() {
+    return PostgreSqlTestContainerFactory.locateRepositoryRoot()
+        .resolve("db/local-postgres/seed_fixtures.sql");
+  }
+
+  private static Path actualRlsContract() {
+    return PostgreSqlTestContainerFactory.locateRepositoryRoot()
+        .resolve("db/queries/private_trip_ownership_helper_contract.sql");
+  }
+
+  private static Path helperAuthorizationMutation() throws Exception {
+    String source = Files.readString(target(), StandardCharsets.UTF_8);
+    String mutation =
+        source.replace(
+            "and trip_plan.user_id = current_user_id", "and trip_plan.user_id is not null");
+    assertThat(mutation).as("helper authorization mutation fixture").isNotEqualTo(source);
+    Path temporary = Files.createTempFile("issue210-helper-authorization-mutation-", ".sql");
+    Files.writeString(temporary, mutation, StandardCharsets.UTF_8);
+    return temporary;
   }
 
   private static List<Map<String, Object>> policies(JdbcTemplate jdbc) {
