@@ -49,7 +49,11 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260903000000_saved_places_api.sql`: 관심 장소 CRUD, canonical owner, 멱등 응답 snapshot과 30일 backfill audit retention 계약
 - `supabase/migrations/20260904000000_push_device_notification_preferences.sql`: 푸시 기기·출발 알림 설정과 owner safe-column 조회 계약
 - `supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql`: authenticated client write 경로 제거와 service-role writer 경계 보정
-- `supabase/migrations/20260916000000_compute_run_input_location_cleanup.sql`: command input due 위치 5필드 원자 redaction과 제한 scheduler RPC 계약
+- `supabase/migrations/manifest.json`: `origin/develop` immutable prefix checksum과 canonical suffix path/init/owner/dependency 계약
+- `supabase/migrations/20260918000007_schedule_item_required_references.sql`: 변경하지 않는 #50 required-reference baseline
+- `supabase/migrations/20260918000008_schedule_item_required_references_correction.sql`: #51 강화 predicate와 trigger/function ACL additive 보정
+- `supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql`: command input due 위치 5필드 원자 redaction과 제한 scheduler RPC 계약
+- `db/queries/canonical_migration_fingerprint.sql`: fresh·upgrade schema/constraint/trigger/RLS/grant/function ACL 동등성 fingerprint
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터
