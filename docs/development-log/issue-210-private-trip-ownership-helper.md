@@ -28,3 +28,7 @@ Supabase 최신 RLS·Database Functions 문서에 따라 definer 함수의 빈 `
 먼저 actual test source의 seed/계약 호출, canonical ACL의 전후 42501, migration의 `trip_plans` SELECT·`auth` USAGE 확대 mutation 거부를 정적 계약으로 추가했다. focused 테스트 9개 중 신규 2개가 실제 wiring과 canonical ACL proof 부재로 실패했다.
 
 보정 후 같은 parameterized Testcontainers 경로가 PG16·PG17 각각에서 migration rollback/replay 뒤 canonical seed와 단일 actual-RLS SQL을 실행한다. 정상 계약 후 helper의 user 비교를 약화한 mutation migration을 적용하고 동일 계약이 실패하는지도 확인한다. actual-RLS SQL은 임시 grant 전에 helper와 기존 owner-readable 2개 policy를 실행하며, `trip_plans`와 `auth.users` 직접 접근의 SQLSTATE 42501 및 `auth` schema USAGE 부재를 검증한다. 전체 19개 policy를 위한 transaction-local grant에는 `trip_plans`를 포함하지 않고 rollback 뒤 parent/auth 42501을 다시 검증한다. actual PostgreSQL 자체는 승인 범위에 따라 실행하지 않았다.
+
+후속 Astra 검토에서 PostgreSQL 16/17 `psql`의 `\quit 1` 인자가 신뢰할 수 없어 assertion 실패가 exit 0으로 끝날 수 있다는 문제가 확인됐다. 먼저 actual 계약에서 인자 있는 `\quit`을 금지하고 owner-deny, other-allow, parent ACL 확대 mutation 세 가지가 같은 contract를 nonzero로 끝내야 한다는 정적 테스트를 추가했다. 신규 테스트는 남아 있던 `\quit 1`을 정확히 찾아 Red가 됐다.
+
+보정에서는 성공·실패 결과를 session-local 임시 assertion table에 boolean과 비식별 label로 모은다. canonical role을 해제한 뒤 `DO` block이 실패 label을 발견하면 `RAISE EXCEPTION`하고, 이 구간은 `ON_ERROR_STOP on`이므로 PG16/17 psql process가 반드시 nonzero로 끝난다. Testcontainers source는 정상 contract exit 0 뒤 helper owner를 모두 거부하는 mutation, 다른 사용자를 허용하는 mutation, `trip_plans` SELECT를 여는 mutation을 각각 적용하고 contract의 nonzero를 검증한다.

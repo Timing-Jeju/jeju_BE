@@ -102,16 +102,32 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
       PostgreSqlTestContainerFactory.executeScript(container, seed());
       PostgreSqlTestContainerFactory.executeScript(container, actualRlsContract());
 
-      Path authorizationMutation = helperAuthorizationMutation();
-      try {
-        PostgreSqlTestContainerFactory.executeScript(container, authorizationMutation);
-        assertThatThrownBy(
-                () -> PostgreSqlTestContainerFactory.executeScript(container, actualRlsContract()))
-            .as("helper authorization mutation must be killed on " + image)
-            .isInstanceOf(IllegalStateException.class);
-      } finally {
-        Files.deleteIfExists(authorizationMutation);
-      }
+      assertContractRejectsMutation(
+          container,
+          migrationMutation(
+              "owner-authorization-mutation",
+              "and trip_plan.user_id = current_user_id",
+              "and false"),
+          "owner authorization mutation",
+          image);
+      PostgreSqlTestContainerFactory.executeScript(container, target());
+      assertContractRejectsMutation(
+          container,
+          migrationMutation(
+              "other-authorization-mutation",
+              "and trip_plan.user_id = current_user_id",
+              "and trip_plan.user_id is not null"),
+          "other authorization mutation",
+          image);
+      PostgreSqlTestContainerFactory.executeScript(container, target());
+      assertContractRejectsMutation(
+          container,
+          migrationMutation(
+              "parent-acl-mutation",
+              "commit;",
+              "grant select on table public.trip_plans to authenticated;\n\ncommit;"),
+          "parent ACL mutation",
+          image);
     } finally {
       container.stop();
     }
@@ -139,15 +155,27 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
         .resolve("db/queries/private_trip_ownership_helper_contract.sql");
   }
 
-  private static Path helperAuthorizationMutation() throws Exception {
+  private static Path migrationMutation(String label, String original, String replacement)
+      throws Exception {
     String source = Files.readString(target(), StandardCharsets.UTF_8);
-    String mutation =
-        source.replace(
-            "and trip_plan.user_id = current_user_id", "and trip_plan.user_id is not null");
-    assertThat(mutation).as("helper authorization mutation fixture").isNotEqualTo(source);
-    Path temporary = Files.createTempFile("issue210-helper-authorization-mutation-", ".sql");
+    String mutation = source.replace(original, replacement);
+    assertThat(mutation).as(label + " fixture").isNotEqualTo(source);
+    Path temporary = Files.createTempFile("issue210-" + label + "-", ".sql");
     Files.writeString(temporary, mutation, StandardCharsets.UTF_8);
     return temporary;
+  }
+
+  private static void assertContractRejectsMutation(
+      PostgreSQLContainer container, Path mutation, String label, String image) throws Exception {
+    try {
+      PostgreSqlTestContainerFactory.executeScript(container, mutation);
+      assertThatThrownBy(
+              () -> PostgreSqlTestContainerFactory.executeScript(container, actualRlsContract()))
+          .as(label + " must make the actual contract nonzero on " + image)
+          .isInstanceOf(IllegalStateException.class);
+    } finally {
+      Files.deleteIfExists(mutation);
+    }
   }
 
   private static List<Map<String, Object>> policies(JdbcTemplate jdbc) {

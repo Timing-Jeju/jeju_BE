@@ -178,7 +178,6 @@ class PrivateTripOwnershipHelperContractTest(unittest.TestCase):
         self.assertIn("executescript(container, target())", integration_source)
         self.assertIn("seed_fixtures.sql", integration_source)
         self.assertIn("private_trip_ownership_helper_contract.sql", integration_source)
-        self.assertIn("helper authorization mutation", integration_source)
 
     def test_actual_contract_proves_canonical_parent_acl_before_and_after_temp_grants(self) -> None:
         source = compact(ACTUAL_PG_CONTRACT.read_text(encoding="utf-8"))
@@ -191,6 +190,27 @@ class PrivateTripOwnershipHelperContractTest(unittest.TestCase):
         self.assertNotIn("public.trip_plans,", source[grant_start:rollback])
         self.assertIn("post-rollback parent acl", source[rollback:])
         self.assertIn("42501", source[rollback:])
+
+    def test_actual_contract_failure_is_an_on_error_stop_sql_exception_not_quit_argument(self) -> None:
+        source = compact(ACTUAL_PG_CONTRACT.read_text(encoding="utf-8"))
+        self.assertNotRegex(source, r"\\quit\s+\S+")
+        self.assertIn("\\set on_error_stop on", source)
+        self.assertIn("raise exception 'issue210 actual-rls assertion failed: %'", source)
+
+        integration_source = compact(
+            (
+                ROOT
+                / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/PrivateTripOwnershipHelperMigrationIntegrationTest.java"
+            ).read_text(encoding="utf-8")
+        )
+        for mutation in (
+            "owner authorization mutation",
+            "other authorization mutation",
+            "parent acl mutation",
+        ):
+            self.assertIn(mutation, integration_source)
+        self.assertIn("executescript(container, actualrlscontract())", integration_source)
+        self.assertGreaterEqual(integration_source.count("assertcontractrejectsmutation("), 4)
 
     def _policy(self, name: str) -> str:
         start = self.sql.index(f"create policy {name}")

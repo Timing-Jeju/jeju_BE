@@ -3,6 +3,12 @@
 -- PostgreSQL 16/17 actual-RLS contract: run this file after the canonical init and seed paths.
 -- The transaction-local grants exercise every policy and are removed by ROLLBACK.
 
+create temporary table issue210_actual_rls_assertions (
+  label text primary key,
+  passed boolean not null
+);
+grant insert on table pg_temp.issue210_actual_rls_assertions to authenticated;
+
 -- Canonical parent ACL: helper and the two already granted policies work without
 -- widening direct trip_plans or auth access.
 set role authenticated;
@@ -11,56 +17,49 @@ select pg_catalog.set_config(
   '09000000-0000-0000-0000-000000000001',
   false
 );
-select timing_jeju_private.owns_trip_plan(
-  '50000000-0000-0000-0000-000000000001'
-) as canonical_helper_owner \gset
-select (count(*) > 0) as canonical_preferences_owner
-from public.trip_preferences \gset
-select (count(*) > 0) as canonical_modes_owner
-from public.trip_transport_modes \gset
-\if :canonical_helper_owner
-\else
-  \quit 1
-\endif
-\if :canonical_preferences_owner
-\else
-  \quit 1
-\endif
-\if :canonical_modes_owner
-\else
-  \quit 1
-\endif
+insert into pg_temp.issue210_actual_rls_assertions values
+  (
+    'canonical helper owner',
+    timing_jeju_private.owns_trip_plan(
+      '50000000-0000-0000-0000-000000000001'
+    )
+  ),
+  (
+    'canonical preferences owner',
+    (select count(*) > 0 from public.trip_preferences)
+  ),
+  (
+    'canonical modes owner',
+    (select count(*) > 0 from public.trip_transport_modes)
+  );
 
 select pg_catalog.set_config(
   'request.jwt.claim.sub',
   '09000000-0000-0000-0000-000000000002',
   false
 );
-select not timing_jeju_private.owns_trip_plan(
-  '50000000-0000-0000-0000-000000000001'
-) as canonical_helper_other \gset
-\if :canonical_helper_other
-\else
-  \quit 1
-\endif
+insert into pg_temp.issue210_actual_rls_assertions values (
+  'canonical helper other',
+  not timing_jeju_private.owns_trip_plan(
+    '50000000-0000-0000-0000-000000000001'
+  )
+);
 
 select pg_catalog.set_config('request.jwt.claim.sub', '', false);
-select not timing_jeju_private.owns_trip_plan(
-  '50000000-0000-0000-0000-000000000001'
-) as canonical_helper_missing \gset
-\if :canonical_helper_missing
-\else
-  \quit 1
-\endif
+insert into pg_temp.issue210_actual_rls_assertions values (
+  'canonical helper missing',
+  not timing_jeju_private.owns_trip_plan(
+    '50000000-0000-0000-0000-000000000001'
+  )
+);
 
 select pg_catalog.set_config('request.jwt.claim.sub', 'malformed-jwt-subject', false);
-select not timing_jeju_private.owns_trip_plan(
-  '50000000-0000-0000-0000-000000000001'
-) as canonical_helper_malformed \gset
-\if :canonical_helper_malformed
-\else
-  \quit 1
-\endif
+insert into pg_temp.issue210_actual_rls_assertions values (
+  'canonical helper malformed',
+  not timing_jeju_private.owns_trip_plan(
+    '50000000-0000-0000-0000-000000000001'
+  )
+);
 reset role;
 
 \set ON_ERROR_STOP off
@@ -73,23 +72,28 @@ select count(*) from auth.users;
 \set canonical_auth_sqlstate :SQLSTATE
 reset role;
 \set ON_ERROR_STOP on
-select :'canonical_trip_plans_sqlstate' = '42501' as canonical_trip_plans_denied \gset
-select :'canonical_auth_sqlstate' = '42501' as canonical_auth_denied \gset
-\if :canonical_trip_plans_denied
-\else
-  \quit 1
-\endif
-\if :canonical_auth_denied
-\else
-  \quit 1
-\endif
+insert into pg_temp.issue210_actual_rls_assertions values
+  ('canonical trip_plans ACL', :'canonical_trip_plans_sqlstate' = '42501'),
+  ('canonical auth ACL', :'canonical_auth_sqlstate' = '42501');
 
 do $$
+declare
+  failed_labels text;
 begin
   if pg_catalog.has_schema_privilege('authenticated', 'auth', 'USAGE') then
     raise exception 'canonical auth schema USAGE must remain denied';
   end if;
+
+  select pg_catalog.string_agg(label, ', ' order by label)
+    into failed_labels
+  from pg_temp.issue210_actual_rls_assertions
+  where not passed;
+  if failed_labels is not null then
+    raise exception 'issue210 actual-RLS assertion failed: %', failed_labels;
+  end if;
 end $$;
+
+truncate table pg_temp.issue210_actual_rls_assertions;
 
 begin;
 set local statement_timeout = '2s'; -- statement_timeout recursion guard
@@ -377,16 +381,22 @@ select count(*) from auth.users;
 \set post_rollback_auth_sqlstate :SQLSTATE
 reset role;
 \set ON_ERROR_STOP on
-select :'post_rollback_trip_plans_sqlstate' = '42501' as post_rollback_trip_denied \gset
-select :'post_rollback_auth_sqlstate' = '42501' as post_rollback_auth_denied \gset
-\if :post_rollback_trip_denied
-\else
-  \quit 1
-\endif
-\if :post_rollback_auth_denied
-\else
-  \quit 1
-\endif
+insert into pg_temp.issue210_actual_rls_assertions values
+  ('post-rollback trip_plans ACL', :'post_rollback_trip_plans_sqlstate' = '42501'),
+  ('post-rollback auth ACL', :'post_rollback_auth_sqlstate' = '42501');
+
+do $$
+declare
+  failed_labels text;
+begin
+  select pg_catalog.string_agg(label, ', ' order by label)
+    into failed_labels
+  from pg_temp.issue210_actual_rls_assertions
+  where not passed;
+  if failed_labels is not null then
+    raise exception 'issue210 actual-RLS assertion failed: %', failed_labels;
+  end if;
+end $$;
 
 -- Atomic rollback/replay is covered by the Testcontainers source using an extra legacy dependency.
 -- Markers retained for static audit: atomic rollback, legacy dependency, replay.
