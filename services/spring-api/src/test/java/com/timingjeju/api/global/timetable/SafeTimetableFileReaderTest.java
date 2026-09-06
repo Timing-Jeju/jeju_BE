@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -166,6 +167,7 @@ class SafeTimetableFileReaderTest {
     verify(root)
         .getFileAttributeView(
             Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+    verify(channel, times(1)).close();
   }
 
   @Test
@@ -282,6 +284,41 @@ class SafeTimetableFileReaderTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void timeout뒤_interrupt를_무시하고_늦게_반환된_channel도_정확히_한번_닫는다() throws Exception {
+    Path allowed = Files.createDirectory(temporary.resolve("allowed"));
+    SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
+    BasicFileAttributeView attributesView = mock(BasicFileAttributeView.class);
+    BasicFileAttributes attributes = mock(BasicFileAttributes.class);
+    SeekableByteChannel lateChannel = mock(SeekableByteChannel.class);
+    AtomicBoolean workerReturnedChannel = new AtomicBoolean();
+    when(root.getFileAttributeView(
+            Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS))
+        .thenReturn(attributesView);
+    when(attributesView.readAttributes()).thenReturn(attributes);
+    when(attributes.isRegularFile()).thenReturn(true);
+    when(root.newByteChannel(eq(Path.of("101.xlsx")), any(Set.class)))
+        .thenAnswer(
+            invocation -> {
+              sleepIgnoringInterrupt(Duration.ofMillis(350));
+              workerReturnedChannel.set(true);
+              return lateChannel;
+            });
+    var readerFacade = new SafeTimetableFileReader(allowed, () -> {}, ignored -> root);
+
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(1),
+        () ->
+            assertThatThrownBy(() -> readerFacade.read(allowed.resolve("101.xlsx")))
+                .isInstanceOf(TimetableParseException.class)
+                .hasMessageContaining("SOURCE_OPEN_TIMEOUT"));
+
+    assertThat(workerReturnedChannel).isTrue();
+    verify(lateChannel, times(1)).close();
+    assertThat(liveOpenWorkers()).isZero();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void caller_interrupt도_open_worker를_정리하고_interrupt상태를_보존한다() throws Exception {
     Path allowed = Files.createDirectory(temporary.resolve("allowed"));
     SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
@@ -289,7 +326,10 @@ class SafeTimetableFileReaderTest {
     BasicFileAttributes attributes = mock(BasicFileAttributes.class);
     AtomicInteger activeOpeners = new AtomicInteger();
     AtomicReference<Throwable> failure = new AtomicReference<>();
+    AtomicReference<Thread> callerThread = new AtomicReference<>();
     AtomicBoolean interruptedAtExit = new AtomicBoolean();
+    AtomicBoolean workerReturnedChannel = new AtomicBoolean();
+    SeekableByteChannel lateChannel = mock(SeekableByteChannel.class);
     when(root.getFileAttributeView(
             Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS))
         .thenReturn(attributesView);
@@ -300,22 +340,20 @@ class SafeTimetableFileReaderTest {
             invocation -> {
               activeOpeners.incrementAndGet();
               try {
-                new CountDownLatch(1).await();
-                throw new AssertionError("unreachable");
-              } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw new java.io.IOException("open interrupted", interrupted);
+                callerThread.get().interrupt();
+                sleepIgnoringInterrupt(Duration.ofMillis(100));
+                workerReturnedChannel.set(true);
+                return lateChannel;
               } finally {
                 activeOpeners.decrementAndGet();
               }
             });
-    var readerFacade =
-        new SafeTimetableFileReader(
-            allowed, () -> Thread.currentThread().interrupt(), ignored -> root);
+    var readerFacade = new SafeTimetableFileReader(allowed, () -> {}, ignored -> root);
     Thread caller =
         Thread.ofPlatform()
             .unstarted(
                 () -> {
+                  callerThread.set(Thread.currentThread());
                   try {
                     readerFacade.read(allowed.resolve("101.xlsx"));
                   } catch (Throwable thrown) {
@@ -333,7 +371,35 @@ class SafeTimetableFileReaderTest {
         .isInstanceOf(TimetableParseException.class)
         .hasMessageContaining("SOURCE_READ_FAILED");
     assertThat(interruptedAtExit).isTrue();
+    assertThat(workerReturnedChannel).isTrue();
     assertThat(activeOpeners).hasValue(0);
+    verify(lateChannel, times(1)).close();
+    assertThat(liveOpenWorkers()).isZero();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void channel_open실패는_handle없이_bounded_fail하고_worker를_남기지않는다() throws Exception {
+    Path allowed = Files.createDirectory(temporary.resolve("allowed"));
+    SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
+    BasicFileAttributeView attributesView = mock(BasicFileAttributeView.class);
+    BasicFileAttributes attributes = mock(BasicFileAttributes.class);
+    when(root.getFileAttributeView(
+            Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS))
+        .thenReturn(attributesView);
+    when(attributesView.readAttributes()).thenReturn(attributes);
+    when(attributes.isRegularFile()).thenReturn(true);
+    when(root.newByteChannel(eq(Path.of("101.xlsx")), any(Set.class)))
+        .thenThrow(new java.io.IOException("permission denied"));
+    var readerFacade = new SafeTimetableFileReader(allowed, () -> {}, ignored -> root);
+
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(1),
+        () ->
+            assertThatThrownBy(() -> readerFacade.read(allowed.resolve("101.xlsx")))
+                .isInstanceOf(TimetableParseException.class)
+                .hasMessageContaining("SOURCE_READ_FAILED"));
+    assertThat(liveOpenWorkers()).isZero();
   }
 
   @Test
@@ -388,5 +454,27 @@ class SafeTimetableFileReaderTest {
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
       return stream instanceof java.nio.file.SecureDirectoryStream<?>;
     }
+  }
+
+  private static void sleepIgnoringInterrupt(Duration duration) {
+    long deadline = System.nanoTime() + duration.toNanos();
+    boolean interrupted = false;
+    while (true) {
+      long remaining = deadline - System.nanoTime();
+      if (remaining <= 0) break;
+      try {
+        Thread.sleep(Duration.ofNanos(remaining));
+      } catch (InterruptedException ignored) {
+        interrupted = true;
+      }
+    }
+    if (interrupted) Thread.currentThread().interrupt();
+  }
+
+  private static long liveOpenWorkers() {
+    return Thread.getAllStackTraces().keySet().stream()
+        .filter(Thread::isAlive)
+        .filter(thread -> thread.getName().startsWith("timing-jeju-timetable-open-"))
+        .count();
   }
 }
