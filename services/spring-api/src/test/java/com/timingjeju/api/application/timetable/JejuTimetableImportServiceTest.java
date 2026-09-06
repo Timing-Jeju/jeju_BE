@@ -33,11 +33,14 @@ class JejuTimetableImportServiceTest {
     ParsedTimetable report =
         new ParsedTimetable(
             "a".repeat(64),
+            "b".repeat(64),
+            "c".repeat(64),
             "{\"parserVersion\":\"jeju-timetable-xlsx-v1\"}",
             parsed().entries(),
             List.of(
                 "sheet=OUT row=8 column=2 INVALID_TIME",
-                "sheet=IN row=9 column=3 TIME_TYPE_MISMATCH"));
+                "sheet=IN row=9 column=3 TIME_TYPE_MISMATCH"),
+            List.of());
     var service =
         new JejuTimetableImportService(
             command -> report, entries -> TimetableCatalogValidation.VALID, store);
@@ -54,6 +57,9 @@ class JejuTimetableImportServiceTest {
     var result = service(store).importXlsx(command(false));
     assertThat(result.replayed()).isFalse();
     assertThat(store.commits).isEqualTo(1);
+    assertThat(store.inspectedFingerprint).isEqualTo("c".repeat(64));
+    assertThat(store.last.importFingerprint()).isEqualTo("c".repeat(64));
+    assertThat(store.last.mappingFingerprint()).isEqualTo("b".repeat(64));
     assertThat(store.last.rawXlsx()).isNull();
     assertThat(store.last.source().providerCode()).isEqualTo("JEJU_PROVINCE");
     assertThat(store.last.entries().getFirst().routeSourceProvider()).isEqualTo("TAGO");
@@ -128,7 +134,13 @@ class JejuTimetableImportServiceTest {
             "TAGO",
             "39");
     return new ParsedTimetable(
-        "a".repeat(64), "{\"parserVersion\":\"jeju-timetable-xlsx-v1\"}", List.of(entry));
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+        "{\"parserVersion\":\"jeju-timetable-xlsx-v1\"}",
+        List.of(entry),
+        List.of(),
+        List.of());
   }
 
   private static final class FakeStore implements TimetableImportStore {
@@ -137,10 +149,12 @@ class JejuTimetableImportServiceTest {
     TimetableVersionState state = TimetableVersionState.NEW;
     TimetableAtomicWrite last;
     boolean commitReplay;
+    String inspectedFingerprint;
 
     public TimetableVersionState inspect(
-        String scheduleId, LocalDate effectiveDate, String sha256) {
+        String scheduleId, LocalDate effectiveDate, String importFingerprint) {
       inspections++;
+      inspectedFingerprint = importFingerprint;
       return state;
     }
 

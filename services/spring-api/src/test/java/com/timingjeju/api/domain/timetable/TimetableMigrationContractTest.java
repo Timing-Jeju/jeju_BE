@@ -18,6 +18,9 @@ class TimetableMigrationContractTest {
   void migration은_시간표_source와_TAGO_route_reference_scope를_분리하고_legacy를_보존한다() throws Exception {
     String sql = Files.readString(root().resolve("supabase/migrations").resolve(MIGRATION));
     assertThat(sql)
+        .startsWith("-- Issue #38")
+        .contains("begin;")
+        .contains("lock table public.timetable_entries in access exclusive mode")
         .contains("add column route_source_provider text")
         .contains("add column route_city_code text")
         .contains("set route_source_provider = source_provider")
@@ -27,13 +30,25 @@ class TimetableMigrationContractTest {
         .contains("new.route_source_provider is not distinct from old.source_provider")
         .contains("new.route_city_code is not distinct from old.city_code")
         .contains(
+            "pg_catalog.to_jsonb(new) - array['route_source_provider', 'route_city_code']::text[]")
+        .contains(
             "revoke execute on function public.validate_timetable_source_scope() from public, anon, authenticated")
         .contains("not valid")
         .contains("new timetable row requires route reference scope")
         .contains("route_stop.source_provider = new.route_source_provider")
         .contains("route_stop.city_code = new.route_city_code")
         .doesNotContain("delete from public.timetable_entries")
-        .doesNotContain("update public.timetable_entries\nset source_provider = 'JEJU_PROVINCE'");
+        .doesNotContain("update public.timetable_entries\nset source_provider = 'JEJU_PROVINCE'")
+        .endsWith("commit;\n");
+    assertThat(
+            sql.split(
+                "create or replace function public.validate_timetable_source_scope\\(\\)", -1))
+        .hasSize(3);
+    assertThat(
+            sql.split(
+                "revoke execute on function public.validate_timetable_source_scope\\(\\) from public, anon, authenticated",
+                -1))
+        .hasSize(3);
   }
 
   @Test

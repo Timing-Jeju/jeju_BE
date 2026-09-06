@@ -26,7 +26,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -186,6 +189,54 @@ class SafeTimetableFileReaderTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  void regular검사뒤_FIFO로_swap된_open은_bounded_unblock하고_daemon_worker를_남기지않는다() throws Exception {
+    Path allowed = Files.createDirectory(temporary.resolve("allowed"));
+    SecureDirectoryStream<Path> root = mock(SecureDirectoryStream.class);
+    BasicFileAttributeView attributesView = mock(BasicFileAttributeView.class);
+    BasicFileAttributes attributes = mock(BasicFileAttributes.class);
+    SeekableByteChannel reader = mock(SeekableByteChannel.class);
+    SeekableByteChannel writer = mock(SeekableByteChannel.class);
+    CountDownLatch releaseReader = new CountDownLatch(1);
+    AtomicInteger activeReaders = new AtomicInteger();
+    when(root.getFileAttributeView(
+            Path.of("101.xlsx"), BasicFileAttributeView.class, LinkOption.NOFOLLOW_LINKS))
+        .thenReturn(attributesView);
+    when(attributesView.readAttributes()).thenReturn(attributes);
+    when(attributes.isRegularFile()).thenReturn(true);
+    when(root.newByteChannel(eq(Path.of("101.xlsx")), any(Set.class)))
+        .thenAnswer(
+            invocation -> {
+              Set<OpenOption> options = invocation.getArgument(1);
+              if (options.contains(StandardOpenOption.WRITE)) {
+                releaseReader.countDown();
+                return writer;
+              }
+              activeReaders.incrementAndGet();
+              try {
+                if (!releaseReader.await(2, TimeUnit.SECONDS)) {
+                  throw new AssertionError("bounded opener did not unblock");
+                }
+                return reader;
+              } finally {
+                activeReaders.decrementAndGet();
+              }
+            });
+
+    var readerFacade = new SafeTimetableFileReader(allowed, () -> {}, ignored -> root);
+
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(2),
+        () ->
+            assertThatThrownBy(() -> readerFacade.read(allowed.resolve("101.xlsx")))
+                .isInstanceOf(TimetableParseException.class)
+                .hasMessageContaining("SOURCE_OPEN_TIMEOUT"));
+    assertThat(activeReaders).hasValue(0);
+    verify(writer).close();
+    verify(reader).close();
+  }
+
+  @Test
   @EnabledOnOs(OS.LINUX)
   void Linux_FIFO는_block하지_않고_bounded_fail한다() throws Exception {
     Path allowed = Files.createDirectory(temporary.resolve("allowed"));
@@ -198,6 +249,39 @@ class SafeTimetableFileReaderTest {
             assertThatThrownBy(() -> new SafeTimetableFileReader(allowed).read(fifo))
                 .isInstanceOf(TimetableParseException.class)
                 .hasMessageContaining("NOT_REGULAR_FILE"));
+  }
+
+  @Test
+  @EnabledOnOs(OS.LINUX)
+  void Linux_regular검사직후_FIFO_swap도_timeout뒤_worker를_남기지않는다() throws Exception {
+    Path allowed = Files.createDirectory(temporary.resolve("allowed"));
+    Path source = allowed.resolve("swap.xlsx");
+    Files.write(source, new byte[] {1});
+    var reader =
+        new SafeTimetableFileReader(
+            allowed,
+            () -> {
+              try {
+                Files.delete(source);
+                if (new ProcessBuilder("mkfifo", source.toString()).start().waitFor() != 0) {
+                  throw new AssertionError("mkfifo failed");
+                }
+              } catch (Exception failure) {
+                throw new AssertionError(failure);
+              }
+            });
+
+    assertTimeoutPreemptively(
+        Duration.ofSeconds(2),
+        () ->
+            assertThatThrownBy(() -> reader.read(source))
+                .isInstanceOf(TimetableParseException.class)
+                .hasMessageContaining("SOURCE_OPEN_TIMEOUT"));
+    assertThat(
+            Thread.getAllStackTraces().keySet().stream()
+                .filter(Thread::isAlive)
+                .filter(thread -> thread.getName().startsWith("timing-jeju-timetable-open-")))
+        .isEmpty();
   }
 
   private static boolean supportsSecureDirectoryStream(Path directory) throws Exception {

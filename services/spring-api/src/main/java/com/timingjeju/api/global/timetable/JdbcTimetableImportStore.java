@@ -2,6 +2,7 @@ package com.timingjeju.api.global.timetable;
 
 import com.timingjeju.api.application.timetable.TimetableAtomicWrite;
 import com.timingjeju.api.application.timetable.TimetableEntryCandidate;
+import com.timingjeju.api.application.timetable.TimetableImportFingerprint;
 import com.timingjeju.api.application.timetable.TimetableImportStore;
 import com.timingjeju.api.application.timetable.TimetableVersionState;
 import com.timingjeju.api.application.timetable.TimetableWriteResult;
@@ -22,7 +23,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @Repository
-public final class JdbcTimetableImportStore implements TimetableImportStore {
+public class JdbcTimetableImportStore implements TimetableImportStore {
   private static final int MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
   private static final int MAX_OMISSION_COUNT = 999_999;
   private final JdbcTemplate jdbc;
@@ -35,11 +36,11 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
 
   @Override
   public TimetableVersionState inspect(
-      String scheduleId, java.time.LocalDate effectiveDate, String sha256) {
+      String scheduleId, java.time.LocalDate effectiveDate, String importFingerprint) {
     List<String> hashes =
         jdbc.queryForList(
             """
-            select metadata->>'sha256' from public.data_import_runs
+            select metadata->>'importFingerprint' from public.data_import_runs
             where source_provider='JEJU_PROVINCE'
               and source_service='jeju-bus-schedule-xlsx'
               and source_operation='timetable-import'
@@ -52,7 +53,7 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
             scheduleId,
             effectiveDate.toString());
     if (hashes.isEmpty()) return TimetableVersionState.NEW;
-    return hashes.getFirst().equals(sha256)
+    return Objects.equals(hashes.getFirst(), importFingerprint)
         ? TimetableVersionState.REPLAY
         : TimetableVersionState.CONFLICT;
   }
@@ -60,13 +61,14 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
   @Override
   @Transactional
   public TimetableWriteResult commit(TimetableAtomicWrite write) {
-    int omissionCount = validateManifest(write);
+    ValidatedManifest manifest = validateManifest(write);
+    int omissionCount = manifest.omissionCount();
     jdbc.queryForObject(
         "select pg_advisory_xact_lock(hashtextextended(?, 38))",
         Object.class,
         write.scheduleId() + '/' + write.effectiveDate());
     TimetableVersionState current =
-        inspect(write.scheduleId(), write.effectiveDate(), write.sha256());
+        inspect(write.scheduleId(), write.effectiveDate(), write.importFingerprint());
     if (current == TimetableVersionState.CONFLICT) {
       throw new IllegalStateException("SAME_VERSION_CONFLICT");
     }
@@ -159,7 +161,7 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
     return new TimetableWriteResult(inserted, 0, 0);
   }
 
-  private int validateManifest(TimetableAtomicWrite write) {
+  private ValidatedManifest validateManifest(TimetableAtomicWrite write) {
     byte[] bytes = write.canonicalManifest().getBytes(StandardCharsets.UTF_8);
     if (bytes.length > MAX_MANIFEST_BYTES) {
       throw new IllegalArgumentException("TIMETABLE_MANIFEST_TOO_LARGE");
@@ -168,19 +170,53 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
       JsonNode root = objectMapper.readTree(write.canonicalManifest());
       JsonNode effectiveDate = root.path("effectiveDate");
       JsonNode omissionCount = root.path("omissionCount");
+      JsonNode recordKeys = root.path("recordKeys");
+      JsonNode omissions = root.path("omissions");
       if (!root.isObject()
           || !effectiveDate.isTextual()
           || !write.effectiveDate().toString().equals(effectiveDate.asString())
           || !omissionCount.isIntegralNumber()
           || !omissionCount.canConvertToInt()
           || omissionCount.intValue() < 0
-          || omissionCount.intValue() > MAX_OMISSION_COUNT) {
+          || omissionCount.intValue() > MAX_OMISSION_COUNT
+          || !recordKeys.isArray()
+          || !omissions.isArray()
+          || omissionCount.intValue() != omissions.size()) {
         throw new IllegalArgumentException("TIMETABLE_MANIFEST_INVALID");
       }
-      return omissionCount.intValue();
+      List<String> manifestRecordKeys = textualValues(recordKeys);
+      List<String> manifestOmissions = textualValues(omissions);
+      List<String> entryRecordKeys =
+          write.entries().stream().map(TimetableEntryCandidate::sourceRecordKey).toList();
+      String expectedFingerprint;
+      try {
+        expectedFingerprint =
+            TimetableImportFingerprint.compute(
+                write.sha256(),
+                write.mappingFingerprint(),
+                write.canonicalManifest(),
+                manifestRecordKeys,
+                manifestOmissions);
+      } catch (IllegalArgumentException invalidDigest) {
+        throw new IllegalArgumentException("TIMETABLE_IMPORT_FINGERPRINT_INVALID", invalidDigest);
+      }
+      if (!manifestRecordKeys.equals(entryRecordKeys)
+          || !expectedFingerprint.equals(write.importFingerprint())) {
+        throw new IllegalArgumentException("TIMETABLE_IMPORT_FINGERPRINT_INVALID");
+      }
+      return new ValidatedManifest(omissionCount.intValue());
     } catch (JacksonException failure) {
       throw new IllegalArgumentException("TIMETABLE_MANIFEST_INVALID", failure);
     }
+  }
+
+  private static List<String> textualValues(JsonNode array) {
+    var values = new java.util.ArrayList<String>(array.size());
+    for (JsonNode value : array) {
+      if (!value.isTextual()) throw new IllegalArgumentException("TIMETABLE_MANIFEST_INVALID");
+      values.add(value.asString());
+    }
+    return List.copyOf(values);
   }
 
   private String sourceMetadataJson(TimetableAtomicWrite write) {
@@ -191,6 +227,8 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
             "license", write.source().license(),
             "licenseCheckedAt", write.source().licenseCheckedAt(),
             "gscheduleId", write.scheduleId(),
+            "importFingerprint", write.importFingerprint(),
+            "mappingFingerprint", write.mappingFingerprint(),
             "sha256", write.sha256(),
             "uddi", write.source().uddi()));
   }
@@ -212,4 +250,6 @@ public final class JdbcTimetableImportStore implements TimetableImportStore {
       throw new IllegalStateException(impossible);
     }
   }
+
+  private record ValidatedManifest(int omissionCount) {}
 }

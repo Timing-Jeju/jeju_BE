@@ -8,7 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 @Repository
-public final class JdbcTimetableCatalog implements TimetableCatalog {
+public class JdbcTimetableCatalog implements TimetableCatalog {
   private final JdbcTemplate jdbc;
 
   public JdbcTimetableCatalog(JdbcTemplate jdbc) {

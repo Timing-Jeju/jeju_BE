@@ -10,6 +10,8 @@ public record TimetableAtomicWrite(
     Instant fetchedAt,
     String idempotencyKey,
     String sha256,
+    String mappingFingerprint,
+    String importFingerprint,
     String canonicalManifest,
     TimetableSourceMetadata source,
     List<TimetableEntryCandidate> entries,

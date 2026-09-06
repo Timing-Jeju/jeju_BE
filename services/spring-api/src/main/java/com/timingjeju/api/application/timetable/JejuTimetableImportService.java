@@ -25,7 +25,7 @@ public final class JejuTimetableImportService {
       throw new TimetableImportException("TIMETABLE_ROWS_REJECTED");
     }
     TimetableVersionState state =
-        store.inspect(command.scheduleId(), command.effectiveDate(), parsed.sha256());
+        store.inspect(command.scheduleId(), command.effectiveDate(), parsed.importFingerprint());
     if (state == TimetableVersionState.CONFLICT) {
       if (command.dryRun()) {
         return new TimetableImportResult(
@@ -58,6 +58,8 @@ public final class JejuTimetableImportService {
             command.fetchedAt(),
             command.idempotencyKey(),
             parsed.sha256(),
+            parsed.mappingFingerprint(),
+            parsed.importFingerprint(),
             parsed.canonicalManifest(),
             TimetableSourceMetadata.official(command.scheduleId()),
             parsed.entries(),

@@ -3,6 +3,7 @@ package com.timingjeju.api.global.timetable;
 import com.timingjeju.api.application.timetable.OperatorTimetableMapping;
 import com.timingjeju.api.application.timetable.ParsedTimetable;
 import com.timingjeju.api.application.timetable.TimetableEntryCandidate;
+import com.timingjeju.api.application.timetable.TimetableImportFingerprint;
 import com.timingjeju.api.application.timetable.TimetableParseException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -100,7 +101,23 @@ public final class JejuTimetableXlsxParser {
       if (manifest.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_MANIFEST_BYTES) {
         throw error("MANIFEST_LIMIT", null, -1, -1);
       }
-      return new ParsedTimetable(sha256(bytes), manifest, entries, rejectedRows, omissions);
+      String rawSha256 = sha256(bytes);
+      String mappingFingerprint = TimetableImportFingerprint.mapping(mapping);
+      String importFingerprint =
+          TimetableImportFingerprint.compute(
+              rawSha256,
+              mappingFingerprint,
+              manifest,
+              entries.stream().map(TimetableEntryCandidate::sourceRecordKey).toList(),
+              omissions);
+      return new ParsedTimetable(
+          rawSha256,
+          mappingFingerprint,
+          importFingerprint,
+          manifest,
+          entries,
+          rejectedRows,
+          omissions);
     } catch (TimetableParseException exception) {
       throw exception;
     } catch (Exception exception) {

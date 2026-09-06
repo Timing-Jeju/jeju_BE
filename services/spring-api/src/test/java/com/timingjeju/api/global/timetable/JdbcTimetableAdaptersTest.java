@@ -1,7 +1,6 @@
 package com.timingjeju.api.global.timetable;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -14,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.timingjeju.api.application.snapshot.PersistedSnapshotProviderCatalog;
 import com.timingjeju.api.application.timetable.TimetableAtomicWrite;
 import com.timingjeju.api.application.timetable.TimetableEntryCandidate;
+import com.timingjeju.api.application.timetable.TimetableImportFingerprint;
 import com.timingjeju.api.application.timetable.TimetableSourceMetadata;
 import java.lang.reflect.Method;
 import java.time.Instant;
@@ -24,43 +24,27 @@ import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.dao.annotation.PersistenceExceptionTranslationAdvisor;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.dao.annotation.PersistenceExceptionTranslationPostProcessor;
 import org.springframework.dao.support.PersistenceExceptionTranslator;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.interceptor.BeanFactoryTransactionAttributeSourceAdvisor;
-import org.springframework.transaction.interceptor.TransactionInterceptor;
 import tools.jackson.databind.ObjectMapper;
 
 @Tag("unit")
 class JdbcTimetableAdaptersTest {
   @Test
   void transactional_store와_exception_translation_catalog는_CGLIB_proxy를_생성할수있다() {
-    var transactionAttributes = new AnnotationTransactionAttributeSource();
-    var transactionAdvisor = new BeanFactoryTransactionAttributeSourceAdvisor();
-    transactionAdvisor.setTransactionAttributeSource(transactionAttributes);
-    transactionAdvisor.setAdvice(
-        new TransactionInterceptor(mock(PlatformTransactionManager.class), transactionAttributes));
-
-    ProxyFactory storeProxy =
-        new ProxyFactory(
-            new JdbcTimetableImportStore(mock(JdbcTemplate.class), new ObjectMapper()));
-    storeProxy.setProxyTargetClass(true);
-    storeProxy.addAdvisor(transactionAdvisor);
-    assertThatCode(storeProxy::getProxy).doesNotThrowAnyException();
-
-    ProxyFactory catalogProxy =
-        new ProxyFactory(new JdbcTimetableCatalog(mock(JdbcTemplate.class)));
-    catalogProxy.setProxyTargetClass(true);
-    catalogProxy.addAdvisor(
-        new PersistenceExceptionTranslationAdvisor(
-            mock(PersistenceExceptionTranslator.class), Repository.class));
-    assertThatCode(catalogProxy::getProxy).doesNotThrowAnyException();
+    try (var context = new AnnotationConfigApplicationContext(AdvisorTestConfiguration.class)) {
+      assertThat(AopUtils.isCglibProxy(context.getBean(JdbcTimetableImportStore.class))).isTrue();
+      assertThat(AopUtils.isCglibProxy(context.getBean(JdbcTimetableCatalog.class))).isTrue();
+    }
   }
 
   @Test
@@ -162,6 +146,42 @@ class JdbcTimetableAdaptersTest {
         .doesNotContain("select metadata->>'sha256'");
   }
 
+  @Test
+  void legacy_run에_import_fingerprint가_없으면_replay가_아니라_conflict다() {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    when(jdbc.queryForList(anyString(), eq(String.class), any(), any()))
+        .thenReturn(java.util.Collections.singletonList(null));
+    JdbcTimetableImportStore store = new JdbcTimetableImportStore(jdbc, new ObjectMapper());
+
+    assertThat(store.inspect("405001", LocalDate.of(2024, 8, 1), "a".repeat(64)))
+        .isEqualTo(com.timingjeju.api.application.timetable.TimetableVersionState.CONFLICT);
+  }
+
+  @Test
+  void 조작된_import_fingerprint와_manifest_entry불일치는_JDBC전에_거부한다() {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    JdbcTimetableImportStore store = new JdbcTimetableImportStore(jdbc, new ObjectMapper());
+    TimetableAtomicWrite valid = write(manifest("2024-08-01", "2"));
+    TimetableAtomicWrite forged =
+        new TimetableAtomicWrite(
+            valid.scheduleId(),
+            valid.effectiveDate(),
+            valid.fetchedAt(),
+            valid.idempotencyKey(),
+            valid.sha256(),
+            valid.mappingFingerprint(),
+            "d".repeat(64),
+            valid.canonicalManifest(),
+            valid.source(),
+            valid.entries(),
+            null);
+
+    assertThatThrownBy(() -> store.commit(forged))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("TIMETABLE_IMPORT_FINGERPRINT_INVALID");
+    verify(jdbc, never()).queryForObject(anyString(), eq(Object.class), any());
+  }
+
   private static int indexContaining(List<String> values, String expected) {
     for (int index = 0; index < values.size(); index++) {
       if (values.get(index).contains(expected)) return index;
@@ -182,12 +202,19 @@ class JdbcTimetableAdaptersTest {
             "jeju-bus-schedule-xlsx",
             "TAGO",
             "39");
+    List<String> recordKeys = textArray(manifest, "recordKeys");
+    List<String> omissions = textArray(manifest, "omissions");
+    String importFingerprint =
+        TimetableImportFingerprint.compute(
+            "a".repeat(64), "b".repeat(64), manifest, recordKeys, omissions);
     return new TimetableAtomicWrite(
         "405001",
         LocalDate.of(2024, 8, 1),
         Instant.parse("2026-09-04T00:00:00Z"),
         "issue-38-test",
         "a".repeat(64),
+        "b".repeat(64),
+        importFingerprint,
         manifest,
         TimetableSourceMetadata.official("405001"),
         List.of(entry),
@@ -195,10 +222,68 @@ class JdbcTimetableAdaptersTest {
   }
 
   private static String manifest(String effectiveDate, String omissionCount) {
-    return "{\"datasetId\":\"3043887\",\"effectiveDate\":\""
+    String omissions =
+        omissionCount.equals("2")
+            ? "\"101 남원-성산-김녕-조천-공항/row=8/column=2/UNRESOLVED_OFFICIAL_COLUMN_OMITTED\",\"101 공항-조천-김녕-성산-남원/row=8/column=2/UNRESOLVED_OFFICIAL_COLUMN_OMITTED\""
+            : "";
+    return "{\"datasetId\":\"3043887\",\"scheduleId\":\"405001\",\"effectiveDate\":\""
         + effectiveDate
         + "\",\"mappingVersion\":\"operator-mapping-v1\",\"omissionCount\":"
         + omissionCount
-        + ",\"omissionCode\":\"UNRESOLVED_OFFICIAL_COLUMN_OMITTED\",\"parserVersion\":\"jeju-timetable-xlsx-v1\",\"recordKeys\":[]}";
+        + ",\"omissionCode\":\"UNRESOLVED_OFFICIAL_COLUMN_OMITTED\",\"parserVersion\":\"jeju-timetable-xlsx-v1\",\"recordKeys\":[\"3043887/405001/route/out/1/00000000-0000-0000-0000-000000000002/daily/06:30\"],\"omissions\":["
+        + omissions
+        + "]}";
+  }
+
+  private static List<String> textArray(String manifest, String field) {
+    try {
+      var array = new ObjectMapper().readTree(manifest).path(field);
+      var values = new java.util.ArrayList<String>();
+      array.forEach(value -> values.add(value.asString()));
+      return List.copyOf(values);
+    } catch (Exception failure) {
+      return List.of();
+    }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @EnableTransactionManagement(proxyTargetClass = true)
+  static class AdvisorTestConfiguration {
+    @Bean
+    PlatformTransactionManager transactionManager() {
+      return mock(PlatformTransactionManager.class);
+    }
+
+    @Bean
+    PersistenceExceptionTranslator persistenceExceptionTranslator() {
+      return mock(PersistenceExceptionTranslator.class);
+    }
+
+    @Bean
+    static PersistenceExceptionTranslationPostProcessor exceptionTranslation() {
+      var processor = new PersistenceExceptionTranslationPostProcessor();
+      processor.setProxyTargetClass(true);
+      return processor;
+    }
+
+    @Bean
+    JdbcTemplate jdbcTemplate() {
+      return mock(JdbcTemplate.class);
+    }
+
+    @Bean
+    ObjectMapper objectMapper() {
+      return new ObjectMapper();
+    }
+
+    @Bean
+    JdbcTimetableImportStore timetableImportStore(JdbcTemplate jdbc, ObjectMapper mapper) {
+      return new JdbcTimetableImportStore(jdbc, mapper);
+    }
+
+    @Bean
+    JdbcTimetableCatalog timetableCatalog(JdbcTemplate jdbc) {
+      return new JdbcTimetableCatalog(jdbc);
+    }
   }
 }

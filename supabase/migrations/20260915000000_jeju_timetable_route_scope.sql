@@ -1,27 +1,63 @@
 -- Issue #38: timetable provenance와 TAGO route reference scope를 분리한다.
 -- legacy 행은 자동 수정/삭제하지 않고 기존 source scope를 새 명시 컬럼에 그대로 복사한다.
 
+begin;
+
+-- 기존 immutability trigger를 유지한 채 backfill 전용 함수로 잠시 좁혀 교체한다.
+-- ALTER와 backfill 사이에 다른 writer가 끼지 못하도록 같은 transaction에서 선점한다.
+lock table public.timetable_entries in access exclusive mode;
+
 alter table public.timetable_entries
   add column route_source_provider text,
   add column route_city_code text;
 
-update public.timetable_entries
-set route_source_provider = source_provider;
+create or replace function public.validate_timetable_source_scope()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if tg_op <> 'UPDATE'
+     or old.route_source_provider is not null
+     or old.route_city_code is not null
+     or not (new.route_source_provider is not distinct from old.source_provider)
+     or not (new.route_city_code is not distinct from old.city_code)
+     or (
+       pg_catalog.to_jsonb(new) - array['route_source_provider', 'route_city_code']::text[]
+     ) is distinct from (
+       pg_catalog.to_jsonb(old) - array['route_source_provider', 'route_city_code']::text[]
+     ) then
+    raise exception using
+      errcode = '23514',
+      message = 'timetable route scope backfill violated audited old/new scope';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.validate_timetable_source_scope() from public, anon, authenticated;
 
 update public.timetable_entries
-set route_city_code = city_code;
+set route_source_provider = source_provider,
+    route_city_code = city_code
+where route_source_provider is null
+  and route_city_code is null;
 
-alter table public.timetable_entries
-  add constraint ck_timetable_route_source_provider_nonblank
-    check (route_source_provider is not null and btrim(route_source_provider) <> '') not valid,
-  add constraint ck_timetable_route_city_code_nonblank
-    check (route_city_code is not null and btrim(route_city_code) <> '') not valid,
-  add constraint ck_timetable_route_scope_lengths
-    check (
-      octet_length(route_source_provider) <= 128
-      and octet_length(route_city_code) <= 64
-      and octet_length(route_source_provider) + octet_length(route_city_code) <= 512
-    ) not valid;
+do $$
+begin
+  if exists (
+    select 1
+    from public.timetable_entries
+    where route_source_provider is distinct from source_provider
+       or route_city_code is distinct from city_code
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'timetable route scope backfill violated audited old/new scope';
+  end if;
+end;
+$$;
 
 create or replace function public.validate_timetable_source_scope()
 returns trigger
@@ -75,6 +111,20 @@ begin
   return new;
 end;
 $$;
+
+revoke execute on function public.validate_timetable_source_scope() from public, anon, authenticated;
+
+alter table public.timetable_entries
+  add constraint ck_timetable_route_source_provider_nonblank
+    check (route_source_provider is not null and btrim(route_source_provider) <> '') not valid,
+  add constraint ck_timetable_route_city_code_nonblank
+    check (route_city_code is not null and btrim(route_city_code) <> '') not valid,
+  add constraint ck_timetable_route_scope_lengths
+    check (
+      octet_length(route_source_provider) <= 128
+      and octet_length(route_city_code) <= 64
+      and octet_length(route_source_provider) + octet_length(route_city_code) <= 512
+    ) not valid;
 
 drop index if exists public.idx_timetable_route_stop_source_scope;
 create index idx_timetable_route_stop_reference_scope
@@ -144,7 +194,7 @@ begin
     end if;
     if not starts_with(
       record_key #>> '{}',
-      '3043887/' || payload->>'scheduleId' || '/'
+      '3043887/' || (payload->>'scheduleId') || '/'
     ) then
       return false;
     end if;
@@ -184,3 +234,5 @@ alter table public.external_api_snapshots
         and public.jeju_timetable_manifest_is_safe(raw_payload, request_metadata_redacted)
       )
     ) not valid;
+
+commit;
