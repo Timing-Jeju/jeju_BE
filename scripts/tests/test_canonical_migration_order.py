@@ -194,6 +194,56 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         for catalog in ("pg_constraint", "pg_trigger", "pg_policies", "information_schema.role_table_grants", "aclexplode"):
             self.assertIn(catalog, fingerprint_sql)
 
+    def test_fingerprint_excludes_extension_routines_and_projects_security_acl(self) -> None:
+        fingerprint_sql = (ROOT / "db/queries/canonical_migration_fingerprint.sql").read_text(
+            encoding="utf-8"
+        ).lower()
+        for marker in (
+            "procedure_record.prokind in ('f', 'p', 'w')",
+            "pg_catalog.pg_depend",
+            "dependency_record.deptype = 'e'",
+            "relation_acl",
+            "column_acl",
+            "schema_acl",
+            "schema_owner",
+            "policy_record.permissive",
+            "policy_record.roles",
+        ):
+            self.assertIn(marker, fingerprint_sql)
+        self.assertIn("dependency_record.classid = 'pg_proc'::regclass", fingerprint_sql)
+        self.assertIn("not exists", fingerprint_sql)
+
+    def test_powershell_bootstraps_auth_before_both_manifest_replays(self) -> None:
+        powershell = (ROOT / "scripts/docker-smoke-test.ps1").read_text(encoding="utf-8")
+        auth = 'Invoke-SqlFile $database "/docker-entrypoint-initdb.d/001_auth_compat.sql"'
+        self.assertIn(auth, powershell)
+        helper = powershell.index("function Invoke-CanonicalManifest")
+        auth_position = powershell.index(auth, helper)
+        prefix_position = powershell.index("foreach ($entry in $manifest.immutablePrefix)", helper)
+        suffix_position = powershell.index("foreach ($entry in $manifest.canonicalSuffix)", helper)
+        self.assertLess(auth_position, prefix_position)
+        self.assertLess(prefix_position, suffix_position)
+        self.assertIn("Invoke-CanonicalManifest $originDevelopDatabase", powershell)
+        self.assertIn("Invoke-CanonicalManifest $concurrencyDatabase", powershell)
+
+    def test_actual_postgresql_source_covers_postgis_versions_and_acl_mutations(self) -> None:
+        source = (ROOT / (
+            "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/"
+            "CanonicalMigrationOrderIntegrationTest.java"
+        )).read_text(encoding="utf-8")
+        for marker in (
+            "postgis/postgis:16-3.4",
+            "postgis/postgis:17-3.5",
+            "isnotblank",
+            "grant select (token_ciphertext) on public.push_devices to authenticated",
+            "grant select on public.push_devices to public",
+            "grant usage on schema auth to authenticated",
+            "grant create on schema timing_jeju_private to authenticated",
+            "alter policy push_devices_owner_select",
+            "as restrictive",
+        ):
+            self.assertIn(marker, source.lower())
+
     def test_ci_does_not_automatically_apply_supabase_migrations(self) -> None:
         workflows = ROOT / ".github/workflows"
         sources = "\n".join(
