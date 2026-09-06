@@ -26,6 +26,13 @@ class TimetableMigrationContractTest {
         .contains("set route_source_provider = source_provider")
         .contains("route_city_code = city_code")
         .contains("timetable route scope backfill violated audited old/new scope")
+        .contains("drop trigger trg_timetable_source_lineage on public.timetable_entries")
+        .contains("public.validate_timetable_route_scope_backfill_lineage()")
+        .contains("create constraint trigger trg_timetable_source_lineage")
+        .contains("execute function public.validate_normalized_source_lineage()")
+        .contains(
+            "revoke execute on function public.validate_timetable_route_scope_backfill_lineage() from public, anon, authenticated")
+        .contains("drop function public.validate_timetable_route_scope_backfill_lineage()")
         .contains("old.route_source_provider is null")
         .contains("new.route_source_provider is not distinct from old.source_provider")
         .contains("new.route_city_code is not distinct from old.city_code")
@@ -49,6 +56,14 @@ class TimetableMigrationContractTest {
                 "revoke execute on function public.validate_timetable_source_scope\\(\\) from public, anon, authenticated",
                 -1))
         .hasSize(3);
+    assertThat(sql.indexOf("drop trigger trg_timetable_source_lineage"))
+        .isLessThan(sql.indexOf("update public.timetable_entries"));
+    assertThat(sql.lastIndexOf("create constraint trigger trg_timetable_source_lineage"))
+        .isGreaterThan(sql.indexOf("update public.timetable_entries"));
+    assertThat(
+            sql.lastIndexOf(
+                "drop function public.validate_timetable_route_scope_backfill_lineage()"))
+        .isGreaterThan(sql.lastIndexOf("create constraint trigger trg_timetable_source_lineage"));
   }
 
   @Test

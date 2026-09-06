@@ -72,6 +72,25 @@ class Issue38CurrentStackContractTest(unittest.TestCase):
         self.assertIn(
             "new.route_city_code is not distinct from old.city_code", migration
         )
+        self.assertIn(
+            "drop trigger trg_timetable_source_lineage on public.timetable_entries",
+            migration,
+        )
+        self.assertIn(
+            "execute function public.validate_timetable_route_scope_backfill_lineage()",
+            migration,
+        )
+        self.assertIn(
+            "execute function public.validate_normalized_source_lineage()", migration
+        )
+        self.assertLess(
+            migration.index("drop trigger trg_timetable_source_lineage"),
+            migration.index("update public.timetable_entries"),
+        )
+        self.assertGreater(
+            migration.rindex("create constraint trigger trg_timetable_source_lineage"),
+            migration.index("update public.timetable_entries"),
+        )
         self.assertNotIn("delete from public.timetable_entries", migration.lower())
 
 

@@ -38,6 +38,42 @@ $$;
 
 revoke execute on function public.validate_timetable_source_scope() from public, anon, authenticated;
 
+-- 기존 AFTER constraint trigger도 route scope 두 컬럼만 채우는 이 transaction의
+-- migration-owner backfill만 허용하도록 잠시 교체한다. shared lineage 함수 자체는
+-- 다른 정규화 테이블에서도 사용하므로 변경하지 않는다.
+create function public.validate_timetable_route_scope_backfill_lineage()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  if tg_op <> 'UPDATE'
+     or old.route_source_provider is not null
+     or old.route_city_code is not null
+     or not (new.route_source_provider is not distinct from old.source_provider)
+     or not (new.route_city_code is not distinct from old.city_code)
+     or (
+       pg_catalog.to_jsonb(new) - array['route_source_provider', 'route_city_code']::text[]
+     ) is distinct from (
+       pg_catalog.to_jsonb(old) - array['route_source_provider', 'route_city_code']::text[]
+     ) then
+    raise exception using
+      errcode = '23514',
+      message = 'timetable lineage backfill violated audited old/new scope';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.validate_timetable_route_scope_backfill_lineage() from public, anon, authenticated;
+
+drop trigger trg_timetable_source_lineage on public.timetable_entries;
+create constraint trigger trg_timetable_source_lineage
+after insert or update on public.timetable_entries
+deferrable initially immediate
+for each row execute function public.validate_timetable_route_scope_backfill_lineage();
+
 update public.timetable_entries
 set route_source_provider = source_provider,
     route_city_code = city_code
@@ -58,6 +94,15 @@ begin
   end if;
 end;
 $$;
+
+-- ACCESS EXCLUSIVE lock을 유지한 채 원래 strict lineage trigger를 즉시 복원하고
+-- backfill 전용 함수는 남기지 않는다.
+drop trigger trg_timetable_source_lineage on public.timetable_entries;
+create constraint trigger trg_timetable_source_lineage
+after insert or update on public.timetable_entries
+deferrable initially immediate
+for each row execute function public.validate_normalized_source_lineage();
+drop function public.validate_timetable_route_scope_backfill_lineage();
 
 create or replace function public.validate_timetable_source_scope()
 returns trigger
