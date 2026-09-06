@@ -13,3 +13,7 @@ Issue #38 테스트가 코드로 생성하는 재현 가능한 synthetic OOXML �
 운영자는 `operator-mapping-v1` schema로 각 `gscheduleId + sheet + exact ordered column`을 기존 `TAGO/39` route/direction/stop UUID에 연결해야 한다. 201의 의미를 확정할 수 없는 unnamed physical column은 `IGNORE_UNRESOLVED`로만 두고 `UNRESOLVED_OFFICIAL_COLUMN_OMITTED` 건수를 dry-run·manifest에 남긴다. 허용된 `성산일출봉 출발/종료`, `고성 경유`만 exact stop UUID의 단일 event로 override하며 merge anchor를 다른 stop에 복제하지 않는다. fuzzy match와 자동 보정은 금지한다. 00:00..23:59만 허용하며 24:00 이후는 별도 day-offset migration 전까지 거부한다.
 
 importer는 public API가 아니라 기본 비활성 `ApplicationRunner`다. 실행 시 `timing-jeju.timetable-import.enabled=true`, 절대 `root`, root 아래 `file`, 절대 `mapping-file`, `idempotency-key`를 명시하고, 실제 쓰기는 `dry-run=false`를 별도로 지정한다. 기본값은 dry-run이다.
+
+동일 schedule/effective date의 replay는 XLSX SHA만 비교하지 않는다. raw SHA-256, 전체 정규화 mapping(topology·ordered header·annotation override 포함), canonical manifest, 정렬된 record key와 omission을 각각 UTF-8 길이로 구분한 `importFingerprint`가 모두 같아야 한다. 이 값과 별도 `mappingFingerprint`는 run metadata에 남고, legacy run처럼 fingerprint가 없거나 mapping 의미가 바뀌면 conflict로 닫힌다.
+
+파일 경계는 `SecureDirectoryStream`의 anchored attribute 조회와 `NOFOLLOW` open을 사용하지만 두 호출이 같은 inode를 원자적으로 보장하지는 않는다. regular-file 검사 직후 FIFO로 교체되는 경우에도 open은 bounded daemon worker에서 수행하고 timeout 뒤 같은 anchored handle의 `NOFOLLOW` writer로 막힌 FIFO를 해제하여 reader/writer와 worker를 모두 닫는다. `SecureDirectoryStream` 미지원 filesystem은 fail-closed한다.

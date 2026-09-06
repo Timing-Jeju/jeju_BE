@@ -59,3 +59,11 @@ slot/profile/push regression Python: 21 tests, OK
 - 실제 값을 추정·생성·커밋하지 않는다. 공식 파일 사용 권한과 operator mapping을 확보한 뒤 별도 운영 절차에서 dry-run report를 먼저 검증해야 한다.
 - 향후 승인을 받은 뒤 disposable PostgreSQL/Testcontainers에서 migration·legacy audit·원자 write를 확인하고, Docker fresh/upgrade/legacy/concurrency와 전체 quality gate를 수행한다.
 - live provider/Supabase 적용, push와 PR은 이 source 재통합 단계에서 수행하지 않는다.
+
+## 2026-09-06 Astra finding 복구 보정
+
+- 유실된 임시 worktree를 보존된 Red `88941ade`에서 새 recovery worktree로 연결하고 Java focused `20건 중 7 fail/2 skip`, Python `4건 중 1 fail`을 다시 재현했다.
+- `JdbcTimetableImportStore`와 `JdbcTimetableCatalog`가 실제 transaction/exception-translation advisor의 CGLIB proxy target이 될 수 있도록 열고 DB-free proxy 생성을 검증했다.
+- route scope migration은 `ACCESS EXCLUSIVE` lock transaction에서 기존 trigger 함수를 backfill 전용 `SECURITY INVOKER`, 빈 `search_path`, 비공개 ACL guard로 잠시 교체한다. 신규 두 컬럼이 모두 NULL인 OLD에서 source/provider city를 exact 복사하고 그 두 컬럼을 제외한 OLD/NEW JSON이 같은 UPDATE만 허용한다. audit 직후 strict guard와 ACL을 복원하며 legacy 행을 삭제하거나 source identity를 바꾸지 않는다.
+- replay identity는 raw XLSX SHA, 전체 정규화 operator mapping fingerprint, canonical manifest, record keys, omissions를 4-byte big-endian UTF-8 길이 frame으로 구분한 SHA-256이다. advisory transaction lock 안의 재검사도 이 `importFingerprint`를 사용하고 run metadata에 mapping/import fingerprint를 모두 보존한다. fingerprint 없는 legacy run은 replay하지 않고 conflict로 처리한다.
+- anchored attribute 검사와 open이 inode-atomic하지 않음을 명시하고 open을 bounded daemon worker로 옮겼다. regular→FIFO swap timeout은 anchored `NOFOLLOW` writer로 해제한 뒤 두 handle과 worker를 닫는다. macOS filesystem의 `SecureDirectoryStream` 의존 성공/실제 FIFO 테스트는 명시적으로 skip되고, mock 기반 swap/unblock/worker-zero 회귀는 통과한다. Linux 실제 `mkfifo` 회귀와 disposable PostgreSQL migration 검증은 승인 범위 밖이라 후속 QA로 남긴다.
