@@ -222,6 +222,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/045_profile_image_storage.sql \
   /docker-entrypoint-initdb.d/046_jeju_timetable_route_scope.sql \
   /docker-entrypoint-initdb.d/047_compute_run_input_location_cleanup.sql \
+  /docker-entrypoint-initdb.d/048_private_trip_ownership_helper.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -431,6 +432,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/045_profile_image_storage.sql \
   /docker-entrypoint-initdb.d/046_jeju_timetable_route_scope.sql \
   /docker-entrypoint-initdb.d/047_compute_run_input_location_cleanup.sql \
+  /docker-entrypoint-initdb.d/048_private_trip_ownership_helper.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -495,4 +497,9 @@ docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username timing_jeju_test --dbname timing_jeju_test \
   --file /queries/smoke_check.sql
+
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test \
+  --file /queries/private_trip_ownership_helper_contract.sql
 echo "[Docker] PostGIS·fixture 계약 검사 성공"

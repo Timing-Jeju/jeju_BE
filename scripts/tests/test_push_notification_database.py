@@ -59,6 +59,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260913000000_profile_image_storage.sql",
             "20260915000000_jeju_timetable_route_scope.sql",
             "20260916000000_compute_run_input_location_cleanup.sql",
+            "20260917000000_private_trip_ownership_helper.sql",
         )
         migration_names = tuple(
             path.name
@@ -138,6 +139,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             (
                 "./supabase/migrations/20260916000000_compute_run_input_location_cleanup.sql",
                 "/docker-entrypoint-initdb.d/047_compute_run_input_location_cleanup.sql",
+            ),
+            (
+                "./supabase/migrations/20260917000000_private_trip_ownership_helper.sql",
+                "/docker-entrypoint-initdb.d/048_private_trip_ownership_helper.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",
