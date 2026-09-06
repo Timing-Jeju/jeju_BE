@@ -66,8 +66,10 @@ final class AnchoredBoundedFileReader {
       throw failure.apply("SOURCE_READ_FAILED");
     }
 
-    Set<OpenOption> options = Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+    Set<OpenOption> options =
+        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
     try (SeekableByteChannel channel = Files.newByteChannel(root.resolve(relative), options)) {
+      ensureSeekableRegularHandle(channel, failure);
       return readBounded(channel, maxBytes, failure);
     } catch (RuntimeException exception) {
       throw exception;
@@ -119,10 +121,12 @@ final class AnchoredBoundedFileReader {
     }
 
     // The anchored attribute read and anchored open are separate syscalls, not an atomic inode
-    // assertion. Run the potentially blocking open in a bounded daemon and, on a regular-to-FIFO
-    // swap, pair it with an anchored no-follow writer so both FIFO opens can finish and be closed.
+    // assertion. Run the potentially blocking open in a bounded daemon. READ+WRITE makes a POSIX
+    // FIFO open non-blocking without a second path lookup; the seek probe rejects that FIFO handle
+    // before any read. This fail-closed boundary therefore requires the import file to be writable.
     beforeFileOpen.run();
     try (SeekableByteChannel channel = openBounded(directory, component, failure)) {
+      ensureSeekableRegularHandle(channel, failure);
       return readBounded(channel, maxBytes, failure);
     }
   }
@@ -132,7 +136,8 @@ final class AnchoredBoundedFileReader {
       Path component,
       Function<String, ? extends RuntimeException> failure)
       throws IOException {
-    Set<OpenOption> readOptions = Set.of(StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+    Set<OpenOption> readOptions =
+        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
     ExecutorService executor =
         Executors.newSingleThreadExecutor(
             runnable ->
@@ -145,7 +150,7 @@ final class AnchoredBoundedFileReader {
     try {
       return opening.get(OPEN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     } catch (TimeoutException timeout) {
-      unblockAndCloseTimedOutOpen(directory, component, opening);
+      opening.cancel(true);
       throw failure.apply("SOURCE_OPEN_TIMEOUT");
     } catch (InterruptedException interrupted) {
       Thread.currentThread().interrupt();
@@ -161,36 +166,33 @@ final class AnchoredBoundedFileReader {
     }
   }
 
-  private static void unblockAndCloseTimedOutOpen(
-      SecureDirectoryStream<Path> directory, Path component, Future<SeekableByteChannel> opening)
-      throws IOException {
-    Set<OpenOption> writerOptions = Set.of(StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
-    try (SeekableByteChannel ignored = directory.newByteChannel(component, writerOptions)) {
-      // Opening the anchored writer releases a reader blocked on a swapped FIFO.
-    }
-    try (SeekableByteChannel timedOutReader =
-        opening.get(OPEN_CLEANUP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-      // The one opened read handle is closed without reading after the timeout decision.
-    } catch (TimeoutException timeout) {
-      throw new IOException("anchored source opener did not terminate", timeout);
-    } catch (InterruptedException interrupted) {
-      Thread.currentThread().interrupt();
-      throw new IOException("interrupted while cleaning anchored source opener", interrupted);
-    } catch (ExecutionException failed) {
-      if (failed.getCause() instanceof IOException ioFailure) throw ioFailure;
-      throw new IOException("anchored source opener failed", failed.getCause());
+  private static void awaitOpenerTermination(
+      ExecutorService executor, Function<String, ? extends RuntimeException> failure) {
+    boolean interrupted = Thread.interrupted();
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(OPEN_CLEANUP_TIMEOUT_MILLIS);
+    try {
+      while (!executor.isTerminated()) {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) throw failure.apply("SOURCE_OPEN_WORKER_STUCK");
+        try {
+          if (!executor.awaitTermination(remaining, TimeUnit.NANOSECONDS)) {
+            throw failure.apply("SOURCE_OPEN_WORKER_STUCK");
+          }
+        } catch (InterruptedException cleanupInterrupted) {
+          interrupted = true;
+        }
+      }
+    } finally {
+      if (interrupted) Thread.currentThread().interrupt();
     }
   }
 
-  private static void awaitOpenerTermination(
-      ExecutorService executor, Function<String, ? extends RuntimeException> failure) {
+  private static void ensureSeekableRegularHandle(
+      SeekableByteChannel channel, Function<String, ? extends RuntimeException> failure) {
     try {
-      if (!executor.awaitTermination(OPEN_CLEANUP_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-        throw failure.apply("SOURCE_OPEN_WORKER_STUCK");
-      }
-    } catch (InterruptedException interrupted) {
-      Thread.currentThread().interrupt();
-      throw failure.apply("SOURCE_READ_FAILED");
+      channel.position();
+    } catch (IOException notSeekable) {
+      throw failure.apply("NOT_REGULAR_FILE_AFTER_OPEN");
     }
   }
 
