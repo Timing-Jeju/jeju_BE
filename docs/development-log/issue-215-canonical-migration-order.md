@@ -25,12 +25,16 @@ Supabase CLI는 로컬에 없어 `supabase --help`가 `command not found`로 끝
 
 ## 검증 결과
 
-- canonical migration 계약: 6건 성공
+- canonical migration 계약: 9건 성공
 - 관련 Python 계약: 70건 성공
-- 전체 Python 회귀: 779건 성공, 환경 조건 skip 3건
+- 전체 Python 회귀: 782건 성공, 환경 조건 skip 3건
 - Gradle `unitTest`: 1,372건 성공, 환경 조건 skip 9건
 - Gradle `architectureTest`: 46건 성공
 - 변경된 migration Java 계약: 16건 성공
 - `spotlessCheck`, shell syntax, manifest JSON, deploy SQL 정책, REST/domain 정적 validator, diff whitespace, 전체 파일 비밀정보 검사 성공
 
 로컬에는 `supabase` CLI와 `pwsh`가 없어 각각 실제 CLI 검증과 PowerShell parser 검증은 실행하지 못했다. actual PostgreSQL/Testcontainers, Docker smoke, 전체 quality gate, `clean check`는 Issue #215의 명시적 실행 제한에 따라 후속 독립 검토의 환경 gate로 남긴다.
+
+## 독립 리뷰 보정
+
+Astra 리뷰에서 PostGIS aggregate에 대한 `pg_get_functiondef` 오류 가능성, PowerShell upgrade DB의 Auth 호환 bootstrap 누락, security fingerprint의 ACL 투영 부족을 지적했다. 보정 테스트를 먼저 추가한 결과 canonical 계약 9건 중 3건이 실패했다. 이후 extension-owned routine과 aggregate를 제외하고 application function/procedure/window routine만 fingerprint하며, PUBLIC relation ACL·column ACL·public/private/auth schema owner/ACL·policy permissive/roles를 정규화했다. 실제 PostgreSQL 테스트 소스는 PostGIS PG16/17 비어 있지 않은 fingerprint와 민감 column/PUBLIC relation/schema/policy 변조 탐지를 고정한다. PowerShell은 두 replay DB 모두 `001_auth_compat.sql`을 immutable prefix보다 먼저 적용하는 공용 helper를 사용한다.
