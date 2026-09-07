@@ -26,6 +26,7 @@ RESULT_DAY_CONFLICT_LOG=$(mktemp -t timing-jeju-result-day-conflict.XXXXXX)
 CONSISTENCY_CONFLICT_LOG=$(mktemp -t timing-jeju-consistency-conflict.XXXXXX)
 
 cleanup() {
+  cleanup_status=0
   for database in \
     "$UPGRADE_DB" "$HOURS_CONFLICT_DB" "$RESULT_DAY_CONFLICT_DB" \
     "$RECOMMENDATION_DAY_CONFLICT_DB" \
@@ -50,8 +51,80 @@ cleanup() {
   if [ -f "$CONSISTENCY_CONFLICT_LOG" ]; then
     rm -f "$CONSISTENCY_CONFLICT_LOG"
   fi
-  docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans >/dev/null 2>&1 || true
-  docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1 || true
+  if ! docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans \
+    >/dev/null 2>&1; then
+    echo "[Docker] smoke project 정리에 실패했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+
+  if image_residue=$(docker image ls \
+    --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
+    if [ -n "$image_residue" ] \
+      && ! docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1; then
+      echo "[Docker] smoke API 이미지 정리에 실패했습니다: ${PROJECT}-api:latest" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke API 이미지 상태를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+
+  if compose_residue=$(docker compose -p "$PROJECT" -f compose.test.yml ps -aq 2>/dev/null); then
+    if [ -n "$compose_residue" ]; then
+      echo "[Docker] smoke container residue가 남았습니다: $compose_residue" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke container residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+  if network_residue=$(docker network ls \
+    --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
+    if [ -n "$network_residue" ]; then
+      echo "[Docker] smoke network residue가 남았습니다: $network_residue" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke network residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+  if volume_residue=$(docker volume ls \
+    --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
+    if [ -n "$volume_residue" ]; then
+      echo "[Docker] smoke volume residue가 남았습니다: $volume_residue" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke volume residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+  if image_residue=$(docker image ls \
+    --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
+    if [ -n "$image_residue" ]; then
+      echo "[Docker] smoke API image residue가 남았습니다: ${PROJECT}-api:latest" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke API image residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+
+  return "$cleanup_status"
+}
+
+finish() {
+  original_status=$?
+  trap - EXIT INT TERM
+  cleanup_status=0
+  cleanup || cleanup_status=$?
+
+  if [ "$original_status" -ne 0 ]; then
+    exit "$original_status"
+  fi
+  if [ "$cleanup_status" -ne 0 ]; then
+    exit 70
+  fi
+  exit 0
 }
 
 resolve_api_port() {
@@ -76,6 +149,10 @@ resolve_api_port() {
       return 1
       ;;
   esac
+  if [ "${#port}" -gt 5 ]; then
+    echo "[Docker] API publish port 범위가 올바르지 않습니다." >&2
+    return 1
+  fi
   if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
     echo "[Docker] API publish port 범위가 올바르지 않습니다." >&2
     return 1
@@ -84,7 +161,7 @@ resolve_api_port() {
   printf '%s\n' "$port"
 }
 
-trap cleanup EXIT
+trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
