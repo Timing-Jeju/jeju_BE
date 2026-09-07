@@ -166,6 +166,134 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   }
 
   @Test
+  void POST는_completed_arrived_survivor_progress를_새_ID에_보존하고_완료_guard를_유지한다() {
+    Instant started = Instant.parse("2026-09-01T00:05:00Z");
+    Instant arrived = Instant.parse("2026-09-01T00:10:00Z");
+    Instant completed = Instant.parse("2026-09-01T00:50:00Z");
+    jdbc.update(
+        """
+        insert into public.trip_item_progress
+          (trip_plan_id, schedule_version_id, trip_item_id, status,
+           actual_started_at, actual_arrived_at, actual_completed_at)
+        values (?, ?, ?, 'completed', ?, ?, ?),
+               (?, ?, ?, 'arrived', ?, ?, null)
+        """,
+        TRIP,
+        ACTIVE,
+        FIRST,
+        Timestamp.from(started),
+        Timestamp.from(arrived),
+        Timestamp.from(completed),
+        TRIP,
+        ACTIVE,
+        SECOND,
+        Timestamp.from(started.plusSeconds(3 * 3600)),
+        Timestamp.from(arrived.plusSeconds(3 * 3600)));
+
+    ScheduleMutationResult result = store.addItem(record(Position.LAST, ACTIVE, 1));
+    UUID completedCopy = copiedItem(result.activeScheduleVersionId(), FIRST_PLACE, DAY);
+    UUID arrivedCopy = copiedItem(result.activeScheduleVersionId(), SECOND_PLACE, DAY);
+
+    assertThat(progress(completedCopy))
+        .containsEntry("status", "completed")
+        .containsEntry("actual_started_at", Timestamp.from(started))
+        .containsEntry("actual_arrived_at", Timestamp.from(arrived))
+        .containsEntry("actual_completed_at", Timestamp.from(completed));
+    assertThat(progress(arrivedCopy))
+        .containsEntry("status", "arrived")
+        .containsEntry("actual_started_at", Timestamp.from(started.plusSeconds(3 * 3600)))
+        .containsEntry("actual_arrived_at", Timestamp.from(arrived.plusSeconds(3 * 3600)))
+        .containsEntry("actual_completed_at", null);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_item_progress where trip_item_id=?",
+                Integer.class,
+                result.changedItemIds().getFirst()))
+        .isZero();
+
+    var patch =
+        new PatchScheduleItemCommand(
+            result.activeScheduleVersionId(),
+            Set.of("memo"),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "완료 항목");
+    var order =
+        new ReorderScheduleCommand(
+            result.activeScheduleVersionId(),
+            List.of(
+                new ReorderScheduleCommand.DayOrder(
+                    1, List.of(completedCopy, arrivedCopy, result.changedItemIds().getFirst())),
+                new ReorderScheduleCommand.DayOrder(
+                    2,
+                    List.of(copiedItem(result.activeScheduleVersionId(), SECOND_PLACE, DAY_TWO)))));
+
+    assertCompleted(() -> store.patchItem(edit(completedCopy, patch, 2)));
+    assertCompleted(
+        () ->
+            store.deleteItem(
+                edit(
+                    completedCopy,
+                    new DeleteScheduleItemCommand(result.activeScheduleVersionId()),
+                    2)));
+    assertCompleted(() -> store.reorder(edit(null, order, 2)));
+    assertCompleted(
+        () ->
+            store.moveItem(
+                edit(
+                    completedCopy,
+                    new MoveScheduleItemCommand(
+                        result.activeScheduleVersionId(),
+                        2,
+                        2,
+                        OffsetDateTime.parse("2026-09-02T10:30:00+09:00")),
+                    2)));
+  }
+
+  @Test
+  void POST의_progress_copy실패는_새_version과_pointer를_전부_rollback한다() {
+    jdbc.update(
+        "insert into public.trip_item_progress (trip_plan_id,schedule_version_id,trip_item_id,status) values (?,?,?,'arrived')",
+        TRIP,
+        ACTIVE,
+        FIRST);
+    jdbc.execute(
+        """
+        create function pg_temp.reject_progress_copy() returns trigger language plpgsql as $$
+        begin
+          if new.schedule_version_id <> '50000000-0000-0000-0000-000000000104'::uuid then
+            raise exception using errcode='23514', message='forced progress copy failure';
+          end if;
+          return new;
+        end
+        $$
+        """);
+    jdbc.execute(
+        "create trigger reject_progress_copy before insert on public.trip_item_progress "
+            + "for each row execute function pg_temp.reject_progress_copy()");
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> addInNestedTransaction(record(Position.LAST, ACTIVE, 1)))
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo("SCHEDULE_ITEM_INVALID");
+
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_item_progress where trip_plan_id=?",
+                Integer.class,
+                TRIP))
+        .isEqualTo(1);
+  }
+
+  @Test
   void stale_active_selector는_409이고_draft나_pointer_변경을_남기지_않는다() {
     UUID stale = UUID.fromString("50000000-0000-0000-0000-000000000199");
     String before = aggregateFingerprint();
@@ -813,8 +941,30 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   }
 
   private <T> ScheduleEditRecord<T> edit(UUID itemId, T command) {
+    return edit(itemId, command, 1);
+  }
+
+  private <T> ScheduleEditRecord<T> edit(UUID itemId, T command, long revision) {
     return new ScheduleEditRecord<>(
-        OWNER, TRIP, itemId, new TripExpectedRevision(TRIP, 1), command, NOW);
+        OWNER, TRIP, itemId, new TripExpectedRevision(TRIP, revision), command, NOW);
+  }
+
+  private UUID copiedItem(UUID versionId, UUID placeId, UUID dayId) {
+    return jdbc.queryForObject(
+        "select id from public.trip_items where schedule_version_id=? and trip_day_id=? and place_id=?",
+        UUID.class,
+        versionId,
+        dayId,
+        placeId);
+  }
+
+  private java.util.Map<String, Object> progress(UUID itemId) {
+    return jdbc.queryForMap(
+        """
+        select status, actual_started_at, actual_arrived_at, actual_completed_at
+        from public.trip_item_progress where trip_item_id=?
+        """,
+        itemId);
   }
 
   private void mutateLegacyItem(String sql, Object... arguments) {

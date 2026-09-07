@@ -51,6 +51,13 @@ def digest(path: Path) -> str:
 
 
 class CanonicalMigrationOrderTest(unittest.TestCase):
+    def test_architecture_documents_complete_canonical_suffix_and_title_only_correction(self) -> None:
+        architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
+
+        self.assertIn("20260918000012", architecture)
+        self.assertIn("Docker init `038`부터 `050`", architecture)
+        self.assertIn("title-only", architecture)
+
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
         migration_dir = ROOT / "supabase/migrations"
         actual = tuple(path.name for path in sorted(migration_dir.glob("20260918*.sql")))

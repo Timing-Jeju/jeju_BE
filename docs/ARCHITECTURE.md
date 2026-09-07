@@ -91,7 +91,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
 - `20260918000006` `#78` 프로필 이미지 Storage migration은 `user_profiles` 상태, cleanup outbox와 public bucket의 immutable INSERT-only RLS를 additive하게 적용합니다.
 - `20260918000009`은 #38 시간표 provenance와 TAGO route reference scope를 additive하게 분리합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000011`까지 고유 timestamp와 Docker init `038`부터 `049`를 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000012`까지 고유 timestamp와 Docker init `038`부터 `050`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.

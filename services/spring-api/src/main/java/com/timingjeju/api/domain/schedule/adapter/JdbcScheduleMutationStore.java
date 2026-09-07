@@ -108,6 +108,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         newItems.add(source.asNew(newId, sequence, source));
         copiedIds.put(source.id(), newId);
       }
+      copyProgress(record.tripId(), activeVersionId, newVersionId, copiedIds, committedAt);
 
       UUID changedItemId = UUID.randomUUID();
       Instant plannedStart = record.command().plannedStartAt().toInstant();
