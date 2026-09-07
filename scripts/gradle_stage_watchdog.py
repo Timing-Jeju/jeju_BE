@@ -54,6 +54,10 @@ APPROVED_TESTCONTAINERS_IMAGE_PROVENANCE = {
     "postgis/postgis:16-3.4": (
         "sha256:44126d872ac91993766c341e369c539e8196614321765d36a6f1bab0419a5fa5"
     ),
+    # Registry manifest digest for the PG17 canonical migration compatibility image.
+    "postgis/postgis:17-3.5": (
+        "sha256:01a6a70e41e6c4467c8f55f6063555ed72db2d6662cd0d571040d42eadaeb6f6"
+    ),
     # Registry manifest-list digest shared by the CI linux/amd64 and local arm64 images.
     "testcontainers/ryuk:0.14.0": (
         "sha256:7c1a8a9a47c780ed0f983770a662f80deb115d95cce3e2daa3d12115b8cd28f0"
