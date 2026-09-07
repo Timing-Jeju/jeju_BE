@@ -31,6 +31,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -60,14 +61,10 @@ class SafeTimetableFileReaderTest {
         .isInstanceOf(TimetableParseException.class)
         .hasMessageContaining("UNSAFE_SOURCE_PATH");
     Path directory = Files.createDirectory(allowed.resolve("directory.xlsx"));
-    assertThatThrownBy(() -> reader.read(directory))
-        .isInstanceOf(TimetableParseException.class)
-        .hasMessageMatching(".*(UNSAFE_SOURCE_PATH|UNSAFE_FILESYSTEM).*");
+    assertNonRegularSourceRejected(() -> reader.read(directory));
     Path link = allowed.resolve("link.xlsx");
     Files.createSymbolicLink(link, outside);
-    assertThatThrownBy(() -> reader.read(link))
-        .isInstanceOf(TimetableParseException.class)
-        .hasMessageMatching(".*(UNSAFE_SOURCE_PATH|UNSAFE_FILESYSTEM).*");
+    assertNonRegularSourceRejected(() -> reader.read(link));
   }
 
   @Test
@@ -454,6 +451,15 @@ class SafeTimetableFileReaderTest {
     try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
       return stream instanceof java.nio.file.SecureDirectoryStream<?>;
     }
+  }
+
+  private static void assertNonRegularSourceRejected(ThrowingCallable read) {
+    assertThatThrownBy(read)
+        .isInstanceOf(TimetableParseException.class)
+        .satisfies(
+            failure ->
+                assertThat(failure.getMessage().split(" ", 2)[0])
+                    .isIn("NOT_REGULAR_FILE", "UNSAFE_FILESYSTEM"));
   }
 
   private static void sleepIgnoringInterrupt(Duration duration) {
