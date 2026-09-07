@@ -3,7 +3,8 @@ set -eu
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT"
-PROJECT="timing-jeju-smoke"
+RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
+PROJECT="timing-jeju-smoke-${RUN_ID}"
 UPGRADE_DB="timing_jeju_legacy_upgrade"
 HOURS_CONFLICT_DB="timing_jeju_legacy_hours_conflict"
 RESULT_DAY_CONFLICT_DB="timing_jeju_legacy_result_day_conflict"
@@ -52,7 +53,40 @@ cleanup() {
   docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans >/dev/null 2>&1 || true
   docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT INT TERM
+
+resolve_api_port() {
+  published=$1
+  entry_count=$(printf '%s\n' "$published" | awk 'NF { count++ } END { print count + 0 }')
+  if [ "$entry_count" -ne 1 ]; then
+    echo "[Docker] API publish port가 하나가 아닙니다." >&2
+    return 1
+  fi
+
+  case "$published" in
+    *:*) port=${published##*:} ;;
+    *)
+      echo "[Docker] API publish port 형식이 올바르지 않습니다." >&2
+      return 1
+      ;;
+  esac
+
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "[Docker] API publish port가 정수가 아닙니다." >&2
+      return 1
+      ;;
+  esac
+  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "[Docker] API publish port 범위가 올바르지 않습니다." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$port"
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 command -v docker >/dev/null || { echo "Docker가 설치되지 않았습니다." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker daemon이 실행 중이 아닙니다." >&2; exit 1; }
@@ -60,9 +94,15 @@ docker info >/dev/null 2>&1 || { echo "Docker daemon이 실행 중이 아닙니�
 echo "[Docker] 이미지 빌드와 격리 Compose 실행"
 docker compose -p "$PROJECT" -f compose.test.yml up -d --build
 
+PUBLISHED_API_PORT=$(docker compose -p "$PROJECT" -f compose.test.yml port api 8080) || {
+  echo "[Docker] 현재 smoke API의 publish port를 조회하지 못했습니다." >&2
+  exit 1
+}
+API_PORT=$(resolve_api_port "$PUBLISHED_API_PORT")
+
 attempt=1
 while [ "$attempt" -le 60 ]; do
-  if curl --fail --silent http://127.0.0.1:18080/actuator/health | grep -q '"status":"UP"'; then
+  if curl --fail --silent "http://127.0.0.1:${API_PORT}/actuator/health" | grep -q '"status":"UP"'; then
     break
   fi
   attempt=$((attempt + 1))

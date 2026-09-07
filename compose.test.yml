@@ -91,7 +91,8 @@ services:
       KMA_CONNECT_TIMEOUT: 2s
       KMA_READ_TIMEOUT: 5s
     ports:
-      - "18080:8080"
+      - target: 8080
+        host_ip: "127.0.0.1"
     depends_on:
       postgres:
         condition: service_healthy
