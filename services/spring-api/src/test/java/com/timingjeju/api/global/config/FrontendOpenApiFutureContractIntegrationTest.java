@@ -26,13 +26,25 @@ import tools.jackson.databind.json.JsonMapper;
       "app.security.jwt.issuer=http://127.0.0.1:54321/auth/v1",
       "app.security.jwt.audience=authenticated",
       "app.security.jwt.jwks-url=",
-      "app.security.jwt.secret=test-only-openapi-readiness-key-with-at-least-32-bytes",
       "app.security.cors.allowed-origins=http://localhost:3000",
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes",
       "timing-jeju.test.context=future-contract-openapi"
     })
 @AutoConfigureMockMvc
 class FrontendOpenApiFutureContractIntegrationTest {
+  private static final String JWT_KEY = randomKey();
+
+  @org.springframework.test.context.DynamicPropertySource
+  static void jwtKey(org.springframework.test.context.DynamicPropertyRegistry registry) {
+    registry.add("app.security.jwt.secret", () -> JWT_KEY);
+  }
+
+  private static String randomKey() {
+    byte[] bytes = new byte[48];
+    new java.security.SecureRandom().nextBytes(bytes);
+    return java.util.Base64.getEncoder().encodeToString(bytes);
+  }
+
   @Autowired private MockMvc mvc;
   @Autowired private JsonMapper mapper;
   @Autowired private ProblemCodeRegistry problems;
@@ -45,11 +57,7 @@ class FrontendOpenApiFutureContractIntegrationTest {
     var fixture = new FrontendOpenApiReadinessTest();
     var actual =
         new FrontendOpenApiCustomizer(
-            mapper,
-            problems,
-            placePreferences,
-            preferences,
-            path -> fixture.resource(path, "not-ready"));
+            mapper, problems, placePreferences, preferences, path -> futureResource(fixture, path));
     doAnswer(
             invocation -> {
               actual.customise(invocation.getArgument(0));
@@ -57,6 +65,28 @@ class FrontendOpenApiFutureContractIntegrationTest {
             })
         .when(customizer)
         .customise(any());
+  }
+
+  @SuppressWarnings("unchecked")
+  private java.util.Map<String, Object> futureResource(
+      FrontendOpenApiReadinessTest fixture, String path) {
+    var resource = fixture.resource(path, "not-ready");
+    if (path.equals("/rest/catalog.json")) {
+      for (var row :
+          (java.util.List<java.util.Map<String, Object>>) resource.get("domainContracts")) {
+        if (java.util.Set.of("accommodations", "schedules").contains(row.get("domain"))) {
+          ((java.util.Map<String, Object>) row.get("readiness"))
+              .put(
+                  "implementation",
+                  java.util.Map.of(
+                      "status",
+                      "ready",
+                      "evidence",
+                      java.util.Map.of("testFixture", "independent-domain-projection")));
+        }
+      }
+    }
+    return resource;
   }
 
   @Test

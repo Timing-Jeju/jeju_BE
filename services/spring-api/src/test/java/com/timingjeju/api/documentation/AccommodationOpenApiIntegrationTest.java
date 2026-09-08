@@ -40,6 +40,11 @@ import tools.jackson.databind.ObjectMapper;
 @AutoConfigureMockMvc
 class AccommodationOpenApiIntegrationTest
     extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
+  @Override
+  protected String canonicalDomain() {
+    return "accommodations";
+  }
+
   private static final String JWT_KEY = randomKey();
 
   @Autowired private MockMvc mvc;

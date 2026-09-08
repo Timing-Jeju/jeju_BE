@@ -28,6 +28,10 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 class PlacesOpenApiIntegrationTest
     extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
+  @Override
+  protected String canonicalDomain() {
+    return "places";
+  }
 
   private static final String JWT_KEY = randomKey();
 

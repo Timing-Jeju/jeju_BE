@@ -59,3 +59,23 @@ class OpenApiProjectionReadinessTest(unittest.TestCase):
         row = {'domain': 'weather', 'readiness': {'implementation': {'status': 'not-ready', 'evidence': None}}}
         validator = Validator({}, 9, ROOT)
         self.assertIsNone(validator.projection_readiness({'domainContracts': [row, row]}))
+
+    def test_미래_오류와_status가_바뀌어도_not_ready는_runtime을_검증한다(self):
+        """미구현 selector의 새 오류 코드는 현행 날씨 응답 검증에 투영하지 않는다."""
+        key = ('GET', '/api/v1/weather/forecast')
+        validator = Validator({}, 9, ROOT)
+        manifest = validator.read_authority_json('scripts/openapi_frontend_runtime_manifest.json')
+        runtime = manifest['operations']['GET /api/v1/weather/forecast']
+        responses = {'200': {}}
+        for status, (code, kind) in runtime['problems'].items():
+            responses[status] = {'content': {'application/problem+json': {'example': {'code': code, 'type': kind}}}}
+        validator.document = {'paths': {key[1]: {'get': {'responses': responses}}}}
+        validator.runtime_manifest = manifest['operations']
+        validator.runtime_problem_definitions = manifest['runtimeProblemDefinitions']
+        validator.validate_contract_endpoint(key, {'responses': {'success': [202], 'errors': [409]}},
+            {'errorMatrix': {'409': ['INVALID_WEATHER_SELECTOR']}}, {},
+            {('INVALID_WEATHER_SELECTOR', None)}, canonical_ready=False)
+        self.assertEqual([], validator.errors)
+        responses['400']['content']['application/problem+json']['example']['code'] = 'UNAPPROVED_CODE'
+        validator.validate_contract_endpoint(key, {'responses': {}}, {}, {}, set(), canonical_ready=False)
+        self.assertTrue(any('runtime representative' in error for error in validator.errors))

@@ -36,6 +36,11 @@ import tools.jackson.databind.ObjectMapper;
 @AutoConfigureMockMvc
 class TripPreferencesOpenApiIntegrationTest
     extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
+  @Override
+  protected String canonicalDomain() {
+    return "preferences-transport";
+  }
+
   private static final String JWT_KEY = randomKey();
   private static final String PUT = "$.paths['/api/v1/trips/{tripId}/preferences'].put";
   private static final String TRIP_ETAG_PATTERN =

@@ -16,6 +16,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** Tests projection under explicitly ready fixtures; never changes release catalog readiness. */
 public abstract class ReadyCanonicalOpenApiTest {
+  protected abstract String canonicalDomain();
+
   @Autowired private JsonMapper mapper;
   @Autowired private ProblemCodeRegistry problems;
   @Autowired private TripPlacePreferencesProblemDefinitions placePreferences;
@@ -42,6 +44,7 @@ public abstract class ReadyCanonicalOpenApiTest {
       Map<String, Object> resource = mapper.readValue(stream, Map.class);
       if (path.equals("/rest/catalog.json")) {
         for (var row : (List<Map<String, Object>>) resource.get("domainContracts")) {
+          if (!canonicalDomain().equals(row.get("domain"))) continue;
           ((Map<String, Object>) row.get("readiness"))
               .put(
                   "implementation",

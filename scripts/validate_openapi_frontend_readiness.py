@@ -648,6 +648,8 @@ class Validator:
         if not isinstance(runtime, dict):
             self.error(location, "runtime-only manifest projection이 없습니다")
             return
+        if not canonical_ready:
+            domain_problem_pairs = None
         strict_problem_pairs = key == ("POST", "/api/v1/trips/{tripId}/schedule-items")
         for status, problem in (runtime.get("problems") or {}).items():
             if not isinstance(problem, list) or len(problem) != 2:
@@ -692,8 +694,17 @@ class Validator:
                 )
                 if domain_problem_pairs is not None and not pair_matches and not runtime_only_allowed:
                     self.error(location, f"Problem 전체 집합 {status} code/type이 domain endpoint matrix와 다릅니다")
-        expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
-        expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
+        if canonical_ready:
+            expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
+            expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
+        else:
+            statuses = runtime.get("statuses")
+            if (not isinstance(statuses, list) or not statuses
+                    or any(type(status) is not int or not 200 <= status <= 599 for status in statuses)
+                    or len(statuses) != len(set(statuses))):
+                self.error(location, "runtime statuses manifest가 올바르지 않습니다")
+                return
+            expected_statuses = {str(status) for status in statuses}
         actual_statuses = {str(status) for status in responses if str(status).isdigit()}
         if actual_statuses != expected_statuses:
             self.error(
@@ -705,7 +716,7 @@ class Validator:
             self.validate_contract_body(operation, catalog, schemas, location)
             self.validate_contract_success(operation, endpoint, schemas, location)
         canonical_problem_examples = {}
-        if key == ("POST", "/api/v1/trips/{tripId}/schedule-items"):
+        if canonical_ready and key == ("POST", "/api/v1/trips/{tripId}/schedule-items"):
             fixture = self.read_authority_json("fixtures/contracts/schedules/problem.json") or {}
             canonical_problem_examples = {
                 example.get("code"): example

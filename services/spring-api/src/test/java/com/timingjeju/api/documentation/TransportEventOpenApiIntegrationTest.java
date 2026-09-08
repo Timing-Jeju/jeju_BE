@@ -30,6 +30,11 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 class TransportEventOpenApiIntegrationTest
     extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
+  @Override
+  protected String canonicalDomain() {
+    return "preferences-transport";
+  }
+
   private static final String JWT_KEY = randomKey();
 
   @Autowired private MockMvc mvc;

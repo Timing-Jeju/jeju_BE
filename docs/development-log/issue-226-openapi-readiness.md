@@ -24,7 +24,7 @@ Python은 canonical schema 비교만 분기하고 endpoint·인증·status·Prob
 - RED: 실제 산출물 검증에서 nullable/byte body/boolean enum 오류 확인.
 - GREEN: readiness 단위 7개, OpenAPI slice 22개 통과
   (`/tmp/jeju-226-final-targeted.log`).
-- GREEN: Python 문서 검사 단위 33개 통과 (`/tmp/jeju-226-python-green.log`).
+- GREEN: Python 문서 검사 단위 34개 통과 (`/tmp/jeju-226-python-green.log`).
 - GREEN: 실제 `openApiDocs` 생성과 `validate_openapi_frontend_readiness.py --mode 33`
   37개 endpoint 검사 통과 (`/tmp/jeju-226-validation.log`).
 - Refactor: domain readiness 해석을 독립 정책으로 분리하고 테스트 resource 주입을
@@ -36,3 +36,13 @@ Python은 canonical schema 비교만 분기하고 endpoint·인증·status·Prob
 테스트 전용 ready fixture는 release readiness의 근거가 아니다.
 #220, #221, #222의 위치 비수집 계약/런타임 전환은 이 변경에 포함하지 않는다.
 운영 DB 적용·배포·외부 provider 호출은 수행하지 않는다.
+
+## 독립 리뷰 반영
+
+- 검증 대상 domain만 테스트에서 ready로 지정하고 다른 domain의 readiness는 보존한다.
+  미래 not-ready Weather와 ready 숙소·일정을 함께 로드하는 HTTP 회귀를 추가했다.
+- not-ready의 오류/status도 미래 canonical 대신 별도 runtime manifest로 검증한다.
+  현행 검증 통과 산출물에서 status inventory를 고정하고 누락·비정상 값을 거부한다.
+  미래 202/409 및 INVALID_WEATHER_SELECTOR 변경은 현행 API에 영향을 주지 않으며
+  현행 응답의 미승인 코드 변경은 계속 실패하는 RED/GREEN을 확인했다.
+- 테스트 JWT 키는 실행마다 생성해 비밀정보 검사 기준을 준수한다.
