@@ -25,5 +25,6 @@ collector를 관찰한 직후 `/proc/<pid>/stat`을 읽기 전에 프로세스�
 - 샌드박스가 `ps`를 차단한 실행은 guard가 inventory를 신뢰하지 않고 exit 129로
   fail-closed했다. process inventory 권한을 부여한 단독 전체 suite는 87개 Green,
   Linux 전용 observed collector E2E 본문은 POSIX 호스트에서 20회 반복 Green이었다.
-- CI common은 clean worktree 전제이므로 정상 commit hook 뒤 동일 HEAD에서 실행한다.
+- 정상 commit hook의 Spring unitTest가 통과했고, clean HEAD의 CI common에서 hooks 36개,
+  git-hooks 7개, scripts 823개(3 skip)가 모두 Green이었다.
 - Docker/full gate/push/PR, 실제 DB, live Supabase, 배포는 수행하지 않았다.
