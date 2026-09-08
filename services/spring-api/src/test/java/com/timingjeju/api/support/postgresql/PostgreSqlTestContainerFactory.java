@@ -98,7 +98,7 @@ final class PostgreSqlTestContainerFactory {
     String sanitized = diagnostic.replace(containerTarget, scriptName);
     sanitized = SENSITIVE_LITERAL.matcher(sanitized).replaceAll("'<redacted>'");
     sanitized = UUID_VALUE.matcher(sanitized).replaceAll("<uuid>");
-    sanitized = sanitized.replaceAll("[\\p{Cntrl}]", " ").strip();
+    sanitized = sanitized.replaceAll("\\s+", " ").strip();
     if (sanitized.length() <= MAX_DIAGNOSTIC_LENGTH) {
       return sanitized;
     }
