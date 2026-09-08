@@ -29,6 +29,7 @@ CANONICAL_SUFFIX = (
     ("20260918000010_compute_run_input_location_cleanup.sql", "048", 109),
     ("20260918000011_private_trip_ownership_helper.sql", "049", 210),
     ("20260918000012_schedule_title_only_sealing_correction.sql", "050", 215),
+    ("20260918000013_schedule_item_closed_facts.sql", "051", 225),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -55,7 +56,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `050`", architecture)
+        self.assertIn("Docker init `038`부터 `051`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
@@ -149,7 +150,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn(f"revoke execute on function {signature} from authenticated", correction)
 
     def test_issue_215_additively_aligns_core_sealing_with_title_only_items(self) -> None:
-        correction_path = ROOT / "supabase/migrations" / CANONICAL_SUFFIX[-1][0]
+        correction_path = ROOT / "supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql"
         source = re.sub(r"\s+", " ", correction_path.read_text(encoding="utf-8").lower())
 
         self.assertIn(
