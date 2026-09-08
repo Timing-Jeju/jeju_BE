@@ -91,3 +91,6 @@
 - `dbefbaa` 전체 gate는 Docker 실행 전 배포 SQL 정책 검사에서 RED였다 (`/tmp/jeju-225-quality-dbefbaa-solo.log`). 새 legacy QA fixture가 `db/queries`에 있어 로컬 합성 계정 INSERT가 운영 적용 가능 SQL로 분류됐다.
 - fixture를 기존 정책이 지정한 `db/local-postgres`로 이동하고 Java 테스트의 참조 두 곳만 수정했다. SQL 본문과 immutable migration은 변경하지 않았고 정책 allowlist를 추가하지 않았다.
 - 배포 SQL 정책 검사와 기존 정책 회귀 22건 PASS (`/tmp/jeju-225-local-fixture-policy-green.log`). 최신 commit의 전체 gate로 다시 검증한다. 최초 실행은 최종 품질 게이트 성공 근거가 아니다.
+
+- 공통 gate `/tmp/jeju-225-common-fc30462.log`에서 기존 정적 기대값 4건이 RED였다. 완료 여행 fixture에 예전 facts.location을 요구하던 assertion 1건과 migration013–016 이전의 목록/역사·현재 smoke 종료 지점 기대값 3건이다.
+- 정적 검사를 위치 없는 custom fixture와 현재 등록 순서에 맞췄다. 역사 v1은052까지 검증하고053은 별도 실패·rollback audit로 실행하며, 현재 concurrency는054까지 실행한다는 구분을 그대로 검사한다. 관련25건 PASS(`/tmp/jeju-225-common-contract-green.log`).
