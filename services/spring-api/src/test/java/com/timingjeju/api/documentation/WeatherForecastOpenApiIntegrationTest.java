@@ -62,6 +62,10 @@ class WeatherForecastOpenApiIntegrationTest {
                 .value("uuid"))
         .andExpect(
             jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='tripItemId')].example")
+                .value(Matchers.contains("50000000-0000-4000-8000-000000000005")))
+        .andExpect(
+            jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='dateTime')].required")
                 .value(true))
         .andExpect(

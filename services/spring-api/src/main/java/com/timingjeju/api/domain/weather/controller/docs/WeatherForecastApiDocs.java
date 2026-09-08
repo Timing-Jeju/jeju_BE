@@ -65,6 +65,7 @@ public interface WeatherForecastApiDocs {
           String placeId,
       @Parameter(
               description = "인증 사용자가 소유한 계획 항목 canonical UUID",
+              example = "50000000-0000-4000-8000-000000000005",
               schema = @Schema(format = "uuid"))
           String tripItemId,
       @Parameter(

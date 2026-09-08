@@ -55,3 +55,8 @@
 - runtime/future OpenAPI projection slice의 과거 GPS assertion을 실제 공개 selector 기준으로 정정했다. `/tmp/jeju-222-runtime-slice.log` 성공.
 - `docs/FRONTEND_API_SPEC.md`의 날씨 query/예제/오류/버전을 실제 v2 구현에 맞췄다.
 - Figma v2 Draft의 텍스트 및 screenshot readback은 `issue-222-figma-v2-readback.md`에 기록했다. Notion 동기화 차단은 그대로 남으며 metadata/example readiness를 강제로 승격하지 않는다.
+
+## 공개 OpenAPI 전체 사전 검사
+
+- 전체 산출물 validator에서 새 tripItemId query example 누락을 확인했다. HTTP Swagger RED(`/tmp/jeju-222-item-example-red.log`) 후 문서 인터페이스에 canonical UUID 예제를 추가해 GREEN(`/tmp/jeju-222-item-example-green.log`)을 확인했다.
+- `/tmp/jeju-222-openapi-all-final.log`: OpenAPI 생성 및 루트 frontend-readiness 37 operations PASS. 선행 #221 병합 후 전체 gate는 별도로 수행한다.
