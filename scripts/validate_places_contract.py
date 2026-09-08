@@ -39,7 +39,6 @@ EXPECTED_LIST_FIELDS = {
     "recommendedStayEffectiveAt",
     "recommendedStayUpdatedAt",
     "operationsSummary",
-    "distanceMeters",
     "dataFreshness",
     "saved",
     "memo",
@@ -115,15 +114,15 @@ EXPECTED_SCHEMA_REQUIRED = {
 EXPECTED_SCHEMA_PROPERTIES = {
     **EXPECTED_SCHEMA_REQUIRED,
     "PlacesListRequest": {
-        "query", "category", "regionCode", "lat", "lng", "radiusMeters", "cursor", "size", "savedOnly"
+        "query", "category", "regionCode", "cursor", "size", "savedOnly"
     },
 }
 EXPECTED_SCHEMA_DIGESTS = {
-    "PlacesListRequest": "e10118c0d8fe0f6f4da2a210dbb5c9e9aa81e00eff53e5ce9fcd45718f520056",
+    "PlacesListRequest": "8cb7c8cafc17f17a5fcac14d9989482def1814a5c30d6ce2a91bbea87a88bd3d",
     "PlaceDetailPath": "2c80be1c2604a34033256df7c54f900caf2e8d11bc80a67827bf8dc4ce44aa22",
     "Location": "5d545fbf900382f1c8259038886baf3925845243a8ac6de18165a25afaabc38a",
     "DataFreshness": "132bfa40d554d4cd63bc3e5ad57af66881f61946c97f4505af5bf022d7832321",
-    "PlaceListItem": "d9177a3629b49001b3d0ff8c2966e53ffb61295d9b48362de6174055125840cb",
+    "PlaceListItem": "87a692892974f1e6396172f10ae2dea1be5ad7fba635380b6098e44521e6afe0",
     "CursorPage": "86db2725e30ba15baae804f4844b8e3aea6650ba0f029a03c5151e20f2b91efb",
     "PlacesListResponse": "a26ed8eb8b7fd70d23df5be2357cbbcfd3d5318342e7714f9854eed20b0a55b7",
     "SavedPlaceState": "fa15ccc8bd4177995c3525ed02a6d08914ac810f984ec57e686bd467874d116b",
@@ -138,7 +137,6 @@ EXPECTED_SCHEMA_DIGESTS = {
 EXPECTED_ENDPOINT_PROBLEMS = {
     "/api/v1/places": {
         (400, "INVALID_QUERY_PARAMETER", "https://api.timing-jeju.com/problems/invalid-query-parameter"),
-        (400, "INVALID_GEO_FILTER", "https://api.timing-jeju.com/problems/invalid-geo-filter"),
         (400, "CURSOR_CONTEXT_MISMATCH", "https://api.timing-jeju.com/problems/cursor-context-mismatch"),
         (400, "INVALID_CURSOR", "https://api.timing-jeju.com/problems/invalid-cursor"),
         (401, "INVALID_ACCESS_TOKEN", "https://api.timing-jeju.com/problems/invalid-access-token"),
@@ -453,7 +451,7 @@ def _validate_identity(contract: dict[str, Any], errors: list[str]) -> None:
         errors,
     )
     _expect(
-        contract.get("contractVersion") == "1.0.0"
+        contract.get("contractVersion") == "2.0.0"
         and contract.get("sourceSpecVersion") == "v1.1",
         "local/Notion source spec와 #72 contract version mapping이 다릅니다.",
         errors,
@@ -464,8 +462,8 @@ def _validate_identity(contract: dict[str, Any], errors: list[str]) -> None:
         errors,
     )
     _expect(
-        contract.get("ownerIssue") == 83 and contract.get("implementationIssue") == 66,
-        "장소 contract owner는 #83, 구현 owner는 #66이어야 합니다.",
+        contract.get("ownerIssue") == 83 and contract.get("implementationIssue") == 221,
+        "장소 contract owner는 #83, v2 구현 owner는 #221이어야 합니다.",
         errors,
     )
 
@@ -542,24 +540,10 @@ def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
         "query는 trim 후 1~100자인 문자열이어야 합니다.",
         errors,
     )
-    geo = (
-        query.get("lat", {}),
-        query.get("lng", {}),
-        query.get("radiusMeters", {}),
-    )
-    valid_geo = (
-        geo[0].get("minimum") == 33
-        and geo[0].get("maximum") == 34
-        and geo[0].get("pairedWith") == "lng"
-        and geo[1].get("minimum") == 126
-        and geo[1].get("maximum") == 127
-        and geo[1].get("pairedWith") == "lat"
-        and geo[2].get("minimum") == 100
-        and geo[2].get("maximum") == 50000
-        and geo[2].get("default") == 10000
-        and geo[2].get("requires") == ["lat", "lng"]
-    )
-    _expect(valid_geo, "lat/lng/radiusMeters 범위와 조합 계약이 다릅니다.", errors)
+    _expect(set(query) == {"query", "category", "regionCode", "cursor", "size", "savedOnly"},
+            "lat/lng/radiusMeters 및 미지 query 필드는 허용하지 않습니다.", errors)
+    _expect(endpoint.get("pagination", {}).get("stableSort") == {"default": ["normalizedName ASC", "placeId ASC"]},
+            "위치 기반 nearby 정렬은 허용하지 않습니다.", errors)
 
     size = query.get("size", {})
     cursor_query = query.get("cursor", {})
@@ -575,13 +559,16 @@ def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
         errors,
     )
     pagination = endpoint.get("pagination", {})
+    _expect(pagination.get("cursorFormatVersion") == "places-location-free/v2"
+            and pagination.get("legacyClientAction") == "discard before network; start without cursor"
+            and pagination.get("legacyServerAction") == "reject INVALID_CURSOR before legacy payload decoding"
+            and pagination.get("signingScope") == "v2 key domain separation; sign only location-free projection",
+            "legacy 위치 cursor는 재사용할 수 없습니다.", errors)
+
     expected_scope = [
         "query",
         "category",
         "regionCode",
-        "lat",
-        "lng",
-        "radiusMeters",
         "size",
         "savedOnly",
         "sortProfile",
@@ -776,7 +763,7 @@ def _validate_errors(contract: dict[str, Any], errors: list[str]) -> None:
         isinstance(example, dict)
         and set(example) == PROBLEM_FIELDS
         and example.get("status") == 400
-        and example.get("code") == "INVALID_GEO_FILTER"
+        and example.get("code") == "INVALID_QUERY_PARAMETER"
         and any("가" <= char <= "힣" for char in str(example.get("title", "")))
         and any("가" <= char <= "힣" for char in str(example.get("detail", "")))
         and len(str(example.get("traceId", ""))) == 32,
@@ -817,7 +804,7 @@ def _validate_traceability(
             ),
             set(),
         )
-        == EXPECTED_LIST_FIELDS
+        == EXPECTED_LIST_FIELDS | {"distanceMeters"}
         and all(
             str(entry.get("url", "")).startswith("https://app.notion.com/p/")
             and str(entry.get("pageId", "")).replace("-", "")
@@ -886,7 +873,7 @@ def _validate_catalog_alignment(errors: list[str], repo_root: Path) -> None:
     metadata = readiness.get("metadata", {})
     _expect(
         places_domain.get("versions")
-        == {"local": "1.0.0", "notion": "not-linked", "figma": "not-linked"}
+        == {"local": "2.0.0", "notion": "not-linked", "figma": "not-linked"}
         and metadata == {"status": "not-ready", "evidence": None}
         and readiness.get("example") == {"status": "not-ready", "evidence": None}
         and readiness.get("implementation") == {"status": "not-ready", "evidence": None},

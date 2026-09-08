@@ -35,12 +35,13 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
         spec.loader.exec_module(cls.validator)
 
     def test_identity_scope_and_fail_closed_readiness_are_exact(self) -> None:
+        """v2 계약은 소유자 재검증 전 비활성 상태여야 한다."""
         self.assertEqual("timing-jeju-fcm-departure-notification/v1", self.contract["schemaVersion"])
-        self.assertEqual("1.0.0", self.contract["contractVersion"])
+        self.assertEqual("2.0.0", self.contract["contractVersion"])
         self.assertEqual(112, self.contract["ownerIssue"])
-        self.assertEqual([72, 73, 93], self.contract["dependencies"])
+        self.assertEqual([72, 220, 93], self.contract["dependencies"])
         readiness = self.contract["readiness"]
-        self.assertTrue(readiness["contractReady"])
+        self.assertFalse(readiness["contractReady"])
         self.assertFalse(readiness["implementationReady"])
         self.assertFalse(readiness["productionDefaultEnabled"])
         self.assertEqual("fail_closed", readiness["missingPreconditionAction"])
@@ -220,9 +221,10 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
                 self.assertEqual(case["expected"], self.validator.aggregate_target_states(case, self.contract))
 
     def test_claim_preparation_and_post_snapshot_races_are_executable(self) -> None:
+        """위치 동의 없이 기기와 알림 설정의 경합을 검증한다."""
         policy = self.contract["attemptPolicy"]["targetRacePolicy"]
         self.assertEqual(
-            ["user setting", "OS permission", "latest required location consent", "device active"],
+            ["user setting", "OS permission", "device active"],
             policy["immediatelyBeforeEachTargetCall"],
         )
         self.assertEqual("include when active at preparation", policy["claimToPreparationActivation"])
@@ -378,43 +380,31 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
             with self.subTest(mutate=mutate), self.assertRaises(ValueError):
                 self.validator.validate_contract(changed, self.fixture)
 
-    def test_latest_required_location_consent_and_audit_snapshot_matrix(self) -> None:
+    def test_location_free_eligibility_matrix(self) -> None:
+        """활성 기기와 두 알림 선택의 모든 조합을 위치 없이 검증한다."""
         consent = self.contract["consentPolicy"]
-        self.assertEqual(
-            ["osNotificationPermissionGranted", "serverDepartureNotificationEnabled", "latestRequiredLocationConsent"],
-            consent["requiredSignals"],
-        )
-        location = consent["locationConsentEvaluation"]
-        self.assertEqual("location", location["documentType"])
-        self.assertEqual("latest effective required document at evaluation instant", location["requiredVersionSource"])
-        self.assertEqual("exact version match and active consent", location["eligibilityRule"])
-        self.assertEqual(
-            ["documentType", "requiredVersion", "consentedVersion", "consentStatus", "evaluatedAt"],
-            location["auditSnapshotFields"],
-        )
-        self.assertEqual(["atSchedule", "immediatelyBeforeSend"], consent["checkpoints"])
-        ids = {case["id"] for case in self.fixture["consentCases"]}
-        self.assertTrue({"latest_version_active", "old_version", "newer_non_required_version", "withdrawn"} <= ids)
-        for case in self.fixture["consentCases"]:
+        self.assertEqual(["activeDevice", "osNotificationPermissionGranted", "serverDepartureNotificationEnabled"], consent["requiredSignals"])
+        self.assertNotIn("locationConsentEvaluation", consent)
+        self.assertEqual(["deviceActive", "osGranted", "serverEnabled", "evaluatedAt"], consent["eligibilityEvaluation"]["auditSnapshotFields"])
+        cases = [case for case in self.fixture["consentCases"] if not case["id"].startswith("invalid_")]
+        self.assertEqual(8, len(cases))
+        self.assertEqual(8, len({(case["deviceActive"], case["osGranted"], case["serverEnabled"]) for case in cases}))
+        for case in cases:
             with self.subTest(case=case["id"]):
                 self.assertEqual(case["expected"], self.validator.evaluate_consent_case(case))
+                self.assertEqual(all(case[key] for key in ("deviceActive", "osGranted", "serverEnabled")), case["expected"]["eligible"])
 
-    def test_consent_versions_and_status_are_canonical_or_fail_closed(self) -> None:
-        validation = self.contract["consentPolicy"]["locationConsentEvaluation"]
-        self.assertEqual("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", validation["canonicalVersionPattern"])
-        self.assertEqual(["ACTIVE", "WITHDRAWN"], validation["allowedStatuses"])
-        invalid_ids = {case["id"] for case in self.fixture["consentCases"] if case["id"].startswith("invalid_")}
-        self.assertEqual(
-            {"invalid_missing_required_version", "invalid_null_consented_version", "invalid_blank_required_version", "invalid_wrong_type_version", "invalid_unknown_status"},
-            invalid_ids,
-        )
-        for case in self.fixture["consentCases"]:
-            if case["id"].startswith("invalid_"):
-                with self.subTest(case=case["id"]):
-                    self.assertEqual(
-                        {"eligible": False, "reason": "invalid_consent_evidence", "auditSnapshot": None},
-                        self.validator.evaluate_consent_case(case),
-                    )
+    def test_invalid_eligibility_evidence_fails_closed(self) -> None:
+        """불완전한 신호와 과거 위치 동의 필드는 허용하지 않는다."""
+        cases = [case for case in self.fixture["consentCases"] if case["id"].startswith("invalid_")]
+        self.assertEqual({"invalid_missing_device", "invalid_wrong_device_type", "invalid_null_os", "invalid_wrong_server_type", "invalid_bad_timestamp"}, {case["id"] for case in cases})
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.assertEqual({"eligible": False, "reason": "invalid_consent_evidence", "auditSnapshot": None}, self.validator.evaluate_consent_case(case))
+        legacy = copy.deepcopy(self.fixture["consentCases"][0])
+        legacy["locationConsent"] = "ACTIVE"
+        with self.assertRaises(ValueError):
+            self.validator.evaluate_consent_case(legacy)
 
     def test_safety_buffer_change_invalidates_and_recomputes_atomically(self) -> None:
         policy = self.contract["schedulePolicy"]["safetyBufferChange"]
@@ -500,16 +490,17 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
                 self.validator.validate_contract(changed, self.fixture)
 
     def test_cancel_reasons_and_trigger_mapping_are_closed_and_exact(self) -> None:
+        """위치 동의 취소 사유를 제거한 닫힌 취소 목록을 검증한다."""
         job = self.contract["jobPolicy"]
         expected_reasons = [
             "SCHEDULE_VERSION_REPLACED", "ITEM_COMPLETED", "ITEM_SKIPPED", "TRIP_CANCELLED",
             "USER_OPTED_OUT", "PREFERENCE_CHANGED", "OS_PERMISSION_REVOKED",
-            "LOCATION_CONSENT_INVALID", "NO_ACTIVE_PUSH_TARGET", "EXPIRED",
+            "NO_ACTIVE_PUSH_TARGET", "EXPIRED",
         ]
         self.assertEqual(expected_reasons, job["cancelReasons"])
         mapping = job["cancellationTriggerReasons"]
         self.assertEqual(expected_reasons, [item["reason"] for item in mapping])
-        self.assertEqual(10, len(mapping))
+        self.assertEqual(9, len(mapping))
         for case in self.fixture["cancellationCases"]:
             with self.subTest(case=case["id"]):
                 self.assertEqual(case["expectedReason"], self.validator.resolve_cancel_reason(case["trigger"], self.contract))
@@ -597,11 +588,12 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
                 self.assertNotIn("Traceback", completed.stderr)
 
     def test_contract_fixture_and_transition_models_are_recursively_closed(self) -> None:
+        """변경된 자격 필드와 fixture의 미승인 확장을 거부한다."""
         self.validator.validate_contract(self.contract, self.fixture)
         mutations = []
         extra = copy.deepcopy(self.contract); extra["jobPolicy"]["unexpected"] = True; mutations.append(extra)
         removed = copy.deepcopy(self.contract); removed["attemptPolicy"]["providerOutcomeMatrix"].pop(); mutations.append(removed)
-        weakened = copy.deepcopy(self.contract); weakened["consentPolicy"]["requiredSignals"].remove("latestRequiredLocationConsent"); mutations.append(weakened)
+        weakened = copy.deepcopy(self.contract); weakened["consentPolicy"]["requiredSignals"].remove("activeDevice"); mutations.append(weakened)
         for mutation in mutations:
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 self.validator.validate_contract(mutation, self.fixture)
@@ -628,52 +620,16 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
         self.assertFalse(ambiguity["retryAllowed"])
         self.assertEqual("request bytes provably not sent", self.contract["attemptPolicy"]["provablePreConnectBoundary"])
 
-    def test_future_issue_readback_evidence_replaces_pending_amendments(self) -> None:
+    def test_v1_readback_does_not_approve_v2(self) -> None:
+        """과거 위치 동의 계약의 승인 근거를 v2에 재사용하지 않는다."""
         traceability = self.contract["traceability"]
-        self.assertNotIn("pmIssueAmendmentsRequired", traceability)
-        evidence = {item["issue"]: item for item in traceability["issueReadbackEvidence"]}
-        self.assertEqual({113, 114, 115, 116}, set(evidence))
-        self.assertEqual("2026-08-28T20:11:58Z", evidence[113]["updatedAt"])
-        self.assertEqual("2026-08-28T23:50:45Z", evidence[114]["updatedAt"])
-        self.assertEqual("2026-08-26T03:57:27Z", evidence[115]["updatedAt"])
-        self.assertEqual("2026-08-26T04:33:51Z", evidence[116]["updatedAt"])
-        self.assertEqual(
-            "de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da",
-            evidence[116]["blankLineNormalizedBodySha256"],
-        )
-        self.assertEqual(
-            ["default 10 and integer 0..120 inclusive", "latest required location consent"],
-            evidence[113]["appliedMarkers"],
-        )
-        self.assertEqual(
-            ["closed FCM data UTF-8 budgets", "provable pre-connect versus post-write/read ambiguity", "unexpected EOF is post-write ambiguous"],
-            evidence[114]["appliedMarkers"],
-        )
-        self.assertEqual(
-            ["device-independent logical job key", "one logical job per notification", "safetyBuffer version-CAS atomic replacement"],
-            evidence[115]["appliedMarkers"],
-        )
-        self.assertEqual(
-            [
-                "exact per-device attempt key",
-                "ACCEPTANCE_UNKNOWN no retry",
-                "lease generation fencing",
-                "push_delivery_targets closed snapshot and current states",
-                "RESERVED/CALL_STARTED durable pre-I/O protocol",
-                "marker-based crash and expired-lease recovery",
-                "mutually exclusive target aggregation precedence",
-                "exhausted transient attempt persistence",
-                "single-row RESERVED/CALL_STARTED/terminal status lifecycle",
-                "expired LEASED same-state reclaim with preserved generation and incremented fence",
-                "post-claim preparation snapshot and claim/post-snapshot race rechecks",
-                "existing CALL_STARTED plus IN_FLIGHT completion gate",
-                "zero-target preparation cancellation",
-                "closed target transitions and atomic attempt-target-job aggregation",
-                "single generation naming",
-                "inactive retry target terminal SKIPPED attempt",
-            ],
-            evidence[116]["appliedMarkers"],
-        )
+        self.assertEqual([], traceability["issueReadbackEvidence"])
+        self.assertEqual("not-linked; v2 owner revalidation required", traceability["currentReadbackStatus"])
+        historical = json.loads((ROOT / traceability["historicalContract"]).read_text())
+        self.assertEqual("1.0.0", historical["contractVersion"])
+        self.assertEqual("87ad401723a794b3c1fec5f12507c55f967472afbbc9269a5badf12f144c420a", self.validator.canonical_digest(historical))
+        self.assertIn("latestRequiredLocationConsent", historical["consentPolicy"]["requiredSignals"])
+        self.assertEqual({113, 114, 115, 116}, {item["issue"] for item in historical["traceability"]["issueReadbackEvidence"]})
 
     def test_tokens_credentials_and_pii_are_denied(self) -> None:
         security = self.contract["securityPolicy"]
@@ -684,9 +640,10 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "민감정보"):
                 self.validator.assert_no_sensitive_values({key: "forbidden"})
 
-    def test_canonical_docs_have_exact_double_consent_latest_location_and_send_checkpoint(self) -> None:
+    def test_canonical_docs_have_location_free_eligibility_and_send_checkpoint(self) -> None:
+        """공통 문서의 위치 없는 발송 조건과 발송 직전 검사를 확인한다."""
         exact = (
-            "OS 알림 권한", "서버 출발 알림 설정", "최신 required 위치 동의", "예약 시점과 발송 직전",
+            "OS 알림 권한", "서버 출발 알림 설정", "활성 기기", "예약 시점과 발송 직전",
             "notification + data", "FCM 접수는 단말 전달 완료가 아니다", "Spring", "FastAPI", "fail-closed",
             "RESERVED", "CALL_STARTED", "push_delivery_targets", "safetyBufferMinutes", "unexpected EOF",
             "preparation", "single generation", "old fence", "NO_ACTIVE_PUSH_TARGET", "IN_FLIGHT", "RETRYABLE → SKIPPED",
@@ -699,13 +656,14 @@ class FcmDepartureNotificationContractTest(unittest.TestCase):
                     self.assertIn(phrase, source)
 
     def test_markdown_explains_split_identity_state_dst_payload_and_issue_drift(self) -> None:
+        """v2 알림 계약 설명과 상태 전이 근거가 보존되는지 확인한다."""
         source = DOCUMENT.read_text(encoding="utf-8")
         for phrase in (
             "logical job", "delivery attempt", "ACCEPTANCE_UNKNOWN", "post-write/read timeout", "DST overlap",
-            "최신 required 위치 동의", "UTF-8 byte", "Issue #114", "Issue #116", "RESERVED", "CALL_STARTED",
+            "활성 기기", "UTF-8 byte", "Issue #114", "Issue #116", "RESERVED", "CALL_STARTED",
             "push_delivery_targets", "unexpected EOF", "issueReadbackEvidence",
             "same row", "LEASED → LEASED", "preparation transaction", "old fencing token",
-            "RETRYABLE → SKIPPED", "de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da",
+            "RETRYABLE → SKIPPED",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, source)

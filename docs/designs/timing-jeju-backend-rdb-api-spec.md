@@ -1,5 +1,9 @@
 # 타이밍제주 Spring REST API 명세 v1.1
 
+> 현행 위치 정책: [사용자 현재·간접 위치 무수집 v2](../contracts/domains/location-noncollection/contract.md). Issue #220이 #73을 대체한다.
+> 아래 위치 보관·동의·GRID_100M·위치 파생 hash 관련 설명은 제거 대상인 기존 구현/계약의 이력이며
+> 신규 위치 수신·저장의 허용 근거가 아니다. 런타임 전환은 #221 → #222 → #225 → #223 → #224에서 검증한다.
+
 ## 1. 문서 상태
 
 | 항목 | 값 |
@@ -1395,16 +1399,17 @@ Response `200`:
 
 ### 15.1 `POST /api/v1/trips/{tripId}/spare-time-runs`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
   "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "dayNo": 1,
-  "afterItemId": "61000000-0000-0000-0000-000000000002",
-  "gapStartAt": "2026-08-03T12:40:00+09:00",
-  "gapEndAt": "2026-08-03T14:10:00+09:00",
-  "maxCandidates": 10
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
+  "windowStart": "2026-08-03T12:40:00+09:00",
+  "windowEnd": "2026-08-03T14:10:00+09:00"
 }
 ```
 
@@ -1443,18 +1448,16 @@ Response `200`:
 
 ### 15.3 `POST /api/v1/trips/{tripId}/recovery-runs`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
   "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "triggerRiskEventId": "63100000-0000-0000-0000-000000000001",
-  "currentTime": "2026-08-03T12:45:00+09:00",
-  "currentLocation": {
-    "lat": 33.458111,
-    "lng": 126.941516
-  },
-  "maxOptions": 3
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
+  "checkedAt": "2026-08-03T12:45:00+09:00"
 }
 ```
 
@@ -1593,20 +1596,17 @@ Response `200`:
 
 ### 16.2 `POST /api/v1/trips/{tripId}/execution-events`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
-  "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "itemId": "61000000-0000-0000-0000-000000000002",
-  "legId": "62000000-0000-0000-0000-000000000001",
   "eventType": "arrived",
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
   "occurredAt": "2026-08-03T11:20:00+09:00",
-  "location": {
-    "lat": 33.458111,
-    "lng": 126.941516,
-    "accuracyMeters": 18
-  }
+  "clientEventId": "62500000-0000-0000-0000-000000000002"
 }
 ```
 
@@ -1627,18 +1627,17 @@ Response `200`:
 
 ### 16.3 `POST /api/v1/trips/{tripId}/live-recalculation-runs`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
   "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "trigger": "missed",
-  "itemId": "61000000-0000-0000-0000-000000000003",
-  "currentTime": "2026-08-03T13:30:00+09:00",
-  "currentLocation": {
-    "lat": 33.458111,
-    "lng": 126.941516
-  }
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
+  "checkedAt": "2026-08-03T13:30:00+09:00",
+  "manualProgress": "missed"
 }
 ```
 
@@ -1669,23 +1668,23 @@ Response `200`:
 
 ### 17.1 `GET /api/v1/weather/forecast`
 
-Canonical source: `docs/contracts/domains/weather-forecast/contract.json`, contractVersion: `1.0.0`, 구현 owner: Issue #67.
+Canonical source: `docs/contracts/domains/weather-forecast/contract.json`, contractVersion: `2.0.0`, 정책 owner: #220, selector 구현 owner: #222. metadata/example/implementation은 not-ready이고 외부 readback은 not-linked다.
 
-`lat`, `lng`, `dateTime`은 동시에 required/non-null이며 추가 query를 허용하지 않는다. `lat=-90..90` exclusive, `lng=-180..180` inclusive의 finite number이고 `dateTime`은 Asia/Seoul의 `+09:00` RFC 3339 정시(seconds `00`)다. 요청 접수 시각을 내린 정시부터 6시간 inclusive는 `ultra_short`, 그 초과부터 10일 inclusive는 `village`로 조회한다. 과거·10일 초과는 422다.
+`regionCode | placeId | tripItemId` 중 정확히 하나와 `dateTime`을 받는다. selector는 사용자 명시 선택 또는 기존 계획 참조여야 하며 GPS 파생값은 금지한다. tripItemId는 JWT owner 조회가 필요하고 인증 없음은 401, 타 owner/없는 참조는 404로 은닉한다. selector 누락·복수·unknown 입력은 400 `INVALID_WEATHER_SELECTOR`다. `dateTime`은 Asia/Seoul의 `+09:00` RFC 3339 정시(seconds `00`)다. 요청 접수 시각을 내린 정시부터 6시간 inclusive는 `ultra_short`, 그 초과부터 10일 inclusive는 `village`로 조회한다. 과거·10일 초과는 422다.
 
 Canonical DB의 `weather_forecasts.forecast_type`은 `ultra_short | short`다. 공개 응답은 `ultra_short | village`이므로 구현 #67은 DB `ultra_short` → API `ultra_short`, DB `short` → API `village`로 정확히 projection한다. `short`는 공개하지 않으며 이 문서 Issue는 migration을 추가하지 않는다.
 
 Request:
 
 ```http
-GET /api/v1/weather/forecast?lat=33.458111&lng=126.941516&dateTime=2026-08-03T14:00:00%2B09:00
+GET /api/v1/weather/forecast?regionCode=seongsan&dateTime=2026-08-03T14:00:00%2B09:00
 ```
 
 Response `200`:
 
 ```json
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "2.0.0",
   "grid": {
     "nx": 60,
     "ny": 37,
@@ -1779,7 +1778,7 @@ generation/expectedGeneration의 single generation naming만 쓴다. preparation
 
 `notifyAt = targetArrivalAt - expectedTravelDurationSeconds - safetyBufferMinutes`, `expiresAt = min(notifyAt + 15분, targetArrivalAt)`이며 활성 일정 버전, 다음 항목과 mobility leg에서 계산한다. `scheduledAt`은 `notifyAt` alias이고 세 시각 모두 UTC `timestamptz`다. trusted `evaluatedAt`에 대해 두 시각이 모두 미래일 때만 job을 만들며 equality/past이면 생성·즉시 발송·provider 호출을 금지한다. safety buffer는 기본 10분, integer 0..120분 inclusive다. 표시 문구는 여행 시간대이며 DST overlap 양쪽 offset과 gap은 fail-closed다. provider TTL은 정확히 `min(900, floor(expiresAt - sendAttemptAt))`다. Android는 `high`와 `collapse_key`, APNs는 alert+sound, `apns-expiration=sendAttemptAt+TTL` epoch seconds와 `apns-collapse-id`에 동일한 canonical key를 사용한다. key의 tripId는 canonical lowercase UUID regex와 UUID roundtrip을 통과해야 한다. TTL이 0 이하이면 발송하지 않는다. data 다섯 field는 string·canonical UUID/deep link와 UTF-8 byte budget을 적용하고 초과/control 입력은 결정적 title/body fallback을 쓴다.
 
-OS 알림 권한, 서버 출발 알림 설정, 최신 required 위치 동의를 예약 시점과 발송 직전에 확인하며 preparation과 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 활성/비활성 기기는 snapshot에 반영하고 snapshot 이후 신규 target은 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 `CANCELLED`다. consent version은 canonical nonblank string이고 missing/null/blank/wrong type/unknown status는 fail-closed한다. 일정 버전 변경, 항목 완료·건너뜀, 여행 취소, 알림 비활성화는 기존 미발송 작업을 취소한다. `safetyBufferMinutes` 변경은 preference version CAS, old generation 무효화, old unsent job 취소, 재계산과 새 logical job을 한 transaction에서 처리한다. deduplication key와 generation fencing으로 stale 발송을 거부한다.
+OS 알림 권한, 서버 출발 알림 설정, 활성 기기를 예약 시점과 발송 직전에 확인하며 preparation과 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 활성/비활성 기기는 snapshot에 반영하고 snapshot 이후 신규 target은 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 `CANCELLED`다. 기기·알림 신호의 missing/null/wrong type과 잘못된 평가 시각은 fail-closed한다. 일정 버전 변경, 항목 완료·건너뜀, 여행 취소, 알림 비활성화는 기존 미발송 작업을 취소한다. `safetyBufferMinutes` 변경은 preference version CAS, old generation 무효화, old unsent job 취소, 재계산과 새 logical job을 한 transaction에서 처리한다. deduplication key와 generation fencing으로 stale 발송을 거부한다.
 
 FCM 접수는 단말 전달 완료가 아니다. provider message id는 `ACCEPTED`로만 보존하고 `DELIVERED`를 주장하지 않는다. explicit transient rejection과 request byte 미전송이 증명된 pre-connect failure만 재시도한다. `RESERVED` crash는 retryable이나 `CALL_STARTED` 뒤 crash와 post-write/read timeout, connection reset, unexpected EOF는 terminal `ACCEPTANCE_UNKNOWN`이며 자동 재시도하지 않는다. 세 번째 또는 TTL 만료 transient attempt는 immutable 보존하고 같은 transaction에서 job을 `DEAD`로 만든다. 앱 재진입 시 `GET /api/v1/trips/{tripId}/live-state`를 다시 조회한다. token은 API 응답·로그·trace·metric에 노출하지 않고 Firebase credential은 ADC 또는 secret mount로만 주입한다. #93과 정정된 #113~#116 구현이 없으면 production default-off 및 fail-closed다.
 
