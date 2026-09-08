@@ -82,3 +82,14 @@
   frontend-readiness mode 33의 37 operations가 통과했다.
 - 이번 보강은 DB/Testcontainers/Docker 없이 수행했다. 실제 DB 적용·배포·live Supabase는
   수행하지 않았고, approved-source provenance와 좌표-derived hash는 #225 범위로 남겼다.
+
+## 2026-09-08 stale 공개 anchor Reviewer 보강
+
+- RED: 실제 PostgreSQL repository 9개 중 2개가 실패해 `stale=true`인 공개 place와
+  이를 참조하는 owned tripItem이 모두 weather anchor로 반환되는 것을 재현했다.
+- GREEN: 두 selector가 공유하는 anchor lifecycle 조건에 `place.stale=false`와
+  `(place.stale_at is null or place.stale_at > now())`를 추가했다. `stale_at=now()`는
+  거부하고 미래 `stale_at`은 허용하는 경계도 양쪽 selector에서 검증했다.
+- 기존 owner join, `source_deleted_at`, `tombstoned_at`, canonical `content_id`, location
+  조건은 유지했다. 실제 PostgreSQL repository 9/9와 DB 없는 weather 계약 테스트를
+  통과했고, 실제 DB 적용·배포·live Supabase는 수행하지 않았다.
