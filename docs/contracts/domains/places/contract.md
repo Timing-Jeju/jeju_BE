@@ -1,4 +1,11 @@
-# 관광지 검색·상세 API 계약 v1.1
+# 관광지 검색·상세 API 계약 2.0.0
+
+#220의 위치 비수집 v2 정책에 따라 목록 요청의 `lat/lng/radiusMeters`, 위치 기반
+cursor/정렬과 목록 item의 사용자 거리 `distanceMeters`를 제거합니다.
+공개 장소 좌표와 공개 장소→정류장 거리는 보존합니다. 실제 Controller/SQL 전환은
+#221이며 이 계약 수정으로 runtime 구현이 완료됐다고 표시하지 않습니다.
+Notion의 `canonicalListItemFields`는 과거 v1.1 readback 이력으로 보존하며 v2의
+근거로 사용하지 않습니다. 새 readback 전 외부 버전은 계속 `not-linked`입니다.
 
 이 문서는 Issue #83이 소유하는 `GET /api/v1/places`와 `GET /api/v1/places/{placeId}`의 구현 전 기준입니다. machine-readable 기준은 같은 디렉터리의 [`contract.json`](contract.json)이며 공통 envelope·Authorization·cursor·Problem Details는 `timing-jeju-rest-contract/v1`(contract version `1.0.0`)을 상속합니다. 기존 Notion 명세와 이 문서의 source spec revision은 `v1.1`입니다. 두 버전은 역할이 다르므로 서로 치환하지 않습니다.
 
@@ -13,9 +20,9 @@
 | Notion 상세 | `3a40a87c-7ce5-81c4-9339-cb8d061b602d` | [`GET /api/v1/places/{placeId}`](https://app.notion.com/p/3a40a87c7ce581c49339cb8d061b602d?pvs=204) |
 | Figma | file `4mKep38zm17iupVSQVsSJW`, node `251-4347` | [관광데이터 공모전](https://www.figma.com/design/4mKep38zm17iupVSQVsSJW/%EA%B4%80%EA%B4%91%EB%8D%B0%EC%9D%B4%ED%84%B0-%EA%B3%B5%EB%AA%A8%EC%A0%84?node-id=251-4347&p=f&t=DDs4My39PfbNrfZT-0) |
 
-Figma의 지도 검색·카테고리·내 근처 화면은 목록 API를 소비합니다. 장소 카드 loading은 skeleton, 결과 없음은 “조건에 맞는 장소가 없습니다”, 오류는 재시도 가능한 한국어 Problem Details 안내로 처리합니다. 상세·이미지·이용정보·주변 정류장 화면은 상세 API를 소비합니다. 정류장이 없어도 장소 상세을 유지하고 `nearbyStops: []`만 표시합니다.
+Figma의 기존 지도 검색·카테고리 화면은 목록 API를 소비합니다. 내 근처 계산은 FE 로컬에 한정하며 해당 GPS 또는 파생 지역을 전송하지 않습니다. 장소 카드 loading은 skeleton, 결과 없음은 “조건에 맞는 장소가 없습니다”, 오류는 재시도 가능한 한국어 Problem Details 안내로 처리합니다. 상세·이미지·이용정보·주변 정류장 화면은 상세 API를 소비합니다. 정류장이 없어도 장소 상세을 유지하고 `nearbyStops: []`만 표시합니다.
 
-PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 정정했습니다. Developer는 수정 후 두 페이지를 읽기 전용으로 다시 조회해 `Draft`를 확인했습니다. 로컬 canonical contract version은 `1.0.0`이고 Notion 문서의 source spec revision은 `v1.1`이므로 동일한 버전 증거로 간주하지 않습니다. Figma에도 정확한 API contract version 표기가 없습니다. 따라서 catalog의 Notion·Figma version은 `not-linked`이며, 외부 정렬 증거를 확보하기 전 metadata·example·implementation readiness는 모두 `not-ready`입니다.
+PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 정정했습니다. Developer는 수정 후 두 페이지를 읽기 전용으로 다시 조회해 `Draft`를 확인했습니다. 로컬 canonical contract version은 `2.0.0`이고 Notion 문서의 source spec revision은 `v1.1`이므로 동일한 버전 증거로 간주하지 않습니다. Figma에도 정확한 API contract version 표기가 없습니다. 따라서 catalog의 Notion·Figma version은 `not-linked`이며, 외부 정렬 증거를 확보하기 전 metadata·example·implementation readiness는 모두 `not-ready`입니다.
 
 ## 공통 인증과 개인화 shape
 
@@ -35,9 +42,6 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 | `query` | 아니오 | 불가 | 전체 이름·별칭 | 앞뒤 공백 허용, trim 후 1~100자 |
 | `category` | 아니오 | 불가 | 모든 카테고리 | `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$` |
 | `regionCode` | 아니오 | 불가 | 모든 제주 지역 | `^[a-z0-9][a-z0-9_-]{0,49}$` |
-| `lat` | 아니오 | 불가 | 거리 정렬 미사용 | 제주 bounding box 33~34, `lng`와 함께 입력 |
-| `lng` | 아니오 | 불가 | 거리 정렬 미사용 | 제주 bounding box 126~127, `lat`와 함께 입력 |
-| `radiusMeters` | 아니오 | 불가 | 좌표가 있으면 10000 | 100~50000, 좌표와 함께 입력 |
 | `cursor` | 아니오 | 불가 | 첫 page | 최대 2048자의 opaque 값 |
 | `size` | 아니오 | 불가 | 20 | 1~100 |
 | `savedOnly` | 아니오 | 불가 | false | true이면 현재 사용자의 저장 장소만 조회, 익명은 401 |
@@ -46,7 +50,7 @@ PM이 두 Notion endpoint의 `Spec Status`를 구현 전 상태인 `Draft`로 �
 
 `query`는 요청의 앞뒤 공백을 허용하지만 서버가 trim한 값으로 검색하고 길이를 검사합니다. 공백만 있는 값은 거부하며 정규화한 값이 1~100자여야 합니다. `savedOnly`를 포함한 모든 검색 조건은 cursor fingerprint에도 같은 정규화 값을 사용합니다.
 
-좌표가 있으면 `distanceMeters ASC NULLS LAST, normalizedName ASC, placeId ASC`, 없으면 `normalizedName ASC, placeId ASC`로 정렬합니다. 고유 tie-breaker는 항상 `placeId ASC`입니다. cursor에는 정규화한 query와 category/regionCode/lat/lng/radiusMeters/size/sort profile fingerprint가 귀속됩니다. cursor 발급 뒤 하나라도 바뀌면 재사용하지 않고 `400 CURSOR_CONTEXT_MISMATCH`를 반환합니다.
+`normalizedName ASC, placeId ASC`로만 정렬합니다. cursor는 query/category/regionCode/size/savedOnly/sortProfile에 귀속되며 위치를 입력으로 만들지 않습니다. 필터가 바뀌면 `400 CURSOR_CONTEXT_MISMATCH`를 반환합니다.
 
 ### 목록 shape
 
@@ -87,7 +91,7 @@ machine contract의 모든 object schema는 `additionalProperties=false`입니�
 
 | schema | 용도 | 핵심 required/optional 계약 |
 | --- | --- | --- |
-| `PlacesListRequest` | 목록 query | 모든 query는 optional/non-null, lat·lng pair와 radius 의존성 강제 |
+| `PlacesListRequest` | 목록 query | 허용된 여섯 query는 optional/non-null, 위치 필드는 unknown으로 거부 |
 | `PlaceDetailPath` | 상세 path | canonical UUID `placeId` required/non-null |
 | `PlacesListResponse` | 목록 성공 | `items`, `page` required/non-null |
 | `PlaceListItem` | 목록 item | 목록 16개 필드와 `dataFreshness` required, 값별 nullable만 허용 |
@@ -155,7 +159,6 @@ eligible 행의 effective `expiresAt`은 link expiry와 non-null stop `stale_at`
 | endpoint | status | code | 조건 |
 | --- | --- | --- | --- |
 | 목록 | 400 | `INVALID_QUERY_PARAMETER` | query 형식·타입·길이 오류 |
-| 목록 | 400 | `INVALID_GEO_FILTER` | lat/lng pair 또는 radius 범위 오류 |
 | 목록 | 400 | `CURSOR_CONTEXT_MISMATCH` | cursor 발급 필터와 현재 필터 불일치 |
 | 목록 | 400 | `INVALID_CURSOR` | 위변조·만료·decode 실패 cursor |
 | 목록·상세 | 401 | `INVALID_ACCESS_TOKEN` | Optional endpoint에 잘못된 token 제공 |
@@ -171,19 +174,14 @@ eligible 주변 정류장이 없는 상태는 오류가 아닙니다. request-ti
 
 ```json
 {
-  "type": "https://api.timing-jeju.com/problems/invalid-geo-filter",
-  "title": "요청 위치 조건이 올바르지 않습니다",
+  "type": "https://api.timing-jeju.com/problems/invalid-query-parameter",
+  "title": "요청 조건이 올바르지 않습니다",
   "status": 400,
-  "detail": "위도와 경도는 함께 입력하고 반경은 100m 이상 50000m 이하로 입력해 주세요.",
+  "detail": "허용된 검색 조건을 확인해 주세요.",
   "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
-  "code": "INVALID_GEO_FILTER",
+  "code": "INVALID_QUERY_PARAMETER",
   "traceId": "0123456789abcdef0123456789abcdef",
-  "fieldErrors": [
-    {
-      "field": "radiusMeters",
-      "reason": "범위는 100 이상 50000 이하여야 합니다"
-    }
-  ]
+  "fieldErrors": []
 }
 ```
 

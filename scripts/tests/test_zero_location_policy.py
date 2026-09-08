@@ -116,6 +116,16 @@ class ZeroLocationPolicyTest(unittest.TestCase):
         """찜한 장소 필터는 위치 수집 없이 허용한다."""
         self.validator.validate_flow(self.contract, 'places', 'explicit_selection', ['query', 'savedOnly'])
 
+    def test_canonical_places_request_is_location_free(self):
+        """공개 장소 요청과 cursor에 사용자 위치 필드가 없음을 검증한다."""
+        places = json.loads((ROOT / 'docs/contracts/domains/places/contract.json').read_text())
+        expected = {'query', 'category', 'regionCode', 'cursor', 'size', 'savedOnly'}
+        self.assertEqual(expected, set(places['schemas']['PlacesListRequest']['properties']))
+        self.assertEqual(expected, set(places['endpoints'][0]['query']))
+        self.assertFalse({'lat', 'lng', 'radiusMeters'} & set(places['endpoints'][0]['pagination']['cursorScope']))
+        self.assertNotIn('distanceMeters', places['schemas']['PlaceListItem']['properties'])
+        self.assertEqual({'lat', 'lng'}, set(places['schemas']['Location']['properties']))
+
 
 if __name__ == '__main__':
     unittest.main()

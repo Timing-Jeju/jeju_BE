@@ -1,11 +1,11 @@
 {
   "400": {
-    "type": "https://api.timing-jeju.com/problems/invalid-geo-filter",
-    "title": "요청 위치 조건이 올바르지 않습니다",
+    "type": "https://api.timing-jeju.com/problems/invalid-query-parameter",
+    "title": "요청 조건이 올바르지 않습니다",
     "status": 400,
-    "detail": "위도와 경도는 함께 입력해 주세요.",
+    "detail": "허용된 검색 조건을 확인해 주세요.",
     "instance": "urn:timing-jeju:problem:00000000000000000000000000000400",
-    "code": "INVALID_GEO_FILTER",
+    "code": "INVALID_QUERY_PARAMETER",
     "traceId": "00000000000000000000000000000400",
     "fieldErrors": []
   },

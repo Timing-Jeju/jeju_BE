@@ -42,3 +42,13 @@ Notion/Figma는 readback 없이 not-linked로 유지한다. #168은 Spring 위�
   통합 완료 근거로 사용하지 않는다.
 - 미래 not-ready 계약이 현행 OpenAPI를 깨뜨리는 선행 #226을 별도 branch에서
   구현·검증 중이다. #226 반영 후 최신 develop에서 공개 계약 전환을 재검증한다.
+
+## Places 공개 계약 v2 준비
+
+- RED: canonical Places 요청·cursor와 목록 사용자 거리의 위치 의존 검출.
+- GREEN: 위치 query·nearby 정렬·사용자 distanceMeters 제거, savedOnly 및 공개 장소 좌표와
+  장소→정류장 거리 유지. closed schema·fixture·validator와 catalog local 2.0.0 정렬.
+- 과거 Notion v1.1 필드 readback은 역사로 보존하고 v2 외부 연결로 재사용하지 않음.
+- 관련 단위 42개, 저장소 Python 자동화 808개(3 skipped) 통과.
+- Weather/실행/live/MCP/FCM 공개 계약 전환과 #226 이후 Spring 재검증이 남아 있다.
+  이 커밋만으로 #220 완료 또는 위치 수집 제거 완료를 선언하지 않는다.

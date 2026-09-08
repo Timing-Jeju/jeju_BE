@@ -751,7 +751,7 @@ def _validate_domain_versions(
     expected_local = (
         DOMAIN_LOCAL_VERSION_OVERRIDES[82]
         if profile_v11 and issue == 82
-        else contract_version
+        else "2.0.0" if issue == 83 else contract_version
     )
     if versions.get("local") != expected_local:
         errors.append(f"도메인 계약 #{issue}의 local contract version이 다릅니다.")
