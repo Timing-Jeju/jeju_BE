@@ -509,7 +509,7 @@ def _validate_endpoints(
         expected_endpoint_version = (
             DOMAIN_LOCAL_VERSION_OVERRIDES[82]
             if profile_v11 and identity in PROFILE_LEGAL_ENDPOINTS
-            else contract_version
+            else "2.0.0" if identity == ("GET", "/api/v1/weather/forecast") else contract_version
         )
         if endpoint.get("contractVersion") != expected_endpoint_version:
             errors.append(f"{label}의 contract version이 공통 버전과 다릅니다.")
@@ -751,7 +751,7 @@ def _validate_domain_versions(
     expected_local = (
         DOMAIN_LOCAL_VERSION_OVERRIDES[82]
         if profile_v11 and issue == 82
-        else "2.0.0" if issue == 83 else contract_version
+        else "2.0.0" if issue in (83, 94) else contract_version
     )
     if versions.get("local") != expected_local:
         errors.append(f"도메인 계약 #{issue}의 local contract version이 다릅니다.")

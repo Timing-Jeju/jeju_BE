@@ -126,6 +126,16 @@ class ZeroLocationPolicyTest(unittest.TestCase):
         self.assertNotIn('distanceMeters', places['schemas']['PlaceListItem']['properties'])
         self.assertEqual({'lat', 'lng'}, set(places['schemas']['Location']['properties']))
 
+    def test_canonical_weather_has_exactly_one_planned_selector(self):
+        """날씨 공개 계약이 GPS 대신 정확히 하나의 계획 selector를 받는다."""
+        weather = json.loads((ROOT / 'docs/contracts/domains/weather-forecast/contract.json').read_text())
+        query = weather['schemas']['WeatherForecastQuery']
+        self.assertEqual({'regionCode', 'placeId', 'tripItemId', 'dateTime'}, set(query['properties']))
+        self.assertEqual([{'required': [key]} for key in ['regionCode', 'placeId', 'tripItemId']], query['oneOf'])
+        self.assertEqual(['dateTime'], query['required'])
+        self.assertEqual(['INVALID_WEATHER_SELECTOR'], weather['endpoints'][0]['errorMatrix']['400'])
+        self.assertEqual('not-ready', weather['readiness']['implementation']['status'])
+
 
 if __name__ == '__main__':
     unittest.main()

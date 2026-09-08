@@ -52,3 +52,14 @@ Notion/Figma는 readback 없이 not-linked로 유지한다. #168은 Spring 위�
 - 관련 단위 42개, 저장소 Python 자동화 808개(3 skipped) 통과.
 - Weather/실행/live/MCP/FCM 공개 계약 전환과 #226 이후 Spring 재검증이 남아 있다.
   이 커밋만으로 #220 완료 또는 위치 수집 제거 완료를 선언하지 않는다.
+
+## Weather 공개 계약 v2 준비
+
+- RED: 날씨 canonical query가 lat/lng를 필수로 요구하고 v2 selector가 없는 경계 검출.
+- GREEN: regionCode/placeId/tripItemId exactly-one + dateTime, planned item의 JWT owner,
+  selector 400·미인증 401·참조 은닉 404 계약과 fixture를 정렬했다.
+- historical-v1.contract.json에 과거 1.0.0 계약/외부 readback을 원본 그대로 보존했다.
+  v2 readiness는 세 단계 모두 not-ready, 외부 버전은 not-linked다.
+- RDB/API 문서 요청·응답 version과 validator를 함께 전환했다.
+- 관련 단위 84개, 저장소 Python 자동화 809개(3 skipped) 통과.
+- 실행/live/MCP/FCM 전환 및 #226 반영 후 Spring 검증은 여전히 미완료다.

@@ -1,64 +1,21 @@
 {
   "schemaVersion": "timing-jeju-weather-forecast-contract/v1",
-  "contractVersion": "2.0.0",
-  "sourceSpecVersion": "2.0.0",
+  "contractVersion": "1.0.0",
+  "sourceSpecVersion": "1.0.0",
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 94,
-  "implementationIssues": [222],
+  "implementationIssues": [67],
   "schemas": {
     "WeatherForecastQuery": {
       "type": "object",
       "nullable": false,
       "additionalProperties": false,
-      "required": [
-        "dateTime"
-      ],
+      "required": ["lat", "lng", "dateTime"],
       "properties": {
-        "regionCode": {
-          "type": "string",
-          "nullable": false,
-          "minLength": 1,
-          "maxLength": 50,
-          "pattern": "^[a-z0-9][a-z0-9_-]{0,49}$"
-        },
-        "placeId": {
-          "type": "string",
-          "nullable": false,
-          "format": "uuid",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        },
-        "tripItemId": {
-          "type": "string",
-          "nullable": false,
-          "format": "uuid",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        },
-        "dateTime": {
-          "type": "string",
-          "nullable": false,
-          "format": "date-time",
-          "timezone": "Asia/Seoul",
-          "requiredOffset": "+09:00",
-          "seconds": 0
-        }
-      },
-      "oneOf": [
-        {
-          "required": [
-            "regionCode"
-          ]
-        },
-        {
-          "required": [
-            "placeId"
-          ]
-        },
-        {
-          "required": [
-            "tripItemId"
-          ]
-        }
-      ]
+        "lat": {"type": "number", "nullable": false, "exclusiveMinimum": -90, "exclusiveMaximum": 90, "finite": true},
+        "lng": {"type": "number", "nullable": false, "minimum": -180, "maximum": 180, "finite": true},
+        "dateTime": {"type": "string", "nullable": false, "format": "date-time", "timezone": "Asia/Seoul", "requiredOffset": "+09:00", "seconds": 0}
+      }
     },
     "CommonHeaders": {
       "type": "object",
@@ -86,7 +43,7 @@
       "additionalProperties": false,
       "required": ["contractVersion", "grid", "provider", "providerApiVersion", "forecastType", "baseDate", "baseTime", "forecastedAt", "validAt", "temperatureC", "precipitationProbabilityPercent", "precipitationAmountMm", "precipitationType", "skyCode", "humidityPercent", "windSpeedMps", "observedAt", "expiresAt", "stale", "fallbackUsed"],
       "properties": {
-        "contractVersion": {"type": "string", "nullable": false, "const": "2.0.0"},
+        "contractVersion": {"type": "string", "nullable": false, "const": "1.0.0"},
         "grid": {"$ref": "WeatherGrid"},
         "provider": {"type": "string", "nullable": false, "const": "KMA"},
         "providerApiVersion": {"type": "string", "nullable": false, "const": "VilageFcstInfoService_2.0"},
@@ -118,56 +75,30 @@
       "headersSchema": "CommonHeaders",
       "successSchema": "WeatherForecastResponse",
       "auth": {"mode": "optional", "missingToken": "anonymous", "invalidToken": 401},
-      "owner": "regionCode/placeId: public explicit selection; tripItemId: authenticated canonical JWT sub owner only",
-      "presence": "exactly one of regionCode/placeId/tripItemId and dateTime required; GPS-derived selectors forbidden; tripItemId requires bearer and owner lookup",
-      "responses": {"success": [200], "errors": [400, 401, 404, 422, 503]},
+      "owner": "none; public weather fact has no user owner",
+      "presence": "lat/lng/dateTime are simultaneously required and non-null; response is closed and all category-derived keys are required nullable",
+      "responses": {"success": [200], "errors": [400, 401, 422, 503]},
       "errorMatrix": {
-        "400": [
-          "INVALID_WEATHER_SELECTOR"
-        ],
-        "401": [
-          "AUTHENTICATION_REQUIRED",
-          "INVALID_ACCESS_TOKEN"
-        ],
-        "422": [
-          "WEATHER_LOCATION_NOT_SUPPORTED",
-          "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED"
-        ],
-        "503": [
-          "WEATHER_FORECAST_UNAVAILABLE"
-        ],
-        "404": [
-          "WEATHER_REFERENCE_NOT_FOUND"
-        ]
+        "400": ["INVALID_WEATHER_FORECAST_QUERY"],
+        "401": ["INVALID_ACCESS_TOKEN"],
+        "422": ["WEATHER_LOCATION_NOT_SUPPORTED", "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED"],
+        "503": ["WEATHER_FORECAST_UNAVAILABLE"]
       },
       "idempotency": {"required": false, "header": "none"},
       "pagination": {"type": "none"},
-      "dbOwner": "Spring read-only public region/place/planned item to weather grid; implementation #222",
+      "dbOwner": "Spring read-only weather_grid_points/weather_forecasts/external snapshot lineage; implementation #67",
       "requestTimeCall": "none; request reads normalized stored forecast and never calls KMA or private MCP",
       "dataLineage": "KMA versioned snapshot -> import run -> normalized weather_forecasts; raw provider payload is never projected",
       "figma": {"node": "1291:8816", "action": "1291:8819", "loading": "1291:8820", "empty": "1291:8822", "error": "1291:8823"},
-      "contractVersion": "2.0.0"
+      "contractVersion": "1.0.0"
     }
   ],
   "gridPolicy": {
     "projection": "KMA DFS 5km Lambert conformal conic",
     "rounding": "floor(projectedCoordinate + 0.5)",
-    "nx": {
-      "minimum": 1,
-      "maximum": 149
-    },
-    "ny": {
-      "minimum": 1,
-      "maximum": 253
-    },
-    "outOfGrid": "422 WEATHER_LOCATION_NOT_SUPPORTED",
-    "selectorResolution": {
-      "regionCode": "explicit public region representative grid",
-      "placeId": "explicit canonical public place grid",
-      "tripItemId": "owner-checked planned item public anchor grid",
-      "missingReference": "404 WEATHER_REFERENCE_NOT_FOUND",
-      "gpsDerived": "forbidden"
-    }
+    "nx": {"minimum": 1, "maximum": 149},
+    "ny": {"minimum": 1, "maximum": 253},
+    "outOfGrid": "422 WEATHER_LOCATION_NOT_SUPPORTED"
   },
   "forecastPolicy": {
     "timezone": "Asia/Seoul",
@@ -204,8 +135,8 @@
     "ttl": {"ultra_short": "10 minutes", "village": "same eligible base until the next base becomes eligible"}
   },
   "securityPolicy": {
-    "principal": "canonical JWT sub only; tripItemId ownership required; never location-derived identity",
-    "forbiddenAuthorityInputs": ["user_metadata", "email", "provider payload", "raw token", "GPS-derived regionCode/placeId/stopId"],
+    "principal": "canonical JWT sub only; not used for weather row selection",
+    "forbiddenAuthorityInputs": ["user_metadata", "email", "provider payload", "raw token"],
     "forbiddenPersistence": ["request precise coordinates", "request query", "raw provider payload in public response"],
     "forbiddenLogging": ["precise coordinates", "raw token", "service key", "provider query", "provider payload"],
     "fastApiBoundary": "FastAPI does not expose this endpoint, access DB, receive JWT, or receive provider credentials"
@@ -213,141 +144,96 @@
   "errorConditions": [
     {
       "status": 400,
-      "code": "INVALID_WEATHER_SELECTOR",
-      "condition": "exactly one selector and dateTime required; unknown/GPS fields, null, invalid canonical ID or date-time rejected",
-      "example": {
-        "type": "https://api.timing-jeju.com/problems/invalid-weather-selector",
-        "title": "날씨 조회 조건이 올바르지 않습니다",
-        "status": 400,
-        "detail": "지역, 장소 또는 계획 항목 하나와 제주 예보 시각을 올바르게 입력해 주세요.",
-        "instance": "urn:timing-jeju:problem:00000000000000000000000000000001",
-        "code": "INVALID_WEATHER_SELECTOR",
-        "traceId": "00000000000000000000000000000001",
-        "fieldErrors": [
-          {
-            "field": "dateTime",
-            "reason": "Asia/Seoul의 +09:00 정시를 입력해 주세요."
-          }
-        ]
-      }
+      "code": "INVALID_WEATHER_FORECAST_QUERY",
+      "condition": "lat/lng/dateTime missing individually or together, null, wrong type, non-finite, out of WGS84 range, unknown query, non-RFC3339, non-+09:00, or seconds not 00",
+      "example": {"type": "https://api.timing-jeju.com/problems/invalid-weather-forecast-query", "title": "날씨 조회 조건이 올바르지 않습니다", "status": 400, "detail": "위도, 경도와 제주 현지 예보 시각을 올바른 형식으로 모두 입력해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000001", "code": "INVALID_WEATHER_FORECAST_QUERY", "traceId": "00000000000000000000000000000001", "fieldErrors": [{"field": "dateTime", "reason": "Asia/Seoul의 +09:00 정시를 입력해 주세요."}]}
     },
     {
       "status": 401,
       "code": "INVALID_ACCESS_TOKEN",
       "condition": "optional Authorization header is present but Supabase JWT is invalid or expired",
-      "example": {
-        "type": "https://api.timing-jeju.com/problems/invalid-access-token",
-        "title": "인증 정보가 올바르지 않습니다",
-        "status": 401,
-        "detail": "유효한 인증 정보로 다시 요청해 주세요.",
-        "instance": "urn:timing-jeju:problem:00000000000000000000000000000002",
-        "code": "INVALID_ACCESS_TOKEN",
-        "traceId": "00000000000000000000000000000002",
-        "fieldErrors": []
-      }
+      "example": {"type": "https://api.timing-jeju.com/problems/invalid-access-token", "title": "인증 정보가 올바르지 않습니다", "status": 401, "detail": "유효한 인증 정보로 다시 요청해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000002", "code": "INVALID_ACCESS_TOKEN", "traceId": "00000000000000000000000000000002", "fieldErrors": []}
     },
     {
       "status": 422,
       "code": "WEATHER_LOCATION_NOT_SUPPORTED",
       "condition": "valid WGS84 coordinate converts outside KMA nx 1..149 or ny 1..253, or no supported Jeju grid row exists",
-      "example": {
-        "type": "https://api.timing-jeju.com/problems/weather-location-not-supported",
-        "title": "지원하지 않는 날씨 조회 위치입니다",
-        "status": 422,
-        "detail": "제주 지역의 지원 가능한 위치를 입력해 주세요.",
-        "instance": "urn:timing-jeju:problem:00000000000000000000000000000003",
-        "code": "WEATHER_LOCATION_NOT_SUPPORTED",
-        "traceId": "00000000000000000000000000000003",
-        "fieldErrors": []
-      }
+      "example": {"type": "https://api.timing-jeju.com/problems/weather-location-not-supported", "title": "지원하지 않는 날씨 조회 위치입니다", "status": 422, "detail": "제주 지역의 지원 가능한 위치를 입력해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000003", "code": "WEATHER_LOCATION_NOT_SUPPORTED", "traceId": "00000000000000000000000000000003", "fieldErrors": []}
     },
     {
       "status": 422,
       "code": "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
       "condition": "dateTime is before request acceptance hour or after 10 days inclusive in Asia/Seoul",
-      "example": {
-        "type": "https://api.timing-jeju.com/problems/weather-forecast-horizon-not-supported",
-        "title": "지원하지 않는 예보 기간입니다",
-        "status": 422,
-        "detail": "현재 정시부터 10일 이내의 제주 현지 시각을 입력해 주세요.",
-        "instance": "urn:timing-jeju:problem:00000000000000000000000000000004",
-        "code": "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
-        "traceId": "00000000000000000000000000000004",
-        "fieldErrors": []
-      }
+      "example": {"type": "https://api.timing-jeju.com/problems/weather-forecast-horizon-not-supported", "title": "지원하지 않는 예보 기간입니다", "status": 422, "detail": "현재 정시부터 10일 이내의 제주 현지 시각을 입력해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000004", "code": "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED", "traceId": "00000000000000000000000000000004", "fieldErrors": []}
     },
     {
       "status": 503,
       "code": "WEATHER_FORECAST_UNAVAILABLE",
       "condition": "latest eligible base and exactly one immediately previous eligible base have no complete normalized row for requested grid and validAt",
-      "example": {
-        "type": "https://api.timing-jeju.com/problems/weather-forecast-unavailable",
-        "title": "날씨 예보를 불러올 수 없습니다",
-        "status": 503,
-        "detail": "최신 예보와 직전 예보를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
-        "instance": "urn:timing-jeju:problem:00000000000000000000000000000005",
-        "code": "WEATHER_FORECAST_UNAVAILABLE",
-        "traceId": "00000000000000000000000000000005",
-        "fieldErrors": []
-      }
-    },
-    {
-      "status": 401,
-      "code": "AUTHENTICATION_REQUIRED",
-      "condition": "tripItemId requires authentication",
-      "example": {
-        "type": "https://api.timing-jeju.com/problems/authentication-required",
-        "title": "인증이 필요합니다",
-        "status": 401,
-        "detail": "계획 항목의 날씨를 조회하려면 로그인해 주세요.",
-        "instance": "urn:timing-jeju:problem:00000000000000000000000000000001",
-        "code": "AUTHENTICATION_REQUIRED",
-        "traceId": "00000000000000000000000000000001",
-        "fieldErrors": []
-      }
-    },
-    {
-      "status": 404,
-      "code": "WEATHER_REFERENCE_NOT_FOUND",
-      "condition": "reference absent or outside caller ownership; no existence leak",
-      "example": {
-        "type": "https://api.timing-jeju.com/problems/weather-reference-not-found",
-        "title": "계획 목적지를 찾을 수 없습니다",
-        "status": 404,
-        "detail": "요청한 목적지가 없거나 조회할 수 없습니다.",
-        "instance": "urn:timing-jeju:problem:00000000000000000000000000000004",
-        "code": "WEATHER_REFERENCE_NOT_FOUND",
-        "traceId": "00000000000000000000000000000004",
-        "fieldErrors": []
-      }
+      "example": {"type": "https://api.timing-jeju.com/problems/weather-forecast-unavailable", "title": "날씨 예보를 불러올 수 없습니다", "status": 503, "detail": "최신 예보와 직전 예보를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.", "instance": "urn:timing-jeju:problem:00000000000000000000000000000005", "code": "WEATHER_FORECAST_UNAVAILABLE", "traceId": "00000000000000000000000000000005", "fieldErrors": []}
     }
   ],
   "externalTraceability": {
     "notion": {
-      "status": "not-ready",
-      "contractVersion": "not-linked",
-      "evidence": null,
-      "ownerFollowUp": "#220 v2 selector/ownership/error readback required; historical-v1.contract.json is not current evidence"
+      "status": "ready",
+      "contractVersion": "1.0.0",
+      "evidence": {
+        "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
+        "pageUrl": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
+        "method": "GET",
+        "path": "/api/v1/weather/forecast",
+        "specStatus": "Ready",
+        "auth": "Optional",
+        "screen": "장소 상세 / 일정 날씨 · Figma 1291:8816",
+        "db": ["weather_grid_points", "weather_forecasts"],
+        "alignedScope": ["response", "errors", "fallback", "security"],
+        "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123"
+      },
+      "ownerFollowUp": null
     },
     "figma": {
-      "status": "not-ready",
-      "contractVersion": "not-linked",
-      "evidence": null,
-      "ownerFollowUp": "#220 v2 selector/ownership/error readback required; historical-v1.contract.json is not current evidence"
+      "status": "ready",
+      "contractVersion": "1.0.0",
+      "evidence": {
+        "fileKey": "4mKep38zm17iupVSQVsSJW",
+        "contractNode": "1291:8816",
+        "actionNode": "1291:8819",
+        "loadingNode": "1291:8820",
+        "successNode": "1291:8821",
+        "emptyNode": "1291:8822",
+        "errorNode": "1291:8823",
+        "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123"
+      },
+      "ownerFollowUp": null
     }
   },
   "readiness": {
     "metadata": {
-      "status": "not-ready",
-      "evidence": null
+      "status": "ready",
+      "evidence": {
+        "localDocument": "docs/contracts/domains/weather-forecast/contract.md",
+        "notionPage": {"url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c", "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c"},
+        "figmaNode": {"url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816", "fileKey": "4mKep38zm17iupVSQVsSJW", "nodeId": "1291:8816"}
+      }
     },
     "example": {
-      "status": "not-ready",
-      "evidence": null
+      "status": "ready",
+      "evidence": {
+        "requestFixture": "fixtures/contracts/weather-forecast/request.json",
+        "successFixture": "fixtures/contracts/weather-forecast/success.json",
+        "problemFixture": "fixtures/contracts/weather-forecast/problem.json"
+      }
     },
     "implementation": {
-      "status": "not-ready",
-      "evidence": null
+      "status": "ready",
+      "evidence": {
+        "controller": "services/spring-api/src/main/java/com/timingjeju/api/domain/weather/controller/WeatherForecastController.java",
+        "controllerTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/controller/WeatherForecastControllerTest.java",
+        "serviceTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/service/WeatherForecastQueryServiceTest.java",
+        "repositoryTest": "services/spring-api/src/test/java/com/timingjeju/api/global/weather/JdbcWeatherForecastRepositoryIntegrationTest.java",
+        "openApiTest": "services/spring-api/src/test/java/com/timingjeju/api/documentation/WeatherForecastOpenApiIntegrationTest.java",
+        "contractTest": "scripts/tests/test_weather_forecast_contract.py"
+      }
     }
   },
   "schemaGap": [
@@ -355,8 +241,6 @@
     "weather_forecasts has no provider API/guide version column; Issue #67 must project audited snapshot/import metadata without exposing raw payload",
     "weather_forecasts.forecast_type stores ultra_short or short; Issue #67 must project storage short to public village and must never expose short",
     "weather_grid_points permits any KMA grid but the public endpoint supports only rows selected by the Jeju service policy",
-    "public schema single source is supabase/migrations; this documentation Issue adds no schema or Flyway",
-    "#222 resolves explicit/planned selectors from public and owner-checked records; no user GPS query input"
-  ],
-  "supersedes": {"contract": "docs/contracts/domains/weather-forecast/historical-v1.contract.json", "contractVersion": "1.0.0"}
+    "public schema single source is supabase/migrations; this documentation Issue adds no schema or Flyway"
+  ]
 }

@@ -1673,23 +1673,23 @@ Response `200`:
 
 ### 17.1 `GET /api/v1/weather/forecast`
 
-Canonical source: `docs/contracts/domains/weather-forecast/contract.json`, contractVersion: `1.0.0`, 구현 owner: Issue #67.
+Canonical source: `docs/contracts/domains/weather-forecast/contract.json`, contractVersion: `2.0.0`, 정책 owner: #220, selector 구현 owner: #222. metadata/example/implementation은 not-ready이고 외부 readback은 not-linked다.
 
-`lat`, `lng`, `dateTime`은 동시에 required/non-null이며 추가 query를 허용하지 않는다. `lat=-90..90` exclusive, `lng=-180..180` inclusive의 finite number이고 `dateTime`은 Asia/Seoul의 `+09:00` RFC 3339 정시(seconds `00`)다. 요청 접수 시각을 내린 정시부터 6시간 inclusive는 `ultra_short`, 그 초과부터 10일 inclusive는 `village`로 조회한다. 과거·10일 초과는 422다.
+`regionCode | placeId | tripItemId` 중 정확히 하나와 `dateTime`을 받는다. selector는 사용자 명시 선택 또는 기존 계획 참조여야 하며 GPS 파생값은 금지한다. tripItemId는 JWT owner 조회가 필요하고 인증 없음은 401, 타 owner/없는 참조는 404로 은닉한다. selector 누락·복수·unknown 입력은 400 `INVALID_WEATHER_SELECTOR`다. `dateTime`은 Asia/Seoul의 `+09:00` RFC 3339 정시(seconds `00`)다. 요청 접수 시각을 내린 정시부터 6시간 inclusive는 `ultra_short`, 그 초과부터 10일 inclusive는 `village`로 조회한다. 과거·10일 초과는 422다.
 
 Canonical DB의 `weather_forecasts.forecast_type`은 `ultra_short | short`다. 공개 응답은 `ultra_short | village`이므로 구현 #67은 DB `ultra_short` → API `ultra_short`, DB `short` → API `village`로 정확히 projection한다. `short`는 공개하지 않으며 이 문서 Issue는 migration을 추가하지 않는다.
 
 Request:
 
 ```http
-GET /api/v1/weather/forecast?lat=33.458111&lng=126.941516&dateTime=2026-08-03T14:00:00%2B09:00
+GET /api/v1/weather/forecast?regionCode=seongsan&dateTime=2026-08-03T14:00:00%2B09:00
 ```
 
 Response `200`:
 
 ```json
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "2.0.0",
   "grid": {
     "nx": 60,
     "ny": 37,

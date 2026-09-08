@@ -29,7 +29,7 @@ TOP_FIELDS = {
     "schemaVersion", "contractVersion", "sourceSpecVersion", "inherits", "ownerIssue",
     "implementationIssues", "schemas", "endpoints", "gridPolicy", "forecastPolicy",
     "categoryPolicy", "freshnessPolicy", "securityPolicy", "errorConditions",
-    "externalTraceability", "readiness", "schemaGap",
+    "externalTraceability", "readiness", "schemaGap", "supersedes",
 }
 ENDPOINT_FIELDS = {
     "method", "path", "operation", "requestSchema", "headersSchema", "successSchema",
@@ -37,8 +37,9 @@ ENDPOINT_FIELDS = {
     "dbOwner", "requestTimeCall", "dataLineage", "figma", "contractVersion",
 }
 EXPECTED_ERROR_MATRIX = {
-    "400": ["INVALID_WEATHER_FORECAST_QUERY"],
-    "401": ["INVALID_ACCESS_TOKEN"],
+    "400": ["INVALID_WEATHER_SELECTOR"],
+    "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
+    "404": ["WEATHER_REFERENCE_NOT_FOUND"],
     "422": ["WEATHER_LOCATION_NOT_SUPPORTED", "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED"],
     "503": ["WEATHER_FORECAST_UNAVAILABLE"],
 }
@@ -85,11 +86,11 @@ def _validate_identity(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("top-level field exact 집합이 다릅니다.")
     expected = {
         "schemaVersion": "timing-jeju-weather-forecast-contract/v1",
-        "contractVersion": "1.0.0",
-        "sourceSpecVersion": "1.0.0",
+        "contractVersion": "2.0.0",
+        "sourceSpecVersion": "2.0.0",
         "inherits": "timing-jeju-rest-contract/v1",
         "ownerIssue": 94,
-        "implementationIssues": [67],
+        "implementationIssues": [222],
     }
     for key, value in expected.items():
         if contract.get(key) != value:
@@ -104,15 +105,14 @@ def _validate_query(contract: dict[str, Any], errors: list[str]) -> None:
     query = schemas["WeatherForecastQuery"]
     if query.get("type") != "object" or query.get("nullable") is not False or query.get("additionalProperties") is not False:
         errors.append("query closed object 경계가 다릅니다.")
-    if query.get("required") != ["lat", "lng", "dateTime"] or set(query.get("properties", {})) != {"lat", "lng", "dateTime"}:
-        errors.append("query lat/lng/dateTime simultaneous required 경계가 다릅니다.")
-    lat = query.get("properties", {}).get("lat", {})
-    lng = query.get("properties", {}).get("lng", {})
-    date_time = query.get("properties", {}).get("dateTime", {})
-    if (lat.get("type"), lat.get("exclusiveMinimum"), lat.get("exclusiveMaximum"), lat.get("finite"), lat.get("nullable")) != ("number", -90, 90, True, False):
-        errors.append("query lat range/type가 다릅니다.")
-    if (lng.get("type"), lng.get("minimum"), lng.get("maximum"), lng.get("finite"), lng.get("nullable")) != ("number", -180, 180, True, False):
-        errors.append("query lng range/type가 다릅니다.")
+    properties = query.get("properties", {})
+    if query.get("required") != ["dateTime"] or set(properties) != {"regionCode", "placeId", "tripItemId", "dateTime"}:
+        errors.append("query selector/dateTime closed required 경계가 다릅니다.")
+    if query.get("oneOf") != [{"required": [key]} for key in ("regionCode", "placeId", "tripItemId")]:
+        errors.append("query selector exactly-one 경계가 다릅니다.")
+    if properties != _load(DEFAULT_CONTRACT)["schemas"]["WeatherForecastQuery"]["properties"]:
+        errors.append("query selector 형식이 다릅니다.")
+    date_time = properties.get("dateTime", {})
     if date_time != {"type": "string", "nullable": False, "format": "date-time", "timezone": "Asia/Seoul", "requiredOffset": "+09:00", "seconds": 0}:
         errors.append("query dateTime timezone/format/granularity가 다릅니다.")
     canonical_schemas = _load(DEFAULT_CONTRACT)["schemas"]
@@ -134,9 +134,9 @@ def _validate_endpoint(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("endpoint schema refs가 다릅니다.")
     if endpoint.get("auth") != {"mode": "optional", "missingToken": "anonymous", "invalidToken": 401}:
         errors.append("endpoint auth가 #72 optional 계약과 다릅니다.")
-    if endpoint.get("owner") != "none; public weather fact has no user owner":
+    if endpoint.get("owner") != "regionCode/placeId: public explicit selection; tripItemId: authenticated canonical JWT sub owner only":
         errors.append("endpoint owner 계약이 다릅니다.")
-    if endpoint.get("responses") != {"success": [200], "errors": [400, 401, 422, 503]} or endpoint.get("errorMatrix") != EXPECTED_ERROR_MATRIX:
+    if endpoint.get("responses") != {"success": [200], "errors": [400, 401, 404, 422, 503]} or endpoint.get("errorMatrix") != EXPECTED_ERROR_MATRIX:
         errors.append("endpoint response/error matrix가 다릅니다.")
     if endpoint.get("pagination") != {"type": "none"}:
         errors.append("endpoint cursor/pagination은 none이어야 합니다.")
@@ -168,7 +168,7 @@ def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
 
 def _validate_problems(contract: dict[str, Any], errors: list[str]) -> None:
     conditions = contract.get("errorConditions")
-    if not isinstance(conditions, list) or len(conditions) != 5:
+    if not isinstance(conditions, list) or len(conditions) != 7:
         errors.append("problem condition exact 집합이 다릅니다.")
         return
     canonical = {item["code"]: item for item in _load(DEFAULT_CONTRACT)["errorConditions"]}
@@ -188,57 +188,15 @@ def _validate_problems(contract: dict[str, Any], errors: list[str]) -> None:
 
 
 def _validate_external(contract: dict[str, Any], errors: list[str]) -> None:
-    external = contract.get("externalTraceability")
-    if not isinstance(external, dict) or set(external) != {"notion", "figma"}:
-        errors.append("external readiness source가 다릅니다.")
-        return
-    canonical = _load(DEFAULT_CONTRACT)["externalTraceability"]
-    if external != canonical:
-        errors.append("external readiness/evidence/owner follow-up exact 계약이 다릅니다.")
-    notion = external.get("notion", {})
-    notion_evidence = notion.get("evidence", {})
-    readiness = contract.get("readiness", {})
-    metadata_evidence = readiness.get("metadata", {}).get("evidence", {}) if isinstance(readiness, dict) else {}
-    if (
-        notion.get("status") != "ready"
-        or notion.get("contractVersion") != "1.0.0"
-        or notion_evidence.get("specStatus") != "Ready"
-        or notion_evidence.get("screen") != "장소 상세 / 일정 날씨 · Figma 1291:8816"
-        or notion_evidence.get("alignedScope") != ["response", "errors", "fallback", "security"]
-        or notion_evidence.get("decisionComment") != AUTHORITATIVE_DECISION
-        or notion.get("ownerFollowUp") is not None
-    ):
-        errors.append("external readiness notion exact aligned 근거가 다릅니다.")
-    external_notion_link = {
-        "url": notion_evidence.get("pageUrl"),
-        "pageId": notion_evidence.get("pageId"),
-    }
-    readiness_notion_link = metadata_evidence.get("notionPage") if isinstance(metadata_evidence, dict) else None
-    if external_notion_link != AUTHORITATIVE_NOTION_LINK or readiness_notion_link != AUTHORITATIVE_NOTION_LINK:
-        errors.append("external/readiness Notion authoritative lineage가 다릅니다.")
-    figma = external.get("figma", {})
-    figma_evidence = figma.get("evidence", {})
-    if (
-        figma.get("status") != "ready"
-        or figma.get("contractVersion") != "1.0.0"
-        or figma_evidence.get("fileKey") != "4mKep38zm17iupVSQVsSJW"
-        or [figma_evidence.get(field) for field in ("contractNode", "actionNode", "loadingNode", "successNode", "emptyNode", "errorNode")]
-        != ["1291:8816", "1291:8819", "1291:8820", "1291:8821", "1291:8822", "1291:8823"]
-        or figma_evidence.get("decisionComment") != AUTHORITATIVE_DECISION
-        or figma.get("ownerFollowUp") is not None
-    ):
-        errors.append("external readiness figma exact field/state linkage가 다릅니다.")
-    external_figma_link = {
-        "url": AUTHORITATIVE_FIGMA_LINK["url"],
-        "fileKey": figma_evidence.get("fileKey"),
-        "nodeId": figma_evidence.get("contractNode"),
-    }
-    readiness_figma_link = metadata_evidence.get("figmaNode") if isinstance(metadata_evidence, dict) else None
-    if external_figma_link != AUTHORITATIVE_FIGMA_LINK or readiness_figma_link != AUTHORITATIVE_FIGMA_LINK:
-        errors.append("external/readiness Figma authoritative lineage가 다릅니다.")
-    expected_readiness = _load(DEFAULT_CONTRACT)["readiness"]
-    if contract.get("readiness") != expected_readiness:
-        errors.append("external metadata/example/implementation ready evidence 경계가 다릅니다.")
+    expected = {name: {"status": "not-ready", "contractVersion": "not-linked", "evidence": None,
+        "ownerFollowUp": "#220 v2 selector/ownership/error readback required; historical-v1.contract.json is not current evidence"}
+        for name in ("notion", "figma")}
+    if contract.get("externalTraceability") != expected:
+        errors.append("external readiness v2는 실제 readback 전 not-linked여야 합니다.")
+    if contract.get("readiness") != {stage: {"status": "not-ready", "evidence": None} for stage in ("metadata", "example", "implementation")}:
+        errors.append("external readiness v2는 구현/문서 증거 전 not-ready여야 합니다.")
+    if contract.get("supersedes") != {"contract": "docs/contracts/domains/weather-forecast/historical-v1.contract.json", "contractVersion": "1.0.0"}:
+        errors.append("external readiness 역사 v1 참조가 다릅니다.")
 
 
 def catalog_projection(endpoint: dict[str, Any]) -> dict[str, Any]:
@@ -247,7 +205,7 @@ def catalog_projection(endpoint: dict[str, Any]) -> dict[str, Any]:
         "path": endpoint["path"],
         "operation": endpoint["operation"],
         "auth": endpoint["auth"],
-        "owner": "Spring Weather domain; public non-owner read; contract #94, implementation #67",
+        "owner": "Spring Weather domain; explicit public or owner-checked planned read; contract #220/#94, implementation #222",
         "schemas": {"path": "none", "query": endpoint["requestSchema"], "headers": endpoint["headersSchema"], "body": "none"},
         "presence": endpoint["presence"],
         "responses": endpoint["responses"],
@@ -276,7 +234,7 @@ def _validate_projection(contract: dict[str, Any], errors: list[str]) -> None:
         "issue": 94,
         "domain": "weather-forecast",
         "inherits": "timing-jeju-rest-contract/v1",
-        "versions": {"local": "1.0.0", "notion": "1.0.0", "figma": "1.0.0"},
+        "versions": {"local": "2.0.0", "notion": "not-linked", "figma": "not-linked"},
         "readiness": contract["readiness"],
     }
     if domain != expected_domain:
@@ -305,6 +263,14 @@ def _validate_value(value: Any, schema: dict[str, Any], schemas: dict[str, Any],
             return
         _validate_value(value, target, schemas, path, errors)
         return
+    if "oneOf" in schema:
+        matches = 0
+        for branch in schema["oneOf"]:
+            branch_errors = []
+            _validate_value(value, branch, schemas, path, branch_errors)
+            matches += not branch_errors
+        if matches != 1:
+            errors.append(f"{path} oneOf selector exactly-one 위반입니다.")
     if value is None:
         if schema.get("nullable") is not True:
             errors.append(f"{path} nullable 위반입니다.")
