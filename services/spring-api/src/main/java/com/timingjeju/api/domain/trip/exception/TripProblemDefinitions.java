@@ -20,6 +20,11 @@ public class TripProblemDefinitions implements ProblemDefinitionContributor {
             "여행 조건을 처리할 수 없습니다",
             422,
             "여행은 1일부터 30일까지이며 날짜와 교통 우선순위가 일관되어야 합니다."),
+        problem(
+            "PREFERENCE_CONSTRAINT_VIOLATION",
+            "여행 선호 조건을 처리할 수 없습니다",
+            422,
+            "중복 값과 교통수단 primary·priority를 확인해 주세요."),
         problem("IF_MATCH_REQUIRED", "If-Match가 필요합니다", 400, "현재 여행 ETag를 If-Match로 보내 주세요."),
         problem("INVALID_IF_MATCH", "If-Match가 올바르지 않습니다", 400, "strong 여행 ETag 형식을 사용해 주세요."),
         problem("TRIP_VERSION_CONFLICT", "여행 버전이 충돌했습니다", 409, "최신 여행을 다시 조회한 뒤 수정해 주세요."),

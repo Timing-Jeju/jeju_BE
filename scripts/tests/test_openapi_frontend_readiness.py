@@ -8,6 +8,7 @@ from unittest import mock
 
 from scripts.validate_openapi_frontend_readiness import (
     CURRENT_OPERATIONS,
+    PREFERENCES_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_MUTATION_OPERATIONS,
@@ -495,6 +496,65 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
         self.assertEqual("MutationResponse", create.args[2]["successSchema"])
         self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
+
+    def test_mode25는_trip_preferences_update를_exact_inventory와_authority로_검사한다(self):
+        """25-operation 모드가 #46 preferences PUT만 historical mode24에 더한다."""
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            SCHEDULE_OPERATIONS,
+            SCHEDULE_MUTATION_OPERATIONS,
+            PREFERENCES_OPERATIONS,
+        )
+        validator = Validator({}, 25, ROOT)
+        validator.operations = {
+            key for operations in operation_maps for key in operations
+        }
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for operations in operation_maps
+            for (method, path), operation_id in operations.items()
+        }
+
+        validator.validate_operation_inventory()
+
+        self.assertEqual([], validator.errors)
+        authority = Validator(valid_document(), 25, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        preferences = next(
+            call
+            for call in projection.call_args_list
+            if call.args[0] == ("PUT", "/api/v1/trips/{tripId}/preferences")
+        )
+        self.assertEqual("PreferencesResponse", preferences.args[2]["successSchema"])
+        self.assertEqual("PreferencesRequest", preferences.args[1]["schemas"]["body"])
+        flattened = authority.canonical_schema(
+            {"$ref": "PreferencesResponse"},
+            preferences.args[3],
+            "PUT /api/v1/trips/{tripId}/preferences response 200",
+        )
+        self.assertEqual("object", flattened["type"])
+        self.assertEqual(False, flattened["additionalProperties"])
+        self.assertEqual(
+            {
+                "tripId",
+                "preferences",
+                "scheduleEffect",
+                "regenerationRequired",
+                "activeScheduleVersionId",
+                "tripStatus",
+                "updatedAt",
+            },
+            set(flattened["required"]),
+        )
+        self.assertEqual(
+            "c6862499d71519d9efc7bfcf72855703d1e94f0a",
+            authority.source_provenance["preferences-transport"],
+        )
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)

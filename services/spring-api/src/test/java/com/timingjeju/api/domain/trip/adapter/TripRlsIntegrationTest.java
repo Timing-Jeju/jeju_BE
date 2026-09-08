@@ -26,7 +26,9 @@ class TripRlsIntegrationTest extends PostgreSqlRepositoryIntegrationTestSupport 
   private static final UUID TRIP = UUID.fromString("44000000-0000-0000-0000-000000000973");
   private static final UUID DAY = UUID.fromString("44000000-0000-0000-0000-000000000975");
   private static final List<String> TRIP_TABLES =
-      List.of("trip_plans", "trip_transport_modes", "trip_days");
+      List.of("trip_plans", "trip_preferences", "trip_transport_modes", "trip_days");
+  private static final List<String> AUTHENTICATED_OWNER_READ_TABLES =
+      List.of("trip_preferences", "trip_transport_modes");
 
   @Autowired private JdbcTemplate jdbc;
   @Autowired private DataSource dataSource;
@@ -156,7 +158,11 @@ class TripRlsIntegrationTest extends PostgreSqlRepositoryIntegrationTestSupport 
     for (String table : TRIP_TABLES) {
       for (String privilege : List.of("SELECT", "INSERT", "UPDATE", "DELETE")) {
         assertPrivilege("anon", table, privilege, false);
-        assertPrivilege("authenticated", table, privilege, false);
+        assertPrivilege(
+            "authenticated",
+            table,
+            privilege,
+            privilege.equals("SELECT") && AUTHENTICATED_OWNER_READ_TABLES.contains(table));
         assertPrivilege("service_role", table, privilege, true);
       }
       for (String role : List.of("anon", "authenticated")) {

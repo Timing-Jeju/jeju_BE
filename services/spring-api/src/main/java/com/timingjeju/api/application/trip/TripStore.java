@@ -17,5 +17,7 @@ public interface TripStore {
 
   TripMutationResult updateOwned(TripUpdateRecord record);
 
+  TripPreferencesMutation replacePreferences(ReplaceTripPreferencesRecord record);
+
   void deleteOwned(UUID ownerId, UUID tripId);
 }

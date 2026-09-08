@@ -24,7 +24,7 @@ public final class TripAggregateMutationCoordinator {
     List<LockedTrip> rows =
         jdbc.query(
             """
-            select revision, title, status, start_date, end_date, timezone, user_pace,
+            select revision, title, status, start_date, end_date, timezone, user_pace, updated_at,
                    active_schedule_version_id, total_score
             from public.trip_plans
             where id = ? and user_id = ?
@@ -39,6 +39,7 @@ public final class TripAggregateMutationCoordinator {
                     rs.getDate("end_date").toLocalDate(),
                     rs.getString("timezone"),
                     rs.getString("user_pace"),
+                    rs.getTimestamp("updated_at").toInstant(),
                     rs.getObject("active_schedule_version_id", UUID.class),
                     rs.getObject("total_score", Integer.class)),
             tripId,
@@ -89,6 +90,7 @@ public final class TripAggregateMutationCoordinator {
       LocalDate endDate,
       String timezone,
       String userPace,
+      Instant updatedAt,
       UUID activeScheduleVersionId,
       Integer totalScore) {}
 }
