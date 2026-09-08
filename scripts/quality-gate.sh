@@ -37,6 +37,17 @@ run_spring_gradle() {
   )
 }
 
+run_bounded_spring_gradle() {
+  STAGE_NAME=$1
+  STAGE_TIMEOUT=$2
+  EXPECTED_MARKER=$3
+  shift 3
+  (
+    cd "$SPRING_DIR"
+    python3 "$ROOT/scripts/gradle_stage_watchdog.py" --stage "$STAGE_NAME" --timeout-seconds "$STAGE_TIMEOUT" --post-suite-timeout-seconds 120 --expected-marker "$EXPECTED_MARKER" --diagnostics-dir "$SPRING_DIR/build/diagnostics" -- ./gradlew --no-daemon "$@"
+  )
+}
+
 BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-$(git branch --show-current)}}
 SHA=$(git rev-parse HEAD 2>/dev/null || printf 'UNBORN')
 
@@ -107,15 +118,28 @@ run_spring_checks() {
   run_spring_gradle spotlessCheck
   stage "Spring 컴파일"
   run_spring_gradle classes testClasses
+  rm -rf "$SPRING_DIR/build/jacoco"
+  if [ -e "$SPRING_DIR/build/jacoco" ]; then
+    echo "stale JaCoCo execution data를 삭제하지 못했습니다." >&2
+    exit 1
+  fi
   stage "Spring 단위 테스트"
   run_spring_gradle unitTest
   stage "Spring Slice 테스트"
   run_spring_gradle sliceTest
   stage "Spring 통합 테스트"
-  run_spring_gradle integrationTest
+  run_bounded_spring_gradle "integrationTest" 7200 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" integrationTest
   stage "Spring OpenAPI 문서 생성"
   rm -f services/spring-api/build/openapi/openapi.json
-  run_spring_gradle openApiDocs
+  if [ -e services/spring-api/build/openapi/openapi.json ]; then
+    echo "stale OpenAPI artifact를 삭제하지 못했습니다." >&2
+    exit 1
+  fi
+  run_bounded_spring_gradle "openApiDocs" 900 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:openApiDocsTest" openApiDocs
+  if [ ! -s services/spring-api/build/openapi/openapi.json ]; then
+    echo "OpenAPI artifact가 없거나 비어 있습니다." >&2
+    exit 1
+  fi
   stage "Spring OpenAPI 프론트엔드 readiness 검사"
   python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 24
   stage "Spring Architecture 테스트"

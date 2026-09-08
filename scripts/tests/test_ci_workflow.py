@@ -98,6 +98,7 @@ class CiWorkflowTest(unittest.TestCase):
         self.assertIn("services/spring-api/build/reports/tests/", self.workflow)
         self.assertIn("services/spring-api/build/reports/jacoco/", self.workflow)
         self.assertIn("services/spring-api/build/openapi/openapi.json", self.workflow)
+        self.assertIn("services/spring-api/build/diagnostics/", self.workflow)
 
 
 if __name__ == "__main__":
