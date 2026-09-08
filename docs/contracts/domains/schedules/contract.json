@@ -1226,7 +1226,6 @@
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
           "SCHEDULE_ITEM_INVALID",
-          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },
@@ -1316,6 +1315,7 @@
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
           "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },

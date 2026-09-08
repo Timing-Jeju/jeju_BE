@@ -161,6 +161,85 @@ class ScheduleOpenApiIntegrationTest {
                 .value(containsInAnyOrder("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE")));
   }
 
+  @Test
+  void schedule_item_edit는_terminal_empty_day와_delete_변경목록을_OpenAPI에_공개한다() throws Exception {
+    String itemPath = "$.paths['/api/v1/trips/{tripId}/schedule-items/{itemId}']";
+    String reorderPath = "$.paths['/api/v1/trips/{tripId}/schedule-order'].put";
+    String movePath = "$.paths['/api/v1/trips/{tripId}/schedule-items/{itemId}/move'].post";
+
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    itemPath
+                        + ".patch.responses['409'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "IDEMPOTENCY_KEY_REUSED",
+                        "TRIP_VERSION_CONFLICT",
+                        "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT")))
+        .andExpect(
+            jsonPath(
+                    itemPath
+                        + ".delete.responses['409'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "IDEMPOTENCY_KEY_REUSED",
+                        "TRIP_VERSION_CONFLICT",
+                        "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT")))
+        .andExpect(
+            jsonPath(
+                    reorderPath
+                        + ".responses['409'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "IDEMPOTENCY_KEY_REUSED",
+                        "TRIP_VERSION_CONFLICT",
+                        "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT")))
+        .andExpect(
+            jsonPath(
+                    movePath
+                        + ".responses['409'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "IDEMPOTENCY_KEY_REUSED",
+                        "TRIP_VERSION_CONFLICT",
+                        "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT")))
+        .andExpect(
+            jsonPath(
+                    itemPath
+                        + ".delete.responses['422'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "SCHEDULE_ITEM_COMPLETED",
+                        "SCHEDULE_DAY_EMPTY",
+                        "SCHEDULE_LEG_INCOMPLETE")))
+        .andExpect(
+            jsonPath(
+                    movePath
+                        + ".responses['422'].content['application/problem+json'].examples.keys()")
+                .value(
+                    containsInAnyOrder(
+                        "SCHEDULE_ITEM_COMPLETED",
+                        "SCHEDULE_ITEM_INVALID",
+                        "SCHEDULE_DAY_EMPTY",
+                        "SCHEDULE_LEG_INCOMPLETE")))
+        .andExpect(
+            jsonPath(
+                    itemPath
+                        + ".delete.responses['200'].content['application/json'].example.changedItemIds")
+                .isArray())
+        .andExpect(
+            jsonPath(
+                itemPath
+                    + ".delete.responses['200'].content['application/json'].example.changedItemIds",
+                hasSize(0)));
+  }
+
   private static String randomKey() {
     byte[] bytes = new byte[32];
     new SecureRandom().nextBytes(bytes);
