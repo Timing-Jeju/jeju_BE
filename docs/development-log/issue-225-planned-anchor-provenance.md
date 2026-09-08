@@ -68,3 +68,13 @@
 - 직렬 통합 회귀 `/tmp/jeju-225-route-final-regression.log` PASS(12m15s): mutation 80, PG16/17 route migration·rollback·seed 10, historical title-only upgrade 1, 총 91건 실패·skip 0.
 - `/tmp/jeju-225-route-expiry-rollback-green.log` PASS: 만료 등호·관측 전·출발 변경 거부 3건 및 snapshot 복사 실패 시 신규 leg/version 전체 rollback 1건.
 - 두 번째 Docker 실행에서는 역사 v1 및 053 fail-closed rollback이 통과했고, 별도 concurrency fixture loop의 같은 023 누락을 검출했다. 두 resolver 실행 loop의 선행 조건을 검사하는 단위 RED(`/tmp/jeju-225-smoke-dependency-red.log`) 후 두 loop를 정렬해 GREEN(`/tmp/jeju-225-smoke-dependency-green.log`, 14건)을 확인했다. 전체 Docker 재실행은 `/tmp/jeju-225-route-docker-final.log`에서 진행 중이다.
+
+## 016 후속 참조 무결성 보강
+
+- migration015와 핵심 경로 구현은 `0d656c0ad92e118447306d108e4ae5959ff2dc1d`로 커밋·푸시했다. 이후 015는 수정하지 않았다.
+- Docker 동시성 fixture 두 custom/title-only 항목의 임시 location facts를 {}로 전환했다. 다른 정상 Java fixture 9곳도 같은 방식으로 정리했으며 위치 거부·legacy rollback 테스트는 유지했다.
+- `/tmp/jeju-225-route-docker-closed-facts.log`에서 FK leading index 누락을 검출했다. CLI로 새 016을 생성하고 16개 FK 선두 index를 등록했다. `/tmp/jeju-225-route-index-pg-green.log`의 PG16/17 전체 schema 계약 및 `/tmp/jeju-225-route-index-docker-green.log`의 Docker 전체 preflight·정리(exit0)가 통과했다.
+- 관련 fixture 회귀 80건 중 79건은 성공했고, 여행 직접 자식 FK가 CASCADE여야 한다는 기존 계약 1건이 실패했다 (`/tmp/jeju-225-closed-fixture-regression.log`). 실제 route를 포함한 여행 삭제도 RED(`/tmp/jeju-225-route-trip-delete-red.log`)로 재현했다.
+- 미커밋 016을 `planned_route_reference_integrity.sql`로 정리하고 owner-trip FK만 ON DELETE CASCADE로 교체했다. 공개 place/stop 및 계획 anchor FK는 유지한다. negative route hash SQL은 유효한 기존 계보를 복사한 뒤 hash만 잘못 넣어 실패 원인을 분리했다.
+- 최종 `/tmp/jeju-225-route-owner-integrity-green.log` PASS(2m20s): 실제 여행 삭제 시 route 제거/public place 3개·owner 보존, 기존 trip 삭제 계약, PG16/17 schema 검증 총4건. registry14건과 diff 검사도 PASS. 독립 advisory 추가 finding0.
+- 위 Docker preflight는 owner-trip CASCADE 최종 보강 이전 증거이다. 최신 base/최종 HEAD의 전체 공식 gate·Docker·공식 리뷰는 #222 병합 후 다시 수행한다. 아직 PR·공식 승인·운영 적용은 없다.
