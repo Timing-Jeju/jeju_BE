@@ -137,6 +137,9 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.items.length()").value(2))
         .andExpect(jsonPath("$.items[0].category").value("VE"))
+        .andExpect(jsonPath("$.items[0].location.lat").isNumber())
+        .andExpect(jsonPath("$.items[0].location.lng").isNumber())
+        .andExpect(jsonPath("$.items[0].distanceMeters").doesNotExist())
         .andExpect(jsonPath("$.items[0].recommendedStayMinutes").value(90))
         .andExpect(jsonPath("$.items[0].recommendedStaySource").value("category_default"))
         .andExpect(jsonPath("$.items[0].recommendedStayPolicyVersion").value("places-v1"))
@@ -169,9 +172,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
     List<PlaceSearchRow> anonymous = search(null, null, null, Optional.empty());
     List<PlaceSearchRow> savedOnly =
         repository.search(
-            PlacesListQuery.of(null, null, null, null, null, null, null, 20, true),
-            null,
-            Optional.of(USER_A));
+            PlacesListQuery.of(null, null, null, null, 20, true), null, Optional.of(USER_A));
 
     assertThat(anonymous)
         .allSatisfy(
@@ -191,27 +192,26 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
   }
 
   @Test
-  void PostGIS_radius는_spheroid_epsilon_안쪽을_포함하고_바깥쪽을_제외하며_GiST_plan을_사용한다() {
+  void 목록은_좌표거리로_필터하지_않고_공개_장소_GiST는_유지한다() {
     UUID tieA = UUID.fromString("32000000-0000-0000-0000-000000000019");
     UUID tieB = UUID.fromString("32000000-0000-0000-0000-000000000020");
     UUID boundary = UUID.fromString("32000000-0000-0000-0000-000000000021");
     UUID outside = UUID.fromString("32000000-0000-0000-0000-000000000022");
-    insertProjectedPlace(tieB, "동일거리", 500.0);
-    insertProjectedPlace(tieA, "동일거리", 500.0);
-    // ST_Project/ST_DWithin spheroid calculations can differ by sub-millimeter rounding. Verify
-    // the inclusive predicate with a stable pair immediately inside/outside the 1,000 m edge.
-    insertProjectedPlace(boundary, "경계", 999.999);
-    insertProjectedPlace(outside, "초과", 1_000.1);
-    PlacesListQuery nearby =
-        PlacesListQuery.of(null, "AC", "seongsan", 33.5, 126.5, 1_000, null, 20, false);
+    insertProjectedPlace(tieB, "b-tie", 500.0);
+    insertProjectedPlace(tieA, "b-tie", 500.0);
+    insertProjectedPlace(boundary, "a-boundary", 999.999);
+    insertProjectedPlace(outside, "c-outside", 1_000.1);
+    PlacesListQuery selectedRegion = PlacesListQuery.of(null, "AC", "seongsan", null, 20, false);
 
-    List<PlaceSearchRow> rows = repository.search(nearby, null, Optional.empty());
-    assertThat(rows).extracting(PlaceSearchRow::placeId).containsExactly(tieA, tieB, boundary);
+    List<PlaceSearchRow> rows = repository.search(selectedRegion, null, Optional.empty());
+    assertThat(rows)
+        .extracting(PlaceSearchRow::placeId)
+        .containsExactly(boundary, tieA, tieB, outside);
     assertThat(
             repository.search(
-                nearby, new PlaceSearchPosition(500L, "동일거리", tieA), Optional.empty()))
+                selectedRegion, new PlaceSearchPosition("b-tie", tieA), Optional.empty()))
         .extracting(PlaceSearchRow::placeId)
-        .containsExactly(tieB, boundary);
+        .containsExactly(tieB, outside);
 
     jdbc.execute("set local enable_seqscan=off");
     String plan =
@@ -225,8 +225,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
 
   @Test
   void 동일이름_keyset은_tie_placeId로_경계삽입에도_중복없이_진행한다() {
-    PlacesListQuery firstQuery =
-        PlacesListQuery.of(null, "VE", "seongsan", null, null, null, null, 1, false);
+    PlacesListQuery firstQuery = PlacesListQuery.of(null, "VE", "seongsan", null, 1, false);
     List<PlaceSearchRow> first = repository.search(firstQuery, null, Optional.empty());
     PlaceSearchRow item = first.getFirst();
     UUID insertedBefore = UUID.fromString("32000000-0000-0000-0000-000000000010");
@@ -245,7 +244,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
     List<PlaceSearchRow> second =
         repository.search(
             firstQuery,
-            new PlaceSearchPosition(null, item.normalizedName(), item.placeId()),
+            new PlaceSearchPosition(item.normalizedName(), item.placeId()),
             Optional.empty());
 
     assertThat(second)
@@ -256,7 +255,7 @@ class JdbcPlaceSearchRepositoryIntegrationTest extends PostgreSqlRepositoryInteg
   private List<PlaceSearchRow> search(
       String query, String category, String region, Optional<UUID> user) {
     return repository.search(
-        PlacesListQuery.of(query, category, region, null, null, null, null, 20, false), null, user);
+        PlacesListQuery.of(query, category, region, null, 20, false), null, user);
   }
 
   private void insertUser(UUID userId) {

@@ -68,7 +68,7 @@
 
 cursor는 opaque하고 무결성이 보호된 문자열이다. `nextCursor`를 해석하거나 조합하지 말고 다음 요청의 `cursor`에 그대로 넣는다. `hasNext=false`이면 `nextCursor=null`이다. cursor를 받은 뒤 filter, sort, size 또는 사용자 scope를 바꾸면 `400 CURSOR_CONTEXT_MISMATCH`; 훼손된 cursor는 `400 INVALID_CURSOR`다.
 
-- places: 기본 `size=20`, 최대 100. 위치 검색은 `distanceMeters ASC NULLS LAST, name ASC, placeId ASC`, 그 외는 `name ASC, placeId ASC`.
+- places: 기본 `size=20`, 최대 100. 항상 `name ASC, placeId ASC` keyset 순서이며 사용자 거리 계산은 하지 않는다. 이전 위치 기반 cursor는 폐기하고 첫 페이지부터 조회한다.
 - saved places: 기본 `size=20`, 최대 100. sort는 `saved_at_desc`, `priority_desc`, `target_day_asc`.
 - trips: 기본 `size=20`, 최대 50. `updatedAt DESC, tripId DESC`.
 
@@ -389,14 +389,16 @@ Accept: application/json
 
 operationId: `placesList` · Codegen: **READY** · Canonical statuses: `200,400,401,422,429,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
-`develop` 사용 가능 · 인증 선택. query는 모두 optional/non-null: `query` trim 1..100자, `category` `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`, `regionCode` `^[a-z0-9][a-z0-9_-]{0,49}$`, `lat` 33..34와 `lng` 126..127은 쌍으로 사용, `radiusMeters` 100..50000(좌표가 있을 때, 기본 10000), `cursor` 1..2048, `size` 1..100(기본 20), `savedOnly` boolean(기본 false). category는 runtime Controller/OpenAPI의 public wire pattern을 따른다. 익명 `savedOnly=true`는 `401 AUTHENTICATION_REQUIRED`.
+위치 비수집 v2 조회 · 인증 선택. query는 여섯 개이며 모두 optional/non-null: `query` trim 1..100자, `category` `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`, `regionCode` `^[a-z0-9][a-z0-9_-]{0,49}$`, `cursor` 1..2048 (`plc2.` 접두사, 서버가 발급한 nextCursor만 전달), `size` 1..100(기본 20), `savedOnly` boolean(기본 false). category는 runtime Controller/OpenAPI의 public wire pattern을 따른다. 익명 `savedOnly=true`는 `401 AUTHENTICATION_REQUIRED`.
 
-성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER | INVALID_GEO_FILTER | CURSOR_CONTEXT_MISMATCH | INVALID_CURSOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `422 PLACE_QUERY_CONSTRAINT_VIOLATION`; `503 PLACE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`. canonical contract에는 `429 UPSTREAM_RATE_LIMITED`가 있으나 현재 Controller OpenAPI에는 빠져 있으므로 아래 “계약 충돌”에 기록한다.
+성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER | CURSOR_CONTEXT_MISMATCH | INVALID_CURSOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `422 PLACE_QUERY_CONSTRAINT_VIOLATION`; `503 PLACE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`. canonical contract에는 `429 UPSTREAM_RATE_LIMITED`가 있으나 현재 Controller OpenAPI에는 빠져 있으므로 아래 “계약 충돌”에 기록한다.
+
+사용자 GPS 및 GPS 파생 지역·nearest place·grid·hash를 입력하지 않는다. 알 수 없는 key와 중복 key는 400이다. 공개 장소 자체의 location 좌표 및 상세의 장소–정류장 거리는 유지한다.
 
 **요청 예시**
 
 ```http
-GET /api/v1/places?query=%EC%98%A4%EB%A6%84&category=content-type%3A12&regionCode=jeju-si&lat=33.4996&lng=126.5312&radiusMeters=10000&size=20 HTTP/1.1
+GET /api/v1/places?query=%EC%98%A4%EB%A6%84&category=content-type%3A12&regionCode=jeju-si&size=20 HTTP/1.1
 Accept: application/json
 ```
 
@@ -405,9 +407,6 @@ Accept: application/json
   "query": "오름",
   "category": "content-type:12",
   "regionCode": "jeju-si",
-  "lat": 33.4996,
-  "lng": 126.5312,
-  "radiusMeters": 10000,
   "size": 20,
   "savedOnly": false
 }
@@ -434,14 +433,13 @@ Accept: application/json
       "recommendedStayEffectiveAt": "2026-08-01T00:00:00Z",
       "recommendedStayUpdatedAt": "2026-08-01T00:00:00Z",
       "operationsSummary": null,
-      "distanceMeters": 1250,
       "dataFreshness": {"provider": "TOUR_API", "observedAt": "2026-08-25T00:00:00Z", "expiresAt": "2026-08-26T00:00:00Z", "stale": false},
       "saved": false,
       "memo": null,
       "tags": []
     }
   ],
-  "page": {"size": 20, "hasNext": true, "nextCursor": "opaque-public-cursor-example"}
+  "page": {"size": 20, "hasNext": true, "nextCursor": "plc2.cHVibGljLWN1cnNvci1leGFtcGxl"}
 }
 ```
 
@@ -449,12 +447,12 @@ Accept: application/json
 
 ```json
 {
-  "type": "https://api.timing-jeju.com/problems/invalid-geo-filter",
-  "title": "요청 위치 조건이 올바르지 않습니다",
+  "type": "https://api.timing-jeju.com/problems/invalid-query-parameter",
+  "title": "요청 조건이 올바르지 않습니다",
   "status": 400,
-  "detail": "위도와 경도는 함께 입력하고 제주 범위와 반경을 확인해 주세요.",
+  "detail": "허용된 검색 조건을 확인해 주세요.",
   "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
-  "code": "INVALID_GEO_FILTER",
+  "code": "INVALID_QUERY_PARAMETER",
   "traceId": "0123456789abcdef0123456789abcdef",
   "fieldErrors": []
 }
@@ -1009,23 +1007,22 @@ Authorization: Bearer <access-token>
 
 ### `GET /api/v1/weather/forecast`
 
-operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
+operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,404,422,503` · Generated OpenAPI statuses: `200,400,401,404,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
-`develop` 사용 가능 · 인증 선택. query `lat`(-90 exclusive..90 exclusive), `lng`(-180..180), `dateTime` 모두 필수/non-null/finite. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
+#222 구현 검증 중 · 공개 regionCode/placeId는 인증 선택, tripItemId는 owner JWT 필수. query `regionCode | placeId | tripItemId` 중 정확히 하나와 `dateTime`을 받는다. GPS 및 GPS 파생 위치 입력, 중복/unknown query는 거부한다. 현재 공개 지역은 `jeju-si`, `seogwipo-si`, `seongsan`이다. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
 
-성공 `200`; `contractVersion=1.0.0`, `provider=KMA`, `providerApiVersion=VilageFcstInfoService_2.0`, `forecastType=ultra_short|village`. category-derived 값은 required nullable. 오류: `400 INVALID_WEATHER_FORECAST_QUERY`; `401 INVALID_ACCESS_TOKEN`; `422 WEATHER_LOCATION_NOT_SUPPORTED | WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`; `503 WEATHER_FORECAST_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+성공 `200`; `contractVersion=2.0.0`, `provider=KMA`, `providerApiVersion=VilageFcstInfoService_2.0`, `forecastType=ultra_short|village`. category-derived 값은 required nullable. 오류: `400 INVALID_WEATHER_SELECTOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 WEATHER_REFERENCE_NOT_FOUND`; `422 WEATHER_LOCATION_NOT_SUPPORTED | WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`; `503 WEATHER_FORECAST_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
 **요청 예시**
 
 ```http
-GET /api/v1/weather/forecast?lat=33.4996&lng=126.5312&dateTime=2026-08-25T12%3A00%3A00%2B09%3A00 HTTP/1.1
+GET /api/v1/weather/forecast?regionCode=jeju-si&dateTime=2026-08-25T12%3A00%3A00%2B09%3A00 HTTP/1.1
 Accept: application/json
 ```
 
 ```json
 {
-  "lat": 33.4996,
-  "lng": 126.5312,
+  "regionCode": "jeju-si",
   "dateTime": "2026-08-25T12:00:00+09:00"
 }
 ```
@@ -1034,8 +1031,8 @@ Accept: application/json
 
 ```json
 {
-  "contractVersion": "1.0.0",
-  "grid": {"nx": 53, "ny": 38, "regionName": "제주시"},
+  "contractVersion": "2.0.0",
+  "grid": {"nx": 53, "ny": 38, "regionName": "제주특별자치도 제주시"},
   "provider": "KMA",
   "providerApiVersion": "VilageFcstInfoService_2.0",
   "forecastType": "village",

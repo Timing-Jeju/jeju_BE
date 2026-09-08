@@ -79,3 +79,12 @@ class OpenApiProjectionReadinessTest(unittest.TestCase):
         responses['400']['content']['application/problem+json']['example']['code'] = 'UNAPPROVED_CODE'
         validator.validate_contract_endpoint(key, {'responses': {}}, {}, {}, set(), canonical_ready=False)
         self.assertTrue(any('runtime representative' in error for error in validator.errors))
+
+    def test_weather_runtime_manifest가_공개_선택자_오류를_고정한다(self):
+        """실제 selector 구현의 오류 코드와 참조 없음 상태를 검증한다."""
+        validator = Validator({}, 9, ROOT)
+        manifest = validator.read_authority_json('scripts/openapi_frontend_runtime_manifest.json')
+        weather = manifest['operations']['GET /api/v1/weather/forecast']
+        self.assertIn(404, weather['statuses'])
+        self.assertEqual('INVALID_WEATHER_SELECTOR', weather['problems']['400'][0])
+        self.assertEqual('WEATHER_REFERENCE_NOT_FOUND', weather['problems']['404'][0])

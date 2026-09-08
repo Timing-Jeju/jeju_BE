@@ -57,7 +57,6 @@ final class FrontendOpenApiCustomizer {
           Map.entry("locale", "ko-KR"),
           Map.entry("placeId", "34000000-0000-4000-8000-000000000034"),
           Map.entry("query", "성산일출봉"),
-          Map.entry("radiusMeters", 10000),
           Map.entry("regionCode", "jeju-seogwipo"),
           Map.entry("savedOnly", false),
           Map.entry("size", 20),
@@ -1045,7 +1044,6 @@ final class FrontendOpenApiCustomizer {
       case "locale" -> "법정 문서 locale. 생략 기본값은 ko-KR";
       case "placeId" -> "lowercase canonical UUID 장소 식별자";
       case "query" -> "trim 적용 검색어";
-      case "radiusMeters" -> "좌표 중심 검색 반경(m)";
       case "regionCode" -> "정규화 제주 지역 code";
       case "savedOnly" -> "인증 사용자의 저장 장소만 조회할지 여부";
       case "size" -> "한 page의 최대 item 수";
@@ -1446,13 +1444,15 @@ final class FrontendOpenApiCustomizer {
             "날씨",
             null,
             """
-            {"contractVersion":"1.0.0","grid":{"nx":53,"ny":38,"regionName":"제주시"},"provider":"KMA","providerApiVersion":"VilageFcstInfoService_2.0","forecastType":"village","baseDate":"2026-08-25","baseTime":"05:00","forecastedAt":"2026-08-25T05:00:00+09:00","validAt":"2026-08-25T12:00:00+09:00","temperatureC":27.5,"precipitationProbabilityPercent":20,"precipitationAmountMm":null,"precipitationType":"none","skyCode":"mostly_cloudy","humidityPercent":72,"windSpeedMps":3.4,"observedAt":"2026-08-25T05:10:00+09:00","expiresAt":"2026-08-25T08:00:00+09:00","stale":false,"fallbackUsed":false}
+            {"contractVersion":"2.0.0","grid":{"nx":53,"ny":38,"regionName":"제주시"},"provider":"KMA","providerApiVersion":"VilageFcstInfoService_2.0","forecastType":"village","baseDate":"2026-08-25","baseTime":"05:00","forecastedAt":"2026-08-25T05:00:00+09:00","validAt":"2026-08-25T12:00:00+09:00","temperatureC":27.5,"precipitationProbabilityPercent":20,"precipitationAmountMm":null,"precipitationType":"none","skyCode":"mostly_cloudy","humidityPercent":72,"windSpeedMps":3.4,"observedAt":"2026-08-25T05:10:00+09:00","expiresAt":"2026-08-25T08:00:00+09:00","stale":false,"fallbackUsed":false}
             """,
             Map.of(
                 "400",
-                "INVALID_WEATHER_FORECAST_QUERY",
+                "INVALID_WEATHER_SELECTOR",
                 "401",
                 "INVALID_ACCESS_TOKEN",
+                "404",
+                "WEATHER_REFERENCE_NOT_FOUND",
                 "422",
                 "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
                 "503",

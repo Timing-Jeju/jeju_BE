@@ -5,8 +5,11 @@ import com.timingjeju.api.domain.places.controller.docs.PlacesApiDocs;
 import com.timingjeju.api.domain.places.dto.request.PlacesListQuery;
 import com.timingjeju.api.domain.places.dto.response.PlaceDetailResponse;
 import com.timingjeju.api.domain.places.dto.response.PlacesListResponse;
+import com.timingjeju.api.domain.places.exception.PlaceListException;
 import com.timingjeju.api.domain.places.service.PlaceDetailService;
 import com.timingjeju.api.domain.places.service.PlaceListService;
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -37,15 +40,17 @@ public class PlacesController implements PlacesApiDocs {
       @RequestParam(required = false) String query,
       @RequestParam(required = false) String category,
       @RequestParam(required = false) String regionCode,
-      @RequestParam(required = false) Double lat,
-      @RequestParam(required = false) Double lng,
-      @RequestParam(required = false) Integer radiusMeters,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer size,
-      @RequestParam(required = false) Boolean savedOnly) {
+      @RequestParam(required = false) Boolean savedOnly,
+      HttpServletRequest request) {
+    Set<String> allowed = Set.of("query", "category", "regionCode", "cursor", "size", "savedOnly");
+    if (!allowed.containsAll(request.getParameterMap().keySet())
+        || request.getParameterMap().values().stream().anyMatch(values -> values.length != 1)) {
+      throw new PlaceListException("INVALID_QUERY_PARAMETER");
+    }
     PlacesListQuery normalized =
-        PlacesListQuery.of(
-            query, category, regionCode, lat, lng, radiusMeters, cursor, size, savedOnly);
+        PlacesListQuery.of(query, category, regionCode, cursor, size, savedOnly);
     return listService.list(
         normalized, currentUsers.getOptional().map(currentUser -> currentUser.userId()));
   }

@@ -131,7 +131,7 @@ class WeatherForecastQueryServiceTest {
   @Test
   void 지원하지_않는_제주_grid와_horizon은_서로_다른_typed_422다() {
     WeatherForecastRepository repository = mock(WeatherForecastRepository.class);
-    when(repository.findSupportedGrid(any())).thenReturn(Optional.empty());
+    when(repository.findRegionGrid(any())).thenReturn(Optional.empty());
 
     assertThatThrownBy(() -> service(repository).forecast(query("2026-08-03T15:00:00+09:00")))
         .isInstanceOf(WeatherForecastException.class)
@@ -162,6 +162,56 @@ class WeatherForecastQueryServiceTest {
         .hasMessage("programmer bug");
   }
 
+  @Test
+  void 계획_선택자는_미인증을_조회없이_거부하고_타_소유자를_404로_은닉한다() {
+    WeatherForecastRepository repository = mock(WeatherForecastRepository.class);
+    java.util.UUID item = java.util.UUID.randomUUID();
+    java.util.UUID owner = java.util.UUID.randomUUID();
+    var query =
+        WeatherForecastQuery.parse(null, null, item.toString(), "2026-08-03T15:00:00+09:00");
+    assertThatThrownBy(() -> service(repository).forecast(query))
+        .isInstanceOf(WeatherForecastException.class)
+        .extracting("code")
+        .isEqualTo("AUTHENTICATION_REQUIRED");
+    org.mockito.Mockito.verifyNoInteractions(repository);
+    assertThatThrownBy(() -> service(repository).forecast(query, owner))
+        .isInstanceOf(WeatherForecastException.class)
+        .extracting("code")
+        .isEqualTo("WEATHER_REFERENCE_NOT_FOUND");
+    verify(repository).findOwnedTripItem(item, owner);
+    verify(repository, org.mockito.Mockito.never()).find(any());
+  }
+
+  @Test
+  void 공개_장소와_소유_계획은_공개_좌표만_grid로_변환한다() {
+    for (boolean planned : new boolean[] {false, true}) {
+      WeatherForecastRepository repository = mock(WeatherForecastRepository.class);
+      java.util.UUID id = java.util.UUID.randomUUID();
+      java.util.UUID owner = java.util.UUID.randomUUID();
+      var anchor =
+          Optional.of(
+              new com.timingjeju.api.domain.weather.model.PublicWeatherAnchor(
+                  33.458111, 126.941516));
+      if (planned) {
+        when(repository.findOwnedTripItem(id, owner)).thenReturn(anchor);
+      } else {
+        when(repository.findPublicPlace(id)).thenReturn(anchor);
+      }
+      when(repository.findSupportedGrid(JEJU_GRID))
+          .thenReturn(Optional.of(new SupportedWeatherGrid(JEJU_GRID, "성산")));
+      when(repository.find(any()))
+          .thenReturn(Optional.of(snapshot(base(13, 30), NOW.plusSeconds(60))));
+      var query =
+          WeatherForecastQuery.parse(
+              null,
+              planned ? null : id.toString(),
+              planned ? id.toString() : null,
+              "2026-08-03T15:00:00+09:00");
+      assertThat(service(repository).forecast(query, owner).grid().nx()).isEqualTo(60);
+      verify(repository).findSupportedGrid(JEJU_GRID);
+    }
+  }
+
   private static WeatherForecastQueryService service(WeatherForecastRepository repository) {
     return new WeatherForecastQueryService(
         repository, new KmaGridConverter(), new ForecastBaseTimeResolver(), CLOCK);
@@ -169,13 +219,13 @@ class WeatherForecastQueryServiceTest {
 
   private static WeatherForecastRepository repositoryWithJejuGrid() {
     WeatherForecastRepository repository = mock(WeatherForecastRepository.class);
-    when(repository.findSupportedGrid(any()))
+    when(repository.findRegionGrid(any()))
         .thenReturn(Optional.of(new SupportedWeatherGrid(JEJU_GRID, "제주 동부")));
     return repository;
   }
 
   private static WeatherForecastQuery query(String dateTime) {
-    return WeatherForecastQuery.of(33.458111, 126.941516, OffsetDateTime.parse(dateTime));
+    return WeatherForecastQuery.parse("seongsan", null, null, dateTime);
   }
 
   private static ForecastBaseTime base(int hour, int minute) {

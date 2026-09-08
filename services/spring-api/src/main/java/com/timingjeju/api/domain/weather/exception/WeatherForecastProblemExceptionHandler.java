@@ -34,6 +34,6 @@ public class WeatherForecastProblemExceptionHandler {
       HttpServletRequest request,
       HttpServletResponse response)
       throws IOException {
-    writer.write(request, response, "INVALID_WEATHER_FORECAST_QUERY");
+    writer.write(request, response, "INVALID_WEATHER_SELECTOR");
   }
 }

@@ -4,6 +4,7 @@ import com.timingjeju.api.domain.weather.ForecastBaseTime;
 import com.timingjeju.api.domain.weather.ForecastType;
 import com.timingjeju.api.domain.weather.KmaGridPoint;
 import com.timingjeju.api.domain.weather.exception.WeatherForecastDataUnavailableException;
+import com.timingjeju.api.domain.weather.model.PublicWeatherAnchor;
 import com.timingjeju.api.domain.weather.model.SupportedWeatherGrid;
 import com.timingjeju.api.domain.weather.model.WeatherForecastLookup;
 import com.timingjeju.api.domain.weather.model.WeatherForecastSnapshot;
@@ -20,6 +21,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -101,9 +103,61 @@ public class JdbcWeatherForecastRepository implements WeatherForecastRepository 
           LocalTime.of(23, 0));
 
   private final NamedParameterJdbcTemplate jdbc;
+  private final WeatherRegionGridCatalog regionGrids = WeatherRegionGridCatalog.load();
 
   public JdbcWeatherForecastRepository(NamedParameterJdbcTemplate jdbc) {
     this.jdbc = jdbc;
+  }
+
+  @Override
+  public Optional<SupportedWeatherGrid> findRegionGrid(String regionCode) {
+    return regionGrids
+        .find(regionCode)
+        .flatMap(region -> findSupportedGrid(region.gridPoint()).map(stored -> region));
+  }
+
+  @Override
+  public Optional<PublicWeatherAnchor> findPublicPlace(UUID placeId) {
+    return anchor(
+        """
+        select st_y(place.location::geometry) as latitude, st_x(place.location::geometry) as longitude
+        from public.tour_places place
+        where place.id=:placeId
+        """,
+        new MapSqlParameterSource("placeId", placeId));
+  }
+
+  @Override
+  public Optional<PublicWeatherAnchor> findOwnedTripItem(UUID tripItemId, UUID ownerId) {
+    return anchor(
+        """
+        select st_y(place.location::geometry) as latitude, st_x(place.location::geometry) as longitude
+        from public.trip_items item
+        join public.trip_plans trip on trip.id=item.trip_plan_id and trip.user_id=:ownerId
+        join public.tour_places place on place.id=item.place_id
+        where item.id=:tripItemId
+        """,
+        new MapSqlParameterSource("tripItemId", tripItemId).addValue("ownerId", ownerId));
+  }
+
+  private Optional<PublicWeatherAnchor> anchor(String sql, MapSqlParameterSource parameters) {
+    try {
+      return jdbc
+          .query(
+              sql
+                  + """
+          and place.source_deleted_at is null and place.tombstoned_at is null
+          and place.content_id is not null and btrim(place.content_id) <> ''
+          and place.location is not null
+          """,
+              parameters,
+              (row, index) ->
+                  new PublicWeatherAnchor(row.getDouble("latitude"), row.getDouble("longitude")))
+          .stream()
+          .findFirst();
+    } catch (DataAccessException failure) {
+      throw new WeatherForecastDataUnavailableException();
+    }
   }
 
   @Override

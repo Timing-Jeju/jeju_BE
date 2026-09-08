@@ -35,8 +35,7 @@ public class PlaceListService {
 
   private static final String ENDPOINT = "/api/v1/places";
   private static final CursorSort DEFAULT_SORT = CursorSort.asc("normalizedName", "placeId");
-  private static final CursorSort NEARBY_SORT =
-      CursorSort.asc("distanceMeters,normalizedName", "placeId");
+  private static final String CURSOR_PREFIX = "plc2.";
 
   private final PlaceSearchRepository repository;
   private final StayPolicyResolver stayPolicyResolver;
@@ -48,7 +47,7 @@ public class PlaceListService {
       CursorCodec cursorCodec) {
     this.repository = repository;
     this.stayPolicyResolver = stayPolicyResolver;
-    this.cursorCodec = cursorCodec;
+    this.cursorCodec = cursorCodec.scoped("places-location-free/v2");
   }
 
   @Transactional(readOnly = true)
@@ -84,7 +83,7 @@ public class PlaceListService {
             .toList();
     String nextCursor =
         hasNext
-            ? cursorCodec.encode(context, cursorPosition(rows.getLast(), query.nearby()))
+            ? CURSOR_PREFIX + cursorCodec.encode(context, cursorPosition(rows.getLast()))
             : null;
     return new PlacesListResponse(items, new PlaceCursorPage(query.size(), hasNext, nextCursor));
   }
@@ -98,16 +97,10 @@ public class PlaceListService {
     filters.put("query", query.query());
     filters.put("category", query.category());
     filters.put("regionCode", query.regionCode());
-    filters.put("lat", query.lat());
-    filters.put("lng", query.lng());
-    filters.put("radiusMeters", query.radiusMeters());
     filters.put("size", query.size());
     filters.put("savedOnly", query.savedOnly());
-    filters.put("sortProfile", query.nearby() ? "nearby-v1" : "default-v1");
-    return new CursorContext(
-        ENDPOINT,
-        query.nearby() ? NEARBY_SORT : DEFAULT_SORT,
-        CursorFilterFingerprint.sha256(filters));
+    filters.put("sortProfile", "places-location-free/v2");
+    return new CursorContext(ENDPOINT, DEFAULT_SORT, CursorFilterFingerprint.sha256(filters));
   }
 
   private PlaceSearchPosition decode(PlacesListQuery query, CursorContext context) {
@@ -115,19 +108,12 @@ public class PlaceListService {
       return null;
     }
     try {
-      CursorPosition cursor = cursorCodec.decode(query.cursor(), context);
-      UUID placeId = UUID.fromString(cursor.tieBreaker());
-      if (!query.nearby()) {
-        return new PlaceSearchPosition(null, cursor.sortValue(), placeId);
+      if (!query.cursor().matches("^plc2\\.[A-Za-z0-9_-]{1,2043}$")) {
+        throw new CursorInvalidException();
       }
-      int separator = cursor.sortValue().indexOf('|');
-      if (separator < 1) {
-        throw new IllegalArgumentException();
-      }
-      return new PlaceSearchPosition(
-          Long.valueOf(cursor.sortValue().substring(0, separator)),
-          cursor.sortValue().substring(separator + 1),
-          placeId);
+      CursorPosition cursor =
+          cursorCodec.decode(query.cursor().substring(CURSOR_PREFIX.length()), context);
+      return new PlaceSearchPosition(cursor.sortValue(), UUID.fromString(cursor.tieBreaker()));
     } catch (CursorContextMismatchException exception) {
       throw new PlaceListException("CURSOR_CONTEXT_MISMATCH");
     } catch (CursorInvalidException | IllegalArgumentException exception) {
@@ -135,12 +121,8 @@ public class PlaceListService {
     }
   }
 
-  private static CursorPosition cursorPosition(PlaceSearchRow row, boolean nearby) {
-    String sortValue =
-        nearby
-            ? "%010d|%s".formatted(row.distanceMeters(), row.normalizedName())
-            : row.normalizedName();
-    return new CursorPosition(sortValue, row.placeId().toString());
+  private static CursorPosition cursorPosition(PlaceSearchRow row) {
+    return new CursorPosition(row.normalizedName(), row.placeId().toString());
   }
 
   private static PlaceListItem toItem(PlaceSearchRow row, RecommendedStay stay) {
@@ -160,7 +142,6 @@ public class PlaceListService {
         stay.effectiveAt(),
         stay.updatedAt(),
         row.operationsSummary(),
-        row.distanceMeters(),
         new PlaceDataFreshness(row.provider(), row.observedAt(), row.expiresAt(), row.stale()),
         row.saved(),
         row.memo(),
