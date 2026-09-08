@@ -36,6 +36,11 @@ function Invoke-CanonicalManifest([string] $database, [string] $beforePath = "")
   }
   foreach ($entry in $manifest.canonicalSuffix) {
     if ($entry.path -eq $beforePath) { break }
+    if ($entry.initSlot -eq "056") { continue }
+    if ($entry.initSlot -eq "055") {
+      Invoke-SqlFile $database "/docker-entrypoint-initdb.d/055_location_cutover_group.sql"
+      continue
+    }
     Invoke-SqlFile $database (Resolve-MountedMigration $entry.path)
   }
 }
@@ -160,7 +165,7 @@ try {
   $cutoverCheck = @'
 do $$
 begin
-  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000017'
+  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000018'
      or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
                 where residue_count <> 0) then
     raise exception 'location cutover verification failed';

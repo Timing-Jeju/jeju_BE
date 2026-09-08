@@ -24,7 +24,7 @@ class CanonicalMigrationOrderIntegrationTest {
       "20260918000009_jeju_timetable_route_scope.sql";
   private static final List<String> POSTGIS_IMAGES =
       List.of("postgis/postgis:16-3.4", "postgis/postgis:17-3.5");
-  private static final List<String> CANONICAL_SUFFIX =
+  private static final List<String> CANONICAL_EXECUTION_SUFFIX =
       List.of(
           FIRST_SUFFIX,
           "20260918000001_trip_preferences_owner_read_helper.sql",
@@ -43,7 +43,7 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000014_planned_anchor_resolver.sql",
           "20260918000015_planned_route_snapshot_provenance.sql",
           "20260918000016_planned_route_reference_integrity.sql",
-          "20260918000017_user_location_write_guard_purge.sql");
+          "20260918000017_location_cutover_group.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -136,7 +136,8 @@ class CanonicalMigrationOrderIntegrationTest {
               '67000000-0000-0000-0000-000000000003')
             """))
             .isEqualTo(3);
-        for (String migration : CANONICAL_SUFFIX.subList(10, CANONICAL_SUFFIX.size())) {
+        for (String migration :
+            CANONICAL_EXECUTION_SUFFIX.subList(10, CANONICAL_EXECUTION_SUFFIX.size())) {
           PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
         }
         assertThat(
@@ -337,7 +338,7 @@ class CanonicalMigrationOrderIntegrationTest {
   }
 
   private static void applyCanonicalSuffix(PostgreSQLContainer container) throws Exception {
-    for (String migration : CANONICAL_SUFFIX) {
+    for (String migration : CANONICAL_EXECUTION_SUFFIX) {
       PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
     }
   }
@@ -348,7 +349,8 @@ class CanonicalMigrationOrderIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(container, migrationPath(SCHEDULE_50));
       PostgreSqlTestContainerFactory.executeScript(container, migrationPath(SCHEDULE_51));
-      for (String migration : CANONICAL_SUFFIX.subList(9, CANONICAL_SUFFIX.size())) {
+      for (String migration :
+          CANONICAL_EXECUTION_SUFFIX.subList(9, CANONICAL_EXECUTION_SUFFIX.size())) {
         PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
       }
       return schemaAndAclFingerprint(jdbc(container));
@@ -420,6 +422,9 @@ class CanonicalMigrationOrderIntegrationTest {
   }
 
   private static Path migrationPath(String name) {
+    if (name.equals("20260918000017_location_cutover_group.sql")) {
+      return repositoryPath("db/local-postgres/" + name);
+    }
     return repositoryPath("supabase/migrations/" + name);
   }
 

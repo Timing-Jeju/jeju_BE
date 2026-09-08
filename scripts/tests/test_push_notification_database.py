@@ -68,6 +68,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000015_planned_route_snapshot_provenance.sql",
             "20260918000016_planned_route_reference_integrity.sql",
             "20260918000017_user_location_write_guard_purge.sql",
+            "20260918000018_revision_request_hash_audit.sql",
         )
         migration_names = tuple(
             path.name
@@ -178,8 +179,8 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql",
             ),
             (
-                "./supabase/migrations/20260918000017_user_location_write_guard_purge.sql",
-                "/docker-entrypoint-initdb.d/055_user_location_write_guard_purge.sql",
+                "./db/local-postgres/20260918000017_location_cutover_group.sql",
+                "/docker-entrypoint-initdb.d/055_location_cutover_group.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",
@@ -204,7 +205,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 3
                 if target.endswith("046_schedule_item_required_references_correction.sql")
                 else 1
-                if target.endswith(("054_planned_route_reference_integrity.sql", "055_user_location_write_guard_purge.sql"))
+                if target.endswith(("054_planned_route_reference_integrity.sql", "055_location_cutover_group.sql"))
                 else 2
             )
             self.assertEqual(expected_count, docker_smoke.count(target), target)

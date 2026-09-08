@@ -250,3 +250,28 @@ zero verifier 초안은 `/tmp/jeju-223-residue-verifier.sql`이며, 이름/count
 - 정상 일정 schema upgrade 테스트에서 자신이 직접 만든 고정UUID audit3만 제거하고 affected count3을 확인한다. suffix017 이후 residue 합계0 assertion을 추가했다. 미분류 MCP가 있으면 전체 rollback하는 별도 테스트는 유지한다.
 - `/tmp/jeju-223-upgrade-title-green.log`: title-only upgrade1건이 내부에서PG16/17 모두 실행해PASS,1m48s. 독립 bounded source review finding0. 017immutable 유지.
 - 별도 gate 이후 push 훅의 동일 검증이 중복되지 않도록 이후 검증은 공식 pre-push full gate로 수행한다. 새 SHA 전체 검사·Docker·원격반영은 아직 남아 있다.
+
+
+## 2026-09-09 revision request hash 감사 보강 (진행 중)
+
+- 4925927의 pre-push 전체 gate는 새 개인정보 감사 누락 발견으로 중단했다. gate 성공/원격 push/PR 승인을 주장하지 않는다. 해당 실행의 잔여 Gradle worker와 daemon만 종료했다.
+- 정상 command input의 존재와 hash 일치는 독립 revision request hash의 비위치를 증명하지 못한다. PG16/17 회귀 RED 2건에서 기대 잔여 1건을 실제 0건으로 반환하는 누락을 확인했다. 로그: `/tmp/jeju-223-revision-hash-red.log`.
+- 기존 커밋 017은 그대로 유지하고 018 verifier 보강을 추가했다. 017+018 개별 commit의 rollback 결함을 피하도록 checksum 고정 생성기와 단일 transaction SQL을 추가하고 기본 Docker/Java/PowerShell 경로를 연결 중이다.
+- 생성기 RED 2건(모듈 부재) 후 정적 테스트 24건 통과. 로그: `/tmp/jeju-223-group-generator-red.log`, `/tmp/jeju-223-group-static.log`. DB 그룹 GREEN은 실행 중이며 아직 성공으로 기록하지 않는다.
+- Supabase ledger까지 포함한 실제 적용 경로, timeout/연결 종료, 전체 fresh/upgrade와 동일 SHA 품질 gate는 남아 있다. READY_FOR_REVIEW 아님.
+
+- PG16/17 verifier+017 전체 rollback 회귀 4건 PASS (`/tmp/jeju-223-revision-group-green.log`). 원본 017의 schema/ACL 및 테스트 대상 행 상태 복구와 marker 부재를 확인했다.
+- 독립 초안 리뷰가 Bash/PS marker 기대와 canonical 수동 suffix loop 누락을 발견하여 018/group으로 수정했다. 수정 전 canonical 실행은 중단했으며 성공 증거로 사용하지 않는다.
+- Supabase history 생성기 RED 1건 후 이력 preflight/최종 동일 transaction 등록 구현. 일반 CLI db push 대신 검증된 두 파일 그룹을 쓰는 계약으로 한정하며 실제 staging은 SKIPPED다. 합성 ledger와 canonical fresh/upgrade를 현재 검증 중이다.
+
+- `/tmp/jeju-223-ledger-canonical-green.log` canonical fresh/origin 및 #50→#51 fingerprint 2건, Supabase 합성 이력 PG16/17 2건 PASS(총4). 이후 추가한 이력 INSERT 실패/부분이력/timeout/연결 종료는 별도 실행 중이다.
+- `/tmp/jeju-223-group-all-static-fixed.log`: Python 정적 829건 중826PASS/3SKIP. canonical group mount와 중복 생성 SQL hash 호출 수 검사를 보강했다. 추가한 위치 revision 양성 회귀는 아직 DB 실행 전이다.
+
+- `/tmp/jeju-223-ledger-interruption-green.log` PG16/17 이력 INSERT 실패·누락/부분이력·재실행 거부·중간 statement timeout·연결 종료 6건 PASS. 실패 시 위치 event/live 및 schema 복구를 확인했다. 잠금 timeout 분기는 이후 추가했으며 전체 검증에서 확인할 예정이다.
+- 위치 revision 양성 fixture는 최초에 terminal 상태로 직접 INSERT하여 기존 queued 생성 규칙에 걸렸다(`/tmp/jeju-223-revision-location-positive.log`). 제품 결함 RED로 기록하지 않는다. queued 생성 후 허용된 failed 전이로 fixture를 수정하고 재실행 중이다.
+
+- `/tmp/jeju-223-revision-location-positive-fixed.log` PG16/17 위치 계보가 입증된 종료 revision 정리/원본 일정 보존 2건 PASS. lifecycle 생성 규칙을 우회하거나 변경하지 않았다.
+- 최종 잠금 timeout 분기를 포함한 interruption6건과 전체 정적 검사를 실행 중이다. 전체 품질 게이트·독립 정식 승인·실제 staging은 아직 미완료다.
+
+- 최종 `/tmp/jeju-223-group-lock-interruption.log`: PG16/17 statement timeout·연결 종료·잠금 timeout 6건 PASS. `/tmp/jeju-223-group-final-static.log`:829건826PASS/3SKIP. 생성 SQL 두 종류의 `--check`와 diff 공백 검사 PASS.
+- 이 증거는 수정된 소스의 집중 검증이며, 커밋 후 같은 SHA pre-push 공식 전체 품질 게이트와 독립 리뷰를 별도로 수행한다. 실제 staging/provider/native는 여전히 SKIPPED다.

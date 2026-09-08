@@ -1216,6 +1216,432 @@ class LocationDataPurgeMigrationIntegrationTest {
     }
   }
 
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
+  void 정상_command도_독립_revision_request_hash의_비위치를_증명하지_못한다(String image) throws Exception {
+    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    try {
+      container.start();
+      var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+      var dataSource =
+          new DriverManagerDataSource(
+              container.getJdbcUrl(), container.getUsername(), container.getPassword());
+      var jdbc = new JdbcTemplate(dataSource);
+      Fixture fixture = insertLegacyFixture(jdbc, false);
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
+      UUID run = insertNormalRevisionInput(jdbc, dataSource, fixture);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.compute_run_inputs where schedule_revision_run_id=? and not location_supplied",
+                  Integer.class,
+                  run))
+          .isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select coalesce(sum(residue_count),0) from timing_jeju_planner_private.user_location_residue_counts() "
+                      + "where object_name='unclassified_schedule_revision_request_hashes'",
+                  Long.class))
+          .isEqualTo(1);
+    } finally {
+      container.stop();
+    }
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
+  void 미분류_revision_hash는_017_정리까지_같은_transaction에서_되돌린다(String image) throws Exception {
+    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    try {
+      container.start();
+      var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+      var dataSource =
+          new DriverManagerDataSource(
+              container.getJdbcUrl(), container.getUsername(), container.getPassword());
+      var jdbc = new JdbcTemplate(dataSource);
+      Fixture fixture = insertLegacyFixture(jdbc, false);
+      insertNormalRevisionInput(jdbc, dataSource, fixture);
+      String schema =
+          Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql"));
+      String data =
+          "select md5(jsonb_build_object("
+              + "'events',(select jsonb_agg(t order by id) from public.trip_execution_events t),"
+              + "'live',(select jsonb_agg(t order by trip_plan_id) from public.live_state_snapshots t),"
+              + "'inputs',(select jsonb_agg(t order by id) from public.compute_run_inputs t),"
+              + "'runs',(select jsonb_agg(t order by id) from public.schedule_revision_runs t))::text)";
+      String beforeSchema = jdbc.queryForObject(schema, String.class);
+      String beforeData = jdbc.queryForObject(data, String.class);
+      assertThatThrownBy(
+              () ->
+                  PostgreSqlTestContainerFactory.executeScript(
+                      container,
+                      root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql")))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("user location residue requires audit")
+          .hasMessageNotContaining("Failing row");
+      assertThat(beforeSchema.equals(jdbc.queryForObject(schema, String.class))).isTrue();
+      assertThat(beforeData.equals(jdbc.queryForObject(data, String.class))).isTrue();
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regprocedure('timing_jeju_planner_private.user_location_guard_purge_revision()') is null",
+                  Boolean.class))
+          .isTrue();
+    } finally {
+      container.stop();
+    }
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
+  void Supabase_이력은_감사_실패시_유지하고_성공시에만_두_버전을_같이_등록한다(String image) throws Exception {
+    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    try {
+      container.start();
+      var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+      var source =
+          new DriverManagerDataSource(
+              container.getJdbcUrl(), container.getUsername(), container.getPassword());
+      var jdbc = new JdbcTemplate(source);
+      Fixture fixture = insertLegacyFixture(jdbc, false);
+      UUID run = insertNormalRevisionInput(jdbc, source, fixture);
+      jdbc.execute("create schema supabase_migrations");
+      jdbc.execute(
+          "create table supabase_migrations.schema_migrations(version text primary key, name text, statements text[])");
+      try (var files = Files.list(root.resolve("supabase/migrations"))) {
+        for (var file :
+            files
+                .filter(path -> path.getFileName().toString().matches("[0-9]{14}_.+[.]sql"))
+                .filter(path -> path.getFileName().toString().compareTo(TARGET) < 0)
+                .sorted()
+                .toList()) {
+          jdbc.update(
+              "insert into supabase_migrations.schema_migrations(version) values (?)",
+              file.getFileName().toString().substring(0, 14));
+        }
+      }
+      var script = root.resolve("db/local-postgres/location_cutover_supabase.sql");
+      assertThat(
+              jdbc.update(
+                  "delete from supabase_migrations.schema_migrations where version='20260918000016'"))
+          .isEqualTo(1);
+      assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("location cutover migration history mismatch");
+      jdbc.update(
+          "insert into supabase_migrations.schema_migrations(version) values ('20260918000016'),('20260918000017')");
+      assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("location cutover migration history mismatch");
+      assertThat(
+              jdbc.update(
+                  "delete from supabase_migrations.schema_migrations where version='20260918000017'"))
+          .isEqualTo(1);
+      assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("user location residue requires audit");
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from supabase_migrations.schema_migrations where version >= '20260918000017'",
+                  Integer.class))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_execution_events where location is not null",
+                  Integer.class))
+          .isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regprocedure('timing_jeju_planner_private.user_location_guard_purge_revision()') is null",
+                  Boolean.class))
+          .isTrue();
+      // 이 테스트가 만든 합성 미분류 행만 제거해 별도의 정상 적용 입력을 준비한다.
+      jdbc.update("delete from public.compute_run_inputs where schedule_revision_run_id=?", run);
+      jdbc.update("delete from public.schedule_revision_runs where id=?", run);
+      jdbc.execute(
+          "alter table supabase_migrations.schema_migrations add constraint fixture_history_write_failure check (version < '20260918000017')");
+      assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("fixture_history_write_failure");
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from supabase_migrations.schema_migrations where version >= '20260918000017'",
+                  Integer.class))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_execution_events where location is not null",
+                  Integer.class))
+          .isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regprocedure('timing_jeju_planner_private.user_location_guard_purge_revision()') is null",
+                  Boolean.class))
+          .isTrue();
+      jdbc.execute(
+          "alter table supabase_migrations.schema_migrations drop constraint fixture_history_write_failure");
+      PostgreSqlTestContainerFactory.executeScript(container, script);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from supabase_migrations.schema_migrations where version in ('20260918000017','20260918000018')",
+                  Integer.class))
+          .isEqualTo(2);
+      assertThat(
+              jdbc.queryForObject(
+                  "select timing_jeju_planner_private.user_location_guard_purge_revision()",
+                  String.class))
+          .isEqualTo("20260918000018");
+      assertThat(
+              jdbc.queryForObject(
+                  "select sum(residue_count) from timing_jeju_planner_private.user_location_residue_counts()",
+                  Long.class))
+          .isZero();
+      assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("location cutover migration history mismatch");
+    } finally {
+      container.stop();
+    }
+  }
+
+  @ParameterizedTest
+  @org.junit.jupiter.params.provider.CsvSource({
+    "postgis/postgis:16-3.4,timeout", "postgis/postgis:17-3.5,timeout",
+    "postgis/postgis:16-3.4,disconnect", "postgis/postgis:17-3.5,disconnect",
+    "postgis/postgis:16-3.4,lock", "postgis/postgis:17-3.5,lock"
+  })
+  void 그룹_중간_timeout과_연결_종료는_017의_데이터와_schema를_복구한다(String image, String mode) throws Exception {
+    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    try {
+      container.start();
+      var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+      var source =
+          new DriverManagerDataSource(
+              container.getJdbcUrl(), container.getUsername(), container.getPassword());
+      var jdbc = new JdbcTemplate(source);
+      insertLegacyFixture(jdbc, false);
+      String schema =
+          Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql"));
+      String data =
+          "select md5(jsonb_build_object("
+              + "'events',(select jsonb_agg(t order by id) from public.trip_execution_events t),"
+              + "'live',(select jsonb_agg(t order by trip_plan_id) from public.live_state_snapshots t))::text)";
+      String beforeSchema = jdbc.queryForObject(schema, String.class);
+      String beforeData = jdbc.queryForObject(data, String.class);
+      String original =
+          Files.readString(
+              root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
+      String marker = "-- Issue #223: an opaque revision request hash";
+      assertThat(original.indexOf(marker)).isPositive();
+      String delayed =
+          original.replace(
+              marker,
+              (mode.equals("timeout") ? "set local statement_timeout='100ms';\n" : "")
+                  + "select pg_sleep(30);\n"
+                  + marker);
+      try (var connection = source.getConnection();
+          var statement = connection.createStatement()) {
+        if (mode.equals("timeout")) {
+          assertThatThrownBy(() -> statement.execute(delayed))
+              .isInstanceOf(java.sql.SQLException.class)
+              .satisfies(
+                  failure ->
+                      assertThat(((java.sql.SQLException) failure).getSQLState())
+                          .isEqualTo("57014"));
+        } else if (mode.equals("lock")) {
+          try (var blocker = source.getConnection();
+              var blocked = blocker.createStatement()) {
+            blocker.setAutoCommit(false);
+            blocked.execute("lock table public.schedule_revision_runs in row exclusive mode");
+            statement.execute("set lock_timeout='100ms'");
+            try {
+              assertThatThrownBy(() -> statement.execute(original))
+                  .isInstanceOf(java.sql.SQLException.class)
+                  .satisfies(
+                      failure ->
+                          assertThat(((java.sql.SQLException) failure).getSQLState())
+                              .isEqualTo("55P03"));
+            } finally {
+              blocker.rollback();
+            }
+          }
+        } else {
+          int pid;
+          try (var result = statement.executeQuery("select pg_backend_pid()")) {
+            result.next();
+            pid = result.getInt(1);
+          }
+          try (var executor = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var future =
+                executor.submit(
+                    () -> {
+                      try {
+                        statement.execute(delayed);
+                        return false;
+                      } catch (java.sql.SQLException expected) {
+                        return true;
+                      }
+                    });
+            long deadline = System.nanoTime() + java.time.Duration.ofSeconds(15).toNanos();
+            boolean sleeping = false;
+            while (System.nanoTime() < deadline) {
+              sleeping =
+                  Boolean.TRUE.equals(
+                      jdbc.queryForObject(
+                          "select exists(select 1 from pg_stat_activity where pid=? and wait_event='PgSleep')",
+                          Boolean.class,
+                          pid));
+              if (sleeping) break;
+              Thread.sleep(25);
+            }
+            assertThat(sleeping).isTrue();
+            assertThat(jdbc.queryForObject("select pg_terminate_backend(?)", Boolean.class, pid))
+                .isTrue();
+            assertThat(future.get(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+          }
+        }
+      }
+      assertThat(beforeSchema.equals(jdbc.queryForObject(schema, String.class))).isTrue();
+      assertThat(beforeData.equals(jdbc.queryForObject(data, String.class))).isTrue();
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regprocedure('timing_jeju_planner_private.user_location_guard_purge_revision()') is null",
+                  Boolean.class))
+          .isTrue();
+    } finally {
+      container.stop();
+    }
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
+  void 위치_계보가_입증된_종료_revision은_원본_일정을_남기고_그룹에서_정리한다(String image) throws Exception {
+    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    try {
+      container.start();
+      var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+      var jdbc =
+          new JdbcTemplate(
+              new DriverManagerDataSource(
+                  container.getJdbcUrl(), container.getUsername(), container.getPassword()));
+      Fixture fixture = insertLegacyFixture(jdbc, false);
+      UUID day = UUID.randomUUID(), run = UUID.randomUUID();
+      jdbc.update(
+          "insert into public.trip_days(id,trip_plan_id,day_no,trip_date) values (?,?,1,'2026-09-01')",
+          day,
+          fixture.trip());
+      jdbc.update(
+          """
+          insert into public.schedule_revision_runs
+            (id,owner_user_id,trip_plan_id,base_schedule_version_id,target_trip_day_id,
+             contract_version,algorithm_version,idempotency_key,request_hash,status,
+             failure_code,completed_at,next_attempt_at)
+          select ?,user_id,id,?,?,'fixture','fixture',?,repeat('b',64),'queued',
+            null,null,now() from public.trip_plans where id=?
+          """,
+          run,
+          fixture.version(),
+          day,
+          UUID.randomUUID(),
+          fixture.trip());
+      jdbc.update(
+          "update public.schedule_revision_runs set status='failed',failure_code='FIXTURE_FAILURE',completed_at=now(),next_attempt_at=null where id=?",
+          run);
+      jdbc.update(
+          """
+          insert into public.compute_run_inputs
+            (schedule_revision_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,
+             run_type,schema_version,contract_version,algorithm_version,structured_input,
+             command_input_hash,location_supplied,coarse_location,location_precision_meters,
+             location_policy_version,location_observed_at,location_expires_at)
+          select run.id,run.owner_user_id,run.trip_plan_id,run.base_schedule_version_id,
+            'schedule_revision',1,run.contract_version,run.algorithm_version,input,
+            public.compute_command_input_hash('schedule_revision'::text,1::smallint,
+              run.contract_version::text,run.algorithm_version::text,
+              run.base_schedule_version_id::uuid,input::jsonb,true::boolean,coarse::jsonb),
+            true,coarse,100,'1.0.0',now(),
+            public.compute_run_input_known_expiry(null,null,run.id,run.trip_plan_id,now())
+          from public.schedule_revision_runs run cross join lateral
+            (select jsonb_build_object('targetDayId',run.target_trip_day_id::text,
+              'affectedItemIds','[]'::jsonb,'instructionCodes','[]'::jsonb) as input,
+              '{"type":"GRID_100M","gridX":53,"gridY":38}'::jsonb as coarse) command
+          where run.id=?
+          """,
+          run);
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.schedule_revision_runs where id=?",
+                  Integer.class,
+                  run))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.compute_run_inputs where schedule_revision_run_id=?",
+                  Integer.class,
+                  run))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_schedule_versions where id=?",
+                  Integer.class,
+                  fixture.version()))
+          .isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select sum(residue_count) from timing_jeju_planner_private.user_location_residue_counts()",
+                  Long.class))
+          .isZero();
+    } finally {
+      container.stop();
+    }
+  }
+
+  private static UUID insertNormalRevisionInput(
+      JdbcTemplate jdbc, DriverManagerDataSource dataSource, Fixture fixture) {
+    UUID day = UUID.randomUUID(), run = UUID.randomUUID();
+    new org.springframework.transaction.support.TransactionTemplate(
+            new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource))
+        .executeWithoutResult(
+            status -> {
+              jdbc.update(
+                  "insert into public.trip_days(id,trip_plan_id,day_no,trip_date) values (?,?,1,'2026-09-01')",
+                  day,
+                  fixture.trip());
+              jdbc.update(
+                  """
+                insert into public.schedule_revision_runs
+                  (id,owner_user_id,trip_plan_id,base_schedule_version_id,target_trip_day_id,
+                   contract_version,algorithm_version,idempotency_key,request_hash)
+                select ?,user_id,id,?,?,'fixture','fixture',?,repeat('a',64)
+                from public.trip_plans where id=?
+                """,
+                  run,
+                  fixture.version(),
+                  day,
+                  UUID.randomUUID(),
+                  fixture.trip());
+              jdbc.update(
+                  """
+                insert into public.compute_run_inputs
+                  (schedule_revision_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,
+                   run_type,schema_version,contract_version,algorithm_version,structured_input,
+                   command_input_hash,location_supplied)
+                select run.id,run.owner_user_id,run.trip_plan_id,run.base_schedule_version_id,
+                  'schedule_revision',1,run.contract_version,run.algorithm_version,input,
+                  public.compute_command_input_hash('schedule_revision'::text,1::smallint,
+                    run.contract_version::text,run.algorithm_version::text,
+                    run.base_schedule_version_id::uuid,input::jsonb,false::boolean,null::jsonb),false
+                from public.schedule_revision_runs run cross join lateral
+                  (select jsonb_build_object('targetDayId',run.target_trip_day_id::text,
+                    'affectedItemIds','[]'::jsonb,'instructionCodes','[]'::jsonb) as input) command
+                where run.id=?
+                """,
+                  run);
+            });
+    return run;
+  }
+
   private static UUID insertGenerationLocationInput(JdbcTemplate jdbc, Fixture fixture) {
     UUID day = UUID.randomUUID(), run = UUID.randomUUID();
     jdbc.update(
