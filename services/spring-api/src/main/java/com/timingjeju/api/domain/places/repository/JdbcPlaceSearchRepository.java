@@ -33,7 +33,6 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
                nullif(concat_ws(' · ', nullif(detail.operating_hours_text, ''),
                  nullif(detail.closed_days_text, ''), nullif(detail.parking_text, ''),
                  nullif(detail.admission_fee_text, '')), '') as operations_summary,
-               %s as distance_meters,
                case when lower(p.source_provider) in ('tour-api', '한국관광공사')
                     then 'TOUR_API' else 'TIMING_JEJU' end as provider,
                coalesce(p.source_modified_at, p.updated_at) as observed_at,
@@ -67,11 +66,10 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
               where alias.place_id=p.id and alias.tombstoned_at is null
                 and alias.normalized_alias like :queryPattern escape '\\'
             ))
-          %s
       )
       select * from candidates
       %s
-      order by %s
+      order by normalized_name asc, place_id asc
       limit :limit
       """;
 
@@ -84,21 +82,7 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
   @Override
   public List<PlaceSearchRow> search(
       PlacesListQuery query, PlaceSearchPosition after, Optional<UUID> currentUserId) {
-    boolean nearby = query.nearby();
-    String distance =
-        nearby
-            ? "round(ST_Distance(p.location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography))::bigint"
-            : "null::bigint";
-    String geo =
-        nearby
-            ? "and ST_DWithin(p.location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography, :radiusMeters)"
-            : "";
-    String keyset = keysetClause(nearby, after);
-    String order =
-        nearby
-            ? "distance_meters asc, normalized_name asc, place_id asc"
-            : "normalized_name asc, place_id asc";
-    String sql = SELECT.formatted(distance, geo, keyset, order);
+    String sql = SELECT.formatted(keysetClause(after));
     MapSqlParameterSource parameters =
         new MapSqlParameterSource()
             .addValue("userId", currentUserId.orElse(null), Types.OTHER)
@@ -107,19 +91,10 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
             .addValue("savedOnly", query.savedOnly())
             .addValue("queryPattern", searchPattern(query.query()), Types.VARCHAR)
             .addValue("limit", query.size() + 1);
-    if (nearby) {
-      parameters
-          .addValue("lat", query.lat())
-          .addValue("lng", query.lng())
-          .addValue("radiusMeters", query.radiusMeters());
-    }
     if (after != null) {
       parameters
           .addValue("afterName", after.normalizedName())
           .addValue("afterId", after.placeId(), Types.OTHER);
-      if (nearby) {
-        parameters.addValue("afterDistance", after.distanceMeters());
-      }
     }
     try {
       return jdbc.query(sql, parameters, this::map);
@@ -128,13 +103,8 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
     }
   }
 
-  private static String keysetClause(boolean nearby, PlaceSearchPosition after) {
-    if (after == null) {
-      return "";
-    }
-    return nearby
-        ? "where (distance_meters, normalized_name, place_id) > (:afterDistance, :afterName, :afterId)"
-        : "where (normalized_name, place_id) > (:afterName, :afterId)";
+  private static String keysetClause(PlaceSearchPosition after) {
+    return after == null ? "" : "where (normalized_name, place_id) > (:afterName, :afterId)";
   }
 
   private PlaceSearchRow map(ResultSet resultSet, int rowNumber) throws SQLException {
@@ -151,7 +121,6 @@ public class JdbcPlaceSearchRepository implements PlaceSearchRepository {
         resultSet.getDouble("longitude"),
         resultSet.getString("thumbnail_url"),
         resultSet.getString("operations_summary"),
-        resultSet.getObject("distance_meters", Long.class),
         resultSet.getString("provider"),
         instant(resultSet, "observed_at"),
         instant(resultSet, "expires_at"),
