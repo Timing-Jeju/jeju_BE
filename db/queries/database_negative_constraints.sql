@@ -2038,30 +2038,30 @@ select pg_temp.expect_rejected(
   'blank mobility request hash',
   $statement$
     insert into mobility_route_snapshots (
-      request_hash, origin_location, destination_location, transport_mode,
-      duration_minutes, source_provider, source_operation, expires_at
-    ) values (
-      '',
-      st_setsrid(st_makepoint(126.50, 33.50), 4326)::geography,
-      st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography,
-      'walk', 10, 'fixture', 'route', now() + interval '1 hour'
+      request_hash, trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+      origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+      transport_mode, departure_at, duration_minutes, source_provider, source_operation, expires_at
     )
+    select '', trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+           origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+           transport_mode, departure_at, duration_minutes, 'fixture', 'route', now() + interval '1 hour'
+    from mobility_route_snapshots order by id limit 1
   $statement$,
   array['23514']
 );
 
 select pg_temp.expect_rejected(
-  'oversized mobility source key',
+  'oversized mobility request hash',
   $statement$
     insert into mobility_route_snapshots (
-      request_hash, origin_location, destination_location, transport_mode,
-      duration_minutes, source_provider, source_operation, expires_at
-    ) values (
-      repeat('r', 513),
-      st_setsrid(st_makepoint(126.50, 33.50), 4326)::geography,
-      st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography,
-      'walk', 10, 'fixture', 'route', now() + interval '1 hour'
+      request_hash, trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+      origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+      transport_mode, departure_at, duration_minutes, source_provider, source_operation, expires_at
     )
+    select repeat('r', 513), trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+           origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+           transport_mode, departure_at, duration_minutes, 'fixture', 'route', now() + interval '1 hour'
+    from mobility_route_snapshots order by id limit 1
   $statement$,
   array['23514']
 );

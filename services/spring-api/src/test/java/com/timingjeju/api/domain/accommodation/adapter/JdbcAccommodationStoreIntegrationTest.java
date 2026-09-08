@@ -412,7 +412,7 @@ class JdbcAccommodationStoreIntegrationTest extends PostgreSqlRepositoryIntegrat
           ) values (?, ?, ?, ?, 1, 'custom', '활성 일정',
                     (?::date + time '09:00') at time zone 'Asia/Seoul',
                     (?::date + time '10:00') at time zone 'Asia/Seoul',
-                    60, 'user_input', '{"location":{"lat":33.5,"lng":126.5}}'::jsonb)
+                    60, 'user_input', '{}'::jsonb)
           """,
           UUID.nameUUIDFromBytes(("issue68-item-" + index).getBytes(StandardCharsets.UTF_8)),
           TRIP,

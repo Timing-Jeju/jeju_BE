@@ -111,10 +111,18 @@ class JdbcWeatherForecastRepositoryIntegrationTest
         .isEqualTo(repository.findPublicPlace(PLACE));
     assertThat(repository.findOwnedTripItem(item, UUID.randomUUID())).isEmpty();
     assertThat(repository.findOwnedTripItem(UUID.randomUUID(), owner)).isEmpty();
-    jdbc.update(
-        "update public.trip_items set place_id=null,facts='{\"location\":{\"lat\":33.4,\"lng\":126.9}}'::jsonb where id=?",
-        item);
+    jdbc.update("update public.trip_items set place_id=null where id=?", item);
     assertThat(repository.findOwnedTripItem(item, owner)).isEmpty();
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "update public.trip_items set facts=?::jsonb where id=?",
+                    "{\"location\":{\"lat\":33.4,\"lng\":126.9}}",
+                    item))
+        .isInstanceOf(org.springframework.dao.DataAccessException.class)
+        .hasMessageContaining("schedule item facts must satisfy the closed non-location contract")
+        .hasMessageNotContaining("33.4")
+        .hasMessageNotContaining("126.9");
   }
 
   @Test
