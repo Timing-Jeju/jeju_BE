@@ -20,7 +20,7 @@ public record PatchScheduleItemRequest(
     Integer stayMinutes,
     Integer bufferAfterMinutes,
     Boolean required,
-    String memo) {
+    @Schema(types = {"string", "null"}) String memo) {
   public PatchScheduleItemCommand toCommand(Set<String> presentFields) {
     try {
       return new PatchScheduleItemCommand(

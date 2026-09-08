@@ -14,12 +14,12 @@ public record TransportEventMutationPayload(
     UUID tripId,
     String scheduleEffect,
     boolean regenerationRequired,
-    UUID activeScheduleVersionId,
+    @Schema(types = {"string", "null"}) UUID activeScheduleVersionId,
     String tripStatus,
     OffsetDateTime updatedAt,
     String eventType,
     boolean deleted,
-    TransportEventPayload event,
+    @Schema(types = {"object", "null"}) TransportEventPayload event,
     @JsonIgnore @Schema(hidden = true) String etag) {
   private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
@@ -41,11 +41,11 @@ public record TransportEventMutationPayload(
   public record TransportEventPayload(
       String eventType,
       String transportType,
-      UUID terminalPlaceId,
-      String customTerminalName,
+      @Schema(types = {"string", "null"}) UUID terminalPlaceId,
+      @Schema(types = {"string", "null"}) String customTerminalName,
       OffsetDateTime scheduledAt,
-      String transportNumber,
-      String note) {
+      @Schema(types = {"string", "null"}) String transportNumber,
+      @Schema(types = {"string", "null"}) String note) {
     static TransportEventPayload from(TransportEvent event) {
       return new TransportEventPayload(
           event.eventType(),

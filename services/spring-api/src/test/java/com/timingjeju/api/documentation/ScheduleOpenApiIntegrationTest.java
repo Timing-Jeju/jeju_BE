@@ -31,7 +31,13 @@ import org.springframework.test.web.servlet.MockMvc;
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
     })
 @AutoConfigureMockMvc
-class ScheduleOpenApiIntegrationTest {
+class ScheduleOpenApiIntegrationTest
+    extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
+  @Override
+  protected String canonicalDomain() {
+    return "schedules";
+  }
+
   private static final String JWT_KEY = randomKey();
   @Autowired private MockMvc mvc;
   private final ObjectMapper objectMapper = new ObjectMapper();
