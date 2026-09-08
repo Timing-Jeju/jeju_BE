@@ -10,9 +10,10 @@ from scripts.validate_openapi_frontend_readiness import (
     CURRENT_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
-    TRIP_MUTATION_OPERATIONS,
-    SCHEDULE_MUTATION_OPERATIONS,
+    SCHEDULE_CREATE_OPERATIONS,
+    SCHEDULE_EDIT_OPERATIONS,
     SCHEDULE_OPERATIONS,
+    TRIP_MUTATION_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
 )
@@ -471,7 +472,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             TRIP_MUTATION_OPERATIONS,
             PUSH_NOTIFICATION_OPERATIONS,
             SCHEDULE_OPERATIONS,
-            SCHEDULE_MUTATION_OPERATIONS,
+            SCHEDULE_CREATE_OPERATIONS,
         )
         exact_operations = {key for operations in operation_maps for key in operations}
         validator = Validator({}, 24, ROOT)
@@ -495,6 +496,60 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
         self.assertEqual("MutationResponse", create.args[2]["successSchema"])
         self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
+
+    def test_mode24는_issue51_edit_operation을_allowlist_밖으로_거부한다(self):
+        """24-operation 모드가 #51 편집 API를 조기 공개하지 않는다."""
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            SCHEDULE_OPERATIONS,
+            SCHEDULE_CREATE_OPERATIONS,
+        )
+        validator = Validator({}, 24, ROOT)
+        validator.operations = {
+            key for operations in operation_maps for key in operations
+        } | set(SCHEDULE_EDIT_OPERATIONS)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for operations in (*operation_maps, SCHEDULE_EDIT_OPERATIONS)
+            for (method, path), operation_id in operations.items()
+        }
+
+        validator.validate_operation_inventory()
+
+        self.assertEqual(len(SCHEDULE_EDIT_OPERATIONS), len(validator.errors))
+        self.assertTrue(
+            all("allowlist 밖의 endpoint" in error for error in validator.errors)
+        )
+
+    def test_mode28은_schedule_edit_네_건을_exact_inventory로_검사한다(self):
+        """28-operation 모드가 #51 편집 API 네 건까지 정확히 포함한다."""
+        operation_maps = (
+            CURRENT_OPERATIONS,
+            SAVED_PLACE_OPERATIONS,
+            TRIP_OPERATIONS,
+            TRIP_MUTATION_OPERATIONS,
+            PUSH_NOTIFICATION_OPERATIONS,
+            SCHEDULE_OPERATIONS,
+            SCHEDULE_CREATE_OPERATIONS,
+            SCHEDULE_EDIT_OPERATIONS,
+        )
+        validator = Validator({}, 28, ROOT)
+        validator.operations = {
+            key for operations in operation_maps for key in operations
+        }
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for operations in operation_maps
+            for (method, path), operation_id in operations.items()
+        }
+
+        validator.validate_operation_inventory()
+
+        self.assertEqual([], validator.errors)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)

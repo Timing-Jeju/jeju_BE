@@ -117,7 +117,8 @@ final class FrontendOpenApiCustomizer {
               List.of(
                   "IDEMPOTENCY_KEY_REUSED",
                   "TRIP_VERSION_CONFLICT",
-                  "ACTIVE_SCHEDULE_VERSION_CONFLICT"),
+                  "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                  "TRIP_TERMINAL_STATE_CONFLICT"),
           "422", List.of("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE"));
   private static final Set<String> SCHEDULE_MUTATION_KEYS =
       Set.of(
@@ -734,10 +735,16 @@ final class FrontendOpenApiCustomizer {
     }
     if ("409".equals(status))
       return List.of(
-          "IDEMPOTENCY_KEY_REUSED", "TRIP_VERSION_CONFLICT", "ACTIVE_SCHEDULE_VERSION_CONFLICT");
+          "IDEMPOTENCY_KEY_REUSED",
+          "TRIP_VERSION_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT");
     if ("422".equals(status)) {
       var base =
           new java.util.ArrayList<>(List.of("SCHEDULE_ITEM_COMPLETED", "SCHEDULE_LEG_INCOMPLETE"));
+      if (operationKey.startsWith("DELETE") || operationKey.endsWith("/move")) {
+        base.add("SCHEDULE_DAY_EMPTY");
+      }
       if (!operationKey.startsWith("DELETE")) base.add("SCHEDULE_ITEM_INVALID");
       return base;
     }
@@ -1198,6 +1205,10 @@ final class FrontendOpenApiCustomizer {
             + "\"changedItemIds\":[\"61000000-0000-4000-8000-000000000003\"],"
             + "\"etag\":\"\\\"trip-50000000-0000-4000-8000-000000000001-r2\\\"\","
             + "\"updatedAt\":\"2026-10-01T09:30:00+09:00\"}";
+    String deleteMutationSuccess =
+        mutationSuccess.replace(
+            "\"changedItemIds\":[\"61000000-0000-4000-8000-000000000003\"]",
+            "\"changedItemIds\":[]");
     Map<String, String> mutationErrors =
         Map.of(
             "400",
@@ -1222,7 +1233,7 @@ final class FrontendOpenApiCustomizer {
             mutationErrors));
     result.put(
         "DELETE /api/v1/trips/{tripId}/schedule-items/{itemId}",
-        doc("tripScheduleItemDelete", "일정", null, mutationSuccess, mutationErrors));
+        doc("tripScheduleItemDelete", "일정", null, deleteMutationSuccess, mutationErrors));
     result.put(
         "PUT /api/v1/trips/{tripId}/schedule-order",
         doc(

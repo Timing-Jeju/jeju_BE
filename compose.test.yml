@@ -44,6 +44,7 @@ services:
       - ./supabase/migrations/20260905000000_mcp_private_http_client.sql:/docker-entrypoint-initdb.d/035_mcp_private_http_client.sql:ro
       - ./supabase/migrations/20260906000000_trip_update_delete_contract.sql:/docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql:ro
       - ./supabase/migrations/20260907000000_schedule_item_create_contract.sql:/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql:ro
+      - ./supabase/migrations/20260907000001_schedule_item_required_references.sql:/docker-entrypoint-initdb.d/038_schedule_item_required_references.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

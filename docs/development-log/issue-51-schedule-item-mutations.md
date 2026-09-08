@@ -2,7 +2,8 @@
 
 ## 범위와 기준
 
-- 기준: `origin/develop` `6cfa98fd3e65ba270eceea7150c843b33dbe2a56`
+- 최초 기준: `origin/develop` `6cfa98fd3e65ba270eceea7150c843b33dbe2a56`
+- #50 반영 기준: merge commit `03595cd66a81d3ce65dc304c8a4073ea03b598b7`
 - 브랜치: `feat/51-schedule-item-mutations`
 - endpoint: 일정 항목 PATCH/DELETE, 전체 순서 PUT, Day 이동 POST
 - 기준 계약: `docs/contracts/domains/schedules/contract.json`과 Issue #88
@@ -39,6 +40,30 @@ memo/stay 회귀를 포함한 실제 PostgreSQL 집중 테스트는 모두 Green
 
 Swagger operation 계약도 Controller 구현에서 `controller/docs/ScheduleMutationApiDocs`로
 이동해 구현과 문서 경계를 분리했으며 생성 OpenAPI operation ID와 응답 schema는 유지했다.
+
+### 공식 리뷰 보완 RED → GREEN
+
+#50 병합 후 공식 리뷰 지적을 재현하는 회귀 테스트를 추가했다. 실제 PostgreSQL 집중 실행에서
+다음 RED를 확인했다.
+
+```text
+./gradlew test --tests 'com.timingjeju.api.domain.schedule.repository.JdbcScheduleMutationStoreIntegrationTest'
+DELETE: ScheduleMutationResult가 빈 changedItemIds를 거부해 IllegalArgumentException
+empty Day DELETE/MOVE: expected SCHEDULE_DAY_EMPTY but was SCHEDULE_LEG_INCOMPLETE
+concurrent PATCH: 공통 coordinator의 TripException(TRIP_VERSION_CONFLICT)을 테스트가 분류하지 못함
+```
+
+GREEN에서는 PATCH/DELETE/reorder/move도 #50의 `TripAggregateMutationCoordinator`로 통합해
+소유권 잠금, ETag 검증, terminal 상태 거부, revision 증가를 하나의 경계로 사용한다. PATCH,
+reorder, move의 `changedItemIds`는 새 active version에 실제 존재하는 복사 ID만 반환하고,
+삭제 항목은 새 namespace에 대응 ID가 없으므로 DELETE는 빈 배열을 반환한다. 마지막 항목을
+삭제하거나 다른 Day로 옮겨 원본 Day가 비게 되는 동작은 `422 SCHEDULE_DAY_EMPTY`로 명시하고
+전체 transaction을 rollback한다. 수정 후 store와 controller 집중 테스트가 모두 성공했다.
+
+OpenAPI readiness도 #50의 24-operation inventory에는 schedule create만 포함하고, #51의
+28-operation inventory에 PATCH/DELETE/reorder/move 네 건을 추가하도록 분리했다. mode 24가
+#51 endpoint를 allowlist 밖으로 거부하는 테스트와 mode 28 exact inventory 테스트를 각각
+추가했으며 관련 Python 43 tests가 성공했다.
 
 ## 검증
 

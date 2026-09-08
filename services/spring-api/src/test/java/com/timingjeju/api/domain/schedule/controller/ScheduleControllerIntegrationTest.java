@@ -293,7 +293,16 @@ class ScheduleControllerIntegrationTest {
             2,
             List.of(UUID.fromString("49000000-0000-0000-0000-000000000005")),
             Instant.parse("2026-09-01T01:00:00Z"));
-    when(mutations.deleteItem(any(), eq(TRIP_ID), any(), any(), any())).thenReturn(result);
+    ScheduleMutationResult deleteResult =
+        new ScheduleMutationResult(
+            TRIP_ID,
+            VERSION_ID,
+            newVersionId,
+            2,
+            2,
+            List.of(),
+            Instant.parse("2026-09-01T01:00:00Z"));
+    when(mutations.deleteItem(any(), eq(TRIP_ID), any(), any(), any())).thenReturn(deleteResult);
     when(mutations.reorder(any(), eq(TRIP_ID), any(), any())).thenReturn(result);
     when(mutations.moveItem(any(), eq(TRIP_ID), any(), any(), any())).thenReturn(result);
     String headersKey = UUID.randomUUID().toString();
@@ -307,7 +316,8 @@ class ScheduleControllerIntegrationTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
                 .header("Idempotency-Key", headersKey)
                 .header("If-Match", "\"trip-" + TRIP_ID + "-r1\""))
-        .andExpect(status().isOk());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.changedItemIds").isEmpty());
     mvc.perform(
             put("/api/v1/trips/{tripId}/schedule-order", TRIP_ID)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
@@ -498,7 +508,8 @@ class ScheduleControllerIntegrationTest {
         .thenThrow(
             ScheduleException.placeNotFound(),
             ScheduleException.versionNotFound(),
-            ScheduleException.tripVersionConflict());
+            ScheduleException.tripVersionConflict(),
+            com.timingjeju.api.application.trip.TripException.terminalStateConflict());
     String body = validScheduleItemBody();
     List<List<String>> expected =
         List.of(
@@ -507,12 +518,17 @@ class ScheduleControllerIntegrationTest {
                 "SCHEDULE_VERSION_NOT_FOUND",
                 "일정 버전을 찾을 수 없습니다",
                 "요청한 일정 버전이 없거나 해당 여행에 속하지 않습니다."),
+            List.of("TRIP_VERSION_CONFLICT", "여행 조건이 이미 변경되었습니다", "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."),
             List.of(
-                "TRIP_VERSION_CONFLICT", "여행 조건이 이미 변경되었습니다", "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."));
+                "TRIP_TERMINAL_STATE_CONFLICT",
+                "종료된 여행은 변경할 수 없습니다",
+                "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다."));
 
     for (List<String> problem : expected) {
+      int expectedStatus = problem.get(0).endsWith("CONFLICT") ? 409 : 404;
       mvc.perform(scheduleItemPost(body.getBytes(StandardCharsets.UTF_8), UUID.randomUUID()))
-          .andExpect(status().is4xxClientError())
+          .andExpect(status().is(expectedStatus))
+          .andExpect(jsonPath("$.status").value(expectedStatus))
           .andExpect(jsonPath("$.code").value(problem.get(0)))
           .andExpect(
               jsonPath("$.type")

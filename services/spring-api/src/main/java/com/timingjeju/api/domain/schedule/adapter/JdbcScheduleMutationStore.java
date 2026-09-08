@@ -10,6 +10,8 @@ import com.timingjeju.api.application.schedule.ScheduleException;
 import com.timingjeju.api.application.schedule.ScheduleMutationRecord;
 import com.timingjeju.api.application.schedule.ScheduleMutationResult;
 import com.timingjeju.api.application.schedule.ScheduleMutationStore;
+import com.timingjeju.api.global.trip.TripAggregateMutationCoordinator;
+import com.timingjeju.api.global.trip.TripAggregateMutationCoordinator.LockedTrip;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Time;
@@ -36,19 +38,32 @@ import org.springframework.transaction.annotation.Transactional;
 public class JdbcScheduleMutationStore implements ScheduleMutationStore {
   private static final ZoneId JEJU = ZoneId.of("Asia/Seoul");
   private final JdbcTemplate jdbc;
+  private final TripAggregateMutationCoordinator tripMutations;
 
-  public JdbcScheduleMutationStore(JdbcTemplate jdbc) {
+  public JdbcScheduleMutationStore(
+      JdbcTemplate jdbc, TripAggregateMutationCoordinator tripMutations) {
     this.jdbc = jdbc;
+    this.tripMutations = tripMutations;
   }
 
   @Override
   @Transactional
   public ScheduleMutationResult addItem(ScheduleMutationRecord record) {
     try {
-      Root root = lockOwnedTrip(record.ownerId(), record.tripId());
-      validateExpected(record, root);
+      LockedTrip root = tripMutations.lockOwned(record.ownerId(), record.tripId());
+      tripMutations.validateExpected(record.tripId(), record.expectedTrip(), root);
+      tripMutations.requireMutable(root);
+      if (root.activeScheduleVersionId() == null) {
+        throw ScheduleException.versionNotFound();
+      }
+      if (!record
+          .command()
+          .expectedActiveScheduleVersionId()
+          .equals(root.activeScheduleVersionId())) {
+        throw ScheduleException.activeVersionConflict();
+      }
       Day day = loadDay(record.tripId(), record.command().dayNo());
-      validateTimeAndPosition(record.command(), day, root.activeVersionId());
+      validateTimeAndPosition(record.command(), day, root.activeScheduleVersionId());
       ResolvedReference reference = resolveReference(record.tripId(), record.command());
 
       int versionNo = nextVersionNo(record.tripId());
@@ -63,12 +78,13 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           newVersionId,
           record.tripId(),
           versionNo,
-          root.activeVersionId(),
+          root.activeScheduleVersionId(),
           "사용자 일정 항목 추가",
           record.ownerId(),
           Timestamp.from(record.transactionTime()));
 
-      List<SourceItem> sourceItems = loadSourceItems(record.tripId(), root.activeVersionId());
+      List<SourceItem> sourceItems =
+          loadSourceItems(record.tripId(), root.activeScheduleVersionId());
       List<NewItem> newItems = new ArrayList<>(sourceItems.size() + 1);
       Map<UUID, UUID> copiedIds = new HashMap<>();
       for (SourceItem source : sourceItems) {
@@ -101,12 +117,13 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
 
       copyProgress(
           record.tripId(),
-          root.activeVersionId(),
+          root.activeScheduleVersionId(),
           newVersionId,
           copiedIds,
           record.transactionTime());
 
-      Map<ItemPair, SourceLeg> sourceLegs = loadSourceLegs(record.tripId(), root.activeVersionId());
+      Map<ItemPair, SourceLeg> sourceLegs =
+          loadSourceLegs(record.tripId(), root.activeScheduleVersionId());
       copyOrDeriveLegs(
           record.tripId(),
           newVersionId,
@@ -122,7 +139,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           record.tripId());
       jdbc.update(
           "update public.trip_schedule_versions set status='superseded' where id=? and trip_plan_id=? and status='active'",
-          root.activeVersionId(),
+          root.activeScheduleVersionId(),
           record.tripId());
       if (jdbc.update(
               "update public.trip_schedule_versions set status='active', applied_at=? where id=? and trip_plan_id=? and status='draft'",
@@ -132,27 +149,15 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           != 1) {
         throw ScheduleException.activeVersionConflict();
       }
-      if (jdbc.update(
-              """
-              update public.trip_plans
-              set active_schedule_version_id=?, revision=revision+1, stale=true, updated_at=?
-              where id=? and user_id=? and revision=? and active_schedule_version_id=?
-              """,
-              newVersionId,
-              Timestamp.from(record.transactionTime()),
-              record.tripId(),
-              record.ownerId(),
-              root.revision(),
-              root.activeVersionId())
-          != 1) {
-        throw ScheduleException.tripVersionConflict();
-      }
+      long revision =
+          tripMutations.advanceSchedulePointer(
+              record.ownerId(), record.tripId(), root, newVersionId, record.transactionTime());
       return new ScheduleMutationResult(
           record.tripId(),
-          root.activeVersionId(),
+          root.activeScheduleVersionId(),
           newVersionId,
           versionNo,
-          root.revision() + 1,
+          revision,
           List.of(changedItemId),
           record.transactionTime());
     } catch (DataIntegrityViolationException failure) {
@@ -191,9 +196,17 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
   private <T> ScheduleMutationResult edit(
       ScheduleEditRecord<T> record, String summary, ItemEditor<T> editor, List<UUID> changedIds) {
     try {
-      Root root = lockOwnedTrip(record.ownerId(), record.tripId());
-      validateExpected(record, root);
-      List<SourceItem> sourceItems = loadSourceItems(record.tripId(), root.activeVersionId());
+      LockedTrip root = tripMutations.lockOwned(record.ownerId(), record.tripId());
+      tripMutations.validateExpected(record.tripId(), record.expectedTrip(), root);
+      tripMutations.requireMutable(root);
+      if (root.activeScheduleVersionId() == null) {
+        throw ScheduleException.versionNotFound();
+      }
+      if (!expectedVersion(record.command()).equals(root.activeScheduleVersionId())) {
+        throw ScheduleException.activeVersionConflict();
+      }
+      List<SourceItem> sourceItems =
+          loadSourceItems(record.tripId(), root.activeScheduleVersionId());
       Map<UUID, SourceItem> originalById =
           sourceItems.stream()
               .collect(java.util.stream.Collectors.toMap(SourceItem::id, item -> item));
@@ -213,7 +226,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       }
       copyProgress(
           record.tripId(),
-          root.activeVersionId(),
+          root.activeScheduleVersionId(),
           newVersionId,
           copiedIds,
           record.transactionTime());
@@ -221,17 +234,23 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           record.tripId(),
           newVersionId,
           newItems,
-          loadSourceLegs(record.tripId(), root.activeVersionId()),
+          loadSourceLegs(record.tripId(), root.activeScheduleVersionId()),
           preferredTransportMode(record.tripId()),
           record.transactionTime());
-      activate(record, root, newVersionId);
+      long revision = activate(record, root, newVersionId);
+      List<UUID> changedNewIds =
+          changedIds.stream()
+              .map(copiedIds::get)
+              .filter(java.util.Objects::nonNull)
+              .distinct()
+              .toList();
       return new ScheduleMutationResult(
           record.tripId(),
-          root.activeVersionId(),
+          root.activeScheduleVersionId(),
           newVersionId,
           versionNo,
-          root.revision() + 1,
-          List.copyOf(new java.util.LinkedHashSet<>(changedIds)),
+          revision,
+          changedNewIds,
           record.transactionTime());
     } catch (DataIntegrityViolationException failure) {
       throw ScheduleException.itemInvalid();
@@ -306,7 +325,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     ensureNotCompleted(record.tripId(), expectedVersion(record.command()), record.itemId());
     UUID dayId = items.get(index).dayId();
     if (items.stream().filter(item -> item.dayId().equals(dayId)).count() <= 1) {
-      throw ScheduleException.legIncomplete();
+      throw ScheduleException.dayEmpty();
     }
     items.remove(index);
     compact(items, dayId);
@@ -367,7 +386,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     Day target = loadDay(record.tripId(), record.command().targetDayNo(), true);
     if (!source.dayId().equals(target.id())
         && items.stream().filter(item -> item.dayId().equals(source.dayId())).count() <= 1) {
-      throw ScheduleException.legIncomplete();
+      throw ScheduleException.dayEmpty();
     }
     items.remove(index);
     int targetCount = (int) items.stream().filter(item -> item.dayId().equals(target.id())).count();
@@ -393,24 +412,6 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     return items;
   }
 
-  private Root lockOwnedTrip(UUID ownerId, UUID tripId) {
-    List<Root> rows =
-        jdbc.query(
-            "select revision, active_schedule_version_id from public.trip_plans where id=? and user_id=? for update",
-            (rs, row) ->
-                new Root(
-                    rs.getLong("revision"), rs.getObject("active_schedule_version_id", UUID.class)),
-            tripId,
-            ownerId);
-    if (rows.isEmpty()) {
-      throw ScheduleException.tripNotFound();
-    }
-    if (rows.getFirst().activeVersionId() == null) {
-      throw ScheduleException.versionNotFound();
-    }
-    return rows.getFirst();
-  }
-
   private static UUID expectedVersion(Object command) {
     if (command instanceof PatchScheduleItemCommand value)
       return value.expectedActiveScheduleVersionId();
@@ -423,18 +424,12 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     throw new IllegalArgumentException("unsupported schedule mutation command");
   }
 
-  private static <T> void validateExpected(ScheduleEditRecord<T> record, Root root) {
-    if (!record.expectedTrip().tripId().equals(record.tripId())
-        || record.expectedTrip().revision() != root.revision()) {
-      throw ScheduleException.tripVersionConflict();
-    }
-    if (!expectedVersion(record.command()).equals(root.activeVersionId())) {
-      throw ScheduleException.activeVersionConflict();
-    }
-  }
-
   private void insertDraft(
-      ScheduleEditRecord<?> record, Root root, UUID versionId, int versionNo, String summary) {
+      ScheduleEditRecord<?> record,
+      LockedTrip root,
+      UUID versionId,
+      int versionNo,
+      String summary) {
     jdbc.update(
         """
         insert into public.trip_schedule_versions
@@ -445,13 +440,13 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         versionId,
         record.tripId(),
         versionNo,
-        root.activeVersionId(),
+        root.activeScheduleVersionId(),
         summary,
         record.ownerId(),
         Timestamp.from(record.transactionTime()));
   }
 
-  private void activate(ScheduleEditRecord<?> record, Root root, UUID newVersionId) {
+  private long activate(ScheduleEditRecord<?> record, LockedTrip root, UUID newVersionId) {
     jdbc.queryForObject(
         "select public.assert_schedule_version_sealable(?, ?)",
         (rs, row) -> 1,
@@ -459,7 +454,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         record.tripId());
     jdbc.update(
         "update public.trip_schedule_versions set status='superseded' where id=? and trip_plan_id=? and status='active'",
-        root.activeVersionId(),
+        root.activeScheduleVersionId(),
         record.tripId());
     if (jdbc.update(
             "update public.trip_schedule_versions set status='active', applied_at=? where id=? and trip_plan_id=? and status='draft'",
@@ -469,21 +464,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         != 1) {
       throw ScheduleException.activeVersionConflict();
     }
-    if (jdbc.update(
-            """
-        update public.trip_plans
-        set active_schedule_version_id=?, revision=revision+1, stale=true, updated_at=?
-        where id=? and user_id=? and revision=? and active_schedule_version_id=?
-        """,
-            newVersionId,
-            Timestamp.from(record.transactionTime()),
-            record.tripId(),
-            record.ownerId(),
-            root.revision(),
-            root.activeVersionId())
-        != 1) {
-      throw ScheduleException.tripVersionConflict();
-    }
+    return tripMutations.advanceSchedulePointer(
+        record.ownerId(), record.tripId(), root, newVersionId, record.transactionTime());
   }
 
   private int targetIndex(List<SourceItem> items, UUID itemId) {
@@ -575,16 +557,6 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         || (day.startTime() != null && jejuStart.toLocalTime().isBefore(day.startTime()))
         || (day.endTime() != null && end.toLocalTime().isAfter(day.endTime()))) {
       throw ScheduleException.itemInvalid();
-    }
-  }
-
-  private static void validateExpected(ScheduleMutationRecord record, Root root) {
-    if (!record.expectedTrip().tripId().equals(record.tripId())
-        || record.expectedTrip().revision() != root.revision()) {
-      throw ScheduleException.tripVersionConflict();
-    }
-    if (!record.command().expectedActiveScheduleVersionId().equals(root.activeVersionId())) {
-      throw ScheduleException.activeVersionConflict();
     }
   }
 
@@ -1166,8 +1138,6 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     Time value = rs.getTime(column);
     return value == null ? null : value.toLocalTime();
   }
-
-  private record Root(long revision, UUID activeVersionId) {}
 
   private record Day(UUID id, LocalDate date, LocalTime startTime, LocalTime endTime) {}
 

@@ -803,6 +803,7 @@
           "type": "array",
           "uniqueItems": true,
           "nullable": false,
+          "description": "new active schedule version item IDs affected by the mutation; DELETE returns an empty array because the deleted item has no new-version identity",
           "items": {
             "type": "string",
             "format": "uuid",
@@ -952,7 +953,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_INVALID",
@@ -1041,7 +1043,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_INVALID",
@@ -1128,10 +1131,12 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
+          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },
@@ -1215,11 +1220,13 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
           "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },
@@ -1303,7 +1310,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
@@ -1399,7 +1407,8 @@
     },
     "timezone": "RFC 3339 +09:00; start and computed end must remain on target Asia/Seoul trip day",
     "stayMinutes": "integer 1..1440",
-    "completedItem": "reject-422; completed item cannot be patched, deleted, reordered or moved"
+    "completedItem": "reject-422; completed item cannot be patched, deleted, reordered or moved",
+    "emptyDay": "reject-422 SCHEDULE_DAY_EMPTY; DELETE or cross-Day move must leave at least one item in every trip Day"
   },
   "mutationPolicy": {
     "expectedVersionLocation": {
@@ -1642,6 +1651,15 @@
       "fixture": "409_active_schedule_version_conflict"
     },
     {
+      "status": 409,
+      "code": "TRIP_TERMINAL_STATE_CONFLICT",
+      "condition": "trip is completed, cancelled or failed",
+      "type": "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+      "title": "종료된 여행은 변경할 수 없습니다",
+      "detail": "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다.",
+      "fixture": "409_trip_terminal_state_conflict"
+    },
+    {
       "status": 422,
       "code": "SCHEDULE_ITEM_INVALID",
       "condition": "item violates type-required fields, range, target day or time-window invariants",
@@ -1658,6 +1676,15 @@
       "title": "완료한 일정 항목은 변경할 수 없습니다",
       "detail": "완료되지 않은 일정 항목만 편집해 주세요.",
       "fixture": "422_schedule_item_completed"
+    },
+    {
+      "status": 422,
+      "code": "SCHEDULE_DAY_EMPTY",
+      "condition": "delete or cross-day move would leave a trip day without any schedule item",
+      "type": "https://api.timing-jeju.com/problems/schedule-day-empty",
+      "title": "여행 Day는 비워 둘 수 없습니다",
+      "detail": "각 여행 Day에 일정 항목을 하나 이상 남겨 주세요.",
+      "fixture": "422_schedule_day_empty"
     },
     {
       "status": 422,

@@ -64,6 +64,10 @@ public final class ScheduleException extends RuntimeException {
     return new ScheduleException("SCHEDULE_LEG_INCOMPLETE");
   }
 
+  public static ScheduleException dayEmpty() {
+    return new ScheduleException("SCHEDULE_DAY_EMPTY");
+  }
+
   public static ScheduleException internalServerError() {
     return new ScheduleException("INTERNAL_SERVER_ERROR");
   }

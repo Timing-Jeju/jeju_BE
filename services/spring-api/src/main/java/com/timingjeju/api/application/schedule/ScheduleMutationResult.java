@@ -17,9 +17,11 @@ public record ScheduleMutationResult(
     Objects.requireNonNull(tripId);
     Objects.requireNonNull(previousScheduleVersionId);
     Objects.requireNonNull(activeScheduleVersionId);
-    changedItemIds = List.copyOf(changedItemIds);
+    changedItemIds = List.copyOf(Objects.requireNonNull(changedItemIds));
     Objects.requireNonNull(updatedAt);
-    if (versionNo < 1 || tripRevision < 1 || changedItemIds.isEmpty()) {
+    if (versionNo < 1
+        || tripRevision < 1
+        || changedItemIds.stream().distinct().count() != changedItemIds.size()) {
       throw new IllegalArgumentException("일정 변경 결과가 올바르지 않습니다.");
     }
   }

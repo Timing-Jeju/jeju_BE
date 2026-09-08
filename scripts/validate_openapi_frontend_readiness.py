@@ -93,8 +93,10 @@ PUSH_NOTIFICATION_OPERATIONS = {
 SCHEDULE_OPERATIONS = {
     ("GET", "/api/v1/trips/{tripId}/schedule"): "tripScheduleRead",
 }
-SCHEDULE_MUTATION_OPERATIONS = {
+SCHEDULE_CREATE_OPERATIONS = {
     ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
+}
+SCHEDULE_EDIT_OPERATIONS = {
     ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemPatch",
     ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemDelete",
     ("PUT", "/api/v1/trips/{tripId}/schedule-order"): "tripScheduleOrderUpdate",
@@ -107,7 +109,8 @@ EXPECTED_OPERATION_IDS = (
     | TRIP_MUTATION_OPERATIONS
     | PUSH_NOTIFICATION_OPERATIONS
     | SCHEDULE_OPERATIONS
-    | SCHEDULE_MUTATION_OPERATIONS
+    | SCHEDULE_CREATE_OPERATIONS
+    | SCHEDULE_EDIT_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
@@ -296,7 +299,9 @@ class Validator:
         if self.mode in (21, 23, 24, 28):
             schedule_operations = dict(SCHEDULE_OPERATIONS)
             if self.mode in (24, 28):
-                schedule_operations.update(SCHEDULE_MUTATION_OPERATIONS)
+                schedule_operations.update(SCHEDULE_CREATE_OPERATIONS)
+            if self.mode == 28:
+                schedule_operations.update(SCHEDULE_EDIT_OPERATIONS)
             groups.append(("schedules", schedule_operations))
         for domain, operation_group in groups:
             contract = self.read_authority_json(
@@ -708,7 +713,9 @@ class Validator:
         if self.mode in (23, 24, 28):
             required.update(TRIP_MUTATION_OPERATIONS)
         if self.mode in (24, 28):
-            required.update(SCHEDULE_MUTATION_OPERATIONS)
+            required.update(SCHEDULE_CREATE_OPERATIONS)
+        if self.mode == 28:
+            required.update(SCHEDULE_EDIT_OPERATIONS)
         for key, operation_id in required.items():
             if key not in self.operations:
                 prefix = (

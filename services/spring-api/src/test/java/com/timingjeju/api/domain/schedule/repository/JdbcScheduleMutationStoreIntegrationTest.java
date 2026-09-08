@@ -12,6 +12,7 @@ import com.timingjeju.api.application.schedule.ScheduleEditRecord;
 import com.timingjeju.api.application.schedule.ScheduleException;
 import com.timingjeju.api.application.schedule.ScheduleMutationRecord;
 import com.timingjeju.api.application.schedule.ScheduleMutationResult;
+import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripExpectedRevision;
 import com.timingjeju.api.domain.schedule.adapter.JdbcScheduleMutationStore;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -208,10 +210,23 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     String before = aggregateFingerprint();
 
     assertThatThrownBy(() -> store.addItem(record(Position.MIDDLE, ACTIVE, 2)))
-        .isInstanceOf(ScheduleException.class)
-        .extracting(failure -> ((ScheduleException) failure).code())
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
         .isEqualTo("TRIP_VERSION_CONFLICT");
 
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"completed", "cancelled", "failed"})
+  void terminal_trip은_일정_항목_추가를_409로_원자거부한다(String status) {
+    jdbc.update("update public.trip_plans set status=? where id=?", status, TRIP);
+    String before = aggregateFingerprint();
+
+    assertThatThrownBy(() -> store.addItem(record(Position.MIDDLE, ACTIVE, 1)))
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
+        .isEqualTo("TRIP_TERMINAL_STATE_CONFLICT");
     assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
@@ -333,6 +348,14 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
     ScheduleMutationResult result = store.patchItem(edit(FIRST, command));
 
+    assertThat(result.changedItemIds()).hasSize(1).doesNotContain(FIRST);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_items where schedule_version_id=? and id=?",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                result.changedItemIds().getFirst()))
+        .isEqualTo(1);
     assertThat(
             jdbc.queryForMap(
                 "select id,stay_minutes,memo from public.trip_items where schedule_version_id=? and sequence_no=1 and trip_day_id=?",
@@ -400,6 +423,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     ScheduleMutationResult result =
         store.deleteItem(edit(FIRST, new DeleteScheduleItemCommand(ACTIVE)));
 
+    assertThat(result.changedItemIds()).isEmpty();
     assertThat(
             jdbc.queryForList(
                 "select sequence_no from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
@@ -469,6 +493,45 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     assertThat(aggregateFingerprint()).isEqualTo(before);
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"completed", "cancelled", "failed"})
+  void terminal_trip은_모든_일정_편집을_409로_원자거부한다(String status) {
+    jdbc.update("update public.trip_plans set status=? where id=?", status, TRIP);
+    String before = aggregateFingerprint();
+    var patch =
+        new PatchScheduleItemCommand(
+            ACTIVE, Set.of("memo"), null, null, null, null, null, null, null, null, "수정");
+    var reorder =
+        new ReorderScheduleCommand(
+            ACTIVE,
+            List.of(
+                new ReorderScheduleCommand.DayOrder(1, List.of(FIRST, SECOND)),
+                new ReorderScheduleCommand.DayOrder(2, List.of(DAY_TWO_ITEM))));
+    var move =
+        new MoveScheduleItemCommand(
+            ACTIVE, 2, 2, OffsetDateTime.parse("2026-09-02T10:30:00+09:00"));
+
+    assertTerminal(() -> store.patchItem(edit(FIRST, patch)));
+    assertTerminal(() -> store.deleteItem(edit(FIRST, new DeleteScheduleItemCommand(ACTIVE))));
+    assertTerminal(() -> store.reorder(edit(null, reorder)));
+    assertTerminal(() -> store.moveItem(edit(FIRST, move)));
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void 마지막_Day_item의_DELETE와_다른_Day_MOVE는_전용_422로_원자거부한다() {
+    String before = aggregateFingerprint();
+    var move =
+        new MoveScheduleItemCommand(
+            ACTIVE, 1, 3, OffsetDateTime.parse("2026-09-01T15:00:00+09:00"));
+
+    assertScheduleProblem(
+        "SCHEDULE_DAY_EMPTY",
+        () -> store.deleteItem(edit(DAY_TWO_ITEM, new DeleteScheduleItemCommand(ACTIVE))));
+    assertScheduleProblem("SCHEDULE_DAY_EMPTY", () -> store.moveItem(edit(DAY_TWO_ITEM, move)));
+    assertThat(aggregateFingerprint()).isEqualTo(before);
+  }
+
   @Test
   void reorder의_duplicate_missing_foreign_ID는_400이고_active를_보존한다() {
     var invalid =
@@ -498,6 +561,16 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
     ScheduleMutationResult result = store.reorder(edit(null, command));
 
+    assertThat(result.changedItemIds()).hasSize(3).doesNotContain(FIRST, SECOND, DAY_TWO_ITEM);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_items where schedule_version_id=? and id in (?,?,?)",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                result.changedItemIds().get(0),
+                result.changedItemIds().get(1),
+                result.changedItemIds().get(2)))
+        .isEqualTo(3);
     assertThat(
             jdbc.queryForList(
                 "select place_id from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
@@ -539,6 +612,14 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
 
     ScheduleMutationResult result = store.moveItem(edit(FIRST, command));
 
+    assertThat(result.changedItemIds()).hasSize(1).doesNotContain(FIRST);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_items where schedule_version_id=? and id=?",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                result.changedItemIds().getFirst()))
+        .isEqualTo(1);
     assertThat(
             jdbc.queryForList(
                 "select sequence_no from public.trip_items where schedule_version_id=? and trip_day_id=? order by sequence_no",
@@ -594,6 +675,8 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
                               return "SUCCESS";
                             } catch (ScheduleException failure) {
                               return failure.code();
+                            } catch (TripException failure) {
+                              return failure.code();
                             }
                           }))
               .toList();
@@ -644,6 +727,21 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         .isInstanceOf(ScheduleException.class)
         .extracting(failure -> ((ScheduleException) failure).code())
         .isEqualTo("SCHEDULE_ITEM_COMPLETED");
+  }
+
+  private static void assertTerminal(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+    assertThatThrownBy(call)
+        .isInstanceOf(TripException.class)
+        .extracting(failure -> ((TripException) failure).code())
+        .isEqualTo("TRIP_TERMINAL_STATE_CONFLICT");
+  }
+
+  private static void assertScheduleProblem(
+      String code, org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+    assertThatThrownBy(call)
+        .isInstanceOf(ScheduleException.class)
+        .extracting(failure -> ((ScheduleException) failure).code())
+        .isEqualTo(code);
   }
 
   private ScheduleMutationRecord record(Position position, UUID expectedActive, long revision) {

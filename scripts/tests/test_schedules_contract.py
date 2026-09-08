@@ -78,6 +78,10 @@ class SchedulesContractTest(unittest.TestCase):
             self.contract["itemPolicy"]["requiredByType"],
         )
         self.assertEqual("reject-422; completed item cannot be patched, deleted, reordered or moved", self.contract["itemPolicy"]["completedItem"])
+        self.assertEqual(
+            "reject-422 SCHEDULE_DAY_EMPTY; DELETE or cross-Day move must leave at least one item in every trip Day",
+            self.contract["itemPolicy"]["emptyDay"],
+        )
         self.assertEqual("DB constraints and synchronous deterministic validator only", self.contract["mutationPolicy"]["validator"])
         self.assertEqual("never call MCP/AI; correction requires separate schedule revision run owned by #89", self.contract["mutationPolicy"]["aiCorrection"])
 
@@ -306,6 +310,15 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(set(self.contract["schemas"]["ScheduleItem"]["required"]), set(read["days"][0]["items"][0]))
         for name in ("createItem", "patchItem", "deleteItem", "reorder", "move"):
             self.assertIn("etag", fixtures[name]["body"])
+        self.assertEqual([], fixtures["deleteItem"]["body"]["changedItemIds"])
+        for name in ("createItem", "patchItem", "reorder", "move"):
+            self.assertTrue(fixtures[name]["body"]["changedItemIds"])
+        self.assertIn(
+            "DELETE returns an empty array",
+            self.contract["schemas"]["MutationResponse"]["properties"][
+                "changedItemIds"
+            ]["description"],
+        )
         create = json.loads((ROOT / "fixtures/contracts/schedules/request.json").read_text(encoding="utf-8"))["examples"]["createItem"]["body"]
         self.assertNotIn("title", create)
         self.assertFalse(any(value is None for key, value in create.items() if key != "memo"))
@@ -331,11 +344,34 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(409, conditions["ACTIVE_SCHEDULE_VERSION_CONFLICT"]["status"])
         self.assertEqual(409, conditions["TRIP_VERSION_CONFLICT"]["status"])
         self.assertEqual(422, conditions["SCHEDULE_ITEM_COMPLETED"]["status"])
+        self.assertEqual(422, conditions["SCHEDULE_DAY_EMPTY"]["status"])
         self.assertTrue(all(item["title"] and item["detail"] for item in conditions.values()))
         external = self.contract["externalTraceability"]
         self.assertEqual("not-linked", external["notion"]["contractVersion"])
         self.assertEqual("not-linked", external["figma"]["contractVersion"])
         self.assertTrue(all(value["status"] == "not-ready" for value in self.contract["readiness"].values()))
+
+    def test_schedule_mutations_reject_terminal_trip_with_canonical_conflict(self) -> None:
+        """완료·취소·실패 여행의 모든 일정 변경은 canonical 409로 거부한다."""
+        conditions = {item["code"]: item for item in self.contract["errorConditions"]}
+        terminal = conditions["TRIP_TERMINAL_STATE_CONFLICT"]
+        self.assertEqual(409, terminal["status"])
+        self.assertEqual(
+            "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+            terminal["type"],
+        )
+        self.assertEqual("종료된 여행은 변경할 수 없습니다", terminal["title"])
+        self.assertEqual(
+            "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다.",
+            terminal["detail"],
+        )
+        self.assertEqual("409_trip_terminal_state_conflict", terminal["fixture"])
+        for endpoint in self.contract["endpoints"][1:]:
+            with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
+                self.assertIn(
+                    "TRIP_TERMINAL_STATE_CONFLICT",
+                    endpoint["errorMatrix"]["409"],
+                )
 
     def test_issue_50_schema_decision_is_recorded(self) -> None:
         schema_gap = self.contract["schemaGap"]
