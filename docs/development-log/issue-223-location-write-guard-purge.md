@@ -243,3 +243,10 @@ zero verifier 초안은 `/tmp/jeju-223-residue-verifier.sql`이며, 이름/count
 - 여행 선호의 활성 일정·점수 fixture는 실제 autocommit parent-only INSERT였다. parent와 LocationFreeComputeInputFixture를 같은 TransactionTemplate 안에서 저장하도록 고쳤다.
 - `/tmp/jeju-223-preferences-operator-isolated.log`: 여행 선호14PASS, 운영 진단1PASS,1m1s. 진단 API 실패는 코드 수정 없이 단독실행에서 재현되지 않아 원인을 단정하지 않는다. 재발 시5개 응답 상태/HTTP version/고정 HTML 오류 여부만 보여주는 assertion 진단을 추가한다. body/header/token은 출력하지 않는다.
 - 017은563904e에 커밋됐으므로 이후 수정하지 않는다. 이번 수정은 Java 테스트 fixture/진단뿐이며 새 커밋의 전체 gate를 다시 실행한다.
+
+### 과거 seed를 사용하는 title-only upgrade fixture 정렬
+
+- 공식 pre-push gate `/tmp/jeju-223-push-quality-07eeb54.log`에서 title-only upgrade가 pre009 seed의 opaque MCP audit3 때문에017에서 차단됐다. 정상 차단이므로 운영 SQL은 수정하지 않는다. 해당 전체 gate는 실패로 중단되어 push되지 않았다. watchdog 종료 뒤 남은 동일 실행의 worker/daemon도 identity를 확인해 종료하고 disposable 컨테이너 정리를 확인했다.
+- 정상 일정 schema upgrade 테스트에서 자신이 직접 만든 고정UUID audit3만 제거하고 affected count3을 확인한다. suffix017 이후 residue 합계0 assertion을 추가했다. 미분류 MCP가 있으면 전체 rollback하는 별도 테스트는 유지한다.
+- `/tmp/jeju-223-upgrade-title-green.log`: title-only upgrade1건이 내부에서PG16/17 모두 실행해PASS,1m48s. 독립 bounded source review finding0. 017immutable 유지.
+- 별도 gate 이후 push 훅의 동일 검증이 중복되지 않도록 이후 검증은 공식 pre-push full gate로 수행한다. 새 SHA 전체 검사·Docker·원격반영은 아직 남아 있다.
