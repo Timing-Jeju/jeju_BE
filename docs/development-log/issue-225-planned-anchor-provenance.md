@@ -1,5 +1,21 @@
 # #225 계획 anchor provenance 구현 일지
 
+## 2026-09-09 좌표 파생 hash 금지 정책 후속 교정
+
+- 원격 develop `be3b13be81c44f01b7d13ed2fd537cc9a8f6b4fe`, 기존 #225 `c699bd121e1bcd7d78fb31c60caed002a0c60e74`를 읽기 전용 검증했다. 해당 develop을 포함한 기존 #225 HEAD에서 별도 worktree `/private/tmp/timing-jeju-issue225-hash-policy`, 로컬 `fix/225-planned-route-hash-policy`를 생성했다. root dirty worktree와 다른 Issue worktree는 수정하지 않았다.
+- Issue의 2026-09-08 추가 검토 댓글은 공개 좌표 EWKT hash를 허용하는 과거 판단이다. 최신 사용자 승인 정책은 Spring 서버의 현재·간접 위치 수신·저장과 coordinate-derived hash를 금지하므로, PM 지시로 이 후속 교정이 우선한다. 이 정책 차이를 숨기거나 과거 댓글을 최종 승인으로 사용하지 않는다. 원격 push·Issue 댓글·실제 Supabase 적용·배포는 하지 않았다.
+- 테스트 목록: 최종 함수의 정확한 7필드·좌표 부재; 각 trip/version/contract/kind/ID 및 endpoint 순서 민감성; 좌표와 owner/item/source/mode/departure/provider/operation 불변성; 독립 Java UTF-8 길이-prefix SHA-256; legacy 015/016 rehash; hash 외 행·ACL·trigger 보존; fresh/upgrade schema fingerprint; 실패 후 rollback 및 reapply; 축소 identity 중복 fail-closed; migration inventory.
+- RED: 운영 SQL 변경 전 `python3 -m unittest scripts.tests.test_planned_route_hash_policy.PlannedRouteHashPolicyTest.test_final_hash_uses_exactly_seven_public_identity_fields_without_coordinates -v`에서 1건 실패(exit 1). 핵심: `final route hash still retains coordinate-derived input`, 최종 함수에 `ST_AsEWKT(origin_location/destination_location)` 존재. registry 기대값 추가 후 관련 21건 중 7건이 055 mount/manifest/문서 미등록으로 실패했다.
+- GREEN: 신규 `20260918000017_planned_route_request_hash_policy.sql`은 015/016을 수정하지 않고 7필드 함수만 교체한다. `ACCESS EXCLUSIVE` lock·단일 transaction 안에서 named provenance guard만 잠시 중지하고 `request_hash`만 backfill한 뒤 복원한다. `CREATE OR REPLACE`로 함수 OID·owner·ACL을 유지하고 security invoker/empty search_path를 명시한다. FK/CHECK/UNIQUE/RLS/source-lineage를 해제하지 않는다.
+- 동일 trip/version/양끝 kind·ID이면서 다른 출발시각/항목/교통수단의 legacy 행은 새 identity에서 충돌할 수 있다. 기존 UNIQUE를 완화하거나 행·leg를 병합/삭제하지 않고, 원문 hash 없는 `23514` 감사 오류로 migration 전체를 rollback한다. 운영 적용 전 별도 중복 감사·결정이 필요하며 자동 복구는 이 변경 범위가 아니다.
+- `python3 -m unittest scripts.tests.test_planned_route_hash_policy scripts.tests.test_canonical_migration_order scripts.tests.test_push_notification_database -v`: 24건 PASS. 017 SHA-256 `a52ecfae11f9cc24fa47ca6a10061cf3c4dffc0ee4a493b797ac68af179effd2`, 016 dependency/init055, Compose 3개, Unix smoke·Java/static inventory·아키텍처 문서를 정렬했다. PowerShell은 기존 manifest 소비를 유지한다. 015/016 SHA는 불변이다.
+- PG16/17 dedicated migration 통합 테스트와 Spring 저장 경로의 정확한 digest assertion을 추가했다. #210의 공유 Docker 사용과 충돌하지 않도록 PM 승인 전 PostgreSQL 통합 테스트·전체 gate·Docker smoke는 대기한다. 현재 증거만으로 `READY_FOR_REVIEW`를 선언하지 않는다.
+- 비-Docker 후속 검증: `./gradlew spotlessApply compileTestJava architectureTest --tests '*MobilityOwnershipContractTest'` PASS(1m11s); `./gradlew spotlessCheck unitTest architectureTest` PASS(1m30s), XML 합계 1,399건·실패/오류 0·플랫폼 조건 skip 9건. backend layout/DB hardening 52건 PASS. Obsidian `20_WIKI/2026-09-09-issue-225-planned-route-hash-policy-log.md` 작성 완료. 이 기록은 PostgreSQL 통합·전체 gate·Docker 성공을 뜻하지 않는다.
+- PM의 공유 Docker 사용 승인 후 `./gradlew integrationTest --tests '*PlannedRouteHashPolicyMigrationIntegrationTest' --tests '*JdbcScheduleMutationStoreIntegrationTest'`를 실행했다. 1차 89건 중 87건 PASS, 2건은 테스트 catalog 조회의 `text || "char"` 모호성으로 실패했다. 테스트의 `tgname`/`tgenabled`를 `::text`로 명시했고, 운영 SQL은 변경하지 않았다.
+- 최종 `./gradlew spotlessApply integrationTest --tests '*PlannedRouteHashPolicyMigrationIntegrationTest' --tests '*JdbcScheduleMutationStoreIntegrationTest'` PASS(4m41s): PG16/17 dedicated 4건 + Spring mutation 85건, failure/error/skip 0. legacy 함수는 좌표만 바꿔도 hash가 바뀌는 것을 실제 DB에서 먼저 확인했고, 017 적용 후 정확한 7필드 Java SHA-256 oracle, 좌표/제외 필드 불변, 각 필드·endpoint 순서 민감성을 검증했다. 공개 원천 좌표 변경 이후에도 hash는 동일하지만 stale geometry의 봉인은 별도 guard가 거부했다.
+- PG16/17에서 legacy 015/016의 hash-only backfill과 non-hash 행·함수 OID/owner/ACL·trigger 보존, migration transaction에 주입한 실패의 schema/data/hash rollback, fresh/upgrade 전체 schema·ACL fingerprint 일치, reapply 무변경, 축소 identity 중복의 값 비반사 `23514` 전체 rollback을 확인했다. 015/016 및 017 SHA-256은 위 기록과 동일하다.
+- 종료 후 container/network/volume 목록이 실행 전과 동일했다. 신규 Testcontainers/Ryuk/anonymous volume 잔여 0, 보호 live-demo 3개 + FaithLog 3개 컨테이너·custom network 3개·persistent volume 3개 보존. 기존 live-demo API unhealthy, viewer restarting, postgres exited 상태는 수정하지 않았다. 공식 전체 quality gate·Docker smoke는 PM 별도 조정 대상으로 아직 미실행이며 READY_FOR_REVIEW가 아니다.
+
 ## 첫 구현: 임의 item facts 저장 차단
 
 - 기준 develop: f7fc751. 선행 #221/#222 병합 후 최신 base에서 최종 검증한다.

@@ -42,7 +42,8 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000013_schedule_item_closed_facts.sql",
           "20260918000014_planned_anchor_resolver.sql",
           "20260918000015_planned_route_snapshot_provenance.sql",
-          "20260918000016_planned_route_reference_integrity.sql");
+          "20260918000016_planned_route_reference_integrity.sql",
+          "20260918000017_planned_route_request_hash_policy.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
