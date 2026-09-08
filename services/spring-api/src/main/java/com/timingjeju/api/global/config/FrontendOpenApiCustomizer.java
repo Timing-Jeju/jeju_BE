@@ -1446,13 +1446,15 @@ final class FrontendOpenApiCustomizer {
             "날씨",
             null,
             """
-            {"contractVersion":"1.0.0","grid":{"nx":53,"ny":38,"regionName":"제주시"},"provider":"KMA","providerApiVersion":"VilageFcstInfoService_2.0","forecastType":"village","baseDate":"2026-08-25","baseTime":"05:00","forecastedAt":"2026-08-25T05:00:00+09:00","validAt":"2026-08-25T12:00:00+09:00","temperatureC":27.5,"precipitationProbabilityPercent":20,"precipitationAmountMm":null,"precipitationType":"none","skyCode":"mostly_cloudy","humidityPercent":72,"windSpeedMps":3.4,"observedAt":"2026-08-25T05:10:00+09:00","expiresAt":"2026-08-25T08:00:00+09:00","stale":false,"fallbackUsed":false}
+            {"contractVersion":"2.0.0","grid":{"nx":53,"ny":38,"regionName":"제주시"},"provider":"KMA","providerApiVersion":"VilageFcstInfoService_2.0","forecastType":"village","baseDate":"2026-08-25","baseTime":"05:00","forecastedAt":"2026-08-25T05:00:00+09:00","validAt":"2026-08-25T12:00:00+09:00","temperatureC":27.5,"precipitationProbabilityPercent":20,"precipitationAmountMm":null,"precipitationType":"none","skyCode":"mostly_cloudy","humidityPercent":72,"windSpeedMps":3.4,"observedAt":"2026-08-25T05:10:00+09:00","expiresAt":"2026-08-25T08:00:00+09:00","stale":false,"fallbackUsed":false}
             """,
             Map.of(
                 "400",
-                "INVALID_WEATHER_FORECAST_QUERY",
+                "INVALID_WEATHER_SELECTOR",
                 "401",
                 "INVALID_ACCESS_TOKEN",
+                "404",
+                "WEATHER_REFERENCE_NOT_FOUND",
                 "422",
                 "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
                 "503",
