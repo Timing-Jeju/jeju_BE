@@ -78,3 +78,38 @@
 - 미커밋 016을 `planned_route_reference_integrity.sql`로 정리하고 owner-trip FK만 ON DELETE CASCADE로 교체했다. 공개 place/stop 및 계획 anchor FK는 유지한다. negative route hash SQL은 유효한 기존 계보를 복사한 뒤 hash만 잘못 넣어 실패 원인을 분리했다.
 - 최종 `/tmp/jeju-225-route-owner-integrity-green.log` PASS(2m20s): 실제 여행 삭제 시 route 제거/public place 3개·owner 보존, 기존 trip 삭제 계약, PG16/17 schema 검증 총4건. registry14건과 diff 검사도 PASS. 독립 advisory 추가 finding0.
 - 위 Docker preflight는 owner-trip CASCADE 최종 보강 이전 증거이다. 최신 base/최종 HEAD의 전체 공식 gate·Docker·공식 리뷰는 #222 병합 후 다시 수행한다. 아직 PR·공식 승인·운영 적용은 없다.
+
+## 선행 API 병합 후 최종 gate 준비
+
+- 016 참조 무결성과 fixture 보강은 `27cbec8c1a9cc5b802857556e2b43df247e051dd`로 커밋됐다. 013–016은 모두 immutable이며 수정하지 않는다.
+- Places PR231 및 Weather PR233 병합 후 최신 develop `be3b13be81c44f01b7d13ed2fd537cc9a8f6b4fe`를 충돌 없이 통합했다 (merge `8e10d3ca0f248aa7fb5f63a42fe49f4ff0a24490`).
+- 이 최종 범위에서 공식 전체 quality gate·Docker를 단독 실행한다. 다른 worktree의 PostgreSQL 테스트가 종료되고 disposable 자원이 정리된 뒤 시작한다. 기존 선별 검사·preflight를 최종 gate로 대체 주장하지 않는다.
+- TMAP 경로 결과 영속 허용은 #216 미확정으로 계속 차단하며, 이 변경의 경로 저장·QA는 승인된 합성 fixture로 제한된다. 실제 provider·staging·운영 DB 적용 및 배포는 수행하지 않는다.
+
+## 공식 gate의 로컬 fixture 배치 보정
+
+- `dbefbaa` 전체 gate는 Docker 실행 전 배포 SQL 정책 검사에서 RED였다 (`/tmp/jeju-225-quality-dbefbaa-solo.log`). 새 legacy QA fixture가 `db/queries`에 있어 로컬 합성 계정 INSERT가 운영 적용 가능 SQL로 분류됐다.
+- fixture를 기존 정책이 지정한 `db/local-postgres`로 이동하고 Java 테스트의 참조 두 곳만 수정했다. SQL 본문과 immutable migration은 변경하지 않았고 정책 allowlist를 추가하지 않았다.
+- 배포 SQL 정책 검사와 기존 정책 회귀 22건 PASS (`/tmp/jeju-225-local-fixture-policy-green.log`). 최신 commit의 전체 gate로 다시 검증한다. 최초 실행은 최종 품질 게이트 성공 근거가 아니다.
+
+- 공통 gate `/tmp/jeju-225-common-fc30462.log`에서 기존 정적 기대값 4건이 RED였다. 완료 여행 fixture에 예전 facts.location을 요구하던 assertion 1건과 migration013–016 이전의 목록/역사·현재 smoke 종료 지점 기대값 3건이다.
+- 정적 검사를 위치 없는 custom fixture와 현재 등록 순서에 맞췄다. 역사 v1은052까지 검증하고053은 별도 실패·rollback audit로 실행하며, 현재 concurrency는054까지 실행한다는 구분을 그대로 검사한다. 관련25건 PASS(`/tmp/jeju-225-common-contract-green.log`).
+
+- `5913f5b` 전체 gate는 공통821건(3 SKIPPED) 통과 후 Java format에서 중단됐다. `spotlessApply spotlessCheck`로 저장소 표준 포맷을 적용·검증했다 (`/tmp/jeju-225-format-green.log` PASS). 대상은 schedule mutation adapter 및 새/수정된 PostgreSQL 테스트3개이며, SQL migration과 정책은 그대로다. 최종 포맷 commit을 기준으로 전체 gate를 다시 실행한다.
+
+## #222 병합 후 날씨 fixture 통합 회귀
+
+- `98d56f2` 전체 gate의 integrationTest에서 기존 날씨 테스트가 `trip_items.facts.location`을 저장하다 #225의 closed facts guard에 거부됐다. 검증을 SIGINT로 중단해 watchdog 진단을 남겼다(`/tmp/jeju-225-quality-98d56f2-solo.log`, exit126, interrupted/new-docker-resource-residue). 이후 process 종료와 Docker 컨테이너 0개를 확인했다. 이 실행은 전체 gate 성공 근거가 아니다.
+- 대상 테스트 재현 `/tmp/jeju-225-weather-closed-facts-red.log`에서 동일 저장 실패를 확인했다. 공개 place FK 없는 일정은 조회 불가를 먼저 검증하고, 이어 위치 JSON 저장 시도 자체가 값 비반사 오류로 거부됨을 별도로 검증하도록 fixture를 변경했다. 운영 코드와 기존 migration은 변경하지 않았다.
+- GREEN: 대상 날씨 9건 failure/error 0, `/tmp/jeju-225-weather-closed-facts-green.log`, 58s PASS. 독립 delta review finding 0. 전체 gate는 새 commit에서 다시 검증한다.
+
+## 2026-09-09 최종 검사 후 도달 불가능한 조회 정리
+
+- `c63f803` 단독 전체 gate는 공통821(3 skip), unit1351(9 skip), slice56, integration796(4 skip), OpenAPI11 및 runtime FE37 operation을 통과했다. architecture의 이전 migration 개수48/마지막012 기대값 한 건이 실패했다 (`/tmp/jeju-225-quality-c63f803-solo.log`). 현재 등록52개/013–016 연속성/마지막016을 검증하도록 테스트를 수정했다. 기존 migration은 변경하지 않았다.
+- 후속 preflight에서 architecture는 통과했고 커버리지는 22058/24524(89.94%)로 기존90% 기준에 미달했다 (`/tmp/jeju-225-remaining-gates-preflight.log`). 기준을 낮추거나 제외 대상을 추가하지 않는다.
+- #225의 버전·항목 범위 제한 후 새 version/item UUID를 생성하는 transaction 안에서는 `insertStoredSnapshotLeg`가 조회할 snapshot이 아직 존재할 수 없다. 독립 리뷰에서 확인한 이 도달 불가능한 조회와 전용 record를 제거했다. 변경 없는 기존 구간은 SourceLeg 복사/clone을 유지하고, 변경 구간은 기존 canonical 공개 좌표 기반 수동 편집 fallback을 그대로 호출한다.
+- 교차 버전 snapshot 미사용 회귀에 fallback 두 구간과 외부 snapshot 보존 검증을 추가했다. 미커밋 delta 독립 리뷰 finding0. 공식 승인과 최종 전체 gate는 아직 미완료다.
+- 코드 변경 전 mutation 회귀 `/tmp/jeju-225-dead-lookup-regression.log` PASS(1m21s); 변경 후 강화한 회귀와 커버리지·빌드·Docker를 순차 재검증한다.
+- 강화 mutation85건 PASS(`/tmp/jeju-225-dead-lookup-green.log`,1m23s). 다음 architecture 검사에서 제거한 snapshot 조회의 place-null 문자열에 의존한 과거 source assertion 한 건이 실패했다. 실제 fallback이 사용하는 canonical anchor resolver 호출 및 해석 실패의 legIncomplete 검증으로 정렬했다. 이는 저장소 문자열 검사의 정정이며 canonical ID 검증을 약화하지 않는다.
+- 현재 source architecture/test 및 bootJar PASS. 선별 integration85 실행이 전체796 실행의 JaCoCo 파일을 교체했으므로 후속 coverage67%는 전체 범위의 재측정이 아니며 성공 증거로 쓰지 않는다 (`/tmp/jeju-225-canonical-source-coverage.log`). 공식 gate가 모든 execution data를 지우고 전체 suite에서 다시 수집한 수치만 최종 판정에 사용한다.
+- `/tmp/jeju-225-final-preflight-docker.log` exit0 PASS: 이미지/health, fresh·origin-develop·역사 upgrade fingerprint, 053 fail-closed rollback, 실제2세션 동시성, schema/음수무결성/PostGIS fixture 및 자원 정리. ACL 거부 계약의 예상 permission denied는 실패가 아니다. 최종 commit의 공식 전체 gate는 별도로 실행한다.

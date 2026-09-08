@@ -90,15 +90,15 @@ class FrontendOpenApiFutureContractIntegrationTest {
   }
 
   @Test
-  void 미구현_selector가_있어도_전체_OpenAPI는_200이고_현재_날씨와_숙소_일정이_남는다() throws Exception {
+  void 미완료_문서_연결이_있어도_전체_OpenAPI는_200이고_현재_날씨와_숙소_일정이_남는다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(
             jsonPath("$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lat')]")
-                .isNotEmpty())
+                .isEmpty())
         .andExpect(
             jsonPath("$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='placeId')]")
-                .isEmpty())
+                .isNotEmpty())
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}/accommodations']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}/schedule']").exists());
   }

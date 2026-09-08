@@ -32,7 +32,7 @@ import java.time.OffsetDateTime;
 })
 @Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public record WeatherForecastResponse(
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "1.0.0")
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "2.0.0")
         String contractVersion,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) WeatherGridResponse grid,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "KMA") String provider,

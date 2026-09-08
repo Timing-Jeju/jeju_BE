@@ -304,14 +304,16 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         )
 
     def test_actual_pg_completed_trip_fixture_satisfies_schedule_sealing_contract(self):
+        """완료 여행 fixture는 위치 없는 custom 항목으로 실제 seal 계약을 지킨다."""
         source = compact_sql(ACTUAL_PG_TEST.read_text(encoding="utf-8"))
         self.assertIn("insert into public.trip_items", source)
         self.assertIn("planned_start_at, planned_end_at, stay_minutes", source)
         self.assertIn("stay_minutes, source, facts", source)
-        self.assertIn(
+        self.assertNotIn(
             "'{\"location\":{\"lat\":33.0,\"lng\":126.0}}'::jsonb",
             source,
         )
+        self.assertIn("60, 'system', '{}'::jsonb", source)
         self.assertIn("'active', applied_at = now()", source)
         self.assertNotIn("active_schedule_version_id = (select id from activated)", source)
         self.assertNotIn("with activated as (", source)

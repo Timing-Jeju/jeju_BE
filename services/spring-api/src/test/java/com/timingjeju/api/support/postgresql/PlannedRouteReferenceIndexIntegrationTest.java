@@ -14,8 +14,10 @@ class PlannedRouteReferenceIndexIntegrationTest {
     try {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
-      PostgreSqlTestContainerFactory.executeScript(container, root.resolve("supabase/migrations").resolve(migration));
-      PostgreSqlTestContainerFactory.executeScript(container, root.resolve("db/queries/schema_contract.sql"));
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("supabase/migrations").resolve(migration));
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/queries/schema_contract.sql"));
     } finally {
       container.stop();
     }
