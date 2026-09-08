@@ -93,7 +93,7 @@ class ScheduleHttpPostgreSqlIntegrationTest {
           id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no, item_type,
           title, planned_start_at, planned_end_at, stay_minutes, source, facts
         ) values (?, ?, ?, ?, 1, 'custom', '공항 도착', ?, ?, 60, 'user_input',
-                  '{"location":{"lat":33.5,"lng":126.5}}'::jsonb)
+                  '{}'::jsonb)
         """,
         ITEM,
         TRIP,

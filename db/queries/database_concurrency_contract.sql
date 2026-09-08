@@ -288,7 +288,7 @@ begin
     '2026-08-20 10:00:00+09',
     60,
     'system',
-    '{"location":{"lat":33.45,"lng":126.55}}'::jsonb
+    '{}'::jsonb
   );
 
   return 'OK';
@@ -579,7 +579,7 @@ insert into public.trip_items (
   '2026-08-21 10:00:00+09',
   60,
   'system',
-  '{"location":{"lat":33.45,"lng":126.55}}'::jsonb
+  '{}'::jsonb
 );
 
 select public.dblink_connect(
