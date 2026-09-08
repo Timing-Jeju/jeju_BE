@@ -86,11 +86,11 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripController.java",
             "domain/weather/controller/WeatherForecastController.java");
     assertThat(mappingAnnotationCount()).isEqualTo(37);
-    assertThat(migrationInventory()).hasSize(35);
+    assertThat(migrationInventory()).hasSize(36);
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260907000000_schedule_item_create_contract.sql");
+        .isEqualTo("20260907000001_schedule_item_required_references.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {
