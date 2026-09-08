@@ -1399,16 +1399,17 @@ Response `200`:
 
 ### 15.1 `POST /api/v1/trips/{tripId}/spare-time-runs`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
   "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "dayNo": 1,
-  "afterItemId": "61000000-0000-0000-0000-000000000002",
-  "gapStartAt": "2026-08-03T12:40:00+09:00",
-  "gapEndAt": "2026-08-03T14:10:00+09:00",
-  "maxCandidates": 10
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
+  "windowStart": "2026-08-03T12:40:00+09:00",
+  "windowEnd": "2026-08-03T14:10:00+09:00"
 }
 ```
 
@@ -1447,18 +1448,16 @@ Response `200`:
 
 ### 15.3 `POST /api/v1/trips/{tripId}/recovery-runs`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
   "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "triggerRiskEventId": "63100000-0000-0000-0000-000000000001",
-  "currentTime": "2026-08-03T12:45:00+09:00",
-  "currentLocation": {
-    "lat": 33.458111,
-    "lng": 126.941516
-  },
-  "maxOptions": 3
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
+  "checkedAt": "2026-08-03T12:45:00+09:00"
 }
 ```
 
@@ -1597,20 +1596,17 @@ Response `200`:
 
 ### 16.2 `POST /api/v1/trips/{tripId}/execution-events`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
-  "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "itemId": "61000000-0000-0000-0000-000000000002",
-  "legId": "62000000-0000-0000-0000-000000000001",
   "eventType": "arrived",
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
   "occurredAt": "2026-08-03T11:20:00+09:00",
-  "location": {
-    "lat": 33.458111,
-    "lng": 126.941516,
-    "accuracyMeters": 18
-  }
+  "clientEventId": "62500000-0000-0000-0000-000000000002"
 }
 ```
 
@@ -1631,18 +1627,17 @@ Response `200`:
 
 ### 16.3 `POST /api/v1/trips/{tripId}/live-recalculation-runs`
 
+> Issue #220 v2 정책 예시이며 runtime은 not-ready다. 계획 참조와 수동·시간 기반 진행만 전달한다. GPS에서 자동 판단한 도착·이탈이나 최근접 참조를 전송하지 않는다. 상세 실행 계약과 구현은 후속 owner Issue에서 검증한다.
+
 Request:
 
 ```json
 {
   "scheduleVersionId": "60000000-0000-0000-0000-000000000001",
-  "trigger": "missed",
-  "itemId": "61000000-0000-0000-0000-000000000003",
-  "currentTime": "2026-08-03T13:30:00+09:00",
-  "currentLocation": {
-    "lat": 33.458111,
-    "lng": 126.941516
-  }
+  "tripItemId": "61000000-0000-0000-0000-000000000002",
+  "tripLegId": "62000000-0000-0000-0000-000000000001",
+  "checkedAt": "2026-08-03T13:30:00+09:00",
+  "manualProgress": "missed"
 }
 ```
 

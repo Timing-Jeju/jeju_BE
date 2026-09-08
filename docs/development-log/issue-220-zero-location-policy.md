@@ -77,3 +77,13 @@ Notion/Figma는 readback 없이 not-linked로 유지한다. #168은 Spring 위�
 - 관련 테스트 56개, Python 전체 811개(3 skipped) 통과. 독립 reviewer의 이 변경 범위
   advisory에서 추가 finding 없음. #220 전체 승인 또는 전체 gate 완료를 의미하지 않는다.
 - 실행/live/MCP 계약과 선행 #226 반영 후 Spring 전체 검증은 남아 있다.
+
+## 진행 요청 문서의 v2 예시 정렬
+
+- RED: 실행·빈 시간·복구·라이브 요청의 옛 위치/alias 예시가 v2 정책 필드와 불일치함을 검출.
+- GREEN: 네 POST 예시를 계획 item/leg, 시간과 수동 진행으로 정렬했다. 각각 runtime
+  not-ready이며 상세 owner 계약/구현 검증은 후속임을 표시했다.
+- validator는 실제 Markdown 요청 예시를 읽어 닫힌 정책 필드와 문자열 값을 검사한다.
+  GPS key 및 계획 ID 내부의 nested 위치 재도입을 거부한다. HTTP validator는 아니다.
+- 정책 단위 18개, Python 전체 813개(3 skipped) 통과.
+- #226은 PR #227로 생성됐으며 merge 후 최신 develop에서 #220 전체 gate를 수행한다.

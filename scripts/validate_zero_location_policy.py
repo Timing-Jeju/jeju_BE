@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -71,12 +72,29 @@ def validate_fixture(contract, fixture):
     require(coverage == expected, '모든 표면에 허용·거부 fixture가 필요합니다.')
 
 
+def validate_progress_examples(contract, source):
+    """미구현 v2 요청 예시가 정책과 일치하는지 검사하며 런타임 완료는 주장하지 않는다."""
+    for section, surface in [('15.1', 'spare_time'), ('15.3', 'recovery'), ('16.2', 'execution'), ('16.3', 'live')]:
+        pattern = r'^### ' + re.escape(section) + r' `POST [^\n]+\n(.*?)(?=^### |^## |\Z)'
+        matches = re.findall(pattern, source, re.M | re.S)
+        require(len(matches) == 1, '진행 요청 문서 구간은 정확히 하나여야 합니다.')
+        examples = re.findall(r'Request:\s*```json\s*(.*?)\s*```', matches[0], re.S)
+        require(len(examples) == 1, '진행 요청 예시는 정확히 하나여야 합니다.')
+        request = json.loads(examples[0])
+        require(isinstance(request, dict), '진행 요청 예시는 객체여야 합니다.')
+        expected = set(contract['surfaces'][surface]['fields']) - {'tripId'}
+        require(set(request) == expected, '진행 요청 예시는 계획 참조 정책과 일치해야 합니다.')
+        require(all(isinstance(value, str) and value for value in request.values()), '예시의 계획 ID·시각·수동 상태는 비어 있지 않은 문자열이어야 합니다.')
+        validate_flow(contract, surface, 'planned_reference', list(request))
+
+
 def validate_repository(root, contract):
     validate_contract(contract)
     historical = json.loads((root / contract['supersedes']['contract']).read_text())
     require(digest(historical) == HISTORICAL_DIGEST, '역사적 v1 계약을 수정하면 안 됩니다.')
     for filename in LINKED_DOCUMENTS:
         require('location-noncollection/contract.md' in (root / filename).read_text(), '핵심 문서의 현행 정책 링크가 없습니다.')
+    validate_progress_examples(contract, (root / 'docs/designs/timing-jeju-backend-rdb-api-spec.md').read_text())
     catalog = json.loads((root / 'docs/contracts/rest/catalog.json').read_text())
     require(catalog['commonRules'].get('locationPolicy') == CONTRACT_PATH, 'REST catalog의 현행 위치 정책이 일치하지 않습니다.')
 

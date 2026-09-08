@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import re
 from pathlib import Path
 import unittest
 import subprocess
@@ -150,6 +151,22 @@ class ZeroLocationPolicyTest(unittest.TestCase):
         self.assertEqual('places-location-free/v2', pagination['cursorFormatVersion'])
         self.assertTrue(places['schemas']['PlacesListRequest']['properties']['cursor']['pattern'].startswith('^plc2'))
         self.assertEqual('discard before network; start without cursor', pagination['legacyClientAction'])
+
+    def test_active_progress_request_examples_do_not_accept_location(self):
+        """실행·빈 시간·복구·라이브 예시가 위치 없는 정책 필드만 사용한다."""
+        source = (ROOT / 'docs/designs/timing-jeju-backend-rdb-api-spec.md').read_text()
+        self.validator.validate_progress_examples(self.contract, source)
+
+    def test_progress_example_unknown_nested_and_legacy_fields_fail(self):
+        """문서 요청에 GPS 필드나 계획 ID 안의 중첩 위치를 다시 넣으면 실패한다."""
+        source = (ROOT / 'docs/designs/timing-jeju-backend-rdb-api-spec.md').read_text()
+        mutations = [
+            source.replace('"tripItemId":', '"currentLocation": {}, "tripItemId":'),
+            re.sub(r'"tripItemId": "[^"]+"', '"tripItemId": {"lat": 0}', source),
+        ]
+        for changed in mutations:
+            with self.subTest(changed=changed is mutations[0]), self.assertRaises(ValueError):
+                self.validator.validate_progress_examples(self.contract, changed)
 
 
 if __name__ == '__main__':
