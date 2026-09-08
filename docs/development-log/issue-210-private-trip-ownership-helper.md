@@ -50,3 +50,11 @@ TDD Red는 `python3 -m unittest scripts.tests.test_private_trip_ownership_helper
 Reviewer는 첫 구현이 single quote와 UUID만 직접 치환해 double-quoted PostgreSQL 값, `$$...$$`, tagged dollar quote, 일반 filesystem path가 synthetic stderr에 들어오면 남을 수 있고, 512자 뒤 ellipsis를 붙여 실제 최대 길이가 513자가 되는 문제를 찾았다. 먼저 factory unit test에 모든 민감 형식을 한 진단에 섞은 case와 긴 `42501` 진단 case를 추가했다. 신규 2개 테스트는 double/dollar/path 노출, 원인 범주 부재, 513자 결과를 각각 보여 Red가 됐다.
 
 Green에서는 `ERROR:` 뒤 5자리 SQLSTATE를 민감 detail보다 먼저 분리하고 SQLSTATE class를 `dependent-objects`, `syntax-or-access-rule`, `integrity-constraint` 같은 제한된 원인 범주로 매핑한다. 그 뒤에만 single/double quote, untagged/tagged dollar quote, Unix·Windows path, UUID를 `<redacted>`로 치환한다. 긴 결과는 SQLSTATE와 원인 범주가 항상 앞에 있도록 구성한 뒤 ellipsis를 포함해 총 512자로 제한한다. SQLSTATE를 파싱하지 못하면 원문을 반사하지 않고 generic `database-error; details=<redacted>`로 닫힌다. Docker-free synthetic unit 5개, Python 계약 12개와 Spotless가 통과했다.
+
+### Full gate cross-test 정렬
+
+Exact HEAD `1a5748af` full quality gate는 Spring integration 730개 중 `CanonicalMigrationOrderIntegrationTest` 1개가 실패해 24분 33초에 종료됐다. 충돌용 constraint가 migration을 실제 SQLSTATE `42710`으로 중단했지만, 기존 assertion이 redaction 전의 raw constraint name을 예외 메시지에서 요구했기 때문이다. 이 full gate 실패 자체를 Red 증거로 삼았다.
+
+테스트 목적을 재검토해 exception type과 실패 뒤 기존 constraint 상태 불변, 신규 열 0개, 충돌 제거 뒤 migration 성공과 oversized legacy 보존 검증은 그대로 유지했다. 메시지 assertion만 민감 identifier 대신 `ERROR: 42710`과 제한된 `cause=syntax-or-access-rule`을 요구하도록 정렬했다. 이로써 migration failure를 숨기지 않으면서 factory의 arbitrary stderr 비노출 계약을 유지한다.
+
+정렬 후 해당 단일 integration 메서드를 다시 실행해 PG16/17 모두 1분 37초에 통과했다. 이어서 diagnostic redaction unit 5개, Python 계약 12개와 Spotless를 재검증했다.

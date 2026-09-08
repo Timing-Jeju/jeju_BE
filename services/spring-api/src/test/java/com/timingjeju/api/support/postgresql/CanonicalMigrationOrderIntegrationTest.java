@@ -187,7 +187,8 @@ class CanonicalMigrationOrderIntegrationTest {
                         container, migrationPath(TIMETABLE_ROUTE_SCOPE)))
             .as(image)
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("ck_timetable_route_source_provider_nonblank");
+            .hasMessageContaining("ERROR: 42710")
+            .hasMessageContaining("cause=syntax-or-access-rule");
         assertThat(timetableSourceLengthConstraint(jdbc)).as(image).isEqualTo(before);
         assertThat(
                 jdbc.queryForObject(
