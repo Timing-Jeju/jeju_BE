@@ -1,6 +1,9 @@
 package com.timingjeju.api.domain.schedule.controller.docs;
 
 import com.timingjeju.api.domain.schedule.dto.CreateScheduleItemRequest;
+import com.timingjeju.api.domain.schedule.dto.MoveScheduleItemRequest;
+import com.timingjeju.api.domain.schedule.dto.PatchScheduleItemRequest;
+import com.timingjeju.api.domain.schedule.dto.ReorderScheduleRequest;
 import com.timingjeju.api.domain.schedule.dto.ScheduleMutationResponse;
 import com.timingjeju.api.global.error.ApiProblemDetails;
 import io.swagger.v3.oas.annotations.Operation;
@@ -201,6 +204,12 @@ public interface ScheduleMutationApiDocs {
       @Parameter(hidden = true) HttpServletRequest servletRequest);
 
   @Operation(operationId = "tripScheduleItemPatch", tags = "일정", summary = "일정 항목 수정")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = PatchScheduleItemRequest.class)))
   @ApiResponses(
       @ApiResponse(
           responseCode = "200",
@@ -235,6 +244,12 @@ public interface ScheduleMutationApiDocs {
       HttpServletRequest servletRequest);
 
   @Operation(operationId = "tripScheduleOrderUpdate", tags = "일정", summary = "일정 순서 변경")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = ReorderScheduleRequest.class)))
   @ApiResponses(
       @ApiResponse(
           responseCode = "200",
@@ -251,6 +266,12 @@ public interface ScheduleMutationApiDocs {
       HttpServletRequest servletRequest);
 
   @Operation(operationId = "tripScheduleItemMoveUpdate", tags = "일정", summary = "일정 항목 Day 이동")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = MoveScheduleItemRequest.class)))
   @ApiResponses(
       @ApiResponse(
           responseCode = "200",

@@ -211,3 +211,17 @@ Spring 공개 API · 일정 계산용 facts
 - FastAPI의 uv 잠금, Ruff, mypy와 pytest는 `jeju_AI` 저장소의 독립 CI에서 실행합니다.
 - 문서만 변경하고 서비스 계약을 건드리지 않으면 무거운 서비스 검사를 생략합니다.
 - 각 Job은 독립적으로 실행되지만 최종 `quality-gate`가 결과를 하나로 집계합니다.
+
+### Canonical OpenAPI의 구현 준비 상태 (#226)
+
+`FrontendOpenApiCustomizer`는 catalog의 `readiness.implementation`을 검증합니다.
+`ready`인 도메인만 canonical parameter/body/response를 투영하며 누락은 생성 오류입니다.
+`not-ready`인 도메인은 현행 Controller와 DTO에서 생성한 schema를 유지합니다.
+누락·중복 domain과 비정상 status/evidence는 명시적인 구성 오류로 처리합니다.
+문서 링크·예제 준비 상태를 구현 완료로 추정하거나 실제 catalog를 테스트 때문에 승격하지 않습니다.
+
+기존 canonical 투영 테스트는 테스트 전용 ready resource를 사용합니다. 이 fixture는
+release OpenAPI 생성이나 실제 frontend readiness 판정에 사용하지 않습니다.
+실제 catalog HTTP 검사와 미래 not-ready selector HTTP 검사를 별도로 유지합니다.
+Python 검사도 같은 implementation 상태에 따라 canonical schema 비교만 분기하며,
+endpoint 집합·인증·runtime status/Problem·예제 nullable 검증은 계속 수행합니다.

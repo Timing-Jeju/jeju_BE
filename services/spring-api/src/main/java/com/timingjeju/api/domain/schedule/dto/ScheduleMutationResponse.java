@@ -21,8 +21,7 @@ public record ScheduleMutationResponse(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int versionNo,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "user_edit")
         String sourceType,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, allowableValues = "true")
-        boolean feasibilityStale,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, _const = "true") boolean feasibilityStale,
     @ArraySchema(
             arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
             uniqueItems = true,

@@ -35,7 +35,8 @@ import tools.jackson.databind.ObjectMapper;
       "timing-jeju.test.context=trip-place-preferences-openapi"
     })
 @AutoConfigureMockMvc
-class TripPlacePreferencesOpenApiIntegrationTest {
+class TripPlacePreferencesOpenApiIntegrationTest
+    extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
   private static final String JWT_KEY = randomKey();
 
   @Autowired private MockMvc mvc;

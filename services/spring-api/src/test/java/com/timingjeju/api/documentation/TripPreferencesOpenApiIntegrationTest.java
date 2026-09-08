@@ -34,7 +34,8 @@ import tools.jackson.databind.ObjectMapper;
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
     })
 @AutoConfigureMockMvc
-class TripPreferencesOpenApiIntegrationTest {
+class TripPreferencesOpenApiIntegrationTest
+    extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
   private static final String JWT_KEY = randomKey();
   private static final String PUT = "$.paths['/api/v1/trips/{tripId}/preferences'].put";
   private static final String TRIP_ETAG_PATTERN =

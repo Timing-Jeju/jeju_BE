@@ -14,7 +14,7 @@ public record AccommodationMutationPayload(
     AccommodationPayload accommodation,
     String scheduleEffect,
     boolean regenerationRequired,
-    UUID activeScheduleVersionId,
+    @Schema(types = {"string", "null"}) UUID activeScheduleVersionId,
     String tripStatus,
     String etag,
     OffsetDateTime createdAt,
@@ -39,8 +39,8 @@ public record AccommodationMutationPayload(
   @Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
   public record AccommodationPayload(
       UUID accommodationId,
-      UUID placeId,
-      String customName,
+      @Schema(types = {"string", "null"}) UUID placeId,
+      @Schema(types = {"string", "null"}) String customName,
       String name,
       java.time.LocalDate checkInDate,
       java.time.LocalDate checkOutDate,

@@ -20,45 +20,18 @@ public final class PutTransportEventRequest {
       Pattern.compile(
           "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?[+-]\\d{2}:\\d{2}$");
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      allowableValues = {"arrival", "departure"})
   private String eventType;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      allowableValues = {"flight", "ferry"})
   private String transportType;
 
-  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, format = "uuid")
   private UUID terminalPlaceId;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      nullable = true,
-      minLength = 1,
-      maxLength = 100)
   private String customTerminalName;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      type = "string",
-      format = "date-time",
-      example = "2026-09-01T09:00:00+09:00")
   private OffsetDateTime scheduledAt;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      nullable = true,
-      minLength = 1,
-      maxLength = 30)
   private String transportNumber;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      nullable = true,
-      minLength = 1,
-      maxLength = 500)
   private String note;
 
   private boolean eventTypePresent;
@@ -69,42 +42,74 @@ public final class PutTransportEventRequest {
   private boolean transportNumberPresent;
   private boolean notePresent;
 
+  @Schema(
+      type = "string",
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      allowableValues = {"arrival", "departure"})
   @JsonSetter("eventType")
   public void setEventType(Object value) {
     eventTypePresent = true;
     eventType = requiredString(value);
   }
 
+  @Schema(
+      type = "string",
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      allowableValues = {"flight", "ferry"})
   @JsonSetter("transportType")
   public void setTransportType(Object value) {
     transportTypePresent = true;
     transportType = requiredString(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      types = {"string", "null"},
+      format = "uuid")
   @JsonSetter("terminalPlaceId")
   public void setTerminalPlaceId(Object value) {
     terminalPlaceIdPresent = true;
     terminalPlaceId = nullableUuid(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      types = {"string", "null"},
+      minLength = 1,
+      maxLength = 100)
   @JsonSetter("customTerminalName")
   public void setCustomTerminalName(Object value) {
     customTerminalNamePresent = true;
     customTerminalName = nullableString(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      type = "string",
+      format = "date-time",
+      example = "2026-09-01T09:00:00+09:00")
   @JsonSetter("scheduledAt")
   public void setScheduledAt(Object value) {
     scheduledAtPresent = true;
     scheduledAt = requiredOffsetDateTime(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      types = {"string", "null"},
+      minLength = 1,
+      maxLength = 30)
   @JsonSetter("transportNumber")
   public void setTransportNumber(Object value) {
     transportNumberPresent = true;
     transportNumber = nullableString(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      types = {"string", "null"},
+      minLength = 1,
+      maxLength = 500)
   @JsonSetter("note")
   public void setNote(Object value) {
     notePresent = true;
