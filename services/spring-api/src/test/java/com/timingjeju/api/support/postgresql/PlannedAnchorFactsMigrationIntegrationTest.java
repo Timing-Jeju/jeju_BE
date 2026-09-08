@@ -54,7 +54,9 @@ class PlannedAnchorFactsMigrationIntegrationTest {
                   PostgreSqlTestContainerFactory.executeScript(
                       container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("legacy schedule item facts require provenance audit")
+          .hasMessageContaining("ERROR: 23514")
+          .hasMessageContaining("cause=integrity-constraint")
+          .hasMessageNotContaining("legacy schedule item facts require provenance audit")
           .hasMessageNotContaining("legacy-private-marker")
           .hasMessageNotContaining("33.4")
           .hasMessageNotContaining("126.5")
