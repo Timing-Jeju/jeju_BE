@@ -85,3 +85,9 @@
 - Places PR231 및 Weather PR233 병합 후 최신 develop `be3b13be81c44f01b7d13ed2fd537cc9a8f6b4fe`를 충돌 없이 통합했다 (merge `8e10d3ca0f248aa7fb5f63a42fe49f4ff0a24490`).
 - 이 최종 범위에서 공식 전체 quality gate·Docker를 단독 실행한다. 다른 worktree의 PostgreSQL 테스트가 종료되고 disposable 자원이 정리된 뒤 시작한다. 기존 선별 검사·preflight를 최종 gate로 대체 주장하지 않는다.
 - TMAP 경로 결과 영속 허용은 #216 미확정으로 계속 차단하며, 이 변경의 경로 저장·QA는 승인된 합성 fixture로 제한된다. 실제 provider·staging·운영 DB 적용 및 배포는 수행하지 않는다.
+
+## 공식 gate의 로컬 fixture 배치 보정
+
+- `dbefbaa` 전체 gate는 Docker 실행 전 배포 SQL 정책 검사에서 RED였다 (`/tmp/jeju-225-quality-dbefbaa-solo.log`). 새 legacy QA fixture가 `db/queries`에 있어 로컬 합성 계정 INSERT가 운영 적용 가능 SQL로 분류됐다.
+- fixture를 기존 정책이 지정한 `db/local-postgres`로 이동하고 Java 테스트의 참조 두 곳만 수정했다. SQL 본문과 immutable migration은 변경하지 않았고 정책 allowlist를 추가하지 않았다.
+- 배포 SQL 정책 검사와 기존 정책 회귀 22건 PASS (`/tmp/jeju-225-local-fixture-policy-green.log`). 최신 commit의 전체 gate로 다시 검증한다. 최초 실행은 최종 품질 게이트 성공 근거가 아니다.

@@ -23,7 +23,7 @@ class PlannedRouteMigrationIntegrationTest {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       PostgreSqlTestContainerFactory.executeScript(container,
-          root.resolve("db/queries/legacy_planned_route_provenance_fixture.sql"));
+          root.resolve("db/local-postgres/legacy_planned_route_provenance_fixture.sql"));
       PostgreSqlTestContainerFactory.executeScript(container, root.resolve("supabase/migrations").resolve(TARGET));
       var jdbc = new JdbcTemplate(new DriverManagerDataSource(
           container.getJdbcUrl(), container.getUsername(), container.getPassword()));
@@ -62,7 +62,7 @@ class PlannedRouteMigrationIntegrationTest {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       PostgreSqlTestContainerFactory.executeScript(container,
-          root.resolve("db/queries/legacy_planned_route_provenance_fixture.sql"));
+          root.resolve("db/local-postgres/legacy_planned_route_provenance_fixture.sql"));
       var jdbc = new JdbcTemplate(new DriverManagerDataSource(
           container.getJdbcUrl(), container.getUsername(), container.getPassword()));
       switch (kind) {
