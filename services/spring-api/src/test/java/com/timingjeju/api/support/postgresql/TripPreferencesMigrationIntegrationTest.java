@@ -30,7 +30,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("integration")
 @TestMethodOrder(OrderAnnotation.class)
 class TripPreferencesMigrationIntegrationTest {
-  private static final String TARGET = "20260907000003_trip_preferences_replace_contract.sql";
+  private static final String TARGET = "20260918000000_trip_preferences_replace_contract.sql";
   private static final String OWNER_READ_TARGET_SUFFIX = "_trip_preferences_owner_read_helper.sql";
   private static final String OWNER_READ_HELPER =
       "timing_jeju_private.trip_preferences_owner(uuid)";

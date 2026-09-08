@@ -96,6 +96,24 @@ class IdempotencyRequestTest {
     assertThat(first.requestHash()).isNotEqualTo(second.requestHash());
   }
 
+  @Test
+  void namespaced_path도_registry의_1024자_한도를_다시_검증한다() {
+    String namespace = "schedule-printable-ascii-v1";
+    int suffixLength = "/.idempotency/".length() + namespace.length();
+    String exactPath = "/" + "a".repeat(1024 - 1 - suffixLength);
+
+    IdempotencyRequest exact =
+        IdempotencyRequest.createInNamespace(OWNER, "POST", exactPath, namespace, KEY, bytes("{}"));
+
+    assertThat(exact.normalizedPath()).hasSize(1024).startsWith(exactPath);
+    assertThatThrownBy(
+            () ->
+                IdempotencyRequest.createInNamespace(
+                    OWNER, "POST", exactPath + "a", namespace, KEY, bytes("{}")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("normalized path");
+  }
+
   private static byte[] bytes(String value) {
     return value.getBytes(StandardCharsets.UTF_8);
   }

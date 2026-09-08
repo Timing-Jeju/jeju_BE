@@ -10,10 +10,13 @@ from scripts.validate_openapi_frontend_readiness import (
     ACCOMMODATION_OPERATIONS,
     CURRENT_OPERATIONS,
     PLACE_PREFERENCE_OPERATIONS,
+    PROFILE_IMAGE_OPERATIONS,
     PREFERENCES_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
     TRIP_MUTATION_OPERATIONS,
+    SCHEDULE_EDIT_OPERATIONS,
+    SCHEDULE_ITEM_CREATE_OPERATIONS,
     SCHEDULE_MUTATION_OPERATIONS,
     SCHEDULE_OPERATIONS,
     TRANSPORT_EVENT_OPERATIONS,
@@ -198,6 +201,30 @@ def valid_document():
 
 
 class OpenApiFrontendReadinessTest(unittest.TestCase):
+    def test_mutually_exclusive_reference_example은_선택한_한개만_요구한다(self):
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["expectedActiveScheduleVersionId"],
+            "properties": {
+                "expectedActiveScheduleVersionId": {"type": "string", "format": "uuid"},
+                "placeId": {"type": "string", "format": "uuid"},
+                "accommodationId": {"type": "string", "format": "uuid"},
+                "transportEventId": {"type": "string", "format": "uuid"},
+            },
+        }
+        validator = Validator({}, 33, ROOT)
+        validator.validate_schema_value(
+            {
+                "expectedActiveScheduleVersionId": "60000000-0000-4000-8000-000000000001",
+                "placeId": "20000000-0000-4000-8000-000000000001",
+            },
+            schema,
+            "PATCH schedule request example",
+        )
+
+        self.assertEqual([], validator.errors)
+
     def run_validator(self, document=None, path=None, *arguments):
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(path) if path else Path(directory) / "openapi.json"
@@ -476,7 +503,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             TRIP_MUTATION_OPERATIONS,
             PUSH_NOTIFICATION_OPERATIONS,
             SCHEDULE_OPERATIONS,
-            SCHEDULE_MUTATION_OPERATIONS,
+            SCHEDULE_ITEM_CREATE_OPERATIONS,
         )
         exact_operations = {key for operations in operation_maps for key in operations}
         validator = Validator({}, 24, ROOT)
@@ -500,6 +527,17 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
         self.assertEqual("MutationResponse", create.args[2]["successSchema"])
         self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
+
+    def test_mode28은_mode24에_schedule_edit_네개만_추가한다(self):
+        historical = operations_for_mode(24)
+        expected = operations_for_mode(28)
+
+        self.assertEqual(24, len(historical))
+        self.assertEqual(28, len(expected))
+        self.assertEqual(
+            SCHEDULE_EDIT_OPERATIONS,
+            {key: expected[key] for key in set(expected) - set(historical)},
+        )
 
     def test_mode29는_독립_literal_29개_historical_inventory를_exact검사한다(self):
         expected = {
@@ -689,6 +727,34 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             authority.source_provenance["place-preferences"],
         )
 
+    def test_active_mode33은_historical_mode31에_schedule_edit과_profile_image를_합성한다(self):
+        historical = operations_for_mode(31)
+        expected = operations_for_mode(33)
+
+        self.assertEqual(31, len(historical))
+        self.assertEqual(37, len(expected))
+        self.assertEqual(
+            SCHEDULE_EDIT_OPERATIONS | PROFILE_IMAGE_OPERATIONS,
+            {key: expected[key] for key in set(expected) - set(historical)},
+        )
+
+        validator = Validator({}, 33, ROOT)
+        validator.operations = set(expected)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 33, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        projected = {call.args[0] for call in projection.call_args_list}
+        self.assertIn(("GET", "/api/v1/me/profile-image"), projected)
+        self.assertIn(("PUT", "/api/v1/me/profile-image"), projected)
+        self.assertEqual("525c736", authority.source_provenance["profile-images"][:7])
+
         manifest = json.loads(
             (ROOT / "scripts/openapi_frontend_runtime_manifest.json").read_text()
         )["operations"]
@@ -704,13 +770,14 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             set(manifest),
         )
 
-    def test_frontend_인계문서는_통합_exact31을_표현한다(self):
+    def test_frontend_인계문서는_최신_exact37과_historical_mode를_분리한다(self):
         document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         self.assertIn(
-            "#46 여행 선호 조건, #47 항공·선박 이벤트, #48 장소 선호까지 합친 exact 31개 operation의 프론트엔드 인계본",
+            "#51 일정 편집 4개까지 합친 exact 37개 operation의 프론트엔드 인계본",
             document,
         )
-        self.assertIn("active `--mode 31`", document)
+        self.assertIn("active `--mode 33`", document)
+        self.assertIn("mode24는 create만, mode28은 create와 edit 4개", document)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)

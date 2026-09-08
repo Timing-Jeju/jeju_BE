@@ -209,7 +209,7 @@ trigger가 거부하고, 같은 lineage의 여러 노선 행은 허용한다. �
 유효한 도착·잔여 정류장 범위만 대상으로 `observed_at DESC, source_snapshot_id DESC` 순서를 사용한다.
 `idx_bus_arrivals_source_stop_freshness`가 이 lookup을 지원하고 anon/authenticated 직접 접근은 차단한다.
 
-TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취급하지 않는다. 정류장과 노선은 provider/service/city 범위로 식별한다. `route_stops`도 provider와 city를 소유해 다른 공급자·도시의 노선과 정류장을 섞지 못한다. UUID FK는 route/stop 존재와 삭제 전파를 담당하고, source scope trigger가 route·stop·route_stop의 provider/city 조합을 잠금과 함께 정확히 검증한다. `timetable_entries.city_code`는 legacy의 경유지 누락·provider 불일치 행을 보존하기 위해 물리적으로 nullable이다. 신규·관련 컬럼 변경에는 trigger가 non-null provider/city와 동일 route/direction/stop/provider/city의 유효한 route_stop을 요구한다. lineage 없는 legacy 행은 그대로 변경할 수 없지만 `parsed`/`tombstoned` snapshot과 일치 run을 함께 연결해 유효 범위로 복구할 수 있다. 같은 source record의 유효기간은 GiST exclusion으로 겹칠 수 없다.
+TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취급하지 않는다. 정류장과 노선은 provider/service/city 범위로 식별한다. `route_stops`도 provider와 city를 소유해 다른 공급자·도시의 노선과 정류장을 섞지 못한다. 시간표의 `source_provider/source_service`는 원천 provenance이며 제주 공식 XLSX canonical 값은 `JEJU_PROVINCE/jeju-bus-schedule-xlsx`다. `route_source_provider/route_city_code`는 참조 catalog 범위이며 현재 `TAGO/39`다. UUID FK와 trigger는 `(route_id,direction_key,stop_id,route_source_provider,route_city_code)`를 잠금 검증한다. additive migration은 기존 provider/city를 새 컬럼에 backfill하되 누락 legacy를 조용히 수정·삭제하지 않고 `NOT VALID`로 보존한다. 같은 source record의 유효기간은 GiST exclusion으로 겹칠 수 없다.
 
 ### 4.4 Weather
 
@@ -266,6 +266,10 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 `schedule_revision_runs`는 generation/compute 실행과 별도 테이블을 사용한다. `(trip_plan_id, owner_user_id)`, `(base_schedule_version_id, trip_plan_id)`, `(target_trip_day_id, trip_plan_id)` 실제 복합 FK가 owner·base·Day 혼합을 막는다. 새 run은 queued로만 생성하며 active base/Day scope와 사용자·여행 idempotency key는 각각 DB unique arbiter로 경쟁을 직렬화한다. contract/algorithm version, request hash와 lineage는 불변이고 terminal 상태는 running으로 돌아갈 수 없다. 최초 queued와 running/succeeded에는 failure code가 없고 retry queued와 failed/cancelled에는 1~100자 stable code가 필수다. claim과 만료 lease reclaim만 attempt/fencing을 정확히 1씩 증가시키며 heartbeat는 live lease owner와 counters를, retry/terminal은 counters를 보존한다. 5번째 attempt는 retry할 수 없고 만료된 5번째 running만 counters를 보존한 `ASYNC_RUN_RETRY_EXHAUSTED` failed로 fencing-safe 복구한다. HTTP 요청, immutable structured input과 `mcp_compute_call_logs` 확장은 이 foundation의 범위가 아니다.
 
 `compute_run_inputs`는 generic compute, generation, revision parent 중 정확히 하나만 참조하고 parent마다 한 행만 허용한다. owner·trip·base schedule·run type은 parent와 일치해야 하며 canonical structured input과 command SHA-256은 생성 후 불변이다. schema version 1은 run type별 exact field/type projection을 사용하고 unknown, alias, nested raw object를 허용하지 않는다. optional 위치는 `GRID_100M(gridX,gridY)`, `PLACE(placeId)`, `STOP(stopId)` closed union이며 raw 위경도/accuracy는 저장하지 않는다. DB가 최초 `completed` 여행 전이에 기록해 이후 일반 update에도 불변인 `trip_plans.trip_ended_at`과 실제 parent terminal `completed_at`을 도착 anchor로 삼고, 제한 함수가 +24시간 후보 중 earliest로 expiry를 단조 단축해 `expires_at <= evaluated_at`부터 due다. legacy completed 여행은 알 수 없는 과거 시각을 추측하지 않고 migration DB 시각으로 보수 backfill한다. `service_role`도 snapshot DELETE나 일반 UPDATE를 할 수 없다. MCP input hash/call log와 due redaction job은 별도 소유권이다.
+
+cleanup 함수는 due row를 안정 순서와 `SKIP LOCKED`로 최대 500건 잠그고 위치 5필드 NULL과 redaction 시각만 원자 기록한다. `service_role`은 exact cleanup 함수만 실행하며, worker는 MCP 직전 DB admission을 다시 통과한다.
+
+현재 production에는 MCP 계산 worker와 argument assembler가 없습니다. 후속 worker는 `McpCommandLocationResolver.resolveImmediatelyBeforeMcp`를 MCP argument 조립 직전에 반드시 호출해, request/thread-local 위치가 아니라 최신 DB admission 결과만 사용해야 한다.
 
 ### 4.7 Compute/Recovery
 

@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 @Tag("integration")
 class TripCalendarInvariantCorrectionMigrationContractTest {
   private static final String MIGRATION =
-      "20260909000000_trip_calendar_child_invariant_correction.sql";
+      "20260918000005_trip_calendar_child_invariant_correction.sql";
 
   @Test
   void corrective_migration은_root변경에서도_event_exact경계와_preference_day를_검사한다() throws Exception {
@@ -39,7 +39,7 @@ class TripCalendarInvariantCorrectionMigrationContractTest {
     String mount =
         "./supabase/migrations/"
             + MIGRATION
-            + ":/docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql:ro";
+            + ":/docker-entrypoint-initdb.d/043_trip_calendar_child_invariant_correction.sql:ro";
     for (String compose : List.of("docker-compose.yml", "compose.yml", "compose.test.yml")) {
       assertThat(Files.readString(root.resolve(compose))).as(compose).containsOnlyOnce(mount);
     }

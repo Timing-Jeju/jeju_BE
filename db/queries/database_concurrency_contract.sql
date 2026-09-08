@@ -1443,6 +1443,97 @@ begin
 end;
 $$;
 
+-- 두 scheduler transaction이 같은 due set을 처리해도 SKIP LOCKED로 unique row만 전이한다.
+insert into public.compute_runs (
+  id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+  input_hash, contract_version, algorithm_version
+) values
+  ('fc660000-0000-0000-0000-000000000001',
+   'fc610000-0000-0000-0000-000000000001',
+   'fc620000-0000-0000-0000-000000000001',
+   'fc630000-0000-0000-0000-000000000001',
+   'feasibility', 'queued', 'location-cleanup-a', 'compute/v1', 'algorithm/v1'),
+  ('fc660000-0000-0000-0000-000000000002',
+   'fc610000-0000-0000-0000-000000000001',
+   'fc620000-0000-0000-0000-000000000001',
+   'fc630000-0000-0000-0000-000000000001',
+   'feasibility', 'queued', 'location-cleanup-b', 'compute/v1', 'algorithm/v1');
+
+update public.compute_runs
+set status = 'failed',
+    completed_at = statement_timestamp() - interval '25 hours',
+    next_attempt_at = null,
+    error_code = 'CONCURRENCY_TERMINAL'
+where id in (
+  'fc660000-0000-0000-0000-000000000001',
+  'fc660000-0000-0000-0000-000000000002'
+);
+
+insert into public.compute_run_inputs (
+  id, compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+  run_type, schema_version, contract_version, algorithm_version,
+  structured_input, command_input_hash, location_supplied, coarse_location,
+  location_precision_meters, location_policy_version, location_observed_at,
+  location_expires_at
+)
+select fixture.input_id,
+       fixture.run_id,
+       'fc600000-0000-0000-0000-000000000001'::uuid,
+       'fc610000-0000-0000-0000-000000000001'::uuid,
+       'fc630000-0000-0000-0000-000000000001'::uuid,
+       'feasibility', 1, 'command/v1', 'algorithm/v1',
+       '{"refreshExternalFacts":false}'::jsonb,
+       input_hash.value,
+       true,
+       '{"type":"GRID_100M","gridX":109,"gridY":109}'::jsonb,
+       100, '2026-08-11.v1', run.completed_at,
+       run.completed_at + interval '24 hours'
+from (values
+  ('fc670000-0000-0000-0000-000000000001'::uuid,
+   'fc660000-0000-0000-0000-000000000001'::uuid),
+  ('fc670000-0000-0000-0000-000000000002'::uuid,
+   'fc660000-0000-0000-0000-000000000002'::uuid)
+) fixture(input_id, run_id)
+join public.compute_runs run on run.id = fixture.run_id
+cross join lateral (
+  select public.compute_command_input_hash(
+    'feasibility'::text, 1::smallint, 'command/v1'::text, 'algorithm/v1'::text,
+    'fc630000-0000-0000-0000-000000000001'::uuid,
+    '{"refreshExternalFacts":false}'::jsonb, true::boolean,
+    '{"type":"GRID_100M","gridX":109,"gridY":109}'::jsonb
+  ) as value
+) input_hash;
+
+select public.dblink_connect('location_cleanup_a', pg_catalog.format(
+  'dbname=%L user=%L application_name=%L', current_database(), current_user,
+  'timing-jeju-location-cleanup-a'));
+select public.dblink_connect('location_cleanup_b', pg_catalog.format(
+  'dbname=%L user=%L application_name=%L', current_database(), current_user,
+  'timing-jeju-location-cleanup-b'));
+select public.dblink_exec('location_cleanup_a', 'begin');
+
+do $$
+declare
+  first_count integer;
+  second_count integer;
+begin
+  select remote.redacted_count into first_count
+  from public.dblink(
+    'location_cleanup_a',
+    'select public.redact_due_compute_run_input_locations(statement_timestamp(), 1)'
+  ) as remote(redacted_count integer);
+  select remote.redacted_count into second_count
+  from public.dblink(
+    'location_cleanup_b',
+    'select public.redact_due_compute_run_input_locations(statement_timestamp(), 500)'
+  ) as remote(redacted_count integer);
+  if first_count <> 1 or second_count <> 1 then
+    raise exception 'command location cleanup SKIP LOCKED counts differ: %, %',
+      first_count, second_count;
+  end if;
+end;
+$$;
+
 select concurrency_contract.drain_async_result('schedule_reference_b');
 select public.dblink_exec('schedule_reference_b', 'commit');
 
@@ -1478,7 +1569,39 @@ begin
 end;
 $$;
 
+select public.dblink_exec('location_cleanup_a', 'commit');
+
+do $$
+declare
+  redacted_count integer;
+  due_count integer;
+begin
+  select count(*) into redacted_count
+  from public.compute_run_inputs
+  where id in (
+    'fc670000-0000-0000-0000-000000000001',
+    'fc670000-0000-0000-0000-000000000002'
+  )
+    and location_redacted_at is not null
+    and coarse_location is null
+    and location_precision_meters is null
+    and location_policy_version is null
+    and location_observed_at is null
+    and location_expires_at is null;
+  select count(*) into due_count
+  from public.compute_run_inputs
+  where location_supplied
+    and location_redacted_at is null
+    and location_expires_at <= statement_timestamp();
+  if redacted_count <> 2 or due_count <> 0 then
+    raise exception 'command location cleanup concurrency final state differs';
+  end if;
+end;
+$$;
+
 select public.dblink_disconnect('schedule_reference_a');
 select public.dblink_disconnect('schedule_reference_b');
+select public.dblink_disconnect('location_cleanup_a');
+select public.dblink_disconnect('location_cleanup_b');
 
 select 'database_concurrency_contract PASS' as result;

@@ -34,7 +34,8 @@ class SnapshotRetentionServiceTest {
         .satisfies(
             command -> {
               assertThat(command.now()).isEqualTo(NOW);
-              assertThat(command.providers()).containsExactly("TAGO", "kma", "tour-api");
+              assertThat(command.providers())
+                  .containsExactly("JEJU_PROVINCE", "TAGO", "kma", "tour-api");
               assertThat(command.batchSize()).isEqualTo(500);
               assertThat(command.dryRun()).isFalse();
               assertThatThrownBy(() -> command.providers().add("tmap"))

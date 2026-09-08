@@ -89,7 +89,9 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 법정 문서는 `(document_type, locale, version)`으로 버전을 보존하고 Spring이 한 평가 시각의 최신 시행 문서만 조회합니다. 사용자 동의는 canonical JWT sub에만 귀속하며 다건 갱신과 필수 최신 문서 검증을 한 트랜잭션으로 처리합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재, `20260820000000` `#36` 노선-정류장 적재, `20260820000001` `#76` KMA 예보, `20260822000000` `#37` 관광지-정류장 후보 link, `20260823000000` `#65` 추천 체류시간 정책, `20260824000000` `#75` TourAPI discovery checkpoint, `20260825000000` `#33` 공개 장소 tombstone, `20260826000000` `#39` TAGO 도착정보, `20260827000000` `#39` 도착 요청 flight state, `20260830000000` `#170` schedule revision run foundation, `20260902000000` `#44` 여행 생성, `20260903000000` `#182` 관심 장소, `20260904000000`·`20260904000001` `#113` 푸시 기기·알림 설정, `20260907000000` `#50` 일정 항목 전용 참조 순으로 누적 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
+- `20260918000006` `#78` 프로필 이미지 Storage migration은 `user_profiles` 상태, cleanup outbox와 public bucket의 immutable INSERT-only RLS를 additive하게 적용합니다.
+- `20260918000009`은 #38 시간표 provenance와 TAGO route reference scope를 additive하게 분리합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000012`까지 고유 timestamp와 Docker init `038`부터 `050`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -128,6 +130,10 @@ registration token 원문은 controller 요청에서 application crypto port로 
 `schedule_revision_runs`는 generation/compute run과 discriminator 없이 분리된 일정 보정 identity/lifecycle 부모입니다. canonical 사용자·여행·base 일정·target Day를 실제 복합 FK로 고정하고 같은 사용자/여행의 idempotency identity와 active base/Day scope를 DB unique로 직렬화합니다. 이 foundation은 queued 생성, lease/fencing 호환 상태와 terminal 불변성만 소유하며 HTTP 접수, structured command input, MCP call log와 결과 후보는 후속 Issue가 소유합니다.
 
 `application.commandinput`은 HTTP나 JDBC를 모르는 immutable command snapshot과 canonical JSON/SHA-256 계약을 소유하고, `global.commandinput` JDBC adapter가 `compute_run_inputs`에 한 번 저장하고 parent별로 복원합니다. snapshot은 generic compute, itinerary generation, schedule revision parent 중 실제 FK 하나만 참조하며 owner·여행·base 일정·run type을 부모와 재검증합니다. structured input은 denylist가 아니라 run type/schema version별 exact field·type projection으로 닫아 unknown/alias/nested raw object를 Java와 DB에서 동일하게 거부합니다. `spare_time` window는 연도 0001~9999, 실제 Gregorian 날짜, 시·분·초 범위, optional 1~9자리 fraction, `Z` 또는 최대 `±18:00` offset만 허용하는 canonical RFC3339 부분집합입니다. 위치는 `GRID_100M`, `PLACE`, `STOP` closed union만 허용합니다. DB가 최초 `completed` 여행 전이에 `trip_plans.trip_ended_at`을 한 번 기록해 불변화하며, 실제 parent terminal과 이 canonical 여행 종료 anchor의 +24시간 중 earliest cutoff만 제한 DB 함수로 단조 단축합니다. `expires_at <= evaluated_at`은 due입니다. Issue #168 release gate 전에는 production 위치 접수를 default-off로 유지합니다. HTTP intake, MCP 호출 hash/log와 due payload redaction 실행은 각각 후속 Issue가 소유합니다.
+
+기본 비활성 command 위치 cleanup scheduler는 5분 fixed delay, 500건 batch, cycle당 최대 10 batch·1분·3회 retry로 제한됩니다. `SECURITY DEFINER` `redact_due_compute_run_input_locations`가 `(location_expires_at,id)` 안정 순서와 `FOR UPDATE SKIP LOCKED`로 due row만 잠그고 위치 5필드 NULL과 `location_redacted_at`을 한 statement로 기록합니다.
+
+현재 production에는 MCP 계산 worker와 argument assembler가 없습니다. 후속 worker는 `McpCommandLocationResolver.resolveImmediatelyBeforeMcp`를 MCP argument 조립 직전에 반드시 호출해, 과거에 읽은 위치를 재사용하지 않고 그 시점의 DB admission 결과만 전달해야 합니다.
 
 ## FCM 다음 목적지 출발 알림 경계
 

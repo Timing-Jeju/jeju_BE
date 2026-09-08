@@ -33,4 +33,4 @@ Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, con
 
 ## 발견한 schema 후속 범위
 
-현재 #46 preferences, #47 transport-event, #48 place-preferences는 각 owner 범위의 CHECK·uniqueness·active 일정 무효화 transaction을 append-only migration과 API 테스트로 구현한다. #48은 `20260908000000_trip_place_preference_contract.sql`과 Docker init `043`을 소유하며 이미 검증된 #46/#47 migration을 수정하거나 재번호하지 않는다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.
+현재 #46 preferences, #47 transport-event, #48 place-preferences는 각 owner 범위의 CHECK·uniqueness·active 일정 무효화 transaction을 append-only migration과 API 테스트로 구현한다. #48은 `20260918000004_trip_place_preference_contract.sql`과 Docker init `042`를 소유하며 이미 검증된 #46/#47 migration을 수정하지 않는다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.

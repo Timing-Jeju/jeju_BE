@@ -90,10 +90,12 @@
           "pattern": "^Bearer [^\\s]{1,2048}$",
           "nullable": false
         },
-      "Idempotency-Key": {
-        "type": "string",
-        "format": "uuid",
-        "nullable": false
+        "Idempotency-Key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[ -~]{1,128}$",
+          "nullable": false
         },
         "If-Match": {
           "type": "string",
@@ -952,8 +954,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
-          "TRIP_TERMINAL_STATE_CONFLICT"
+          "TRIP_TERMINAL_STATE_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_INVALID",
@@ -1042,8 +1044,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
-          "TRIP_TERMINAL_STATE_CONFLICT"
+          "TRIP_TERMINAL_STATE_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_INVALID",
@@ -1130,11 +1132,12 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
-          "TRIP_TERMINAL_STATE_CONFLICT"
+          "TRIP_TERMINAL_STATE_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
+          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },
@@ -1218,8 +1221,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
-          "TRIP_TERMINAL_STATE_CONFLICT"
+          "TRIP_TERMINAL_STATE_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
@@ -1307,12 +1310,13 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
-          "TRIP_TERMINAL_STATE_CONFLICT"
+          "TRIP_TERMINAL_STATE_CONFLICT",
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
           "SCHEDULE_ITEM_INVALID",
+          "SCHEDULE_DAY_EMPTY",
           "SCHEDULE_LEG_INCOMPLETE"
         ]
       },
@@ -1353,7 +1357,8 @@
   "versionPolicy": {
     "immutable": "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed",
     "activation": "copy active, apply edit, validate, seal new user_edit version, supersede previous active and switch pointer atomically",
-    "legCompleteness": "exactly one adjacent leg for every consecutive item pair; zero for fewer than two"
+    "legCompleteness": "exactly one adjacent leg for every consecutive item pair; zero for fewer than two",
+    "dayCoverage": "every trip day has at least one item in a sealed version; delete or cross-day move that empties a day returns 422 SCHEDULE_DAY_EMPTY"
   },
   "itemPolicy": {
     "itemTypes": [
@@ -1402,6 +1407,7 @@
         "stayMinutes"
       ]
     },
+    "title": "non-null 1..200 UTF-16 code units and Java String.isBlank=false; DB removes the explicit Character.isWhitespace code-point set without locale-sensitive regex; NBSP, figure space and narrow NBSP remain nonblank characters",
     "timezone": "RFC 3339 +09:00; start and computed end must remain on target Asia/Seoul trip day",
     "stayMinutes": "integer 1..1440",
     "completedItem": "reject-422; completed item cannot be patched, deleted, reordered or moved"
@@ -1415,6 +1421,7 @@
     },
     "idempotency": {
       "scope": "canonical sub + method + normalized path + Idempotency-Key",
+      "registryEncoding": "canonical UUID keeps the legacy scope; other printable ASCII uses the schedule-printable-ascii-v1 internal namespace with a full SHA-256 discriminator and a deterministic UUID",
       "processingLease": "2 minutes",
       "completedTtl": "24 hours from completion",
       "completedSameHash": "COMPLETED same hash replays stored status, ordered headers and body without executing the operation",
@@ -1427,11 +1434,19 @@
       }
     },
     "concurrency": "strong trip aggregate ETag plus expected active schedule version",
+    "changedItemIds": {
+      "create": "newly created item ID in the new active version namespace",
+      "patch": "patched old item ID mapped to its copied ID in the new active version namespace",
+      "delete": "empty array because the deleted old item has no counterpart in the new active version namespace",
+      "reorder": "submitted old item IDs mapped in submitted order to copied IDs in the new active version namespace",
+      "move": "moved old item ID mapped to its copied ID in the new active version namespace"
+    },
     "validator": "DB constraints and synchronous deterministic validator only",
     "aiCorrection": "never call MCP/AI; correction requires separate schedule revision run owned by #89"
   },
   "orderPolicy": {
     "permutation": "each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID",
+    "timeSlots": "within each Day, preserve the ordered active plannedStartAt slots and assign them by submitted position; recompute plannedEndAt from the reordered item's stayMinutes and reject an invalid or overlapping result",
     "result": "renumber each affected day contiguously from 1 and rebuild every adjacent leg"
   },
   "movePolicy": {
@@ -1516,10 +1531,10 @@
     {
       "status": 400,
       "code": "IDEMPOTENCY_KEY_INVALID",
-      "condition": "Idempotency-Key header is present but is not a canonical UUID",
+      "condition": "Idempotency-Key header is present but is outside 1..128 printable ASCII",
       "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
       "title": "멱등성 키가 유효하지 않습니다",
-      "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+      "detail": "1~128자 printable ASCII Idempotency-Key를 입력해 주세요.",
       "fixture": "400_idempotency_key_invalid"
     },
     {
@@ -1638,21 +1653,21 @@
     },
     {
       "status": 409,
+      "code": "TRIP_TERMINAL_STATE_CONFLICT",
+      "condition": "trip status is completed, cancelled or failed for any schedule mutation endpoint",
+      "type": "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+      "title": "종료된 여행은 변경할 수 없습니다",
+      "detail": "완료, 취소 또는 실패한 여행 일정은 변경할 수 없습니다.",
+      "fixture": "409_trip_terminal_state_conflict"
+    },
+    {
+      "status": 409,
       "code": "ACTIVE_SCHEDULE_VERSION_CONFLICT",
       "condition": "expectedActiveScheduleVersionId does not equal the current active schedule version",
       "type": "https://api.timing-jeju.com/problems/active-schedule-version-conflict",
       "title": "활성 일정이 이미 변경되었습니다",
       "detail": "최신 활성 일정을 조회한 뒤 다시 편집해 주세요.",
       "fixture": "409_active_schedule_version_conflict"
-    },
-    {
-      "status": 409,
-      "code": "TRIP_TERMINAL_STATE_CONFLICT",
-      "condition": "trip is completed, cancelled or failed",
-      "type": "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
-      "title": "종료된 여행은 변경할 수 없습니다",
-      "detail": "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다.",
-      "fixture": "409_trip_terminal_state_conflict"
     },
     {
       "status": 422,
@@ -1680,6 +1695,15 @@
       "title": "이동 구간을 완성할 수 없습니다",
       "detail": "인접 일정 항목 사이의 이동 구간을 확인해 주세요.",
       "fixture": "422_schedule_leg_incomplete"
+    },
+    {
+      "status": 422,
+      "code": "SCHEDULE_DAY_EMPTY",
+      "condition": "delete or cross-day move would leave a trip day without any schedule item",
+      "type": "https://api.timing-jeju.com/problems/schedule-day-empty",
+      "title": "여행 Day를 비울 수 없습니다",
+      "detail": "각 여행 Day에는 일정 항목이 하나 이상 있어야 합니다.",
+      "fixture": "422_schedule_day_empty"
     }
   ],
   "externalTraceability": {

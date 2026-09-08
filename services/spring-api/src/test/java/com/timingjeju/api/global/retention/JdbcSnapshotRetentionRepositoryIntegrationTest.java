@@ -33,7 +33,7 @@ import tools.jackson.databind.ObjectMapper;
 class JdbcSnapshotRetentionRepositoryIntegrationTest
     extends PostgreSqlRepositoryIntegrationTestSupport {
   private static final Instant NOW = Instant.parse("2026-08-24T12:00:00Z");
-  private static final List<String> PROVIDERS = List.of("TAGO", "kma", "tour-api");
+  private static final List<String> PROVIDERS = List.of("JEJU_PROVINCE", "TAGO", "kma", "tour-api");
 
   @Autowired private JdbcSnapshotRetentionRepository repository;
   @Autowired private JdbcTemplate jdbc;

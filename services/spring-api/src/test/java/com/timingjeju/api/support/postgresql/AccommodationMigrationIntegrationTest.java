@@ -15,7 +15,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @Tag("integration")
 class AccommodationMigrationIntegrationTest {
-  private static final String TARGET = "20260907000002_trip_accommodation_contract.sql";
+  private static final String TARGET = "20260918000002_trip_accommodation_contract.sql";
   private static final UUID OWNER = UUID.fromString("68200000-0000-0000-0000-000000000101");
   private static final UUID TRIP = UUID.fromString("68200000-0000-0000-0000-000000000102");
   private static final UUID ACCOMMODATION = UUID.fromString("68200000-0000-0000-0000-000000000103");

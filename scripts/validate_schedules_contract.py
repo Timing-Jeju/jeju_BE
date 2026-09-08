@@ -43,6 +43,7 @@ ENDPOINT_IDEMPOTENCY = {
 }
 MUTATION_IDEMPOTENCY = {
     "scope": "canonical sub + method + normalized path + Idempotency-Key",
+    "registryEncoding": "canonical UUID keeps the legacy scope; other printable ASCII uses the schedule-printable-ascii-v1 internal namespace with a full SHA-256 discriminator and a deterministic UUID",
     "processingLease": "2 minutes",
     "completedTtl": "24 hours from completion",
     "completedSameHash": ENDPOINT_IDEMPOTENCY["replay"],
@@ -54,7 +55,7 @@ IDEMPOTENCY_RESPONSE_HEADERS = {"differentHash": {}, "leaseActiveSameHash": {"Re
 EXPECTED_ERROR_CONDITIONS = {
     "INVALID_REQUEST": "request path/query/body or a non-idempotency header violates the bound closed schema",
     "IDEMPOTENCY_KEY_REQUIRED": "required Idempotency-Key header is missing",
-    "IDEMPOTENCY_KEY_INVALID": "Idempotency-Key header is present but is not a canonical UUID",
+    "IDEMPOTENCY_KEY_INVALID": "Idempotency-Key header is present but is outside 1..128 printable ASCII",
     "SCHEDULE_ORDER_NOT_PERMUTATION": "reorder omits, duplicates, adds or references a foreign active item ID",
     "AUTHENTICATION_REQUIRED": "Authorization header is missing",
     "INVALID_ACCESS_TOKEN": "Bearer token is malformed, invalid or expired",
@@ -67,10 +68,11 @@ EXPECTED_ERROR_CONDITIONS = {
     "TRANSPORT_EVENT_NOT_FOUND": "referenced transport event is missing, cross-owner or wrong-trip",
     "IDEMPOTENCY_KEY_REUSED": "same idempotency scope/key has a different request hash, or the same hash is still PROCESSING with an active lease",
     "TRIP_VERSION_CONFLICT": "If-Match does not equal the current strong trip aggregate ETag",
+    "TRIP_TERMINAL_STATE_CONFLICT": "trip status is completed, cancelled or failed for any schedule mutation endpoint",
     "ACTIVE_SCHEDULE_VERSION_CONFLICT": "expectedActiveScheduleVersionId does not equal the current active schedule version",
-    "TRIP_TERMINAL_STATE_CONFLICT": "trip is completed, cancelled or failed",
     "SCHEDULE_ITEM_INVALID": "item violates type-required fields, range, target day or time-window invariants",
     "SCHEDULE_ITEM_COMPLETED": "patch, delete, reorder or move targets an item whose progress status is completed",
+    "SCHEDULE_DAY_EMPTY": "delete or cross-day move would leave a trip day without any schedule item",
     "SCHEDULE_LEG_INCOMPLETE": "an adjacent pair cannot be reused, derived from an eligible snapshot or conservatively synthesized",
 }
 
@@ -143,8 +145,8 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         if source_types != ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]:
             errors.append("sourceType enum이 DB trip_schedule_versions와 다릅니다.")
         key_schema = schemas.get("MutationHeaders", {}).get("properties", {}).get("Idempotency-Key")
-        if key_schema != {"type": "string", "format": "uuid", "nullable": False}:
-            errors.append("Idempotency-Key UUID schema가 api_idempotency_records와 다릅니다.")
+        if key_schema != {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[ -~]{1,128}$", "nullable": False}:
+            errors.append("Idempotency-Key 1~128자 printable ASCII schema가 다릅니다.")
 
     endpoints = contract.get("endpoints")
     identities = {(e.get("method"), e.get("path")) for e in endpoints} if isinstance(endpoints, list) and all(isinstance(e, dict) for e in endpoints) else set()
@@ -186,13 +188,10 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         if endpoint.get("idempotency") != ENDPOINT_IDEMPOTENCY:
             errors.append(f"{identity} idempotency concurrentRequest/Retry-After 계약이 #72와 다릅니다.")
         matrix = endpoint.get("errorMatrix", {})
-        required_conflicts = {
-            "ACTIVE_SCHEDULE_VERSION_CONFLICT",
-            "TRIP_VERSION_CONFLICT",
-            "TRIP_TERMINAL_STATE_CONFLICT",
-        }
-        if not required_conflicts.issubset(matrix.get("409", [])):
-            errors.append(f"{identity} expected-version/If-Match/terminal 409가 모두 필요합니다.")
+        if "ACTIVE_SCHEDULE_VERSION_CONFLICT" not in matrix.get("409", []) or "TRIP_VERSION_CONFLICT" not in matrix.get("409", []):
+            errors.append(f"{identity} expected-version/If-Match 409가 모두 필요합니다.")
+        if "TRIP_TERMINAL_STATE_CONFLICT" not in matrix.get("409", []):
+            errors.append(f"{identity} terminal trip 409가 필요합니다.")
         if endpoint["method"] in {"POST", "PATCH"} and endpoint["path"].endswith(("/schedule-items", "/{itemId}")):
             if not {"ACCOMMODATION_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"}.issubset(matrix.get("404", [])):
                 errors.append(f"{identity} accommodation/transport owner 404 error condition이 필요합니다.")
@@ -209,12 +208,26 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
 
     if contract.get("orderPolicy", {}).get("permutation") != PERMUTATION:
         errors.append("reorder permutation 계약이 다릅니다.")
+    if contract.get("orderPolicy", {}).get("timeSlots") != "within each Day, preserve the ordered active plannedStartAt slots and assign them by submitted position; recompute plannedEndAt from the reordered item's stayMinutes and reject an invalid or overlapping result":
+        errors.append("reorder 시간 slot 재배정 계약이 다릅니다.")
     if contract.get("movePolicy", {}).get("dayBoundary") != "target day belongs to trip; local date of plannedStartAt equals target day date":
         errors.append("Day move boundary가 다릅니다.")
     if contract.get("versionPolicy", {}).get("legCompleteness") != "exactly one adjacent leg for every consecutive item pair; zero for fewer than two":
         errors.append("인접 leg 완전성 계약이 다릅니다.")
+    if contract.get("versionPolicy", {}).get("dayCoverage") != "every trip day has at least one item in a sealed version; delete or cross-day move that empties a day returns 422 SCHEDULE_DAY_EMPTY":
+        errors.append("빈 Day 금지와 SCHEDULE_DAY_EMPTY 계약이 다릅니다.")
     if contract.get("versionPolicy", {}).get("immutable") != "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed":
         errors.append("불변 version과 허용 status transition 계약이 다릅니다.")
+
+    changed_ids = policy.get("changedItemIds", {})
+    if changed_ids != {
+        "create": "newly created item ID in the new active version namespace",
+        "patch": "patched old item ID mapped to its copied ID in the new active version namespace",
+        "delete": "empty array because the deleted old item has no counterpart in the new active version namespace",
+        "reorder": "submitted old item IDs mapped in submitted order to copied IDs in the new active version namespace",
+        "move": "moved old item ID mapped to its copied ID in the new active version namespace",
+    }:
+        errors.append("changedItemIds 새 version namespace 계약이 다릅니다.")
 
     leg_policy = contract.get("legDerivationPolicy", {})
     if leg_policy.get("sourcePriority") != ["reuse-unchanged-active-leg", "stored-route-snapshot", "conservative-walk-fallback", "reject-422"] or leg_policy.get("requestTimeCall") != "none" or leg_policy.get("durationInvariant") != "walkMinutes + waitMinutes + rideMinutes + transferMinutes" or leg_policy.get("stableFailure") != "422 SCHEDULE_LEG_INCOMPLETE; rollback draft, prior active pointer unchanged" or set(leg_policy.get("operations", {})) != {"add", "delete", "reorder", "move"}:
@@ -251,7 +264,7 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
             errors.append("idempotency condition/status/type/detail/Retry-After가 exact하지 않습니다.")
         required_invalid = {
             "IDEMPOTENCY_KEY_REQUIRED": ("https://api.timing-jeju.com/problems/idempotency-key-required", "멱등성 키가 필요합니다", "Idempotency-Key 헤더를 입력해 주세요."),
-            "IDEMPOTENCY_KEY_INVALID": ("https://api.timing-jeju.com/problems/idempotency-key-invalid", "멱등성 키가 유효하지 않습니다", "UUID 형식의 Idempotency-Key를 입력해 주세요."),
+            "IDEMPOTENCY_KEY_INVALID": ("https://api.timing-jeju.com/problems/idempotency-key-invalid", "멱등성 키가 유효하지 않습니다", "1~128자 printable ASCII Idempotency-Key를 입력해 주세요."),
         }
         if condition.get("code") in required_invalid:
             expected_type, expected_title, expected_detail = required_invalid[condition["code"]]

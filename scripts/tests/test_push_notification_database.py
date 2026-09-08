@@ -49,13 +49,19 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260905000000_mcp_private_http_client.sql",
             "20260906000000_trip_update_delete_contract.sql",
             "20260907000000_schedule_item_create_contract.sql",
-            "20260907000001_schedule_item_required_references.sql",
-            "20260907000002_trip_accommodation_contract.sql",
-            "20260907000003_trip_preferences_replace_contract.sql",
-            "20260907000004_trip_preferences_owner_read_helper.sql",
-            "20260907000005_trip_transport_event_contract.sql",
-            "20260908000000_trip_place_preference_contract.sql",
-            "20260909000000_trip_calendar_child_invariant_correction.sql",
+            "20260918000000_trip_preferences_replace_contract.sql",
+            "20260918000001_trip_preferences_owner_read_helper.sql",
+            "20260918000002_trip_accommodation_contract.sql",
+            "20260918000003_trip_transport_event_contract.sql",
+            "20260918000004_trip_place_preference_contract.sql",
+            "20260918000005_trip_calendar_child_invariant_correction.sql",
+            "20260918000006_profile_image_storage.sql",
+            "20260918000007_schedule_item_required_references.sql",
+            "20260918000008_schedule_item_required_references_correction.sql",
+            "20260918000009_jeju_timetable_route_scope.sql",
+            "20260918000010_compute_run_input_location_cleanup.sql",
+            "20260918000011_private_trip_ownership_helper.sql",
+            "20260918000012_schedule_title_only_sealing_correction.sql",
         )
         migration_names = tuple(
             path.name
@@ -97,32 +103,56 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql",
             ),
             (
-                "./supabase/migrations/20260907000001_schedule_item_required_references.sql",
-                "/docker-entrypoint-initdb.d/038_schedule_item_required_references.sql",
+                "./supabase/migrations/20260918000000_trip_preferences_replace_contract.sql",
+                "/docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql",
             ),
             (
-                "./supabase/migrations/20260907000002_trip_accommodation_contract.sql",
-                "/docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql",
+                "./supabase/migrations/20260918000001_trip_preferences_owner_read_helper.sql",
+                "/docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql",
             ),
             (
-                "./supabase/migrations/20260907000003_trip_preferences_replace_contract.sql",
-                "/docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql",
+                "./supabase/migrations/20260918000002_trip_accommodation_contract.sql",
+                "/docker-entrypoint-initdb.d/040_trip_accommodation_contract.sql",
             ),
             (
-                "./supabase/migrations/20260907000004_trip_preferences_owner_read_helper.sql",
-                "/docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql",
+                "./supabase/migrations/20260918000003_trip_transport_event_contract.sql",
+                "/docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql",
             ),
             (
-                "./supabase/migrations/20260907000005_trip_transport_event_contract.sql",
-                "/docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql",
+                "./supabase/migrations/20260918000004_trip_place_preference_contract.sql",
+                "/docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql",
             ),
             (
-                "./supabase/migrations/20260908000000_trip_place_preference_contract.sql",
-                "/docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql",
+                "./supabase/migrations/20260918000005_trip_calendar_child_invariant_correction.sql",
+                "/docker-entrypoint-initdb.d/043_trip_calendar_child_invariant_correction.sql",
             ),
             (
-                "./supabase/migrations/20260909000000_trip_calendar_child_invariant_correction.sql",
-                "/docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql",
+                "./supabase/migrations/20260918000006_profile_image_storage.sql",
+                "/docker-entrypoint-initdb.d/044_profile_image_storage.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000007_schedule_item_required_references.sql",
+                "/docker-entrypoint-initdb.d/045_schedule_item_required_references.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000008_schedule_item_required_references_correction.sql",
+                "/docker-entrypoint-initdb.d/046_schedule_item_required_references_correction.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000009_jeju_timetable_route_scope.sql",
+                "/docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql",
+                "/docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000011_private_trip_ownership_helper.sql",
+                "/docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql",
+                "/docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",
@@ -143,7 +173,12 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         docker_smoke = DOCKER_SMOKE.read_text(encoding="utf-8")
         migration_targets = tuple(target for _, target in mounts[:-1])
         for target in migration_targets:
-            self.assertEqual(2, docker_smoke.count(target), target)
+            expected_count = (
+                3
+                if target.endswith("046_schedule_item_required_references_correction.sql")
+                else 2
+            )
+            self.assertEqual(expected_count, docker_smoke.count(target), target)
         for next_contract in (
             "/queries/legacy_v1_upgrade_contract.sql",
             "/queries/database_concurrency_contract.sql",

@@ -3,7 +3,7 @@ package com.timingjeju.api.application.snapshot;
 import java.util.List;
 
 public final class PersistedSnapshotProviderCatalog {
-  private static final List<String> PROVIDERS = List.of("TAGO", "kma", "tour-api");
+  private static final List<String> PROVIDERS = List.of("JEJU_PROVINCE", "TAGO", "kma", "tour-api");
 
   private PersistedSnapshotProviderCatalog() {}
 

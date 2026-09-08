@@ -46,6 +46,7 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
   private static final UUID OTHER_VERSION = UUID.fromString("49000000-0000-0000-0000-000000000123");
   private static final UUID INVALID_VERSION =
       UUID.fromString("49000000-0000-0000-0000-000000000124");
+  private static final UUID PLACE = UUID.fromString("49000000-0000-0000-0000-000000000130");
   private static final UUID FIRST = UUID.fromString("49000000-0000-0000-0000-000000000131");
   private static final UUID SECOND = UUID.fromString("49000000-0000-0000-0000-000000000132");
   private static final UUID THIRD = UUID.fromString("49000000-0000-0000-0000-000000000133");
@@ -64,6 +65,7 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
             ignored -> {
               insertOwner(OWNER, "schedule-owner@issue49.test");
               insertOwner(OTHER_OWNER, "schedule-other@issue49.test");
+              insertPlace();
               insertTrip(TRIP, OWNER, "schedule-trip", true);
               insertTrip(NO_ACTIVE_TRIP, OWNER, "schedule-no-active", false);
               insertTrip(OTHER_TRIP, OTHER_OWNER, "schedule-other-trip", false);
@@ -122,6 +124,7 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
   void cleanUpCommittedTwoSessionFixture() {
     jdbc.update(
         "delete from public.trip_plans where id in (?, ?, ?)", TRIP, OTHER_TRIP, NO_ACTIVE_TRIP);
+    jdbc.update("delete from public.tour_places where id = ?", PLACE);
     jdbc.update("delete from public.user_profiles where id in (?, ?)", OWNER, OTHER_OWNER);
     jdbc.update("delete from auth.users where id in (?, ?)", OWNER, OTHER_OWNER);
   }
@@ -300,6 +303,15 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
         planned ? "planned" : "draft");
   }
 
+  private void insertPlace() {
+    jdbc.update(
+        "insert into public.tour_places "
+            + "(id,name,normalized_name,category,location,source_provider) values "
+            + "(?,'일정 조회 장소','일정 조회 장소','ATTRACTION',"
+            + "ST_SetSRID(ST_MakePoint(126.5,33.4),4326)::geography,'fixture')",
+        PLACE);
+  }
+
   private void insertDay(UUID trip, UUID day, int dayNo, String date) {
     jdbc.update(
         "insert into public.trip_days (id, trip_plan_id, day_no, trip_date) values (?, ?, ?, ?::date)",
@@ -339,9 +351,9 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
         """
         insert into public.trip_items (
           id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no, item_type,
-          title, planned_start_at, planned_end_at, stay_minutes, buffer_after_minutes,
+          place_id, title, planned_start_at, planned_end_at, stay_minutes, buffer_after_minutes,
           required, source, facts
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 60, 10, true, 'user_input',
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 60, 10, true, 'user_input',
                   '{"location":{"lat":33.4,"lng":126.5}}'::jsonb)
         """,
         item,
@@ -350,6 +362,7 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
         version,
         sequence,
         type,
+        "place_visit".equals(type) ? PLACE : null,
         title,
         Timestamp.from(startedAt),
         Timestamp.from(startedAt.plusSeconds(3600)));

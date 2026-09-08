@@ -19,7 +19,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @Tag("integration")
 class TripCalendarInvariantCorrectionMigrationIntegrationTest {
   private static final String TARGET =
-      "20260909000000_trip_calendar_child_invariant_correction.sql";
+      "20260918000005_trip_calendar_child_invariant_correction.sql";
   private static final UUID OWNER = UUID.fromString("48900000-0000-0000-0000-000000000001");
   private static final UUID TRIP = UUID.fromString("48900000-0000-0000-0000-000000000002");
   private static final UUID PLACE = UUID.fromString("48900000-0000-0000-0000-000000000003");

@@ -73,7 +73,39 @@ python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build
 
 두 번째 독립 리뷰에서는 전체 code 목록은 닫혔지만 전역 registry의 다른 domain 문구와 `.example` type을 재사용해 일부 `type/title/detail`이 schedule fixture와 다르다는 MAJOR 1건이 남았다. 이를 해결하기 위해 schedule mutation 전용 Problem 정의와 advice를 분리했다. 따라서 다른 API의 오류 계약을 바꾸지 않으면서 `INVALID_REQUEST`, idempotency 3종, 장소·일정 버전·여행 버전 충돌을 schedule canonical fixture와 exact하게 반환한다. Problem writer는 reset 과정에서도 조건부 `Retry-After`만 안전하게 보존한다. HTTP 통합 테스트와 OpenAPI readiness는 각각 실제 응답과 fixture의 `type/title/status/detail/code/fieldErrors`를 직접 대조한다.
 
-## 병합 후 DB required-reference 보정
+## 병합 후 PR #205 회귀 보완 Red → Green
+
+병합된 `develop` `6cfa98f`를 기준으로 Reviewer finding을 별도 fix branch에서 다시 TDD로 고정했다. 최초 DB-free RED는 `ScheduleItemCreateMigrationContractTest` 4개 중 2개 실패였다. append-only `20260907000001` migration이 없었고 `JdbcScheduleMutationStore`가 자체 `FOR UPDATE`와 revision CAS를 보유했다. 이어 DB coverage test를 먼저 추가했을 때 legacy-invalid upgrade fixture가 없어 `NoSuchFileException`으로 실패했다.
+
+Green에서는 기존 `20260907000000`을 수정하지 않고 후속 migration을 추가했다. migration은 기존 item 전체를 먼저 감사하고 첫 invalid item의 ID와 타입을 포함한 `23514`로 중단한다. 그 뒤 accommodation/arrival/departure와 나머지 타입의 필수·반대 참조를 동일한 exact predicate로 CHECK, row trigger, sealing validator에 적용한다. canonical schema introspection, insert/update/cross-type/sealing 음수 matrix, valid legacy 보존 contract, invalid legacy upgrade fixture/smoke를 추가했다. 실제 PostgreSQL migration 및 copied-invalid aggregate rollback 테스트도 작성했지만 이번 remediation 지시상 실행하지 않았다.
+
+추가 security RED에서는 새 sealing helper의 기본 함수 실행권한이 공개 RPC 경계를 열 수 있음을 고정했다. Green에서 `PUBLIC`, `anon`, `authenticated`의 EXECUTE를 명시적으로 회수하고 `service_role`만 허용했으며 schema contract가 PUBLIC ACL과 세 역할 권한을 직접 검사한다.
+
+여행 aggregate mutation은 #45의 canonical coordinator provenance(`d11b1f7`, `f25cfde`, 최종 `18408bd`)만 최소 이식했다. 일정 item store는 공용 coordinator의 owner lock, terminal/revision fence, root CAS를 사용하고 자체 lock/revision 증분을 제거했다. 일정 version 작성·sealing은 root CAS 전에, active pointer 교체는 CAS 뒤에 같은 transaction에서 수행하며 어느 단계든 실패하면 전체 rollback된다.
+
+DB-free Green 증거는 다음과 같다.
+
+```text
+./gradlew --no-daemon test --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateArchitectureSourceTest
+# BUILD SUCCESSFUL
+
+python3 -m unittest scripts.tests.test_push_notification_database scripts.tests.test_database_hardening
+# Ran 52 tests ... OK
+```
+
+실제 PostgreSQL/Testcontainers와 Docker smoke, 전체 heavy gate는 작업 범위에서 금지되어 실행하지 않았으며 해당 gate 전까지 상태는 `BLOCKED`다.
+
+### 실제 실행 chronology
+
+실행 시각은 당시 별도로 기록하지 않았으므로 존재하지 않는 시각을 소급해 만들지 않고 commit 전후 순서로 남긴다.
+
+1. PR HEAD `2a97281` 기반에서 `./gradlew --no-daemon test --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest`를 실행했다. 당시 두 RED 메서드는 모두 임시로 `ScheduleItemCreateMigrationContractTest` 안에 있었으므로 4 tests 중 `후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다`, `일정_item_store는_공용_trip_aggregate_coordinator_밖에서_lock_CAS_revision을_복제하지_않는다` 2개가 실패했다. 전자는 `20260907000001` 파일 부재, 후자는 coordinator 의존 부재가 핵심 RED였다. 그 뒤 PR 병합을 확인해 변경을 보존한 채 `6cfa98f`로 fast-forward했고, coordinator 테스트는 별도 `ScheduleItemCreateArchitectureSourceTest`로 옮겨 최종적으로 `e1624af`에 추가했다. 최초 실행 시각은 `미기록`이다.
+2. `692fc88` 뒤 DB coverage test를 먼저 추가하고 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest.canonical_DB_contract는_schema_negative_legacy_upgrade의_각_경계를_검증한다'`를 실행했다. `legacy_schedule_item_reference_conflict_fixture.sql`의 `NoSuchFileException`으로 RED였다. `27894b3`에서 schema/negative/legacy/actual-PG test source를 채웠다.
+3. coordinator source fence 첫 Green 시도 명령은 `./gradlew --no-daemon test --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateArchitectureSourceTest`였다. Java formatter가 만든 `.execute(` 줄바꿈 때문에 테스트의 literal `coordinator.execute(`가 맞지 않아 1개 실패했다. 동작 실패가 아닌 취약한 source assertion으로 판정해 호출과 금지 SQL을 각각 검사하도록 고쳤고 `e1624af`에서 Green이 됐다. 실행 시각은 `미기록`이다.
+4. sealing helper 권한 test를 먼저 추가하고 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest.후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다'`를 실행했다. 정확한 테스트명은 `후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다`이며, `REVOKE EXECUTE ... assert_schedule_item_required_references` 문장이 없어 assertion RED였다. `6532690`에서 PUBLIC/anon/authenticated deny와 service_role allow 및 schema ACL introspection을 Green으로 만들었다. 실행 시각은 `미기록`이다.
+5. terminal trip 공개 계약 RED는 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest.POST_schedule_items는_종료된_trip을_schedule_canonical_409로_반환한다' --tests 'com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest.schedule_item_create는_필수_header_body와_응답을_OpenAPI에_공개한다'`로 실행했다. 정확한 두 테스트는 명령에 적힌 메서드이며 2 tests 모두 실패했다. 실제 HTTP detail은 global trip 문구였고 OpenAPI 409 examples에는 terminal code가 없었다. fixture/contract/runtime/OpenAPI를 정렬한 뒤 두 테스트와 전체 schedule HTTP/OpenAPI focused suite가 Green이 됐다. Python 단일 테스트는 class 이름을 `ScheduleContractTest`로 잘못 지정해 `AttributeError`가 났으며 기능 RED 증거로 계산하지 않는다. 이후 전체 `scripts.tests.test_schedules_contract` 19개 중 fixture instance 중복 1개 실패를 고친 뒤 19개 Green을 확인했다. 실행 시각은 `미기록`이다.
+6. 새 row trigger helper는 table trigger 실행 시 호출자에게 함수 EXECUTE가 필요하지 않고 외부 직접 호출도 필요 없다. 따라서 공개 표면을 남길 이유가 없다고 판단했다. migration source test에 deny 계약을 먼저 추가하고 `./gradlew --no-daemon test --tests 'com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest.후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다'`를 실행했다. 정확한 테스트명은 `후속_migration은_item_type별_필수_참조를_감사하고_모든_쓰기_경계에서_강제한다`이며 `validate_trip_item_required_references()` REVOKE 부재 assertion으로 RED였다. 이후 PUBLIC/anon/authenticated/service_role 모두에서 EXECUTE를 회수하고 schema ACL contract로 고정했다. 당시 RED 및 Green 실행 시각은 `미기록`이며, 앞서 별도로 조회한 `2026-09-04 14:42 KST`는 이 실행의 시각 증거가 아니므로 연결하지 않는다.
+## 병렬 보정 브랜치의 DB required-reference 추가 증거
 
 PR #205 병합 뒤 독립 리뷰에서 `accommodation`, `arrival`, `departure` typed item의 필수 참조가 DB sealing 경계에서 강제되지 않는 문제가 확인됐다. 이 보정은 최신 `origin/develop` `6cfa98fd3e65ba270eceea7150c843b33dbe2a56` 기반 `fix/50-pr205-review-findings`에서 append-only migration으로 진행했다.
 
@@ -228,3 +260,164 @@ python3 -m unittest \
 `(transport_event_id, trip_plan_id)` prefix 인덱스를 038에서 제거하고 같은 이름의
 `(transport_event_id, trip_plan_id, item_type)` partial index로 교체해 FK 검사와 조회를 함께
 지원한다. 이 인덱스 shape도 Python 회귀 테스트로 고정하고 full gate를 다시 실행한다.
+
+## 병렬 보정 재통합과 실제 HTTP QA
+
+로컬 application/domain schedule coordinator 보정과 원격 trip update/delete 잠금 보정을
+최신 develop 위에서 양쪽 ancestry를 보존하는 일반 merge로 재통합했다. 이번 범위에서는
+JdbcTripStore의 기존 owner row lock, update CAS·terminal 차단, delete의 live/실행 중 작업
+차단 의미를 원격 global.trip.TripAggregateMutationCoordinator와 함께 원형 보존했다.
+schedule item mutation은 application.trip port와 domain adapter를 계속 사용한다. 두 경로의
+공통 lock primitive 통합은 transaction 경계와 DELETE 계약을 함께 설계해야 하므로 후속
+기술 부채이며, 이번 결과를 전체 단일-writer 통합으로 간주하지 않는다.
+
+병합 Red에서는 JSON/Java의 중복 TRIP_TERMINAL_STATE_CONFLICT, 이전 migration 제약명,
+trigger helper ACL 기대와 legacy fixture의 draft-only trigger 우회 누락을 확인했다. 최종
+계약은 terminal detail을 완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다.로
+단일화하고, typed transport composite FK/index와 required-reference ACL을 보존했다.
+
+실제 QA는 RANDOM_PORT Spring 서버, 로컬 생성 HS256 JWT, disposable PostgreSQL
+Testcontainers를 사용했다. first/middle/last POST가 201을 반환하고 새 active version의 항목
+순서와 인접 leg 두 개, exact 9-field mutation body, KST timestamp, body/header ETag 및 이어진
+GET을 검증했다. 같은 key replay는 status/body/ETag를 재사용했고 다른 payload는
+409 IDEMPOTENCY_KEY_REUSED와 Retry-After 부재를 반환했으며 추가 aggregate mutation과
+registry row 생성이 없었다. owner 404, 인증 401, stale active selector, stale If-Match,
+invalid item, 현재 분리 브랜치의 non-UUID key 400도 Problem Details와 trace header까지
+확인했다. non-UUID rejection은 #68의 printable ASCII 1..128 승인 계약이 아직 통합되지 않은
+상태의 관찰 결과이며 최종 공통 계약으로 확정하지 않는다.
+
+검증:
+
+    python3 -m unittest scripts.tests.test_schedule_item_required_references \
+      scripts.tests.test_push_notification_database scripts.tests.test_schedules_contract \
+      scripts.tests.test_database_hardening scripts.tests.test_schedule_consistency_hardening
+    # Ran 88 tests ... OK
+
+    ./gradlew integrationTest \
+      --tests com.timingjeju.api.domain.schedule.controller.ScheduleMutationHttpPostgreSqlIntegrationTest
+    # 4 tests, failures=0, errors=0, skipped=0
+
+    ./gradlew integrationTest \
+      --tests com.timingjeju.api.domain.schedule.repository.JdbcScheduleMutationStoreIntegrationTest \
+      --tests com.timingjeju.api.domain.trip.adapter.JdbcTripMutationIntegrationTest \
+      --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest
+    # 48 tests, failures=0, errors=0, skipped=0
+
+    ./gradlew sliceTest \
+      --tests com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest
+    # 2 tests, failures=0, errors=0, skipped=0
+
+    ./gradlew integrationTest \
+      --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemRequiredReferencesMigrationIntegrationTest
+    # 4 tests, failures=0, errors=0, skipped=0
+
+실제 운영 Supabase 적용과 provider 호출은 수행하지 않았다. 각 Testcontainers 실행 뒤 생성된
+container/network/volume 잔여는 0이었고 기존 live-demo/faithlog 리소스는 변경하지 않았다.
+
+## #78 current stack 최종 통합과 #68 멱등키 계약 정렬
+
+검증된 #78 source stack `b05d966f68e2ac81a1948823069507ef9c29ccd9` 위에 #50의 논리 변경을
+재적용했다. 이전 단락의 병합 관찰과 달리 최종 current stack에는 legacy `global.trip`
+coordinator를 두지 않는다. 최신 `application.trip.TripAggregateMutationCoordinator`와 domain
+JDBC adapter 하나만 유지하며 schedule mutation은 `executeMonotonic`의 단일 timestamp와
+owner lock, revision/terminal 검증, 실제 CAS 안에서 version/item/leg를 원자 재구축한다.
+`JdbcTripStore`는 base와 동일해 UPDATE의 owner `FOR UPDATE` → expected revision → terminal 차단,
+DELETE의 owner lock → live/queued/running 차단 의미가 바뀌지 않았다.
+
+### RED
+
+- 테스트: `POST_schedule_items는_printable_ASCII_Idempotency_Key를_허용한다`
+- 명령: `./gradlew integrationTest --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest`
+- 실제 실패: printable key `printable-key` 요청의 기대 `201`에 실제 `400`이 반환됐다.
+
+### GREEN과 REFACTOR
+
+- 공개 `Idempotency-Key`를 1~128자 printable ASCII로 검증한다.
+- 기존 lowercase canonical UUID는 그대로 registry scope를 보존한다.
+- 나머지 유효 키는 domain-separated SHA-256으로 결정적 UUID에 매핑해 배포된
+  `api_idempotency_records.idempotency_key uuid` schema를 변경하지 않고 replay/conflict를 유지한다.
+- Controller, Problem Details, OpenAPI customizer, canonical schedule 계약과 fixture를 같은 경계로 정렬했다.
+- migration init slot은 038 schedule reference, 044 calendar child correction, 045 profile image 순서를
+  유지했고 #78 환경 전달 파일과 #46/#47/#48 current-stack 구현은 변경하지 않았다.
+
+DB 없는 focused 검증 결과:
+
+```text
+./gradlew unitTest --tests com.timingjeju.api.domain.schedule.controller.ScheduleIdempotencyKeyTest
+# BUILD SUCCESSFUL
+
+./gradlew integrationTest \
+  --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest
+# BUILD SUCCESSFUL
+
+./gradlew sliceTest \
+  --tests com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest
+# BUILD SUCCESSFUL
+
+./gradlew architectureTest \
+  --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateArchitectureSourceTest
+# BUILD SUCCESSFUL
+
+python3 -m unittest scripts.tests.test_schedules_contract \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database
+# Ran 34 tests ... OK
+
+./gradlew spotlessApply spotlessCheck
+# BUILD SUCCESSFUL
+```
+
+이번 current-stack 통합에서는 사용자 승인 범위에 따라 실제 PostgreSQL, Testcontainers, Docker,
+root full quality gate, live Supabase 적용, push와 PR을 실행하지 않았다. 따라서 해당 gate가 실행될
+때까지 결과 상태는 `BLOCKED`이며 `READY_FOR_REVIEW`로 선언하지 않는다.
+
+## Astra review finding 보정
+
+### RED
+
+- `printable-key`의 결정 UUID `ba8cb334-92ef-8999-8eb6-8b95ecd8bb71`와 동일한 UUID 원문이
+  같은 owner/method/public path에서 하나의 registry identity로 겹치는 회귀 테스트를 추가했다.
+- namespaced request factory와 schedule resolver가 없어 `compileTestJava`가 네 곳의
+  `cannot find symbol`로 실패했다.
+- PostgreSQL fixture와 OpenAPI source test를 함께 실행했을 때 각각 #68의
+  `check_in_time/check_out_time` 부재, #47의 잘못된 departure 날짜, `\\x20-\\x7E` source
+  literal 때문에 2 tests, 2 failed가 발생했다.
+- runtime OpenAPI는 escape 표현을 이미 `^[ -~]{1,128}$`로 정규화하고 있었으므로, 별도 runtime
+  JSON literal assertion을 추가하고 annotation/customizer source도 같은 canonical 문자열로 고정했다.
+
+### GREEN과 REFACTOR
+
+- canonical UUID는 기존 owner/method/public path/key scope를 그대로 유지해 이전 replay를 보존한다.
+- non-UUID printable key는 같은 public trip path 아래 `schedule-printable-ascii-v1` durable internal
+  namespace와 full SHA-256 discriminator를 추가한다. 따라서 128-bit 결정 UUID가 같거나 그 값과
+  같은 UUID 원문이 와도 DB primary-key scope가 겹치지 않는다.
+- 두 scope가 각각 독립 replay하고 각각의 다른 payload를 `IDEMPOTENCY_KEY_REUSED`로 거부함을
+  실제 `TransactionalIdempotencyService` 단위 테스트로 검증했다.
+- space/case/1자/128자/129자/control/non-ASCII와 canonical UUID 호환 경계를 고정했다.
+- schedule PostgreSQL fixture 숙소에 `15:00/11:00`을 채우고 departure를 여행 종료일인
+  제주 2026-09-02로 정렬했다. 실제 PostgreSQL/Testcontainers는 승인 범위상 실행하지 않았다.
+- OpenAPI annotation, customizer, runtime slice test와 canonical 계약 pattern을
+  `^[ -~]{1,128}$` 하나로 정렬했다.
+
+정확한 DB-free 검증 명령:
+
+```text
+./gradlew unitTest \
+  --tests com.timingjeju.api.application.idempotency.IdempotencyServiceTest \
+  --tests com.timingjeju.api.domain.schedule.controller.ScheduleIdempotencyKeyTest \
+  --tests com.timingjeju.api.domain.schedule.repository.ScheduleItemCreateMigrationContractTest
+# BUILD SUCCESSFUL
+
+./gradlew integrationTest \
+  --tests com.timingjeju.api.domain.schedule.controller.ScheduleControllerIntegrationTest
+# BUILD SUCCESSFUL
+
+./gradlew sliceTest \
+  --tests com.timingjeju.api.documentation.ScheduleOpenApiIntegrationTest
+# BUILD SUCCESSFUL
+
+python3 -m unittest scripts.tests.test_schedules_contract \
+  scripts.tests.test_schedule_item_required_references \
+  scripts.tests.test_push_notification_database
+# Ran 34 tests ... OK
+```

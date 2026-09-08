@@ -49,6 +49,11 @@ Spring은 Supabase access token을 JWKS로 검증합니다. 인증 환경 변수
 - `supabase/migrations/20260903000000_saved_places_api.sql`: 관심 장소 CRUD, canonical owner, 멱등 응답 snapshot과 30일 backfill audit retention 계약
 - `supabase/migrations/20260904000000_push_device_notification_preferences.sql`: 푸시 기기·출발 알림 설정과 owner safe-column 조회 계약
 - `supabase/migrations/20260904000001_push_notification_server_writer_boundary.sql`: authenticated client write 경로 제거와 service-role writer 경계 보정
+- `supabase/migrations/manifest.json`: `origin/develop` immutable prefix checksum과 canonical suffix path/init/owner/dependency 계약
+- `supabase/migrations/20260918000007_schedule_item_required_references.sql`: 변경하지 않는 #50 required-reference baseline
+- `supabase/migrations/20260918000008_schedule_item_required_references_correction.sql`: #51 강화 predicate와 trigger/function ACL additive 보정
+- `supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql`: command input due 위치 5필드 원자 redaction과 제한 scheduler RPC 계약
+- `db/queries/canonical_migration_fingerprint.sql`: fresh·upgrade schema/constraint/trigger/RLS/grant/function ACL 동등성 fingerprint
 - `supabase/seed.sql`: 운영 적용 가능한 빈 시드
 - `db/local-postgres/auth_compat.sql`: Supabase가 아닌 일반 PostgreSQL 전용 Auth 호환 계층
 - `db/local-postgres/seed_fixtures.sql`: 일반 PostgreSQL Docker 스모크 테스트 전용 가짜 데이터
@@ -135,6 +140,8 @@ Spring Repository 통합 테스트는 `services/spring-api`의 Testcontainers �
 `schedule_revision_runs`는 사용자 UUID와 여행, base 일정 버전, target Day를 복합 FK로 함께 검증합니다. 새 행은 `queued`로만 생성되고 `queued|running|succeeded|failed|cancelled` 외 상태를 허용하지 않습니다. 같은 사용자·여행의 idempotency key와 같은 base/Day의 active run은 각각 하나뿐입니다. identity/version/hash는 생성 후 불변이고 terminal 상태는 되돌릴 수 없습니다. 최초 queued와 running/succeeded는 failure code가 없고 retry queued와 failed/cancelled는 1~100자 stable code가 필수입니다. claim/reclaim만 attempt와 fencing token을 정확히 1씩 올리며 heartbeat, retry와 terminal 전이는 현재 live lease와 기존 counters를 보존합니다. 5번째 attempt는 다시 queued로 예약할 수 없고, 만료된 5번째 running lease만 counters를 유지한 채 `ASYNC_RUN_RETRY_EXHAUSTED` failed로 복구할 수 있습니다. 테이블은 RLS를 켜되 client policy를 두지 않으며 `anon`·`authenticated` 직접 접근을 회수하고 `service_role` DML만 허용합니다. raw 요청, structured input, 정밀 위치와 MCP call log는 이 테이블에 저장하지 않습니다.
 
 `compute_run_inputs`는 `compute_runs`, `itinerary_generation_runs`, `schedule_revision_runs` 중 정확히 한 실제 parent FK와 parent별 unique row를 갖는 immutable durable input입니다. JSON object structured input은 UTF-8 key 정렬 canonical JSON으로 SHA-256을 계산하며 DB가 owner·trip·base·run type과 hash를 독립 검증합니다. denylist 대신 schema version 1의 run type별 exact projection만 허용해 unknown/alias/nested raw object를 모두 거부합니다. `spare_time` timestamp는 0001~9999의 실제 날짜, 00~23시, 00~59분·초, optional 1~9자리 fraction, `Z|±HH:MM`과 최대 `±18:00`만 Java/DB 공통으로 허용합니다. 위치는 100m grid 또는 place/stop UUID만 저장합니다. `service_role`에는 SELECT/INSERT와 CHECK에 필요한 input-only total validation helper 및 제한 expiry 함수 실행만 허용하고 일반 UPDATE·DELETE는 허용하지 않습니다. object-size helper는 SQL NULL·array·scalar·JSON null에 예외 대신 NULL을 반환해 invalid 위치도 안정적인 CHECK 위반으로 닫습니다. DB가 최초 `completed` 전이에 기록하고 이후 일반 여행 변경에서도 보존하는 `trip_plans.trip_ended_at`과 실제 parent terminal `completed_at`의 +24시간 중 빠른 cutoff를 `shorten_compute_run_input_location_expiry`로만 최초 설정하거나 앞당깁니다. due 판정은 equality를 포함합니다. 기존 완료 여행은 실제 과거 시각을 추측하지 않고 migration DB 시각으로 보수 backfill합니다. #109의 실제 redaction은 이 migration에 포함하지 않습니다.
+
+#109는 `redact_due_compute_run_input_locations` 실행만 `service_role`에 추가하고 일반 UPDATE·DELETE는 계속 금지합니다. 기본 비활성 5분 scheduler가 500건 안정 순서와 `FOR UPDATE SKIP LOCKED`로 cycle당 최대 10 batch·1분·3회 retry 안에서 위치 5필드와 redaction 시각만 원자 갱신하며 structured input, hash와 lineage는 보존합니다.
 
 ```bash
 docker compose up -d postgres

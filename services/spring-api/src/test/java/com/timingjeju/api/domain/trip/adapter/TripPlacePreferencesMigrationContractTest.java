@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 @Tag("unit")
 class TripPlacePreferencesMigrationContractTest {
   private static final Path MIGRATION =
-      Path.of("../../supabase/migrations/20260908000000_trip_place_preference_contract.sql");
+      Path.of("../../supabase/migrations/20260918000004_trip_place_preference_contract.sql");
 
   @Test
   void migration은_legacy_fail_closed와_장소별_단일_role_priority_Day_mutex를_강제한다() throws Exception {

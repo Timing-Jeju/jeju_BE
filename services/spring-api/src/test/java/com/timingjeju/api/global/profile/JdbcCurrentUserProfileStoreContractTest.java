@@ -14,7 +14,11 @@ class JdbcCurrentUserProfileStoreContractTest {
 
     assertThat(sql)
         .contains("from public.user_profiles", "where id = ?", "from public.social_accounts")
-        .contains("where user_id = ? and revoked_at is null")
+        .contains(
+            "where user_id = ? and revoked_at is null",
+            "provider_profile_image_url",
+            "profile_image_url",
+            "case provider when 'google' then 1 when 'kakao' then 2 when 'naver' then 3")
         .doesNotContain("auth.users", "user_metadata", "provider_token");
   }
 

@@ -34,18 +34,20 @@ public record CreateScheduleItemCommand(
         || bufferAfterMinutes > 1440
         || (title != null && (title.isBlank() || title.length() > 200))
         || (memo != null && memo.length() > 500)
-        || !hasRequiredReference(itemType, placeId, accommodationId, transportEventId, title)) {
+        || !hasCanonicalReferences(itemType, placeId, accommodationId, transportEventId, title)) {
       throw ScheduleException.itemInvalid();
     }
   }
 
-  private static boolean hasRequiredReference(
+  private static boolean hasCanonicalReferences(
       String itemType, UUID placeId, UUID accommodationId, UUID transportEventId, String title) {
     return switch (itemType) {
-      case "place_visit" -> placeId != null;
-      case "accommodation" -> accommodationId != null;
-      case "arrival", "departure" -> transportEventId != null;
-      default -> title != null;
+      case "place_visit" -> placeId != null && accommodationId == null && transportEventId == null;
+      case "accommodation" -> accommodationId != null && transportEventId == null;
+      case "arrival", "departure" -> accommodationId == null && transportEventId != null;
+      case "meal", "free_time", "custom" ->
+          accommodationId == null && transportEventId == null && title != null && !title.isBlank();
+      default -> false;
     };
   }
 }

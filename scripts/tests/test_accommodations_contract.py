@@ -14,7 +14,7 @@ CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 FIXTURE_DIR = ROOT / "fixtures/contracts/accommodations"
 VALIDATOR = ROOT / "scripts/validate_accommodations_contract.py"
 STORE = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/domain/accommodation/adapter/JdbcAccommodationStore.java"
-MIGRATION = ROOT / "supabase/migrations/20260907000002_trip_accommodation_contract.sql"
+MIGRATION = ROOT / "supabase/migrations/20260918000002_trip_accommodation_contract.sql"
 REQUEST_BOUNDARY = ROOT / "services/spring-api/src/main/java/com/timingjeju/api/domain/accommodation/controller/AccommodationRequestBoundary.java"
 SPEC = importlib.util.spec_from_file_location("validate_accommodations_contract", VALIDATOR)
 assert SPEC is not None and SPEC.loader is not None

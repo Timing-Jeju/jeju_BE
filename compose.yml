@@ -45,13 +45,19 @@ services:
       - ./supabase/migrations/20260905000000_mcp_private_http_client.sql:/docker-entrypoint-initdb.d/035_mcp_private_http_client.sql:ro
       - ./supabase/migrations/20260906000000_trip_update_delete_contract.sql:/docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql:ro
       - ./supabase/migrations/20260907000000_schedule_item_create_contract.sql:/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql:ro
-      - ./supabase/migrations/20260907000001_schedule_item_required_references.sql:/docker-entrypoint-initdb.d/038_schedule_item_required_references.sql:ro
-      - ./supabase/migrations/20260907000002_trip_accommodation_contract.sql:/docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql:ro
-      - ./supabase/migrations/20260907000003_trip_preferences_replace_contract.sql:/docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql:ro
-      - ./supabase/migrations/20260907000004_trip_preferences_owner_read_helper.sql:/docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql:ro
-      - ./supabase/migrations/20260907000005_trip_transport_event_contract.sql:/docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql:ro
-      - ./supabase/migrations/20260908000000_trip_place_preference_contract.sql:/docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql:ro
-      - ./supabase/migrations/20260909000000_trip_calendar_child_invariant_correction.sql:/docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql:ro
+      - ./supabase/migrations/20260918000000_trip_preferences_replace_contract.sql:/docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql:ro
+      - ./supabase/migrations/20260918000001_trip_preferences_owner_read_helper.sql:/docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql:ro
+      - ./supabase/migrations/20260918000002_trip_accommodation_contract.sql:/docker-entrypoint-initdb.d/040_trip_accommodation_contract.sql:ro
+      - ./supabase/migrations/20260918000003_trip_transport_event_contract.sql:/docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql:ro
+      - ./supabase/migrations/20260918000004_trip_place_preference_contract.sql:/docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql:ro
+      - ./supabase/migrations/20260918000005_trip_calendar_child_invariant_correction.sql:/docker-entrypoint-initdb.d/043_trip_calendar_child_invariant_correction.sql:ro
+      - ./supabase/migrations/20260918000006_profile_image_storage.sql:/docker-entrypoint-initdb.d/044_profile_image_storage.sql:ro
+      - ./supabase/migrations/20260918000007_schedule_item_required_references.sql:/docker-entrypoint-initdb.d/045_schedule_item_required_references.sql:ro
+      - ./supabase/migrations/20260918000008_schedule_item_required_references_correction.sql:/docker-entrypoint-initdb.d/046_schedule_item_required_references_correction.sql:ro
+      - ./supabase/migrations/20260918000009_jeju_timetable_route_scope.sql:/docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql:ro
+      - ./supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql:/docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql:ro
+      - ./supabase/migrations/20260918000011_private_trip_ownership_helper.sql:/docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql:ro
+      - ./supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql:/docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
@@ -73,6 +79,14 @@ services:
       SUPABASE_JWT_AUDIENCE: ${SUPABASE_JWT_AUDIENCE:-authenticated}
       SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL:-http://host.docker.internal:54321/auth/v1/.well-known/jwks.json}
       SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      PROFILE_IMAGE_CONNECT_TIMEOUT: ${PROFILE_IMAGE_CONNECT_TIMEOUT:-2s}
+      PROFILE_IMAGE_READ_TIMEOUT: ${PROFILE_IMAGE_READ_TIMEOUT:-5s}
+      PROFILE_IMAGE_MAINTENANCE_ENABLED: ${PROFILE_IMAGE_MAINTENANCE_ENABLED:-false}
+      PROFILE_IMAGE_CLEANUP_FIXED_DELAY: ${PROFILE_IMAGE_CLEANUP_FIXED_DELAY:-PT1M}
+      PROFILE_IMAGE_ORPHAN_FIXED_DELAY: ${PROFILE_IMAGE_ORPHAN_FIXED_DELAY:-PT24H}
+      PROFILE_IMAGE_MAINTENANCE_INITIAL_DELAY: ${PROFILE_IMAGE_MAINTENANCE_INITIAL_DELAY:-PT1M}
       APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-http://localhost:3000}
       APP_SOCIAL_LOGIN_PROVIDER_IDS: ${APP_SOCIAL_LOGIN_PROVIDER_IDS:-google,kakao,custom:naver}
       APP_PLACES_CURSOR_SIGNING_KEY: ${APP_PLACES_CURSOR_SIGNING_KEY:-}

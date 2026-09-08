@@ -1,4 +1,5 @@
 -- Issue #50 remediation: typed schedule items must keep their canonical references.
+-- Both remediation branches recorded that live Supabase application was not executed.
 
 -- Fail the upgrade before installing constraints when a legacy row cannot satisfy the
 -- public schedule-item contract. Do not silently invent or discard a reference.
@@ -68,7 +69,7 @@ alter table public.trip_items
   foreign key (transport_event_id, trip_plan_id, item_type)
   references public.trip_transport_events (id, trip_plan_id, event_type);
 
--- Replace the 037 two-column lookup index so the full composite FK is covered in
+-- Replace the two-column lookup index so the full composite FK is covered in
 -- leading-column order without keeping a redundant prefix index.
 drop index public.idx_trip_items_transport_event;
 create index idx_trip_items_transport_event
@@ -200,8 +201,8 @@ begin
 end;
 $$;
 
--- Preserve the mature timeline/leg assertion as a core function and make the public
--- entry point compose it with the new typed-reference assertion.
+-- Preserve the mature timeline/leg assertion as a core function and compose it
+-- with the typed-reference assertion at the existing public sealing entry point.
 alter function public.assert_schedule_version_sealable(uuid, uuid)
   rename to assert_schedule_version_core_sealable;
 
@@ -236,10 +237,11 @@ revoke execute on function public.assert_schedule_item_required_references(uuid,
 revoke execute on function public.assert_schedule_item_required_references(uuid, uuid) from authenticated;
 grant execute on function public.assert_schedule_item_required_references(uuid, uuid) to service_role;
 
+-- Trigger invocation does not require caller EXECUTE, so no RPC-capable role needs it.
 revoke all on function public.validate_trip_item_required_references() from public;
 revoke execute on function public.validate_trip_item_required_references() from anon;
 revoke execute on function public.validate_trip_item_required_references() from authenticated;
-grant execute on function public.validate_trip_item_required_references() to service_role;
+revoke execute on function public.validate_trip_item_required_references() from service_role;
 
 revoke all on function public.assert_schedule_version_sealable(uuid, uuid) from public;
 revoke execute on function public.assert_schedule_version_sealable(uuid, uuid) from anon;

@@ -6,6 +6,7 @@ cd "$ROOT"
 RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
 PROJECT="timing-jeju-smoke-${RUN_ID}"
 UPGRADE_DB="timing_jeju_legacy_upgrade"
+ORIGIN_DEVELOP_DB="canonical_origin_develop_upgrade"
 HOURS_CONFLICT_DB="timing_jeju_legacy_hours_conflict"
 RESULT_DAY_CONFLICT_DB="timing_jeju_legacy_result_day_conflict"
 RECOMMENDATION_DAY_CONFLICT_DB="timing_jeju_legacy_recommendation_day_conflict"
@@ -28,7 +29,7 @@ CONSISTENCY_CONFLICT_LOG=$(mktemp -t timing-jeju-consistency-conflict.XXXXXX)
 cleanup() {
   cleanup_status=0
   for database in \
-    "$UPGRADE_DB" "$HOURS_CONFLICT_DB" "$RESULT_DAY_CONFLICT_DB" \
+    "$UPGRADE_DB" "$ORIGIN_DEVELOP_DB" "$HOURS_CONFLICT_DB" "$RESULT_DAY_CONFLICT_DB" \
     "$RECOMMENDATION_DAY_CONFLICT_DB" \
     "$BASE_LINEAGE_CONFLICT_DB" \
     "$REFERENCE_CONFLICT_DB" "$TIMETABLE_CONFLICT_DB" \
@@ -194,6 +195,42 @@ fi
 
 echo "[Docker] Health Check 성공"
 
+FRESH_CANONICAL_FINGERPRINT=$(docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test \
+  --file /queries/canonical_migration_fingerprint.sql)
+
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  createdb --username timing_jeju_test "$ORIGIN_DEVELOP_DB"
+
+# canonical_origin_develop_upgrade replays the immutable prefix and then the reserved suffix.
+# canonical_schedule_50_51_upgrade is observable as distinct 045 and 046 history steps.
+for canonical_sql in $(sed -n \
+  's#^[[:space:]]*- ./[^:]*:\(/docker-entrypoint-initdb.d/[0-9][0-9][0-9]_[^:]*\.sql\):ro$#\1#p' \
+  compose.test.yml)
+do
+  if [ "$canonical_sql" = "/docker-entrypoint-initdb.d/099_seed_fixtures.sql" ]; then
+    continue
+  fi
+  docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+    psql --no-psqlrc --set ON_ERROR_STOP=1 \
+    --username timing_jeju_test --dbname "$ORIGIN_DEVELOP_DB" \
+    --file "$canonical_sql"
+done
+
+UPGRADE_CANONICAL_FINGERPRINT=$(docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname "$ORIGIN_DEVELOP_DB" \
+  --file /queries/canonical_migration_fingerprint.sql)
+
+if [ "$FRESH_CANONICAL_FINGERPRINT" != "$UPGRADE_CANONICAL_FINGERPRINT" ]; then
+  echo "[Docker] fresh와 origin/develop upgrade schema/ACL fingerprint가 다릅니다." >&2
+  exit 1
+fi
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  dropdb --username timing_jeju_test "$ORIGIN_DEVELOP_DB"
+echo "[Docker] canonical fresh/origin-develop/#50-then-#51 fingerprint 검사 성공"
+
 assert_consistency_upgrade_failure() {
   database=$1
   fixture=$2
@@ -325,13 +362,19 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/035_mcp_private_http_client.sql \
   /docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql \
   /docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql \
-  /docker-entrypoint-initdb.d/038_schedule_item_required_references.sql \
-  /docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql \
-  /docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql \
-  /docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql \
-  /docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql \
-  /docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql \
-  /docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql \
+  /docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql \
+  /docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql \
+  /docker-entrypoint-initdb.d/040_trip_accommodation_contract.sql \
+  /docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql \
+  /docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql \
+  /docker-entrypoint-initdb.d/043_trip_calendar_child_invariant_correction.sql \
+  /docker-entrypoint-initdb.d/044_profile_image_storage.sql \
+  /docker-entrypoint-initdb.d/045_schedule_item_required_references.sql \
+  /docker-entrypoint-initdb.d/046_schedule_item_required_references_correction.sql \
+  /docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql \
+  /docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql \
+  /docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql \
+  /docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -339,6 +382,28 @@ do
     --username timing_jeju_test --dbname "$UPGRADE_DB" \
     --file "$upgrade_sql"
 done
+
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname "$UPGRADE_DB" \
+  --file /queries/legacy_schedule_item_reference_conflict_fixture.sql
+
+: >"$RESULT_DAY_CONFLICT_LOG"
+if docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 --set VERBOSITY=verbose \
+  --single-transaction --username timing_jeju_test --dbname "$UPGRADE_DB" \
+  --file /docker-entrypoint-initdb.d/046_schedule_item_required_references_correction.sql \
+  >"$RESULT_DAY_CONFLICT_LOG" 2>&1; then
+  echo "[Docker] v1 item 필수 참조 audit가 실패하지 않았습니다." >&2
+  exit 1
+fi
+if ! grep -q "23514.*legacy schedule item required reference audit failed" \
+  "$RESULT_DAY_CONFLICT_LOG" \
+   || ! grep -q "e4300000-0000-0000-0000-000000000001" \
+  "$RESULT_DAY_CONFLICT_LOG"; then
+  echo "[Docker] v1 item 필수 참조 audit가 예상한 오류를 반환하지 않았습니다." >&2
+  exit 1
+fi
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   dropdb --username timing_jeju_test "$UPGRADE_DB"
@@ -509,13 +574,19 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/035_mcp_private_http_client.sql \
   /docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql \
   /docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql \
-  /docker-entrypoint-initdb.d/038_schedule_item_required_references.sql \
-  /docker-entrypoint-initdb.d/039_trip_accommodation_contract.sql \
-  /docker-entrypoint-initdb.d/040_trip_preferences_replace_contract.sql \
-  /docker-entrypoint-initdb.d/041_trip_preferences_owner_read_helper.sql \
-  /docker-entrypoint-initdb.d/042_trip_transport_event_contract.sql \
-  /docker-entrypoint-initdb.d/043_trip_place_preference_contract.sql \
-  /docker-entrypoint-initdb.d/044_trip_calendar_child_invariant_correction.sql \
+  /docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql \
+  /docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql \
+  /docker-entrypoint-initdb.d/040_trip_accommodation_contract.sql \
+  /docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql \
+  /docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql \
+  /docker-entrypoint-initdb.d/043_trip_calendar_child_invariant_correction.sql \
+  /docker-entrypoint-initdb.d/044_profile_image_storage.sql \
+  /docker-entrypoint-initdb.d/045_schedule_item_required_references.sql \
+  /docker-entrypoint-initdb.d/046_schedule_item_required_references_correction.sql \
+  /docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql \
+  /docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql \
+  /docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql \
+  /docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -580,4 +651,9 @@ docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username timing_jeju_test --dbname timing_jeju_test \
   --file /queries/smoke_check.sql
+
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test \
+  --file /queries/private_trip_ownership_helper_contract.sql
 echo "[Docker] PostGIS·fixture 계약 검사 성공"

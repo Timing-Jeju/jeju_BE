@@ -274,6 +274,7 @@ class DockerSmokeIsolationTest(unittest.TestCase):
                 f'{name}=""'
                 for name in (
                     "UPGRADE_DB",
+                    "ORIGIN_DEVELOP_DB",
                     "HOURS_CONFLICT_DB",
                     "RESULT_DAY_CONFLICT_DB",
                     "RECOMMENDATION_DAY_CONFLICT_DB",

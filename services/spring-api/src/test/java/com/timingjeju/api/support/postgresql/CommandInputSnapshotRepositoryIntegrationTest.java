@@ -10,11 +10,17 @@ import com.timingjeju.api.application.commandinput.CommandInputRequest;
 import com.timingjeju.api.application.commandinput.CommandInputSnapshotRepository;
 import com.timingjeju.api.application.commandinput.CommandInputStorageException;
 import com.timingjeju.api.application.commandinput.CommandLocation;
+import com.timingjeju.api.application.commandinput.cleanup.CommandLocationCleanupCommand;
+import com.timingjeju.api.application.commandinput.cleanup.CommandLocationCleanupException;
+import com.timingjeju.api.application.commandinput.cleanup.CommandLocationCleanupPort;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -22,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -43,9 +50,11 @@ class CommandInputSnapshotRepositoryIntegrationTest {
   private static final Instant EVALUATED_AT = Instant.parse("2026-08-24T12:00:00Z");
 
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private DataSource dataSource;
   @Autowired private ObjectMapper objectMapper;
   @Autowired private CommandInputCanonicalizer canonicalizer;
   @Autowired private CommandInputSnapshotRepository repository;
+  @Autowired private CommandLocationCleanupPort cleanupPort;
 
   @BeforeEach
   void setUpParentMatrix() {
@@ -469,6 +478,400 @@ class CommandInputSnapshotRepositoryIntegrationTest {
                 "select has_function_privilege('service_role', 'public.shorten_compute_run_input_location_expiry(uuid,timestamptz)', 'EXECUTE')",
                 Boolean.class))
         .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "select has_function_privilege('service_role', 'public.redact_due_compute_run_input_locations(timestamptz,integer)', 'EXECUTE')",
+                Boolean.class))
+        .isTrue();
+    for (String role : List.of("anon", "authenticated")) {
+      assertThat(
+              jdbc.queryForObject(
+                  "select has_function_privilege(?, 'public.redact_due_compute_run_input_locations(timestamptz,integer)', 'EXECUTE')",
+                  Boolean.class,
+                  role))
+          .as(role)
+          .isFalse();
+    }
+  }
+
+  @Test
+  void due_정확경계는_위치5필드만_원자_redact하고_계보는_보존하며_반복은_noop다() throws Exception {
+    Instant dueAt =
+        Instant.now().minusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    UUID inputId = saveDueComputeInput(COMPUTE, 109, dueAt);
+    Map<String, Object> before = immutableAudit(inputId);
+
+    var first = cleanupPort.execute(new CommandLocationCleanupCommand(dueAt, 500));
+    var second = cleanupPort.execute(new CommandLocationCleanupCommand(dueAt, 500));
+
+    assertThat(first.redactedCount()).isOne();
+    assertThat(second.redactedCount()).isZero();
+    Map<String, Object> row = locationAudit(inputId);
+    assertThat(row)
+        .containsEntry("coarse_location", null)
+        .containsEntry("location_precision_meters", null)
+        .containsEntry("location_policy_version", null)
+        .containsEntry("location_observed_at", null)
+        .containsEntry("location_expires_at", null);
+    assertThat(jdbcTimestampAtUtc(row.get("location_redacted_at")))
+        .isEqualTo(OffsetDateTime.ofInstant(dueAt, ZoneOffset.UTC));
+    assertThat(immutableAudit(inputId)).isEqualTo(before);
+    assertThat(repository.findUsableLocation(new CommandInputParent.Compute(COMPUTE), dueAt))
+        .isEmpty();
+    assertThat(repository.find(new CommandInputParent.Compute(COMPUTE)))
+        .get()
+        .extracting(snapshot -> snapshot.location().isEmpty())
+        .isEqualTo(true);
+  }
+
+  @Test
+  void 미래_미제공_이미정리_row는_noop이고_DB_function은_stable_order_SKIPLLOCKED다() throws Exception {
+    Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    UUID inputId = saveDueComputeInput(COMPUTE, 110, now.plusSeconds(1));
+
+    assertThat(cleanupPort.execute(new CommandLocationCleanupCommand(now, 500)).redactedCount())
+        .isZero();
+    assertThat(locationAudit(inputId).get("coarse_location")).isNotNull();
+
+    UUID unsuppliedRun = UUID.fromString("10910000-0000-0000-0000-000000000001");
+    UUID noAnchorRun = UUID.fromString("10910000-0000-0000-0000-000000000002");
+    for (UUID runId : List.of(unsuppliedRun, noAnchorRun)) {
+      jdbc.update(
+          """
+          insert into public.compute_runs (
+            id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+            input_hash, contract_version, algorithm_version
+          ) values (?, ?, ?, ?, 'feasibility', 'queued', ?, 'compute/v1', 'algorithm/v1')
+          """,
+          runId,
+          TRIP,
+          DAY,
+          BASE,
+          "input-" + runId);
+    }
+    repository.save(
+        canonicalizer.canonicalize(
+            request(
+                new CommandInputParent.Compute(unsuppliedRun),
+                "feasibility",
+                objectMapper.readTree("{\"refreshExternalFacts\":false}"))));
+    repository.save(
+        canonicalizer.canonicalize(
+            request(
+                new CommandInputParent.Compute(noAnchorRun),
+                "feasibility",
+                objectMapper.readTree("{\"refreshExternalFacts\":false}"),
+                new CommandLocation(
+                    new CoarseLocation.Grid100m(109, 109),
+                    "2026-08-11.v1",
+                    now,
+                    now,
+                    null,
+                    null))));
+    assertThat(cleanupPort.execute(new CommandLocationCleanupCommand(now, 500)).redactedCount())
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select location_redacted_at is null from public.compute_run_inputs where compute_run_id = ?",
+                Boolean.class,
+                unsuppliedRun))
+        .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "select location_expires_at is null and coarse_location is not null from public.compute_run_inputs where compute_run_id = ?",
+                Boolean.class,
+                noAnchorRun))
+        .isTrue();
+    String definition =
+        jdbc.queryForObject(
+            "select pg_get_functiondef('public.redact_due_compute_run_input_locations(timestamptz,integer)'::regprocedure)",
+            String.class);
+    assertThat(definition.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " "))
+        .contains(
+            "location_expires_at <= evaluated_at",
+            "order by location_expires_at, id",
+            "limit batch_size",
+            "for update skip locked");
+  }
+
+  @Test
+  void batch_statement_중_한_row라도_실패하면_어떤_row도_부분_redact되지_않고_재시도된다() throws Exception {
+    Instant dueAt =
+        Instant.now().minusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    UUID firstRun = UUID.fromString("10920000-0000-0000-0000-000000000011");
+    UUID secondRun = UUID.fromString("10920000-0000-0000-0000-000000000012");
+    UUID first = saveDueComputeInput(firstRun, 111, dueAt);
+    UUID second = saveDueComputeInput(secondRun, 112, dueAt);
+    jdbc.execute(
+        """
+        create function public.issue109_fail_second_redaction() returns trigger
+        language plpgsql as $$ begin
+          if old.compute_run_id = '10920000-0000-0000-0000-000000000012'::uuid then
+            raise exception 'sanitized injected failure';
+          end if;
+          return new;
+        end $$;
+        create trigger trg_issue109_fail_second_redaction
+        before update on public.compute_run_inputs
+        for each row execute function public.issue109_fail_second_redaction();
+        """);
+    try {
+      assertThatThrownBy(() -> cleanupPort.execute(new CommandLocationCleanupCommand(dueAt, 500)))
+          .isExactlyInstanceOf(CommandLocationCleanupException.class)
+          .hasMessage("COMMAND_LOCATION_CLEANUP_UNAVAILABLE")
+          .hasNoCause();
+      assertThat(locationAudit(first).get("coarse_location")).isNotNull();
+      assertThat(locationAudit(second).get("coarse_location")).isNotNull();
+    } finally {
+      jdbc.execute(
+          "drop trigger if exists trg_issue109_fail_second_redaction on public.compute_run_inputs");
+      jdbc.execute("drop function if exists public.issue109_fail_second_redaction()");
+    }
+
+    assertThat(cleanupPort.execute(new CommandLocationCleanupCommand(dueAt, 500)).redactedCount())
+        .isEqualTo(2);
+  }
+
+  @Test
+  void 부분_NULL_임의_redaction_재복원과_잘못된_함수_signature는_fail_closed다() throws Exception {
+    Instant dueAt =
+        Instant.now().minusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    UUID inputId = saveDueComputeInput(COMPUTE, 119, dueAt);
+
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "update public.compute_run_inputs set coarse_location=null, location_redacted_at=? where id=?",
+                    java.sql.Timestamp.from(dueAt),
+                    inputId))
+        .isInstanceOf(DataIntegrityViolationException.class);
+    assertThat(cleanupPort.execute(new CommandLocationCleanupCommand(dueAt, 500)).redactedCount())
+        .isOne();
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "update public.compute_run_inputs set coarse_location='{\"type\":\"GRID_100M\",\"gridX\":119,\"gridY\":119}'::jsonb where id=?",
+                    inputId))
+        .isInstanceOf(DataIntegrityViolationException.class);
+    for (String invalidCall :
+        List.of(
+            "select public.redact_due_compute_run_input_locations(now(), true)",
+            "select public.redact_due_compute_run_input_locations(now(), 1.5::numeric)",
+            "select public.redact_due_compute_run_input_locations(null, 1)",
+            "select public.redact_due_compute_run_input_locations(now(), 0)",
+            "select public.redact_due_compute_run_input_locations(now(), 501)")) {
+      assertThatThrownBy(() -> jdbc.queryForObject(invalidCall, Integer.class))
+          .as(invalidCall)
+          .isInstanceOf(DataAccessException.class);
+    }
+  }
+
+  @Test
+  void 실제_501_due_row는_첫_batch_500과_다음_batch_1로_안정적으로_정리된다() throws Exception {
+    Instant dueAt =
+        Instant.now().minusSeconds(60).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    insertDeterministicallyOrderedDueInputs(dueAt);
+    UUID expectedRemainingInputId =
+        jdbc.queryForObject(
+            """
+            select id from public.compute_run_inputs
+            where location_expires_at <= ?
+            order by location_expires_at, id
+            offset 500 limit 1
+            """,
+            UUID.class,
+            java.sql.Timestamp.from(dueAt));
+
+    assertThat(
+            cleanupPort
+                .execute(new CommandLocationCleanupCommand(dueAt, 500, Duration.ofSeconds(30)))
+                .redactedCount())
+        .isEqualTo(500);
+    assertThat(
+            jdbc.queryForObject(
+                "select id from public.compute_run_inputs where location_expires_at <= ?",
+                UUID.class,
+                java.sql.Timestamp.from(dueAt)))
+        .isEqualTo(expectedRemainingInputId)
+        .isEqualTo(UUID.fromString("10931000-0000-0000-0000-000000000501"));
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.compute_run_inputs where location_expires_at <= ?",
+                Integer.class,
+                java.sql.Timestamp.from(dueAt)))
+        .isOne();
+    assertThat(cleanupPort.execute(new CommandLocationCleanupCommand(dueAt, 500)).redactedCount())
+        .isOne();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.compute_run_inputs where location_expires_at <= ?",
+                Integer.class,
+                java.sql.Timestamp.from(dueAt)))
+        .isZero();
+  }
+
+  private void insertDeterministicallyOrderedDueInputs(Instant dueAt) {
+    Instant terminalAt = dueAt.minus(Duration.ofHours(24));
+    jdbc.update(
+        """
+        insert into public.compute_runs (
+          id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+          input_hash, contract_version, algorithm_version, completed_at, error_code
+        )
+        select ('10930000-0000-0000-0000-' || lpad(series::text, 12, '0'))::uuid,
+               ?, ?, ?, 'feasibility', 'failed', 'input-' || series,
+               'compute/v1', 'algorithm/v1', ?, 'TEST_TERMINAL'
+        from generate_series(1, 501) series
+        """,
+        TRIP,
+        DAY,
+        BASE,
+        java.sql.Timestamp.from(terminalAt));
+    jdbc.update(
+        """
+        insert into public.compute_run_inputs (
+          id, compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+          run_type, schema_version, contract_version, algorithm_version,
+          structured_input, command_input_hash, location_supplied, coarse_location,
+          location_precision_meters, location_policy_version, location_observed_at,
+          location_expires_at
+        )
+        select ('10931000-0000-0000-0000-' || lpad((502 - series)::text, 12, '0'))::uuid,
+               ('10930000-0000-0000-0000-' || lpad(series::text, 12, '0'))::uuid,
+               ?, ?, ?, 'feasibility', 1, 'command/v1', 'algorithm/v1',
+               '{"refreshExternalFacts":false}'::jsonb,
+               public.compute_command_input_hash(
+                 'feasibility'::text, 1::smallint, 'command/v1'::text,
+                 'algorithm/v1'::text, ?::uuid,
+                 '{"refreshExternalFacts":false}'::jsonb, true::boolean,
+                 '{"type":"GRID_100M","gridX":109,"gridY":109}'::jsonb),
+               true, '{"type":"GRID_100M","gridX":109,"gridY":109}'::jsonb,
+               100, '2026-08-11.v1', ?, ?
+        from generate_series(1, 501) series
+        """,
+        OWNER,
+        TRIP,
+        BASE,
+        BASE,
+        java.sql.Timestamp.from(terminalAt),
+        java.sql.Timestamp.from(dueAt));
+  }
+
+  @Test
+  void 다른_connection이_선두_row를_lock해도_SKIP_LOCKED로_다음_row를_정리하고_중복하지_않는다() throws Exception {
+    Instant evaluatedAt =
+        Instant.now().minusSeconds(30).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    UUID first =
+        saveDueComputeInput(
+            UUID.fromString("10940000-0000-0000-0000-000000000001"),
+            401,
+            evaluatedAt.minusSeconds(1));
+    UUID second =
+        saveDueComputeInput(
+            UUID.fromString("10940000-0000-0000-0000-000000000002"), 402, evaluatedAt);
+
+    try (var locker = dataSource.getConnection()) {
+      locker.setAutoCommit(false);
+      try (var lock =
+          locker.prepareStatement(
+              "select id from public.compute_run_inputs where id = ? for update")) {
+        lock.setObject(1, first);
+        try (var locked = lock.executeQuery()) {
+          assertThat(locked.next()).isTrue();
+        }
+      }
+
+      try (var worker = dataSource.getConnection();
+          var cleanup =
+              worker.prepareStatement(
+                  "select public.redact_due_compute_run_input_locations(?, 1)")) {
+        cleanup.setObject(1, OffsetDateTime.ofInstant(evaluatedAt, ZoneOffset.UTC));
+        try (var result = cleanup.executeQuery()) {
+          assertThat(result.next()).isTrue();
+          assertThat(result.getInt(1)).isOne();
+        }
+      }
+
+      assertThat(locationAudit(first).get("coarse_location")).isNotNull();
+      assertThat(locationAudit(second).get("coarse_location")).isNull();
+      locker.rollback();
+    }
+
+    assertThat(
+            cleanupPort
+                .execute(new CommandLocationCleanupCommand(evaluatedAt, 500))
+                .redactedCount())
+        .isOne();
+  }
+
+  private static OffsetDateTime jdbcTimestampAtUtc(Object value) {
+    assertThat(value).isInstanceOf(java.sql.Timestamp.class);
+    return ((java.sql.Timestamp) value).toInstant().atOffset(ZoneOffset.UTC);
+  }
+
+  private UUID saveDueComputeInput(UUID runId, int grid, Instant dueAt) throws Exception {
+    if (!runId.equals(COMPUTE)) {
+      jdbc.update(
+          """
+          insert into public.compute_runs (
+            id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+            input_hash, contract_version, algorithm_version
+          ) values (?, ?, ?, ?, 'feasibility', 'queued', ?, 'compute/v1', 'algorithm/v1')
+          """,
+          runId,
+          TRIP,
+          DAY,
+          BASE,
+          "input-" + runId);
+    }
+    Instant terminalAt = dueAt.minus(Duration.ofHours(24));
+    jdbc.update(
+        """
+        update public.compute_runs
+        set status='failed', completed_at=?, next_attempt_at=null, error_code='TEST_TERMINAL'
+        where id=?
+        """,
+        java.sql.Timestamp.from(terminalAt),
+        runId);
+    var location =
+        new CommandLocation(
+            new CoarseLocation.Grid100m(grid, grid),
+            "2026-08-11.v1",
+            terminalAt,
+            dueAt,
+            terminalAt,
+            null);
+    repository.save(
+        canonicalizer.canonicalize(
+            request(
+                new CommandInputParent.Compute(runId),
+                "feasibility",
+                objectMapper.readTree("{\"refreshExternalFacts\":false}"),
+                location)));
+    return jdbc.queryForObject(
+        "select id from public.compute_run_inputs where compute_run_id=?", UUID.class, runId);
+  }
+
+  private Map<String, Object> locationAudit(UUID inputId) {
+    return jdbc.queryForMap(
+        """
+        select coarse_location, location_precision_meters, location_policy_version,
+               location_observed_at, location_expires_at, location_redacted_at
+        from public.compute_run_inputs where id=?
+        """,
+        inputId);
+  }
+
+  private Map<String, Object> immutableAudit(UUID inputId) {
+    return jdbc.queryForMap(
+        """
+        select compute_run_id, generation_run_id, schedule_revision_run_id,
+               owner_user_id, trip_plan_id, base_schedule_version_id,
+               run_type, schema_version, contract_version, algorithm_version,
+               structured_input::text, command_input_hash, location_supplied, created_at
+        from public.compute_run_inputs where id=?
+        """,
+        inputId);
   }
 
   private void activateScheduleVersion() {

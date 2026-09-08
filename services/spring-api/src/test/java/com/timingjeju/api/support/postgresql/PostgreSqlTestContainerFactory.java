@@ -31,6 +31,10 @@ final class PostgreSqlTestContainerFactory {
   }
 
   static PostgreSQLContainer createBefore(String exclusiveMigration) {
+    return createBefore(exclusiveMigration, POSTGIS_IMAGE.asCanonicalNameString());
+  }
+
+  static PostgreSQLContainer createBefore(String exclusiveMigration, String image) {
     List<Path> scripts = canonicalInitScripts(locateRepositoryRoot());
     int targetIndex = -1;
     for (int index = 0; index < scripts.size(); index++) {
@@ -42,7 +46,9 @@ final class PostgreSqlTestContainerFactory {
     if (targetIndex < 0) {
       throw new IllegalStateException("대상 Supabase migration이 없습니다: " + exclusiveMigration);
     }
-    return createWithScripts(scripts.subList(0, targetIndex));
+    return createWithScripts(
+        scripts.subList(0, targetIndex),
+        DockerImageName.parse(image).asCompatibleSubstituteFor("postgres"));
   }
 
   static void executeScript(PostgreSQLContainer container, Path script) throws Exception {
@@ -66,15 +72,24 @@ final class PostgreSqlTestContainerFactory {
               + script.getFileName()
               + " (exit="
               + result.getExitCode()
+              + ", stdout="
+              + result.getStdout()
+              + ", stderr="
+              + result.getStderr()
               + ")");
     }
   }
 
   private static PostgreSQLContainer createWithScripts(List<Path> initScripts) {
+    return createWithScripts(initScripts, POSTGIS_IMAGE);
+  }
+
+  private static PostgreSQLContainer createWithScripts(
+      List<Path> initScripts, DockerImageName image) {
     requireDocker(() -> DockerClientFactory.instance().isDockerAvailable());
 
     PostgreSQLContainer container =
-        new PostgreSQLContainer(POSTGIS_IMAGE)
+        new PostgreSQLContainer(image)
             .withDatabaseName("timing_jeju_repository_test")
             .withUsername("timing_jeju_repository_test")
             .withPassword(UUID.randomUUID().toString())

@@ -81,6 +81,7 @@ class MobilityOwnershipContractTest {
             "domain/notification/controller/PushNotificationController.java",
             "domain/places/controller/PlacesController.java",
             "domain/profile/controller/CurrentUserProfileController.java",
+            "domain/profile/controller/ProfileImageController.java",
             "domain/savedplaces/controller/SavedPlacesController.java",
             "domain/schedule/controller/ScheduleController.java",
             "domain/schedule/controller/ScheduleMutationController.java",
@@ -88,12 +89,12 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripController.java",
             "domain/trip/controller/TripPlacePreferencesController.java",
             "domain/weather/controller/WeatherForecastController.java");
-    assertThat(mappingAnnotationCount()).isEqualTo(47);
-    assertThat(migrationInventory()).hasSize(42);
+    assertThat(mappingAnnotationCount()).isEqualTo(54);
+    assertThat(migrationInventory()).hasSize(48);
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260909000000_trip_calendar_child_invariant_correction.sql");
+        .isEqualTo("20260918000012_schedule_title_only_sealing_correction.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {

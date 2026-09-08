@@ -12,6 +12,14 @@ Timing Jeju의 공개 REST API, 인증·인가, 데이터베이스와 외부 API
 ./gradlew bootRun
 ```
 
+프로필 이미지 확인과 cleanup은 표준 `SUPABASE_URL`과 서버 전용
+`SUPABASE_SERVICE_ROLE_KEY`를 `app.profile-image` 설정으로 바인딩합니다. service-role
+key는 브라우저·모바일 클라이언트, 공개 설정, 로그에 넣지 않고 로컬 비추적 환경 또는 배포
+Secret 기능으로만 주입합니다. timeout은 `PROFILE_IMAGE_CONNECT_TIMEOUT`(기본 `2s`)과
+`PROFILE_IMAGE_READ_TIMEOUT`(기본 `5s`)입니다. maintenance scheduler는 기본
+비활성이며 서버 cleanup 권한과 운영 준비가 끝난 환경에서만
+`PROFILE_IMAGE_MAINTENANCE_ENABLED=true`로 활성화합니다.
+
 ## 검사
 
 ```bash

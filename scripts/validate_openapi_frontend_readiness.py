@@ -14,21 +14,40 @@ from urllib.parse import urlparse
 
 HTTP_METHODS = {"get", "put", "post", "delete", "patch", "options", "head", "trace"}
 AUTO_OPERATION_ID = re.compile(r"(?:_\d+|^(?:get|list|read|create|update|patch|delete)$)")
-STABLE_OPERATION_ID = re.compile(r"^[a-z][A-Za-z0-9]*(?:List|Read|Create|Update|Delete)$")
+STABLE_OPERATION_ID = re.compile(r"^[a-z][A-Za-z0-9]*(?:List|Read|Create|Update|Delete|Patch)$")
 SECRET_LIKE = re.compile(
     r"(?:sk_(?:live|test)_[A-Za-z0-9]{12,}|gh[pousr]_[A-Za-z0-9]{20,}|"
     r"AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)",
     re.IGNORECASE,
 )
+MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES = {
+    "placeId",
+    "accommodationId",
+    "transportEventId",
+}
 UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATE_TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
 REQUIRED_REQUEST_HEADERS = {
+    ("PUT", "/api/v1/me/profile-image"): {"Idempotency-Key", "If-Match"},
     ("POST", "/api/v1/me/saved-places"): {"Idempotency-Key"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}"): {"If-Match"},
     ("POST", "/api/v1/trips"): {"Idempotency-Key"},
     ("PATCH", "/api/v1/trips/{tripId}"): {"If-Match"},
     ("POST", "/api/v1/trips/{tripId}/schedule-items"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): {
+        "Idempotency-Key",
+        "If-Match",
+    },
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order"): {"Idempotency-Key", "If-Match"},
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move"): {
         "Idempotency-Key",
         "If-Match",
     },
@@ -46,6 +65,8 @@ REQUIRED_REQUEST_HEADERS = {
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"): {"If-Match"},
 }
 REQUIRED_RESPONSE_HEADERS = {
+    ("GET", "/api/v1/me/profile-image", "200"): {"ETag"},
+    ("PUT", "/api/v1/me/profile-image", "200"): {"ETag", "Idempotency-Replayed"},
     ("POST", "/api/v1/me/saved-places", "200"): {"Location", "ETag", "Idempotency-Replayed"},
     ("POST", "/api/v1/me/saved-places", "201"): {"Location", "ETag", "Idempotency-Replayed"},
     ("PATCH", "/api/v1/me/saved-places/{placeId}", "200"): {"ETag"},
@@ -58,6 +79,28 @@ REQUIRED_RESPONSE_HEADERS = {
         "Idempotency-Replayed",
     },
     ("POST", "/api/v1/trips/{tripId}/schedule-items", "409"): {"Retry-After"},
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move", "200"): {
+        "ETag",
+        "Idempotency-Replayed",
+    },
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "409"): {"Retry-After"},
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}", "409"): {"Retry-After"},
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order", "409"): {"Retry-After"},
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move", "409"): {
+        "Retry-After"
+    },
     ("POST", "/api/v1/trips/{tripId}/accommodations", "201"): {
         "Location",
         "ETag",
@@ -121,9 +164,17 @@ PUSH_NOTIFICATION_OPERATIONS = {
 SCHEDULE_OPERATIONS = {
     ("GET", "/api/v1/trips/{tripId}/schedule"): "tripScheduleRead",
 }
-SCHEDULE_MUTATION_OPERATIONS = {
+SCHEDULE_ITEM_CREATE_OPERATIONS = {
     ("POST", "/api/v1/trips/{tripId}/schedule-items"): "tripScheduleItemCreate",
 }
+SCHEDULE_EDIT_OPERATIONS = {
+    ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemPatch",
+    ("DELETE", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): "tripScheduleItemDelete",
+    ("PUT", "/api/v1/trips/{tripId}/schedule-order"): "tripScheduleOrderUpdate",
+    ("POST", "/api/v1/trips/{tripId}/schedule-items/{itemId}/move"): "tripScheduleItemMoveUpdate",
+}
+# Historical modes 24/25/27/29/30/31 were released with create only.
+SCHEDULE_MUTATION_OPERATIONS = SCHEDULE_ITEM_CREATE_OPERATIONS
 TRANSPORT_EVENT_OPERATIONS = {
     ("PUT", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsUpdate",
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"): "tripTransportEventsDelete",
@@ -134,6 +185,10 @@ PREFERENCES_OPERATIONS = {
 PLACE_PREFERENCE_OPERATIONS = {
     ("PUT", "/api/v1/trips/{tripId}/place-preferences"): "tripPlacePreferencesUpdate",
 }
+PROFILE_IMAGE_OPERATIONS = {
+    ("GET", "/api/v1/me/profile-image"): "profileImageRead",
+    ("PUT", "/api/v1/me/profile-image"): "profileImageUpdate",
+}
 EXPECTED_OPERATION_IDS = (
     CURRENT_OPERATIONS
     | SAVED_PLACE_OPERATIONS
@@ -142,10 +197,12 @@ EXPECTED_OPERATION_IDS = (
     | PUSH_NOTIFICATION_OPERATIONS
     | SCHEDULE_OPERATIONS
     | SCHEDULE_MUTATION_OPERATIONS
+    | SCHEDULE_EDIT_OPERATIONS
     | ACCOMMODATION_OPERATIONS
     | TRANSPORT_EVENT_OPERATIONS
     | PREFERENCES_OPERATIONS
     | PLACE_PREFERENCE_OPERATIONS
+    | PROFILE_IMAGE_OPERATIONS
 )
 PUBLIC_OPERATIONS = {
     ("GET", "/api/v1/auth/social/providers"),
@@ -189,33 +246,43 @@ SOURCE_PROVENANCE_31 = {
     **SOURCE_PROVENANCE_30,
     "place-preferences": "d8c148dcf9eafba30380d8e7a75aa5e944f8c5ef",
 }
+SOURCE_PROVENANCE_33 = {
+    **SOURCE_PROVENANCE_31,
+    "profile-images": "525c736",
+}
 
 
 def operations_for_mode(mode):
     required = dict(CURRENT_OPERATIONS)
-    if mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31):
+    if mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(SAVED_PLACE_OPERATIONS)
         required.update(TRIP_OPERATIONS)
-    if mode in (20, 21, 23, 24, 25, 27, 29, 30, 31):
+    if mode in (20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(PUSH_NOTIFICATION_OPERATIONS)
-    if mode in (21, 23, 24, 25, 27, 29, 30, 31):
+    if mode in (21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(SCHEDULE_OPERATIONS)
-    if mode in (23, 24, 25, 27, 29, 30, 31):
+    if mode in (23, 24, 25, 27, 28, 29, 30, 31, 33):
         required.update(TRIP_MUTATION_OPERATIONS)
-    if mode in (24, 25, 27, 29, 30, 31):
+    if mode in (24, 25, 27, 28, 29, 30, 31, 33):
         required.update(SCHEDULE_MUTATION_OPERATIONS)
-    if mode in (27, 29, 30, 31):
+    if mode in (28, 33):
+        required.update(SCHEDULE_EDIT_OPERATIONS)
+    if mode in (27, 29, 30, 31, 33):
         required.update(ACCOMMODATION_OPERATIONS)
-    if mode in (29, 30, 31):
+    if mode in (29, 30, 31, 33):
         required.update(TRANSPORT_EVENT_OPERATIONS)
-    if mode in (25, 30, 31):
+    if mode in (25, 30, 31, 33):
         required.update(PREFERENCES_OPERATIONS)
-    if mode == 31:
+    if mode in (31, 33):
         required.update(PLACE_PREFERENCE_OPERATIONS)
+    if mode == 33:
+        required.update(PROFILE_IMAGE_OPERATIONS)
     return required
 
 
 def source_provenance_for_mode(mode):
+    if mode == 33:
+        return dict(SOURCE_PROVENANCE_33)
     if mode == 31:
         return dict(SOURCE_PROVENANCE_31)
     if mode == 30:
@@ -226,7 +293,7 @@ def source_provenance_for_mode(mode):
         return dict(SOURCE_PROVENANCE_27)
     if mode == 25:
         return dict(SOURCE_PROVENANCE_25)
-    if mode in (21, 23, 24):
+    if mode in (21, 23, 24, 28):
         return dict(SOURCE_PROVENANCE_21)
     if mode == 20:
         return dict(SOURCE_PROVENANCE_20)
@@ -327,7 +394,7 @@ class Validator:
         self.validate_known_headers()
         if include_authority:
             self.validate_contract_authority()
-        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             self.validate_source_provenance()
         return self.errors
 
@@ -375,24 +442,33 @@ class Validator:
             for entry in catalog.get("endpoints", [])
             if isinstance(entry, dict)
         }
+        profile_legal_operations = {
+            key: value
+            for key, value in CURRENT_OPERATIONS.items()
+            if key[1] in {"/api/v1/me", "/api/v1/legal-documents", "/api/v1/me/consents"}
+        }
+        if self.mode == 33:
+            profile_legal_operations.update(PROFILE_IMAGE_OPERATIONS)
         groups = [
-            ("profile-legal", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] in {"/api/v1/me", "/api/v1/legal-documents", "/api/v1/me/consents"}}),
+            ("profile-legal", profile_legal_operations),
             ("places", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1].startswith("/api/v1/places")}),
             ("weather-forecast", {key: value for key, value in CURRENT_OPERATIONS.items() if key[1] == "/api/v1/weather/forecast"}),
         ]
-        if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31):
+        if self.mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             trip_operations = dict(TRIP_OPERATIONS)
-            if self.mode in (23, 24, 25, 27, 29, 30, 31):
+            if self.mode in (23, 24, 25, 27, 28, 29, 30, 31, 33):
                 trip_operations.update(TRIP_MUTATION_OPERATIONS)
             groups.extend((("saved-places", SAVED_PLACE_OPERATIONS), ("trips", trip_operations)))
-        if self.mode in (20, 21, 23, 24, 25, 27, 29, 30, 31):
+        if self.mode in (20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             groups.append(("push-notifications", PUSH_NOTIFICATION_OPERATIONS))
-        if self.mode in (21, 23, 24, 25, 27, 29, 30, 31):
+        if self.mode in (21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             schedule_operations = dict(SCHEDULE_OPERATIONS)
-            if self.mode in (24, 25, 27, 29, 30, 31):
+            if self.mode in (24, 25, 27, 28, 29, 30, 31, 33):
                 schedule_operations.update(SCHEDULE_MUTATION_OPERATIONS)
+            if self.mode in (28, 33):
+                schedule_operations.update(SCHEDULE_EDIT_OPERATIONS)
             groups.append(("schedules", schedule_operations))
-        if self.mode in (27, 29, 30, 31):
+        if self.mode in (27, 29, 30, 31, 33):
             groups.append(("accommodations", ACCOMMODATION_OPERATIONS))
         if self.mode == 29:
             groups.append(("preferences-transport", TRANSPORT_EVENT_OPERATIONS))
@@ -405,7 +481,7 @@ class Validator:
                     PREFERENCES_OPERATIONS | TRANSPORT_EVENT_OPERATIONS,
                 )
             )
-        if self.mode == 31:
+        if self.mode in (31, 33):
             groups.append(
                 (
                     "preferences-transport",
@@ -896,7 +972,7 @@ class Validator:
             if key not in self.operations:
                 prefix = (
                     f"{self.mode}-operation 완료 mode: "
-                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 29, 30, 31)
+                    if self.mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33)
                     else ""
                 )
                 self.error(f"{key[0]} {key[1]}", prefix + "권위 source의 공개 operation이 없습니다")
@@ -1210,6 +1286,12 @@ class Validator:
                 for key in sorted(set(value) - set(properties)):
                     self.error(location, f"additional property {key!r}가 schema에 없습니다")
             undocumented = set(properties) - set(value)
+            present_references = MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES & set(value)
+            if (
+                MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES <= set(properties)
+                and len(present_references) == 1
+            ):
+                undocumented -= MUTUALLY_EXCLUSIVE_REFERENCE_PROPERTIES
             for key in sorted(undocumented):
                 self.error(location, f"schema property {key!r}를 example이 보여주지 않습니다")
             for key, item in value.items():
@@ -1309,9 +1391,9 @@ def main(argv):
     parser.add_argument(
         "--mode",
         type=int,
-        choices=(9, 16, 20, 21, 23, 24, 25, 27, 29, 30, 31),
-        default=31,
-        help="historical modes {9,16,20,21,23,24,25,27,29,30}; active mode31",
+        choices=(9, 16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33),
+        default=33,
+        help="historical modes {9,16,20,21,23,24,25,27,28,29,30,31}; active mode33",
     )
     parser.add_argument("--contracts-root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv[1:])
