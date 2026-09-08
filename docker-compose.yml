@@ -60,6 +60,7 @@ services:
       - ./supabase/migrations/20260918000011_private_trip_ownership_helper.sql:/docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql:ro
       - ./supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql:/docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql:ro
       - ./supabase/migrations/20260918000013_schedule_item_closed_facts.sql:/docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql:ro
+      - ./supabase/migrations/20260918000014_planned_anchor_resolver.sql:/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

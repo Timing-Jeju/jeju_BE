@@ -127,6 +127,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
               plannedEnd,
               false));
 
+      assertRequiredReferences(record.tripId(), newVersionId);
       Map<ItemPair, SourceLeg> sourceLegs = loadSourceLegs(record.tripId(), activeVersionId);
       copyOrDeriveLegs(
           record.tripId(),
@@ -276,6 +277,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         copiedIds.put(source.id(), newId);
       }
       copyProgress(record.tripId(), activeVersionId, newVersionId, copiedIds, committedAt);
+      assertRequiredReferences(record.tripId(), newVersionId);
       copyOrDeriveLegs(
           record.tripId(),
           newVersionId,
@@ -507,6 +509,14 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         summary,
         record.ownerId(),
         Timestamp.from(committedAt));
+  }
+
+  private void assertRequiredReferences(UUID tripId, UUID versionId) {
+    jdbc.queryForObject(
+        "select public.assert_schedule_item_required_references(?, ?)",
+        (rs, row) -> 1,
+        versionId,
+        tripId);
   }
 
   private void sealAndActivate(
@@ -1099,31 +1109,17 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         jdbc
             .query(
                 """
-                with item_points as (
-                  select item.id,
-                         coalesce(
-                           place.location,
-                           case when jsonb_typeof(item.facts #> '{location,lat}')='number'
-                                  and jsonb_typeof(item.facts #> '{location,lng}')='number'
-                             then ST_SetSRID(ST_MakePoint(
-                               (item.facts #>> '{location,lng}')::double precision,
-                               (item.facts #>> '{location,lat}')::double precision),4326)::geography
-                           end) as location
-                  from public.trip_items item
-                  left join public.tour_places place on place.id=item.place_id
-                  where item.schedule_version_id=? and item.id in (?, ?)
-                )
                 select ceil(ST_Distance(origin.location, destination.location))::bigint as meters
-                from item_points origin, item_points destination
-                where origin.id=? and destination.id=?
-                  and origin.location is not null and destination.location is not null
+                from timing_jeju_planner_private.resolve_planned_item_anchor(?, ?, ?) origin
+                cross join timing_jeju_planner_private.resolve_planned_item_anchor(?, ?, ?) destination
                 """,
                 (rs, row) -> rs.getLong("meters"),
+                from.id(),
                 versionId,
-                from.id(),
+                tripId,
                 to.id(),
-                from.id(),
-                to.id())
+                versionId,
+                tripId)
             .stream()
             .findFirst()
             .orElseThrow(ScheduleException::legIncomplete);

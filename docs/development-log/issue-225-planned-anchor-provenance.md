@@ -14,7 +14,7 @@
 
 ## 남은 구현과 검증
 
-- JDBC 및 sealing의 좌표 fallback 제거와 public place/stop/accommodation/transport resolver.
+- JDBC 및 sealing resolver 구현은 아래 단계에서 완료했다. route snapshot 연결까지 포함한 전체 검증은 남아 있다.
 - route snapshot의 origin/destination exact-one 참조, owner/version/item lineage, 공개 좌표 및 request hash provenance.
 - legacy route의 증명 가능한 backfill과 불명확/활성 자료 fail-closed 경계. 좌표 일치만으로 provenance를 발명하지 않는다.
 - 전체 DB fresh/upgrade/PG16·17/concurrency, schema/ACL fingerprint, OpenAPI, 전체 품질 gate 및 독립 리뷰.
@@ -24,3 +24,13 @@
 
 - `/tmp/jeju-225-legacy-rollback.log`: PostgreSQL 16·17에서 non-empty legacy facts가 있으면 새 migration이 실패하고 원래 JSON과 전체 schema/RLS/ACL fingerprint가 동일하게 유지되는 것을 검증했다(2건 PASS).
 - 기존 자료 marker 및 좌표가 migration 실패 예외에 반사되지 않는지도 확인했다. 테스트의 첫 compile 오류(AssertJ varargs 미지원)는 개별 assertion으로 정정했다.
+
+## 공개 계획 anchor resolver
+
+- forward migration `20260918000014` / init `052`에서 `timing_jeju_planner_private`를 만들었다. 기존 owner helper schema의 service_role USAGE 회수는 유지하고, 새 resolver에만 service_role USAGE/EXECUTE를 부여했다. SECURITY INVOKER와 빈 search_path를 사용한다.
+- 공개 place/stop, 같은 여행의 숙소 및 입출도 이벤트를 해석한다. item은 trip/version/item 계보와 중복 place FK의 일치 여부를 검사한다. 삭제·stale 공개 장소를 계산에 재사용하지 않는다. 공개 FK가 없는 사용자 숙소 이름을 좌표로 자동 매핑하지 않는다.
+- JDBC 도보 fallback과 sealing에서 `facts.location` 해석을 제거했다. 기존 시간·연속 순서·겹침·leg 및 title-only 예외 검사는 유지했다.
+- RED `/tmp/jeju-225-anchor-red.log` 8건: resolver 미구현. GREEN `/tmp/jeju-225-anchor-green.log` 8건. 추가 ACL/중복 FK/삭제 anchor 경계는 `/tmp/jeju-225-anchor-boundaries-green.log` 11건 PASS. 첫 추가 fixture는 placeId를 비우면서 제목도 비워 기존 CHECK에서 거부되어 공개 숙소 제목을 명시했다.
+- 회귀 RED `/tmp/jeju-225-schedule-regression.log` 2건: 필수 참조 검사가 경로 해석보다 늦어 오류 코드가 달라졌다. 필수 참조를 leg 파생 전에 검사하도록 수정해 `/tmp/jeju-225-schedule-regression-green.log` 전체 55건 PASS.
+- schema/RLS/ACL fingerprint에 새 private schema를 포함하고 Java/Python canonical suffix 및 init/upgrade 목록을 등록했다. registry 13건 PASS(`/tmp/jeju-225-resolver-registry-final.log`).
+- 독립 Reviewer가 d23971c와 resolver/JDBC bounded diff를 검토해 필수 finding 0건을 보고했다. 전체 #225 승인이나 recorder 실행은 아니다.

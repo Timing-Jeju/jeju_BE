@@ -165,6 +165,130 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     jdbc.execute("set constraints all immediate");
   }
 
+  @ParameterizedTest
+  @EnumSource(ItemKind.class)
+  void planned_item_anchor는_소유_버전의_공개_참조에서만_좌표를_해석한다(ItemKind kind) {
+    ScheduleMutationResult result = store.addItem(record(kind.command(), ACTIVE, 1));
+    var anchor =
+        jdbc.queryForMap(
+            "select anchor_kind,anchor_id,source_place_id from timing_jeju_planner_private.resolve_planned_item_anchor(?,?,?)",
+            result.changedItemIds().getFirst(),
+            result.activeScheduleVersionId(),
+            TRIP);
+    String expectedKind =
+        kind == ItemKind.ACCOMMODATION
+            ? "accommodation"
+            : kind == ItemKind.ARRIVAL || kind == ItemKind.DEPARTURE ? "transport_event" : "place";
+    UUID expectedId =
+        kind == ItemKind.ACCOMMODATION
+            ? ACCOMMODATION_ID
+            : kind == ItemKind.ARRIVAL
+                ? ARRIVAL_ID
+                : kind == ItemKind.DEPARTURE ? DEPARTURE_ID : ADDED_PLACE;
+    assertThat(anchor)
+        .containsEntry("anchor_kind", expectedKind)
+        .containsEntry("anchor_id", expectedId)
+        .containsEntry("source_place_id", ADDED_PLACE);
+    assertThat(
+            jdbc.queryForList(
+                "select * from timing_jeju_planner_private.resolve_planned_item_anchor(?,?,?)",
+                result.changedItemIds().getFirst(),
+                ACTIVE,
+                TRIP))
+        .isEmpty();
+    assertThat(
+            jdbc.queryForList(
+                "select * from timing_jeju_planner_private.resolve_planned_item_anchor(?,?,?)",
+                result.changedItemIds().getFirst(),
+                result.activeScheduleVersionId(),
+                UUID.randomUUID()))
+        .isEmpty();
+  }
+
+  @Test
+  void planned_stop_anchor는_공개_정류장만_해석하고_임의_kind는_거부한다() {
+    UUID stop = UUID.randomUUID();
+    jdbc.update(
+        "insert into public.bus_stops(id,node_id,node_name,location) values (?,'issue225-stop','공개 정류장',ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography)",
+        stop);
+    assertThat(
+            jdbc.queryForMap(
+                "select anchor_kind,anchor_id,source_stop_id from timing_jeju_planner_private.resolve_planned_anchor('stop',?,?)",
+                stop,
+                TRIP))
+        .containsEntry("anchor_kind", "stop")
+        .containsEntry("anchor_id", stop)
+        .containsEntry("source_stop_id", stop);
+    assertThat(
+            jdbc.queryForList(
+                "select * from timing_jeju_planner_private.resolve_planned_anchor('current_location',?,?)",
+                stop,
+                TRIP))
+        .isEmpty();
+    assertThat(
+            jdbc.queryForList(
+                "select * from timing_jeju_planner_private.resolve_planned_anchor('accommodation',?,?)",
+                ACCOMMODATION_ID,
+                UUID.randomUUID()))
+        .isEmpty();
+    assertThat(
+            jdbc.queryForList(
+                "select * from timing_jeju_planner_private.resolve_planned_anchor('transport_event',?,?)",
+                ARRIVAL_ID,
+                UUID.randomUUID()))
+        .isEmpty();
+  }
+
+  @Test
+  void planned_anchor_helper는_service_role만_실행하고_기존_owner_schema_ACL은_유지한다() {
+    for (String role : List.of("anon", "authenticated", "service_role")) {
+      boolean allowed = role.equals("service_role");
+      assertThat(jdbc.queryForObject(
+              "select has_schema_privilege(?, 'timing_jeju_planner_private', 'USAGE')",
+              Boolean.class, role)).isEqualTo(allowed);
+      for (String function : List.of(
+          "timing_jeju_planner_private.resolve_planned_anchor(text,uuid,uuid)",
+          "timing_jeju_planner_private.resolve_planned_item_anchor(uuid,uuid,uuid)")) {
+        assertThat(jdbc.queryForObject(
+                "select has_function_privilege(?, ?, 'EXECUTE')", Boolean.class, role, function))
+            .isEqualTo(allowed);
+      }
+    }
+    assertThat(jdbc.queryForObject(
+            "select has_schema_privilege('service_role', 'timing_jeju_private', 'USAGE')",
+            Boolean.class)).isFalse();
+    jdbc.execute("set local role service_role");
+    try {
+      assertThat(jdbc.queryForObject(
+              "select source_place_id from timing_jeju_planner_private.resolve_planned_item_anchor(?,?,?)",
+              UUID.class, FIRST, ACTIVE, TRIP)).isEqualTo(FIRST_PLACE);
+    } finally {
+      jdbc.execute("reset role");
+    }
+  }
+
+  @Test
+  void planned_accommodation은_중복_placeId_없이_해석하고_다른_placeId는_거부한다() {
+    mutateLegacyItem(
+        "update public.trip_items set item_type='accommodation', accommodation_id=?, place_id=null, title='공개 숙소' where id=?",
+        ACCOMMODATION_ID, FIRST);
+    assertThat(jdbc.queryForObject(
+            "select source_place_id from timing_jeju_planner_private.resolve_planned_item_anchor(?,?,?)",
+            UUID.class, FIRST, ACTIVE, TRIP)).isEqualTo(ADDED_PLACE);
+    mutateLegacyItem("update public.trip_items set place_id=? where id=?", FIRST_PLACE, FIRST);
+    assertThat(jdbc.queryForList(
+            "select * from timing_jeju_planner_private.resolve_planned_item_anchor(?,?,?)",
+            FIRST, ACTIVE, TRIP)).isEmpty();
+  }
+
+  @Test
+  void planned_anchor는_삭제된_공개_장소를_계산에_재사용하지_않는다() {
+    jdbc.update("update public.tour_places set tombstoned_at=now() where id=?", FIRST_PLACE);
+    assertThat(jdbc.queryForList(
+            "select * from timing_jeju_planner_private.resolve_planned_item_anchor(?,?,?)",
+            FIRST, ACTIVE, TRIP)).isEmpty();
+  }
+
   @Test
   void POST는_completed_arrived_survivor_progress를_새_ID에_보존하고_완료_guard를_유지한다() {
     Instant started = Instant.parse("2026-09-01T00:05:00Z");
