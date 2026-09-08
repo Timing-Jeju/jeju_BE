@@ -31,6 +31,7 @@ CANONICAL_SUFFIX = (
     ("20260918000012_schedule_title_only_sealing_correction.sql", "050", 215),
     ("20260918000013_schedule_item_closed_facts.sql", "051", 225),
     ("20260918000014_planned_anchor_resolver.sql", "052", 225),
+    ("20260918000015_planned_route_snapshot_provenance.sql", "053", 225),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -57,7 +58,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `052`", architecture)
+        self.assertIn("Docker init `038`부터 `053`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
@@ -163,6 +164,18 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             "revoke execute on function public.assert_schedule_version_core_sealable(uuid, uuid) from authenticated",
             source,
         )
+
+    def test_planned_resolver_smoke_loops_include_public_tombstone_dependency(self) -> None:
+        """계획 anchor resolver를 실행하는 모든 smoke 경로가 공개 장소 삭제 컬럼을 먼저 준비한다."""
+        source = (ROOT / "scripts/docker-smoke-test.sh").read_text(encoding="utf-8")
+        resolver = "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql"
+        dependency = "/docker-entrypoint-initdb.d/023_public_place_tombstone.sql"
+        blocks = re.findall(r"for \w+ in(.*?)\ndo", source, re.DOTALL)
+        selected = [block for block in blocks if resolver in block]
+        self.assertEqual(2, len(selected))
+        for block in selected:
+            self.assertIn(dependency, block)
+            self.assertLess(block.index(dependency), block.index(resolver))
 
     def test_compose_and_both_smoke_scripts_follow_the_manifest(self) -> None:
         expected_mounts = [

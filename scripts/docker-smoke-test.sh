@@ -348,6 +348,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/015_tour_api_incremental_sync.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
   /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
+  /docker-entrypoint-initdb.d/023_public_place_tombstone.sql \
   /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
   /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql \
@@ -385,6 +386,39 @@ do
     --file "$upgrade_sql"
 done
 
+# Historical unproven routes must block 053 without changing schema or data.
+planned_route_legacy_fingerprint() {
+  docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+    psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+    --username timing_jeju_test --dbname "$UPGRADE_DB" \
+    --file /queries/canonical_migration_fingerprint.sql
+  docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+    psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+    --username timing_jeju_test --dbname "$UPGRADE_DB" \
+    --command "select count(*),md5(coalesce(string_agg(row_data,',' order by row_data),'')) from (
+      select to_jsonb(route)::text row_data from public.mobility_route_snapshots route
+      union all select to_jsonb(leg)::text from public.trip_legs leg
+    ) rows;"
+}
+PLANNED_ROUTE_LEGACY_BEFORE=$(planned_route_legacy_fingerprint)
+if docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 --set VERBOSITY=verbose \
+  --username timing_jeju_test --dbname "$UPGRADE_DB" \
+  --file /docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql \
+  >"$CONSISTENCY_CONFLICT_LOG" 2>&1; then
+  echo "[Docker] 출처 불명 legacy route audit가 실패하지 않았습니다." >&2
+  exit 1
+fi
+if ! grep -q "23514.*legacy route snapshots require provenance audit" "$CONSISTENCY_CONFLICT_LOG"; then
+  echo "[Docker] legacy route audit가 예상한 오류를 반환하지 않았습니다." >&2
+  exit 1
+fi
+PLANNED_ROUTE_LEGACY_AFTER=$(planned_route_legacy_fingerprint)
+if [ "$PLANNED_ROUTE_LEGACY_BEFORE" != "$PLANNED_ROUTE_LEGACY_AFTER" ]; then
+  echo "[Docker] legacy route audit 실패 후 schema 또는 데이터가 변경되었습니다." >&2
+  exit 1
+fi
+
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username timing_jeju_test --dbname "$UPGRADE_DB" \
@@ -409,7 +443,7 @@ fi
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   dropdb --username timing_jeju_test "$UPGRADE_DB"
-echo "[Docker] v1→최신 migration 업그레이드 계약 검사 성공"
+echo "[Docker] v1→052 역사 계약 및 053 fail-closed rollback 검사 성공"
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   createdb --username timing_jeju_test "$HOURS_CONFLICT_DB"
@@ -562,6 +596,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/015_tour_api_incremental_sync.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
   /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
+  /docker-entrypoint-initdb.d/023_public_place_tombstone.sql \
   /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
   /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql \
@@ -591,6 +626,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql \
   /docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql \
   /docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql \
+  /docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

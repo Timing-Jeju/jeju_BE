@@ -946,7 +946,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             && from.semanticallyUnchanged()
             && to.semanticallyUnchanged()
             && reusable.transportMode().equals(preferredMode)) {
-          insertCopiedLeg(tripId, versionId, index + 1, from, to, reusable);
+          insertCopiedLeg(tripId, versionId, index + 1, from, to, reusable, transactionTime);
         } else if (!insertStoredSnapshotLeg(
             tripId, versionId, index + 1, from, to, preferredMode, transactionTime)) {
           insertFallbackLeg(tripId, versionId, index + 1, from, to);
@@ -989,7 +989,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             from public.mobility_route_snapshots snapshot
             join public.tour_places origin on origin.id=?
             join public.tour_places destination on destination.id=?
-            where snapshot.transport_mode=?
+            where snapshot.trip_plan_id=? and snapshot.schedule_version_id=?
+              and snapshot.origin_item_id=? and snapshot.destination_item_id=?
+              and snapshot.transport_mode=?
               and snapshot.observed_at <= ? and snapshot.expires_at > ?
               and ST_Equals(snapshot.origin_location::geometry, origin.location::geometry)
               and ST_Equals(snapshot.destination_location::geometry, destination.location::geometry)
@@ -1018,6 +1020,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
                     rs.getInt("transfer_minutes")),
             from.placeId(),
             to.placeId(),
+            tripId,
+            versionId,
+            from.id(),
+            to.id(),
             transportMode,
             Timestamp.from(transactionTime),
             Timestamp.from(transactionTime));
@@ -1061,12 +1067,14 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
   }
 
   private void insertCopiedLeg(
-      UUID tripId, UUID versionId, int sequence, NewItem from, NewItem to, SourceLeg leg) {
+      UUID tripId, UUID versionId, int sequence, NewItem from, NewItem to, SourceLeg leg,
+      Instant transactionTime) {
     Instant departure = from.end();
     Instant arrival = departure.plusSeconds(leg.durationMinutes() * 60L);
     if (arrival.isAfter(to.start())) {
       throw ScheduleException.legIncomplete();
     }
+    UUID copiedLegId = UUID.randomUUID();
     jdbc.update(
         """
         insert into public.trip_legs
@@ -1077,7 +1085,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
            distance_meters, estimated_fare, risk_score, facts)
         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
         """,
-        UUID.randomUUID(),
+        copiedLegId,
         tripId,
         from.dayId(),
         versionId,
@@ -1088,7 +1096,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         leg.originStopId(),
         leg.destinationStopId(),
         leg.routeId(),
-        leg.snapshotId(),
+        null,
         Timestamp.from(departure),
         Timestamp.from(arrival),
         leg.walkMinutes(),
@@ -1101,6 +1109,15 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         leg.estimatedFare(),
         leg.riskScore(),
         leg.facts());
+    if (leg.snapshotId() != null) {
+      UUID snapshotId = jdbc.queryForObject(
+          "select timing_jeju_planner_private.clone_planned_route_snapshot(?,?,?,?,?,?,?)",
+          UUID.class, leg.snapshotId(), tripId, versionId, from.id(), to.id(),
+          Timestamp.from(departure), Timestamp.from(transactionTime));
+      if (snapshotId == null) throw ScheduleException.legIncomplete();
+      jdbc.update("update public.trip_legs set mobility_route_snapshot_id=? where id=?",
+          snapshotId, copiedLegId);
+    }
   }
 
   private void insertFallbackLeg(
