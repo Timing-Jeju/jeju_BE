@@ -60,3 +60,9 @@
 
 - 전체 산출물 validator에서 새 tripItemId query example 누락을 확인했다. HTTP Swagger RED(`/tmp/jeju-222-item-example-red.log`) 후 문서 인터페이스에 canonical UUID 예제를 추가해 GREEN(`/tmp/jeju-222-item-example-green.log`)을 확인했다.
 - `/tmp/jeju-222-openapi-all-final.log`: OpenAPI 생성 및 루트 frontend-readiness 37 operations PASS. 선행 #221 병합 후 전체 gate는 별도로 수행한다.
+
+## #221 순차 병합 후 최종 검증 기준
+
+- PR #231이 develop `4023095e20acbde6e69f0bbf7b842a252a55cd8f`로 병합된 뒤 최신 base를 통합했다. Places와 Weather가 모두 사용자 GPS query를 받지 않는 조합으로 전체 gate를 실행한다.
+- 독립 Reviewer는 99e585e까지의 추가 변경과 OpenAPI 37 operations 증거를 확인해 finding 0건을 보고했다. 아래 최종 HEAD의 전체 gate와 공식 승인 recorder는 별도 확인한다.
+- Notion v2 본문 갱신은 무료 블록 한도 때문에 미반영이다. 실제 Figma v2 Draft readback과 이를 구분하며 문서 readiness를 강제로 올리지 않는다.
