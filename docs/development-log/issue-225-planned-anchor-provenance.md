@@ -102,3 +102,14 @@
 - `98d56f2` 전체 gate의 integrationTest에서 기존 날씨 테스트가 `trip_items.facts.location`을 저장하다 #225의 closed facts guard에 거부됐다. 검증을 SIGINT로 중단해 watchdog 진단을 남겼다(`/tmp/jeju-225-quality-98d56f2-solo.log`, exit126, interrupted/new-docker-resource-residue). 이후 process 종료와 Docker 컨테이너 0개를 확인했다. 이 실행은 전체 gate 성공 근거가 아니다.
 - 대상 테스트 재현 `/tmp/jeju-225-weather-closed-facts-red.log`에서 동일 저장 실패를 확인했다. 공개 place FK 없는 일정은 조회 불가를 먼저 검증하고, 이어 위치 JSON 저장 시도 자체가 값 비반사 오류로 거부됨을 별도로 검증하도록 fixture를 변경했다. 운영 코드와 기존 migration은 변경하지 않았다.
 - GREEN: 대상 날씨 9건 failure/error 0, `/tmp/jeju-225-weather-closed-facts-green.log`, 58s PASS. 독립 delta review finding 0. 전체 gate는 새 commit에서 다시 검증한다.
+
+## 2026-09-09 최종 검사 후 도달 불가능한 조회 정리
+
+- `c63f803` 단독 전체 gate는 공통821(3 skip), unit1351(9 skip), slice56, integration796(4 skip), OpenAPI11 및 runtime FE37 operation을 통과했다. architecture의 이전 migration 개수48/마지막012 기대값 한 건이 실패했다 (`/tmp/jeju-225-quality-c63f803-solo.log`). 현재 등록52개/013–016 연속성/마지막016을 검증하도록 테스트를 수정했다. 기존 migration은 변경하지 않았다.
+- 후속 preflight에서 architecture는 통과했고 커버리지는 22058/24524(89.94%)로 기존90% 기준에 미달했다 (`/tmp/jeju-225-remaining-gates-preflight.log`). 기준을 낮추거나 제외 대상을 추가하지 않는다.
+- #225의 버전·항목 범위 제한 후 새 version/item UUID를 생성하는 transaction 안에서는 `insertStoredSnapshotLeg`가 조회할 snapshot이 아직 존재할 수 없다. 독립 리뷰에서 확인한 이 도달 불가능한 조회와 전용 record를 제거했다. 변경 없는 기존 구간은 SourceLeg 복사/clone을 유지하고, 변경 구간은 기존 canonical 공개 좌표 기반 수동 편집 fallback을 그대로 호출한다.
+- 교차 버전 snapshot 미사용 회귀에 fallback 두 구간과 외부 snapshot 보존 검증을 추가했다. 미커밋 delta 독립 리뷰 finding0. 공식 승인과 최종 전체 gate는 아직 미완료다.
+- 코드 변경 전 mutation 회귀 `/tmp/jeju-225-dead-lookup-regression.log` PASS(1m21s); 변경 후 강화한 회귀와 커버리지·빌드·Docker를 순차 재검증한다.
+- 강화 mutation85건 PASS(`/tmp/jeju-225-dead-lookup-green.log`,1m23s). 다음 architecture 검사에서 제거한 snapshot 조회의 place-null 문자열에 의존한 과거 source assertion 한 건이 실패했다. 실제 fallback이 사용하는 canonical anchor resolver 호출 및 해석 실패의 legIncomplete 검증으로 정렬했다. 이는 저장소 문자열 검사의 정정이며 canonical ID 검증을 약화하지 않는다.
+- 현재 source architecture/test 및 bootJar PASS. 선별 integration85 실행이 전체796 실행의 JaCoCo 파일을 교체했으므로 후속 coverage67%는 전체 범위의 재측정이 아니며 성공 증거로 쓰지 않는다 (`/tmp/jeju-225-canonical-source-coverage.log`). 공식 gate가 모든 execution data를 지우고 전체 suite에서 다시 수집한 수치만 최종 판정에 사용한다.
+- `/tmp/jeju-225-final-preflight-docker.log` exit0 PASS: 이미지/health, fresh·origin-develop·역사 upgrade fingerprint, 053 fail-closed rollback, 실제2세션 동시성, schema/음수무결성/PostGIS fixture 및 자원 정리. ACL 거부 계약의 예상 permission denied는 실패가 아니다. 최종 commit의 공식 전체 gate는 별도로 실행한다.

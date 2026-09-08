@@ -1033,6 +1033,21 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
                 result.activeScheduleVersionId(),
                 snapshot))
         .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_legs where schedule_version_id=? "
+                    + "and mobility_route_snapshot_id is null and transport_mode='walk' "
+                    + "and duration_minutes >= 1 and facts->>'derivation'='conservative_walk_v1'",
+                Integer.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo(2);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.mobility_route_snapshots where id=? and schedule_version_id=?",
+                Integer.class,
+                snapshot,
+                candidateVersion))
+        .isEqualTo(1);
     assertThat(result.versionNo()).isEqualTo(3);
   }
 

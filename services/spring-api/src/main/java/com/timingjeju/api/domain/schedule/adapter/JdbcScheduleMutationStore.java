@@ -947,8 +947,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             && to.semanticallyUnchanged()
             && reusable.transportMode().equals(preferredMode)) {
           insertCopiedLeg(tripId, versionId, index + 1, from, to, reusable, transactionTime);
-        } else if (!insertStoredSnapshotLeg(
-            tripId, versionId, index + 1, from, to, preferredMode, transactionTime)) {
+        } else {
           insertFallbackLeg(tripId, versionId, index + 1, from, to);
         }
       }
@@ -964,106 +963,6 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         .stream()
         .findFirst()
         .orElse("walk");
-  }
-
-  private boolean insertStoredSnapshotLeg(
-      UUID tripId,
-      UUID versionId,
-      int sequence,
-      NewItem from,
-      NewItem to,
-      String transportMode,
-      Instant transactionTime) {
-    if (from.placeId() == null || to.placeId() == null) {
-      return false;
-    }
-    List<SnapshotLeg> candidates =
-        jdbc.query(
-            """
-            select snapshot.id, snapshot.duration_minutes, snapshot.distance_meters,
-                   snapshot.estimated_fare,
-                   (snapshot.route_summary->>'walkMinutes')::integer as walk_minutes,
-                   (snapshot.route_summary->>'waitMinutes')::integer as wait_minutes,
-                   (snapshot.route_summary->>'rideMinutes')::integer as ride_minutes,
-                   (snapshot.route_summary->>'transferMinutes')::integer as transfer_minutes
-            from public.mobility_route_snapshots snapshot
-            join public.tour_places origin on origin.id=?
-            join public.tour_places destination on destination.id=?
-            where snapshot.trip_plan_id=? and snapshot.schedule_version_id=?
-              and snapshot.origin_item_id=? and snapshot.destination_item_id=?
-              and snapshot.transport_mode=?
-              and snapshot.observed_at <= ? and snapshot.expires_at > ?
-              and ST_Equals(snapshot.origin_location::geometry, origin.location::geometry)
-              and ST_Equals(snapshot.destination_location::geometry, destination.location::geometry)
-              and (snapshot.route_summary->>'walkMinutes') ~ '^[0-9]+$'
-              and (snapshot.route_summary->>'waitMinutes') ~ '^[0-9]+$'
-              and (snapshot.route_summary->>'rideMinutes') ~ '^[0-9]+$'
-              and (snapshot.route_summary->>'transferMinutes') ~ '^[0-9]+$'
-              and snapshot.duration_minutes =
-                  (snapshot.route_summary->>'walkMinutes')::integer
-                + (snapshot.route_summary->>'waitMinutes')::integer
-                + (snapshot.route_summary->>'rideMinutes')::integer
-                + (snapshot.route_summary->>'transferMinutes')::integer
-              and snapshot.duration_minutes > 0
-            order by snapshot.expires_at desc, snapshot.observed_at desc, snapshot.id asc
-            limit 1
-            """,
-            (rs, row) ->
-                new SnapshotLeg(
-                    rs.getObject("id", UUID.class),
-                    rs.getInt("duration_minutes"),
-                    rs.getObject("distance_meters", Integer.class),
-                    rs.getObject("estimated_fare", Integer.class),
-                    rs.getInt("walk_minutes"),
-                    rs.getInt("wait_minutes"),
-                    rs.getInt("ride_minutes"),
-                    rs.getInt("transfer_minutes")),
-            from.placeId(),
-            to.placeId(),
-            tripId,
-            versionId,
-            from.id(),
-            to.id(),
-            transportMode,
-            Timestamp.from(transactionTime),
-            Timestamp.from(transactionTime));
-    if (candidates.isEmpty()) {
-      return false;
-    }
-    SnapshotLeg candidate = candidates.getFirst();
-    Instant arrival = from.end().plusSeconds(candidate.durationMinutes() * 60L);
-    if (arrival.isAfter(to.start())) {
-      return false;
-    }
-    jdbc.update(
-        """
-        insert into public.trip_legs
-          (id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no, from_item_id,
-           to_item_id, transport_mode, mobility_route_snapshot_id, planned_departure_at,
-           planned_arrival_at, walk_minutes, wait_minutes, ride_minutes, transfer_minutes,
-           duration_minutes, buffer_minutes, distance_meters, estimated_fare, risk_score, facts)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, null,
-                '{"derivation":"stored_route_snapshot_v1"}'::jsonb)
-        """,
-        UUID.randomUUID(),
-        tripId,
-        from.dayId(),
-        versionId,
-        sequence,
-        from.id(),
-        to.id(),
-        transportMode,
-        candidate.snapshotId(),
-        Timestamp.from(from.end()),
-        Timestamp.from(arrival),
-        candidate.walkMinutes(),
-        candidate.waitMinutes(),
-        candidate.rideMinutes(),
-        candidate.transferMinutes(),
-        candidate.durationMinutes(),
-        candidate.distanceMeters(),
-        candidate.estimatedFare());
-    return true;
   }
 
   private void insertCopiedLeg(
@@ -1331,14 +1230,4 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       Integer estimatedFare,
       Integer riskScore,
       String facts) {}
-
-  private record SnapshotLeg(
-      UUID snapshotId,
-      int durationMinutes,
-      Integer distanceMeters,
-      Integer estimatedFare,
-      int walkMinutes,
-      int waitMinutes,
-      int rideMinutes,
-      int transferMinutes) {}
 }
