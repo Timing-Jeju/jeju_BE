@@ -95,11 +95,12 @@ class PlacesContractTest(unittest.TestCase):
             "operationsSummary",
         )
 
-    def test_rejects_unpaired_fixture_coordinates(self):
+    def test_rejects_location_fixture_fields(self):
+        """장소 요청 fixture의 위치 좌표를 거부한다."""
         self.assert_fixture_rejected(
             "request",
-            lambda fixture: fixture["endpoints"]["list"]["query"].pop("lng"),
-            "lat/lng",
+            lambda fixture: fixture["endpoints"]["list"]["query"].update(lat=33.4),
+            "lat",
         )
 
     def test_rejects_problem_code_outside_endpoint_condition_matrix(self):
@@ -210,11 +211,10 @@ class PlacesContractTest(unittest.TestCase):
                 self.assert_rejected(mutate, expected)
 
     def test_rejects_canonical_schema_constraint_weakening(self):
+        """위치 필드 재도입과 기존 공개 사실 제약의 완화를 거부한다."""
         mutations = (
             (
-                lambda contract: contract["schemas"]["PlacesListRequest"]["properties"][
-                    "lat"
-                ].update(maximum=900),
+                lambda contract: contract["schemas"]["PlacesListRequest"]["properties"].update(lat={"type": "number"}),
                 "PlacesListRequest",
             ),
             (
@@ -559,7 +559,7 @@ class PlacesContractTest(unittest.TestCase):
         )
         places = next(item for item in catalog["domainContracts"] if item["issue"] == 83)
 
-        self.assertEqual("1.0.0", places["versions"]["local"])
+        self.assertEqual("2.0.0", places["versions"]["local"])
         self.assertEqual("not-linked", places["versions"]["notion"])
         self.assertEqual("not-linked", places["versions"]["figma"])
         self.assertEqual("not-ready", places["readiness"]["metadata"]["status"])
@@ -587,6 +587,7 @@ class PlacesContractTest(unittest.TestCase):
                 self.assert_rejected(mutate, expected)
 
     def test_rejects_cursor_filter_and_geo_boundary_drift(self):
+        """cursor 변경과 금지 위치 query 재도입을 거부한다."""
         mutations = (
             (
                 lambda c: c["endpoints"][0]["pagination"].update(
@@ -601,13 +602,11 @@ class PlacesContractTest(unittest.TestCase):
                 "tie-breaker",
             ),
             (
-                lambda c: c["endpoints"][0]["query"]["lat"].update(maximum=91),
+                lambda c: c["endpoints"][0]["query"].update(lat={"maximum": 91}),
                 "lat/lng/radiusMeters",
             ),
             (
-                lambda c: c["endpoints"][0]["query"]["radiusMeters"].update(
-                    maximum=100_001
-                ),
+                lambda c: c["endpoints"][0]["query"].update(radiusMeters={"maximum": 100_001}),
                 "lat/lng/radiusMeters",
             ),
         )

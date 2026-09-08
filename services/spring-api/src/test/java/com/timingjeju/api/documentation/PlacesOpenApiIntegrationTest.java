@@ -80,7 +80,7 @@ class PlacesOpenApiIntegrationTest {
   }
 
   @Test
-  void place_detail은_canonical_UUID_optional_bearer_닫힌_DTO와_오류를_문서화한다() throws Exception {
+  void place_detail은_runtime_문자열_ID_optional_bearer_닫힌_DTO와_오류를_문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get").exists())

@@ -15,7 +15,7 @@ class OpenApiProjectionReadinessTest(unittest.TestCase):
             validator.validate_contract_authority()
         calls = {call.args[0]: call for call in endpoint.call_args_list}
         self.assertFalse(calls[('GET', '/api/v1/places')].kwargs['canonical_ready'])
-        self.assertTrue(calls[('GET', '/api/v1/weather/forecast')].kwargs['canonical_ready'])
+        self.assertFalse(calls[('GET', '/api/v1/weather/forecast')].kwargs['canonical_ready'])
         self.assertIn(('GET', '/api/v1/trips/{tripId}/schedule'), calls)
 
     def test_readiness_누락은_명시적인_구성오류다(self):

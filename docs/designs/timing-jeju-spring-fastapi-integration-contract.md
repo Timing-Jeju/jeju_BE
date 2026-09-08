@@ -1,5 +1,9 @@
 # 타이밍제주 Spring–MCP private HTTP 연동 명세 v2.0
 
+> 현행 위치 정책: [사용자 현재·간접 위치 무수집 v2](../contracts/domains/location-noncollection/contract.md). Issue #220이 #73을 대체한다.
+> 아래 위치 보관·동의·GRID_100M·위치 파생 hash 관련 설명은 제거 대상인 기존 구현/계약의 이력이며
+> 신규 위치 수신·저장의 허용 근거가 아니다. 런타임 전환은 #221 → #222 → #225 → #223 → #224에서 검증한다.
+
 ## 1. 기준 계약
 
 planner runtime 계약은 [`Timing-Jeju/jeju_AI`](https://github.com/Timing-Jeju/jeju_AI)의 Pydantic `0.7.0`이 유일한 원본이다. transport·인증·경계 설명은 AI의 [`docs/FASTAPI_MCP_CONTRACT.md`](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)를 따른다. BE는 release artifact인 `mcp-tools-v0.7.json`만 포함하며 Pydantic schema를 Java DTO로 다시 정의하지 않는다.

@@ -63,6 +63,7 @@ if ($Scope -in @("all", "common")) {
   Invoke-Native "가능성·이동 구간 계약 검사" { py -3 scripts/validate_feasibility_legs_contract.py }
   Write-Stage "위치정보 수집·보존·삭제 정책 계약 검사"
   Invoke-Native "위치정보 보존 정책 계약 검사" { py -3 scripts/validate_location_retention_contract.py }
+  Invoke-Native "위치 무수집 v2 현행 정책 검사" { py -3 scripts/validate_zero_location_policy.py }
   Invoke-Native "Codex hook 테스트" { py -3 -m unittest discover -s .codex/hooks/tests -p test_*.py }
   Invoke-Native "Git hook 테스트" { py -3 -m unittest discover -s scripts/git-hooks/tests -p test_*.py }
   Invoke-Native "저장소 자동화 테스트" { py -3 -m unittest discover -s scripts/tests -p test_*.py }

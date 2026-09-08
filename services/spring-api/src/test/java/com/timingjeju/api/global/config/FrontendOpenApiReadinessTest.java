@@ -91,7 +91,9 @@ class FrontendOpenApiReadinessTest {
                 (Map<String, Object>)
                     ((Map<String, Object>) row.get("readiness")).get("implementation");
             implementation.put("status", status);
-            if (status.equals("not-ready")) implementation.put("evidence", null);
+            implementation.put(
+                "evidence",
+                status.equals("ready") ? Map.of("testFixture", "ready-projection-only") : null);
           }
         }
       }
