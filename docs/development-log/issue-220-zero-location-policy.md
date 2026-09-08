@@ -87,3 +87,12 @@ Notion/Figma는 readback 없이 not-linked로 유지한다. #168은 Spring 위�
   GPS key 및 계획 ID 내부의 nested 위치 재도입을 거부한다. HTTP validator는 아니다.
 - 정책 단위 18개, Python 전체 813개(3 skipped) 통과.
 - #226은 PR #227로 생성됐으며 merge 후 최신 develop에서 #220 전체 gate를 수행한다.
+
+## 선행 PR #227 반영 후 통합 회귀
+
+- develop b0c490f8a6ea1b2d3beb8e400a179055f3099bbe를 merge했다.
+- RED: 공통 테스트에서 Weather가 예전 ready라고 가정해 실패했다. v2의 not-ready로 보정했다.
+- Places OpenAPI는 미래 v2를 테스트에서 ready로 강제하지 않고 실제 runtime을 검사한다.
+  기존 runtime의 double 좌표 경계와 String path ID 문서 표기를 그대로 검증한다.
+- GREEN: Python readiness 5개와 Places/SavedPlaces/FrontendOpenApi 관련 slice 통과.
+- 독립 검토의 계약 미해결 finding은 0건이다. 최종 동일 SHA 전체 gate와 승인은 별도로 기록한다.
