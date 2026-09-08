@@ -47,7 +47,7 @@ class TripPlacePreferencesOpenApiIntegrationTest {
   }
 
   @Test
-  void place_preferences는_closed_schema_ETag와_오류_응답을_문서화한다() throws Exception {
+  void place_preferences는_not_ready에서_runtime_DTO_ETag_오류를_문서화한다() throws Exception {
     String operation = "$.paths['/api/v1/trips/{tripId}/place-preferences'].put";
     mvc.perform(get("/v3/api-docs"))
         .andDo(
@@ -68,10 +68,8 @@ class TripPlacePreferencesOpenApiIntegrationTest {
         .andExpect(jsonPath(operation + ".parameters[?(@.name=='If-Match')].in").value("header"))
         .andExpect(jsonPath(operation + ".parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
-            jsonPath(
-                    operation
-                        + ".requestBody.content['application/json'].schema.additionalProperties")
-                .value(false))
+            jsonPath(operation + ".requestBody.content['application/json'].schema.$ref")
+                .value("#/components/schemas/PlacePreferencesRequest"))
         .andExpect(jsonPath(operation + ".responses['200'].headers.ETag").exists())
         .andExpect(jsonPath(operation + ".responses['400']").exists())
         .andExpect(jsonPath(operation + ".responses['401']").exists())
@@ -82,10 +80,8 @@ class TripPlacePreferencesOpenApiIntegrationTest {
         .andExpect(jsonPath(operation + ".responses['500']").exists())
         .andExpect(jsonPath(operation + ".responses['503']").exists())
         .andExpect(
-            jsonPath(
-                    operation
-                        + ".responses['200'].content['application/json'].schema.additionalProperties")
-                .value(false))
+            jsonPath(operation + ".responses['200'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/PlacePreferencesResponse"))
         .andExpect(
             jsonPath("$.components.schemas.PlacePreferencesRequest.additionalProperties")
                 .value(false))

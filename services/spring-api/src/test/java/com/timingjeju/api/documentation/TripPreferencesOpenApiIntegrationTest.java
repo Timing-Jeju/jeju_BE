@@ -49,7 +49,7 @@ class TripPreferencesOpenApiIntegrationTest {
   }
 
   @Test
-  void preferences_PUT은_exact_headers_closed7field_schema와_flat_response를문서화한다() throws Exception {
+  void preferences_PUT은_not_ready에서_runtime_DTO와_ETag를문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(jsonPath(PUT).exists())
@@ -62,10 +62,10 @@ class TripPreferencesOpenApiIntegrationTest {
         .andExpect(jsonPath(PUT + ".parameters[?(@.name=='Idempotency-Key')]").value(hasSize(0)))
         .andExpect(jsonPath(PUT + ".requestBody.required").value(true))
         .andExpect(
-            jsonPath(PUT + ".requestBody.content['application/json'].schema.additionalProperties")
-                .value(false))
+            jsonPath(PUT + ".requestBody.content['application/json'].schema.$ref")
+                .value("#/components/schemas/ReplaceTripPreferencesRequest"))
         .andExpect(
-            jsonPath(PUT + ".requestBody.content['application/json'].schema.required")
+            jsonPath("$.components.schemas.ReplaceTripPreferencesRequest.required")
                 .value(
                     containsInAnyOrder(
                         "preferredCategories",
@@ -83,15 +83,10 @@ class TripPreferencesOpenApiIntegrationTest {
             jsonPath("$.components.headers.ETag.schema.pattern")
                 .value("^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"))
         .andExpect(
-            jsonPath(
-                    PUT
-                        + ".responses['200'].content['application/json'].schema.additionalProperties")
-                .value(false))
+            jsonPath(PUT + ".responses['200'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/PreferencesResponse"))
         .andExpect(
-            jsonPath(PUT + ".responses['200'].content['application/json'].schema.allOf")
-                .doesNotExist())
-        .andExpect(
-            jsonPath(PUT + ".responses['200'].content['application/json'].schema.required")
+            jsonPath("$.components.schemas.PreferencesResponse.required")
                 .value(
                     containsInAnyOrder(
                         "tripId",
@@ -102,8 +97,7 @@ class TripPreferencesOpenApiIntegrationTest {
                         "tripStatus",
                         "updatedAt")))
         .andExpect(
-            jsonPath(PUT + ".responses['200'].content['application/json'].schema.properties.*")
-                .value(hasSize(7)));
+            jsonPath("$.components.schemas.PreferencesResponse.properties.*").value(hasSize(7)));
   }
 
   @Test

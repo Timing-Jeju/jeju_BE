@@ -201,6 +201,160 @@ def valid_document():
 
 
 class OpenApiFrontendReadinessTest(unittest.TestCase):
+    def test_canonical_projection은_domain_implementation_readiness를_fail_closed로_해석한다(self):
+        catalog = {
+            "domainContracts": [
+                {
+                    "domain": "weather-forecast",
+                    "readiness": {"implementation": {"status": "ready"}},
+                },
+                {
+                    "domain": "trips",
+                    "readiness": {"implementation": {"status": "not-ready"}},
+                },
+            ]
+        }
+        validator = Validator({}, 33, ROOT)
+
+        self.assertTrue(
+            validator.canonical_projection_enabled(catalog, "weather-forecast")
+        )
+        self.assertFalse(validator.canonical_projection_enabled(catalog, "trips"))
+        self.assertEqual([], validator.errors)
+
+        malformed = [
+            ({"domainContracts": {}}, "places"),
+            ({"domainContracts": []}, "places"),
+            ({"domainContracts": [{"domain": "places"}]}, "places"),
+            (
+                {
+                    "domainContracts": [
+                        {
+                            "domain": "places",
+                            "readiness": {"implementation": {"status": "ready"}},
+                        },
+                        {
+                            "domain": "places",
+                            "readiness": {"implementation": {"status": "not-ready"}},
+                        },
+                    ]
+                },
+                "places",
+            ),
+            (
+                {
+                    "domainContracts": [
+                        {
+                            "domain": "places",
+                            "readiness": {"implementation": {"status": "pending"}},
+                        }
+                    ]
+                },
+                "places",
+            ),
+        ]
+        for invalid_catalog, domain in malformed:
+            with self.subTest(catalog=invalid_catalog):
+                invalid = Validator({}, 33, ROOT)
+                self.assertFalse(
+                    invalid.canonical_projection_enabled(invalid_catalog, domain)
+                )
+                self.assertTrue(
+                    any(
+                        domain in error and "implementation readiness" in error
+                        for error in invalid.errors
+                    )
+                )
+
+    def test_not_ready도_runtime_manifest_status와_problem_projection을_fail_closed로_검사한다(self):
+        document = {
+            "paths": {
+                "/api/v1/widgets": {
+                    "get": {
+                        "responses": {
+                            "503": {
+                                "$ref": "#/components/responses/UnavailableProblem"
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {
+                "responses": {
+                    "UnavailableProblem": {
+                        "content": {
+                            "application/problem+json": {
+                                "example": {
+                                    "code": "DATA_UNAVAILABLE",
+                                    "type": "https://api.timing-jeju.com/problems/data-unavailable",
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        }
+        key = ("GET", "/api/v1/widgets")
+        validator = Validator(document, 33, ROOT)
+        validator.runtime_manifest = {
+            "GET /api/v1/widgets": {
+                "statusAdditions": [503],
+                "statusOmissions": [404],
+                "problems": {
+                    "503": [
+                        "DATA_UNAVAILABLE",
+                        "https://api.timing-jeju.com/problems/data-unavailable",
+                    ]
+                },
+            }
+        }
+
+        validator.validate_runtime_manifest_operations({key: "widgetsRead"})
+
+        self.assertEqual([], validator.errors)
+
+        document["paths"]["/api/v1/widgets"]["get"]["responses"] = {
+            "404": document["paths"]["/api/v1/widgets"]["get"]["responses"]["503"]
+        }
+        invalid = Validator(document, 33, ROOT)
+        invalid.runtime_manifest = validator.runtime_manifest
+        invalid.validate_runtime_manifest_operations({key: "widgetsRead"})
+        self.assertTrue(any("status addition 503" in error for error in invalid.errors))
+        self.assertTrue(any("status omission 404" in error for error in invalid.errors))
+        self.assertTrue(any("Problem 503" in error for error in invalid.errors))
+
+    def test_not_ready_example은_canonical_schema대신_problem_shape와_status를_검사한다(self):
+        validator = Validator({}, 33, ROOT)
+        validator.not_ready_operations.add(("GET", "/api/v1/widgets"))
+
+        self.assertFalse(validator.validates_example_schema("GET /api/v1/widgets"))
+        self.assertTrue(validator.validates_example_schema("GET /api/v1/weather/forecast"))
+
+        validator.validate_problem_response(
+            "503",
+            {
+                "content": {
+                    "application/problem+json": {
+                        "schema": {"type": "object"},
+                        "example": {
+                            "type": "https://api.timing-jeju.com/problems/data-unavailable",
+                            "title": "Unavailable",
+                            "status": 500,
+                            "detail": "Unavailable",
+                            "instance": "urn:timing-jeju:problem:trace",
+                            "code": "WRONG_CODE",
+                            "traceId": "trace",
+                        },
+                    }
+                }
+            },
+            "GET /api/v1/widgets",
+        )
+
+        self.assertTrue(any("problem example shape" in error for error in validator.errors))
+        self.assertTrue(any("response 503" in error for error in validator.errors))
+        self.assertTrue(any("type과 code" in error for error in validator.errors))
+
     def test_mutually_exclusive_reference_example은_선택한_한개만_요구한다(self):
         schema = {
             "type": "object",
@@ -751,8 +905,12 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         with mock.patch.object(authority, "validate_contract_endpoint") as projection:
             authority.validate_contract_authority()
         projected = {call.args[0] for call in projection.call_args_list}
-        self.assertIn(("GET", "/api/v1/me/profile-image"), projected)
-        self.assertIn(("PUT", "/api/v1/me/profile-image"), projected)
+        self.assertEqual(
+            {("GET", "/api/v1/weather/forecast")},
+            projected,
+        )
+        self.assertNotIn(("GET", "/api/v1/me/profile-image"), projected)
+        self.assertNotIn(("PUT", "/api/v1/me/profile-image"), projected)
         self.assertEqual("525c736", authority.source_provenance["profile-images"][:7])
 
         manifest = json.loads(

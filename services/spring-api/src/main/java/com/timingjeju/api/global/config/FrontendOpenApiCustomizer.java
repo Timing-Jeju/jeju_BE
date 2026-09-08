@@ -210,8 +210,8 @@ final class FrontendOpenApiCustomizer {
   }
 
   private void projectCanonicalContracts(OpenAPI openApi) {
-    Map<String, Map<String, Object>> catalogEndpoints =
-        endpointMap(readContractResource("/rest/catalog.json"));
+    Map<String, Object> catalog = readContractResource("/rest/catalog.json");
+    Map<String, Map<String, Object>> catalogEndpoints = endpointMap(catalog);
     for (String domain :
         List.of(
             "profile-legal",
@@ -222,6 +222,9 @@ final class FrontendOpenApiCustomizer {
             "schedules",
             "accommodations",
             "preferences-transport")) {
+      if (!isCanonicalProjectionEnabled(catalog, domain)) {
+        continue;
+      }
       Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
       Map<String, Object> schemas = objectMap(contract.get("schemas"));
       for (Map<String, Object> endpoint : objectMapList(contract.get("endpoints"))) {
@@ -236,6 +239,47 @@ final class FrontendOpenApiCustomizer {
         projectCanonicalOperation(openApi, key, catalogEndpoint, endpoint, schemas);
       }
     }
+  }
+
+  static boolean isCanonicalProjectionEnabled(Map<String, Object> catalog, String domain) {
+    Object contractsValue = catalog.get("domainContracts");
+    if (!(contractsValue instanceof List<?> contracts)) {
+      throw invalidImplementationReadiness(domain);
+    }
+    Map<String, Object> matched = null;
+    for (Object value : contracts) {
+      if (!(value instanceof Map<?, ?> contract) || !domain.equals(contract.get("domain"))) {
+        continue;
+      }
+      if (matched != null) {
+        throw invalidImplementationReadiness(domain);
+      }
+      matched = objectMap(contract);
+    }
+    if (matched == null) {
+      throw new IllegalStateException("OpenAPI domain readiness row가 없습니다: " + domain);
+    }
+    Object readinessValue = matched.get("readiness");
+    if (!(readinessValue instanceof Map<?, ?> readiness)) {
+      throw invalidImplementationReadiness(domain);
+    }
+    Object implementationValue = readiness.get("implementation");
+    if (!(implementationValue instanceof Map<?, ?> implementation)) {
+      throw invalidImplementationReadiness(domain);
+    }
+    Object status = implementation.get("status");
+    if ("ready".equals(status)) {
+      return true;
+    }
+    if ("not-ready".equals(status)) {
+      return false;
+    }
+    throw invalidImplementationReadiness(domain);
+  }
+
+  private static IllegalStateException invalidImplementationReadiness(String domain) {
+    return new IllegalStateException(
+        "OpenAPI domain implementation readiness가 올바르지 않습니다: " + domain);
   }
 
   private void projectCanonicalOperation(

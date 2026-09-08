@@ -39,7 +39,7 @@ class TransportEventOpenApiIntegrationTest {
   }
 
   @Test
-  void 교통이벤트_PUT_DELETE는_canonical_headers_query_body_response_problem을_투영한다() throws Exception {
+  void 교통이벤트_PUT_DELETE는_not_ready에서_runtime_DTO와_problem을_문서화한다() throws Exception {
     String path = "$.paths['/api/v1/trips/{tripId}/transport-event']";
     String putSchema = path + ".put.requestBody.content['application/json'].schema";
     String responseSchema = path + ".put.responses['200'].content['application/json'].schema";
@@ -53,9 +53,10 @@ class TransportEventOpenApiIntegrationTest {
             jsonPath(path + ".delete.parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(jsonPath(path + ".delete.parameters[?(@.name=='eventType')]").value(hasSize(1)))
         .andExpect(jsonPath(path + ".delete.requestBody").doesNotExist())
-        .andExpect(jsonPath(putSchema + ".additionalProperties").value(false))
         .andExpect(
-            jsonPath(putSchema + ".required")
+            jsonPath(putSchema + ".$ref").value("#/components/schemas/TransportEventRequest"))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEventRequest.properties.keys()")
                 .value(
                     containsInAnyOrder(
                         "eventType",
@@ -66,38 +67,35 @@ class TransportEventOpenApiIntegrationTest {
                         "transportNumber",
                         "note")))
         .andExpect(
-            jsonPath(putSchema + ".properties.terminalPlaceId.type")
-                .value(containsInAnyOrder("string", "null")))
-        .andExpect(jsonPath(putSchema + ".properties.scheduledAt.format").value("date-time"))
-        .andExpect(jsonPath(responseSchema + ".additionalProperties").value(false))
-        .andExpect(jsonPath(responseSchema + ".allOf").doesNotExist())
+            jsonPath(
+                    "$.components.schemas.TransportEventRequest.properties.terminalPlaceId.writeOnly")
+                .value(true))
         .andExpect(
-            jsonPath(responseSchema + ".required")
-                .value(
-                    containsInAnyOrder(
-                        "tripId",
-                        "scheduleEffect",
-                        "regenerationRequired",
-                        "activeScheduleVersionId",
-                        "tripStatus",
-                        "updatedAt",
-                        "eventType",
-                        "deleted",
-                        "event")))
-        .andExpect(jsonPath(responseSchema + ".properties.*").value(hasSize(9)))
+            jsonPath("$.components.schemas.TransportEventRequest.properties.scheduledAt.writeOnly")
+                .value(true))
+        .andExpect(
+            jsonPath(responseSchema + ".$ref")
+                .value("#/components/schemas/TransportEventMutationResponse"))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEventMutationResponse.properties.*")
+                .value(hasSize(9)))
         .andExpect(jsonPath(path + ".put.responses['200'].headers.ETag").exists())
         .andExpect(jsonPath(path + ".delete.responses['200'].headers.ETag").exists())
         .andExpect(jsonPath(path + ".put.responses['503']").doesNotExist())
         .andExpect(jsonPath(path + ".delete.responses['503']").doesNotExist())
         .andExpect(
-            jsonPath(path + ".put.responses['404']['x-error-codes']")
-                .value(containsInAnyOrder("TRIP_NOT_FOUND", "PLACE_NOT_FOUND")))
+            jsonPath(
+                    path + ".put.responses['404'].content['application/problem+json'].example.code")
+                .value("TRIP_NOT_FOUND"))
         .andExpect(
-            jsonPath(path + ".put.responses['409']['x-error-codes']")
-                .value(containsInAnyOrder("TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT")))
+            jsonPath(
+                    path + ".put.responses['409'].content['application/problem+json'].example.code")
+                .value("TRIP_VERSION_CONFLICT"))
         .andExpect(
-            jsonPath(path + ".delete.responses['404']['x-error-codes']")
-                .value(containsInAnyOrder("TRIP_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND")))
+            jsonPath(
+                    path
+                        + ".delete.responses['404'].content['application/problem+json'].example.code")
+                .value("TRANSPORT_EVENT_NOT_FOUND"))
         .andExpect(
             jsonPath(
                     path + ".put.responses['422'].content['application/problem+json'].example.code")

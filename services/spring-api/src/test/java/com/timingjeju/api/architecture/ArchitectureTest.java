@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.application.mutation.FirebaseApplicationDependencyMutation;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
@@ -88,6 +89,15 @@ class ArchitectureTest {
             "..global.config..", "..global.security..", "..global.logging..", "..global.util..")
         .allowEmptyShould(true)
         .check(classes);
+  }
+
+  @Test
+  void OpenAPI_readiness_projection_정책은_global_config의_package_private_final_경계다() {
+    var customizer = classes.get("com.timingjeju.api.global.config.FrontendOpenApiCustomizer");
+
+    assertThat(customizer.getPackageName()).isEqualTo("com.timingjeju.api.global.config");
+    assertThat(customizer.getModifiers()).contains(JavaModifier.FINAL);
+    assertThat(customizer.getModifiers()).doesNotContain(JavaModifier.PUBLIC);
   }
 
   @Test

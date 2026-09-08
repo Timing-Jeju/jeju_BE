@@ -42,7 +42,7 @@ class ScheduleOpenApiIntegrationTest {
   }
 
   @Test
-  void schedule_read는_canonical_query_closed_projection_problem과_example을_문서화한다() throws Exception {
+  void schedule_read는_not_ready에서_runtime_query_DTO_problem을_문서화한다() throws Exception {
     String path = "$.paths['/api/v1/trips/{tripId}/schedule'].get";
     String success = path + ".responses['200'].content['application/json']";
     mvc.perform(get("/v3/api-docs"))
@@ -51,20 +51,27 @@ class ScheduleOpenApiIntegrationTest {
         .andExpect(jsonPath(path + ".tags[0]").value("일정"))
         .andExpect(jsonPath(path + ".parameters", hasSize(2)))
         .andExpect(jsonPath(path + ".parameters[?(@.name=='tripId')].required").value(true))
-        .andExpect(jsonPath(path + ".parameters[?(@.name=='tripId')].schema.format").value("uuid"))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='tripId')].schema.pattern")
+                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
         .andExpect(jsonPath(path + ".parameters[?(@.name=='versionId')].required").value(false))
         .andExpect(
-            jsonPath(path + ".parameters[?(@.name=='versionId')].schema.format").value("uuid"))
+            jsonPath(path + ".parameters[?(@.name=='versionId')].schema.pattern")
+                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
         .andExpect(jsonPath(path + ".requestBody").doesNotExist())
         .andExpect(
             jsonPath(path + ".responses.keys()")
                 .value(containsInAnyOrder("200", "400", "401", "403", "404", "500")))
-        .andExpect(jsonPath(success + ".schema.additionalProperties").value(false))
         .andExpect(
-            jsonPath(success + ".schema.required")
+            jsonPath(success + ".schema.$ref").value("#/components/schemas/ScheduleResponse"))
+        .andExpect(
+            jsonPath("$.components.schemas.ScheduleResponse.required")
                 .value(containsInAnyOrder("tripId", "scheduleVersion", "days")))
         .andExpect(
-            jsonPath(success + ".schema.properties.scheduleVersion.required")
+            jsonPath("$.components.schemas.ScheduleResponse.properties.scheduleVersion.$ref")
+                .value("#/components/schemas/ScheduleVersion"))
+        .andExpect(
+            jsonPath("$.components.schemas.ScheduleVersion.required")
                 .value(
                     containsInAnyOrder(
                         "scheduleVersionId",
@@ -75,17 +82,13 @@ class ScheduleOpenApiIntegrationTest {
                         "score",
                         "feasibilityStale")))
         .andExpect(
-            jsonPath(success + ".schema.properties.scheduleVersion.properties.score.type")
+            jsonPath("$.components.schemas.ScheduleVersion.properties.score.type")
                 .value(containsInAnyOrder("integer", "null")))
         .andExpect(
-            jsonPath(
-                    success
-                        + ".schema.properties.days.items.properties.items.items.properties.progress.type")
+            jsonPath("$.components.schemas.ScheduleItem.properties.progress.type")
                 .value(containsInAnyOrder("object", "null")))
         .andExpect(
-            jsonPath(
-                    success
-                        + ".schema.properties.days.items.properties.legs.items.properties.transportMode.enum")
+            jsonPath("$.components.schemas.ScheduleLeg.properties.transportMode.enum")
                 .value(containsInAnyOrder("walk", "public_transit", "rental_car", "taxi")))
         .andExpect(jsonPath(success + ".example.tripId").exists())
         .andExpect(

@@ -39,7 +39,7 @@ class TripOpenApiIntegrationTest {
   }
 
   @Test
-  void trip_create_list_detail은_bearer_DTO_cursor와_problem을_문서화한다() throws Exception {
+  void trip_create_list_detail은_not_ready에서_runtime_DTO_cursor_problem을_문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.paths['/api/v1/trips'].get").exists())
@@ -51,12 +51,10 @@ class TripOpenApiIntegrationTest {
                 .value(50))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.type")
-                .value("object"))
+                    "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.$ref")
+                .value("#/components/schemas/CreateTripRequest"))
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips'].post.requestBody.content['application/json'].schema.additionalProperties")
-                .value(false))
+            jsonPath("$.components.schemas.CreateTripRequest.additionalProperties").value(false))
         .andExpect(
             jsonPath("$.paths['/api/v1/trips'].post.parameters[?(@.name=='Idempotency-Key')]")
                 .value(hasSize(1)))
@@ -118,8 +116,8 @@ class TripOpenApiIntegrationTest {
                 .value("#/components/schemas/ApiProblemDetails"))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/trips/{tripId}'].get.parameters[?(@.name=='tripId')].schema.format")
-                .value("uuid"))
+                    "$.paths['/api/v1/trips/{tripId}'].get.parameters[?(@.name=='tripId')].schema.pattern")
+                .value("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
         .andExpect(
             jsonPath("$.components.schemas.CreateTripRequest.additionalProperties").value(false))
         .andExpect(
@@ -273,32 +271,25 @@ class TripOpenApiIntegrationTest {
                 .value(containsInAnyOrder("items", "page")))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.additionalProperties")
-                .value(false))
+                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/TripsListResponse"))
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.required")
-                .value(containsInAnyOrder("size", "hasNext", "nextCursor")))
+            jsonPath("$.components.schemas.TripsListResponse.properties.page.$ref")
+                .value("#/components/schemas/CursorPage"))
+        .andExpect(jsonPath("$.components.schemas.CursorPage.additionalProperties").value(false))
+        .andExpect(jsonPath("$.components.schemas.CursorPage.required").doesNotExist())
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.size.minimum")
-                .value(1))
+            jsonPath("$.components.schemas.CursorPage.properties.size.type").value("integer"))
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.size.maximum")
-                .value(50))
-        .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.nextCursor.type")
+            jsonPath("$.components.schemas.CursorPage.properties.nextCursor.type")
                 .value(containsInAnyOrder("string", "null")))
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips'].get.responses['200'].content['application/json'].schema.properties.page.properties.nextCursor.maxLength")
-                .value(2048));
+            jsonPath("$.components.schemas.CursorPage.properties.nextCursor.maxLength")
+                .doesNotExist());
   }
 
   @Test
-  void trip_PATCH_DELETE는_strong_ETag_closed_presence와_상태별_problem을_문서화한다() throws Exception {
+  void trip_PATCH_DELETE는_not_ready에서_runtime_ETag_DTO_problem을_문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(
@@ -312,7 +303,8 @@ class TripOpenApiIntegrationTest {
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips/{tripId}'].patch.parameters[?(@.name=='If-Match')].schema.pattern")
-                .value("^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"))
+                .value(
+                    "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"))
         .andExpect(
             jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['200'].headers.ETag")
                 .exists())
@@ -324,20 +316,17 @@ class TripOpenApiIntegrationTest {
         .andExpect(jsonPath("$.components.schemas.PatchTripRequest.minProperties").value(1))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.title.type")
-                .value("string"))
+                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.$ref")
+                .value("#/components/schemas/PatchTripRequest"))
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.startDate.format")
-                .value("date"))
+            jsonPath("$.components.schemas.PatchTripRequest.properties.startDate.writeOnly")
+                .value(true))
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.transportModes.minItems")
-                .value(1))
+            jsonPath("$.components.schemas.PatchTripRequest.properties.transportModes.type")
+                .value("array"))
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/trips/{tripId}'].patch.requestBody.content['application/json'].schema.properties.transportModes.maxItems")
-                .value(3))
+            jsonPath("$.components.schemas.PatchTripRequest.properties.transportModes.items.$ref")
+                .value("#/components/schemas/TransportMode"))
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['404']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}'].patch.responses['409']").exists())

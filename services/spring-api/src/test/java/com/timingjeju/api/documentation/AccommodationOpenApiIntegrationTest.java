@@ -50,7 +50,7 @@ class AccommodationOpenApiIntegrationTest {
   }
 
   @Test
-  void 숙소_CRUD는_closed_schema_headers_status_examples를_canonical_contract로_투영한다() throws Exception {
+  void 숙소_CRUD는_not_ready에서_runtime_DTO와_응답을_문서화한다() throws Exception {
     String collection = "$.paths['/api/v1/trips/{tripId}/accommodations'].post";
     String item = "$.paths['/api/v1/trips/{tripId}/accommodations/{accommodationId}']";
     String createSchema = collection + ".requestBody.content['application/json'].schema";
@@ -84,29 +84,31 @@ class AccommodationOpenApiIntegrationTest {
         .andExpect(jsonPath(item + ".patch.parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
             jsonPath(item + ".delete.parameters[?(@.name=='If-Match')].required").value(true))
-        .andExpect(jsonPath(createSchema + ".additionalProperties").value(false))
         .andExpect(
-            jsonPath(createSchema + ".required")
-                .value(
-                    containsInAnyOrder(
-                        "placeId",
-                        "customName",
-                        "checkInDate",
-                        "checkOutDate",
-                        "checkInTime",
-                        "checkOutTime")))
-        .andExpect(jsonPath(createSchema + ".oneOf[0].required").value(hasSize(2)))
-        .andExpect(jsonPath(createSchema + ".oneOf[1].required").value(hasSize(2)))
-        .andExpect(jsonPath(responseSchema + ".additionalProperties").value(false))
+            jsonPath(createSchema + ".$ref")
+                .value("#/components/schemas/CreateAccommodationRequest"))
         .andExpect(
-            jsonPath(responseSchema + ".properties.accommodation.additionalProperties")
+            jsonPath("$.components.schemas.CreateAccommodationRequest.additionalProperties")
                 .value(false))
         .andExpect(
-            jsonPath(responseSchema + ".properties.accommodation.properties.checkInTime.pattern")
-                .value("^(?:[01]\\d|2[0-3]):[0-5]\\d$"))
+            jsonPath(responseSchema + ".$ref")
+                .value("#/components/schemas/AccommodationMutationPayload"))
         .andExpect(
-            jsonPath(responseSchema + ".properties.scheduleEffect.enum")
-                .value(containsInAnyOrder("none", "invalidated")))
+            jsonPath("$.components.schemas.AccommodationMutationPayload.additionalProperties")
+                .value(false))
+        .andExpect(
+            jsonPath("$.components.schemas.AccommodationPayload.properties.checkInTime.type")
+                .value("string"))
+        .andExpect(
+            jsonPath("$.components.schemas.AccommodationPayload.properties.checkInTime.format")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.AccommodationPayload.properties.checkInTime.pattern")
+                .doesNotExist())
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.AccommodationMutationPayload.properties.scheduleEffect.type")
+                .value("string"))
         .andExpect(jsonPath(collection + ".responses['201'].headers.Location").exists())
         .andExpect(jsonPath(collection + ".responses['201'].headers.ETag").exists())
         .andExpect(
@@ -117,30 +119,12 @@ class AccommodationOpenApiIntegrationTest {
         .andExpect(jsonPath(item + ".patch.responses['503']").doesNotExist())
         .andExpect(jsonPath(item + ".delete.responses['503']").doesNotExist())
         .andExpect(
-            jsonPath(collection + ".responses['404']['x-error-codes']")
-                .value(containsInAnyOrder("TRIP_NOT_FOUND", "PLACE_NOT_FOUND")))
-        .andExpect(
-            jsonPath(collection + ".responses['409']['x-error-codes']")
-                .value(
-                    containsInAnyOrder(
-                        "IDEMPOTENCY_KEY_REUSED",
-                        "TRIP_VERSION_CONFLICT",
-                        "ACCOMMODATION_CONCURRENT_CONFLICT")))
-        .andExpect(
-            jsonPath(item + ".patch.responses['404']['x-error-codes']")
-                .value(
-                    containsInAnyOrder(
-                        "TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND", "PLACE_NOT_FOUND")))
-        .andExpect(
-            jsonPath(item + ".delete.responses['404']['x-error-codes']")
-                .value(containsInAnyOrder("TRIP_NOT_FOUND", "ACCOMMODATION_NOT_FOUND")))
-        .andExpect(
             jsonPath(collection + ".responses['422'].content['application/problem+json'].example")
-                .doesNotExist());
+                .exists());
   }
 
   @Test
-  void 숙소_mutation은_canonical_matrix의_모든_code를_named_problem_example로_정확히_제공한다() throws Exception {
+  void 숙소_mutation은_not_ready에서_runtime이_선택한_problem을_정직하게_제공한다() throws Exception {
     JsonNode api =
         objectMapper.readTree(
             mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsByteArray());
@@ -190,28 +174,24 @@ class AccommodationOpenApiIntegrationTest {
                 List<String> codes = new ArrayList<>();
                 entry.getValue().forEach(code -> codes.add(code.asText()));
                 JsonNode response = responses.get(status);
-                assertThat(textValues(response.get("x-error-codes")))
-                    .containsExactlyElementsOf(codes);
+                assertThat(response.has("x-error-codes")).isFalse();
                 JsonNode media = response.at("/content/application~1problem+json");
-                assertThat(media.has("example")).isFalse();
-                assertThat(fieldNames(media.get("examples")))
-                    .containsExactlyInAnyOrderElementsOf(codes);
-                for (String code : codes) {
-                  JsonNode actual = media.get("examples").get(code).get("value");
-                  JsonNode expected = expectedByCode.get(code);
-                  assertThat(fieldNames(actual))
-                      .containsExactlyInAnyOrder(
-                          "type",
-                          "title",
-                          "status",
-                          "detail",
-                          "instance",
-                          "code",
-                          "traceId",
-                          "fieldErrors");
-                  for (String field : List.of("type", "title", "status", "detail", "code")) {
-                    assertThat(actual.get(field)).isEqualTo(expected.get(field));
-                  }
+                JsonNode actual = media.get("example");
+                assertThat(actual).isNotNull();
+                assertThat(codes).contains(actual.get("code").asText());
+                JsonNode expected = expectedByCode.get(actual.get("code").asText());
+                assertThat(fieldNames(actual))
+                    .containsExactlyInAnyOrder(
+                        "type",
+                        "title",
+                        "status",
+                        "detail",
+                        "instance",
+                        "code",
+                        "traceId",
+                        "fieldErrors");
+                for (String field : List.of("type", "title", "status", "detail", "code")) {
+                  assertThat(actual.get(field)).isEqualTo(expected.get(field));
                 }
               });
     }

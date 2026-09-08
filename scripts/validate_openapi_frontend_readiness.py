@@ -329,6 +329,7 @@ class Validator:
         self.source_provenance = source_provenance_for_mode(mode)
         self.runtime_manifest = None
         self.runtime_problem_definitions = {}
+        self.not_ready_operations = set()
 
     def error(self, location, message):
         self.errors.append(f"{location}: {message}")
@@ -373,6 +374,8 @@ class Validator:
         if not isinstance(paths, dict) or not paths:
             self.error("paths", "공개 API path가 없습니다")
             return self.errors
+        if include_authority:
+            self.validate_contract_authority()
         for path, path_item in paths.items():
             if not path.startswith("/api/v1/"):
                 self.error(path, "internal endpoint가 OpenAPI에 노출되었습니다")
@@ -392,8 +395,6 @@ class Validator:
         self.validate_security()
         self.scan_examples(self.document, "$")
         self.validate_known_headers()
-        if include_authority:
-            self.validate_contract_authority()
         if self.mode in (16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33):
             self.validate_source_provenance()
         return self.errors
@@ -491,6 +492,10 @@ class Validator:
                 )
             )
         for domain, operation_group in groups:
+            if self.mode == 33 and not self.canonical_projection_enabled(catalog, domain):
+                self.not_ready_operations.update(operation_group)
+                self.validate_runtime_manifest_operations(operation_group)
+                continue
             contract = self.read_authority_json(
                 f"docs/contracts/domains/{domain}/contract.json"
             )
@@ -518,6 +523,85 @@ class Validator:
                     schemas,
                     self.domain_problem_pairs(contract, domain_endpoints.get(key), key),
                 )
+
+    def canonical_projection_enabled(self, catalog, domain):
+        domain_contracts = catalog.get("domainContracts")
+        if not isinstance(domain_contracts, list):
+            self.error(
+                f"domain {domain} implementation readiness",
+                "domainContracts가 list가 아닙니다",
+            )
+            return False
+        matches = [
+            contract
+            for contract in domain_contracts
+            if isinstance(contract, dict) and contract.get("domain") == domain
+        ]
+        if len(matches) != 1:
+            self.error(
+                f"domain {domain} implementation readiness",
+                "domain readiness row는 정확히 하나여야 합니다",
+            )
+            return False
+        readiness = matches[0].get("readiness")
+        implementation = (
+            readiness.get("implementation") if isinstance(readiness, dict) else None
+        )
+        status = implementation.get("status") if isinstance(implementation, dict) else None
+        if status == "ready":
+            return True
+        if status == "not-ready":
+            return False
+        self.error(
+            f"domain {domain} implementation readiness",
+            "status는 ready 또는 not-ready여야 합니다",
+        )
+        return False
+
+    def validate_runtime_manifest_operations(self, operation_group):
+        for method, path in operation_group:
+            location = f"{method} {path}"
+            runtime = (self.runtime_manifest or {}).get(location)
+            if not isinstance(runtime, dict):
+                self.error(location, "runtime-only manifest projection이 없습니다")
+                continue
+            operation = (self.document.get("paths") or {}).get(path, {}).get(method.lower())
+            if not isinstance(operation, dict):
+                continue
+            actual_statuses = {
+                str(status)
+                for status in (operation.get("responses") or {})
+                if str(status).isdigit()
+            }
+            for status in runtime.get("statusAdditions", []):
+                if str(status) not in actual_statuses:
+                    self.error(location, f"runtime status addition {status}가 없습니다")
+            for status in runtime.get("statusOmissions", []):
+                if str(status) in actual_statuses:
+                    self.error(location, f"runtime status omission {status}가 노출되었습니다")
+
+            for status, expected in (runtime.get("problems") or {}).items():
+                response = self.resolve(
+                    (operation.get("responses") or {}).get(str(status)) or {},
+                    f"{location} response {status}",
+                )
+                media = (response.get("content") or {}).get("application/problem+json") or {}
+                actual_pairs = {
+                    (example.get("code"), example.get("type"))
+                    for example in self.examples(media)
+                    if isinstance(example, dict)
+                }
+                if tuple(expected) not in actual_pairs:
+                    self.error(
+                        location,
+                        f"runtime Problem {status} code/type projection이 다릅니다",
+                    )
+
+    def validates_example_schema(self, location):
+        return not any(
+            location == f"{method} {path}" or location.startswith(f"{method} {path} ")
+            for method, path in self.not_ready_operations
+        )
 
     @classmethod
     def push_notification_schemas(cls, contract):
@@ -1168,7 +1252,10 @@ class Validator:
         if not examples:
             self.error(location, "request example이 없습니다")
         for example in examples:
-            self.validate_schema_value(example, media.get("schema") or {}, f"{location} request example")
+            if self.validates_example_schema(location):
+                self.validate_schema_value(
+                    example, media.get("schema") or {}, f"{location} request example"
+                )
 
     def validate_success_response(self, status, response, location):
         content = response.get("content") or {}
@@ -1187,7 +1274,12 @@ class Validator:
         if not examples:
             self.error(location, f"success example이 없습니다: {status}")
         for example in examples:
-            self.validate_schema_value(example, media.get("schema") or {}, f"{location} success example {status}")
+            if self.validates_example_schema(location):
+                self.validate_schema_value(
+                    example,
+                    media.get("schema") or {},
+                    f"{location} success example {status}",
+                )
 
     def validate_problem_response(self, status, response, location):
         content = response.get("content") or {}
