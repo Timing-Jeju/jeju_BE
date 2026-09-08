@@ -295,10 +295,7 @@ final class FrontendOpenApiCustomizer {
       successStatuses = valueList(objectMap(endpoint.get("responses")).get("success"));
     }
     for (Object status : successStatuses) {
-      ApiResponse response = operation.getResponses().get(String.valueOf(status));
-      if (response == null) {
-        throw new IllegalStateException("OpenAPI canonical response가 없습니다: " + key + " " + status);
-      }
+      ApiResponse response = requiredCanonicalResponse(operation, key, status);
       if (!"none".equals(successSchema)) {
         jsonMedia(response.getContent())
             .setSchema(canonicalSchema(String.valueOf(successSchema), schemas, key));
@@ -307,16 +304,25 @@ final class FrontendOpenApiCustomizer {
     objectMap(endpoint.get("errorMatrix"))
         .forEach(
             (status, codes) -> {
-              ApiResponse response = operation.getResponses().get(status);
-              if (response != null) {
-                List<Object> canonicalCodes = List.copyOf(valueList(codes));
-                response.addExtension("x-error-codes", canonicalCodes);
-                if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
-                  projectAccommodationProblemExamples(
-                      response, Integer.parseInt(status), canonicalCodes, key);
-                }
+              ApiResponse response = requiredCanonicalResponse(operation, key, status);
+              List<Object> canonicalCodes = List.copyOf(valueList(codes));
+              response.addExtension("x-error-codes", canonicalCodes);
+              if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
+                projectAccommodationProblemExamples(
+                    response, Integer.parseInt(status), canonicalCodes, key);
               }
             });
+  }
+
+  private static ApiResponse requiredCanonicalResponse(
+      Operation operation, String key, Object status) {
+    String statusCode = String.valueOf(status);
+    ApiResponse response = operation.getResponses().get(statusCode);
+    if (response == null) {
+      throw new IllegalStateException(
+          "OpenAPI canonical response가 없습니다: " + key + " " + statusCode);
+    }
+    return response;
   }
 
   private void projectAccommodationProblemExamples(
