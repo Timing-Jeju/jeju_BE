@@ -1,30 +1,38 @@
-# 날씨 예보 API 계약
+# 날씨 예보 API 계약 2.0.0
 
-Issue #94가 확정하는 Spring 공개 API `GET /api/v1/weather/forecast`의 canonical 계약입니다. machine 기준은 같은 디렉터리의 `contract.json`이며 공통 인증·Problem Details는 Issue #72의 `timing-jeju-rest-contract/v1`을 상속합니다. 구현 소유자는 Issue #67입니다.
+Issue #94가 확정하는 Spring 공개 API `GET /api/v1/weather/forecast`의 canonical 계약입니다. machine 기준은 같은 디렉터리의 `contract.json`이며 공통 인증·Problem Details는 Issue #72의 `timing-jeju-rest-contract/v1`을 상속합니다. 위치 비수집 정책은 #220, selector 구현 소유자는 #222입니다.
 
 ## 소유권과 readiness
 
-- Spring Boot만 공개 endpoint, optional Supabase JWT 검증, 정규화 DB 조회와 응답을 소유합니다. FastAPI는 endpoint·DB·JWT·KMA key를 소유하지 않습니다.
-- 날씨는 사용자 소유 리소스가 아닙니다. Authorization 생략은 anonymous, 전달한 token이 invalid/expired이면 401입니다. 권한 판단이 필요한 미래 확장은 canonical JWT `sub`만 사용합니다.
-- PM 결정 [issuecomment-5387038123](https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123)에 따라 [Notion page](https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c) `3a40a87c-7ce5-816b-a8f7-ed2027e94b8c`는 Contract Version `1.0.0`, Spec Status `Ready`이며 로컬 response·error·fallback·security 계약과 정렬됐습니다. 화면 근거는 Figma contract node `1291:8816`을 포함합니다.
-- [Figma file](https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816) `4mKep38zm17iupVSQVsSJW`의 contract `1291:8816`, action `1291:8819`, loading `1291:8820`, success `1291:8821`, empty `1291:8822`, error `1291:8823`을 exact evidence로 고정합니다.
-- 위 근거와 저장소의 request/success/problem fixture가 검증되므로 metadata/example readiness는 `ready`입니다. Issue #67의 실제 Controller, Controller/Service/PostgreSQL repository test, OpenAPI integration test와 Python contract test 경로를 canonical evidence로 검증하므로 implementation readiness도 `ready`입니다. 경로 누락·교체·변조는 공통 validator가 fail-closed로 거부합니다.
+Spring만 공개 API·JWT·정규화 조회를 소유합니다. 공개 지역/장소를 명시 선택한
+요청은 익명으로 사용할 수 있고, `tripItemId`는 로그인한 JWT `sub`의 계획만 조회합니다.
+잘못된 token은 항상 401이며 다른 owner 항목은 존재를 드러내지 않는 404입니다.
+
+[historical-v1.contract.json](historical-v1.contract.json)은 이전 1.0.0 계약과
+Notion/Figma/구현 readback 이력을 보존합니다. 이 근거를 v2 승인으로 재사용하지 않습니다.
+새 selector·소유권·오류 코드의 page/node readback과 #222 구현이 검증되기 전
+metadata/example/implementation은 모두 `not-ready`, 외부 버전은 `not-linked`입니다.
 
 ## 요청과 시간 경계
 
-`lat`, `lng`, `dateTime` 세 query는 동시에 required/non-null입니다. 알 수 없는 query는 거부합니다.
+`regionCode | placeId | tripItemId` 중 정확히 하나와 `dateTime`을 받습니다.
+selector와 시각은 null이 될 수 없고 unknown query는 거부합니다.
+GPS를 자동 변환한 지역/최근접 장소 ID도 보내지 않습니다.
 
 | 필드 | 계약 |
 | --- | --- |
-| `lat` | finite number, -90 exclusive..90 exclusive |
-| `lng` | finite number, -180..180 inclusive |
+| `regionCode` | 사용자가 명시 선택한 공개 지역 코드, 1~50자 |
+| `placeId` | 사용자가 명시 선택한 canonical public place UUID |
+| `tripItemId` | JWT owner의 기존 계획 항목 UUID |
 | `dateTime` | RFC 3339 `+09:00`, Asia/Seoul 정시, seconds `00` |
+
+예: `GET /api/v1/weather/forecast?regionCode=seongsan&dateTime=2026-08-03T14:00:00%2B09:00`
 
 요청 접수 시각을 Asia/Seoul 정시로 내린 값부터 10일 뒤 같은 정시까지 지원합니다. 0~6시간은 `ultra_short`, 6시간 초과~10일은 `village`입니다. 과거나 10일 초과는 422 `WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`입니다. 성공 `validAt`은 요청한 `dateTime`과 정확히 같습니다.
 
 ## KMA 격자·base·version
 
-Issue #42의 공식 DFS 5 km Lambert conformal conic 변환을 재사용하고 각 투영축을 `floor(projectedCoordinate + 0.5)`로 반올림합니다. 유효 격자는 nx 1..149, ny 1..253이며 제주 지원 grid가 없으면 422 `WEATHER_LOCATION_NOT_SUPPORTED`입니다. 정밀 위경도 자체는 영구 저장하거나 로그·metric tag에 남기지 않습니다.
+Issue #42의 공식 DFS 5 km Lambert conformal conic 변환을 재사용하고 각 투영축을 `floor(projectedCoordinate + 0.5)`로 반올림합니다. 유효 격자는 nx 1..149, ny 1..253이며 제주 지원 grid가 없으면 422 `WEATHER_LOCATION_NOT_SUPPORTED`입니다. 격자는 공개 지역 대표점·공개 장소·소유자 계획 anchor에서 내부 결정합니다. 사용자 위경도 및 GPS 파생 selector는 수신하지 않습니다.
 
 - provider API version: `VilageFcstInfoService_2.0`
 - provider guide version: `2607`
@@ -47,7 +55,9 @@ endpoint status/code는 다음만 허용합니다.
 
 | Status | Code | 조건 |
 | --- | --- | --- |
-| 400 | `INVALID_WEATHER_FORECAST_QUERY` | 필수값·타입·WGS84 범위·KST 형식·정시 위반 |
+| 400 | `INVALID_WEATHER_SELECTOR` | selector 누락·복수·형식·unknown 필드·KST 형식·정시 위반 |
+| 401 | `AUTHENTICATION_REQUIRED` | tripItemId 조회에 인증 없음 |
+| 404 | `WEATHER_REFERENCE_NOT_FOUND` | 계획/장소 참조 없음 또는 다른 owner |
 | 401 | `INVALID_ACCESS_TOKEN` | optional token을 보냈으나 invalid/expired |
 | 422 | `WEATHER_LOCATION_NOT_SUPPORTED` | KMA/제주 지원 grid 밖 |
 | 422 | `WEATHER_FORECAST_HORIZON_NOT_SUPPORTED` | 과거 또는 10일 초과 |
@@ -59,7 +69,7 @@ endpoint status/code는 다음만 허용합니다.
 
 `weather_grid_points → weather_forecasts → external_api_snapshots/data_import_runs` 계보를 read-only로 조회합니다. `weather_forecasts`에는 `expires_at`과 provider version 컬럼이 없으므로 Issue #67이 snapshot/base 정책에서 안전하게 파생하거나 명시적 migration을 소유해야 합니다. `forecast_type`의 저장 enum `short`는 공개 enum `village`로 projection하며 schema 변경 없이 읽습니다. 이 Issue는 Controller·DB schema·FastAPI를 변경하지 않습니다. `supabase/migrations`만 public schema의 기준입니다.
 
-검증 fixture는 `fixtures/contracts/weather-forecast`에 있으며 RDB API 예시는 `docs/designs/timing-jeju-backend-rdb-api-spec.md`에 같은 `contractVersion=1.0.0`으로 projection합니다.
+검증 fixture는 `fixtures/contracts/weather-forecast`에 있으며 RDB API 예시는 `docs/designs/timing-jeju-backend-rdb-api-spec.md`에 같은 v2 selector 계약으로 projection합니다.
 
 ```bash
 python3 -m unittest scripts.tests.test_weather_forecast_contract

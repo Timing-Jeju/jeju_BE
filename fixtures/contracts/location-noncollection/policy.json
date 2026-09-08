@@ -1,0 +1,238 @@
+{
+  "cases": [
+    {
+      "id": "places-allowed",
+      "surface": "places",
+      "origin": "explicit_selection",
+      "fields": [
+        "query"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "places-gps-denied",
+      "surface": "places",
+      "origin": "gps_derived",
+      "fields": [
+        "query"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "weather-allowed",
+      "surface": "weather",
+      "origin": "explicit_selection",
+      "fields": [
+        "placeId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "weather-gps-denied",
+      "surface": "weather",
+      "origin": "gps_derived",
+      "fields": [
+        "placeId"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "execution-allowed",
+      "surface": "execution",
+      "origin": "planned_reference",
+      "fields": [
+        "eventType"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "execution-gps-denied",
+      "surface": "execution",
+      "origin": "gps_derived",
+      "fields": [
+        "eventType"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "live-allowed",
+      "surface": "live",
+      "origin": "planned_reference",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "live-gps-denied",
+      "surface": "live",
+      "origin": "gps_derived",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "spare_time-allowed",
+      "surface": "spare_time",
+      "origin": "planned_reference",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "spare_time-gps-denied",
+      "surface": "spare_time",
+      "origin": "gps_derived",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "recovery-allowed",
+      "surface": "recovery",
+      "origin": "planned_reference",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "recovery-gps-denied",
+      "surface": "recovery",
+      "origin": "gps_derived",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "mcp-allowed",
+      "surface": "mcp",
+      "origin": "planned_reference",
+      "fields": [
+        "tripDate"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "mcp-gps-denied",
+      "surface": "mcp",
+      "origin": "gps_derived",
+      "fields": [
+        "tripDate"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "public_facts-allowed",
+      "surface": "public_facts",
+      "origin": "approved_public_source",
+      "fields": [
+        "placeId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "public_facts-gps-denied",
+      "surface": "public_facts",
+      "origin": "gps_derived",
+      "fields": [
+        "placeId"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "command_hash-allowed",
+      "surface": "command_hash",
+      "origin": "validated_location_free_input",
+      "fields": [
+        "commandInputHash"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "command_hash-gps-denied",
+      "surface": "command_hash",
+      "origin": "gps_derived",
+      "fields": [
+        "commandInputHash"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "mcp_hash-allowed",
+      "surface": "mcp_hash",
+      "origin": "validated_location_free_input",
+      "fields": [
+        "mcpInputHash"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "mcp_hash-gps-denied",
+      "surface": "mcp_hash",
+      "origin": "gps_derived",
+      "fields": [
+        "mcpInputHash"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "cache-allowed",
+      "surface": "cache",
+      "origin": "approved_public_source",
+      "fields": [
+        "snapshotId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "cache-gps-denied",
+      "surface": "cache",
+      "origin": "gps_derived",
+      "fields": [
+        "snapshotId"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "observability-allowed",
+      "surface": "observability",
+      "origin": "validated_location_free_input",
+      "fields": [
+        "traceId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "observability-gps-denied",
+      "surface": "observability",
+      "origin": "gps_derived",
+      "fields": [
+        "traceId"
+      ],
+      "allowed": false
+    },
+    {
+      "id": "notification-allowed",
+      "surface": "notification",
+      "origin": "planned_reference",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": true
+    },
+    {
+      "id": "notification-gps-denied",
+      "surface": "notification",
+      "origin": "gps_derived",
+      "fields": [
+        "tripId"
+      ],
+      "allowed": false
+    }
+  ]
+}

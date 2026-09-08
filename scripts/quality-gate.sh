@@ -107,6 +107,9 @@ run_common_checks() {
   stage "위치정보 수집·보존·삭제 정책 계약 검사"
   python3 scripts/validate_location_retention_contract.py
 
+  stage "위치 무수집 v2 현행 정책 검사"
+  python3 scripts/validate_zero_location_policy.py
+
   stage "저장소 자동화 테스트"
   python3 -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
   python3 -m unittest discover -s scripts/git-hooks/tests -p 'test_*.py'

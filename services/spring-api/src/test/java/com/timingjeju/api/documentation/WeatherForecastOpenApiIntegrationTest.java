@@ -40,7 +40,7 @@ class WeatherForecastOpenApiIntegrationTest {
   }
 
   @Test
-  void weather_forecast는_optional_JWT와_canonical_query_response_error를_문서화한다() throws Exception {
+  void weather_forecast는_optional_JWT와_runtime_query_response_error를_문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.paths['/api/v1/weather/forecast'].get").exists())
@@ -63,11 +63,11 @@ class WeatherForecastOpenApiIntegrationTest {
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lng')].schema.minimum")
-                .value(-180))
+                .value(-180.0))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lng')].schema.maximum")
-                .value(180))
+                .value(180.0))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='dateTime')].required")

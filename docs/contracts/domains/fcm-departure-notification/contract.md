@@ -1,6 +1,6 @@
 # FCM 다음 목적지 출발 알림 계약
 
-Issue #112의 실행 가능한 canonical 기준은 같은 디렉터리의 `contract.json`이다. 이 Issue는 공개 API, DB migration, 디바이스 token 저장, scheduler 또는 FCM adapter를 구현하지 않는다. 현재는 contract-ready일 뿐 implementation-ready가 아니며 production default-off다. 필요한 선행 구현이나 신호가 하나라도 없으면 **fail-closed**한다.
+Issue #112의 실행 가능한 canonical 기준은 같은 디렉터리의 `contract.json`이다. 이 Issue는 공개 API, DB migration, 디바이스 token 저장, scheduler 또는 FCM adapter를 구현하지 않는다. Issue #220의 v2 변경은 owner 재검증 전이므로 contract-ready와 implementation-ready 모두 false이며 production default-off다. v1 계약과 당시 readback은 `historical-v1.contract.json`에 보존한다. 필요한 선행 구현이나 신호가 하나라도 없으면 **fail-closed**한다.
 
 ## 소유권과 영속 모델
 
@@ -12,7 +12,7 @@ job 상태는 `PENDING|LEASED|RETRY|ACCEPTED|CANCELLED|DEAD`, terminal은 `ACCEP
 
 expired `LEASED`는 exact CAS로 새 owner/lease를 발급하고 fencing token만 증가시켜 `LEASED → LEASED`로 회수한다. generation, target snapshot과 attempt identity/row는 보존하며 old fencing token completion은 거부한다. 새 owner가 provider 호출 전에 기존 row를 복구한다. `RESERVED`면 같은 row를 `RETRYABLE_FAILURE`, `CALL_STARTED`면 같은 row를 `ACCEPTANCE_UNKNOWN` terminal/no-retry로 갱신한다. call marker 뒤 crash, write 뒤 result 전 crash, result 수신 뒤 completion 전 crash도 같은 규칙이다. retry는 새 attempt number로만 만든다. completion은 LEASED 상태, lease owner·만료 전 lease, generation, fencing token과 exact attempt key가 모두 일치할 때만 같은 attempt row와 target/job 전이를 원자 적용한다. stale/terminal/중복 mismatch는 write 없이 거부하지만, 세 번째 transient attempt 또는 next retry가 `expiresAt` 이상인 경우 현재 `RETRYABLE_FAILURE` attempt와 `DEAD` job을 같은 transaction에 보존한다.
 
-claim과 preparation 사이 활성화된 기기는 snapshot에 포함하고 비활성화된 기기는 제외한다. snapshot 뒤 활성화된 기기는 현재 job에 추가하지 않는다. 각 target 호출 직전 사용자 설정, OS 권한, 최신 required 위치 동의와 device active를 다시 확인한다. device만 비활성이면 provider 호출 없이 `SKIPPED`, job-wide 철회/무효화면 남은 호출 없이 `CANCELLED`다.
+claim과 preparation 사이 활성화된 기기는 snapshot에 포함하고 비활성화된 기기는 제외한다. snapshot 뒤 활성화된 기기는 현재 job에 추가하지 않는다. 각 target 호출 직전 사용자 설정, OS 권한, device active를 다시 확인한다. device만 비활성이면 provider 호출 없이 `SKIPPED`, job-wide 철회/무효화면 남은 호출 없이 `CANCELLED`다.
 
 preparation에서 eligible target이 0건이면 empty snapshot 저장과 job `CANCELLED/NO_ACTIVE_PUSH_TARGET` 전이를 같은 transaction에서 수행하고 attempt/provider 호출은 0회다. target closed 전이는 `UNATTEMPTED|RETRYABLE → RESERVED → IN_FLIGHT → ACCEPTED|RETRYABLE|ACCEPTANCE_UNKNOWN|PERMANENT_FAILURE` 및 `UNATTEMPTED|RETRYABLE → SKIPPED`만 허용한다. 호출 직전 inactive retry target은 provider 호출 없이 `currentAttemptNo + 1`의 새 exact terminal `SKIPPED` attempt를 insert하고 target `RETRYABLE → SKIPPED`와 job aggregation을 같은 CAS transaction에 반영한다. duplicate key나 stale CAS는 mutation/provider 호출 모두 0으로 거부한다.
 
@@ -38,9 +38,9 @@ canonical collapse key는 canonical lowercase UUID `tripId`로 정확히 조립�
 
 ## 동의, 취소와 audit
 
-OS 알림 권한, 서버 출발 알림 설정, **최신 required 위치 동의**가 모두 유효해야 한다. 예약 시점과 발송 직전에 같은 세 신호를 다시 검사한다. 위치 동의는 평가 시각의 최신 effective required `location` 문서 version과 사용자의 ACTIVE consent version이 정확히 같아야 한다. version은 `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`의 canonical nonblank string이고 상태는 `ACTIVE|WITHDRAWN`만 허용한다. missing/null/blank/wrong type/unknown status는 audit snapshot도 만들지 않고 fail-closed한다. old version, 임의의 newer/non-required version, WITHDRAWN은 모두 부적격이다. 유효한 증거만 documentType, requiredVersion, consentedVersion, consentStatus, evaluatedAt audit snapshot으로 남긴다.
+활성 기기, OS 알림 권한, 서버 출발 알림 설정이 모두 유효해야 한다. 예약 시점과 발송 직전에 같은 세 신호를 다시 검사한다. 위치 동의는 수집하거나 발송 자격에 사용하지 않는다. missing/null/wrong type 또는 잘못된 평가 시각은 audit snapshot도 만들지 않고 fail-closed한다. 유효한 증거만 deviceActive, osGranted, serverEnabled, evaluatedAt audit snapshot으로 남긴다.
 
-closed `cancelReason`은 정확히 `SCHEDULE_VERSION_REPLACED|ITEM_COMPLETED|ITEM_SKIPPED|TRIP_CANCELLED|USER_OPTED_OUT|PREFERENCE_CHANGED|OS_PERMISSION_REVOKED|LOCATION_CONSENT_INVALID|NO_ACTIVE_PUSH_TARGET|EXPIRED`다. 일정 버전 교체, 항목 완료·건너뜀, 여행 취소, opt-out, preference 변경, OS 권한 철회, 위치 동의 무효, 활성 대상 0건, 만료는 각각 같은 순서의 canonical reason으로 미발송 logical job을 취소한다. 발송 직전 활성 일정·pending item·활성 trip/target·세 동의·양수 TTL을 재검사한다. generation+fencing+lease-owner CAS로 stale worker를 거부한다.
+closed `cancelReason`은 정확히 `SCHEDULE_VERSION_REPLACED|ITEM_COMPLETED|ITEM_SKIPPED|TRIP_CANCELLED|USER_OPTED_OUT|PREFERENCE_CHANGED|OS_PERMISSION_REVOKED|NO_ACTIVE_PUSH_TARGET|EXPIRED`다. 일정 버전 교체, 항목 완료·건너뜀, 여행 취소, opt-out, preference 변경, OS 권한 철회, 활성 대상 0건, 만료는 각각 같은 순서의 canonical reason으로 미발송 logical job을 취소한다. 발송 직전 활성 일정·pending item·활성 trip/target·기기와 두 알림 선택·양수 TTL을 재검사한다. generation+fencing+lease-owner CAS로 stale worker를 거부한다.
 
 ## provider 결과, 재시도와 전달 한계
 
@@ -52,9 +52,4 @@ provider message id 수신만 `ACCEPTED`다. explicit 429/5xx 같은 transient r
 
 FCM registration token은 민감한 기기 식별값이다. API 응답, log, trace, metric과 metric tag에 출력하지 않는다. Firebase service account JSON, private key와 access token은 저장소·fixture에 두지 않고 ADC 또는 secret mount로만 주입한다. data와 예시는 token, 이메일, 위치, 이동 경로, 메모, 프로필, provider credential을 포함하지 않는다.
 
-후속 Issue 본문의 적용 상태를 다시 읽어 `issueReadbackEvidence` 정적 evidence로 고정했다. Issue #113은 `2026-08-28T20:11:58Z`, Issue #114는 `2026-08-28T23:50:45Z`, Issue #115는 `2026-08-26T03:57:27Z`, Issue #116은 `2026-08-26T04:33:51Z` 기준이다. #116 remote/local 본문은 blank-line normalization 후 SHA-256 `de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da`로 exact 일치한다. #113은 buffer 범위와 최신 위치 동의, #114는 closed payload·provider ambiguity·unexpected EOF, #115는 device-free logical identity와 safetyBuffer version-CAS atomic replacement, #116은 inactive retry target의 새 terminal `SKIPPED` attempt와 duplicate/stale 무수정까지 반영한다.
-
-```bash
-python3 -m unittest scripts.tests.test_fcm_departure_notification_contract
-python3 scripts/validate_fcm_departure_notification_contract.py
-```
+v1 후속 Issue #113, Issue #114, Issue #115, Issue #116의 `issueReadbackEvidence`는 역사 파일에 보존한다. 위치 동의가 포함된 과거 승인을 v2 승인으로 재사용하지 않는다. 현재 readback은 not-linked이며 각 owner의 v2 재검증 전에는 계약 및 구현 readiness를 활성화하지 않는다.

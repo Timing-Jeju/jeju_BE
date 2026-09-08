@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "2.0.0",
   "scheduleCases": [
     {
       "id": "seoul_explicit_buffer_is_stored_as_utc",
@@ -152,16 +152,51 @@
     {"id": "past_window_is_expired", "sendAttemptAt": "2026-08-03T00:30:01+00:00", "expiresAt": "2026-08-03T00:30:00+00:00", "expectedTtlSeconds": 0}
   ],
   "cancellationCases": [
-    {"id": "schedule_version_replaced", "trigger": "schedule_version_replaced", "expectedReason": "SCHEDULE_VERSION_REPLACED"},
-    {"id": "item_completed", "trigger": "item_completed", "expectedReason": "ITEM_COMPLETED"},
-    {"id": "item_skipped", "trigger": "item_skipped", "expectedReason": "ITEM_SKIPPED"},
-    {"id": "trip_cancelled", "trigger": "trip_cancelled", "expectedReason": "TRIP_CANCELLED"},
-    {"id": "user_opted_out", "trigger": "user_opted_out", "expectedReason": "USER_OPTED_OUT"},
-    {"id": "preference_changed", "trigger": "preference_changed", "expectedReason": "PREFERENCE_CHANGED"},
-    {"id": "os_permission_revoked", "trigger": "os_permission_revoked", "expectedReason": "OS_PERMISSION_REVOKED"},
-    {"id": "location_consent_invalid", "trigger": "location_consent_invalid", "expectedReason": "LOCATION_CONSENT_INVALID"},
-    {"id": "no_active_push_target", "trigger": "no_active_push_target", "expectedReason": "NO_ACTIVE_PUSH_TARGET"},
-    {"id": "expired", "trigger": "expired", "expectedReason": "EXPIRED"}
+    {
+      "id": "schedule_version_replaced",
+      "trigger": "schedule_version_replaced",
+      "expectedReason": "SCHEDULE_VERSION_REPLACED"
+    },
+    {
+      "id": "item_completed",
+      "trigger": "item_completed",
+      "expectedReason": "ITEM_COMPLETED"
+    },
+    {
+      "id": "item_skipped",
+      "trigger": "item_skipped",
+      "expectedReason": "ITEM_SKIPPED"
+    },
+    {
+      "id": "trip_cancelled",
+      "trigger": "trip_cancelled",
+      "expectedReason": "TRIP_CANCELLED"
+    },
+    {
+      "id": "user_opted_out",
+      "trigger": "user_opted_out",
+      "expectedReason": "USER_OPTED_OUT"
+    },
+    {
+      "id": "preference_changed",
+      "trigger": "preference_changed",
+      "expectedReason": "PREFERENCE_CHANGED"
+    },
+    {
+      "id": "os_permission_revoked",
+      "trigger": "os_permission_revoked",
+      "expectedReason": "OS_PERMISSION_REVOKED"
+    },
+    {
+      "id": "no_active_push_target",
+      "trigger": "no_active_push_target",
+      "expectedReason": "NO_ACTIVE_PUSH_TARGET"
+    },
+    {
+      "id": "expired",
+      "trigger": "expired",
+      "expectedReason": "EXPIRED"
+    }
   ],
   "platformCases": [
     {
@@ -191,113 +226,199 @@
   ],
   "consentCases": [
     {
-      "id": "latest_version_active",
-      "osGranted": true,
-      "serverEnabled": true,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "ACTIVE",
+      "id": "signals_000",
+      "deviceActive": false,
+      "osGranted": false,
+      "serverEnabled": false,
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": true, "reason": "eligible", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+      "expected": {
+        "eligible": false,
+        "reason": "no_active_device",
+        "auditSnapshot": {
+          "deviceActive": false,
+          "osGranted": false,
+          "serverEnabled": false,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
     },
     {
-      "id": "old_version",
-      "osGranted": true,
-      "serverEnabled": true,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": "2026-08-11.v1",
-      "consentStatus": "ACTIVE",
-      "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "location_consent_not_latest", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v1", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
-    },
-    {
-      "id": "newer_non_required_version",
-      "osGranted": true,
-      "serverEnabled": true,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": "2026-08-11.v3",
-      "consentStatus": "ACTIVE",
-      "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "location_consent_not_latest", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v3", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
-    },
-    {
-      "id": "withdrawn",
-      "osGranted": true,
-      "serverEnabled": true,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "WITHDRAWN",
-      "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "location_consent_inactive", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "WITHDRAWN", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
-    },
-    {
-      "id": "os_permission_denied",
+      "id": "signals_001",
+      "deviceActive": false,
       "osGranted": false,
       "serverEnabled": true,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "ACTIVE",
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "os_permission_not_granted", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+      "expected": {
+        "eligible": false,
+        "reason": "no_active_device",
+        "auditSnapshot": {
+          "deviceActive": false,
+          "osGranted": false,
+          "serverEnabled": true,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
     },
     {
-      "id": "server_setting_disabled",
+      "id": "signals_010",
+      "deviceActive": false,
       "osGranted": true,
       "serverEnabled": false,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "ACTIVE",
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "server_notification_disabled", "auditSnapshot": {"documentType": "location", "requiredVersion": "2026-08-11.v2", "consentedVersion": "2026-08-11.v2", "consentStatus": "ACTIVE", "evaluatedAt": "2026-08-26T00:00:00+00:00"}}
+      "expected": {
+        "eligible": false,
+        "reason": "no_active_device",
+        "auditSnapshot": {
+          "deviceActive": false,
+          "osGranted": true,
+          "serverEnabled": false,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
     },
     {
-      "id": "invalid_missing_required_version",
+      "id": "signals_011",
+      "deviceActive": false,
       "osGranted": true,
       "serverEnabled": true,
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "ACTIVE",
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+      "expected": {
+        "eligible": false,
+        "reason": "no_active_device",
+        "auditSnapshot": {
+          "deviceActive": false,
+          "osGranted": true,
+          "serverEnabled": true,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
     },
     {
-      "id": "invalid_null_consented_version",
-      "osGranted": true,
-      "serverEnabled": true,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": null,
-      "consentStatus": "ACTIVE",
+      "id": "signals_100",
+      "deviceActive": true,
+      "osGranted": false,
+      "serverEnabled": false,
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+      "expected": {
+        "eligible": false,
+        "reason": "os_permission_not_granted",
+        "auditSnapshot": {
+          "deviceActive": true,
+          "osGranted": false,
+          "serverEnabled": false,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
     },
     {
-      "id": "invalid_blank_required_version",
-      "osGranted": true,
+      "id": "signals_101",
+      "deviceActive": true,
+      "osGranted": false,
       "serverEnabled": true,
-      "requiredVersion": " ",
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "ACTIVE",
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+      "expected": {
+        "eligible": false,
+        "reason": "os_permission_not_granted",
+        "auditSnapshot": {
+          "deviceActive": true,
+          "osGranted": false,
+          "serverEnabled": true,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
     },
     {
-      "id": "invalid_wrong_type_version",
+      "id": "signals_110",
+      "deviceActive": true,
       "osGranted": true,
-      "serverEnabled": true,
-      "requiredVersion": 2,
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "ACTIVE",
+      "serverEnabled": false,
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+      "expected": {
+        "eligible": false,
+        "reason": "server_notification_disabled",
+        "auditSnapshot": {
+          "deviceActive": true,
+          "osGranted": true,
+          "serverEnabled": false,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
     },
     {
-      "id": "invalid_unknown_status",
+      "id": "signals_111",
+      "deviceActive": true,
       "osGranted": true,
       "serverEnabled": true,
-      "requiredVersion": "2026-08-11.v2",
-      "consentedVersion": "2026-08-11.v2",
-      "consentStatus": "PENDING",
       "evaluatedAt": "2026-08-26T00:00:00+00:00",
-      "expected": {"eligible": false, "reason": "invalid_consent_evidence", "auditSnapshot": null}
+      "expected": {
+        "eligible": true,
+        "reason": "eligible",
+        "auditSnapshot": {
+          "deviceActive": true,
+          "osGranted": true,
+          "serverEnabled": true,
+          "evaluatedAt": "2026-08-26T00:00:00+00:00"
+        }
+      }
+    },
+    {
+      "id": "invalid_missing_device",
+      "osGranted": true,
+      "serverEnabled": true,
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {
+        "eligible": false,
+        "reason": "invalid_consent_evidence",
+        "auditSnapshot": null
+      }
+    },
+    {
+      "id": "invalid_wrong_device_type",
+      "osGranted": true,
+      "serverEnabled": true,
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {
+        "eligible": false,
+        "reason": "invalid_consent_evidence",
+        "auditSnapshot": null
+      },
+      "deviceActive": 1
+    },
+    {
+      "id": "invalid_null_os",
+      "osGranted": null,
+      "serverEnabled": true,
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {
+        "eligible": false,
+        "reason": "invalid_consent_evidence",
+        "auditSnapshot": null
+      },
+      "deviceActive": 1
+    },
+    {
+      "id": "invalid_wrong_server_type",
+      "osGranted": null,
+      "serverEnabled": "true",
+      "evaluatedAt": "2026-08-26T00:00:00+00:00",
+      "expected": {
+        "eligible": false,
+        "reason": "invalid_consent_evidence",
+        "auditSnapshot": null
+      },
+      "deviceActive": 1
+    },
+    {
+      "id": "invalid_bad_timestamp",
+      "osGranted": null,
+      "serverEnabled": "true",
+      "evaluatedAt": "invalid",
+      "expected": {
+        "eligible": false,
+        "reason": "invalid_consent_evidence",
+        "auditSnapshot": null
+      },
+      "deviceActive": 1
     }
   ],
   "aggregationCases": [
@@ -368,7 +489,7 @@
       "departureRecommendedLocalTime": "09:20",
       "nextPlaceName": "성산일출봉",
       "data": {
-        "contractVersion": "1.0.0",
+        "contractVersion": "2.0.0",
         "tripId": "71000000-0000-0000-0000-000000000001",
         "tripItemId": "73000000-0000-0000-0000-000000000001",
         "scheduleVersionId": "74000000-0000-0000-0000-000000000001",
@@ -381,7 +502,7 @@
       "departureRecommendedLocalTime": "09:20",
       "nextPlaceName": "제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주제주",
       "data": {
-        "contractVersion": "1.0.0",
+        "contractVersion": "2.0.0",
         "tripId": "71000000-0000-0000-0000-000000000001",
         "tripItemId": "73000000-0000-0000-0000-000000000001",
         "scheduleVersionId": "74000000-0000-0000-0000-000000000001",
@@ -394,7 +515,7 @@
       "departureRecommendedLocalTime": "09:20",
       "nextPlaceName": "성산\n일출봉",
       "data": {
-        "contractVersion": "1.0.0",
+        "contractVersion": "2.0.0",
         "tripId": "71000000-0000-0000-0000-000000000001",
         "tripItemId": "73000000-0000-0000-0000-000000000001",
         "scheduleVersionId": "74000000-0000-0000-0000-000000000001",
