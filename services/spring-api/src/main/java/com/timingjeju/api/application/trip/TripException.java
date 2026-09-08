@@ -32,6 +32,10 @@ public final class TripException extends RuntimeException {
     return new TripException("PREFERENCE_CONSTRAINT_VIOLATION");
   }
 
+  public static TripException placePreferenceConstraintViolation() {
+    return new TripException("PLACE_PREFERENCE_CONSTRAINT_VIOLATION");
+  }
+
   public static TripException placeNotFound() {
     return new TripException("PLACE_NOT_FOUND");
   }

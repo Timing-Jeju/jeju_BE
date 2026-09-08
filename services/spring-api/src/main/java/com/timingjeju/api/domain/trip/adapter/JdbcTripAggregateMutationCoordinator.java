@@ -5,6 +5,7 @@ import com.timingjeju.api.application.trip.TripAggregateMutationCoordinator;
 import com.timingjeju.api.application.trip.TripAggregateMutationOperation;
 import com.timingjeju.api.application.trip.TripAggregateMutationPlan;
 import com.timingjeju.api.application.trip.TripAggregateMutationState;
+import com.timingjeju.api.application.trip.TripAggregateTimestampedMutationOperation;
 import com.timingjeju.api.application.trip.TripEntityTag;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripRootPatch;
@@ -12,6 +13,7 @@ import com.timingjeju.api.application.trip.TripScheduleEffect;
 import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,6 +44,33 @@ public class JdbcTripAggregateMutationCoordinator implements TripAggregateMutati
       long expectedRevision,
       Instant updatedAt,
       TripAggregateMutationOperation<T> operation) {
+    return executeInternal(
+        ownerId,
+        tripId,
+        expectedRevision,
+        updatedAt,
+        (state, ignored) -> operation.apply(state),
+        false);
+  }
+
+  @Override
+  @Transactional
+  public <T> TripAggregateMutationCommit<T> executeMonotonic(
+      UUID ownerId,
+      UUID tripId,
+      long expectedRevision,
+      Instant requestedAt,
+      TripAggregateTimestampedMutationOperation<T> operation) {
+    return executeInternal(ownerId, tripId, expectedRevision, requestedAt, operation, true);
+  }
+
+  private <T> TripAggregateMutationCommit<T> executeInternal(
+      UUID ownerId,
+      UUID tripId,
+      long expectedRevision,
+      Instant requestedAt,
+      TripAggregateTimestampedMutationOperation<T> operation,
+      boolean monotonicTimestamp) {
     try {
       List<TripAggregateMutationState> roots =
           namedJdbc.query(
@@ -77,7 +106,11 @@ public class JdbcTripAggregateMutationCoordinator implements TripAggregateMutati
         throw TripException.terminalStateConflict();
       }
 
-      TripAggregateMutationPlan<T> plan = operation.apply(state);
+      Instant committedAt =
+          monotonicTimestamp
+              ? monotonicUpdateAt(loadUpdatedAt(ownerId, tripId), requestedAt)
+              : requestedAt;
+      TripAggregateMutationPlan<T> plan = operation.apply(state, committedAt);
       if (plan.scheduleEffect() == TripScheduleEffect.NONE) {
         return new TripAggregateMutationCommit<>(
             plan.payload(),
@@ -111,7 +144,7 @@ public class JdbcTripAggregateMutationCoordinator implements TripAggregateMutati
               .addValue("timezone", root.timezone())
               .addValue("userPace", root.userPace())
               .addValue("invalidate", invalidated)
-              .addValue("updatedAt", Timestamp.from(updatedAt));
+              .addValue("updatedAt", Timestamp.from(committedAt));
       int updated =
           namedJdbc.update(
               """
@@ -151,5 +184,25 @@ public class JdbcTripAggregateMutationCoordinator implements TripAggregateMutati
 
   private static Date date(java.time.LocalDate value) {
     return value == null ? null : Date.valueOf(value);
+  }
+
+  private Instant loadUpdatedAt(UUID ownerId, UUID tripId) {
+    Timestamp value =
+        jdbc.queryForObject(
+            "select updated_at from public.trip_plans where id=? and user_id=?",
+            Timestamp.class,
+            tripId,
+            ownerId);
+    if (value == null) {
+      throw TripException.notFound();
+    }
+    return value.toInstant();
+  }
+
+  private static Instant monotonicUpdateAt(Instant current, Instant requested) {
+    Instant canonicalRequested = requested.truncatedTo(ChronoUnit.MICROS);
+    return canonicalRequested.isAfter(current)
+        ? canonicalRequested
+        : current.plus(1, ChronoUnit.MICROS);
   }
 }

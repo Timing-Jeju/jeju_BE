@@ -141,7 +141,7 @@ run_spring_checks() {
     exit 1
   fi
   stage "Spring OpenAPI 프론트엔드 readiness 검사"
-  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 30
+  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 31
   stage "Spring Architecture 테스트"
   run_spring_gradle architectureTest
   stage "Spring 전체 테스트와 커버리지"

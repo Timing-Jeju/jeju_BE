@@ -60,7 +60,8 @@ class AccommodationStoreSourceContractTest {
   }
 
   @Test
-  void canonical_trip_coordinator_9개_파일은_50fix의_exact_provenance를_유지한다() throws Exception {
+  void canonical_trip_coordinator는_50fix와_monotonic_extension의_exact_provenance를_유지한다()
+      throws Exception {
     Path java = root().resolve("services/spring-api/src/main/java");
     Map<String, String> expected =
         Map.ofEntries(
@@ -69,7 +70,10 @@ class AccommodationStoreSourceContractTest {
                 "581af6003b851eb907e2b427fcc54e6da489e7b7006fa94558f9f8a1e0dfb8b4"),
             Map.entry(
                 "com/timingjeju/api/application/trip/TripAggregateMutationCoordinator.java",
-                "5133a0bc0ea5b696468cb102948a54e406b6217b8b1f2213245431f3d554c867"),
+                "38c6dd94125c6e86a45b376f2fe7fa756b476f507d943b5b6fbf4ecb23be893a"),
+            Map.entry(
+                "com/timingjeju/api/application/trip/TripAggregateTimestampedMutationOperation.java",
+                "c04a62f649696fb80a0a061f9d193febdab59902ac4847f91721bed6f70bf663"),
             Map.entry(
                 "com/timingjeju/api/application/trip/TripAggregateMutationEffect.java",
                 "7b75268d4b14d9e4d20f8a63039c5d2aa95b7f0012693d140415cb551b30d477"),
@@ -90,11 +94,11 @@ class AccommodationStoreSourceContractTest {
                 "e310eb5dde8af5d622cc2bfc7e2bb718f398e68cef3d2ff4af62c083d6c2203a"),
             Map.entry(
                 "com/timingjeju/api/domain/trip/adapter/JdbcTripAggregateMutationCoordinator.java",
-                "481173c8d5c8896ae00931dbef3d8c8224dc5d7760b3a9762391aea1e85bf8ab"));
+                "dfb7800d4b409b9482c4eafa568a46ea5309d039a1f35f9c3e81beb5e7dddd92"));
 
     for (Map.Entry<String, String> entry : expected.entrySet()) {
       assertThat(sha256(java.resolve(entry.getKey())))
-          .as("#50fix canonical provenance: %s", entry.getKey())
+          .as("#50fix canonical provenance + #48 monotonic extension: %s", entry.getKey())
           .isEqualTo(entry.getValue());
     }
   }

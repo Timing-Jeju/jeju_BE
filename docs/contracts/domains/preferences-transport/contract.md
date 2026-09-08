@@ -29,8 +29,8 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 오류는 #72의 `application/problem+json`과 정확한 `type,title,status,detail,instance,code,traceId,fieldErrors`를 상속한다. endpoint별 matrix는 설명 문자열이 아니라 canonical error code를 직접 참조하며, 각 code는 condition과 한국어 problem fixture에 양방향으로 정확히 한 번 연결된다. 세 PUT에서 non-null 장소 참조가 없으면 `404 PLACE_NOT_FOUND`, DELETE selector에 이벤트가 없으면 `404 TRANSPORT_EVENT_NOT_FOUND`다. 두 오류의 canonical occurrence URI도 `urn:timing-jeju:problem:{traceId}`로 고정한다. request-time 외부 API 또는 MCP 호출은 없다.
 
-Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. 하지만 Figma 자체에 API contract version과 loading/empty/error response 연결이 없으므로 `figma=not-linked`, catalog readiness는 과장하지 않고 모두 `not-ready`다. Controller/OpenAPI/contract test가 없는 문서 Issue이므로 catalog의 Implementation Ready도 승격하지 않는다.
+Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. Controller/OpenAPI/contract test 구현은 존재하지만 #48 Reviewer 승인과 전체 품질 게이트 전이므로 catalog readiness는 과장하지 않고 모두 `not-ready`를 유지한다. Figma 자체의 API contract version과 loading/empty/error response 연결도 아직 없다.
 
 ## 발견한 schema 후속 범위
 
-현재 schema는 terminal 둘 중 하나 이상만 요구하여 둘 다 허용하고, 같은 place의 `must_visit/avoid` 교차 중복도 허용한다. active 일정 무효화 transaction 또한 구현 API 범위다. 이 Issue에서는 migration을 바꾸지 않고 #46 preferences, #47 transport-event, #48 place-preferences의 각 owner 범위에서 명시적으로 검증한다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.
+현재 #46 preferences, #47 transport-event, #48 place-preferences는 각 owner 범위의 CHECK·uniqueness·active 일정 무효화 transaction을 append-only migration과 API 테스트로 구현한다. #48은 `20260908000000_trip_place_preference_contract.sql`과 Docker init `043`을 소유하며 이미 검증된 #46/#47 migration을 수정하거나 재번호하지 않는다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.

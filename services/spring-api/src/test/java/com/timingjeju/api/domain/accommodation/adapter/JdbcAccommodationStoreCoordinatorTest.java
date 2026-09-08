@@ -85,6 +85,18 @@ class JdbcAccommodationStoreCoordinatorTest {
             coordinatorCalled.set(true);
             throw TripException.terminalStateConflict();
           }
+
+          @Override
+          public <T> TripAggregateMutationCommit<T> executeMonotonic(
+              UUID ownerId,
+              UUID tripId,
+              long expectedRevision,
+              Instant requestedAt,
+              com.timingjeju.api.application.trip.TripAggregateTimestampedMutationOperation<T>
+                  operation) {
+            coordinatorCalled.set(true);
+            throw TripException.terminalStateConflict();
+          }
         };
 
     var replay = new JdbcAccommodationStore(jdbc, coordinator).create(createRecord());
@@ -258,6 +270,22 @@ class JdbcAccommodationStoreCoordinatorTest {
             invalidated,
             "\"trip-" + tripId + "-r" + (state.revision() + 1) + "\"");
       }
+
+      @Override
+      public <T> TripAggregateMutationCommit<T> executeMonotonic(
+          UUID ownerId,
+          UUID tripId,
+          long expectedRevision,
+          Instant requestedAt,
+          com.timingjeju.api.application.trip.TripAggregateTimestampedMutationOperation<T>
+              operation) {
+        return execute(
+            ownerId,
+            tripId,
+            expectedRevision,
+            requestedAt,
+            state -> operation.apply(state, requestedAt));
+      }
     };
   }
 
@@ -270,6 +298,17 @@ class JdbcAccommodationStoreCoordinatorTest {
           long expectedRevision,
           Instant updatedAt,
           TripAggregateMutationOperation<T> operation) {
+        throw failure;
+      }
+
+      @Override
+      public <T> TripAggregateMutationCommit<T> executeMonotonic(
+          UUID ownerId,
+          UUID tripId,
+          long expectedRevision,
+          Instant requestedAt,
+          com.timingjeju.api.application.trip.TripAggregateTimestampedMutationOperation<T>
+              operation) {
         throw failure;
       }
     };

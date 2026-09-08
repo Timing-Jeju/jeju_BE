@@ -13,7 +13,7 @@ if [[ ! -f "${OPENAPI_PATH}" ]]; then
   exit 1
 fi
 
-python3 "${SCRIPT_DIR}/validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 30
+python3 "${SCRIPT_DIR}/validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 31
 
 npx -y \
   -p typescript@6.0.3 \
@@ -23,7 +23,7 @@ npx -y \
   -o "${OUTPUT_DIRECTORY}"
 
 python3 "${SCRIPT_DIR}/verify_frontend_api_client_artifact.py" \
-  "${OPENAPI_PATH}" "${OUTPUT_DIRECTORY}" 30
+  "${OPENAPI_PATH}" "${OUTPUT_DIRECTORY}" 31
 
 mkdir -p "$(dirname "${ARCHIVE_PATH}")"
 tar -czf "${ARCHIVE_PATH}" -C "$(dirname "${OUTPUT_DIRECTORY}")" "$(basename "${OUTPUT_DIRECTORY}")"

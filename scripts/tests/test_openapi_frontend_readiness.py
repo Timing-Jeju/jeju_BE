@@ -9,6 +9,7 @@ from unittest import mock
 from scripts.validate_openapi_frontend_readiness import (
     ACCOMMODATION_OPERATIONS,
     CURRENT_OPERATIONS,
+    PLACE_PREFERENCE_OPERATIONS,
     PREFERENCES_OPERATIONS,
     PUSH_NOTIFICATION_OPERATIONS,
     SAVED_PLACE_OPERATIONS,
@@ -18,6 +19,7 @@ from scripts.validate_openapi_frontend_readiness import (
     TRANSPORT_EVENT_OPERATIONS,
     TRIP_OPERATIONS,
     Validator,
+    operations_for_mode,
 )
 
 
@@ -657,21 +659,58 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             ("POST", "/api/v1/trips/{tripId}/accommodations"), projected
         )
 
+    def test_mode31은_mode30에_place_preferences_하나만_추가해_exact검사한다(self):
+        historical = operations_for_mode(30)
+        expected = operations_for_mode(31)
+
+        self.assertEqual(30, len(historical))
+        self.assertEqual(31, len(expected))
+        self.assertEqual(
+            PLACE_PREFERENCE_OPERATIONS,
+            {key: expected[key] for key in set(expected) - set(historical)},
+        )
+
+        validator = Validator({}, 31, ROOT)
+        validator.operations = set(expected)
+        validator.operation_ids = {
+            operation_id: [f"{method} {path}"]
+            for (method, path), operation_id in expected.items()
+        }
+        validator.validate_operation_inventory()
+        self.assertEqual([], validator.errors)
+
+        authority = Validator(valid_document(), 31, ROOT)
+        with mock.patch.object(authority, "validate_contract_endpoint") as projection:
+            authority.validate_contract_authority()
+        projected = {call.args[0] for call in projection.call_args_list}
+        self.assertIn(("PUT", "/api/v1/trips/{tripId}/place-preferences"), projected)
+        self.assertEqual(
+            "d8c148dcf9eafba30380d8e7a75aa5e944f8c5ef",
+            authority.source_provenance["place-preferences"],
+        )
+
         manifest = json.loads(
             (ROOT / "scripts/openapi_frontend_runtime_manifest.json").read_text()
         )["operations"]
+        place_runtime = manifest["PUT /api/v1/trips/{tripId}/place-preferences"]
+        self.assertIn(503, place_runtime["statusAdditions"])
+        self.assertIn("503", place_runtime["runtimeOnlyProblemStatuses"])
+        self.assertEqual(
+            ["TRIP_DATA_UNAVAILABLE", "https://api.timing-jeju.com/problems/trip-data-unavailable"],
+            place_runtime["problems"]["503"],
+        )
         self.assertEqual(
             {f"{method} {path}" for method, path in expected},
             set(manifest),
         )
 
-    def test_frontend_인계문서는_통합_exact30을_표현한다(self):
+    def test_frontend_인계문서는_통합_exact31을_표현한다(self):
         document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         self.assertIn(
-            "#47 항공·선박 이벤트까지 합친 exact 30개 operation의 프론트엔드 인계본",
+            "#46 여행 선호 조건, #47 항공·선박 이벤트, #48 장소 선호까지 합친 exact 31개 operation의 프론트엔드 인계본",
             document,
         )
-        self.assertIn("active `--mode 30`", document)
+        self.assertIn("active `--mode 31`", document)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
         validator = Validator(valid_document(), 16, ROOT)
