@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Files;
-
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -22,13 +21,17 @@ class PlannedRouteMigrationIntegrationTest {
     try {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
-      PostgreSqlTestContainerFactory.executeScript(container,
-          root.resolve("db/local-postgres/legacy_planned_route_provenance_fixture.sql"));
-      PostgreSqlTestContainerFactory.executeScript(container, root.resolve("supabase/migrations").resolve(TARGET));
-      var jdbc = new JdbcTemplate(new DriverManagerDataSource(
-          container.getJdbcUrl(), container.getUsername(), container.getPassword()));
-      var preserved = jdbc.queryForMap(
-          """
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/local-postgres/legacy_planned_route_provenance_fixture.sql"));
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("supabase/migrations").resolve(TARGET));
+      var jdbc =
+          new JdbcTemplate(
+              new DriverManagerDataSource(
+                  container.getJdbcUrl(), container.getUsername(), container.getPassword()));
+      var preserved =
+          jdbc.queryForMap(
+              """
           select snapshot.anchor_contract_version,snapshot.request_hash,
                  snapshot.schedule_version_id=leg.schedule_version_id as version_matches,
                  snapshot.origin_item_id=leg.from_item_id as origin_matches,
@@ -49,25 +52,29 @@ class PlannedRouteMigrationIntegrationTest {
       container.stop();
     }
   }
+
   @ParameterizedTest
   @org.junit.jupiter.params.provider.CsvSource({
-      "postgis/postgis:16-3.4,unreferenced", "postgis/postgis:17-3.5,unreferenced",
-      "postgis/postgis:16-3.4,coordinate_mismatch", "postgis/postgis:17-3.5,coordinate_mismatch",
-      "postgis/postgis:16-3.4,active_ambiguous", "postgis/postgis:17-3.5,active_ambiguous"
+    "postgis/postgis:16-3.4,unreferenced", "postgis/postgis:17-3.5,unreferenced",
+    "postgis/postgis:16-3.4,coordinate_mismatch", "postgis/postgis:17-3.5,coordinate_mismatch",
+    "postgis/postgis:16-3.4,active_ambiguous", "postgis/postgis:17-3.5,active_ambiguous"
   })
-  void 출처_불명이나_활성_모호한_legacy_route는_데이터와_스키마_권한을_보존하고_중단한다(
-      String image, String kind) throws Exception {
+  void 출처_불명이나_활성_모호한_legacy_route는_데이터와_스키마_권한을_보존하고_중단한다(String image, String kind)
+      throws Exception {
     var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
     try {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
-      PostgreSqlTestContainerFactory.executeScript(container,
-          root.resolve("db/local-postgres/legacy_planned_route_provenance_fixture.sql"));
-      var jdbc = new JdbcTemplate(new DriverManagerDataSource(
-          container.getJdbcUrl(), container.getUsername(), container.getPassword()));
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/local-postgres/legacy_planned_route_provenance_fixture.sql"));
+      var jdbc =
+          new JdbcTemplate(
+              new DriverManagerDataSource(
+                  container.getJdbcUrl(), container.getUsername(), container.getPassword()));
       switch (kind) {
-        case "unreferenced" -> jdbc.update(
-            """
+        case "unreferenced" ->
+            jdbc.update(
+                """
             insert into public.mobility_route_snapshots
               (request_hash,origin_location,destination_location,transport_mode,departure_at,
                distance_meters,duration_minutes,estimated_fare,source_provider,source_operation,route_summary,expires_at)
@@ -75,10 +82,12 @@ class PlannedRouteMigrationIntegrationTest {
                    distance_meters,duration_minutes,estimated_fare,source_provider,source_operation,route_summary,expires_at
             from public.mobility_route_snapshots
             """);
-        case "coordinate_mismatch" -> jdbc.update(
-            "update public.mobility_route_snapshots set origin_location=ST_SetSRID(ST_MakePoint(127.7,34.7),4326)::geography");
-        case "active_ambiguous" -> jdbc.execute(
-            """
+        case "coordinate_mismatch" ->
+            jdbc.update(
+                "update public.mobility_route_snapshots set origin_location=ST_SetSRID(ST_MakePoint(127.7,34.7),4326)::geography");
+        case "active_ambiguous" ->
+            jdbc.execute(
+                """
             do $$
             declare
               original public.trip_legs%rowtype;
@@ -111,8 +120,10 @@ class PlannedRouteMigrationIntegrationTest {
             """);
         default -> throw new IllegalArgumentException(kind);
       }
-      String schemaSql = Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql"));
-      String dataSql = """
+      String schemaSql =
+          Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql"));
+      String dataSql =
+          """
           select md5(jsonb_build_object(
             'routes',(select jsonb_agg(row_data order by id) from public.mobility_route_snapshots row_data),
             'legs',(select jsonb_agg(row_data order by id) from public.trip_legs row_data),
@@ -122,8 +133,10 @@ class PlannedRouteMigrationIntegrationTest {
           """;
       String beforeSchema = jdbc.queryForObject(schemaSql, String.class);
       String beforeData = jdbc.queryForObject(dataSql, String.class);
-      assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(
-              container, root.resolve("supabase/migrations").resolve(TARGET)))
+      assertThatThrownBy(
+              () ->
+                  PostgreSqlTestContainerFactory.executeScript(
+                      container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("legacy route snapshots require provenance audit")
           .hasMessageNotContaining("unreferenced-private-marker")
@@ -143,19 +156,31 @@ class PlannedRouteMigrationIntegrationTest {
     var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
     try {
       container.start();
-      PostgreSqlTestContainerFactory.executeScript(container,
-          PostgreSqlTestContainerFactory.locateRepositoryRoot().resolve("supabase/migrations").resolve(TARGET));
-      PostgreSqlTestContainerFactory.executeScript(container,
-          PostgreSqlTestContainerFactory.locateRepositoryRoot().resolve("db/local-postgres/seed_fixtures.sql"));
-      var jdbc = new JdbcTemplate(new DriverManagerDataSource(
-          container.getJdbcUrl(), container.getUsername(), container.getPassword()));
-      assertThat(jdbc.queryForObject("select count(*) from public.mobility_route_snapshots "
-          + "where anchor_contract_version='planned-anchor.v1'", Integer.class)).isEqualTo(4);
-      assertThat(jdbc.queryForObject("select count(*) from public.trip_items where facts<>'{}'::jsonb",
-          Integer.class)).isZero();
+      PostgreSqlTestContainerFactory.executeScript(
+          container,
+          PostgreSqlTestContainerFactory.locateRepositoryRoot()
+              .resolve("supabase/migrations")
+              .resolve(TARGET));
+      PostgreSqlTestContainerFactory.executeScript(
+          container,
+          PostgreSqlTestContainerFactory.locateRepositoryRoot()
+              .resolve("db/local-postgres/seed_fixtures.sql"));
+      var jdbc =
+          new JdbcTemplate(
+              new DriverManagerDataSource(
+                  container.getJdbcUrl(), container.getUsername(), container.getPassword()));
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.mobility_route_snapshots "
+                      + "where anchor_contract_version='planned-anchor.v1'",
+                  Integer.class))
+          .isEqualTo(4);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_items where facts<>'{}'::jsonb", Integer.class))
+          .isZero();
     } finally {
       container.stop();
     }
   }
-
 }

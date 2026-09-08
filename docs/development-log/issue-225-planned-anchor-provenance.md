@@ -94,3 +94,5 @@
 
 - 공통 gate `/tmp/jeju-225-common-fc30462.log`에서 기존 정적 기대값 4건이 RED였다. 완료 여행 fixture에 예전 facts.location을 요구하던 assertion 1건과 migration013–016 이전의 목록/역사·현재 smoke 종료 지점 기대값 3건이다.
 - 정적 검사를 위치 없는 custom fixture와 현재 등록 순서에 맞췄다. 역사 v1은052까지 검증하고053은 별도 실패·rollback audit로 실행하며, 현재 concurrency는054까지 실행한다는 구분을 그대로 검사한다. 관련25건 PASS(`/tmp/jeju-225-common-contract-green.log`).
+
+- `5913f5b` 전체 gate는 공통821건(3 SKIPPED) 통과 후 Java format에서 중단됐다. `spotlessApply spotlessCheck`로 저장소 표준 포맷을 적용·검증했다 (`/tmp/jeju-225-format-green.log` PASS). 대상은 schedule mutation adapter 및 새/수정된 PostgreSQL 테스트3개이며, SQL migration과 정책은 그대로다. 최종 포맷 commit을 기준으로 전체 gate를 다시 실행한다.
