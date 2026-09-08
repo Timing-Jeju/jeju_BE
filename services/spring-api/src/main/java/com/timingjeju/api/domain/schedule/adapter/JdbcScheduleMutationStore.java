@@ -127,6 +127,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
               plannedEnd,
               false));
 
+      assertRequiredReferences(record.tripId(), newVersionId);
       Map<ItemPair, SourceLeg> sourceLegs = loadSourceLegs(record.tripId(), activeVersionId);
       copyOrDeriveLegs(
           record.tripId(),
@@ -276,6 +277,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         copiedIds.put(source.id(), newId);
       }
       copyProgress(record.tripId(), activeVersionId, newVersionId, copiedIds, committedAt);
+      assertRequiredReferences(record.tripId(), newVersionId);
       copyOrDeriveLegs(
           record.tripId(),
           newVersionId,
@@ -507,6 +509,14 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         summary,
         record.ownerId(),
         Timestamp.from(committedAt));
+  }
+
+  private void assertRequiredReferences(UUID tripId, UUID versionId) {
+    jdbc.queryForObject(
+        "select public.assert_schedule_item_required_references(?, ?)",
+        (rs, row) -> 1,
+        versionId,
+        tripId);
   }
 
   private void sealAndActivate(
@@ -936,7 +946,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             && from.semanticallyUnchanged()
             && to.semanticallyUnchanged()
             && reusable.transportMode().equals(preferredMode)) {
-          insertCopiedLeg(tripId, versionId, index + 1, from, to, reusable);
+          insertCopiedLeg(tripId, versionId, index + 1, from, to, reusable, transactionTime);
         } else if (!insertStoredSnapshotLeg(
             tripId, versionId, index + 1, from, to, preferredMode, transactionTime)) {
           insertFallbackLeg(tripId, versionId, index + 1, from, to);
@@ -979,7 +989,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             from public.mobility_route_snapshots snapshot
             join public.tour_places origin on origin.id=?
             join public.tour_places destination on destination.id=?
-            where snapshot.transport_mode=?
+            where snapshot.trip_plan_id=? and snapshot.schedule_version_id=?
+              and snapshot.origin_item_id=? and snapshot.destination_item_id=?
+              and snapshot.transport_mode=?
               and snapshot.observed_at <= ? and snapshot.expires_at > ?
               and ST_Equals(snapshot.origin_location::geometry, origin.location::geometry)
               and ST_Equals(snapshot.destination_location::geometry, destination.location::geometry)
@@ -1008,6 +1020,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
                     rs.getInt("transfer_minutes")),
             from.placeId(),
             to.placeId(),
+            tripId,
+            versionId,
+            from.id(),
+            to.id(),
             transportMode,
             Timestamp.from(transactionTime),
             Timestamp.from(transactionTime));
@@ -1051,12 +1067,14 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
   }
 
   private void insertCopiedLeg(
-      UUID tripId, UUID versionId, int sequence, NewItem from, NewItem to, SourceLeg leg) {
+      UUID tripId, UUID versionId, int sequence, NewItem from, NewItem to, SourceLeg leg,
+      Instant transactionTime) {
     Instant departure = from.end();
     Instant arrival = departure.plusSeconds(leg.durationMinutes() * 60L);
     if (arrival.isAfter(to.start())) {
       throw ScheduleException.legIncomplete();
     }
+    UUID copiedLegId = UUID.randomUUID();
     jdbc.update(
         """
         insert into public.trip_legs
@@ -1067,7 +1085,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
            distance_meters, estimated_fare, risk_score, facts)
         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
         """,
-        UUID.randomUUID(),
+        copiedLegId,
         tripId,
         from.dayId(),
         versionId,
@@ -1078,7 +1096,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         leg.originStopId(),
         leg.destinationStopId(),
         leg.routeId(),
-        leg.snapshotId(),
+        null,
         Timestamp.from(departure),
         Timestamp.from(arrival),
         leg.walkMinutes(),
@@ -1091,6 +1109,15 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         leg.estimatedFare(),
         leg.riskScore(),
         leg.facts());
+    if (leg.snapshotId() != null) {
+      UUID snapshotId = jdbc.queryForObject(
+          "select timing_jeju_planner_private.clone_planned_route_snapshot(?,?,?,?,?,?,?)",
+          UUID.class, leg.snapshotId(), tripId, versionId, from.id(), to.id(),
+          Timestamp.from(departure), Timestamp.from(transactionTime));
+      if (snapshotId == null) throw ScheduleException.legIncomplete();
+      jdbc.update("update public.trip_legs set mobility_route_snapshot_id=? where id=?",
+          snapshotId, copiedLegId);
+    }
   }
 
   private void insertFallbackLeg(
@@ -1099,31 +1126,17 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         jdbc
             .query(
                 """
-                with item_points as (
-                  select item.id,
-                         coalesce(
-                           place.location,
-                           case when jsonb_typeof(item.facts #> '{location,lat}')='number'
-                                  and jsonb_typeof(item.facts #> '{location,lng}')='number'
-                             then ST_SetSRID(ST_MakePoint(
-                               (item.facts #>> '{location,lng}')::double precision,
-                               (item.facts #>> '{location,lat}')::double precision),4326)::geography
-                           end) as location
-                  from public.trip_items item
-                  left join public.tour_places place on place.id=item.place_id
-                  where item.schedule_version_id=? and item.id in (?, ?)
-                )
                 select ceil(ST_Distance(origin.location, destination.location))::bigint as meters
-                from item_points origin, item_points destination
-                where origin.id=? and destination.id=?
-                  and origin.location is not null and destination.location is not null
+                from timing_jeju_planner_private.resolve_planned_item_anchor(?, ?, ?) origin
+                cross join timing_jeju_planner_private.resolve_planned_item_anchor(?, ?, ?) destination
                 """,
                 (rs, row) -> rs.getLong("meters"),
+                from.id(),
                 versionId,
-                from.id(),
+                tripId,
                 to.id(),
-                from.id(),
-                to.id())
+                versionId,
+                tripId)
             .stream()
             .findFirst()
             .orElseThrow(ScheduleException::legIncomplete);

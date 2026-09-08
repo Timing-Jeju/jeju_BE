@@ -464,7 +464,14 @@ insert into weather_forecasts (
   '00000000-0000-0000-0000-000000000033', '{"fixture":true}'::jsonb
 );
 
-insert into mobility_route_snapshots (
+-- Shared synthetic values work on both historical and current schemas.
+create temporary table seed_mobility_routes (
+  id uuid, request_hash text, origin_location geography(Point,4326), destination_location geography(Point,4326),
+  transport_mode text, departure_at timestamptz, distance_meters integer, duration_minutes integer,
+  estimated_fare integer, source_provider text, source_operation text, route_summary jsonb,
+  expires_at timestamptz, raw_payload jsonb, import_run_id uuid
+) on commit drop;
+insert into seed_mobility_routes (
   id, request_hash, origin_location, destination_location, transport_mode,
   departure_at, distance_meters, duration_minutes, estimated_fare,
   source_provider, source_operation, route_summary, expires_at, raw_payload,
@@ -472,35 +479,35 @@ insert into mobility_route_snapshots (
 ) values
 (
   '43000000-0000-0000-0000-000000000001', 'fixture-airport-seongsan-bus',
-  st_setsrid(st_makepoint(126.4930, 33.5066), 4326)::geography,
-  st_setsrid(st_makepoint(126.9415, 33.4581), 4326)::geography,
-  'public_transit', current_date + time '09:20', 47000, 105, 3000,
-  'fixture', 'route', '{"routeNo":"201","transfers":0}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000001'),
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000002'),
+  'public_transit', current_date + time '09:30', 47000, 105, 3000,
+  'fixture', 'route', '{"routeNo":"201","transfers":0,"walkMinutes":8,"waitMinutes":12,"rideMinutes":80,"transferMinutes":5}'::jsonb,
+  now() + interval '1 hour', '{}'::jsonb, null
 ),
 (
   '43000000-0000-0000-0000-000000000002', 'fixture-seongsan-seopji-bus',
-  st_setsrid(st_makepoint(126.9415, 33.4581), 4326)::geography,
-  st_setsrid(st_makepoint(126.9281, 33.4303), 4326)::geography,
-  'public_transit', current_date + time '12:20', 5100, 42, 1250,
-  'fixture', 'route', '{"routeNo":"201","waitMinutes":22}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000002'),
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000003'),
+  'public_transit', current_date + time '12:40', 5100, 40, 1250,
+  'fixture', 'route', '{"routeNo":"201","walkMinutes":10,"waitMinutes":22,"rideMinutes":8,"transferMinutes":0}'::jsonb,
+  now() + interval '1 hour', '{}'::jsonb, null
 ),
 (
   '43000000-0000-0000-0000-000000000003', 'fixture-seopji-hotel-taxi',
-  st_setsrid(st_makepoint(126.9281, 33.4303), 4326)::geography,
-  st_setsrid(st_makepoint(126.9340, 33.4550), 4326)::geography,
-  'taxi', current_date + time '15:10', 4800, 12, 8500,
-  'fixture', 'route', '{"traffic":"normal"}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000003'),
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000004'),
+  'taxi', current_date + time '14:30', 4800, 12, 8500,
+  'fixture', 'route', '{"walkMinutes":0,"waitMinutes":0,"rideMinutes":12,"transferMinutes":0}'::jsonb,
+  now() + interval '1 hour', '{}'::jsonb, null
 ),
 (
   '43000000-0000-0000-0000-000000000004', 'fixture-hotel-cafe-car',
-  st_setsrid(st_makepoint(126.9340, 33.4550), 4326)::geography,
-  st_setsrid(st_makepoint(126.9300, 33.4410), 4326)::geography,
-  'rental_car', (current_date + 1) + time '10:00', 2600, 8, null,
-  'fixture', 'route', '{"parking":"available"}'::jsonb,
-  now() + interval '1 hour', '{"fixture":true}'::jsonb, null
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000004'),
+  (select location from public.tour_places where id='20000000-0000-0000-0000-000000000006'),
+  'rental_car', (current_date + 1) + time '10:10', 2600, 8, null,
+  'fixture', 'route', '{"walkMinutes":2,"waitMinutes":0,"rideMinutes":6,"transferMinutes":0}'::jsonb,
+  now() + interval '1 hour', '{}'::jsonb, null
 );
 
 insert into trip_plans (
@@ -619,9 +626,9 @@ insert into trip_items (
   accommodation_id, transport_event_id
 ) values
 -- Active version: day 1
-('61000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 1, 'arrival', '20000000-0000-0000-0000-000000000001', '제주 도착', current_date + time '09:00', current_date + time '09:20', 20, 10, true, 'user_input', '{"transportNumber":"KE1001"}'::jsonb, null, '50100000-0000-0000-0000-000000000001'),
-('61000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 2, 'place_visit', '20000000-0000-0000-0000-000000000002', '성산일출봉', current_date + time '11:20', current_date + time '12:30', 70, 10, true, 'ai_generated', '{"recommendedStayMinutes":70}'::jsonb, null, null),
-('61000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 3, 'place_visit', '20000000-0000-0000-0000-000000000003', '섭지코지', current_date + time '13:20', current_date + time '14:20', 60, 10, false, 'ai_generated', '{"recommendedStayMinutes":60}'::jsonb, null, null),
+('61000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 1, 'arrival', '20000000-0000-0000-0000-000000000001', '제주 도착', current_date + time '09:00', current_date + time '09:20', 20, 10, true, 'user_input', '{}'::jsonb, null, '50100000-0000-0000-0000-000000000001'),
+('61000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 2, 'place_visit', '20000000-0000-0000-0000-000000000002', '성산일출봉', current_date + time '11:20', current_date + time '12:30', 70, 10, true, 'ai_generated', '{}'::jsonb, null, null),
+('61000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 3, 'place_visit', '20000000-0000-0000-0000-000000000003', '섭지코지', current_date + time '13:20', current_date + time '14:20', 60, 10, false, 'ai_generated', '{}'::jsonb, null, null),
 ('61000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 4, 'accommodation', '20000000-0000-0000-0000-000000000004', '성산 숙소 A', current_date + time '15:00', current_date + time '21:00', 360, 0, true, 'user_input', '{}'::jsonb, '50200000-0000-0000-0000-000000000001', null),
 -- Active version: day 2 (sequence 1 is valid again)
 ('61000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000001', 1, 'accommodation', '20000000-0000-0000-0000-000000000004', '성산 숙소 A 체크아웃', (current_date + 1) + time '09:00', (current_date + 1) + time '10:00', 60, 10, true, 'user_input', '{}'::jsonb, '50200000-0000-0000-0000-000000000001', null),
@@ -629,7 +636,7 @@ insert into trip_items (
 ('61000000-0000-0000-0000-000000000007', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000001', 3, 'accommodation', '20000000-0000-0000-0000-000000000005', '제주시 숙소 B', (current_date + 1) + time '16:00', (current_date + 1) + time '21:00', 300, 0, true, 'user_input', '{}'::jsonb, '50200000-0000-0000-0000-000000000002', null),
 -- Active version: day 3
 ('61000000-0000-0000-0000-000000000008', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000001', 1, 'accommodation', '20000000-0000-0000-0000-000000000005', '제주시 숙소 B 체크아웃', (current_date + 2) + time '09:00', (current_date + 2) + time '11:00', 120, 20, true, 'user_input', '{}'::jsonb, '50200000-0000-0000-0000-000000000002', null),
-('61000000-0000-0000-0000-000000000009', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000001', 2, 'departure', '20000000-0000-0000-0000-000000000001', '제주 출발', (current_date + 2) + time '17:30', (current_date + 2) + time '19:00', 90, 0, true, 'user_input', '{"transportNumber":"KE1002"}'::jsonb, null, '50100000-0000-0000-0000-000000000002'),
+('61000000-0000-0000-0000-000000000009', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000001', 2, 'departure', '20000000-0000-0000-0000-000000000001', '제주 출발', (current_date + 2) + time '17:30', (current_date + 2) + time '19:00', 90, 0, true, 'user_input', '{}'::jsonb, null, '50100000-0000-0000-0000-000000000002'),
 -- AI candidate version: complete schedule copy with adjusted day 1
 ('61100000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000002', 1, 'arrival', '20000000-0000-0000-0000-000000000001', '제주 도착', current_date + time '09:00', current_date + time '09:20', 20, 10, true, 'user_input', '{}'::jsonb, null, '50100000-0000-0000-0000-000000000001'),
 ('61100000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000002', 2, 'place_visit', '20000000-0000-0000-0000-000000000003', '섭지코지', current_date + time '10:50', current_date + time '11:50', 60, 10, false, 'ai_generated', '{}'::jsonb, null, null),
@@ -650,6 +657,47 @@ insert into trip_items (
 ('61200000-0000-0000-0000-000000000007', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000003', 4, 'accommodation', '20000000-0000-0000-0000-000000000005', '제주시 숙소 B', (current_date + 1) + time '16:00', (current_date + 1) + time '21:00', 300, 0, true, 'user_input', '{}'::jsonb, '50200000-0000-0000-0000-000000000002', null),
 ('61200000-0000-0000-0000-000000000008', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000003', 1, 'accommodation', '20000000-0000-0000-0000-000000000005', '제주시 숙소 B 체크아웃', (current_date + 2) + time '09:00', (current_date + 2) + time '11:00', 120, 20, true, 'user_input', '{}'::jsonb, '50200000-0000-0000-0000-000000000002', null),
 ('61200000-0000-0000-0000-000000000009', '50000000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000003', 2, 'departure', '20000000-0000-0000-0000-000000000001', '제주 출발', (current_date + 2) + time '17:30', (current_date + 2) + time '19:00', 90, 0, true, 'user_input', '{}'::jsonb, null, '50100000-0000-0000-0000-000000000002');
+
+
+-- The mapping is explicit fixture lineage, never an automatic coordinate/name match.
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+      where table_schema='public' and table_name='mobility_route_snapshots' and column_name='anchor_contract_version') then
+    insert into public.mobility_route_snapshots
+      (id,trip_plan_id,schedule_version_id,origin_item_id,destination_item_id,
+       origin_anchor_kind,origin_anchor_id,destination_anchor_kind,destination_anchor_id,
+       origin_location,destination_location,transport_mode,departure_at,distance_meters,duration_minutes,
+       estimated_fare,source_provider,source_operation,route_summary,expires_at,raw_payload,import_run_id)
+    select route.id,origin.trip_plan_id,origin.schedule_version_id,origin.id,destination.id,
+           case when origin.item_type='accommodation' then 'accommodation'
+                when origin.item_type in ('arrival','departure') then 'transport_event' else 'place' end,
+           case when origin.item_type='accommodation' then origin.accommodation_id
+                when origin.item_type in ('arrival','departure') then origin.transport_event_id else origin.place_id end,
+           case when destination.item_type='accommodation' then 'accommodation'
+                when destination.item_type in ('arrival','departure') then 'transport_event' else 'place' end,
+           case when destination.item_type='accommodation' then destination.accommodation_id
+                when destination.item_type in ('arrival','departure') then destination.transport_event_id else destination.place_id end,
+           route.origin_location,route.destination_location,route.transport_mode,route.departure_at,
+           route.distance_meters,route.duration_minutes,route.estimated_fare,route.source_provider,
+           route.source_operation,route.route_summary,route.expires_at,route.raw_payload,route.import_run_id
+    from seed_mobility_routes route
+    join (values
+      ('43000000-0000-0000-0000-000000000001'::uuid,'61000000-0000-0000-0000-000000000001'::uuid,'61000000-0000-0000-0000-000000000002'::uuid),
+      ('43000000-0000-0000-0000-000000000002'::uuid,'61000000-0000-0000-0000-000000000002'::uuid,'61000000-0000-0000-0000-000000000003'::uuid),
+      ('43000000-0000-0000-0000-000000000003'::uuid,'61000000-0000-0000-0000-000000000003'::uuid,'61000000-0000-0000-0000-000000000004'::uuid),
+      ('43000000-0000-0000-0000-000000000004'::uuid,'61000000-0000-0000-0000-000000000005'::uuid,'61000000-0000-0000-0000-000000000006'::uuid)
+    ) mapping(snapshot_id,origin_id,destination_id) on mapping.snapshot_id=route.id
+    join public.trip_items origin on origin.id=mapping.origin_id
+    join public.trip_items destination on destination.id=mapping.destination_id;
+  else
+    insert into public.mobility_route_snapshots
+      (id,request_hash,origin_location,destination_location,transport_mode,departure_at,distance_meters,
+       duration_minutes,estimated_fare,source_provider,source_operation,route_summary,expires_at,raw_payload,import_run_id)
+    select * from seed_mobility_routes;
+  end if;
+end;
+$$;
 
 insert into trip_legs (
   id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no,
