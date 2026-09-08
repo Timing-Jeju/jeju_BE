@@ -15,11 +15,6 @@ public class PlacesProblemDefinitions implements ProblemDefinitionContributor {
     return List.of(
         problem("INVALID_QUERY_PARAMETER", "요청 검색 조건이 올바르지 않습니다", 400, "검색 조건의 형식과 범위를 확인해 주세요."),
         problem(
-            "INVALID_GEO_FILTER",
-            "요청 위치 조건이 올바르지 않습니다",
-            400,
-            "위도와 경도는 함께 입력하고 제주 범위와 반경을 확인해 주세요."),
-        problem(
             "CURSOR_CONTEXT_MISMATCH",
             "커서의 검색 조건이 일치하지 않습니다",
             400,

@@ -57,7 +57,6 @@ final class FrontendOpenApiCustomizer {
           Map.entry("locale", "ko-KR"),
           Map.entry("placeId", "34000000-0000-4000-8000-000000000034"),
           Map.entry("query", "성산일출봉"),
-          Map.entry("radiusMeters", 10000),
           Map.entry("regionCode", "jeju-seogwipo"),
           Map.entry("savedOnly", false),
           Map.entry("size", 20),
@@ -1045,7 +1044,6 @@ final class FrontendOpenApiCustomizer {
       case "locale" -> "법정 문서 locale. 생략 기본값은 ko-KR";
       case "placeId" -> "lowercase canonical UUID 장소 식별자";
       case "query" -> "trim 적용 검색어";
-      case "radiusMeters" -> "좌표 중심 검색 반경(m)";
       case "regionCode" -> "정규화 제주 지역 code";
       case "savedOnly" -> "인증 사용자의 저장 장소만 조회할지 여부";
       case "size" -> "한 page의 최대 item 수";

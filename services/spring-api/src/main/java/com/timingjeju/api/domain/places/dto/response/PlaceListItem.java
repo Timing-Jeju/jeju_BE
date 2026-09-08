@@ -23,7 +23,6 @@ public record PlaceListItem(
     Instant recommendedStayEffectiveAt,
     Instant recommendedStayUpdatedAt,
     String operationsSummary,
-    Long distanceMeters,
     PlaceDataFreshness dataFreshness,
     boolean saved,
     String memo,

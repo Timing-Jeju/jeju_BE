@@ -26,7 +26,6 @@ import org.springframework.test.web.servlet.MockMvc;
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
     })
 @AutoConfigureMockMvc
-// Places v2 is not implemented yet; verify runtime documentation without ready fixtures.
 class PlacesOpenApiIntegrationTest {
   private static final String JWT_KEY = randomKey();
 
@@ -64,23 +63,15 @@ class PlacesOpenApiIntegrationTest {
             jsonPath("$.components.schemas.PlaceListItem.properties.category.pattern")
                 .value("^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"))
         .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].required")
-                .value(false))
+            jsonPath("$.paths['/api/v1/places'].get.parameters[*].name")
+                .value(
+                    org.hamcrest.Matchers.containsInAnyOrder(
+                        "query", "category", "regionCode", "cursor", "size", "savedOnly")))
         .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.minimum")
-                .value(33.0))
+            jsonPath("$.components.schemas.PlaceListItem.properties.distanceMeters").doesNotExist())
         .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.maximum")
-                .value(34.0))
-        .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].required")
-                .value(false))
-        .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.minimum")
-                .value(126.0))
-        .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.maximum")
-                .value(127.0))
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='cursor')].example")
+                .value(org.hamcrest.Matchers.contains(org.hamcrest.Matchers.startsWith("plc2."))))
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['401']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['403']").doesNotExist())

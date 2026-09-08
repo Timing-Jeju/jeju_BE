@@ -33,6 +33,33 @@ class PlaceListServiceTest {
   private static final UUID SECOND = UUID.fromString("10000000-0000-0000-0000-000000000002");
 
   @Test
+  void 구버전_cursor는_payload를_해석하기_전에_INVALID_CURSOR로_거부한다() {
+    PlaceListService service =
+        new PlaceListService(
+            mock(PlaceSearchRepository.class),
+            mock(StayPolicyResolver.class),
+            CursorCodec.hmacSha256("test-only-place-cursor-key-32-bytes"));
+    CursorCodec oldCodec = CursorCodec.hmacSha256("test-only-place-cursor-key-32-bytes");
+    String signedLegacy =
+        oldCodec.encode(
+            new com.timingjeju.api.application.pagination.CursorContext(
+                "/api/v1/places",
+                com.timingjeju.api.application.pagination.CursorSort.asc(
+                    "normalizedName", "placeId"),
+                "0".repeat(64)),
+            new com.timingjeju.api.application.pagination.CursorPosition("성산", FIRST.toString()));
+    for (String legacy : List.of("legacy-token", signedLegacy, "plc2." + signedLegacy)) {
+      assertThatThrownBy(
+              () ->
+                  service.list(
+                      PlacesListQuery.of(null, null, null, legacy, 20, false), Optional.empty()))
+          .isInstanceOf(PlaceListException.class)
+          .extracting("code")
+          .isEqualTo("INVALID_CURSOR");
+    }
+  }
+
+  @Test
   void size_plus_one_조회와_단일_batch_체류정책으로_cursor_page를_만든다() {
     PlaceSearchRepository repository = mock(PlaceSearchRepository.class);
     StayPolicyResolver resolver = mock(StayPolicyResolver.class);
@@ -56,15 +83,13 @@ class PlaceListServiceTest {
             repository, resolver, CursorCodec.hmacSha256("test-only-place-cursor-key-32-bytes"));
 
     PlacesListResponse response =
-        service.list(
-            PlacesListQuery.of(" 성산 ", null, null, null, null, null, null, 1, false),
-            Optional.empty());
+        service.list(PlacesListQuery.of(" 성산 ", null, null, null, 1, false), Optional.empty());
 
     assertThat(response.items()).hasSize(1);
     assertThat(response.items().getFirst().recommendedStayMinutes()).isEqualTo(90);
     assertThat(response.items().getFirst().recommendedStaySource()).isEqualTo("place_override");
     assertThat(response.page().hasNext()).isTrue();
-    assertThat(response.page().nextCursor()).isNotBlank();
+    assertThat(response.page().nextCursor()).startsWith("plc2.");
     verify(resolver).resolveAll(anyList());
   }
 
@@ -79,8 +104,7 @@ class PlaceListServiceTest {
     assertThatThrownBy(
             () ->
                 service.list(
-                    PlacesListQuery.of(null, null, null, null, null, null, null, 20, true),
-                    Optional.empty()))
+                    PlacesListQuery.of(null, null, null, null, 20, true), Optional.empty()))
         .isInstanceOf(PlaceListException.class)
         .extracting("code")
         .isEqualTo("AUTHENTICATION_REQUIRED");
@@ -99,15 +123,13 @@ class PlaceListServiceTest {
     PlaceListService service =
         new PlaceListService(
             repository, resolver, CursorCodec.hmacSha256("test-only-place-cursor-key-32-bytes"));
-    PlacesListQuery firstQuery =
-        PlacesListQuery.of("성산", null, null, null, null, null, null, 1, false);
+    PlacesListQuery firstQuery = PlacesListQuery.of("성산", null, null, null, 1, false);
     String cursor = service.list(firstQuery, Optional.empty()).page().nextCursor();
 
     assertThatThrownBy(
             () ->
                 service.list(
-                    PlacesListQuery.of("다른검색", null, null, null, null, null, cursor, 1, false),
-                    Optional.empty()))
+                    PlacesListQuery.of("다른검색", null, null, cursor, 1, false), Optional.empty()))
         .isInstanceOf(PlaceListException.class)
         .extracting("code")
         .isEqualTo("CURSOR_CONTEXT_MISMATCH");
@@ -116,8 +138,7 @@ class PlaceListServiceTest {
     assertThatThrownBy(
             () ->
                 service.list(
-                    PlacesListQuery.of("성산", null, null, null, null, null, tampered, 1, false),
-                    Optional.empty()))
+                    PlacesListQuery.of("성산", null, null, tampered, 1, false), Optional.empty()))
         .isInstanceOf(PlaceListException.class)
         .extracting("code")
         .isEqualTo("INVALID_CURSOR");
@@ -176,7 +197,7 @@ class PlaceListServiceTest {
   }
 
   private static PlacesListQuery query() {
-    return PlacesListQuery.of(null, null, null, null, null, null, null, 20, false);
+    return PlacesListQuery.of(null, null, null, null, 20, false);
   }
 
   private static PlaceSearchRow row(UUID id, String name, boolean stale) {
@@ -193,7 +214,6 @@ class PlaceListServiceTest {
         126.94,
         "https://images.example.test/thumb.jpg",
         "09:00~18:00",
-        null,
         "TOUR_API",
         Instant.parse("2026-08-01T00:00:00Z"),
         Instant.parse("2026-08-02T00:00:00Z"),

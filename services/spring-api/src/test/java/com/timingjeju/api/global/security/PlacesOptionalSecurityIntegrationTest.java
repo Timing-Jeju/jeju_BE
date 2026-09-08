@@ -84,6 +84,28 @@ class PlacesOptionalSecurityIntegrationTest {
   }
 
   @Test
+  @org.junit.jupiter.api.extension.ExtendWith(
+      org.springframework.boot.test.system.OutputCaptureExtension.class)
+  void 금지_위치와_unknown_중복_query는_원문_반사없이_거부한다(
+      org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+    for (String key :
+        List.of("lat", "lng", "radiusMeters", "currentLocation", "currentPlaceId", "unknown")) {
+      String body =
+          mvc.perform(get("/api/v1/places").queryParam(key, "private-location-marker"))
+              .andExpect(status().isBadRequest())
+              .andExpect(jsonPath("$.code").value("INVALID_QUERY_PARAMETER"))
+              .andReturn()
+              .getResponse()
+              .getContentAsString();
+      assertThat(body).doesNotContain("private-location-marker");
+    }
+    assertThat(output.getAll()).doesNotContain("private-location-marker");
+    mvc.perform(get("/api/v1/places").queryParam("query", "성산", "제주"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_QUERY_PARAMETER"));
+  }
+
+  @Test
   void exact_GET_places는_익명_200이고_다른_method와_API는_인증이_필요하다() throws Exception {
     mvc.perform(get("/api/v1/places"))
         .andExpect(status().isOk())
