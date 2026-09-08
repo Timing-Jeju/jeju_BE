@@ -37,7 +37,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Tag("integration")
 @SpringBootTest
-@Import(PostgreSqlTestcontainersConfiguration.class)
+@Import(CommandInputSnapshotRepositoryIntegrationTest.LegacyInputConfiguration.class)
 @ActiveProfiles("postgresql-integration")
 class CommandInputSnapshotRepositoryIntegrationTest {
   private static final UUID OWNER = UUID.fromString("10820000-0000-0000-0000-000000000001");
@@ -974,6 +974,18 @@ class CommandInputSnapshotRepositoryIntegrationTest {
       CommandLocation location) {
     return new CommandInputRequest(
         parent, runType, 1, "command/v1", "algorithm/v1", input, OWNER, TRIP, BASE, location);
+  }
+
+  // #108/#109의 과거 위치 보존·redaction 계약은 017 이전 DB에서만 검증한다.
+  // 현재 DB의 비수집/실제 repository/lease 동작은 LocationWriteGuardIntegrationTest가 검증한다.
+  @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+  static class LegacyInputConfiguration {
+    @org.springframework.context.annotation.Bean
+    @org.springframework.boot.testcontainers.service.connection.ServiceConnection
+    org.testcontainers.postgresql.PostgreSQLContainer postgresqlContainer() {
+      return PostgreSqlTestContainerFactory.createBefore(
+          "20260918000017_user_location_write_guard_purge.sql");
+    }
   }
 
   private record Scenario(CommandInputParent parent, String runType) {}

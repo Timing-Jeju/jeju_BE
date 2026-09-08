@@ -406,6 +406,8 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
         "{\"observedAt\":\"2026-09-01T02:59:00Z\",\"expiresAt\":\"2026-09-01T03:05:00Z\"}",
         Timestamp.from(Instant.parse("2026-09-01T03:00:00Z")),
         Timestamp.from(Instant.parse("2026-09-01T03:00:00Z")));
+    com.timingjeju.api.support.postgresql.LocationFreeComputeInputFixture.attachFeasibilityInput(
+        jdbc, UUID.fromString("49000000-0000-0000-0000-000000000151"));
   }
 
   private void insertInvalidDraft() {

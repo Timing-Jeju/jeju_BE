@@ -39,17 +39,19 @@ def compact_sql(contents: str) -> str:
     return re.sub(r"\s+", " ", contents.lower()).strip()
 
 
+SQL_TYPED_IDENTIFIER = r"[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?"
 EXACT_COMMAND_INPUT_HASH_CALL = re.compile(
     r"public\.compute_command_input_hash\(\s*"
-    r"(?:'[^']+'|\?)::text,\s*"
-    r"(?:[0-9]+|\?)::smallint,\s*"
-    r"(?:'[^']+'|\?)::text,\s*"
-    r"(?:'[^']+'|\?)::text,\s*"
-    r"(?:'[^']+'|\?)::uuid,\s*"
-    r"(?:'[^']*'|\?)::jsonb,\s*"
-    r"(?:true|false|\?)::boolean,\s*"
-    r"(?:null|'[^']*'|\?)::jsonb\s*\)"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:[0-9]+|\?|{SQL_TYPED_IDENTIFIER})::smallint,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::uuid,\s*"
+    + rf"(?:'[^']*'|\?|{SQL_TYPED_IDENTIFIER})::jsonb,\s*"
+    + rf"(?:true|false|\?|{SQL_TYPED_IDENTIFIER})::boolean,\s*"
+    + rf"(?:null|'[^']*'|\?|{SQL_TYPED_IDENTIFIER})::jsonb\s*\)"
 )
+
 HASH_CALL = re.compile(r"public\.compute_command_input_hash\(")
 MIGRATION_HASH_DEFINITION = re.compile(
     r"public\.compute_command_input_hash\(\s*"
@@ -72,7 +74,7 @@ MIGRATION_TYPED_INTERNAL_HASH_CALL = re.compile(
 )
 EXPECTED_HASH_OCCURRENCE_COUNTS = Counter(
     {
-        "direct exact": 5,
+        "direct exact": 20,
         "migration definition": 1,
         "migration privilege signature": 1,
         "migration typed internal": 1,
@@ -236,6 +238,25 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
             "grant execute on function public.command_jsonb_object_size(jsonb) to service_role",
             migration,
         )
+
+    def test_hash_call_requires_explicit_types_for_column_arguments(self):
+        """컬럼 기반 해시도 여덟 인자의 정확한 SQL 타입을 빠짐없이 명시한다."""
+        call = """
+          public.compute_command_input_hash(
+            input.run_type::text, input.schema_version::smallint,
+            input.contract_version::text, input.algorithm_version::text,
+            input.base_schedule_version_id::uuid, input.structured_input::jsonb,
+            input.location_supplied::boolean, input.coarse_location::jsonb)
+        """
+        self.assertFalse(invalid_direct_hash_calls(call))
+        for expression in (
+            "input.run_type::text", "input.schema_version::smallint",
+            "input.contract_version::text", "input.algorithm_version::text",
+            "input.base_schedule_version_id::uuid", "input.structured_input::jsonb",
+            "input.location_supplied::boolean", "input.coarse_location::jsonb",
+        ):
+            with self.subTest(expression=expression):
+                self.assertTrue(invalid_direct_hash_calls(call.replace(expression, expression.split("::")[0])))
 
     def test_repository_direct_hash_calls_use_all_exact_declared_types(self):
         self.assertEqual(

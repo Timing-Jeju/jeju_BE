@@ -394,8 +394,15 @@ class ScheduleRevisionRunSchemaIntegrationTest {
 
   private void insertQueued(
       UUID runId, UUID ownerId, UUID tripId, UUID baseId, UUID dayId, UUID idempotencyKey) {
-    jdbcTemplate.update(
-        insertSql(), runId, ownerId, tripId, baseId, dayId, "queued", idempotencyKey);
+    var transaction =
+        new org.springframework.transaction.support.TransactionTemplate(
+            new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+    transaction.executeWithoutResult(
+        status -> {
+          jdbcTemplate.update(
+              insertSql(), runId, ownerId, tripId, baseId, dayId, "queued", idempotencyKey);
+          jdbcTemplate.update(inputSql(), runId);
+        });
   }
 
   private int concurrentInsert(UUID runId, UUID idempotencyKey, CyclicBarrier start)
@@ -407,6 +414,12 @@ class ScheduleRevisionRunSchemaIntegrationTest {
       bindInsert(statement, runId, idempotencyKey);
       start.await();
       int inserted = statement.executeUpdate();
+      if (inserted == 1) {
+        try (PreparedStatement input = connection.prepareStatement(inputSql())) {
+          input.setObject(1, runId);
+          input.executeUpdate();
+        }
+      }
       connection.commit();
       return inserted;
     }
@@ -519,6 +532,23 @@ class ScheduleRevisionRunSchemaIntegrationTest {
     statement.setObject(5, DAY_ONE);
     statement.setString(6, "queued");
     statement.setObject(7, idempotencyKey);
+  }
+
+  private String inputSql() {
+    return """
+        insert into public.compute_run_inputs
+          (schedule_revision_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,
+           schema_version,contract_version,algorithm_version,structured_input,command_input_hash,location_supplied)
+        select run.id,run.owner_user_id,run.trip_plan_id,run.base_schedule_version_id,'schedule_revision',
+          1,run.contract_version,run.algorithm_version,command.input,
+          public.compute_command_input_hash('schedule_revision'::text,1::smallint,
+            run.contract_version::text,run.algorithm_version::text,run.base_schedule_version_id::uuid,
+            command.input::jsonb,false::boolean,null::jsonb),false
+        from public.schedule_revision_runs run
+        cross join lateral (select jsonb_build_object('targetDayId',run.target_trip_day_id::text,
+          'affectedItemIds','[]'::jsonb,'instructionCodes','[]'::jsonb) as input) command
+        where run.id=?
+        """;
   }
 
   private String insertSql() {

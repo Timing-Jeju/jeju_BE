@@ -195,6 +195,23 @@ fi
 
 echo "[Docker] Health Check 성공"
 
+# Fresh install includes /docker-entrypoint-initdb.d/055_user_location_write_guard_purge.sql.
+# Verify the owner-only cutover marker and zero counts without logging user values.
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test <<'SQL'
+do $$
+begin
+  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000017'
+     or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
+                where residue_count <> 0) then
+    raise exception 'location cutover verification failed';
+  end if;
+end;
+$$;
+SQL
+
+
 FRESH_CANONICAL_FINGERPRINT=$(docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
   --username timing_jeju_test --dbname timing_jeju_test \
@@ -578,6 +595,8 @@ assert_consistency_upgrade_failure \
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   createdb --username timing_jeju_test "$CONCURRENCY_DB"
 
+# Historical #109 cleanup concurrency intentionally stops before 017.
+# Current no-location locking/parent-input races run in PG16/17 integration tests.
 for concurrency_sql in \
   /docker-entrypoint-initdb.d/001_auth_compat.sql \
   /docker-entrypoint-initdb.d/002_application_schema.sql \

@@ -29,12 +29,13 @@ function Invoke-SqlFile([string] $database, [string] $file) {
   )
 }
 
-function Invoke-CanonicalManifest([string] $database) {
+function Invoke-CanonicalManifest([string] $database, [string] $beforePath = "") {
   Invoke-SqlFile $database "/docker-entrypoint-initdb.d/001_auth_compat.sql"
   foreach ($entry in $manifest.immutablePrefix) {
     Invoke-SqlFile $database (Resolve-MountedMigration $entry.path)
   }
   foreach ($entry in $manifest.canonicalSuffix) {
+    if ($entry.path -eq $beforePath) { break }
     Invoke-SqlFile $database (Resolve-MountedMigration $entry.path)
   }
 }
@@ -156,6 +157,21 @@ try {
     docker compose -p $project -f compose.test.yml logs --no-color api postgres
     throw "[Docker] Health Check 실패"
   }
+  $cutoverCheck = @'
+do $$
+begin
+  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000017'
+     or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
+                where residue_count <> 0) then
+    raise exception 'location cutover verification failed';
+  end if;
+end;
+$$;
+'@
+  Invoke-ComposePostgres @(
+    "psql", "--no-psqlrc", "--set", "ON_ERROR_STOP=1",
+    "--username", "timing_jeju_test", "--dbname", "timing_jeju_test", "--command", $cutoverCheck
+  )
   $freshFingerprint = Get-CanonicalFingerprint "timing_jeju_test"
   Invoke-ComposePostgres @("createdb", "--username", "timing_jeju_test", $originDevelopDatabase)
 
@@ -168,7 +184,8 @@ try {
   }
 
   Invoke-ComposePostgres @("createdb", "--username", "timing_jeju_test", $concurrencyDatabase)
-  Invoke-CanonicalManifest $concurrencyDatabase
+  # Historical #109 cleanup uses the pre-cutover schema; current races run in PG16/17 integration.
+  Invoke-CanonicalManifest $concurrencyDatabase "supabase/migrations/20260918000017_user_location_write_guard_purge.sql"
   Invoke-SqlFile $concurrencyDatabase "/queries/database_concurrency_contract.sql"
   Write-Host "[Docker] canonical migration fresh/upgrade/fingerprint/concurrency 성공"
 } catch {
