@@ -57,6 +57,10 @@ services:
       - ./supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql:/docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql:ro
       - ./supabase/migrations/20260918000011_private_trip_ownership_helper.sql:/docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql:ro
       - ./supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql:/docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql:ro
+      - ./supabase/migrations/20260918000013_schedule_item_closed_facts.sql:/docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql:ro
+      - ./supabase/migrations/20260918000014_planned_anchor_resolver.sql:/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql:ro
+      - ./supabase/migrations/20260918000015_planned_route_snapshot_provenance.sql:/docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql:ro
+      - ./supabase/migrations/20260918000016_planned_route_reference_integrity.sql:/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

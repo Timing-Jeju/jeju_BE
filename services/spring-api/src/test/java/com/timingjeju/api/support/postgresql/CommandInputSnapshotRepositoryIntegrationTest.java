@@ -96,7 +96,7 @@ class CommandInputSnapshotRepositoryIntegrationTest {
           'custom', 'sealable fixture',
           (current_date + time '01:00') at time zone 'Asia/Seoul',
           (current_date + time '02:00') at time zone 'Asia/Seoul',
-          60, 'system', '{"location":{"lat":33.0,"lng":126.0}}'::jsonb
+          60, 'system', '{}'::jsonb
         )
         """,
         TRIP,

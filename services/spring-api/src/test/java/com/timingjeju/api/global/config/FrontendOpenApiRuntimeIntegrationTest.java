@@ -65,10 +65,10 @@ class FrontendOpenApiRuntimeIntegrationTest {
                 .value("#/components/schemas/ReorderScheduleRequest"))
         .andExpect(
             jsonPath("$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lat')]")
-                .isNotEmpty())
+                .isEmpty())
         .andExpect(
             jsonPath("$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='placeId')]")
-                .isEmpty())
+                .isNotEmpty())
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}/accommodations']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/trips/{tripId}/schedule']").exists());
   }

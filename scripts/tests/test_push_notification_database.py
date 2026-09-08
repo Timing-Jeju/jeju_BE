@@ -40,6 +40,7 @@ def compact(value: str) -> str:
 
 class PushNotificationDatabaseTest(unittest.TestCase):
     def test_latest_migration_versions_are_unique_and_chronological(self):
+        """후속 planned anchor migration까지 시간순 버전 중복 없이 등록한다."""
         expected = (
             "20260901000000_legal_documents_consents.sql",
             "20260902000000_trip_create_contract.sql",
@@ -62,6 +63,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000010_compute_run_input_location_cleanup.sql",
             "20260918000011_private_trip_ownership_helper.sql",
             "20260918000012_schedule_title_only_sealing_correction.sql",
+            "20260918000013_schedule_item_closed_facts.sql",
+            "20260918000014_planned_anchor_resolver.sql",
+            "20260918000015_planned_route_snapshot_provenance.sql",
+            "20260918000016_planned_route_reference_integrity.sql",
         )
         migration_names = tuple(
             path.name
@@ -73,6 +78,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         self.assertEqual(len(versions), len(set(versions)))
 
     def test_docker_init_applies_trip_saved_push_correction_then_seed_exactly_once(self):
+        """현재 설치와 역사 audit의 서로 다른 완료 지점을 정확히 유지한다."""
         mounts = (
             (
                 "./supabase/migrations/20260902000000_trip_create_contract.sql",
@@ -155,6 +161,22 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql",
             ),
             (
+                "./supabase/migrations/20260918000013_schedule_item_closed_facts.sql",
+                "/docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000014_planned_anchor_resolver.sql",
+                "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000015_planned_route_snapshot_provenance.sql",
+                "/docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000016_planned_route_reference_integrity.sql",
+                "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql",
+            ),
+            (
                 "./db/local-postgres/seed_fixtures.sql",
                 "/docker-entrypoint-initdb.d/099_seed_fixtures.sql",
             ),
@@ -176,6 +198,8 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             expected_count = (
                 3
                 if target.endswith("046_schedule_item_required_references_correction.sql")
+                else 1
+                if target.endswith("054_planned_route_reference_integrity.sql")
                 else 2
             )
             self.assertEqual(expected_count, docker_smoke.count(target), target)
@@ -184,7 +208,9 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "/queries/database_concurrency_contract.sql",
         ):
             with self.subTest(next_contract=next_contract):
-                exact_sequence = " \\\n  ".join((*migration_targets, next_contract))
+                # The historical database must abort 053 in a separate audited transaction.
+                targets = migration_targets[:-2] if next_contract.endswith("legacy_v1_upgrade_contract.sql") else migration_targets
+                exact_sequence = " \\\n  ".join((*targets, next_contract))
                 self.assertEqual(
                     1,
                     docker_smoke.count(exact_sequence),

@@ -365,7 +365,7 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
                               (?::date + time '09:00') at time zone 'Asia/Seoul',
                               (?::date + time '10:00') at time zone 'Asia/Seoul',
                               60,'user_input',
-                              '{"location":{"lat":33.5,"lng":126.5}}'::jsonb)
+                              '{}'::jsonb)
                     """,
                     UUID.nameUUIDFromBytes(
                         ("issue46-item-" + index)

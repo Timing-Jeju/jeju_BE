@@ -69,7 +69,7 @@ class JdbcTripScoreIntegrationTest extends PostgreSqlRepositoryIntegrationTestSu
         ) values (:itemId, :tripId, :dayId, :versionId, 1, 'custom', 'score fixture',
                   (current_date + time '09:00') at time zone 'Asia/Seoul',
                   (current_date + time '10:00') at time zone 'Asia/Seoul',
-                  60, 'user_input', '{"location":{"lat":33.4,"lng":126.5}}'::jsonb)
+                  60, 'user_input', '{}'::jsonb)
         """,
         lineage);
     namedJdbc.update(
