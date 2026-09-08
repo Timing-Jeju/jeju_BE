@@ -49,6 +49,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260905000000_mcp_private_http_client.sql",
             "20260906000000_trip_update_delete_contract.sql",
             "20260907000000_schedule_item_create_contract.sql",
+            "20260907000001_schedule_item_required_references.sql",
             "20260907000002_trip_accommodation_contract.sql",
             "20260907000003_trip_preferences_replace_contract.sql",
             "20260907000004_trip_preferences_owner_read_helper.sql",
@@ -92,6 +93,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             (
                 "./supabase/migrations/20260907000000_schedule_item_create_contract.sql",
                 "/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260907000001_schedule_item_required_references.sql",
+                "/docker-entrypoint-initdb.d/038_schedule_item_required_references.sql",
             ),
             (
                 "./supabase/migrations/20260907000002_trip_accommodation_contract.sql",

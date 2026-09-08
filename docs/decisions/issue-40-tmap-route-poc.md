@@ -3,6 +3,7 @@
 ## 상태
 
 - 최종 판정: `DEFER`
+- 후속 상태: Issue #207이 Spring #41 mobility 구현을 제거하고 AI route runtime을 단일 소유자로 확정
 - 라이브 10구간 × 3모드 실행: `SKIPPED`
 - 사유: 현재 프로세스에 승인된 TMAP 키가 없고, `jeju_AI` 승인 계약에는 TMAP 대중교통이 없다.
 - Architecture Owner 승인: `APPROVED`
@@ -11,8 +12,8 @@
 - 승인시각: `2026-09-01T22:41:52Z`
 - 승인근거: <https://github.com/Timing-Jeju/jeju_BE/issues/40#issuecomment-5501405118>
 
-두 Owner 승인은 #40의 `DEFER` 판정과 #41 경계를 확정한다. 독립 Reviewer 승인과 PR 승인은
-별도 저장소 절차로 유지한다.
+두 Owner 승인은 #40의 `DEFER` 판정을 확정했다. 당시 #41 Spring 경계는 후속 Issue #207에서
+AI route runtime 단일 소유로 대체됐으며, 독립 Reviewer 승인과 PR 승인은 별도 저장소 절차로 유지한다.
 
 ## 실행 가능한 계약
 
@@ -65,9 +66,10 @@ qualifying evidence나 현재 판정의 정량 근거로 사용하지 않는다.
 
 ## DEFER 이후 경계
 
-#41은 provider-neutral port를 만들고 TMAP 구현을 기본 비활성화한다. 보행·차량 TMAP은
-FastAPI 프로세스의 승인된 on-demand adapter 경계에 남기며 Spring DB snapshot이나 retention
-대상으로 가져오지 않는다. 대중교통은 공식 시간표와 TAGO를 계속 사용한다.
+후속 Issue #207에 따라 Spring은 provider-neutral route port와 cache를 유지하지 않는다.
+보행·차량 TMAP route fact·TTL cache·fallback은 FastAPI 프로세스의 승인된 on-demand adapter
+경계가 소유하며 Spring DB snapshot이나 retention 대상으로 가져오지 않는다. 대중교통은 공식
+시간표와 TAGO를 계속 사용한다.
 
 승인된 키로 새 PoC를 수행할 때도 저장 가능한 결과는 요청별 성공 여부, 필드 존재율,
 안전한 reason code와 집계 latency뿐이다. 원문, geometry, 요청 URL/query, 좌표, 개별 구간의
@@ -78,7 +80,7 @@ FastAPI 프로세스의 승인된 on-demand adapter 경계에 남기며 Spring D
 Architecture Owner와 Product Owner는 다음 경계를 승인했다.
 
 - 최종 판정은 `DEFER`다.
-- #41은 provider-neutral port와 TMAP 기본 비활성화 경계를 구현한다.
+- 당시 #41 Spring port 결정은 Issue #207의 AI route runtime 단일 소유 결정으로 대체됐다.
 - 대중교통은 공식 시간표와 TAGO를 사용한다.
 - TMAP raw·geometry·사용자 위치·개별 route metric을 영속 저장하지 않는다.
 - 신규 live 재실측은 별도 승인된 키와 비저장 실행 조건이 있을 때만 수행한다.

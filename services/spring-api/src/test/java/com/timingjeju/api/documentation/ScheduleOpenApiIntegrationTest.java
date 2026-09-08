@@ -148,7 +148,13 @@ class ScheduleOpenApiIntegrationTest {
                     containsInAnyOrder(
                         "IDEMPOTENCY_KEY_REUSED",
                         "TRIP_VERSION_CONFLICT",
-                        "ACTIVE_SCHEDULE_VERSION_CONFLICT")))
+                        "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT")))
+        .andExpect(
+            jsonPath(
+                    path
+                        + ".responses['409'].content['application/problem+json'].examples.TRIP_TERMINAL_STATE_CONFLICT.value.detail")
+                .value("완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다."))
         .andExpect(jsonPath(path + ".responses['409'].headers['Retry-After']").exists())
         .andExpect(
             jsonPath(path + ".responses['422'].content['application/problem+json'].examples.keys()")

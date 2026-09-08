@@ -340,7 +340,8 @@ class ScheduleControllerIntegrationTest {
         .thenThrow(
             ScheduleException.placeNotFound(),
             ScheduleException.versionNotFound(),
-            ScheduleException.tripVersionConflict());
+            ScheduleException.tripVersionConflict(),
+            com.timingjeju.api.application.trip.TripException.terminalStateConflict());
     String body = validScheduleItemBody();
     List<List<String>> expected =
         List.of(
@@ -349,12 +350,17 @@ class ScheduleControllerIntegrationTest {
                 "SCHEDULE_VERSION_NOT_FOUND",
                 "일정 버전을 찾을 수 없습니다",
                 "요청한 일정 버전이 없거나 해당 여행에 속하지 않습니다."),
+            List.of("TRIP_VERSION_CONFLICT", "여행 조건이 이미 변경되었습니다", "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."),
             List.of(
-                "TRIP_VERSION_CONFLICT", "여행 조건이 이미 변경되었습니다", "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요."));
+                "TRIP_TERMINAL_STATE_CONFLICT",
+                "종료된 여행은 변경할 수 없습니다",
+                "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다."));
 
     for (List<String> problem : expected) {
+      int expectedStatus = problem.get(0).endsWith("CONFLICT") ? 409 : 404;
       mvc.perform(scheduleItemPost(body.getBytes(StandardCharsets.UTF_8), UUID.randomUUID()))
-          .andExpect(status().is4xxClientError())
+          .andExpect(status().is(expectedStatus))
+          .andExpect(jsonPath("$.status").value(expectedStatus))
           .andExpect(jsonPath("$.code").value(problem.get(0)))
           .andExpect(
               jsonPath("$.type")
