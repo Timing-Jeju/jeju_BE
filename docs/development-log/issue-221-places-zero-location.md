@@ -26,3 +26,10 @@ DB migration이나 실제 DB 적용·배포는 포함하지 않는다.
 준비했으며 최종 PR과 전체 gate는 #220 병합 후 최신 develop에서 수행한다.
 당시 canonical v2 문서와 readiness를 이 커밋의 테스트 통과만으로 활성화하지 않는다.
 독립 bounded advisory에서 코드 finding은 없었으며 최종 리뷰 승인은 별도다.
+
+## 공통 catalog 잔여 안내 정리
+
+- RED: catalog가 여전히 lat/lng/radius와 nearby distance 정렬을 안내함을 검출.
+- GREEN: 여섯 허용 조건과 이름/ID 정렬, 명시 지역 선택으로 runtime 설명을 정렬했다.
+- 사용되지 않는 OpenAPI radius 예시·설명을 제거했다. Weather 좌표는 #222까지 현행 runtime 문서로 남는다.
+- 공통 catalog contractVersion은 envelope 버전이며 domain v2/readiness와 별도로 유지한다.
