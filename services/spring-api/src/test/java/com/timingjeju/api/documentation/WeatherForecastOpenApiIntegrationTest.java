@@ -49,25 +49,17 @@ class WeatherForecastOpenApiIntegrationTest {
         .andExpect(
             jsonPath("$.paths['/api/v1/weather/forecast'].get.security[1].bearerAuth").isArray())
         .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lat')].required")
-                .value(true))
+            jsonPath("$.paths['/api/v1/weather/forecast'].get.parameters[*].name")
+                .value(
+                    Matchers.containsInAnyOrder("regionCode", "placeId", "tripItemId", "dateTime")))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lat')].schema.exclusiveMinimum")
-                .value(-90))
+                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='placeId')].schema.format")
+                .value("uuid"))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lat')].schema.exclusiveMaximum")
-                .value(90))
-        .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lng')].schema.minimum")
-                .value(-180.0))
-        .andExpect(
-            jsonPath(
-                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='lng')].schema.maximum")
-                .value(180.0))
+                    "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='tripItemId')].schema.format")
+                .value("uuid"))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.parameters[?(@.name=='dateTime')].required")
@@ -79,6 +71,7 @@ class WeatherForecastOpenApiIntegrationTest {
                     Matchers.hasKey("200"),
                     Matchers.hasKey("400"),
                     Matchers.hasKey("401"),
+                    Matchers.hasKey("404"),
                     Matchers.hasKey("422"),
                     Matchers.hasKey("503"))))
         .andExpect(
@@ -91,6 +84,17 @@ class WeatherForecastOpenApiIntegrationTest {
                 .value(
                     Matchers.hasItems(
                         "observedAt", "expiresAt", "stale", "fallbackUsed", "forecastedAt")))
+        .andExpect(
+            jsonPath("$.components.schemas.WeatherForecastResponse.properties.contractVersion.enum")
+                .value(Matchers.contains("2.0.0")))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['400'].content['application/problem+json'].example.code")
+                .value("INVALID_WEATHER_SELECTOR"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['404'].content['application/problem+json'].example.code")
+                .value("WEATHER_REFERENCE_NOT_FOUND"))
         .andExpect(jsonPath("$.components.schemas.WeatherGrid.additionalProperties").value(false));
   }
 

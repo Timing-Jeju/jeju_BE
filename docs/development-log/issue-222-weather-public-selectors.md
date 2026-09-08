@@ -40,3 +40,11 @@
 선택자·서비스·지역 catalog 단위, Controller slice와 실제 PostgreSQL repository 검사가 통과했다.
 전체 품질 gate, 최신 canonical/OpenAPI 정렬 및 독립 최종 리뷰는 진행 중이다.
 실제 승인 provider 호출, native staging, 운영 DB 적용·배포는 수행하지 않았다.
+
+## #220 병합 후 OpenAPI 정렬
+
+- develop f7fc751의 위치 비수집 v2 계약을 병합했다. #221 병합 후 최신 base 최종 검증은 별도 진행한다.
+- 실제 Swagger query는 regionCode/placeId/tripItemId/dateTime 네 개로 고정하고 contractVersion 2.0.0, 400 INVALID_WEATHER_SELECTOR, 404 WEATHER_REFERENCE_NOT_FOUND를 검사한다.
+- runtime manifest 회귀 RED: `/tmp/jeju-222-manifest-red.log` (기존 404 누락); GREEN: `/tmp/jeju-222-manifest-green.log` 6개 검사 성공.
+- Swagger slice GREEN: `/tmp/jeju-222-openapi-green.log`, BUILD SUCCESSFUL. 최초 테스트 경로 version은 실제 DTO contractVersion으로 바로잡았다.
+- Notion/Figma 실제 readback은 기존 1.0.0 GPS 계약이다. Notion v2 본문 갱신은 무료 블록 한도로 거부돼 `issue-222-notion-v2-pending.md`에 적용안을 보존했다. 버전 속성은 1.0.0으로 복원, Draft 상태를 재조회로 확인했다. v2 문서 readiness는 통과 처리하지 않았다.
