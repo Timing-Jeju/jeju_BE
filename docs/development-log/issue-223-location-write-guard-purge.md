@@ -236,3 +236,10 @@ zero verifier 초안은 `/tmp/jeju-223-residue-verifier.sql`이며, 이름/count
 - `/tmp/jeju-223-wire-seed-green.log`: PG16/17 wire 차단2, 현재 seed2, raw/redacted 위치 input·부모·MCP 정리4 =8PASS, failure/error/skip0,6m22s. 동일한 fixture로 RED4→GREEN을 확인했다.
 - `/tmp/jeju-223-static-final.log`: scripts/tests825건 중822PASS/3SKIP. 별도 migration/hash/lock/smoke 정적36PASS, deploy SQL policy·shell syntax·secret scan·diff check PASS.
 - 최신 command/wire 분리·zero verifier·seed·worker 상호작용의 독립 bounded source review 추가 finding0. 전체 동일 SHA gate/Docker와 공식 승인 전이므로 READY_FOR_REVIEW 또는 통합 완료로 판정하지 않는다.
+
+### 최초 전체 gate의 fixture 회귀 수정
+
+- `563904e` 공식 gate `/tmp/jeju-223-quality-563904e-solo.log`: 공통 검사·format·compile PASS, unit1351(failure0/skip9), slice56PASS. integration에서 여행 선호4건의 부모/input 누락과 운영 진단1건의401/400 차이를 확인하고 watchdog SIGINT로 중단했다. 공식 gate 성공 기록은 없다. 관련 disposable 프로세스/컨테이너 정리를 확인했다.
+- 여행 선호의 활성 일정·점수 fixture는 실제 autocommit parent-only INSERT였다. parent와 LocationFreeComputeInputFixture를 같은 TransactionTemplate 안에서 저장하도록 고쳤다.
+- `/tmp/jeju-223-preferences-operator-isolated.log`: 여행 선호14PASS, 운영 진단1PASS,1m1s. 진단 API 실패는 코드 수정 없이 단독실행에서 재현되지 않아 원인을 단정하지 않는다. 재발 시5개 응답 상태/HTTP version/고정 HTML 오류 여부만 보여주는 assertion 진단을 추가한다. body/header/token은 출력하지 않는다.
+- 017은563904e에 커밋됐으므로 이후 수정하지 않는다. 이번 수정은 Java 테스트 fixture/진단뿐이며 새 커밋의 전체 gate를 다시 실행한다.
