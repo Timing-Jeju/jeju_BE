@@ -213,6 +213,24 @@ class FrontendOpenApiCustomizerTest {
     assertThat(operation.getResponses().get("400").getExtensions().get("x-error-codes"))
         .isEqualTo(List.of("INVALID_REQUEST"));
 
+    OpenAPI noContent = projectionOpenApi(true);
+    Operation noContentOperation = noContent.getPaths().get("/api/v1/test/{tripId}").getPost();
+    noContentOperation.getResponses().remove("200");
+    noContentOperation.getResponses().addApiResponse("204", new ApiResponse());
+    projectCanonicalOperation(
+        noContent,
+        key,
+        catalog,
+        Map.of(
+            "successSchema",
+            "none",
+            "successStatuses",
+            List.of(204),
+            "errorMatrix",
+            Map.of("400", List.of("INVALID_REQUEST"))),
+        schemas);
+    assertThat(noContentOperation.getResponses().get("204").getContent()).isNull();
+
     OpenAPI referencedParameter = projectionOpenApi(false);
     referencedParameter
         .getComponents()
@@ -254,6 +272,65 @@ class FrontendOpenApiCustomizerTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("canonical parameter")
         .hasMessageContaining("tripId");
+  }
+
+  @Test
+  void ready_projection은_canonical_success_status_누락을_거부한다() {
+    String key = "POST /api/v1/test/{tripId}";
+    Map<String, Object> catalog = Map.of("schemas", Map.of("path", "Path", "body", "Body"));
+    Map<String, Object> endpoint =
+        Map.of(
+            "successSchema",
+            "Response",
+            "successStatuses",
+            List.of(200),
+            "errorMatrix",
+            Map.of("400", List.of("INVALID_REQUEST")));
+    Map<String, Object> schemas =
+        Map.of(
+            "Path",
+            closedObject(List.of("tripId"), Map.of("tripId", Map.of("type", "string"))),
+            "Body",
+            closedObject(List.of("name"), Map.of("name", Map.of("type", "string"))),
+            "Response",
+            closedObject(List.of("id"), Map.of("id", Map.of("type", "string"))));
+
+    OpenAPI missingSuccess = projectionOpenApi(true);
+    missingSuccess.getPaths().get("/api/v1/test/{tripId}").getPost().getResponses().remove("200");
+    assertThatThrownBy(
+            () -> projectCanonicalOperation(missingSuccess, key, catalog, endpoint, schemas))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining(key)
+        .hasMessageContaining("200");
+  }
+
+  @Test
+  void ready_projection은_canonical_error_status_누락을_거부한다() {
+    String key = "POST /api/v1/test/{tripId}";
+    Map<String, Object> catalog = Map.of("schemas", Map.of("path", "Path", "body", "Body"));
+    Map<String, Object> endpoint =
+        Map.of(
+            "successSchema",
+            "Response",
+            "successStatuses",
+            List.of(200),
+            "errorMatrix",
+            Map.of("400", List.of("INVALID_REQUEST")));
+    Map<String, Object> schemas =
+        Map.of(
+            "Path",
+            closedObject(List.of("tripId"), Map.of("tripId", Map.of("type", "string"))),
+            "Body",
+            closedObject(List.of("name"), Map.of("name", Map.of("type", "string"))),
+            "Response",
+            closedObject(List.of("id"), Map.of("id", Map.of("type", "string"))));
+    OpenAPI missingError = projectionOpenApi(true);
+    missingError.getPaths().get("/api/v1/test/{tripId}").getPost().getResponses().remove("400");
+    assertThatThrownBy(
+            () -> projectCanonicalOperation(missingError, key, catalog, endpoint, schemas))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining(key)
+        .hasMessageContaining("400");
   }
 
   private static OpenAPI projectionOpenApi(boolean includePathParameter) {
