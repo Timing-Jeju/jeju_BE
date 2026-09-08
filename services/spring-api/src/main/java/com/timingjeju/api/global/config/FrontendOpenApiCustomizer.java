@@ -29,6 +29,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -186,16 +188,34 @@ final class FrontendOpenApiCustomizer {
           "POST /api/v1/trips/{tripId}/schedule-items/{itemId}/move");
 
   private final ObjectMapper objectMapper;
+  private final Function<String, Map<String, Object>> contractResources;
   private final ProblemCodeRegistry problemCodeRegistry;
   private final TripPlacePreferencesProblemDefinitions tripPlacePreferencesProblemDefinitions;
   private final TripPreferencesProblemDefinitions tripPreferencesProblemDefinitions;
 
+  @Autowired
   FrontendOpenApiCustomizer(
       ObjectMapper objectMapper,
       ProblemCodeRegistry problemCodeRegistry,
       TripPlacePreferencesProblemDefinitions tripPlacePreferencesProblemDefinitions,
       TripPreferencesProblemDefinitions tripPreferencesProblemDefinitions) {
+    this(
+        objectMapper,
+        problemCodeRegistry,
+        tripPlacePreferencesProblemDefinitions,
+        tripPreferencesProblemDefinitions,
+        null);
+  }
+
+  FrontendOpenApiCustomizer(
+      ObjectMapper objectMapper,
+      ProblemCodeRegistry problemCodeRegistry,
+      TripPlacePreferencesProblemDefinitions tripPlacePreferencesProblemDefinitions,
+      TripPreferencesProblemDefinitions tripPreferencesProblemDefinitions,
+      Function<String, Map<String, Object>> contractResources) {
     this.objectMapper = objectMapper;
+    this.contractResources =
+        contractResources != null ? contractResources : this::readContractResource;
     this.problemCodeRegistry = problemCodeRegistry;
     this.tripPlacePreferencesProblemDefinitions = tripPlacePreferencesProblemDefinitions;
     this.tripPreferencesProblemDefinitions = tripPreferencesProblemDefinitions;
@@ -210,8 +230,9 @@ final class FrontendOpenApiCustomizer {
   }
 
   private void projectCanonicalContracts(OpenAPI openApi) {
-    Map<String, Map<String, Object>> catalogEndpoints =
-        endpointMap(readContractResource("/rest/catalog.json"));
+    Map<String, Object> catalog = contractResources.apply("/rest/catalog.json");
+    CanonicalProjectionReadiness readiness = CanonicalProjectionReadiness.from(catalog);
+    Map<String, Map<String, Object>> catalogEndpoints = endpointMap(catalog);
     for (String domain :
         List.of(
             "profile-legal",
@@ -222,7 +243,11 @@ final class FrontendOpenApiCustomizer {
             "schedules",
             "accommodations",
             "preferences-transport")) {
-      Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
+      if (!readiness.shouldProject(domain)) {
+        continue;
+      }
+      Map<String, Object> contract =
+          contractResources.apply("/domains/" + domain + "/contract.json");
       Map<String, Object> schemas = objectMap(contract.get("schemas"));
       for (Map<String, Object> endpoint : objectMapList(contract.get("endpoints"))) {
         String key = endpointKey(endpoint);
@@ -271,7 +296,10 @@ final class FrontendOpenApiCustomizer {
     }
     for (Object status : successStatuses) {
       ApiResponse response = operation.getResponses().get(String.valueOf(status));
-      if (response != null && !"none".equals(successSchema)) {
+      if (response == null) {
+        throw new IllegalStateException("OpenAPI canonical response가 없습니다: " + key + " " + status);
+      }
+      if (!"none".equals(successSchema)) {
         jsonMedia(response.getContent())
             .setSchema(canonicalSchema(String.valueOf(successSchema), schemas, key));
       }

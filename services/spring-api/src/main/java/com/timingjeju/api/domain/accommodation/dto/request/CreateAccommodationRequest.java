@@ -20,34 +20,16 @@ public final class CreateAccommodationRequest {
   private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
   private static final Pattern TIME_PATTERN = Pattern.compile("^(?:[01]\\d|2[0-3]):[0-5]\\d$");
 
-  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, nullable = true, format = "uuid")
   private UUID placeId;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      nullable = true,
-      minLength = 1,
-      maxLength = 100)
   private String customName;
 
-  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date", example = "2026-09-01")
   private LocalDate checkInDate;
 
-  @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date", example = "2026-09-02")
   private LocalDate checkOutDate;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      type = "string",
-      pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-      example = "15:00")
   private LocalTime checkInTime;
 
-  @Schema(
-      requiredMode = Schema.RequiredMode.REQUIRED,
-      type = "string",
-      pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
-      example = "11:00")
   private LocalTime checkOutTime;
 
   private boolean placeIdPresent;
@@ -57,36 +39,65 @@ public final class CreateAccommodationRequest {
   private boolean checkInTimePresent;
   private boolean checkOutTimePresent;
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      types = {"string", "null"},
+      format = "uuid")
   @JsonSetter("placeId")
   public void setPlaceId(Object value) {
     placeIdPresent = true;
     placeId = nullableUuid(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      types = {"string", "null"},
+      minLength = 1,
+      maxLength = 100)
   @JsonSetter("customName")
   public void setCustomName(Object value) {
     customNamePresent = true;
     customName = nullableString(value);
   }
 
+  @Schema(
+      type = "string",
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      format = "date",
+      example = "2026-09-01")
   @JsonSetter("checkInDate")
   public void setCheckInDate(Object value) {
     checkInDatePresent = true;
     checkInDate = requiredDate(value);
   }
 
+  @Schema(
+      type = "string",
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      format = "date",
+      example = "2026-09-02")
   @JsonSetter("checkOutDate")
   public void setCheckOutDate(Object value) {
     checkOutDatePresent = true;
     checkOutDate = requiredDate(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      type = "string",
+      pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+      example = "15:00")
   @JsonSetter("checkInTime")
   public void setCheckInTime(Object value) {
     checkInTimePresent = true;
     checkInTime = requiredTime(value);
   }
 
+  @Schema(
+      requiredMode = Schema.RequiredMode.REQUIRED,
+      type = "string",
+      pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+      example = "11:00")
   @JsonSetter("checkOutTime")
   public void setCheckOutTime(Object value) {
     checkOutTimePresent = true;

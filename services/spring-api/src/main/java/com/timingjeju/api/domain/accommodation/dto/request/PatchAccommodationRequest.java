@@ -15,49 +15,54 @@ import java.util.UUID;
     minProperties = 1,
     additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
 public final class PatchAccommodationRequest {
-  @Schema(nullable = true, format = "uuid")
   private AccommodationPatchValue<UUID> placeId = AccommodationPatchValue.omitted();
 
-  @Schema(nullable = true, minLength = 1, maxLength = 100)
   private AccommodationPatchValue<String> customName = AccommodationPatchValue.omitted();
 
-  @Schema(format = "date", example = "2026-09-01")
   private AccommodationPatchValue<LocalDate> checkInDate = AccommodationPatchValue.omitted();
 
-  @Schema(format = "date", example = "2026-09-02")
   private AccommodationPatchValue<LocalDate> checkOutDate = AccommodationPatchValue.omitted();
 
-  @Schema(type = "string", pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$", example = "15:00")
   private AccommodationPatchValue<LocalTime> checkInTime = AccommodationPatchValue.omitted();
 
-  @Schema(type = "string", pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$", example = "11:00")
   private AccommodationPatchValue<LocalTime> checkOutTime = AccommodationPatchValue.omitted();
 
+  @Schema(
+      types = {"string", "null"},
+      format = "uuid")
   @JsonSetter("placeId")
   public void setPlaceId(Object value) {
     placeId = AccommodationPatchValue.present(CreateAccommodationRequest.nullableUuid(value));
   }
 
+  @Schema(
+      types = {"string", "null"},
+      minLength = 1,
+      maxLength = 100)
   @JsonSetter("customName")
   public void setCustomName(Object value) {
     customName = AccommodationPatchValue.present(CreateAccommodationRequest.nullableString(value));
   }
 
+  @Schema(type = "string", format = "date", example = "2026-09-01")
   @JsonSetter("checkInDate")
   public void setCheckInDate(Object value) {
     checkInDate = AccommodationPatchValue.present(CreateAccommodationRequest.requiredDate(value));
   }
 
+  @Schema(type = "string", format = "date", example = "2026-09-02")
   @JsonSetter("checkOutDate")
   public void setCheckOutDate(Object value) {
     checkOutDate = AccommodationPatchValue.present(CreateAccommodationRequest.requiredDate(value));
   }
 
+  @Schema(type = "string", pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$", example = "15:00")
   @JsonSetter("checkInTime")
   public void setCheckInTime(Object value) {
     checkInTime = AccommodationPatchValue.present(CreateAccommodationRequest.requiredTime(value));
   }
 
+  @Schema(type = "string", pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$", example = "11:00")
   @JsonSetter("checkOutTime")
   public void setCheckOutTime(Object value) {
     checkOutTime = AccommodationPatchValue.present(CreateAccommodationRequest.requiredTime(value));

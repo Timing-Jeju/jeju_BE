@@ -437,6 +437,9 @@ class Validator:
         if not isinstance(self.runtime_manifest, dict):
             self.error("scripts/openapi_frontend_runtime_manifest.json", "operations map이 없습니다")
             return
+        readiness = self.projection_readiness(catalog)
+        if readiness is None:
+            return
         catalog_endpoints = {
             (entry.get("method"), entry.get("path")): entry
             for entry in catalog.get("endpoints", [])
@@ -491,6 +494,9 @@ class Validator:
                 )
             )
         for domain, operation_group in groups:
+            if domain not in readiness:
+                self.error(domain, "OpenAPI implementation readiness row가 없습니다")
+                continue
             contract = self.read_authority_json(
                 f"docs/contracts/domains/{domain}/contract.json"
             )
@@ -517,7 +523,33 @@ class Validator:
                     domain_endpoints.get(key),
                     schemas,
                     self.domain_problem_pairs(contract, domain_endpoints.get(key), key),
+                    canonical_ready=readiness[domain],
                 )
+
+    def projection_readiness(self, catalog):
+        rows = catalog.get("domainContracts")
+        domains = {}
+        if not isinstance(rows, list) or not rows:
+            self.error("catalog", "OpenAPI implementation readiness 구성이 없습니다")
+            return None
+        for row in rows:
+            domain = row.get("domain") if isinstance(row, dict) else None
+            readiness = row.get("readiness") if isinstance(row, dict) else None
+            implementation = readiness.get("implementation") if isinstance(readiness, dict) else None
+            if (not isinstance(domain, str) or not domain.strip() or domain != domain.strip()
+                    or domain in domains or not isinstance(implementation, dict)
+                    or implementation.get("status") not in ("ready", "not-ready")
+                    or "evidence" not in implementation):
+                self.error("catalog", "OpenAPI implementation readiness 구성이 올바르지 않습니다")
+                return None
+            ready = implementation["status"] == "ready"
+            evidence = implementation["evidence"]
+            if ((ready and (not isinstance(evidence, dict) or not evidence))
+                    or (not ready and evidence is not None)):
+                self.error(domain, "OpenAPI implementation readiness evidence가 올바르지 않습니다")
+                return None
+            domains[domain] = ready
+        return domains
 
     @classmethod
     def push_notification_schemas(cls, contract):
@@ -597,7 +629,7 @@ class Validator:
             return None
         return value
 
-    def validate_contract_endpoint(self, key, catalog, endpoint, schemas, domain_problem_pairs=None):
+    def validate_contract_endpoint(self, key, catalog, endpoint, schemas, domain_problem_pairs=None, *, canonical_ready=True):
         location = f"{key[0]} {key[1]}"
         if not isinstance(catalog, dict) or not isinstance(endpoint, dict):
             self.error(location, "REST catalog/domain contract authority projection이 없습니다")
@@ -616,6 +648,8 @@ class Validator:
         if not isinstance(runtime, dict):
             self.error(location, "runtime-only manifest projection이 없습니다")
             return
+        if not canonical_ready:
+            domain_problem_pairs = None
         strict_problem_pairs = key == ("POST", "/api/v1/trips/{tripId}/schedule-items")
         for status, problem in (runtime.get("problems") or {}).items():
             if not isinstance(problem, list) or len(problem) != 2:
@@ -660,19 +694,29 @@ class Validator:
                 )
                 if domain_problem_pairs is not None and not pair_matches and not runtime_only_allowed:
                     self.error(location, f"Problem 전체 집합 {status} code/type이 domain endpoint matrix와 다릅니다")
-        expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
-        expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
+        if canonical_ready:
+            expected_statuses.update(str(status) for status in runtime.get("statusAdditions", []))
+            expected_statuses.difference_update(str(status) for status in runtime.get("statusOmissions", []))
+        else:
+            statuses = runtime.get("statuses")
+            if (not isinstance(statuses, list) or not statuses
+                    or any(type(status) is not int or not 200 <= status <= 599 for status in statuses)
+                    or len(statuses) != len(set(statuses))):
+                self.error(location, "runtime statuses manifest가 올바르지 않습니다")
+                return
+            expected_statuses = {str(status) for status in statuses}
         actual_statuses = {str(status) for status in responses if str(status).isdigit()}
         if actual_statuses != expected_statuses:
             self.error(
                 location,
                 f"canonical status projection이 다릅니다: expected={sorted(expected_statuses)}, actual={sorted(actual_statuses)}",
             )
-        self.validate_contract_parameters(operation, catalog, schemas, location)
-        self.validate_contract_body(operation, catalog, schemas, location)
-        self.validate_contract_success(operation, endpoint, schemas, location)
+        if canonical_ready:
+            self.validate_contract_parameters(operation, catalog, schemas, location)
+            self.validate_contract_body(operation, catalog, schemas, location)
+            self.validate_contract_success(operation, endpoint, schemas, location)
         canonical_problem_examples = {}
-        if key == ("POST", "/api/v1/trips/{tripId}/schedule-items"):
+        if canonical_ready and key == ("POST", "/api/v1/trips/{tripId}/schedule-items"):
             fixture = self.read_authority_json("fixtures/contracts/schedules/problem.json") or {}
             canonical_problem_examples = {
                 example.get("code"): example
@@ -688,7 +732,7 @@ class Validator:
             response = self.resolve(raw_response, f"{location} response {status}")
             media = (response.get("content") or {}).get("application/problem+json") or {}
             canonical_codes = (endpoint.get("errorMatrix") or {}).get(str(status))
-            if key in ACCOMMODATION_OPERATIONS and canonical_codes is not None:
+            if canonical_ready and key in ACCOMMODATION_OPERATIONS and canonical_codes is not None:
                 self.validate_named_problem_examples(
                     media,
                     canonical_codes,
@@ -721,7 +765,7 @@ class Validator:
                     )
             else:
                 expected_code = self.expected_problem_code(key, int(status))
-                expected_type = self.expected_problem_type(expected_code)
+                expected_type = self.expected_problem_type(expected_code, key, int(status))
                 if actual_problem_pairs != {(expected_code, expected_type)}:
                     self.error(
                         location,

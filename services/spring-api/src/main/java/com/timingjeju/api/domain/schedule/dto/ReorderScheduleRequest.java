@@ -16,6 +16,7 @@ public record ReorderScheduleRequest(
         days == null ? null : days.stream().map(DayOrderRequest::toCommand).toList());
   }
 
+  @Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
   public record DayOrderRequest(Integer dayNo, List<UUID> orderedItemIds) {
     ReorderScheduleCommand.DayOrder toCommand() {
       return new ReorderScheduleCommand.DayOrder(dayNo == null ? 0 : dayNo, orderedItemIds);
