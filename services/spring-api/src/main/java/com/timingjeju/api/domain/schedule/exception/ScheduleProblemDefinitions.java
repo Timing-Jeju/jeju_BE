@@ -46,6 +46,11 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
               409,
               "최신 활성 일정을 조회한 뒤 다시 편집해 주세요."),
           mutation(
+              "TRIP_TERMINAL_STATE_CONFLICT",
+              "종료된 여행은 변경할 수 없습니다",
+              409,
+              "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다."),
+          mutation(
               "SCHEDULE_ITEM_INVALID", "일정 항목을 적용할 수 없습니다", 422, "항목 유형별 필수값과 Day 시간 범위를 확인해 주세요."),
           mutation(
               "SCHEDULE_LEG_INCOMPLETE", "이동 구간을 완성할 수 없습니다", 422, "인접 일정 항목 사이의 이동 구간을 확인해 주세요."));

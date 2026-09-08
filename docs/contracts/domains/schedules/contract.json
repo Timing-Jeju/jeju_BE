@@ -952,7 +952,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_INVALID",
@@ -1041,7 +1042,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_INVALID",
@@ -1128,7 +1130,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
@@ -1215,7 +1218,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
@@ -1303,7 +1307,8 @@
         "409": [
           "IDEMPOTENCY_KEY_REUSED",
           "TRIP_VERSION_CONFLICT",
-          "ACTIVE_SCHEDULE_VERSION_CONFLICT"
+          "ACTIVE_SCHEDULE_VERSION_CONFLICT",
+          "TRIP_TERMINAL_STATE_CONFLICT"
         ],
         "422": [
           "SCHEDULE_ITEM_COMPLETED",
@@ -1639,6 +1644,15 @@
       "title": "활성 일정이 이미 변경되었습니다",
       "detail": "최신 활성 일정을 조회한 뒤 다시 편집해 주세요.",
       "fixture": "409_active_schedule_version_conflict"
+    },
+    {
+      "status": 409,
+      "code": "TRIP_TERMINAL_STATE_CONFLICT",
+      "condition": "trip is completed, cancelled or failed",
+      "type": "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+      "title": "종료된 여행은 변경할 수 없습니다",
+      "detail": "완료, 취소 또는 실패한 여행의 일정은 변경할 수 없습니다.",
+      "fixture": "409_trip_terminal_state_conflict"
     },
     {
       "status": 422,
