@@ -44,3 +44,9 @@ Historical HEAD `d7ee4a5d3a9cfd43e1f6d01d402a6d8786ab6427`에서 PG16/17 모두 
 이번 QA는 이 회귀를 Docker 실행에만 맡기지 않도록 `seed → location cleanup → helper` 순서를 Python 계약으로 고정했다. 또한 기존 test factory가 실패 시 psql stdout/stderr 전체를 예외에 붙여 fixture 값이나 상세 오류가 로그로 확산될 수 있던 경계를 보정했다. psql은 메시지 대신 오류 분류만 남기는 `VERBOSITY=sqlstate`로 실행하고, 첫 `ERROR:` 행만 선택해 임의 container 경로·single-quoted literal·UUID를 치환하며 512자로 제한한다. 실제 legacy dependency 실패 assertion도 dependency SQLSTATE `2BP01`과 `error=psql:` 요약은 남고 `stdout=`·`stderr=` 원문은 남지 않는지 확인한다.
 
 TDD Red는 `python3 -m unittest scripts.tests.test_private_trip_ownership_helper -v`에서 신규 안전 진단 계약이 psql verbosity 제한과 안전 요약 부재로 1건 실패했다. 최소 구현 뒤 같은 12개 Python 계약과 Docker-free `./gradlew test --tests 'com.timingjeju.api.support.postgresql.PostgreSqlTestContainerFactoryTest' spotlessCheck`가 통과했다. 변경 후 첫 actual-PG 실행은 두 버전 모두 안전한 `2BP01`을 반환했지만 psql이 `ERROR:` 뒤에 공백 두 칸을 출력해 exact assertion이 실패하는 두 번째 Red가 됐다. 요약의 모든 공백을 단일화한 뒤 같은 parameterized 테스트를 다시 실행해 PG16/PG17 2건 모두 통과했다.
+
+### Reviewer 진단 redaction 보정
+
+Reviewer는 첫 구현이 single quote와 UUID만 직접 치환해 double-quoted PostgreSQL 값, `$$...$$`, tagged dollar quote, 일반 filesystem path가 synthetic stderr에 들어오면 남을 수 있고, 512자 뒤 ellipsis를 붙여 실제 최대 길이가 513자가 되는 문제를 찾았다. 먼저 factory unit test에 모든 민감 형식을 한 진단에 섞은 case와 긴 `42501` 진단 case를 추가했다. 신규 2개 테스트는 double/dollar/path 노출, 원인 범주 부재, 513자 결과를 각각 보여 Red가 됐다.
+
+Green에서는 `ERROR:` 뒤 5자리 SQLSTATE를 민감 detail보다 먼저 분리하고 SQLSTATE class를 `dependent-objects`, `syntax-or-access-rule`, `integrity-constraint` 같은 제한된 원인 범주로 매핑한다. 그 뒤에만 single/double quote, untagged/tagged dollar quote, Unix·Windows path, UUID를 `<redacted>`로 치환한다. 긴 결과는 SQLSTATE와 원인 범주가 항상 앞에 있도록 구성한 뒤 ellipsis를 포함해 총 512자로 제한한다. SQLSTATE를 파싱하지 못하면 원문을 반사하지 않고 generic `database-error; details=<redacted>`로 닫힌다. Docker-free synthetic unit 5개, Python 계약 12개와 Spotless가 통과했다.

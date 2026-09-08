@@ -194,6 +194,17 @@ class PrivateTripOwnershipHelperContractTest(unittest.TestCase):
         source = POSTGRES_FACTORY.read_text(encoding="utf-8")
         self.assertIn('"VERBOSITY=sqlstate"', source)
         self.assertIn("safePsqlErrorSummary", source)
+        for marker in (
+            "SINGLE_QUOTED_VALUE",
+            "DOUBLE_QUOTED_VALUE",
+            "UNTAGGED_DOLLAR_QUOTED_VALUE",
+            "TAGGED_DOLLAR_QUOTED_VALUE",
+            "FILESYSTEM_PATH",
+            "UUID_VALUE",
+            "sqlStateCause",
+            "MAX_DIAGNOSTIC_LENGTH - 1",
+        ):
+            self.assertIn(marker, source)
         self.assertNotIn("result.getStdout()", source)
         self.assertLessEqual(source.count("result.getStderr()"), 1)
 
