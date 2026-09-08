@@ -78,3 +78,10 @@
 - 미커밋 016을 `planned_route_reference_integrity.sql`로 정리하고 owner-trip FK만 ON DELETE CASCADE로 교체했다. 공개 place/stop 및 계획 anchor FK는 유지한다. negative route hash SQL은 유효한 기존 계보를 복사한 뒤 hash만 잘못 넣어 실패 원인을 분리했다.
 - 최종 `/tmp/jeju-225-route-owner-integrity-green.log` PASS(2m20s): 실제 여행 삭제 시 route 제거/public place 3개·owner 보존, 기존 trip 삭제 계약, PG16/17 schema 검증 총4건. registry14건과 diff 검사도 PASS. 독립 advisory 추가 finding0.
 - 위 Docker preflight는 owner-trip CASCADE 최종 보강 이전 증거이다. 최신 base/최종 HEAD의 전체 공식 gate·Docker·공식 리뷰는 #222 병합 후 다시 수행한다. 아직 PR·공식 승인·운영 적용은 없다.
+
+## 선행 API 병합 후 최종 gate 준비
+
+- 016 참조 무결성과 fixture 보강은 `27cbec8c1a9cc5b802857556e2b43df247e051dd`로 커밋됐다. 013–016은 모두 immutable이며 수정하지 않는다.
+- Places PR231 및 Weather PR233 병합 후 최신 develop `be3b13be81c44f01b7d13ed2fd537cc9a8f6b4fe`를 충돌 없이 통합했다 (merge `8e10d3ca0f248aa7fb5f63a42fe49f4ff0a24490`).
+- 이 최종 범위에서 공식 전체 quality gate·Docker를 단독 실행한다. 다른 worktree의 PostgreSQL 테스트가 종료되고 disposable 자원이 정리된 뒤 시작한다. 기존 선별 검사·preflight를 최종 gate로 대체 주장하지 않는다.
+- TMAP 경로 결과 영속 허용은 #216 미확정으로 계속 차단하며, 이 변경의 경로 저장·QA는 승인된 합성 fixture로 제한된다. 실제 provider·staging·운영 DB 적용 및 배포는 수행하지 않는다.
