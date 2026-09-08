@@ -9,8 +9,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.validation.constraints.DecimalMax;
-import jakarta.validation.constraints.DecimalMin;
 
 public interface WeatherForecastApiDocs {
 
@@ -24,14 +22,21 @@ public interface WeatherForecastApiDocs {
         content = @Content(schema = @Schema(implementation = WeatherForecastResponse.class))),
     @ApiResponse(
         responseCode = "400",
-        description = "위경도 또는 제주 현지 예보 시각 형식 오류",
+        description = "선택자 개수·형식 또는 제주 현지 예보 시각 오류",
         content =
             @Content(
                 mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "401",
-        description = "전달한 선택 인증 token이 유효하지 않음",
+        description = "계획 항목 인증 누락 또는 유효하지 않은 token",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        description = "공개 장소 또는 소유 계획 항목을 찾을 수 없음",
         content =
             @Content(
                 mediaType = "application/problem+json",
@@ -53,18 +58,16 @@ public interface WeatherForecastApiDocs {
   })
   WeatherForecastResponse forecast(
       @Parameter(
-              required = true,
-              schema =
-                  @Schema(type = "number", exclusiveMinimumValue = -90, exclusiveMaximumValue = 90))
-          @DecimalMin(value = "-90", inclusive = false)
-          @DecimalMax(value = "90", inclusive = false)
-          String lat,
+              description = "명시 선택한 공개 지역. 세 selector 중 정확히 하나만 입력합니다.",
+              schema = @Schema(pattern = "^[a-z0-9][a-z0-9_-]{0,49}$"))
+          String regionCode,
+      @Parameter(description = "명시 선택한 공개 장소 canonical UUID", schema = @Schema(format = "uuid"))
+          String placeId,
       @Parameter(
-              required = true,
-              schema = @Schema(type = "number", minimum = "-180", maximum = "180"))
-          @DecimalMin("-180")
-          @DecimalMax("180")
-          String lng,
+              description = "인증 사용자가 소유한 계획 항목 canonical UUID",
+              example = "50000000-0000-4000-8000-000000000005",
+              schema = @Schema(format = "uuid"))
+          String tripItemId,
       @Parameter(
               required = true,
               schema =

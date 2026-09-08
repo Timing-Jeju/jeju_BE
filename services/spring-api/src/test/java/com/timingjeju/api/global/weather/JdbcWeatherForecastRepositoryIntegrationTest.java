@@ -32,6 +32,7 @@ class JdbcWeatherForecastRepositoryIntegrationTest
     extends PostgreSqlRepositoryIntegrationTestSupport {
 
   private static final UUID GRID = UUID.fromString("67000000-0000-0000-0000-000000000001");
+  private static final UUID PLACE = UUID.fromString("67000000-0000-0000-0000-000000000002");
   private static final KmaGridPoint GRID_POINT = new KmaGridPoint(60, 37);
   private static final Instant NOW = Instant.parse("2026-08-03T05:20:00Z");
   private static final Clock CLOCK = Clock.fixed(NOW, ZoneId.of("Asia/Seoul"));
@@ -42,8 +43,78 @@ class JdbcWeatherForecastRepositoryIntegrationTest
   @BeforeEach
   void setUp() {
     jdbc.update(
+        """
+        insert into public.tour_places(id,content_id,name,normalized_name,category,region_code,location,source_provider,source_service)
+        values (?,'weather-public-place','공개 장소','공개 장소','tourist_attraction','seogwipo-si',
+          st_setsrid(st_makepoint(126.941516,33.458111),4326)::geography,'fixture','weather-test')
+        """,
+        PLACE);
+    jdbc.update(
         "insert into public.weather_grid_points(id,grid_provider,nx,ny,region_name) values (?,'KMA',60,37,'서귀포시 성산읍')",
         GRID);
+  }
+
+  @Test
+  void 지역과_공개_장소는_정규화_공개_자료로만_해석한다() {
+    assertThat(repository.findRegionGrid("seongsan"))
+        .get()
+        .extracting("gridPoint")
+        .isEqualTo(GRID_POINT);
+    assertThat(repository.findRegionGrid("missing-region")).isEmpty();
+    assertThat(repository.findPublicPlace(PLACE)).get().extracting("latitude").isEqualTo(33.458111);
+    assertThat(repository.findPublicPlace(UUID.randomUUID())).isEmpty();
+    jdbc.update("update public.tour_places set tombstoned_at=now() where id=?", PLACE);
+    assertThat(repository.findPublicPlace(PLACE)).isEmpty();
+    assertThat(repository.findRegionGrid("seongsan")).isPresent();
+    assertThat(repository.findRegionGrid("jeju-si")).isEmpty();
+  }
+
+  @Test
+  void 소유_계획만_공개_장소로_해석하고_JSON_위치로_우회하지_않는다() {
+    UUID owner = UUID.randomUUID(),
+        trip = UUID.randomUUID(),
+        day = UUID.randomUUID(),
+        version = UUID.randomUUID(),
+        item = UUID.randomUUID();
+    jdbc.update(
+        "insert into auth.users(id,email) values (?,?)", owner, "weather-owner@test.invalid");
+    jdbc.update(
+        "insert into public.user_profiles(id,email) values (?,?)",
+        owner,
+        "weather-owner@test.invalid");
+    jdbc.update(
+        """
+        insert into public.trip_plans(id,user_id,public_token,title,status,start_date,end_date,source_mode,data_version)
+        values (?,?,'weather-selector-test','날씨 계획','draft','2026-08-03','2026-08-03','fixture','weather-v2')
+        """,
+        trip,
+        owner);
+    jdbc.update(
+        "insert into public.trip_days(id,trip_plan_id,day_no,trip_date) values (?,?,1,'2026-08-03')",
+        day,
+        trip);
+    jdbc.update(
+        "insert into public.trip_schedule_versions(id,trip_plan_id,version_no,status,source_type) values (?,?,1,'draft','initial')",
+        version,
+        trip);
+    jdbc.update(
+        """
+        insert into public.trip_items(id,trip_plan_id,trip_day_id,schedule_version_id,sequence_no,item_type,place_id,title,source)
+        values (?,?,?,?,1,'custom',?,'공개 목적지','user_input')
+        """,
+        item,
+        trip,
+        day,
+        version,
+        PLACE);
+    assertThat(repository.findOwnedTripItem(item, owner))
+        .isEqualTo(repository.findPublicPlace(PLACE));
+    assertThat(repository.findOwnedTripItem(item, UUID.randomUUID())).isEmpty();
+    assertThat(repository.findOwnedTripItem(UUID.randomUUID(), owner)).isEmpty();
+    jdbc.update(
+        "update public.trip_items set place_id=null,facts='{\"location\":{\"lat\":33.4,\"lng\":126.9}}'::jsonb where id=?",
+        item);
+    assertThat(repository.findOwnedTripItem(item, owner)).isEmpty();
   }
 
   @Test
@@ -152,7 +223,7 @@ class JdbcWeatherForecastRepositoryIntegrationTest
   }
 
   private static WeatherForecastQuery query(String dateTime) {
-    return WeatherForecastQuery.of(33.458111, 126.941516, OffsetDateTime.parse(dateTime));
+    return WeatherForecastQuery.parse("seongsan", null, null, dateTime);
   }
 
   private static WeatherForecastLookup lookup(

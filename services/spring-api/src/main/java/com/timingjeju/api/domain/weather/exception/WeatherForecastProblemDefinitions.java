@@ -14,15 +14,17 @@ public class WeatherForecastProblemDefinitions implements ProblemDefinitionContr
   public List<ProblemDefinition> definitions() {
     return List.of(
         problem(
-            "INVALID_WEATHER_FORECAST_QUERY",
+            "WEATHER_REFERENCE_NOT_FOUND", "계획 목적지를 찾을 수 없습니다", 404, "요청한 목적지가 없거나 조회할 수 없습니다."),
+        problem(
+            "INVALID_WEATHER_SELECTOR",
             "날씨 조회 조건이 올바르지 않습니다",
             400,
-            "위도, 경도와 제주 현지 예보 시각을 올바른 형식으로 모두 입력해 주세요."),
+            "지역, 장소 또는 계획 항목 하나와 제주 예보 시각을 올바르게 입력해 주세요."),
         problem(
             "WEATHER_LOCATION_NOT_SUPPORTED",
             "지원하지 않는 날씨 조회 위치입니다",
             422,
-            "제주 지역의 지원 가능한 위치를 입력해 주세요."),
+            "제주 예보를 지원하는 공개 지역 또는 계획 목적지를 선택해 주세요."),
         problem(
             "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
             "지원하지 않는 예보 기간입니다",

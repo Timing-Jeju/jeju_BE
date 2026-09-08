@@ -10,6 +10,7 @@ import com.timingjeju.api.domain.weather.dto.response.WeatherForecastResponse;
 import com.timingjeju.api.domain.weather.dto.response.WeatherGridResponse;
 import com.timingjeju.api.domain.weather.exception.WeatherForecastDataUnavailableException;
 import com.timingjeju.api.domain.weather.exception.WeatherForecastException;
+import com.timingjeju.api.domain.weather.model.PublicWeatherAnchor;
 import com.timingjeju.api.domain.weather.model.SupportedWeatherGrid;
 import com.timingjeju.api.domain.weather.model.WeatherForecastLookup;
 import com.timingjeju.api.domain.weather.model.WeatherForecastSnapshot;
@@ -23,6 +24,7 @@ import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 public final class WeatherForecastQueryService {
 
@@ -59,9 +61,16 @@ public final class WeatherForecastQueryService {
   }
 
   public WeatherForecastResponse forecast(WeatherForecastQuery query) {
+    return forecast(query, null);
+  }
+
+  public WeatherForecastResponse forecast(WeatherForecastQuery query, UUID ownerId) {
+    if (query.tripItemId() != null && ownerId == null) {
+      throw new WeatherForecastException("AUTHENTICATION_REQUIRED");
+    }
     Instant evaluatedAt = clock.instant();
     ForecastType type = forecastType(query, evaluatedAt);
-    SupportedWeatherGrid grid = supportedGrid(query);
+    SupportedWeatherGrid grid = supportedGrid(query, ownerId);
     ForecastBaseTime current = bases.resolve(type, evaluatedAt);
     try {
       Optional<WeatherForecastResponse> latest =
@@ -81,14 +90,24 @@ public final class WeatherForecastQueryService {
     }
   }
 
-  private SupportedWeatherGrid supportedGrid(WeatherForecastQuery query) {
-    KmaGridPoint point;
+  private SupportedWeatherGrid supportedGrid(WeatherForecastQuery query, UUID ownerId) {
     try {
-      point = grids.convert(query.lat(), query.lng());
-    } catch (IllegalArgumentException failure) {
-      throw new WeatherForecastException("WEATHER_LOCATION_NOT_SUPPORTED");
-    }
-    try {
+      if (query.regionCode() != null) {
+        return repository
+            .findRegionGrid(query.regionCode())
+            .orElseThrow(() -> new WeatherForecastException("WEATHER_LOCATION_NOT_SUPPORTED"));
+      }
+      PublicWeatherAnchor anchor =
+          (query.placeId() != null
+                  ? repository.findPublicPlace(query.placeId())
+                  : repository.findOwnedTripItem(query.tripItemId(), ownerId))
+              .orElseThrow(() -> new WeatherForecastException("WEATHER_REFERENCE_NOT_FOUND"));
+      KmaGridPoint point;
+      try {
+        point = grids.convert(anchor.latitude(), anchor.longitude());
+      } catch (IllegalArgumentException failure) {
+        throw new WeatherForecastException("WEATHER_LOCATION_NOT_SUPPORTED");
+      }
       return repository
           .findSupportedGrid(point)
           .orElseThrow(() -> new WeatherForecastException("WEATHER_LOCATION_NOT_SUPPORTED"));
@@ -127,7 +146,7 @@ public final class WeatherForecastQueryService {
     }
     return Optional.of(
         new WeatherForecastResponse(
-            "1.0.0",
+            "2.0.0",
             new WeatherGridResponse(
                 grid.gridPoint().nx(), grid.gridPoint().ny(), grid.regionName()),
             "KMA",
