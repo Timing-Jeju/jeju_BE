@@ -3,7 +3,8 @@ set -eu
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT"
-PROJECT="timing-jeju-smoke"
+RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
+PROJECT="timing-jeju-smoke-${RUN_ID}"
 UPGRADE_DB="timing_jeju_legacy_upgrade"
 HOURS_CONFLICT_DB="timing_jeju_legacy_hours_conflict"
 RESULT_DAY_CONFLICT_DB="timing_jeju_legacy_result_day_conflict"
@@ -25,6 +26,7 @@ RESULT_DAY_CONFLICT_LOG=$(mktemp -t timing-jeju-result-day-conflict.XXXXXX)
 CONSISTENCY_CONFLICT_LOG=$(mktemp -t timing-jeju-consistency-conflict.XXXXXX)
 
 cleanup() {
+  cleanup_status=0
   for database in \
     "$UPGRADE_DB" "$HOURS_CONFLICT_DB" "$RESULT_DAY_CONFLICT_DB" \
     "$RECOMMENDATION_DAY_CONFLICT_DB" \
@@ -49,23 +51,135 @@ cleanup() {
   if [ -f "$CONSISTENCY_CONFLICT_LOG" ]; then
     rm -f "$CONSISTENCY_CONFLICT_LOG"
   fi
-  docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans >/dev/null 2>&1 || true
-  docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1 || true
+  if ! docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans \
+    >/dev/null 2>&1; then
+    echo "[Docker] smoke project 정리에 실패했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+
+  if image_residue=$(docker image ls \
+    --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
+    if [ -n "$image_residue" ] \
+      && ! docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1; then
+      echo "[Docker] smoke API 이미지 정리에 실패했습니다: ${PROJECT}-api:latest" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke API 이미지 상태를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+
+  if compose_residue=$(docker compose -p "$PROJECT" -f compose.test.yml ps -aq 2>/dev/null); then
+    if [ -n "$compose_residue" ]; then
+      echo "[Docker] smoke container residue가 남았습니다: $compose_residue" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke container residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+  if network_residue=$(docker network ls \
+    --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
+    if [ -n "$network_residue" ]; then
+      echo "[Docker] smoke network residue가 남았습니다: $network_residue" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke network residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+  if volume_residue=$(docker volume ls \
+    --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
+    if [ -n "$volume_residue" ]; then
+      echo "[Docker] smoke volume residue가 남았습니다: $volume_residue" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke volume residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+  if image_residue=$(docker image ls \
+    --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
+    if [ -n "$image_residue" ]; then
+      echo "[Docker] smoke API image residue가 남았습니다: ${PROJECT}-api:latest" >&2
+      cleanup_status=1
+    fi
+  else
+    echo "[Docker] smoke API image residue를 확인하지 못했습니다: $PROJECT" >&2
+    cleanup_status=1
+  fi
+
+  return "$cleanup_status"
 }
-trap cleanup EXIT INT TERM
+
+finish() {
+  original_status=$?
+  trap - EXIT INT TERM
+  cleanup_status=0
+  cleanup || cleanup_status=$?
+
+  if [ "$original_status" -ne 0 ]; then
+    exit "$original_status"
+  fi
+  if [ "$cleanup_status" -ne 0 ]; then
+    exit 70
+  fi
+  exit 0
+}
+
+resolve_api_port() {
+  published=$1
+  entry_count=$(printf '%s\n' "$published" | awk 'NF { count++ } END { print count + 0 }')
+  if [ "$entry_count" -ne 1 ]; then
+    echo "[Docker] API publish port가 하나가 아닙니다." >&2
+    return 1
+  fi
+
+  case "$published" in
+    *:*) port=${published##*:} ;;
+    *)
+      echo "[Docker] API publish port 형식이 올바르지 않습니다." >&2
+      return 1
+      ;;
+  esac
+
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "[Docker] API publish port가 정수가 아닙니다." >&2
+      return 1
+      ;;
+  esac
+  if [ "${#port}" -gt 5 ]; then
+    echo "[Docker] API publish port 범위가 올바르지 않습니다." >&2
+    return 1
+  fi
+  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "[Docker] API publish port 범위가 올바르지 않습니다." >&2
+    return 1
+  fi
+
+  printf '%s\n' "$port"
+}
+
+trap finish EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 command -v docker >/dev/null || { echo "Docker가 설치되지 않았습니다." >&2; exit 1; }
 docker info >/dev/null 2>&1 || { echo "Docker daemon이 실행 중이 아닙니다." >&2; exit 1; }
-SMOKE_API_PORT=${TIMING_JEJU_SMOKE_API_PORT:-28080}
-SMOKE_API_PORT=$(python3 scripts/validate_smoke_api_port.py "$SMOKE_API_PORT")
-export TIMING_JEJU_SMOKE_API_PORT=$SMOKE_API_PORT
 
 echo "[Docker] 이미지 빌드와 격리 Compose 실행"
 docker compose -p "$PROJECT" -f compose.test.yml up -d --build
 
+PUBLISHED_API_PORT=$(docker compose -p "$PROJECT" -f compose.test.yml port api 8080) || {
+  echo "[Docker] 현재 smoke API의 publish port를 조회하지 못했습니다." >&2
+  exit 1
+}
+API_PORT=$(resolve_api_port "$PUBLISHED_API_PORT")
+
 attempt=1
 while [ "$attempt" -le 60 ]; do
-  if curl --fail --silent "http://127.0.0.1:$SMOKE_API_PORT/actuator/health" | grep -q '"status":"UP"'; then
+  if curl --fail --silent "http://127.0.0.1:${API_PORT}/actuator/health" | grep -q '"status":"UP"'; then
     break
   fi
   attempt=$((attempt + 1))
@@ -212,6 +326,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/035_mcp_private_http_client.sql \
   /docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql \
   /docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql \
+  /docker-entrypoint-initdb.d/038_schedule_item_required_references.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -389,6 +504,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/035_mcp_private_http_client.sql \
   /docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql \
   /docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql \
+  /docker-entrypoint-initdb.d/038_schedule_item_required_references.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
