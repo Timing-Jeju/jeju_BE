@@ -17,7 +17,7 @@
 - `commandInputHash`와 실제 MCP arguments의 `mcpInputHash`는 별도로 기록한다.
 - 감사 로그는 hash/count/status/latency만 저장한다. JWT, 사용자 원문, provider payload, TMAP geometry는 저장하지 않는다.
 - #31과 #62는 BE 자체 외부 데이터 기능의 이슈로 유지하며 완료 처리하지 않는다. planner #52의 선행조건에서는 제거한다.
-- 기존 BE route provider(#41)는 별도 BE 기능으로 유지하고 MCP planner 경로의 증거로 재사용하지 않는다.
+- planner 경로 계산·route fact·TTL cache·fallback은 `jeju_AI`가 소유한다. Spring은 같은 계산·cache를 중복 구현하지 않고 private MCP 연결·계약 검증·감사와 제품 DB 결과 저장을 소유한다.
 
 ## 결과
 
