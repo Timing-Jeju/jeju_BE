@@ -17,6 +17,8 @@ import com.timingjeju.api.application.trip.TripStore;
 import com.timingjeju.api.application.trip.TripSummary;
 import com.timingjeju.api.application.trip.TripTransportMode;
 import com.timingjeju.api.application.trip.TripUpdateRecord;
+import com.timingjeju.api.global.trip.TripAggregateMutationCoordinator;
+import com.timingjeju.api.global.trip.TripAggregateMutationCoordinator.LockedTrip;
 import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.ResultSet;
@@ -35,6 +37,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.postgresql.util.PSQLException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -89,10 +92,20 @@ public class JdbcTripStore implements TripStore {
 
   private final JdbcTemplate jdbc;
   private final NamedParameterJdbcTemplate namedJdbc;
+  private final TripAggregateMutationCoordinator tripMutations;
 
-  public JdbcTripStore(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc) {
+  @Autowired
+  public JdbcTripStore(
+      JdbcTemplate jdbc,
+      NamedParameterJdbcTemplate namedJdbc,
+      TripAggregateMutationCoordinator tripMutations) {
     this.jdbc = jdbc;
     this.namedJdbc = namedJdbc;
+    this.tripMutations = tripMutations;
+  }
+
+  JdbcTripStore(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc) {
+    this(jdbc, namedJdbc, new TripAggregateMutationCoordinator(jdbc));
   }
 
   @Override
@@ -335,14 +348,9 @@ public class JdbcTripStore implements TripStore {
   @Transactional
   public TripMutationResult updateOwned(TripUpdateRecord record) {
     try {
-      MutationRoot root = lockOwned(record.ownerId(), record.tripId());
-      if (!record.expected().tripId().equals(record.tripId())
-          || record.expected().revision() != root.revision()) {
-        throw TripException.versionConflict();
-      }
-      if (isTerminal(root.status())) {
-        throw TripException.terminalStateConflict();
-      }
+      LockedTrip root = tripMutations.lockOwned(record.ownerId(), record.tripId());
+      tripMutations.validateExpected(record.tripId(), record.expected(), root);
+      tripMutations.requireMutable(root);
 
       var command = record.command();
       String title = command.title().present() ? command.title().value() : root.title();
@@ -430,13 +438,11 @@ public class JdbcTripStore implements TripStore {
     ReplaceTripPreferencesCommand command =
         TripPreferencePolicy.canonicalizeAndValidate(record.command());
     try {
-      MutationRoot root = lockOwned(record.ownerId(), record.tripId());
+      LockedTrip root = tripMutations.lockOwned(record.ownerId(), record.tripId());
       if (root.revision() != record.expectedRevision()) {
         throw TripException.versionConflict();
       }
-      if (Set.of("completed", "cancelled", "failed").contains(root.status())) {
-        throw TripException.terminalStateConflict();
-      }
+      tripMutations.requireMutable(root);
       validatePreferencePlaces(command, record.updatedAt());
       if (command.equals(loadPreferences(record.tripId()))) {
         return new TripPreferencesMutation(
@@ -728,7 +734,7 @@ public class JdbcTripStore implements TripStore {
   @Transactional
   public void deleteOwned(UUID ownerId, UUID tripId) {
     try {
-      MutationRoot root = lockOwned(ownerId, tripId);
+      LockedTrip root = tripMutations.lockOwned(ownerId, tripId);
       if ("live".equals(root.status()) || hasNonTerminalRun(tripId)) {
         throw TripException.deleteConflict();
       }
@@ -741,36 +747,6 @@ public class JdbcTripStore implements TripStore {
     } catch (DataAccessException failure) {
       throw TripException.dataUnavailable();
     }
-  }
-
-  private MutationRoot lockOwned(UUID ownerId, UUID tripId) {
-    List<MutationRoot> rows =
-        jdbc.query(
-            """
-            select revision, title, status, start_date, end_date, timezone, user_pace, updated_at,
-                   active_schedule_version_id, total_score
-            from public.trip_plans
-            where id = ? and user_id = ?
-            for update
-            """,
-            (rs, row) ->
-                new MutationRoot(
-                    rs.getLong("revision"),
-                    rs.getString("title"),
-                    rs.getString("status"),
-                    rs.getDate("start_date").toLocalDate(),
-                    rs.getDate("end_date").toLocalDate(),
-                    rs.getString("timezone"),
-                    rs.getString("user_pace"),
-                    rs.getTimestamp("updated_at").toInstant(),
-                    rs.getObject("active_schedule_version_id", UUID.class),
-                    rs.getObject("total_score", Integer.class)),
-            tripId,
-            ownerId);
-    if (rows.isEmpty()) {
-      throw TripException.notFound();
-    }
-    return rows.getFirst();
   }
 
   private List<TripTransportMode> loadModes(UUID tripId) {
@@ -900,22 +876,6 @@ public class JdbcTripStore implements TripStore {
             tripId,
             tripId));
   }
-
-  private static boolean isTerminal(String status) {
-    return java.util.Set.of("completed", "cancelled", "failed").contains(status);
-  }
-
-  private record MutationRoot(
-      long revision,
-      String title,
-      String status,
-      LocalDate startDate,
-      LocalDate endDate,
-      String timezone,
-      String userPace,
-      Instant updatedAt,
-      UUID activeScheduleVersionId,
-      Integer totalScore) {}
 
   private static final RowMapper<TripRow> TRIP_ROW_MAPPER =
       (rs, row) ->

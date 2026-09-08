@@ -195,11 +195,12 @@ erDiagram
 | `timetable_entries` | 확보된 정적 시간표 | 보조 source; TAGO 보장 아님 |
 | `bus_arrival_snapshots` | 정류장별 실시간 도착 snapshot | TAGO, 짧은 TTL |
 | `tago_arrival_flights` | 다중 Spring instance의 도착 요청 generation·lease·terminal outcome | 내부 service role 전용, 원문 미저장 |
-| `mobility_route_snapshots` | 저장 허용 공급자의 provider-neutral 경로 cache | TMAP 저장 금지; #40 DEFER 경계 |
+| `mobility_route_snapshots` | 기존 저장 허용 공급자를 위한 호환 스키마 | Spring 신규 writer 없음; TMAP 저장 금지 |
 
-`trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. 저장 허용 원천 route cache는
-`mobility_route_snapshots`에 분리한다. TMAP 원문·geometry·개별 route metric은 두 테이블
-모두에 저장하지 않으며 요청 프로세스 메모리에서만 사용한다.
+`trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. `mobility_route_snapshots`는 기존
+마이그레이션 호환을 위해 유지하지만 Spring은 신규 route cache writer를 소유하지 않는다.
+TMAP 원문·geometry·개별 route metric은 두 테이블 모두에 저장하지 않으며 AI 런타임의
+요청 프로세스 메모리에서만 사용한다.
 
 `bus_arrival_snapshots` 신규 행은 `source_service`, `source_snapshot_id`, `import_run_id`를 함께 가져야
 하며 TAGO 정류장 reference의 provider/service/city/node 범위와 일치해야 한다. 같은
@@ -395,7 +396,7 @@ stateDiagram-v2
 | --- | --- |
 | place content/address/location/image | TourAPI |
 | stop/route/arrival | TAGO |
-| 영속 mobility distance/duration/fare | 저장 약관이 승인된 provider-neutral route provider |
+| 영속 mobility distance/duration/fare | 기존 스키마 호환 전용; Spring 신규 writer 없음 |
 | TMAP distance/duration | FastAPI on-demand memory-only fact; DB 저장 금지 |
 | weather observation/forecast | KMA |
 | saved/memo/required/pace | user input |
