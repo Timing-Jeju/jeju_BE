@@ -19,3 +19,8 @@
 - legacy route의 증명 가능한 backfill과 불명확/활성 자료 fail-closed 경계. 좌표 일치만으로 provenance를 발명하지 않는다.
 - 전체 DB fresh/upgrade/PG16·17/concurrency, schema/ACL fingerprint, OpenAPI, 전체 품질 gate 및 독립 리뷰.
 - 첫 facts migration은 후속 변경에서 수정하지 않고 필요한 보강은 새 forward migration으로 추가한다. #225 전체 완료나 PR 준비 상태가 아니다.
+
+## Legacy rollback 보강
+
+- `/tmp/jeju-225-legacy-rollback.log`: PostgreSQL 16·17에서 non-empty legacy facts가 있으면 새 migration이 실패하고 원래 JSON과 전체 schema/RLS/ACL fingerprint가 동일하게 유지되는 것을 검증했다(2건 PASS).
+- 기존 자료 marker 및 좌표가 migration 실패 예외에 반사되지 않는지도 확인했다. 테스트의 첫 compile 오류(AssertJ varargs 미지원)는 개별 assertion으로 정정했다.
