@@ -1009,23 +1009,22 @@ Authorization: Bearer <access-token>
 
 ### `GET /api/v1/weather/forecast`
 
-operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
+operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,404,422,503` · Generated OpenAPI statuses: `200,400,401,404,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
-`develop` 사용 가능 · 인증 선택. query `lat`(-90 exclusive..90 exclusive), `lng`(-180..180), `dateTime` 모두 필수/non-null/finite. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
+#222 구현 검증 중 · 공개 regionCode/placeId는 인증 선택, tripItemId는 owner JWT 필수. query `regionCode | placeId | tripItemId` 중 정확히 하나와 `dateTime`을 받는다. GPS 및 GPS 파생 위치 입력, 중복/unknown query는 거부한다. 현재 공개 지역은 `jeju-si`, `seogwipo-si`, `seongsan`이다. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
 
-성공 `200`; `contractVersion=1.0.0`, `provider=KMA`, `providerApiVersion=VilageFcstInfoService_2.0`, `forecastType=ultra_short|village`. category-derived 값은 required nullable. 오류: `400 INVALID_WEATHER_FORECAST_QUERY`; `401 INVALID_ACCESS_TOKEN`; `422 WEATHER_LOCATION_NOT_SUPPORTED | WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`; `503 WEATHER_FORECAST_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+성공 `200`; `contractVersion=2.0.0`, `provider=KMA`, `providerApiVersion=VilageFcstInfoService_2.0`, `forecastType=ultra_short|village`. category-derived 값은 required nullable. 오류: `400 INVALID_WEATHER_SELECTOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 WEATHER_REFERENCE_NOT_FOUND`; `422 WEATHER_LOCATION_NOT_SUPPORTED | WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`; `503 WEATHER_FORECAST_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
 **요청 예시**
 
 ```http
-GET /api/v1/weather/forecast?lat=33.4996&lng=126.5312&dateTime=2026-08-25T12%3A00%3A00%2B09%3A00 HTTP/1.1
+GET /api/v1/weather/forecast?regionCode=jeju-si&dateTime=2026-08-25T12%3A00%3A00%2B09%3A00 HTTP/1.1
 Accept: application/json
 ```
 
 ```json
 {
-  "lat": 33.4996,
-  "lng": 126.5312,
+  "regionCode": "jeju-si",
   "dateTime": "2026-08-25T12:00:00+09:00"
 }
 ```
@@ -1034,8 +1033,8 @@ Accept: application/json
 
 ```json
 {
-  "contractVersion": "1.0.0",
-  "grid": {"nx": 53, "ny": 38, "regionName": "제주시"},
+  "contractVersion": "2.0.0",
+  "grid": {"nx": 53, "ny": 38, "regionName": "제주특별자치도 제주시"},
   "provider": "KMA",
   "providerApiVersion": "VilageFcstInfoService_2.0",
   "forecastType": "village",

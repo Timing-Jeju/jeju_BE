@@ -48,3 +48,10 @@
 - runtime manifest 회귀 RED: `/tmp/jeju-222-manifest-red.log` (기존 404 누락); GREEN: `/tmp/jeju-222-manifest-green.log` 6개 검사 성공.
 - Swagger slice GREEN: `/tmp/jeju-222-openapi-green.log`, BUILD SUCCESSFUL. 최초 테스트 경로 version은 실제 DTO contractVersion으로 바로잡았다.
 - Notion/Figma 실제 readback은 기존 1.0.0 GPS 계약이다. Notion v2 본문 갱신은 무료 블록 한도로 거부돼 `issue-222-notion-v2-pending.md`에 적용안을 보존했다. 버전 속성은 1.0.0으로 복원, Draft 상태를 재조회로 확인했다. v2 문서 readiness는 통과 처리하지 않았다.
+
+## v1 잔여 참조 감사
+
+- 공통 MVC validation 예외 handler의 v1 오류 코드를 v2 INVALID_WEATHER_SELECTOR로 전환했다. RED `/tmp/jeju-222-handler-red.log`, GREEN `/tmp/jeju-222-handler-green.log`.
+- runtime/future OpenAPI projection slice의 과거 GPS assertion을 실제 공개 selector 기준으로 정정했다. `/tmp/jeju-222-runtime-slice.log` 성공.
+- `docs/FRONTEND_API_SPEC.md`의 날씨 query/예제/오류/버전을 실제 v2 구현에 맞췄다.
+- Figma v2 Draft의 텍스트 및 screenshot readback은 `issue-222-figma-v2-readback.md`에 기록했다. Notion 동기화 차단은 그대로 남으며 metadata/example readiness를 강제로 승격하지 않는다.
