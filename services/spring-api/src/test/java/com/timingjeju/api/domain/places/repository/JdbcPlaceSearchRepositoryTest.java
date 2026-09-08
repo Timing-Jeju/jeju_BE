@@ -27,15 +27,15 @@ class JdbcPlaceSearchRepositoryTest {
     JdbcPlaceSearchRepository repository = new JdbcPlaceSearchRepository(jdbc);
 
     repository.search(
-        PlacesListQuery.of(null, null, null, null, null, null, null, 20, false),
-        null,
-        Optional.empty());
+        PlacesListQuery.of(null, null, null, null, 20, false), null, Optional.empty());
 
     ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
     verify(jdbc).query(sql.capture(), any(SqlParameterSource.class), any(RowMapper.class));
     assertThat(sql.getValue())
         .contains("p.source_deleted_at is null")
-        .contains("p.tombstoned_at is null");
+        .contains("p.tombstoned_at is null")
+        .doesNotContain(
+            "ST_DWithin", "ST_Distance", ":lat", ":lng", "radiusMeters", "distance_meters");
   }
 
   @Test
@@ -48,9 +48,7 @@ class JdbcPlaceSearchRepositoryTest {
     assertThatThrownBy(
             () ->
                 repository.search(
-                    PlacesListQuery.of(null, "VE", null, null, null, null, null, 20, false),
-                    null,
-                    Optional.empty()))
+                    PlacesListQuery.of(null, "VE", null, null, 20, false), null, Optional.empty()))
         .isExactlyInstanceOf(PlaceSearchUnavailableException.class)
         .hasNoCause()
         .hasMessage(null);

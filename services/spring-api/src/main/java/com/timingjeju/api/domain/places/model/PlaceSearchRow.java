@@ -17,7 +17,6 @@ public record PlaceSearchRow(
     double lng,
     String thumbnailUrl,
     String operationsSummary,
-    Long distanceMeters,
     String provider,
     Instant observedAt,
     Instant expiresAt,

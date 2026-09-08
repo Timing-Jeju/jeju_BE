@@ -21,6 +21,21 @@ class CursorCodecTest {
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
   @Test
+  void v2_서명_scope는_같은_문맥의_legacy와_다른_scope_token도_거부한다() {
+    CursorCodec v2 = CODEC.scoped("places-location-free/v2");
+    CursorPosition position = new CursorPosition("성산", "p-020");
+    String token = v2.encode(PLACES_CONTEXT, position);
+    assertThat(CODEC.scoped("places-location-free/v2").decode(token, PLACES_CONTEXT))
+        .isEqualTo(position);
+    assertThatThrownBy(() -> v2.decode(CODEC.encode(PLACES_CONTEXT, position), PLACES_CONTEXT))
+        .isInstanceOf(CursorInvalidException.class);
+    assertThatThrownBy(() -> CODEC.scoped("different").decode(token, PLACES_CONTEXT))
+        .isInstanceOf(CursorInvalidException.class);
+    assertThatThrownBy(() -> CODEC.scoped(null)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> CODEC.scoped(" ")).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
   void cursor는_endpoint_sort_tieBreaker_filterFingerprint를_담은_불투명_Base64URL이다() {
     String cursor =
         CODEC.encode(PLACES_CONTEXT, new CursorPosition("2026-08-05T12:00:00Z", "p-020"));

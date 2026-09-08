@@ -10,8 +10,6 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import jakarta.validation.constraints.DecimalMax;
-import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
@@ -31,7 +29,7 @@ public interface PlacesApiDocs {
         content = @Content(schema = @Schema(implementation = PlacesListResponse.class))),
     @ApiResponse(
         responseCode = "400",
-        description = "검색·위치·cursor 조건 오류",
+        description = "검색·cursor 조건 오류",
         content =
             @Content(
                 mediaType = "application/problem+json",
@@ -62,12 +60,12 @@ public interface PlacesApiDocs {
       @Parameter(schema = @Schema(minLength = 1, maxLength = 100)) String query,
       @Pattern(regexp = CanonicalPlaceCategory.OPEN_API_PATTERN) String category,
       @Pattern(regexp = "^[a-z0-9][a-z0-9_-]{0,49}$") String regionCode,
-      @DecimalMin("33.0") @DecimalMax("34.0") Double lat,
-      @DecimalMin("126.0") @DecimalMax("127.0") Double lng,
-      @Min(100) @Max(50000) Integer radiusMeters,
-      @Size(min = 1, max = 2048) String cursor,
+      @Parameter(schema = @Schema(pattern = "^plc2\\.[A-Za-z0-9_-]{1,2043}$"))
+          @Size(min = 1, max = 2048)
+          String cursor,
       @Min(1) @Max(100) Integer size,
-      Boolean savedOnly);
+      Boolean savedOnly,
+      @Parameter(hidden = true) jakarta.servlet.http.HttpServletRequest request);
 
   @Operation(
       summary = "관광지 상세·운영정보 조회",

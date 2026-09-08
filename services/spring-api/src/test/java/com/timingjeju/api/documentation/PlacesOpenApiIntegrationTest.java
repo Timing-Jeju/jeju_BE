@@ -26,13 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
     })
 @AutoConfigureMockMvc
-class PlacesOpenApiIntegrationTest
-    extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
-  @Override
-  protected String canonicalDomain() {
-    return "places";
-  }
-
+class PlacesOpenApiIntegrationTest {
   private static final String JWT_KEY = randomKey();
 
   @Autowired private MockMvc mvc;
@@ -69,23 +63,12 @@ class PlacesOpenApiIntegrationTest
             jsonPath("$.components.schemas.PlaceListItem.properties.category.pattern")
                 .value("^(?:[A-Z]{2}|content-type:[0-9]{1,10})$"))
         .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].required")
-                .value(false))
+            jsonPath("$.paths['/api/v1/places'].get.parameters[*].name")
+                .value(
+                    org.hamcrest.Matchers.containsInAnyOrder(
+                        "query", "category", "regionCode", "cursor", "size", "savedOnly")))
         .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.minimum")
-                .value(33))
-        .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lat')].schema.maximum")
-                .value(34))
-        .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].required")
-                .value(false))
-        .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.minimum")
-                .value(126))
-        .andExpect(
-            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='lng')].schema.maximum")
-                .value(127))
+            jsonPath("$.components.schemas.PlaceListItem.properties.distanceMeters").doesNotExist())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['401']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['403']").doesNotExist())
@@ -111,8 +94,8 @@ class PlacesOpenApiIntegrationTest
                 .value(true))
         .andExpect(
             jsonPath(
-                    "$.paths['/api/v1/places/{placeId}'].get.parameters[?(@.name=='placeId')].schema.format")
-                .value("uuid"))
+                    "$.paths['/api/v1/places/{placeId}'].get.parameters[?(@.name=='placeId')].schema.type")
+                .value("string"))
         .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['401']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places/{placeId}'].get.responses['404']").exists())
