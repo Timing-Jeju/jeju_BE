@@ -10,6 +10,14 @@ MIGRATION_NAME = "20260918000011_private_trip_ownership_helper.sql"
 MIGRATION = ROOT / "supabase" / "migrations" / MIGRATION_NAME
 INIT_SLOT = "049_private_trip_ownership_helper.sql"
 ACTUAL_PG_CONTRACT = ROOT / "db" / "queries" / "private_trip_ownership_helper_contract.sql"
+INTEGRATION_TEST = (
+    ROOT
+    / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/PrivateTripOwnershipHelperMigrationIntegrationTest.java"
+)
+POSTGRES_FACTORY = (
+    ROOT
+    / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/PostgreSqlTestContainerFactory.java"
+)
 
 EXPECTED_POLICIES = {
     "trip_preferences_owner_select": "trip_preferences",
@@ -166,18 +174,28 @@ class PrivateTripOwnershipHelperContractTest(unittest.TestCase):
             self.assertIn(marker, source)
         for table in EXPECTED_POLICIES.values():
             self.assertIn(f"public.{table}", source)
-        integration_source = compact(
-            (
-                ROOT
-                / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/PrivateTripOwnershipHelperMigrationIntegrationTest.java"
-            ).read_text(encoding="utf-8")
-        )
+        integration_source = compact(INTEGRATION_TEST.read_text(encoding="utf-8"))
         self.assertIn("postgis/postgis:16-3.4", integration_source)
         self.assertIn("postgis/postgis:17-3.5", integration_source)
         self.assertIn("issue210_legacy_dependency", integration_source)
         self.assertIn("executescript(container, target())", integration_source)
         self.assertIn("seed_fixtures.sql", integration_source)
         self.assertIn("private_trip_ownership_helper_contract.sql", integration_source)
+
+    def test_actual_pg_seed_precedes_destructive_location_cleanup_and_helper(self) -> None:
+        source = compact(INTEGRATION_TEST.read_text(encoding="utf-8"))
+        seed = source.index("executescript(container, seed())")
+        cleanup = source.index("executescript(container, migration(location_cleanup))")
+        helper = source.index("executescript(container, target())")
+        self.assertLess(seed, cleanup)
+        self.assertLess(cleanup, helper)
+
+    def test_psql_failure_diagnostic_is_sqlstate_bounded_and_never_dumps_stdout(self) -> None:
+        source = POSTGRES_FACTORY.read_text(encoding="utf-8")
+        self.assertIn('"VERBOSITY=sqlstate"', source)
+        self.assertIn("safePsqlErrorSummary", source)
+        self.assertNotIn("result.getStdout()", source)
+        self.assertLessEqual(source.count("result.getStderr()"), 1)
 
     def test_actual_contract_proves_canonical_parent_acl_before_and_after_temp_grants(self) -> None:
         source = compact(ACTUAL_PG_CONTRACT.read_text(encoding="utf-8"))
@@ -197,12 +215,7 @@ class PrivateTripOwnershipHelperContractTest(unittest.TestCase):
         self.assertIn("\\set on_error_stop on", source)
         self.assertIn("raise exception 'issue210 actual-rls assertion failed: %'", source)
 
-        integration_source = compact(
-            (
-                ROOT
-                / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/PrivateTripOwnershipHelperMigrationIntegrationTest.java"
-            ).read_text(encoding="utf-8")
-        )
+        integration_source = compact(INTEGRATION_TEST.read_text(encoding="utf-8"))
         for mutation in (
             "owner authorization mutation",
             "other authorization mutation",

@@ -23,6 +23,10 @@ final class PostgreSqlTestContainerFactory {
   private static final DockerImageName POSTGIS_IMAGE =
       DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
   private static final Pattern CANONICAL_MIGRATION = Pattern.compile("^\\d{14}_.+\\.sql$");
+  private static final Pattern SENSITIVE_LITERAL = Pattern.compile("'(?:''|[^'])*'");
+  private static final Pattern UUID_VALUE =
+      Pattern.compile("(?i)\\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\b");
+  private static final int MAX_DIAGNOSTIC_LENGTH = 512;
 
   private PostgreSqlTestContainerFactory() {}
 
@@ -60,6 +64,8 @@ final class PostgreSqlTestContainerFactory {
             "--no-psqlrc",
             "--set",
             "ON_ERROR_STOP=1",
+            "--set",
+            "VERBOSITY=sqlstate",
             "--username",
             container.getUsername(),
             "--dbname",
@@ -72,12 +78,31 @@ final class PostgreSqlTestContainerFactory {
               + script.getFileName()
               + " (exit="
               + result.getExitCode()
-              + ", stdout="
-              + result.getStdout()
-              + ", stderr="
-              + result.getStderr()
+              + ", error="
+              + safePsqlErrorSummary(result.getStderr(), target, script.getFileName().toString())
               + ")");
     }
+  }
+
+  private static String safePsqlErrorSummary(
+      String stderr, String containerTarget, String scriptName) {
+    String diagnosticSource = stderr == null ? "" : stderr;
+    String diagnostic =
+        diagnosticSource
+            .lines()
+            .map(String::strip)
+            .filter(line -> !line.isEmpty())
+            .filter(line -> line.contains("ERROR:"))
+            .findFirst()
+            .orElse("psql error unavailable");
+    String sanitized = diagnostic.replace(containerTarget, scriptName);
+    sanitized = SENSITIVE_LITERAL.matcher(sanitized).replaceAll("'<redacted>'");
+    sanitized = UUID_VALUE.matcher(sanitized).replaceAll("<uuid>");
+    sanitized = sanitized.replaceAll("[\\p{Cntrl}]", " ").strip();
+    if (sanitized.length() <= MAX_DIAGNOSTIC_LENGTH) {
+      return sanitized;
+    }
+    return sanitized.substring(0, MAX_DIAGNOSTIC_LENGTH) + "…";
   }
 
   private static PostgreSQLContainer createWithScripts(List<Path> initScripts) {

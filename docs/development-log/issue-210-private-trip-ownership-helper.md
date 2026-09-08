@@ -32,3 +32,15 @@ Supabase 최신 RLS·Database Functions 문서에 따라 definer 함수의 빈 `
 후속 Astra 검토에서 PostgreSQL 16/17 `psql`의 `\quit 1` 인자가 신뢰할 수 없어 assertion 실패가 exit 0으로 끝날 수 있다는 문제가 확인됐다. 먼저 actual 계약에서 인자 있는 `\quit`을 금지하고 owner-deny, other-allow, parent ACL 확대 mutation 세 가지가 같은 contract를 nonzero로 끝내야 한다는 정적 테스트를 추가했다. 신규 테스트는 남아 있던 `\quit 1`을 정확히 찾아 Red가 됐다.
 
 보정에서는 성공·실패 결과를 session-local 임시 assertion table에 boolean과 비식별 label로 모은다. canonical role을 해제한 뒤 `DO` block이 실패 label을 발견하면 `RAISE EXCEPTION`하고, 이 구간은 `ON_ERROR_STOP on`이므로 PG16/17 psql process가 반드시 nonzero로 끝난다. Testcontainers source는 정상 contract exit 0 뒤 helper owner를 모두 거부하는 mutation, 다른 사용자를 허용하는 mutation, `trip_plans` SELECT를 여는 mutation을 각각 적용하고 contract의 nonzero를 검증한다.
+
+## 2026-09-08 actual PostgreSQL QA 보정
+
+- 기준: `origin/develop` `4023095e20acbde6e69f0bbf7b842a252a55cd8f`
+- 브랜치: `fix/210-pg16-pg17-actual-rls-qa`
+- live Supabase·운영 DB·migration 적용은 수행하지 않았다.
+
+Historical HEAD `d7ee4a5d3a9cfd43e1f6d01d402a6d8786ab6427`에서 PG16/17 모두 `seed_fixtures.sql (exit=3)`로 실패한 원인은 actual-RLS 검증용 전역 seed가 위치 정리 migration 뒤에 실행된 순서였다. 위치 정리에서 제거된 열을 fixture가 다시 쓰기 때문에 ownership helper 자체를 검증하기 전에 seed가 중단됐다. 최신 develop은 #215에서 시간표 migration 뒤 seed를 넣고, 그 다음 위치 정리와 ownership helper를 적용하도록 순서를 교정했으며 동일 Testcontainers 명령이 PG16/17 2건 모두 통과했다.
+
+이번 QA는 이 회귀를 Docker 실행에만 맡기지 않도록 `seed → location cleanup → helper` 순서를 Python 계약으로 고정했다. 또한 기존 test factory가 실패 시 psql stdout/stderr 전체를 예외에 붙여 fixture 값이나 상세 오류가 로그로 확산될 수 있던 경계를 보정했다. psql은 메시지 대신 오류 분류만 남기는 `VERBOSITY=sqlstate`로 실행하고, 첫 `ERROR:` 행만 선택해 임의 container 경로·single-quoted literal·UUID를 치환하며 512자로 제한한다. 실제 legacy dependency 실패 assertion도 dependency SQLSTATE `2BP01`과 `error=psql:` 요약은 남고 `stdout=`·`stderr=` 원문은 남지 않는지 확인한다.
+
+TDD Red는 `python3 -m unittest scripts.tests.test_private_trip_ownership_helper -v`에서 신규 안전 진단 계약이 psql verbosity 제한과 안전 요약 부재로 1건 실패했다. 최소 구현 뒤 같은 12개 Python 계약과 Docker-free `./gradlew test --tests 'com.timingjeju.api.support.postgresql.PostgreSqlTestContainerFactoryTest' spotlessCheck`가 통과했다. 변경 전 최신 develop 기준 실제 PG16/17 parameterized test도 2건 통과했으며, 변경 후 재실행은 병렬 #222 full gate와 Docker 충돌을 피하기 위해 해제 신호 뒤 수행한다.
