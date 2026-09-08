@@ -47,6 +47,8 @@ final class FrontendOpenApiCustomizer {
           Map.entry("category", "content-type:12"),
           Map.entry("cursor", "eyJvZmZzZXQiOjIwfQ"),
           Map.entry("dateTime", "2026-08-25T12:00:00+09:00"),
+          Map.entry("accommodationId", "68000000-0000-4000-8000-000000000068"),
+          Map.entry("eventType", "arrival"),
           Map.entry("lat", 33.4996),
           Map.entry("lng", 126.5312),
           Map.entry("locale", "ko-KR"),
@@ -100,6 +102,58 @@ final class FrontendOpenApiCustomizer {
                   "관심 장소 값을 처리할 수 없습니다",
                   422,
                   "메모, 태그, 우선순위 또는 희망 Day 값을 확인해 주세요.")));
+  private static final Map<String, ProblemDefinition> ACCOMMODATION_PROBLEM_DEFINITIONS =
+      Map.ofEntries(
+          Map.entry(
+              "INVALID_REQUEST",
+              nonContributorProblem(
+                  "INVALID_REQUEST",
+                  "요청 값이 올바르지 않습니다",
+                  400,
+                  "필수값, 형식, XOR, Idempotency-Key와 If-Match를 확인해 주세요.")),
+          Map.entry(
+              "TRIP_NOT_FOUND",
+              nonContributorProblem(
+                  "TRIP_NOT_FOUND", "여행을 찾을 수 없습니다", 404, "요청한 여행이 없거나 접근할 수 없습니다.")),
+          Map.entry(
+              "PLACE_NOT_FOUND",
+              nonContributorProblem(
+                  "PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", 404, "요청한 숙소 장소가 없거나 사용할 수 없습니다.")),
+          Map.entry(
+              "IDEMPOTENCY_KEY_REUSED",
+              nonContributorProblem(
+                  "IDEMPOTENCY_KEY_REUSED",
+                  "멱등성 키가 다른 요청에 사용되었습니다",
+                  409,
+                  "새 Idempotency-Key로 다시 요청해 주세요.")),
+          Map.entry(
+              "TRIP_VERSION_CONFLICT",
+              nonContributorProblem(
+                  "TRIP_VERSION_CONFLICT",
+                  "여행 조건이 이미 변경되었습니다",
+                  409,
+                  "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요.")));
+  private static final Map<String, ProblemDefinition> TRANSPORT_EVENT_PROBLEM_DEFINITIONS =
+      Map.ofEntries(
+          Map.entry(
+              "INVALID_REQUEST",
+              nonContributorProblem(
+                  "INVALID_REQUEST", "요청 값이 올바르지 않습니다", 400, "필수값, 형식과 If-Match를 확인해 주세요.")),
+          Map.entry(
+              "TRIP_NOT_FOUND",
+              nonContributorProblem(
+                  "TRIP_NOT_FOUND", "여행을 찾을 수 없습니다", 404, "요청한 여행이 없거나 접근할 수 없습니다.")),
+          Map.entry(
+              "PLACE_NOT_FOUND",
+              nonContributorProblem(
+                  "PLACE_NOT_FOUND", "장소를 찾을 수 없습니다", 404, "요청한 장소가 없거나 사용할 수 없습니다.")),
+          Map.entry(
+              "TRIP_VERSION_CONFLICT",
+              nonContributorProblem(
+                  "TRIP_VERSION_CONFLICT",
+                  "여행 조건이 이미 변경되었습니다",
+                  409,
+                  "최신 여행과 ETag를 조회한 뒤 다시 요청해 주세요.")));
 
   private static final Map<String, OperationDocument> DOCUMENTS = operationDocuments();
   private static final Map<String, List<String>> SCHEDULE_ITEM_PROBLEMS =
@@ -153,6 +207,7 @@ final class FrontendOpenApiCustomizer {
             "saved-places",
             "trips",
             "schedules",
+            "accommodations",
             "preferences-transport")) {
       Map<String, Object> contract = readContractResource("/domains/" + domain + "/contract.json");
       Map<String, Object> schemas = objectMap(contract.get("schemas"));
@@ -208,6 +263,35 @@ final class FrontendOpenApiCustomizer {
             .setSchema(canonicalSchema(String.valueOf(successSchema), schemas, key));
       }
     }
+    objectMap(endpoint.get("errorMatrix"))
+        .forEach(
+            (status, codes) -> {
+              ApiResponse response = operation.getResponses().get(status);
+              if (response != null) {
+                List<Object> canonicalCodes = List.copyOf(valueList(codes));
+                response.addExtension("x-error-codes", canonicalCodes);
+                if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
+                  projectAccommodationProblemExamples(
+                      response, Integer.parseInt(status), canonicalCodes, key);
+                }
+              }
+            });
+  }
+
+  private void projectAccommodationProblemExamples(
+      ApiResponse response, int status, List<Object> codes, String operationKey) {
+    MediaType media =
+        response
+            .getContent()
+            .get(org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+    media.setExample(null);
+    media.setExampleSetFlag(false);
+    Map<String, Example> examples = new LinkedHashMap<>();
+    for (Object value : codes) {
+      String code = String.valueOf(value);
+      examples.put(code, new Example().value(problemExample(status, code, operationKey)));
+    }
+    media.setExamples(examples);
   }
 
   private void projectCanonicalParameters(
@@ -290,6 +374,9 @@ final class FrontendOpenApiCustomizer {
       schema.setTypes(nullable ? Set.of(type, "null") : Set.of(type));
       schema.setNullable(nullable);
     }
+    if (canonical.get("format") instanceof String format) {
+      schema.setFormat(format);
+    }
     if (canonical.get("exclusiveMinimum") instanceof Number minimum) {
       schema.setExclusiveMinimumValue(new BigDecimal(minimum.toString()));
     }
@@ -306,6 +393,20 @@ final class FrontendOpenApiCustomizer {
     if (schema.getItems() != null) {
       restoreCanonicalTypes(schema.getItems(), objectMap(canonical.get("items")));
     }
+    if (schema.getOneOf() != null && canonical.get("oneOf") instanceof List<?> canonicalOneOf) {
+      for (int index = 0;
+          index < Math.min(schema.getOneOf().size(), canonicalOneOf.size());
+          index++) {
+        restoreCanonicalTypes(schema.getOneOf().get(index), objectMap(canonicalOneOf.get(index)));
+      }
+    }
+    if (schema.getAllOf() != null && canonical.get("allOf") instanceof List<?> canonicalAllOf) {
+      for (int index = 0;
+          index < Math.min(schema.getAllOf().size(), canonicalAllOf.size());
+          index++) {
+        restoreCanonicalTypes(schema.getAllOf().get(index), objectMap(canonicalAllOf.get(index)));
+      }
+    }
   }
 
   private Map<String, Object> resolveCanonical(
@@ -319,6 +420,20 @@ final class FrontendOpenApiCustomizer {
 
   private Map<String, Object> expandCanonical(
       Map<String, Object> raw, Map<String, Object> schemas, String key, Set<String> seen) {
+    if (raw.containsKey("requiredNonNull") || raw.containsKey("requiredNull")) {
+      List<String> requiredNonNull = stringList(raw.get("requiredNonNull"));
+      List<String> requiredNull = stringList(raw.get("requiredNull"));
+      Map<String, Object> properties = new LinkedHashMap<>();
+      requiredNonNull.forEach(name -> properties.put(name, Map.of("type", "string")));
+      requiredNull.forEach(name -> properties.put(name, Map.of("type", "null")));
+      return Map.of(
+          "type",
+          "object",
+          "required",
+          java.util.stream.Stream.concat(requiredNonNull.stream(), requiredNull.stream()).toList(),
+          "properties",
+          properties);
+    }
     if (raw.containsKey("$ref")) {
       String name = String.valueOf(raw.get("$ref"));
       if (seen.contains(name)) {
@@ -614,6 +729,32 @@ final class FrontendOpenApiCustomizer {
           "일정 항목 추가 요청을 24시간 식별하는 lowercase canonical UUID입니다.",
           new StringSchema().format("uuid"),
           "45000000-0000-4000-8000-000000000050");
+    } else if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
+      if (key.startsWith("POST ")) {
+        mergeRequiredHeader(
+            operation,
+            "Idempotency-Key",
+            "숙소 생성 요청을 여행과 사용자 범위에서 24시간 식별하는 1~128자 printable ASCII 값입니다.",
+            new StringSchema().minLength(1).maxLength(128).pattern("^[\\x20-\\x7E]{1,128}$"),
+            "accommodation-create-68");
+      }
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 aggregate의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema()
+              .pattern(
+                  "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
+          "\"trip-68000000-0000-4000-8000-000000000068-r1\"");
+    } else if (key.contains("/api/v1/trips/{tripId}/transport-event")) {
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 aggregate의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema()
+              .pattern(
+                  "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
+          "\"trip-47000000-0000-4000-8000-000000000047-r1\"");
     }
     if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
@@ -638,6 +779,18 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("POST /api/v1/trips/{tripId}/schedule-items")) {
       addResponseHeaderReferences(
           operation, List.of("201"), List.of("ETag", "Idempotency-Replayed"));
+    }
+    addAccommodationResponseHeaders(key, operation);
+  }
+
+  private static void addAccommodationResponseHeaders(String key, Operation operation) {
+    if (key.equals("POST /api/v1/trips/{tripId}/accommodations")) {
+      addResponseHeaderReferences(
+          operation, List.of("201"), List.of("Location", "ETag", "Idempotency-Replayed"));
+    } else if (key.equals("PATCH /api/v1/trips/{tripId}/accommodations/{accommodationId}")) {
+      addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
+    } else if (key.endsWith("/api/v1/trips/{tripId}/transport-event")) {
+      addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
     }
   }
 
@@ -686,9 +839,11 @@ final class FrontendOpenApiCustomizer {
     return switch (name) {
       case "Authorization" ->
           "Bearer 인증 값. endpoint 설명에 따라 Supabase JWT 또는 Naver provider token을 전달합니다.";
+      case "accommodationId" -> "여행에 속한 숙소의 lowercase canonical UUID";
       case "category" -> "공개 canonical 장소 category";
       case "cursor" -> "직전 응답 nextCursor를 해석하지 않고 그대로 전달하는 opaque cursor";
       case "dateTime" -> "Asia/Seoul 정시를 +09:00 offset으로 표현한 예보 시각";
+      case "eventType" -> "삭제할 교통 이벤트 종류. arrival 또는 departure";
       case "lat", "lng" -> "WGS84 제주 위경도";
       case "locale" -> "법정 문서 locale. 생략 기본값은 ko-KR";
       case "placeId" -> "lowercase canonical UUID 장소 식별자";
@@ -770,12 +925,20 @@ final class FrontendOpenApiCustomizer {
   }
 
   private Map<String, Object> problemExample(int status, String code, String operationKey) {
+    boolean accommodationOperation =
+        operationKey != null && operationKey.contains("/api/v1/trips/{tripId}/accommodations");
+    boolean transportEventOperation =
+        operationKey != null && operationKey.contains("/api/v1/trips/{tripId}/transport-event");
     boolean savedPlaceOperation =
         operationKey != null && operationKey.contains("/api/v1/me/saved-places");
     ProblemDefinition definition =
         "POST /api/v1/trips/{tripId}/schedule-items".equals(operationKey)
             ? ScheduleProblemDefinitions.mutationDefinition(code)
-            : savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
+            : accommodationOperation
+                ? ACCOMMODATION_PROBLEM_DEFINITIONS.get(code)
+                : transportEventOperation
+                    ? TRANSPORT_EVENT_PROBLEM_DEFINITIONS.get(code)
+                    : savedPlaceOperation ? NON_CONTRIBUTOR_PROBLEM_DEFINITIONS.get(code) : null;
     if (definition == null && "PUT /api/v1/trips/{tripId}/preferences".equals(operationKey)) {
       definition = tripPreferencesProblemDefinitions.find(code);
     }
@@ -1261,7 +1424,100 @@ final class FrontendOpenApiCustomizer {
                 "409", "ACTIVE_SCHEDULE_VERSION_CONFLICT",
                 "422", "SCHEDULE_ITEM_INVALID",
                 "500", "INTERNAL_SERVER_ERROR")));
+    addAccommodationDocuments(result);
+    addTransportEventDocuments(result);
     return Map.copyOf(result);
+  }
+
+  private static void addAccommodationDocuments(Map<String, OperationDocument> result) {
+    String accommodationExample =
+        """
+        {"tripId":"68000000-0000-4000-8000-000000000068","accommodationId":"68000000-0000-4000-8000-000000000069","accommodation":{"accommodationId":"68000000-0000-4000-8000-000000000069","placeId":null,"customName":"제주알호텔","name":"제주알호텔","checkInDate":"2026-09-10","checkOutDate":"2026-09-12","checkInTime":"15:00","checkOutTime":"11:00","sequenceNo":1},"scheduleEffect":"none","regenerationRequired":false,"activeScheduleVersionId":null,"tripStatus":"draft","etag":"\\\"trip-68000000-0000-4000-8000-000000000068-r2\\\"","createdAt":"2026-09-01T14:00:00+09:00","updatedAt":"2026-09-01T14:00:00+09:00"}
+        """;
+    result.put(
+        "POST /api/v1/trips/{tripId}/accommodations",
+        doc(
+            "tripAccommodationsCreate",
+            "여행 숙소",
+            """
+            {"placeId":null,"customName":"제주알호텔","checkInDate":"2026-09-10","checkOutDate":"2026-09-12","checkInTime":"15:00","checkOutTime":"11:00"}
+            """,
+            accommodationExample,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "TRIP_NOT_FOUND",
+                "409", "IDEMPOTENCY_KEY_REUSED",
+                "422", "ACCOMMODATION_DATE_GAP_OR_OVERLAP")));
+    result.put(
+        "PATCH /api/v1/trips/{tripId}/accommodations/{accommodationId}",
+        doc(
+            "tripAccommodationsUpdate",
+            "여행 숙소",
+            """
+            {"placeId":"68000000-0000-4000-8000-000000000070","customName":null,"checkInDate":"2026-09-10","checkOutDate":"2026-09-12","checkInTime":"16:00","checkOutTime":"11:00"}
+            """,
+            accommodationExample
+                .replace("\"scheduleEffect\":\"none\"", "\"scheduleEffect\":\"invalidated\"")
+                .replace("\"regenerationRequired\":false", "\"regenerationRequired\":true"),
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "ACCOMMODATION_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "ACCOMMODATION_DATE_GAP_OR_OVERLAP")));
+    result.put(
+        "DELETE /api/v1/trips/{tripId}/accommodations/{accommodationId}",
+        doc(
+            "tripAccommodationsDelete",
+            "여행 숙소",
+            null,
+            null,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "ACCOMMODATION_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "ACCOMMODATION_IN_USE_BY_ACTIVE_SCHEDULE")));
+  }
+
+  private static void addTransportEventDocuments(Map<String, OperationDocument> result) {
+    String transportEventRequest =
+        """
+        {"eventType":"arrival","transportType":"flight","terminalPlaceId":"47000000-0000-4000-8000-000000000048","customTerminalName":null,"scheduledAt":"2026-09-01T09:00:00+09:00","transportNumber":"KE1001","note":null}
+        """;
+    String transportEventResponse =
+        """
+        {"tripId":"47000000-0000-4000-8000-000000000047","scheduleEffect":"none","regenerationRequired":false,"activeScheduleVersionId":null,"tripStatus":"draft","updatedAt":"2026-09-01T09:00:00+09:00","eventType":"arrival","deleted":false,"event":{"eventType":"arrival","transportType":"flight","terminalPlaceId":"47000000-0000-4000-8000-000000000048","customTerminalName":null,"scheduledAt":"2026-09-01T09:00:00+09:00","transportNumber":"KE1001","note":null}}
+        """;
+    result.put(
+        "PUT /api/v1/trips/{tripId}/transport-event",
+        doc(
+            "tripTransportEventsUpdate",
+            "여행 교통 이벤트",
+            transportEventRequest,
+            transportEventResponse,
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "TRIP_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "TRANSPORT_EVENT_CONSTRAINT_VIOLATION")));
+    result.put(
+        "DELETE /api/v1/trips/{tripId}/transport-event",
+        doc(
+            "tripTransportEventsDelete",
+            "여행 교통 이벤트",
+            null,
+            transportEventResponse.replace(
+                "\"eventType\":\"arrival\",\"deleted\":false,\"event\":{\"eventType\":\"arrival\",\"transportType\":\"flight\",\"terminalPlaceId\":\"47000000-0000-4000-8000-000000000048\",\"customTerminalName\":null,\"scheduledAt\":\"2026-09-01T09:00:00+09:00\",\"transportNumber\":\"KE1001\",\"note\":null}",
+                "\"eventType\":\"departure\",\"deleted\":true,\"event\":null"),
+            Map.of(
+                "400", "INVALID_REQUEST",
+                "401", "AUTHENTICATION_REQUIRED",
+                "404", "TRANSPORT_EVENT_NOT_FOUND",
+                "409", "TRIP_VERSION_CONFLICT",
+                "422", "TRANSPORT_EVENT_CONSTRAINT_VIOLATION")));
   }
 
   private static OperationDocument doc(
