@@ -737,6 +737,17 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     assertThat(jdbc.queryForObject("select count(*) from public.mobility_route_snapshots", Integer.class)).isEqualTo(1);
   }
 
+  @Test
+  void 여행_삭제는_계획_route를_제거하고_공개_anchor와_사용자를_보존한다() {
+    UUID snapshot = insertPlannedSnapshot(java.util.Map.of("distance_meters", 500, "estimated_fare", 0));
+    mutateLegacyItem("update public.trip_legs set mobility_route_snapshot_id=? where schedule_version_id=?", snapshot, ACTIVE);
+    jdbc.update("delete from public.trip_plans where id=?", TRIP);
+    assertThat(jdbc.queryForObject("select count(*) from public.mobility_route_snapshots where id=?", Integer.class, snapshot)).isZero();
+    assertThat(jdbc.queryForObject("select count(*) from public.tour_places where id in (?,?,?)", Integer.class,
+        FIRST_PLACE, SECOND_PLACE, ADDED_PLACE)).isEqualTo(3);
+    assertThat(jdbc.queryForObject("select count(*) from public.user_profiles where id=?", Integer.class, OWNER)).isEqualTo(1);
+  }
+
   private UUID prepareStopSnapshot() {
     UUID stop = UUID.randomUUID();
     jdbc.update("insert into public.bus_stops(id,node_id,node_name,location) "

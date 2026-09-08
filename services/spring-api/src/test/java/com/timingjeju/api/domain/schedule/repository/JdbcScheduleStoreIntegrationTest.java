@@ -354,7 +354,7 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
           place_id, title, planned_start_at, planned_end_at, stay_minutes, buffer_after_minutes,
           required, source, facts
         ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 60, 10, true, 'user_input',
-                  '{"location":{"lat":33.4,"lng":126.5}}'::jsonb)
+                  '{}'::jsonb)
         """,
         item,
         TRIP,

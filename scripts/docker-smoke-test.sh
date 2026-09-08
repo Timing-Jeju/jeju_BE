@@ -627,6 +627,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql \
   /docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql \
   /docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql \
+  /docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
