@@ -60,7 +60,9 @@ public interface PlacesApiDocs {
       @Parameter(schema = @Schema(minLength = 1, maxLength = 100)) String query,
       @Pattern(regexp = CanonicalPlaceCategory.OPEN_API_PATTERN) String category,
       @Pattern(regexp = "^[a-z0-9][a-z0-9_-]{0,49}$") String regionCode,
-      @Parameter(schema = @Schema(pattern = "^plc2\\.[A-Za-z0-9_-]{1,2043}$"))
+      @Parameter(
+              example = "plc2.cHVibGljLWN1cnNvci1leGFtcGxl",
+              schema = @Schema(pattern = "^plc2\\.[A-Za-z0-9_-]{1,2043}$"))
           @Size(min = 1, max = 2048)
           String cursor,
       @Min(1) @Max(100) Integer size,

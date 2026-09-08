@@ -69,6 +69,9 @@ class PlacesOpenApiIntegrationTest {
                         "query", "category", "regionCode", "cursor", "size", "savedOnly")))
         .andExpect(
             jsonPath("$.components.schemas.PlaceListItem.properties.distanceMeters").doesNotExist())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/places'].get.parameters[?(@.name=='cursor')].example")
+                .value(org.hamcrest.Matchers.contains(org.hamcrest.Matchers.startsWith("plc2."))))
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['400']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['401']").exists())
         .andExpect(jsonPath("$.paths['/api/v1/places'].get.responses['403']").doesNotExist())
