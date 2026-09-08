@@ -48,7 +48,8 @@
         "category",
         "regionCode",
         "size",
-        "cursor"
+        "cursor",
+        "savedOnly"
       ],
       "exactlyOne": [],
       "implementationIssues": [

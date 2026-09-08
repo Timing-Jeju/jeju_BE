@@ -112,6 +112,10 @@ class ZeroLocationPolicyTest(unittest.TestCase):
                 self.assertIn('scripts/validate_zero_location_policy.py', source)
                 self.assertIn('scripts/validate_location_retention_contract.py', source)
 
+    def test_places_saved_filter_does_not_require_location(self):
+        """찜한 장소 필터는 위치 수집 없이 허용한다."""
+        self.validator.validate_flow(self.contract, 'places', 'explicit_selection', ['query', 'savedOnly'])
+
 
 if __name__ == '__main__':
     unittest.main()

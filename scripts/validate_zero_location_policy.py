@@ -9,7 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = 'docs/contracts/domains/location-noncollection/contract.json'
 FIXTURE_PATH = 'fixtures/contracts/location-noncollection/policy.json'
-CONTRACT_DIGEST = '02c5a53301b43a6b2bc97eb5e3595687dd097fc260803d060576bf7290ed989f'
+CONTRACT_DIGEST = '0318d14683fc3651b188ee13e46a27b7ab142ccee13a3d5cc09e16559cc6fe3c'
 HISTORICAL_DIGEST = 'd98c67bfcd691db4dc2069cc7df085c5bbd7b23ad6525979a912882fb6128aee'
 LINKED_DOCUMENTS = (
     'docs/ARCHITECTURE.md',

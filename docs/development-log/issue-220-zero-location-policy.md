@@ -31,3 +31,14 @@ Refactor에서는 정보 흐름 검증과 repository 문서 계보 검증을 나
 이 문서의 정책 적용 원칙과 구현 상태를 구분한다. 모든 표면은 runtimeStatus=pending이다.
 TMAP 저장 허용(#216), source 소유권 ADR, 생성 계약(#89), facts/MCP0.8 및 실제 staging은 별도다.
 Notion/Figma는 readback 없이 not-linked로 유지한다. #168은 Spring 위치 수집 활성화 권한이 아니다.
+
+## 추가 검토 상태
+
+- 독립 리뷰에서 공개 Places/Weather/FCM 등의 실행 가능한 canonical 요청 계약도
+  함께 전환해야 한다는 MAJOR finding을 확인했다. 정책 descriptor만으로 #220을
+  완료하거나 PR의 Closes 대상으로 선언하지 않는다.
+- Places의 위치 비수집 필터에 `savedOnly`를 보존하는 RED/GREEN 테스트를 추가했다.
+  정책 단위 12개 통과. 이전 전체 gate는 리뷰 수정 전 SHA 검증이므로 중단했으며
+  통합 완료 근거로 사용하지 않는다.
+- 미래 not-ready 계약이 현행 OpenAPI를 깨뜨리는 선행 #226을 별도 branch에서
+  구현·검증 중이다. #226 반영 후 최신 develop에서 공개 계약 전환을 재검증한다.
