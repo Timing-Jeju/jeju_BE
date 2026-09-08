@@ -118,7 +118,7 @@ EXPECTED_SCHEMA_PROPERTIES = {
     },
 }
 EXPECTED_SCHEMA_DIGESTS = {
-    "PlacesListRequest": "d04eab1425f1f883da3f8d0a48a3c5b5facfe1eb9b988e48571bc49e2bab72fb",
+    "PlacesListRequest": "8cb7c8cafc17f17a5fcac14d9989482def1814a5c30d6ce2a91bbea87a88bd3d",
     "PlaceDetailPath": "2c80be1c2604a34033256df7c54f900caf2e8d11bc80a67827bf8dc4ce44aa22",
     "Location": "5d545fbf900382f1c8259038886baf3925845243a8ac6de18165a25afaabc38a",
     "DataFreshness": "132bfa40d554d4cd63bc3e5ad57af66881f61946c97f4505af5bf022d7832321",
@@ -559,6 +559,12 @@ def _validate_list_query(contract: dict[str, Any], errors: list[str]) -> None:
         errors,
     )
     pagination = endpoint.get("pagination", {})
+    _expect(pagination.get("cursorFormatVersion") == "places-location-free/v2"
+            and pagination.get("legacyClientAction") == "discard before network; start without cursor"
+            and pagination.get("legacyServerAction") == "reject INVALID_CURSOR before legacy payload decoding"
+            and pagination.get("signingScope") == "v2 key domain separation; sign only location-free projection",
+            "legacy 위치 cursor는 재사용할 수 없습니다.", errors)
+
     expected_scope = [
         "query",
         "category",

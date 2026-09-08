@@ -63,3 +63,17 @@ Notion/Figma는 readback 없이 not-linked로 유지한다. #168은 Spring 위�
 - RDB/API 문서 요청·응답 version과 validator를 함께 전환했다.
 - 관련 단위 84개, 저장소 Python 자동화 809개(3 skipped) 통과.
 - 실행/live/MCP/FCM 전환 및 #226 반영 후 Spring 검증은 여전히 미완료다.
+
+## FCM v2와 cursor 경계 보완
+
+- RED: FCM requiredSignals에 위치 동의가 남고 Places cursor가 기존 GPS scope를 재사용하는 경계 검출.
+- GREEN: FCM은 active device/OS granted/server opt-in의 8개 조합과 잘못된 증거 5개를
+  실행한다. 위치 동의 snapshot·취소 reason·target 호출 전 조건을 제거했다.
+- FCM v1 원본을 historical-v1.contract.json으로 보존하고 canonical digest를 검증한다.
+  v1 issue readback은 v2 승인으로 재사용하지 않으며 contractReady=false를 유지한다.
+- Places는 plc2. cursor 형식과 별도 서명 key domain을 요구한다. 클라이언트는 과거 token을
+  전송 전에 폐기하고 서버는 legacy payload를 decode하기 전에 거부해야 한다.
+- Weather의 지원 범위 오류를 공개/계획 selector로 정정했다. 실제 runtime 변경은 아니다.
+- 관련 테스트 56개, Python 전체 811개(3 skipped) 통과. 독립 reviewer의 이 변경 범위
+  advisory에서 추가 finding 없음. #220 전체 승인 또는 전체 gate 완료를 의미하지 않는다.
+- 실행/live/MCP 계약과 선행 #226 반영 후 Spring 전체 검증은 남아 있다.

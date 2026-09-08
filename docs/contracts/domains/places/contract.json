@@ -32,7 +32,8 @@
           "type": "string",
           "nullable": false,
           "minLength": 1,
-          "maxLength": 2048
+          "maxLength": 2048,
+          "pattern": "^plc2\\.[A-Za-z0-9_-]{1,2043}$"
         },
         "size": {
           "type": "integer",
@@ -392,7 +393,11 @@
           "savedOnly",
           "sortProfile"
         ],
-        "filterChange": "reject CURSOR_CONTEXT_MISMATCH"
+        "filterChange": "reject CURSOR_CONTEXT_MISMATCH",
+        "cursorFormatVersion": "places-location-free/v2",
+        "legacyClientAction": "discard before network; start without cursor",
+        "legacyServerAction": "reject INVALID_CURSOR before legacy payload decoding",
+        "signingScope": "v2 key domain separation; sign only location-free projection"
       },
       "successStatus": 200,
       "problems": [

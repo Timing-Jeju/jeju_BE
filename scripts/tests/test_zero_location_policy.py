@@ -136,6 +136,21 @@ class ZeroLocationPolicyTest(unittest.TestCase):
         self.assertEqual(['INVALID_WEATHER_SELECTOR'], weather['endpoints'][0]['errorMatrix']['400'])
         self.assertEqual('not-ready', weather['readiness']['implementation']['status'])
 
+    def test_fcm_eligibility_does_not_require_location_consent(self):
+        """FCM은 활성 기기·OS 허용·서버 선택만으로 발송 자격을 판단한다."""
+        fcm = json.loads((ROOT / 'docs/contracts/domains/fcm-departure-notification/contract.json').read_text())
+        self.assertEqual(['activeDevice', 'osNotificationPermissionGranted', 'serverDepartureNotificationEnabled'], fcm['consentPolicy']['requiredSignals'])
+        self.assertNotIn('locationConsentEvaluation', fcm['consentPolicy'])
+        self.assertNotIn('LOCATION_CONSENT_INVALID', fcm['jobPolicy']['cancelReasons'])
+
+    def test_places_cursor_cannot_reuse_gps_legacy_scope(self):
+        """위치 파생 legacy cursor를 새 계약의 입력으로 재사용하지 않는다."""
+        places = json.loads((ROOT / 'docs/contracts/domains/places/contract.json').read_text())
+        pagination = places['endpoints'][0]['pagination']
+        self.assertEqual('places-location-free/v2', pagination['cursorFormatVersion'])
+        self.assertTrue(places['schemas']['PlacesListRequest']['properties']['cursor']['pattern'].startswith('^plc2'))
+        self.assertEqual('discard before network; start without cursor', pagination['legacyClientAction'])
+
 
 if __name__ == '__main__':
     unittest.main()

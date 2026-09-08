@@ -20,8 +20,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/fcm-departure-notification/contract.json"
 DEFAULT_FIXTURE = ROOT / "fixtures/contracts/fcm-departure-notification/cases.json"
-CANONICAL_CONTRACT_SHA256 = "87ad401723a794b3c1fec5f12507c55f967472afbbc9269a5badf12f144c420a"
-CANONICAL_FIXTURE_SHA256 = "c0af781106afe08403c3395a671289bbfd3456da9281d88bd2e84090e5a8c921"
+CANONICAL_CONTRACT_SHA256 = "de6154ebbfca5e53f33ad3b302bc8a8fb04f49e20b45dacb88ae8a95a9d161cc"
+CANONICAL_FIXTURE_SHA256 = "3dca522b0efb30c2f48115db40929e705cfe7561a45751619672fbc4c2aa9129"
 TOP_LEVEL_KEYS = {
     "schemaVersion", "contractVersion", "ownerIssue", "dependencies", "excludedScope",
     "readiness", "ownership", "schedulePolicy", "messagePolicy", "consentPolicy",
@@ -49,7 +49,6 @@ CANCEL_TRIGGER_REASONS = [
     {"trigger": "user_opted_out", "reason": "USER_OPTED_OUT"},
     {"trigger": "preference_changed", "reason": "PREFERENCE_CHANGED"},
     {"trigger": "os_permission_revoked", "reason": "OS_PERMISSION_REVOKED"},
-    {"trigger": "location_consent_invalid", "reason": "LOCATION_CONSENT_INVALID"},
     {"trigger": "no_active_push_target", "reason": "NO_ACTIVE_PUSH_TARGET"},
     {"trigger": "expired", "reason": "EXPIRED"},
 ]
@@ -284,19 +283,9 @@ def map_platform_config(case: Any, contract: Any) -> dict[str, Any]:
 
 
 def evaluate_consent_case(case: Any) -> dict[str, Any]:
-    keys = {"id", "osGranted", "serverEnabled", "requiredVersion", "consentedVersion", "consentStatus", "evaluatedAt", "expected"}
+    keys = {"id", "deviceActive", "osGranted", "serverEnabled", "evaluatedAt", "expected"}
     _require(isinstance(case, dict) and set(case) <= keys and {"id", "expected"} <= set(case), "consent fixture case는 canonical closed object여야 합니다.")
-    version_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-    evidence_valid = (
-        set(case) == keys
-        and type(case.get("osGranted")) is bool
-        and type(case.get("serverEnabled")) is bool
-        and isinstance(case.get("requiredVersion"), str)
-        and version_pattern.fullmatch(case["requiredVersion"]) is not None
-        and isinstance(case.get("consentedVersion"), str)
-        and version_pattern.fullmatch(case["consentedVersion"]) is not None
-        and case.get("consentStatus") in {"ACTIVE", "WITHDRAWN"}
-    )
+    evidence_valid = set(case) == keys and all(type(case.get(key)) is bool for key in ("deviceActive", "osGranted", "serverEnabled"))
     try:
         if evidence_valid:
             _parse_instant(case.get("evaluatedAt"), "evaluatedAt")
@@ -304,24 +293,11 @@ def evaluate_consent_case(case: Any) -> dict[str, Any]:
         evidence_valid = False
     if not evidence_valid:
         return {"eligible": False, "reason": "invalid_consent_evidence", "auditSnapshot": None}
-    snapshot = {
-        "documentType": "location",
-        "requiredVersion": case["requiredVersion"],
-        "consentedVersion": case["consentedVersion"],
-        "consentStatus": case["consentStatus"],
-        "evaluatedAt": case["evaluatedAt"],
-    }
-    if not case["osGranted"]:
-        reason = "os_permission_not_granted"
-    elif not case["serverEnabled"]:
-        reason = "server_notification_disabled"
-    elif case["consentStatus"] != "ACTIVE":
-        reason = "location_consent_inactive"
-    elif case["requiredVersion"] != case["consentedVersion"]:
-        reason = "location_consent_not_latest"
-    else:
-        return {"eligible": True, "reason": "eligible", "auditSnapshot": snapshot}
-    return {"eligible": False, "reason": reason, "auditSnapshot": snapshot}
+    snapshot = {key: case[key] for key in ("deviceActive", "osGranted", "serverEnabled", "evaluatedAt")}
+    reason = ("no_active_device" if not case["deviceActive"] else
+              "os_permission_not_granted" if not case["osGranted"] else
+              "server_notification_disabled" if not case["serverEnabled"] else "eligible")
+    return {"eligible": reason == "eligible", "reason": reason, "auditSnapshot": snapshot}
 
 
 def aggregate_target_states(case: Any, contract: Any) -> dict[str, Any]:
@@ -608,12 +584,12 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     _require(isinstance(contract, dict), "계약 root는 객체여야 합니다.")
     _require(set(contract) == TOP_LEVEL_KEYS, "계약 root는 canonical closed object여야 합니다.")
     _require(contract["schemaVersion"] == "timing-jeju-fcm-departure-notification/v1", "schemaVersion이 다릅니다.")
-    _require(contract["contractVersion"] == "1.0.0", "contractVersion이 다릅니다.")
+    _require(contract["contractVersion"] == "2.0.0", "contractVersion이 다릅니다.")
     _require(contract["ownerIssue"] == 112 and not isinstance(contract["ownerIssue"], bool), "ownerIssue는 112여야 합니다.")
-    _require(contract["dependencies"] == [72, 73, 93], "선행 계약 목록이 다릅니다.")
+    _require(contract["dependencies"] == [72, 220, 93], "선행 계약 목록이 다릅니다.")
 
     readiness = contract["readiness"]
-    _require(readiness["contractReady"] is True and readiness["implementationReady"] is False, "계약과 구현 readiness를 분리해야 합니다.")
+    _require(readiness["contractReady"] is False and readiness["implementationReady"] is False, "계약과 구현 readiness를 분리해야 합니다.")
     _require(readiness["productionDefaultEnabled"] is False and readiness["missingPreconditionAction"] == "fail_closed", "미구현 알림은 fail-closed여야 합니다.")
     ownership = contract["ownership"]
     _require(ownership["publicApiAddedByIssue"] == "none" and ownership["databaseMigrationAddedByIssue"] == "none", "#112는 API나 migration을 추가하지 않습니다.")
@@ -654,11 +630,10 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     _require(message["ttlPolicy"] == {"maximumSeconds": 900, "remainingUntil": "expiresAt", "calculation": "min(900, floor(expiresAt - sendAttemptAt))", "nonPositiveAction": "do_not_send"}, "TTL 계약이 다릅니다.")
 
     consent = contract["consentPolicy"]
-    _require(consent["requiredSignals"] == ["osNotificationPermissionGranted", "serverDepartureNotificationEnabled", "latestRequiredLocationConsent"], "OS·서버·최신 위치 동의가 필요합니다.")
-    _require(consent["checkpoints"] == ["atSchedule", "immediatelyBeforeSend"], "동의는 예약과 발송 직전에 검사해야 합니다.")
-    _require(consent["locationConsentEvaluation"]["requiredVersionSource"] == "latest effective required document at evaluation instant", "최신 required 위치 문서 조회가 필요합니다.")
-    _require(consent["locationConsentEvaluation"]["canonicalVersionPattern"] == "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "동의 버전 형식이 다릅니다.")
-    _require(consent["locationConsentEvaluation"]["allowedStatuses"] == ["ACTIVE", "WITHDRAWN"], "동의 상태 enum이 다릅니다.")
+    _require(consent["requiredSignals"] == ["activeDevice", "osNotificationPermissionGranted", "serverDepartureNotificationEnabled"], "활성 기기·OS·서버 선택만 필요합니다.")
+    _require(consent["checkpoints"] == ["atSchedule", "immediatelyBeforeSend"], "예약과 발송 직전에 검사해야 합니다.")
+    _require("locationConsentEvaluation" not in consent, "위치 동의는 수집하거나 자격에 사용하지 않습니다.")
+    _require(consent["eligibilityEvaluation"] == {"signals": ["deviceActive", "osGranted", "serverEnabled"], "invalidEvidenceAction": "fail_closed_without_audit_snapshot", "auditSnapshotFields": ["deviceActive", "osGranted", "serverEnabled", "evaluatedAt"]}, "자격 판단은 위치 없는 신호만 사용합니다.")
 
     job = contract["jobPolicy"]
     _require(set(job) == {
@@ -720,7 +695,7 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     _require(all(set(item) == {"case", "observedMarker", "attemptStatus", "retryAllowed", "recoveryAction", "sameAttemptRow", "requiredCas"} for item in crash), "crash recovery case는 closed object여야 합니다.")
     _require(all(item["sameAttemptRow"] is True and item["requiredCas"] == "current owner/generation/fencing/unexpired lease CAS" for item in crash), "crash recovery는 reclaimed fence의 same row CAS여야 합니다.")
     _require(attempt["targetRacePolicy"] == {
-        "immediatelyBeforeEachTargetCall": ["user setting", "OS permission", "latest required location consent", "device active"],
+        "immediatelyBeforeEachTargetCall": ["user setting", "OS permission", "device active"],
         "claimToPreparationActivation": "include when active at preparation",
         "claimToPreparationDeactivation": "exclude when inactive at preparation",
         "postSnapshotActivation": "do not add to current job",
@@ -776,20 +751,10 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     _require(security["firebaseCredentialInjection"] == "ADC or secret mount only" and security["firebaseCredentialRepositoryStorage"] == "forbidden", "Firebase credential 경계가 다릅니다.")
     _require({key.casefold() for key in security["fixtureForbiddenKeys"]} == FORBIDDEN_FIXTURE_KEYS, "fixture 민감 key denylist가 다릅니다.")
     traceability = contract["traceability"]
-    _require("pmIssueAmendmentsRequired" not in traceability and set(traceability) == {"futureIssueOwners", "issueReadbackEvidence"}, "Issue readback 추적성이 닫혀 있지 않습니다.")
-    expected_evidence = {
-        113: ("2026-08-28T20:11:58Z", ["default 10 and integer 0..120 inclusive", "latest required location consent"]),
-        114: ("2026-08-28T23:50:45Z", ["closed FCM data UTF-8 budgets", "provable pre-connect versus post-write/read ambiguity", "unexpected EOF is post-write ambiguous"]),
-        115: ("2026-08-26T03:57:27Z", ["device-independent logical job key", "one logical job per notification", "safetyBuffer version-CAS atomic replacement"]),
-        116: ("2026-08-26T04:33:51Z", ["exact per-device attempt key", "ACCEPTANCE_UNKNOWN no retry", "lease generation fencing", "push_delivery_targets closed snapshot and current states", "RESERVED/CALL_STARTED durable pre-I/O protocol", "marker-based crash and expired-lease recovery", "mutually exclusive target aggregation precedence", "exhausted transient attempt persistence", "single-row RESERVED/CALL_STARTED/terminal status lifecycle", "expired LEASED same-state reclaim with preserved generation and incremented fence", "post-claim preparation snapshot and claim/post-snapshot race rechecks", "existing CALL_STARTED plus IN_FLIGHT completion gate", "zero-target preparation cancellation", "closed target transitions and atomic attempt-target-job aggregation", "single generation naming", "inactive retry target terminal SKIPPED attempt"]),
-    }
-    evidence = traceability["issueReadbackEvidence"]
-    _require(len(evidence) == 4 and {item["issue"] for item in evidence} == set(expected_evidence), "Issue readback 대상이 다릅니다.")
-    for item in evidence:
-        expected_keys = {"issue", "updatedAt", "appliedMarkers", "blankLineNormalizedBodySha256"} if item["issue"] == 116 else {"issue", "updatedAt", "appliedMarkers"}
-        _require(set(item) == expected_keys and (item["updatedAt"], item["appliedMarkers"]) == expected_evidence[item["issue"]], "Issue readback evidence가 다릅니다.")
-    issue_116_evidence = next(item for item in evidence if item["issue"] == 116)
-    _require(issue_116_evidence["blankLineNormalizedBodySha256"] == "de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da", "Issue #116 normalized body SHA가 다릅니다.")
+    _require("pmIssueAmendmentsRequired" not in traceability and set(traceability) == {"futureIssueOwners", "issueReadbackEvidence", "historicalContract", "currentReadbackStatus"}, "Issue readback 추적성이 닫혀 있지 않습니다.")
+    _require(traceability["issueReadbackEvidence"] == [], "v1 readback을 v2 승인으로 재사용할 수 없습니다.")
+    _require(traceability.get("historicalContract") == "docs/contracts/domains/fcm-departure-notification/historical-v1.contract.json", "v1 역사 참조가 다릅니다.")
+    _require(traceability.get("currentReadbackStatus") == "not-linked; v2 owner revalidation required", "v2 readback은 아직 미연결입니다.")
     _require(canonical_digest(contract) == CANONICAL_CONTRACT_SHA256, "계약 canonical tree가 변경됐습니다.")
 
     _require(isinstance(fixture, dict) and set(fixture) == {"contractVersion", "scheduleCases", "creationDecisionCases", "ttlCases", "cancellationCases", "platformCases", "collapseKeyCases", "consentCases", "aggregationCases", "retryExhaustionCases", "safetyBufferChangeCases", "leaseReclaimCases", "targetRaceCases", "completionCases", "targetTransitionCases", "retryInactiveSkipCases", "messageCases"}, "fixture root는 canonical closed object여야 합니다.")
@@ -805,7 +770,7 @@ def validate_contract(contract: Any, fixture: Any) -> None:
     for case in fixture["ttlCases"]:
         _require(isinstance(case, dict) and set(case) == {"id", "sendAttemptAt", "expiresAt", "expectedTtlSeconds"}, "TTL fixture case는 closed object여야 합니다.")
         _require(calculate_ttl_seconds(case["sendAttemptAt"], case["expiresAt"], 900) == case["expectedTtlSeconds"], f"TTL fixture 결과가 다릅니다: {case.get('id')}")
-    _require(len(fixture["cancellationCases"]) == 10, "취소 fixture case 수가 다릅니다.")
+    _require(len(fixture["cancellationCases"]) == 9, "취소 fixture case 수가 다릅니다.")
     for case in fixture["cancellationCases"]:
         _require(isinstance(case, dict) and set(case) == {"id", "trigger", "expectedReason"}, "취소 fixture case는 closed object여야 합니다.")
         _require(resolve_cancel_reason(case["trigger"], contract) == case["expectedReason"], f"취소 fixture 결과가 다릅니다: {case.get('id')}")
@@ -821,7 +786,7 @@ def validate_contract(contract: Any, fixture: Any) -> None:
         except ValueError:
             valid = False
         _require(valid is case["expectedValid"], f"collapse key fixture 결과가 다릅니다: {case.get('id')}")
-    _require(len(fixture["consentCases"]) == 11, "consent fixture case 수가 다릅니다.")
+    _require(len(fixture["consentCases"]) == 13, "consent fixture case 수가 다릅니다.")
     for case in fixture["consentCases"]:
         _require(evaluate_consent_case(case) == case["expected"], f"consent fixture 결과가 다릅니다: {case.get('id')}")
     _require(len(fixture["aggregationCases"]) == 8, "aggregation fixture case 수가 다릅니다.")

@@ -192,3 +192,11 @@ python3 -m unittest scripts.tests.test_places_contract
 python3 scripts/validate_places_contract.py
 python3 scripts/validate_rest_contracts.py
 ```
+
+## 위치 없는 cursor 버전 전환 (#221)
+
+새 cursor는 `plc2.` 접두사와 별도 v2 서명 scope를 사용한다. 서명 payload에는
+위치 없는 정렬 키와 명시 필터만 포함한다. FE는 보관 중인 v1 cursor를 네트워크에
+보내기 전에 폐기하고 cursor 없이 목록을 다시 조회한다. 서버는 legacy payload를
+복호화하거나 위치 hash를 재사용하지 않고 `INVALID_CURSOR`로 거부한다.
+접두사만 바꾼 v1 token도 새 서명 검증을 통과할 수 없어야 한다.

@@ -111,7 +111,7 @@ registration token 원문은 controller 요청에서 application crypto port로 
 
 푸시 eligibility의 위치 문서는 profile locale 우선, `ko-KR` fallback과 semantic version/document ID 안정 정렬을 #19 법정 문서 정책과 공유합니다. profile, 후보 문서, 최종 동의·기기의 세 조회는 `REPEATABLE READ` transaction의 첫 DB read 시점 snapshot 하나를 공유하며 동시 commit은 다음 eligibility 호출부터 반영합니다. #61/#106 회원 탈퇴 intake는 `PushNotificationWithdrawalBoundary`만 호출하며, notification 경계는 탈퇴 command/status를 소유하지 않고 모든 기기의 즉시 eligibility 차단과 Auth 삭제 cascade만 책임집니다.
 
-발송 eligibility는 활성 device, `GRANTED` OS 권한, 서버의 명시적 opt-in과 현재 유효한 최신 required 위치 동의를 모두 다시 검사합니다. 결과는 사용한 위치 동의 문서 ID/version을 함께 제공해 예약 계층이 audit snapshot으로 보존할 수 있게 하며, token 존재만으로 동의를 추론하지 않습니다.
+Issue #220의 v2 발송 eligibility는 활성 device, `GRANTED` OS 권한과 서버의 명시적 opt-in만 검사합니다. 위치 동의 문서 ID/version은 입력·audit에서 제외하며 token 존재만으로 알림 선택을 추론하지 않습니다. 기존 런타임의 위치 동의 의존성 제거는 후속 구현 전까지 미완료입니다.
 
 ## 변경 API 멱등성 경계
 
@@ -147,7 +147,7 @@ generation/expectedGeneration의 single generation naming만 사용한다. prepa
 
 앱 종료 상태의 사용자 표시 메시지는 `notification + data`다. `notifyAt = targetArrivalAt - expectedTravelDurationSeconds - safetyBufferMinutes`, `expiresAt = min(notifyAt + 15분, targetArrivalAt)`로 계산하고 `scheduledAt`은 `notifyAt`의 alias다. 세 시각은 UTC `timestamptz`로 저장한다. trusted `evaluatedAt`에 대해 notifyAt/expiresAt이 모두 미래일 때만 생성하며 equality/past는 생성·즉시 발송·provider 호출을 모두 금지한다. provider TTL은 `min(900, floor(expiresAt - sendAttemptAt))`만 사용한다. Android는 high priority와 `collapse_key`, APNs는 alert+sound와 `apns-expiration=sendAttemptAt+TTL` epoch seconds 및 `apns-collapse-id`에 같은 canonical collapse key를 사용한다. collapse key의 tripId는 canonical lowercase UUID를 regex와 UUID roundtrip으로 검증한다. safety buffer는 기본 10분, integer 0..120분 inclusive다. 여행 시간대로 표시하며 DST overlap의 두 offset과 DST gap은 모두 fail-closed다. data는 다섯 string field만 허용하고 canonical lowercase UUID·canonical deep link, key/value/전체 UTF-8 byte budget과 결정적 title/body fallback을 적용한다.
 
-OS 알림 권한, 서버 출발 알림 설정과 최신 required 위치 동의를 예약 시점과 발송 직전에 확인하며 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 기기 변화는 preparation snapshot에 반영하고 snapshot 뒤 신규 기기는 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 남은 호출 없이 `CANCELLED`다. 동의 version은 canonical nonblank string이고 missing/null/blank/wrong type/unknown status는 fail-closed한다. 일정 버전 변경·항목 완료/건너뜀·여행 취소·알림 비활성화는 이전 미발송 작업을 취소하며 deduplication key와 generation fencing으로 stale worker를 거부한다. `safetyBufferMinutes` 변경도 preference CAS부터 old generation 무효화·미발송 job 취소·재계산·새 job까지 원자 수행한다. TTL은 최대 15분이면서 유효 출발 시각을 넘지 않고, 만료되면 보내지 않는다.
+OS 알림 권한, 서버 출발 알림 설정과 활성 기기를 예약 시점과 발송 직전에 확인하며 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 기기 변화는 preparation snapshot에 반영하고 snapshot 뒤 신규 기기는 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 남은 호출 없이 `CANCELLED`다. 기기·알림 신호의 missing/null/wrong type과 잘못된 평가 시각은 fail-closed한다. 일정 버전 변경·항목 완료/건너뜀·여행 취소·알림 비활성화는 이전 미발송 작업을 취소하며 deduplication key와 generation fencing으로 stale worker를 거부한다. `safetyBufferMinutes` 변경도 preference CAS부터 old generation 무효화·미발송 job 취소·재계산·새 job까지 원자 수행한다. TTL은 최대 15분이면서 유효 출발 시각을 넘지 않고, 만료되면 보내지 않는다.
 
 FCM 접수는 단말 전달 완료가 아니다. provider message id는 `ACCEPTED` 증거일 뿐 `DELIVERED`로 표현하지 않는다. explicit transient rejection과 request byte 미전송이 증명된 pre-connect failure만 재시도한다. post-write/read timeout, connection reset, unexpected EOF 같은 일반 post-write ambiguity는 terminal `ACCEPTANCE_UNKNOWN`으로 남겨 자동 재시도하지 않는다. 세 번째/만료 transient attempt도 유실하지 않고 job `DEAD`와 원자 보존한다. 앱 재진입 시에는 푸시 payload가 아니라 `live-state`를 다시 조회한다. #93과 #113~#116의 정정된 구현, ADC 또는 secret mount가 검증되기 전에는 production default-off와 fail-closed를 유지한다.
 

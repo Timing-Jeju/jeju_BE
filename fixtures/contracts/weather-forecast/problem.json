@@ -30,7 +30,7 @@
       "type": "https://api.timing-jeju.com/problems/weather-location-not-supported",
       "title": "지원하지 않는 날씨 조회 위치입니다",
       "status": 422,
-      "detail": "제주 지역의 지원 가능한 위치를 입력해 주세요.",
+      "detail": "제주 예보를 지원하는 공개 지역 또는 계획 목적지를 선택해 주세요.",
       "instance": "urn:timing-jeju:problem:00000000000000000000000000000003",
       "code": "WEATHER_LOCATION_NOT_SUPPORTED",
       "traceId": "00000000000000000000000000000003",
