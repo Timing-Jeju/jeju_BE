@@ -12,7 +12,7 @@
     "ACCOMMODATION_DATA_UNAVAILABLE": "https://api.timing-jeju.com/problems/accommodation-data-unavailable"
   },
   "operations": {
-    "GET /api/v1/me/profile-image": {"statuses": [200, 401, 403, 500, 503], 
+    "GET /api/v1/me/profile-image": {"statuses": [200, 401, 403, 500, 503],
       "statusAdditions": [403, 500],
       "statusOmissions": [],
       "problems": {
@@ -28,7 +28,7 @@
         ]
       }
     },
-    "PUT /api/v1/me/profile-image": {"statuses": [200, 400, 401, 403, 404, 409, 413, 415, 500, 503], 
+    "PUT /api/v1/me/profile-image": {"statuses": [200, 400, 401, 403, 404, 409, 413, 415, 500, 503],
       "statusAdditions": [403, 500],
       "statusOmissions": [],
       "problems": {
