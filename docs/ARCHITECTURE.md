@@ -1,5 +1,9 @@
 # 아키텍처
 
+> 현행 위치 정책: [사용자 현재·간접 위치 무수집 v2](contracts/domains/location-noncollection/contract.md). Issue #220이 #73을 대체한다.
+> 아래 위치 보관·동의·GRID_100M·위치 파생 hash 관련 설명은 제거 대상인 기존 구현/계약의 이력이며
+> 신규 위치 수신·저장의 허용 근거가 아니다. 런타임 전환은 #221 → #222 → #225 → #223 → #224에서 검증한다.
+
 ## 저장소 경계
 
 이 저장소는 Spring Boot 공개 API만 소유합니다. FastAPI MCP 구현은 별도 [Timing-Jeju/jeju_AI](https://github.com/Timing-Jeju/jeju_AI) 저장소가 소유하며, 두 서비스는 private network와 버전이 명시된 MCP 계약으로 연동합니다.

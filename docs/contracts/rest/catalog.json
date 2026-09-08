@@ -3,6 +3,7 @@
   "templateId": "timing-jeju-rest-contract/v1",
   "contractVersion": "1.0.0",
   "commonRules": {
+    "locationPolicy": "docs/contracts/domains/location-noncollection/contract.json",
     "authorization": {
       "modes": ["required", "optional"],
       "principal": "canonical JWT sub",

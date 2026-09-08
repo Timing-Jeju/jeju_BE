@@ -1,0 +1,342 @@
+{
+  "schemaVersion": "timing-jeju-location-noncollection-policy/v2",
+  "contractVersion": "2.0.0",
+  "ownerIssue": 220,
+  "supersedes": {
+    "issue": 73,
+    "contract": "docs/contracts/domains/location-retention/contract.json",
+    "version": "1.0.0",
+    "history": "immutable"
+  },
+  "server": {
+    "receiveUserLocation": false,
+    "storeUserLocation": false,
+    "storeDerivedLocation": false,
+    "locationConsentEligibility": false,
+    "unknownOrigin": "reject",
+    "unknownFields": "reject",
+    "serviceRoleExemption": false
+  },
+  "origins": {
+    "allowed": [
+      "explicit_selection",
+      "planned_reference",
+      "approved_public_source",
+      "validated_location_free_input"
+    ],
+    "forbidden": [
+      "device_gps",
+      "gps_derived",
+      "unknown"
+    ]
+  },
+  "forbiddenConcepts": [
+    "latitude/longitude/accuracy/altitude/heading/speed from user GPS",
+    "current region/place/stop inferred from GPS",
+    "GRID_100M/geohash/currentLocation/currentPlaceId/locationSupplied",
+    "GPS-derived digest/hash/cache key/request fingerprint",
+    "arbitrary schedule facts.location without planned public provenance",
+    "raw user location in logs/metrics/traces/errors"
+  ],
+  "surfaces": {
+    "places": {
+      "origins": [
+        "explicit_selection"
+      ],
+      "fields": [
+        "query",
+        "category",
+        "regionCode",
+        "size",
+        "cursor"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        221
+      ],
+      "runtimeStatus": "pending"
+    },
+    "weather": {
+      "origins": [
+        "explicit_selection",
+        "planned_reference"
+      ],
+      "fields": [
+        "regionCode",
+        "placeId",
+        "tripItemId",
+        "dateTime"
+      ],
+      "exactlyOne": [
+        "regionCode",
+        "placeId",
+        "tripItemId"
+      ],
+      "implementationIssues": [
+        222
+      ],
+      "runtimeStatus": "pending"
+    },
+    "execution": {
+      "origins": [
+        "planned_reference"
+      ],
+      "fields": [
+        "eventType",
+        "tripItemId",
+        "tripLegId",
+        "occurredAt",
+        "clientEventId"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        59,
+        223
+      ],
+      "runtimeStatus": "pending"
+    },
+    "live": {
+      "origins": [
+        "planned_reference"
+      ],
+      "fields": [
+        "tripId",
+        "scheduleVersionId",
+        "tripItemId",
+        "tripLegId",
+        "checkedAt",
+        "manualProgress"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        58,
+        224
+      ],
+      "runtimeStatus": "pending"
+    },
+    "spare_time": {
+      "origins": [
+        "planned_reference"
+      ],
+      "fields": [
+        "tripId",
+        "scheduleVersionId",
+        "tripItemId",
+        "tripLegId",
+        "windowStart",
+        "windowEnd"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        57,
+        98
+      ],
+      "runtimeStatus": "pending"
+    },
+    "recovery": {
+      "origins": [
+        "planned_reference"
+      ],
+      "fields": [
+        "tripId",
+        "scheduleVersionId",
+        "tripItemId",
+        "tripLegId",
+        "checkedAt"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        60,
+        100,
+        102,
+        103
+      ],
+      "runtimeStatus": "pending"
+    },
+    "mcp": {
+      "origins": [
+        "planned_reference"
+      ],
+      "fields": [
+        "tripDate",
+        "snapshotId",
+        "plannedPlaceId",
+        "plannedStopId",
+        "tripItemId",
+        "tripLegId",
+        "checkedAt"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        52,
+        224
+      ],
+      "runtimeStatus": "pending"
+    },
+    "public_facts": {
+      "origins": [
+        "approved_public_source"
+      ],
+      "fields": [
+        "placeId",
+        "stopId",
+        "regionCode",
+        "latitude",
+        "longitude",
+        "gridX",
+        "gridY",
+        "sourceId",
+        "snapshotId"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        225
+      ],
+      "runtimeStatus": "pending"
+    },
+    "command_hash": {
+      "origins": [
+        "validated_location_free_input"
+      ],
+      "fields": [
+        "commandInputHash",
+        "contractVersion"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        223,
+        224
+      ],
+      "runtimeStatus": "pending"
+    },
+    "mcp_hash": {
+      "origins": [
+        "validated_location_free_input"
+      ],
+      "fields": [
+        "mcpInputHash",
+        "contractVersion"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        223,
+        224
+      ],
+      "runtimeStatus": "pending"
+    },
+    "cache": {
+      "origins": [
+        "approved_public_source",
+        "validated_location_free_input"
+      ],
+      "fields": [
+        "snapshotId",
+        "sourceId",
+        "contractVersion",
+        "cacheKey"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        223,
+        224
+      ],
+      "runtimeStatus": "pending"
+    },
+    "observability": {
+      "origins": [
+        "validated_location_free_input"
+      ],
+      "fields": [
+        "traceId",
+        "runId",
+        "status",
+        "errorCode",
+        "latencyMs",
+        "rowCount",
+        "objectName",
+        "policyVersion"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        223,
+        224
+      ],
+      "runtimeStatus": "pending"
+    },
+    "notification": {
+      "origins": [
+        "planned_reference"
+      ],
+      "fields": [
+        "tripId",
+        "scheduleVersionId",
+        "tripItemId",
+        "scheduledAt",
+        "deviceActive",
+        "osPermission",
+        "serverOptIn"
+      ],
+      "exactlyOne": [],
+      "implementationIssues": [
+        112,
+        115,
+        116
+      ],
+      "runtimeStatus": "pending"
+    }
+  },
+  "migration": {
+    "steps": [
+      "block_new_writes",
+      "classify_planned_public_anchors",
+      "purge_direct_and_derived_location",
+      "verify_zero_residue",
+      "explicit_schema_drop",
+      "remove_cleanup_runtime"
+    ],
+    "issueOrder": [
+      221,
+      222,
+      225,
+      223,
+      224
+    ],
+    "appliedMigrations": "immutable",
+    "cascade": false,
+    "onAmbiguousActiveLineage": "stop_without_deletion",
+    "preserveLocationHashes": false,
+    "output": [
+      "rowCount",
+      "objectName"
+    ],
+    "backupRestore": "isolated restore followed by same guard/purge/zero-residue before traffic",
+    "rollback": "compatible_zero_location_release_or_disable"
+  },
+  "notification": {
+    "eligibility": [
+      "active_device",
+      "os_granted",
+      "server_opt_in"
+    ],
+    "basis": [
+      "planned_departure_time",
+      "evidence_travel_time",
+      "safety_buffer"
+    ],
+    "locationConsentRequired": false
+  },
+  "ownership": {
+    "mobile": "GPS permission/display/distance/nearest/arrival/departure locally only; never transmit inferred references",
+    "spring": "public source normalization, owned planned references, no user-location intake",
+    "ai": "planned references and approved facts only; no product DB, user JWT, raw provider body or secrets"
+  },
+  "release": {
+    "locationCollectionEnabled": false,
+    "mobileLegalIssue": 168,
+    "issue168EnablesSpringLocation": false,
+    "runtimeRemovalVerified": false,
+    "privacyLegalApprovalClaimed": false,
+    "notion": "not-linked",
+    "figma": "not-linked"
+  }
+}

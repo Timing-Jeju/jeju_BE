@@ -1,5 +1,9 @@
 # Definition of Done
 
+> 현행 위치 정책: [사용자 현재·간접 위치 무수집 v2](contracts/domains/location-noncollection/contract.md). Issue #220이 #73을 대체한다.
+> 아래 위치 보관·동의·GRID_100M·위치 파생 hash 관련 설명은 제거 대상인 기존 구현/계약의 이력이며
+> 신규 위치 수신·저장의 허용 근거가 아니다. 런타임 전환은 #221 → #222 → #225 → #223 → #224에서 검증한다.
+
 다음 항목이 모두 충족되어야 개발 완료입니다.
 
 - GitHub Issue와 Acceptance Criteria가 존재합니다.

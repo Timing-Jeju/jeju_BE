@@ -122,6 +122,7 @@ CATALOG_FIELDS = {
     "domainContracts",
 }
 COMMON_RULE_FIELDS = {
+    "locationPolicy",
     "authorization",
     "idempotency",
     "cursor",
@@ -337,6 +338,8 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
         errors.append("commonRules 객체가 필요합니다.")
         return
     _reject_unknown_fields(rules, COMMON_RULE_FIELDS, "commonRules", errors)
+    if rules.get("locationPolicy") != "docs/contracts/domains/location-noncollection/contract.json":
+        errors.append("위치 정책은 현행 무수집 v2를 참조해야 합니다.")
 
     authorization = _object(rules.get("authorization"), "commonRules.authorization", errors)
     _reject_unknown_fields(
