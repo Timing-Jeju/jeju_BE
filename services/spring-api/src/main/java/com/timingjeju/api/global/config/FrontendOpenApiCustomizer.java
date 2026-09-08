@@ -1074,10 +1074,7 @@ final class FrontendOpenApiCustomizer {
     String code = configuredCode == null ? defaultCode(status) : configuredCode;
     response.addHeaderObject(RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
     MediaType media = new MediaType().schema(new Schema<>().$ref(PROBLEM_SCHEMA));
-    List<String> codes =
-        isScheduleMutation(operationKey)
-            ? scheduleProblems(operationKey, String.valueOf(status))
-            : null;
+    List<String> codes = operationProblems(operationKey, String.valueOf(status));
     if (codes == null) {
       media.setExample(problemExample(status, code, operationKey));
     } else {
@@ -1195,6 +1192,21 @@ final class FrontendOpenApiCustomizer {
       if (operationKey.startsWith("DELETE") || operationKey.endsWith("/move"))
         base.add("SCHEDULE_DAY_EMPTY");
       return base;
+    }
+    return null;
+  }
+
+  private static List<String> operationProblems(String operationKey, String status) {
+    if (isScheduleMutation(operationKey)) {
+      return scheduleProblems(operationKey, status);
+    }
+    if ("GET /api/v1/weather/forecast".equals(operationKey)) {
+      return switch (status) {
+        case "401" -> List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN");
+        case "422" ->
+            List.of("WEATHER_FORECAST_HORIZON_NOT_SUPPORTED", "WEATHER_LOCATION_NOT_SUPPORTED");
+        default -> null;
+      };
     }
     return null;
   }

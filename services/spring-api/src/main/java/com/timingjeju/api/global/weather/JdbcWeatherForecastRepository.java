@@ -147,6 +147,8 @@ public class JdbcWeatherForecastRepository implements WeatherForecastRepository 
               sql
                   + """
           and place.source_deleted_at is null and place.tombstoned_at is null
+          and place.stale = false
+          and (place.stale_at is null or place.stale_at > now())
           and place.content_id is not null and btrim(place.content_id) <> ''
           and place.location is not null
           """,

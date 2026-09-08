@@ -63,6 +63,12 @@ class JdbcWeatherForecastRepositoryIntegrationTest
     assertThat(repository.findRegionGrid("missing-region")).isEmpty();
     assertThat(repository.findPublicPlace(PLACE)).get().extracting("latitude").isEqualTo(33.458111);
     assertThat(repository.findPublicPlace(UUID.randomUUID())).isEmpty();
+    jdbc.update("update public.tour_places set stale=true where id=?", PLACE);
+    assertThat(repository.findPublicPlace(PLACE)).isEmpty();
+    jdbc.update("update public.tour_places set stale=false,stale_at=now() where id=?", PLACE);
+    assertThat(repository.findPublicPlace(PLACE)).isEmpty();
+    jdbc.update("update public.tour_places set stale_at=now()+interval '1 hour' where id=?", PLACE);
+    assertThat(repository.findPublicPlace(PLACE)).isPresent();
     jdbc.update("update public.tour_places set tombstoned_at=now() where id=?", PLACE);
     assertThat(repository.findPublicPlace(PLACE)).isEmpty();
     assertThat(repository.findRegionGrid("seongsan")).isPresent();
@@ -111,6 +117,13 @@ class JdbcWeatherForecastRepositoryIntegrationTest
         .isEqualTo(repository.findPublicPlace(PLACE));
     assertThat(repository.findOwnedTripItem(item, UUID.randomUUID())).isEmpty();
     assertThat(repository.findOwnedTripItem(UUID.randomUUID(), owner)).isEmpty();
+    jdbc.update("update public.tour_places set stale=true where id=?", PLACE);
+    assertThat(repository.findOwnedTripItem(item, owner)).isEmpty();
+    jdbc.update("update public.tour_places set stale=false,stale_at=now() where id=?", PLACE);
+    assertThat(repository.findOwnedTripItem(item, owner)).isEmpty();
+    jdbc.update("update public.tour_places set stale_at=now()+interval '1 hour' where id=?", PLACE);
+    assertThat(repository.findOwnedTripItem(item, owner)).isPresent();
+    jdbc.update("update public.tour_places set stale_at=null where id=?", PLACE);
     jdbc.update(
         "update public.trip_items set place_id=null,facts='{\"location\":{\"lat\":33.4,\"lng\":126.9}}'::jsonb where id=?",
         item);

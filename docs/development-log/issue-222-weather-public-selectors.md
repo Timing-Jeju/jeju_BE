@@ -66,3 +66,30 @@
 - PR #231이 develop `4023095e20acbde6e69f0bbf7b842a252a55cd8f`로 병합된 뒤 최신 base를 통합했다. Places와 Weather가 모두 사용자 GPS query를 받지 않는 조합으로 전체 gate를 실행한다.
 - 독립 Reviewer는 99e585e까지의 추가 변경과 OpenAPI 37 operations 증거를 확인해 finding 0건을 보고했다. 아래 최종 HEAD의 전체 gate와 공식 승인 recorder는 별도 확인한다.
 - Notion v2 본문 갱신은 무료 블록 한도 때문에 미반영이다. 실제 Figma v2 Draft readback과 이를 구분하며 문서 readiness를 강제로 올리지 않는다.
+
+## 2026-09-08 HTTP·오류 projection QA 보강
+
+- RED: weather OpenAPI의 401/422가 대표 `example` 하나만 노출하고 runtime manifest에
+  `problemSets`가 없음을 Spring slice 12개 중 1개 실패와 Python readiness `KeyError`로
+  확인해 Issue 댓글에 명령과 실패를 기록했다.
+- 익명 `placeId`가 owner 없이 200을 반환하는 경계, `tripItemId`의 bearer 누락
+  `AUTHENTICATION_REQUIRED` 401, 잘못된 bearer `INVALID_ACCESS_TOKEN` 401, 다른 소유자의
+  항목을 식별자 비반사 `WEATHER_REFERENCE_NOT_FOUND` 404로 닫는 HTTP 경계를 고정했다.
+- weather 401은 두 인증 오류, 422는 예보 범위와 지원 위치 오류를 각각 이름 있는
+  machine-visible examples로 투영하며 code/type/status를 검증한다. runtime manifest의
+  `problemSets`도 동일 집합으로 정렬했다.
+- GREEN: targeted Spring slice 12/12, readiness Python 35/35, OpenAPI artifact 생성 및
+  frontend-readiness mode 33의 37 operations가 통과했다.
+- 이번 보강은 DB/Testcontainers/Docker 없이 수행했다. 실제 DB 적용·배포·live Supabase는
+  수행하지 않았고, approved-source provenance와 좌표-derived hash는 #225 범위로 남겼다.
+
+## 2026-09-08 stale 공개 anchor Reviewer 보강
+
+- RED: 실제 PostgreSQL repository 9개 중 2개가 실패해 `stale=true`인 공개 place와
+  이를 참조하는 owned tripItem이 모두 weather anchor로 반환되는 것을 재현했다.
+- GREEN: 두 selector가 공유하는 anchor lifecycle 조건에 `place.stale=false`와
+  `(place.stale_at is null or place.stale_at > now())`를 추가했다. `stale_at=now()`는
+  거부하고 미래 `stale_at`은 허용하는 경계도 양쪽 selector에서 검증했다.
+- 기존 owner join, `source_deleted_at`, `tombstoned_at`, canonical `content_id`, location
+  조건은 유지했다. 실제 PostgreSQL repository 9/9와 DB 없는 weather 계약 테스트를
+  통과했고, 실제 DB 적용·배포·live Supabase는 수행하지 않았다.
