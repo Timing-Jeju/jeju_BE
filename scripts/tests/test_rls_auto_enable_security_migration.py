@@ -113,6 +113,7 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
             "reviewer 승인",
             "supabase db push --dry-run",
             "manifest exact ordered list",
+            '(.immutableprefix + .canonicalsuffix)[] | .path | split("/")[-1]',
             "mismatch",
         ):
             self.assertIn(marker, guide)
