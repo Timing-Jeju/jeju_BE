@@ -1387,6 +1387,13 @@ class LocationDataPurgeMigrationIntegrationTest {
           .isEqualTo(2);
       assertThat(
               jdbc.queryForObject(
+                  "select count(*) from supabase_migrations.schema_migrations "
+                      + "where version in ('20260918000017','20260918000018') "
+                      + "and name is not null and statements is not null",
+                  Integer.class))
+          .isEqualTo(2);
+      assertThat(
+              jdbc.queryForObject(
                   "select timing_jeju_planner_private.user_location_guard_purge_revision()",
                   String.class))
           .isEqualTo("20260918000018");

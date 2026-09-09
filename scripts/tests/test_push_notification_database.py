@@ -69,6 +69,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000016_planned_route_reference_integrity.sql",
             "20260918000017_user_location_write_guard_purge.sql",
             "20260918000018_revision_request_hash_audit.sql",
+            "20260918000020_location_provenance_fail_closed.sql",
         )
         migration_names = tuple(
             path.name

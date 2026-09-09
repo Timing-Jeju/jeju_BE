@@ -823,6 +823,10 @@ as $$ select '20260918000018'::text; $$;
 revoke all on function timing_jeju_planner_private.user_location_guard_purge_revision()
   from public, anon, authenticated, service_role;
 
-insert into supabase_migrations.schema_migrations(version)
-values ('20260918000017'), ('20260918000018');
+insert into supabase_migrations.schema_migrations(version, name, statements)
+values
+  ('20260918000017', 'user_location_write_guard_purge',
+    array['-- grouped source sha256:3f1cb04a7a6f0b5577229eb4f9efc9a3e064b203e7423d3712b217bafa8fccbe']::text[]),
+  ('20260918000018', 'revision_request_hash_audit',
+    array['-- grouped source sha256:5bdd91f35b45a7bec2490a5e4c19597f7a2eab521da9889ff89599c887acdd33']::text[]);
 commit;

@@ -289,3 +289,17 @@ shell cleanup의 모든 Docker 명령/조회가 제한된 실행기를 사용한
 TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 및 실행 중 출력 초과 처리 공백은 실제 RED2(자식 잔류, 초과 출력을124로 오인)로 확인한 뒤 수정했다. 신규 process/recovery 및 기존 isolation/layout 테스트 총39개 PASS(15.307s), shell 문법과 diff 검사 PASS. 실제 Docker focused 검증을 실행 중이며 최종 결과와 커밋 후 정규 전체 gate를 별도로 확인한다.
 
 최종 focused 결과: `/tmp/jeju-223-bounded-cleanup-docker.log`의 실제 Docker smoke가 exit0으로 완료됐다. 이미지 삭제 응답 timeout을 감지하여 소유 프로세스를 종료한 뒤 네 종류 자원의 조회 성공·잔류0을 확인한 복구 메시지가 기록됐다. health·fingerprint·legacy audits·동시성·schema·negative·fixture 모두 통과했다. `/tmp/jeju-223-cleanup-all-static.log`는839개 중836 PASS/3 SKIP(47.114s)이다. 독립 source 재리뷰 추가 finding0. 커밋 후 같은 SHA 전체 gate와 공식 승인은 아직 별도 필요하다.
+
+## 2026-09-09 post-merge 독립 리뷰 보정
+
+- 최신 `origin/develop` `73cb2b93`에서 `fix/223-post-merge-location-guard`를 만들었다. 병합된 017·018 원문은 수정하지 않았다. #242 예약 019/057과 충돌하지 않는 forward migration 020/058을 선택했다.
+- Issue 댓글로 설계를 먼저 기록하려 했으나 외부 보안 설계 게시가 실행 승인 계층에서 거부됐다. 우회하지 않고 이 개발일지와 runbook에 같은 경계를 기록했다.
+- RED: Python group 계약 7건 중 3건이 020 부재, raw CLI enabled, version-only ledger로 실패했다. PG16 focused 6건은 독립 MCP/revision hash와 `current_position`/camelCase/중첩 좌표 배열 모두 예외가 발생하지 않아 실패했다.
+- GREEN: 020이 generic JSON alias/두 numeric tuple helper를 보강하고 residue verifier와 신규 write guard가 같은 helper를 사용한다. typed provenance가 없는 동안 service_role의 revision/MCP 독립 hash INSERT 및 hash UPDATE는 SQLSTATE 23514로 차단한다.
+- PG16 focused 6건 PASS. PG16/17 forward migration 2건은 legacy alias에서 schema/data/revision 전체 rollback, 정리 후 두 독립 hash INSERT/UPDATE 및 중첩 좌표 배열 차단을 확인했다. 공용 trigger의 서로 다른 row type field 해석으로 42703이 발생한 중간 Green 실패는 table별 trigger 분리 후 두 버전 모두 23514로 고정했다.
+- 기존 017+018 Supabase ledger/최종 감사 rollback PG16/17 2건 PASS. ledger는 CLI 2.116.0 source의 `version`, `name`, `statements text[]` shape와 맞추되 statements에는 개별 실행을 가장하지 않는 고정 source checksum marker를 기록한다.
+- raw Supabase sequential path는 `[db.migrations].enabled=false`이고 smoke runner가 CLI 실행 전에 exit 64로 거부함을 실제 실행으로 확인했다. 실제 Supabase CLI 설치·staging·provider/live 적용은 수행하지 않았다.
+- 전체 Python 842건 실행에서 task 관련 migration inventory/hash count 결함은 보정했다. 나머지 9 failure/1 error는 sandbox의 `ps` 금지와 아직 미병합 PR #240의 collector exit 129 재현이며 이 branch에서 unrelated watchdog/cleanup 코드를 수정하지 않는다.
+- 최종 재검증에서 `LocationProvenanceFailClosedMigrationIntegrationTest`와 전체 `LocationWriteGuardIntegrationTest`를 함께 PG16/17에서 실행해 3분 내 PASS했다. 유효한 typed command input hash fixture로 독립 hash UPDATE 거부까지 확인했다.
+- 관련 Python 계약 116건, 두 generated SQL `--check`, shell 문법, manifest SHA-256(`ae34d8d5...595670`), `git diff --check`가 PASS했다. PowerShell fresh smoke의 최종 revision 기대도 020으로 정렬했다.
+- #240은 2026-09-09 확인 시 OPEN이므로 요청한 자원/병합 선행 조건에 따라 전체 품질 게이트와 Docker 전체 smoke는 이번 post-merge 보정에서 실행하지 않았다. 따라서 집중 검증은 완료했지만 전체 DoD와 독립 Reviewer 승인은 아직 남아 있다.

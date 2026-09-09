@@ -50,10 +50,16 @@ $history$;
 """
     bodies = b"\n".join(body((root / "supabase/migrations" / name).read_bytes(), checksum)
                         for name, checksum in SOURCES)
-    # Version-only rows are enough for CLI discovery. Do not repair history in a second transaction.
+    # Supabase CLI 2.116.0 owns this exact ledger shape. The grouped execution is
+    # not a native per-file statement list, so record immutable checksum markers
+    # instead of pretending that either original file ran independently.
     history = """
-insert into supabase_migrations.schema_migrations(version)
-values ('20260918000017'), ('20260918000018');
+insert into supabase_migrations.schema_migrations(version, name, statements)
+values
+  ('20260918000017', 'user_location_write_guard_purge',
+    array['-- grouped source sha256:""" + SOURCES[0][1] + """']::text[]),
+  ('20260918000018', 'revision_request_hash_audit',
+    array['-- grouped source sha256:""" + SOURCES[1][1] + """']::text[]);
 commit;
 """
     return preflight.encode() + bodies + history.encode()

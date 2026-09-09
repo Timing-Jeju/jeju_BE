@@ -165,7 +165,7 @@ try {
   $cutoverCheck = @'
 do $$
 begin
-  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000018'
+  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000020'
      or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
                 where residue_count <> 0) then
     raise exception 'location cutover verification failed';

@@ -54,3 +54,28 @@ class LocationCutoverGroupTest(unittest.TestCase):
         self.assertLess(sql.index(b"lock table supabase_migrations.schema_migrations"), sql.index(b"-- Issue #223:"))
         self.assertGreater(sql.index(b"insert into supabase_migrations.schema_migrations"), sql.index(b"select '20260918000018'::text"))
         self.assertIn(b"location cutover migration history mismatch", sql)
+
+    def test_raw_supabase_sequential_migrations_are_disabled(self):
+        """017·018을 개별 commit하는 기본 CLI 경로는 설정 단계에서 닫힌다."""
+        config = (ROOT / "supabase/config.toml").read_text()
+        migrations = config.split("[db.migrations]", 1)[1].split("[db.seed]", 1)[0]
+        self.assertIn("enabled = false", migrations)
+        smoke = (ROOT / "scripts/supabase-smoke-test.sh").read_text()
+        self.assertIn("검증된 017+018 단일 transaction runner 전에는", smoke)
+        self.assertLess(smoke.index("exit 64"), smoke.index('"$SUPABASE_BIN" start'))
+
+    def test_forward_remediation_uses_reserved_safe_chronology(self):
+        """#242의 019/057 예약을 건드리지 않고 020/058을 사용한다."""
+        migration = ROOT / "supabase/migrations/20260918000020_location_provenance_fail_closed.sql"
+        self.assertTrue(migration.is_file())
+        manifest = (ROOT / "supabase/migrations/manifest.json").read_text()
+        self.assertIn("20260918000020_location_provenance_fail_closed.sql", manifest)
+        self.assertIn('"initSlot":"058"', manifest)
+
+    def test_supabase_ledger_rows_match_cli_shape(self):
+        """그룹 적용 이력은 CLI 2.116.0의 version/name/statements shape를 채운다."""
+        sql = self.load().render_supabase(ROOT)
+        self.assertIn(b"schema_migrations(version, name, statements)", sql)
+        self.assertIn(b"'user_location_write_guard_purge'", sql)
+        self.assertIn(b"'revision_request_hash_audit'", sql)
+        self.assertNotIn(b"schema_migrations(version)\nvalues", sql)

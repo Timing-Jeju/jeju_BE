@@ -14,7 +14,9 @@ shadow_port = 54320
 major_version = 17
 
 [db.migrations]
-enabled = true
+# Raw CLI sequencing can commit 017 before the 018 verifier. Canonical schema
+# changes are applied only by the repository's verified migration runner.
+enabled = false
 schema_paths = []
 
 [db.seed]

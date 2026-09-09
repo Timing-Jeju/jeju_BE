@@ -210,6 +210,29 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         .hasMessageNotContaining("Failing row");
   }
 
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"current_position\":[126.51,33.51]}",
+        "{\"currentPosition\":[126.51,33.51]}",
+        "{\"nested\":{\"point\":[126.51,33.51]}}",
+        "{\"nested\":[[126.51,33.51]]}"
+      })
+  void 알려진_position_alias와_중첩_좌표_배열은_값_반사없이_거부한다(String payload) {
+    jdbc.execute("set local role service_role");
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "insert into public.trip_preferences(trip_plan_id,arrival_region_code,departure_region_code,raw_answers) values (?,'JEJU','JEJU',?::jsonb)",
+                    trip,
+                    payload))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("user location storage is disabled")
+        .hasMessageNotContaining("126.51")
+        .hasMessageNotContaining("33.51")
+        .hasMessageNotContaining("Failing row");
+  }
+
   @Test
   void 위치없는_선호_JSON과_명시_선택한_공개_장소는_service_role도_저장한다() {
     jdbc.execute("set local role service_role");
@@ -463,18 +486,18 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   @Test
-  void 입력_없는_parent에_MCP_hash를_추가할_수_없다() {
+  void 입력_없는_parent의_MCP_hash도_독립_provenance에서_먼저_거부한다() {
     UUID run = createComputeParent();
     jdbc.execute("set local role service_role");
     assertThatThrownBy(() -> insertMcpLog(run, "c".repeat(64)))
         .isInstanceOf(DataIntegrityViolationException.class)
-        .hasMessageContaining("compute input lineage required")
+        .hasMessageContaining("independent hash provenance required")
         .hasMessageNotContaining(run.toString())
         .hasMessageNotContaining("c".repeat(64));
   }
 
   @Test
-  void 동일_transaction의_무위치_input과_parent는_claim과_최소_MCP_audit가_가능하다() {
+  void 정상_command_lineage만으로_독립_MCP_hash의_비위치를_추정하지_않는다() {
     UUID run = createComputeParent();
     String hash = commandHash(null);
     jdbc.update("update public.compute_runs set input_hash=? where id=?", hash, run);
@@ -486,7 +509,40 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     assertThat(leases).hasSize(1);
     assertThat(leases.getFirst().runId()).isEqualTo(run);
     jdbc.execute("set local role service_role");
-    assertThat(insertMcpLog(run, hash)).isEqualTo(1);
+    assertThatThrownBy(() -> insertMcpLog(run, hash))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("independent hash provenance required")
+        .hasMessageNotContaining(hash)
+        .hasMessageNotContaining("a".repeat(64))
+        .hasMessageNotContaining("Failing row");
+  }
+
+  @Test
+  void service_role은_typed_provenance_없는_revision_request_hash를_신규_저장할_수_없다() {
+    UUID day = UUID.randomUUID();
+    jdbc.update(
+        "insert into public.trip_days(id,trip_plan_id,day_no,trip_date) values (?,?,1,'2026-09-01')",
+        day,
+        trip);
+    jdbc.execute("set local role service_role");
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    """
+                    insert into public.schedule_revision_runs
+                      (owner_user_id,trip_plan_id,base_schedule_version_id,target_trip_day_id,
+                       contract_version,algorithm_version,idempotency_key,request_hash)
+                    values (?,?,?,?, 'fixture','fixture',?,repeat('d',64))
+                    """,
+                    owner,
+                    trip,
+                    version,
+                    day,
+                    UUID.randomUUID()))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining("independent hash provenance required")
+        .hasMessageNotContaining("d".repeat(64))
+        .hasMessageNotContaining("Failing row");
   }
 
   @Test
@@ -618,7 +674,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   @Test
-  void 유효한_input이_있어도_다른_command_hash의_MCP_log는_거부한다() {
+  void 유효한_input이_있어도_독립_MCP_hash_provenance가_없으면_먼저_거부한다() {
     UUID run = createComputeParent();
     String hash = commandHash(null);
     jdbc.update("update public.compute_runs set input_hash=? where id=?", hash, run);
@@ -627,7 +683,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     jdbc.execute("set local role service_role");
     assertThatThrownBy(() -> insertMcpLog(run, "c".repeat(64)))
         .isInstanceOf(DataIntegrityViolationException.class)
-        .hasMessageContaining("compute input lineage required")
+        .hasMessageContaining("independent hash provenance required")
         .hasMessageNotContaining(hash)
         .hasMessageNotContaining("c".repeat(64));
   }

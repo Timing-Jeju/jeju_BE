@@ -58,3 +58,15 @@ Supabase용 산출물은 `python3 scripts/location_cutover_group.py --supabase -
 로컬 검증 증거: revision verifier/그룹 rollback 4건, canonical fresh/upgrade fingerprint 2건, 합성 ledger PG16/17 2건, 이력 INSERT 실패/중간 statement timeout/연결 종료 6건, 위치 revision 정상 정리 2건은 각각 해당 개발 일지의 로그에 기록했다. 일부 시나리오는 같은 테스트의 확장 재실행이며 서로 다른 전체 테스트 개수로 합산하지 않는다. 잠금 timeout 추가와 동일 SHA 전체 품질 게이트는 별도 확인한다.
 
 최종 잠금 timeout을 포함한 interruption6건도 PG16/17에서 통과했다. 동일 SHA 전체 품질 게이트와 실제 staging 적용 조건은 여전히 별도 gate다.
+
+## 020 post-merge fail-closed 보정
+
+병합된 017·018은 immutable migration으로 유지한다. #242의 `20260918000019`/Docker `057` 예약 다음인 `20260918000020_location_provenance_fail_closed.sql`/`058`이 후속 보정을 소유한다. #242 파일은 이 변경에서 수정하지 않는다.
+
+020은 `current_position`, `currentPosition`, `position`, `point`, 단·복수 coordinate alias를 정규화해 인식하고, 두 numeric leaf로 이루어진 좌표 tuple을 중첩 깊이와 무관하게 위치 residue로 본다. 신규 JSON write guard와 기존 `user_location_residue_counts()`가 같은 helper를 사용한다. 따라서 legacy alias가 한 건이라도 있으면 020의 함수·trigger·revision 변경 전체가 rollback된다.
+
+현재 DB에는 독립 `schedule_revision_runs.request_hash`와 `mcp_compute_call_logs.mcp_input_hash`가 위치를 포함하지 않았음을 증명하는 typed provenance 계약이 없다. 020 이후 `service_role`은 두 테이블의 INSERT와 해당 hash identity UPDATE를 값 비반사 SQLSTATE 23514로 거부한다. 일반 command lineage는 허용 근거가 아니다. #224가 closed typed wire/request provenance를 별도 forward migration으로 제공하기 전까지 이 fail-closed 경계를 유지한다.
+
+`supabase/config.toml`의 `[db.migrations].enabled`는 false다. 그러므로 repository 기본 Supabase CLI `db reset`/`db push` 순차 경로는 schema를 변경하지 않으며, `scripts/supabase-smoke-test.sh`도 CLI 호출 전 exit 64로 명시적으로 거부한다. 017·018은 `db/local-postgres/location_cutover_supabase.sql`의 한 transaction에서만 실행하며, 성공한 최종 감사 뒤 CLI 호환 `(version,name,statements)` ledger 두 행을 같은 transaction에 기록한다. `statements`에는 개별 실행을 가장하지 않는 immutable source checksum marker를 저장한다.
+
+실제 Supabase 적용은 계속 금지한다. #242가 병합되어 019/057이 확정되고 PM이 승인한 뒤, 016 predecessor fingerprint 확인 → 017+018 group → 019 → 020 순서를 하나의 검증된 release 절차로 다시 확인해야 한다. provider/staging/live DB에는 이 개발 작업에서 적용하지 않는다.

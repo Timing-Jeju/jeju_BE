@@ -11,6 +11,13 @@ DB_CONTAINER=supabase_db_timing-jeju
 SPRING_DIR="$ROOT/services/spring-api"
 LOCAL_AUTH_FIXTURE_HELPER="$ROOT/db/local-postgres/supabase_smoke_fixture_helper.sql"
 LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=0
+
+# The CLI applies each file and records its ledger row sequentially. Since 017
+# and 018 are one privacy cutover, raw db reset/push is intentionally disabled.
+if grep -A4 '^\[db\.migrations\]$' supabase/config.toml | grep -q '^enabled = false$'; then
+  echo "검증된 017+018 단일 transaction runner 전에는 Supabase 순차 migration을 실행하지 않습니다." >&2
+  exit 64
+fi
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/timing-jeju-supabase-smoke.XXXXXX")
 
 cleanup() {
