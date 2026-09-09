@@ -6,7 +6,7 @@
 - Issue의 2026-09-08 추가 검토 댓글은 공개 좌표 EWKT hash를 허용하는 과거 판단이다. 최신 사용자 승인 정책은 Spring 서버의 현재·간접 위치 수신·저장과 coordinate-derived hash를 금지하므로, PM 지시로 이 후속 교정이 우선한다. 이 정책 차이를 숨기거나 과거 댓글을 최종 승인으로 사용하지 않는다. 원격 push·Issue 댓글·실제 Supabase 적용·배포는 하지 않았다.
 - 테스트 목록: 최종 함수의 정확한 7필드·좌표 부재; 각 trip/version/contract/kind/ID 및 endpoint 순서 민감성; 좌표와 owner/item/source/mode/departure/provider/operation 불변성; 독립 Java UTF-8 길이-prefix SHA-256; legacy 015/016 rehash; hash 외 행·ACL·trigger 보존; fresh/upgrade schema fingerprint; 실패 후 rollback 및 reapply; 축소 identity 중복 fail-closed; migration inventory.
 - RED: 운영 SQL 변경 전 `python3 -m unittest scripts.tests.test_planned_route_hash_policy.PlannedRouteHashPolicyTest.test_final_hash_uses_exactly_seven_public_identity_fields_without_coordinates -v`에서 1건 실패(exit 1). 핵심: `final route hash still retains coordinate-derived input`, 최종 함수에 `ST_AsEWKT(origin_location/destination_location)` 존재. registry 기대값 추가 후 관련 21건 중 7건이 055 mount/manifest/문서 미등록으로 실패했다.
-- GREEN: 신규 `20260918000017_planned_route_request_hash_policy.sql`은 015/016을 수정하지 않고 7필드 함수만 교체한다. `ACCESS EXCLUSIVE` lock·단일 transaction 안에서 named provenance guard만 잠시 중지하고 `request_hash`만 backfill한 뒤 복원한다. `CREATE OR REPLACE`로 함수 OID·owner·ACL을 유지하고 security invoker/empty search_path를 명시한다. FK/CHECK/UNIQUE/RLS/source-lineage를 해제하지 않는다.
+- GREEN: 신규 `20260918000019_planned_route_request_hash_policy.sql`은 015/016을 수정하지 않고 7필드 함수만 교체한다. `ACCESS EXCLUSIVE` lock·단일 transaction 안에서 named provenance guard만 잠시 중지하고 `request_hash`만 backfill한 뒤 복원한다. `CREATE OR REPLACE`로 함수 OID·owner·ACL을 유지하고 security invoker/empty search_path를 명시한다. FK/CHECK/UNIQUE/RLS/source-lineage를 해제하지 않는다.
 - 동일 trip/version/양끝 kind·ID이면서 다른 출발시각/항목/교통수단의 legacy 행은 새 identity에서 충돌할 수 있다. 기존 UNIQUE를 완화하거나 행·leg를 병합/삭제하지 않고, 원문 hash 없는 `23514` 감사 오류로 migration 전체를 rollback한다. 운영 적용 전 별도 중복 감사·결정이 필요하며 자동 복구는 이 변경 범위가 아니다.
 - `python3 -m unittest scripts.tests.test_planned_route_hash_policy scripts.tests.test_canonical_migration_order scripts.tests.test_push_notification_database -v`: 24건 PASS. 017 SHA-256 `a52ecfae11f9cc24fa47ca6a10061cf3c4dffc0ee4a493b797ac68af179effd2`, 016 dependency/init055, Compose 3개, Unix smoke·Java/static inventory·아키텍처 문서를 정렬했다. PowerShell은 기존 manifest 소비를 유지한다. 015/016 SHA는 불변이다.
 - PG16/17 dedicated migration 통합 테스트와 Spring 저장 경로의 정확한 digest assertion을 추가했다. #210의 공유 Docker 사용과 충돌하지 않도록 PM 승인 전 PostgreSQL 통합 테스트·전체 gate·Docker smoke는 대기한다. 현재 증거만으로 `READY_FOR_REVIEW`를 선언하지 않는다.
@@ -129,3 +129,15 @@
 - 강화 mutation85건 PASS(`/tmp/jeju-225-dead-lookup-green.log`,1m23s). 다음 architecture 검사에서 제거한 snapshot 조회의 place-null 문자열에 의존한 과거 source assertion 한 건이 실패했다. 실제 fallback이 사용하는 canonical anchor resolver 호출 및 해석 실패의 legIncomplete 검증으로 정렬했다. 이는 저장소 문자열 검사의 정정이며 canonical ID 검증을 약화하지 않는다.
 - 현재 source architecture/test 및 bootJar PASS. 선별 integration85 실행이 전체796 실행의 JaCoCo 파일을 교체했으므로 후속 coverage67%는 전체 범위의 재측정이 아니며 성공 증거로 쓰지 않는다 (`/tmp/jeju-225-canonical-source-coverage.log`). 공식 gate가 모든 execution data를 지우고 전체 suite에서 다시 수집한 수치만 최종 판정에 사용한다.
 - `/tmp/jeju-225-final-preflight-docker.log` exit0 PASS: 이미지/health, fresh·origin-develop·역사 upgrade fingerprint, 053 fail-closed rollback, 실제2세션 동시성, schema/음수무결성/PostGIS fixture 및 자원 정리. ACL 거부 계약의 예상 permission denied는 실패가 아니다. 최종 commit의 공식 전체 gate는 별도로 실행한다.
+
+## PR244 병합 후 PR241의 migration 번호 충돌 정리
+
+#223 PR244가 로컬 전체 gate·독립 공식 승인·원격 CI34334883987 SUCCESS 후 develop `73cb2b9310ecb2eba5a931459a78229cd06e7028`로 병합됐다. PR241 브랜치에서 최신 develop을 정상 merge하고9개 파일의 충돌을 해소했다. 이전 PR241의 전체 gate/CI는 이번 통합 변경의 성공 근거로 재사용하지 않는다.
+
+미적용 planned route hash policy 파일을019/init057로 이동하고 dependency를018로 맞췄다. SQL SHA256 `a52ecfae11f9cc24fa47ca6a10061cf3c4dffc0ee4a493b797ac68af179effd2`는 이전과 동일하며 #223의017/018 원문 checksum도 유지된다. Compose3개는055 원자 그룹 다음057 정책을 실행한다. Java legacy policy upgrade fixture도015/016 뒤 원자 그룹을 먼저 적용한다. 역사 #109 cleanup 동시성은016까지 실행하는 기존 범위를 유지하고 신규정책은 canonical fresh/upgrade 검증에 포함한다.
+
+선행 RED는 정책 파일/슬롯/의존성 기대019/057/018과 기존017/055/016의 불일치다. 통합 직후 정적 검증에서 아키텍처 범위055와 위치 그룹을 무조건 마지막에 붙이는 기대2건도 실패했다. 최종 슬롯057과 그룹 뒤 정책의 순서를 검증하도록 정렬한 뒤 대상25개가 통과했다(`/tmp/jeju-241-order-static-green.log`). 전체 Python·PostgreSQL16/17·새 commit의 전체 gate와 독립 승인은 별도로 수행한다. 실제 Supabase/운영 DB 적용·배포 및 FE UI 변경은 없다.
+
+전체 Python에서 같은 group 마지막 append 가정이 database_hardening의Compose3개 검사에서도 실패했다. 원래017 위치에 원자 그룹을 넣고018만 건너뛰도록 정렬한 뒤843개 중840 PASS/3 SKIP(59.515초)다(`/tmp/jeju-241-order-all-static-green.log`). 독립 리뷰의 Java containsSequence 지적은017/018을 명시해013–019 전체 연속 검증으로 보완했고 추가 source finding0이다. PostgreSQL 대상 테스트 및 새 commit 전체 gate는 아직 별도 진행 단계다.
+
+PostgreSQL 대상 실행은18분40초에 성공했다. hash policy upgrade4개와 canonical migration7개, 총11개 failures0/errors0/skipped0을 JUnit XML에서 확인했다(`/tmp/jeju-241-order-postgres.log`). 이후 최신 수정 소스를 다시 컴파일한 `spotlessJavaCheck architectureTest`도16초에 성공했다(`/tmp/jeju-241-order-architecture.log`). 새 merge commit을 기준으로 공식 전체 gate 및 원격 CI·독립 공식 승인을 수행하며, 이 대상 검증만으로 전체 완료를 선언하지 않는다.

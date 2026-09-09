@@ -1,13 +1,14 @@
 """Issue #225: the final schema hashes only the seven public planned identity fields."""
 
 import hashlib
+import json
 import re
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "supabase/migrations"
-TARGET = MIGRATIONS / "20260918000017_planned_route_request_hash_policy.sql"
+TARGET = MIGRATIONS / "20260918000019_planned_route_request_hash_policy.sql"
 FIELDS = [
     "route.anchor_contract_version",
     "route.trip_plan_id::text",
@@ -20,6 +21,15 @@ FIELDS = [
 
 
 class PlannedRouteHashPolicyTest(unittest.TestCase):
+    def test_hash_policy_follows_the_reserved_location_cutover_group(self):
+        """고정된 위치 정리 017·018 다음의 고유 번호와 실행 슬롯을 사용한다."""
+        manifest = json.loads((MIGRATIONS / "manifest.json").read_text())
+        policy = next(entry for entry in manifest["canonicalSuffix"]
+                      if entry["path"].endswith("_planned_route_request_hash_policy.sql"))
+        self.assertEqual("supabase/migrations/20260918000019_planned_route_request_hash_policy.sql", policy["path"])
+        self.assertEqual("057", policy["initSlot"])
+        self.assertEqual(["20260918000018_revision_request_hash_audit.sql"], policy["dependencies"])
+
     def test_final_hash_uses_exactly_seven_public_identity_fields_without_coordinates(self):
         definitions = []
         for path in sorted(MIGRATIONS.glob("*.sql")):

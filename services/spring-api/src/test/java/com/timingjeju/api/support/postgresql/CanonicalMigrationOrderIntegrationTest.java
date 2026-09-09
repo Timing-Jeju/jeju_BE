@@ -24,7 +24,7 @@ class CanonicalMigrationOrderIntegrationTest {
       "20260918000009_jeju_timetable_route_scope.sql";
   private static final List<String> POSTGIS_IMAGES =
       List.of("postgis/postgis:16-3.4", "postgis/postgis:17-3.5");
-  private static final List<String> CANONICAL_SUFFIX =
+  private static final List<String> CANONICAL_EXECUTION_SUFFIX =
       List.of(
           FIRST_SUFFIX,
           "20260918000001_trip_preferences_owner_read_helper.sql",
@@ -43,7 +43,8 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000014_planned_anchor_resolver.sql",
           "20260918000015_planned_route_snapshot_provenance.sql",
           "20260918000016_planned_route_reference_integrity.sql",
-          "20260918000017_planned_route_request_hash_policy.sql");
+          "20260918000017_location_cutover_group.sql",
+          "20260918000019_planned_route_request_hash_policy.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -124,10 +125,28 @@ class CanonicalMigrationOrderIntegrationTest {
             container, migrationPath(TIMETABLE_ROUTE_SCOPE));
         PostgreSqlTestContainerFactory.executeScript(
             container, repositoryPath("db/local-postgres/seed_fixtures.sql"));
-        for (String migration : CANONICAL_SUFFIX.subList(10, CANONICAL_SUFFIX.size())) {
+        JdbcTemplate jdbc = jdbc(container);
+        // 이 테스트는 정상 일정의 schema upgrade를 검증한다. 원문 없는 역사 MCP audit의
+        // 전환 거부는 LocationDataPurgeMigrationIntegrationTest에서 별도로 검증한다.
+        assertThat(
+                jdbc.update(
+                    """
+                    delete from public.mcp_compute_call_logs where id in (
+                      '67000000-0000-0000-0000-000000000001',
+                      '67000000-0000-0000-0000-000000000002',
+                      '67000000-0000-0000-0000-000000000003')
+                    """))
+            .isEqualTo(3);
+        for (String migration :
+            CANONICAL_EXECUTION_SUFFIX.subList(10, CANONICAL_EXECUTION_SUFFIX.size())) {
           PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
         }
-        JdbcTemplate jdbc = jdbc(container);
+        assertThat(
+                jdbc.queryForObject(
+                    "select sum(residue_count) from"
+                        + " timing_jeju_planner_private.user_location_residue_counts()",
+                    Long.class))
+            .isZero();
         var mutation =
             container.execInContainer(
                 "psql",
@@ -139,13 +158,17 @@ class CanonicalMigrationOrderIntegrationTest {
                 "--dbname",
                 container.getDatabaseName(),
                 "--command",
-                "set session_replication_role=replica; update public.trip_items set item_type='custom', place_id=null, title='메모 일정', facts='{}'::jsonb where id='61200000-0000-0000-0000-000000000006'; set session_replication_role=origin;");
+                "set session_replication_role=replica; update public.trip_items set"
+                    + " item_type='custom', place_id=null, title='메모 일정', facts='{}'::jsonb where"
+                    + " id='61200000-0000-0000-0000-000000000006'; set"
+                    + " session_replication_role=origin;");
         assertThat(mutation.getExitCode()).as(mutation.getStderr()).isZero();
 
         assertThatCode(
                 () ->
                     jdbc.execute(
-                        "select public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
+                        "select"
+                            + " public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
             .as(image)
             .doesNotThrowAnyException();
         var invalidMutation =
@@ -159,12 +182,17 @@ class CanonicalMigrationOrderIntegrationTest {
                 "--dbname",
                 container.getDatabaseName(),
                 "--command",
-                "alter table public.trip_items drop constraint chk_trip_items_required_references; set session_replication_role=replica; update public.trip_items set title=E'\\n' where id='61200000-0000-0000-0000-000000000006'; set session_replication_role=origin;");
+                "alter table public.trip_items drop constraint chk_trip_items_required_references;"
+                    + " set session_replication_role=replica; update public.trip_items set"
+                    + " title=E'\\n"
+                    + "' where id='61200000-0000-0000-0000-000000000006'; set"
+                    + " session_replication_role=origin;");
         assertThat(invalidMutation.getExitCode()).as(invalidMutation.getStderr()).isZero();
         assertThatThrownBy(
                 () ->
                     jdbc.execute(
-                        "select public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
+                        "select"
+                            + " public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
             .as(image)
             .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
             .hasMessageContaining("required reference invariants");
@@ -321,7 +349,7 @@ class CanonicalMigrationOrderIntegrationTest {
   }
 
   private static void applyCanonicalSuffix(PostgreSQLContainer container) throws Exception {
-    for (String migration : CANONICAL_SUFFIX) {
+    for (String migration : CANONICAL_EXECUTION_SUFFIX) {
       PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
     }
   }
@@ -332,7 +360,8 @@ class CanonicalMigrationOrderIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(container, migrationPath(SCHEDULE_50));
       PostgreSqlTestContainerFactory.executeScript(container, migrationPath(SCHEDULE_51));
-      for (String migration : CANONICAL_SUFFIX.subList(9, CANONICAL_SUFFIX.size())) {
+      for (String migration :
+          CANONICAL_EXECUTION_SUFFIX.subList(9, CANONICAL_EXECUTION_SUFFIX.size())) {
         PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
       }
       return schemaAndAclFingerprint(jdbc(container));
@@ -404,6 +433,9 @@ class CanonicalMigrationOrderIntegrationTest {
   }
 
   private static Path migrationPath(String name) {
+    if (name.equals("20260918000017_location_cutover_group.sql")) {
+      return repositoryPath("db/local-postgres/" + name);
+    }
     return repositoryPath("supabase/migrations/" + name);
   }
 

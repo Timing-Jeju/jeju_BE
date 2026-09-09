@@ -769,9 +769,9 @@ insert into trip_execution_events (
   '61000000-0000-0000-0000-000000000002',
   '62000000-0000-0000-0000-000000000001',
   'arrived', 'demo-arrive-seongsan-001',
-  st_setsrid(st_makepoint(126.9415, 33.4581), 4326)::geography,
+  null,
   current_date + time '11:20',
-  '{"source":"mobile","accuracyMeters":18}'::jsonb
+  '{"source":"mobile"}'::jsonb
 );
 
 insert into itinerary_generation_runs (
@@ -784,7 +784,7 @@ insert into itinerary_generation_runs (
   '51000000-0000-0000-0000-000000000001',
   '60000000-0000-0000-0000-000000000001',
   'structured', 'succeeded',
-  '{"dayNo":1,"preferredCategories":["tourist_attraction"],"transportModes":["public_transit","taxi"]}'::jsonb,
+  '{"targetDayId":"51000000-0000-0000-0000-000000000001","candidateCount":1,"refreshExternalFacts":false}'::jsonb,
   'itinerary-generation.v1', 'scheduler-2026-07', 'fixture-model',
   'demo-generate-day-1', '09000000-0000-0000-0000-000000000001',
   now() - interval '3 seconds', now()
@@ -811,7 +811,9 @@ insert into compute_runs (
   '50000000-0000-0000-0000-000000000001',
   '51000000-0000-0000-0000-000000000001',
   '60000000-0000-0000-0000-000000000001',
-  'feasibility', 'succeeded', 'fixture-feasibility-v1',
+   'feasibility', 'succeeded',
+  public.compute_command_input_hash('feasibility'::text,1::smallint,'feasibility.v1'::text,'risk-engine-2026-07'::text,
+    '60000000-0000-0000-0000-000000000001'::uuid,'{"refreshExternalFacts":false}'::jsonb,false::boolean,null::jsonb),
   'feasibility.v1', 'risk-engine-2026-07', now(), 'fixture-v1.1', 'computed',
   '{"overallStatus":"caution","score":81}'::jsonb,
   now() - interval '2 seconds', now()
@@ -821,7 +823,10 @@ insert into compute_runs (
   '50000000-0000-0000-0000-000000000001',
   '51000000-0000-0000-0000-000000000001',
   '60000000-0000-0000-0000-000000000001',
-  'recovery', 'succeeded', 'fixture-recovery-v1',
+   'recovery', 'succeeded',
+  public.compute_command_input_hash('recovery'::text,1::smallint,'recovery.v1'::text,'recovery-engine-2026-07'::text,
+    '60000000-0000-0000-0000-000000000001'::uuid,
+    '{"riskEventId":"63100000-0000-0000-0000-000000000001","optionCount":1}'::jsonb,false::boolean,null::jsonb),
   'recovery.v1', 'recovery-engine-2026-07', now(), 'fixture-v1.1', 'computed',
   '{"optionCount":1,"bestScore":90}'::jsonb,
   now() - interval '2 seconds', now()
@@ -922,12 +927,36 @@ insert into live_state_snapshots (
   '62000000-0000-0000-0000-000000000002',
   '63000000-0000-0000-0000-000000000001',
   'yellow',
-  st_setsrid(st_makepoint(126.9415, 33.4581), 4326)::geography,
-  '20000000-0000-0000-0000-000000000002',
-  '12:38까지 정류장으로 출발하세요.',
-  '{"leaveByTime":"12:38","busWaitMinutes":22}'::jsonb
+  null, null, null, '{}'::jsonb
 );
 
+-- Normal current fixtures have the same closed command lineage as application writes.
+-- Historical location fixtures remain in their separate upgrade-only scripts.
+insert into compute_run_inputs
+  (compute_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,schema_version,
+   contract_version,algorithm_version,structured_input,command_input_hash,location_supplied)
+select run.id,trip.user_id,run.trip_plan_id,run.schedule_version_id,run.run_type,1,
+       run.contract_version,run.algorithm_version,
+       case run.run_type when 'feasibility' then '{"refreshExternalFacts":false}'::jsonb
+         else '{"riskEventId":"63100000-0000-0000-0000-000000000001","optionCount":1}'::jsonb end,
+       run.input_hash,false
+from compute_runs run join trip_plans trip on trip.id=run.trip_plan_id
+where run.id in ('63000000-0000-0000-0000-000000000001','63000000-0000-0000-0000-000000000002');
+
+insert into compute_run_inputs
+  (generation_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,schema_version,
+   contract_version,algorithm_version,structured_input,command_input_hash,location_supplied)
+select id,requested_by_user_id,trip_plan_id,base_schedule_version_id,'itinerary_generation',1,
+       contract_version,algorithm_version,structured_input,
+       public.compute_command_input_hash('itinerary_generation'::text,1::smallint,contract_version::text,
+         algorithm_version::text,base_schedule_version_id::uuid,structured_input::jsonb,false::boolean,null::jsonb),false
+from itinerary_generation_runs where id='64000000-0000-0000-0000-000000000001';
+
+-- Historical pre-cutover audit fixtures only. Opaque MCP wire hashes cannot prove
+-- location-free arguments and must not populate a zero-residue current database.
+do $$
+begin
+  if to_regprocedure('timing_jeju_planner_private.user_location_guard_purge_revision()') is null then
 insert into mcp_compute_call_logs (
   id, compute_run_id, generation_run_id,
   request_id, tool_name, status, contract_version,
@@ -939,7 +968,7 @@ insert into mcp_compute_call_logs (
   null, '64000000-0000-0000-0000-000000000001',
   'req-generate-day-001', 'recommend_jeju_day_trips', 'succeeded',
   '0.7.0',
-  repeat('1', 64), repeat('2', 64), repeat('3', 64),
+  (select command_input_hash from compute_run_inputs where generation_run_id='64000000-0000-0000-0000-000000000001'), repeat('2', 64), repeat('3', 64),
   12, 48, 1, 1320
 ),
 (
@@ -947,7 +976,7 @@ insert into mcp_compute_call_logs (
   '63000000-0000-0000-0000-000000000001', null,
   'req-feasibility-001', 'evaluate_jeju_day_trip', 'succeeded',
   '0.7.0',
-  repeat('4', 64), repeat('5', 64), repeat('6', 64),
+  (select command_input_hash from compute_run_inputs where compute_run_id='63000000-0000-0000-0000-000000000001'), repeat('5', 64), repeat('6', 64),
   48, 9, 1, 86
 ),
 (
@@ -955,9 +984,12 @@ insert into mcp_compute_call_logs (
   '63000000-0000-0000-0000-000000000002', null,
   'req-recovery-001', 'revalidate_jeju_day_trip', 'succeeded',
   '0.7.0',
-  repeat('7', 64), repeat('8', 64), repeat('9', 64),
+  (select command_input_hash from compute_run_inputs where compute_run_id='63000000-0000-0000-0000-000000000002'), repeat('8', 64), repeat('9', 64),
   31, 14, 1, 114
 );
+  end if;
+end;
+$$;
 
 update trip_schedule_versions
 set

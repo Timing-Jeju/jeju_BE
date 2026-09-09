@@ -60,7 +60,9 @@
     {"path":"supabase/migrations/20260918000014_planned_anchor_resolver.sql","initSlot":"052","owner":{"issue":225,"pullRequest":null},"sha256":"d23fc7ada5d97648ef06c1cd8b86c007f015706fe81008edd3ae60a1492008ab","dependencies":["20260918000013_schedule_item_closed_facts.sql"]},
     {"path":"supabase/migrations/20260918000015_planned_route_snapshot_provenance.sql","initSlot":"053","owner":{"issue":225,"pullRequest":null},"sha256":"205737aca9a9b70408a1e2e12115dd95c00d36791998eef71091c7445d33130c","dependencies":["20260918000014_planned_anchor_resolver.sql"]},
     {"path":"supabase/migrations/20260918000016_planned_route_reference_integrity.sql","initSlot":"054","owner":{"issue":225,"pullRequest":null},"sha256":"fc08d48553dc6edc05f30ac0789e5c5c618d46024ff8f8359487bf899f34d233","dependencies":["20260918000015_planned_route_snapshot_provenance.sql"]},
-    {"path":"supabase/migrations/20260918000017_planned_route_request_hash_policy.sql","initSlot":"055","owner":{"issue":225,"pullRequest":null},"sha256":"a52ecfae11f9cc24fa47ca6a10061cf3c4dffc0ee4a493b797ac68af179effd2","dependencies":["20260918000016_planned_route_reference_integrity.sql"]}
+    {"path":"supabase/migrations/20260918000017_user_location_write_guard_purge.sql","initSlot":"055","owner":{"issue":223,"pullRequest":null},"sha256":"3f1cb04a7a6f0b5577229eb4f9efc9a3e064b203e7423d3712b217bafa8fccbe","dependencies":["20260918000016_planned_route_reference_integrity.sql"]},
+    {"path":"supabase/migrations/20260918000018_revision_request_hash_audit.sql","initSlot":"056","owner":{"issue":223,"pullRequest":null},"sha256":"5bdd91f35b45a7bec2490a5e4c19597f7a2eab521da9889ff89599c887acdd33","dependencies":["20260918000017_user_location_write_guard_purge.sql"]},
+    {"path":"supabase/migrations/20260918000019_planned_route_request_hash_policy.sql","initSlot":"057","owner":{"issue":225,"pullRequest":null},"sha256":"a52ecfae11f9cc24fa47ca6a10061cf3c4dffc0ee4a493b797ac68af179effd2","dependencies":["20260918000018_revision_request_hash_audit.sql"]}
   ],
   "seedInitSlot": "099"
 }

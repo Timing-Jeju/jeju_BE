@@ -19,7 +19,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class PlannedRouteHashPolicyMigrationIntegrationTest {
   private static final String LEGACY = "20260918000015_planned_route_snapshot_provenance.sql";
   private static final String REFERENCES = "20260918000016_planned_route_reference_integrity.sql";
-  private static final String TARGET = "20260918000017_planned_route_request_hash_policy.sql";
+  private static final String TARGET = "20260918000019_planned_route_request_hash_policy.sql";
   private static final String HASH_FUNCTION =
       "timing_jeju_planner_private.planned_route_request_hash(public.mobility_route_snapshots)";
   private static final String ROUTES = "public.mobility_route_snapshots";
@@ -40,7 +40,8 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
       assertThat(
               hashWith(
                   jdbc,
-                  "jsonb_build_object('origin_location',ST_GeogFromText('SRID=4326;POINT(126.6 33.6)'))"))
+                  "jsonb_build_object('origin_location',ST_GeogFromText('SRID=4326;POINT(126.6"
+                      + " 33.6)'))"))
           .isNotEqualTo(oldHash);
 
       // Force a failure after the guarded UPDATE: neither new hash, function nor trigger state
@@ -100,7 +101,8 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
                   .queryForObject(
                       "select count(*) from "
                           + ROUTES
-                          + " snapshot where request_hash <> timing_jeju_planner_private.planned_route_request_hash(snapshot)",
+                          + " snapshot where request_hash <>"
+                          + " timing_jeju_planner_private.planned_route_request_hash(snapshot)",
                       Integer.class))
           .isZero();
       assertThat(jdbc(fresh).queryForObject("select count(*) from " + ROUTES, Integer.class))
@@ -168,7 +170,8 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
     for (String overrides :
         List.of(
             "jsonb_build_object('origin_location',ST_GeogFromText('SRID=4326;POINT(126.6 33.6)'))",
-            "jsonb_build_object('destination_location',ST_GeogFromText('SRID=4326;POINT(126.7 33.7)'))",
+            "jsonb_build_object('destination_location',ST_GeogFromText('SRID=4326;POINT(126.7"
+                + " 33.7)'))",
             "'{\"transport_mode\":\"taxi\",\"departure_at\":\"2026-09-01T02:00:00Z\",\"source_provider\":\"other\",\"source_operation\":\"other\"}'::jsonb")) {
       assertThat(hashWith(jdbc, overrides)).isEqualTo(expected);
     }
@@ -198,25 +201,30 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
     // Public source movement does not enter the identity function; the separate sealing guard still
     // rejects stale cache geometry.
     jdbc.update(
-        "update public.tour_places set location=ST_GeogFromText('SRID=4326;POINT(126.8 33.8)') where id=(select origin_anchor_id from "
+        "update public.tour_places set location=ST_GeogFromText('SRID=4326;POINT(126.8 33.8)')"
+            + " where id=(select origin_anchor_id from "
             + ROUTES
             + ")");
     assertThat(
             hashWith(
                 jdbc,
-                "jsonb_build_object('origin_location',(select location from public.tour_places where id=snapshot.origin_anchor_id))"))
+                "jsonb_build_object('origin_location',(select location from public.tour_places"
+                    + " where id=snapshot.origin_anchor_id))"))
         .isEqualTo(expected);
     assertThatThrownBy(
             () ->
                 jdbc.execute(
-                    "select public.assert_schedule_version_sealable(schedule_version_id,trip_plan_id) from "
+                    "select"
+                        + " public.assert_schedule_version_sealable(schedule_version_id,trip_plan_id)"
+                        + " from "
                         + ROUTES))
         .hasMessageContaining("planned route anchor lineage does not match");
   }
 
   private static String hashWith(JdbcTemplate jdbc, String overrides) {
     return jdbc.queryForObject(
-        "select timing_jeju_planner_private.planned_route_request_hash(jsonb_populate_record(snapshot,"
+        "select"
+            + " timing_jeju_planner_private.planned_route_request_hash(jsonb_populate_record(snapshot,"
             + overrides
             + ")) from "
             + ROUTES
@@ -228,10 +236,10 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
     var components =
         jdbc.queryForObject(
             """
-        select anchor_contract_version,trip_plan_id,schedule_version_id,origin_anchor_kind,
-               origin_anchor_id,destination_anchor_kind,destination_anchor_id
-        from public.mobility_route_snapshots
-        """,
+            select anchor_contract_version,trip_plan_id,schedule_version_id,origin_anchor_kind,
+                   origin_anchor_id,destination_anchor_kind,destination_anchor_id
+            from public.mobility_route_snapshots
+            """,
             (rs, index) -> {
               var values = new java.util.ArrayList<String>();
               for (int column = 1; column <= 7; column++) values.add(rs.getString(column));
@@ -256,6 +264,10 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
               .resolve("db/local-postgres/legacy_planned_route_provenance_fixture.sql"));
       PostgreSqlTestContainerFactory.executeScript(container, path(LEGACY));
       PostgreSqlTestContainerFactory.executeScript(container, path(REFERENCES));
+      PostgreSqlTestContainerFactory.executeScript(
+          container,
+          PostgreSqlTestContainerFactory.locateRepositoryRoot()
+              .resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
       return container;
     } catch (Exception failure) {
       container.stop();

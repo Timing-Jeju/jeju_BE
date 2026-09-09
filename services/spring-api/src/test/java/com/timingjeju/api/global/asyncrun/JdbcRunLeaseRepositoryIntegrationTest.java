@@ -32,6 +32,7 @@ import org.springframework.test.context.ActiveProfiles;
 class JdbcRunLeaseRepositoryIntegrationTest {
 
   private static final Instant NOW = Instant.parse("2026-08-03T00:00:00Z");
+  private static final UUID OWNER_ID = UUID.fromString("74000000-0000-0000-0000-000000000009");
   private static final UUID SESSION_ID = UUID.fromString("74000000-0000-0000-0000-000000000010");
   private static final UUID PLAN_ID = UUID.fromString("74000000-0000-0000-0000-000000000020");
   private static final UUID DAY_ID = UUID.fromString("74000000-0000-0000-0000-000000000030");
@@ -39,9 +40,16 @@ class JdbcRunLeaseRepositoryIntegrationTest {
 
   @Autowired private JdbcRunLeaseRepository repository;
   @Autowired private JdbcTemplate jdbcTemplate;
+  @Autowired private org.springframework.transaction.PlatformTransactionManager transactionManager;
 
   @BeforeEach
   void setUp() {
+    jdbcTemplate.update(
+        "insert into auth.users(id,email) values (?,?)", OWNER_ID, "async-run@issue223.test");
+    jdbcTemplate.update(
+        "insert into public.user_profiles(id,email) values (?,?)",
+        OWNER_ID,
+        "async-run@issue223.test");
     jdbcTemplate.update(
         "insert into public.app_sessions (id, public_token) values (?, ?)",
         SESSION_ID,
@@ -49,11 +57,12 @@ class JdbcRunLeaseRepositoryIntegrationTest {
     jdbcTemplate.update(
         """
         insert into public.trip_plans (
-          id, session_id, public_token, start_date, end_date, source_mode, data_version
-        ) values (?, ?, ?, '2026-08-03', '2026-08-03', 'fixture', 'async-run-v1')
+          id, session_id, user_id, public_token, start_date, end_date, source_mode, data_version
+        ) values (?, ?, ?, ?, '2026-08-03', '2026-08-03', 'fixture', 'async-run-v1')
         """,
         PLAN_ID,
         SESSION_ID,
+        OWNER_ID,
         "async-run-plan");
     jdbcTemplate.update(
         "insert into public.trip_days (id, trip_plan_id, day_no, trip_date) values (?, ?, 1, '2026-08-03')",
@@ -73,6 +82,8 @@ class JdbcRunLeaseRepositoryIntegrationTest {
   void cleanUp() {
     jdbcTemplate.update("delete from public.trip_plans where id = ?", PLAN_ID);
     jdbcTemplate.update("delete from public.app_sessions where id = ?", SESSION_ID);
+    jdbcTemplate.update("delete from public.user_profiles where id = ?", OWNER_ID);
+    jdbcTemplate.update("delete from auth.users where id = ?", OWNER_ID);
   }
 
   @Test
@@ -280,23 +291,49 @@ class JdbcRunLeaseRepositoryIntegrationTest {
     UUID runId =
         UUID.nameUUIDFromBytes(
             ("issue-74-" + suffix).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-    jdbcTemplate.update(
-        """
-        insert into public.compute_runs (
-          id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
-          input_hash, contract_version, algorithm_version, facts_snapshot_at, source_data_version,
-          created_at, next_attempt_at
-        ) values (
-          ?, ?, ?, ?, 'feasibility', 'queued', ?, 'contract-v1', 'algorithm-v1', null, null, ?, ?
-        )
+    String algorithm = "algorithm-v1-" + suffix;
+    String hash =
+        jdbcTemplate.queryForObject(
+            """
+        select public.compute_command_input_hash('feasibility'::text,1::smallint,'contract-v1'::text,?::text,?::uuid,'{"refreshExternalFacts":false}'::jsonb,false::boolean,null::jsonb)
         """,
-        runId,
-        PLAN_ID,
-        DAY_ID,
-        VERSION_ID,
-        "hash-" + suffix,
-        Timestamp.from(NOW),
-        Timestamp.from(NOW));
+            String.class,
+            algorithm,
+            VERSION_ID);
+    new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+        .executeWithoutResult(
+            transaction -> {
+              jdbcTemplate.update(
+                  """
+              insert into public.compute_runs (
+                id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+                input_hash, contract_version, algorithm_version, facts_snapshot_at, source_data_version,
+                created_at, next_attempt_at
+              ) values (?, ?, ?, ?, 'feasibility', 'queued', ?, 'contract-v1', ?, null, null, ?, ?)
+              """,
+                  runId,
+                  PLAN_ID,
+                  DAY_ID,
+                  VERSION_ID,
+                  hash,
+                  algorithm,
+                  Timestamp.from(NOW),
+                  Timestamp.from(NOW));
+              jdbcTemplate.update(
+                  """
+              insert into public.compute_run_inputs
+                (compute_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,
+                 schema_version,contract_version,algorithm_version,structured_input,command_input_hash,
+                 location_supplied)
+              values (?,?,?,?,'feasibility',1,'contract-v1',?,'{"refreshExternalFacts":false}'::jsonb,?,false)
+              """,
+                  runId,
+                  OWNER_ID,
+                  PLAN_ID,
+                  VERSION_ID,
+                  algorithm,
+                  hash);
+            });
     return runId;
   }
 
