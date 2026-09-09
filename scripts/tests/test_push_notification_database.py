@@ -67,6 +67,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000014_planned_anchor_resolver.sql",
             "20260918000015_planned_route_snapshot_provenance.sql",
             "20260918000016_planned_route_reference_integrity.sql",
+            "20260918000017_rls_auto_enable_execute_boundary.sql",
         )
         migration_names = tuple(
             path.name
@@ -177,6 +178,10 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql",
             ),
             (
+                "./supabase/migrations/20260918000017_rls_auto_enable_execute_boundary.sql",
+                "/docker-entrypoint-initdb.d/055_rls_auto_enable_execute_boundary.sql",
+            ),
+            (
                 "./db/local-postgres/seed_fixtures.sql",
                 "/docker-entrypoint-initdb.d/099_seed_fixtures.sql",
             ),
@@ -199,7 +204,12 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 3
                 if target.endswith("046_schedule_item_required_references_correction.sql")
                 else 1
-                if target.endswith("054_planned_route_reference_integrity.sql")
+                if target.endswith(
+                    (
+                        "054_planned_route_reference_integrity.sql",
+                        "055_rls_auto_enable_execute_boundary.sql",
+                    )
+                )
                 else 2
             )
             self.assertEqual(expected_count, docker_smoke.count(target), target)
@@ -209,7 +219,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         ):
             with self.subTest(next_contract=next_contract):
                 # The historical database must abort 053 in a separate audited transaction.
-                targets = migration_targets[:-2] if next_contract.endswith("legacy_v1_upgrade_contract.sql") else migration_targets
+                targets = migration_targets[:-3] if next_contract.endswith("legacy_v1_upgrade_contract.sql") else migration_targets
                 exact_sequence = " \\\n  ".join((*targets, next_contract))
                 self.assertEqual(
                     1,

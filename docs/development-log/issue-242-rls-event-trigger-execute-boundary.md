@@ -82,3 +82,18 @@ UPDATE/DELETE 거부, anon INSERT/SELECT 거부를 실행한다. Runbook은 Revi
 `CanonicalMigrationOrderIntegrationTest`와 `ProfileImageStoragePolicyMigrationIntegrationTest`의
 PG16/PG17 실행은 15분 14초에 성공했고 Testcontainers session의 container/network/volume은 모두
 0으로 정리됐다. live Supabase는 적용하지 않았다.
+
+## 공식 gate의 develop 의존성과 055 expectation 보정
+
+정확한 HEAD `64e31a14dbae1dea0cf7165d2817489f7cfa1a19`에서 공식 quality gate를
+1회 실행했다. 저장소 자동화 Python 단계에서 830건 중 8건이 실패해 Docker 단계 전 종료됐다.
+이 중 2건은 신규 055를 반영하지 않은 migration chronology와 Docker init ordering expectation이었다.
+공식 실패를 Red로 삼아 expected migration tuple, compose mount order, smoke concurrency sequence를
+055까지 확장했고 targeted 2건과 관련 보안 Python 31건이 Green으로 돌아왔다.
+
+나머지 6건은 `test_openapi_integration_once.py`의 fake root/worker 종료 테스트가 기대한
+0·124·125 대신 모두 129를 반환한 동일 watchdog 경계 실패다. Open PR #240의 head
+`fix/235-linux-ci-watchdog-collector-drain-race`에는 이 파일의 후속 보정 commit
+`3dc4f3618a62722050beeb06eb3725778d5325e3`이 있으나 현재 `develop`에는 포함되지 않았다.
+#242 범위에서는 OpenAPI harness/watchdog 파일을 수정하지 않고 #240 merge 뒤 최신 develop 통합을
+기다린다. 따라서 이 시점의 공식 gate는 성공이 아니며 Docker smoke도 실행하지 않았다.
