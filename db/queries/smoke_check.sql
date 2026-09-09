@@ -463,7 +463,9 @@ begin
   blocked := false;
   begin
     update trip_execution_events
-    set metadata = '{"mutated":true}'::jsonb
+    -- Use a permitted closed projection so this exercises append-only protection,
+    -- not the earlier no-location metadata guard.
+    set metadata = '{"source":"time"}'::jsonb
     where id = '62500000-0000-0000-0000-000000000001';
   exception
     when raise_exception then
