@@ -55,3 +55,30 @@ preflight, transaction probe, 전체 public table RLS, profile-images 정책, fo
 rollback 원칙을 기록했다.
 
 전체 quality gate와 disposable Docker/PostgreSQL 17 replay 결과는 실행 후 이 기록에 추가한다.
+
+## Reviewer 보정과 actual PG16/17 재검증
+
+첫 actual focused 실행은 Docker fixture의 PL/pgSQL record 변수와 SQL qualifier가 충돌해
+`record "command" is not assigned yet`로 실패했다. 별도 `ddl_command` alias를 요구하는 정적
+테스트를 먼저 추가해 Red를 재현하고 fixture를 보정했다.
+
+Reviewer는 첫 Green 뒤 세 가지 검증 공백을 확인했다.
+
+1. 신규 canonical loop가 image 문자열을 순회하면서도 default `create()`만 호출해 PG17을 실제로
+   선택하지 않았다.
+2. profile-images PG16/17 테스트가 044만 적용해 045~055 전체 canonical replay 뒤의 정책을
+   검증하지 않았다.
+3. release runbook에 remote dry-run pending 목록과 manifest exact order 대조가 없었다.
+
+세 계약을 먼저 정적 테스트로 강화하자 정확히 3건이 실패했다. Green에서는 canonical loop를
+`createBefore(FIRST_SUFFIX, image)`와 전체 suffix replay로 바꾸고 각 컨테이너의
+`server_version_num` major를 16/17로 확인했다. Storage loop는 044 직전에 호환 schema를 만들고
+044부터 055까지 같은 DB에 적용한 뒤 public bucket, owner insert, wrong-owner/invalid-key 거부,
+UPDATE/DELETE 거부, anon INSERT/SELECT 거부를 실행한다. Runbook은 Reviewer 승인과 project ref
+재확인 뒤 `supabase db push --dry-run` pending 목록을 manifest exact ordered list와 대조하며 mismatch면
+실제 push를 중단하도록 보강했다.
+
+보정 후 focused Python 31건, Spotless, `compileTestJava`가 성공했다. 실제
+`CanonicalMigrationOrderIntegrationTest`와 `ProfileImageStoragePolicyMigrationIntegrationTest`의
+PG16/PG17 실행은 15분 14초에 성공했고 Testcontainers session의 container/network/volume은 모두
+0으로 정리됐다. live Supabase는 적용하지 않았다.

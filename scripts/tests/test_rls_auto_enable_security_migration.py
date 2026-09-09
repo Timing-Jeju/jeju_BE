@@ -12,6 +12,10 @@ MIGRATION_NAME = "20260918000017_rls_auto_enable_execute_boundary.sql"
 MIGRATION = ROOT / "supabase/migrations" / MIGRATION_NAME
 AUTH_COMPAT = ROOT / "db/local-postgres/auth_compat.sql"
 RELEASE_GUIDE = ROOT / "docs/SUPABASE_BOOTSTRAP_RELEASE.md"
+PROFILE_IMAGE_INTEGRATION = ROOT / (
+    "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/"
+    "ProfileImageStoragePolicyMigrationIntegrationTest.java"
+)
 MOUNT = (
     f"./supabase/migrations/{MIGRATION_NAME}:"
     "/docker-entrypoint-initdb.d/055_rls_auto_enable_execute_boundary.sql:ro"
@@ -75,6 +79,10 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
             ROOT
             / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/CanonicalMigrationOrderIntegrationTest.java"
         ).read_text(encoding="utf-8").lower()
+        method = source.split(
+            "void postgis_pg16과_pg17은_rlsautoenable_rpc권한을_회수하고_eventtrigger를_보존한다()",
+            1,
+        )[1].split("@test", 1)[0]
 
         for marker in (
             "has_function_privilege('anon','public.rls_auto_enable()','execute')",
@@ -82,8 +90,12 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
             "create table public.issue242_rls_probe",
             "relrowsecurity",
             "pg_event_trigger",
+            "postgresqltestcontainerfactory.createbefore(first_suffix, image)",
+            "applycanonicalsuffix(container)",
+            "show server_version_num",
+            "expectedmajor",
         ):
-            self.assertIn(marker, source)
+            self.assertIn(marker, method)
 
     def test_release_guide_requires_project_recheck_and_records_security_checks(self) -> None:
         guide = RELEASE_GUIDE.read_text(encoding="utf-8").lower()
@@ -99,8 +111,31 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
             "profile-images",
             "rollback",
             "reviewer 승인",
+            "supabase db push --dry-run",
+            "manifest exact ordered list",
+            "mismatch",
         ):
             self.assertIn(marker, guide)
+
+    def test_storage_pg16_pg17_applies_slot_044_through_055_before_actual_rls_matrix(self) -> None:
+        source = PROFILE_IMAGE_INTEGRATION.read_text(encoding="utf-8").lower()
+        method = source.split(
+            "void storage_do는_postgresql16과17에서_insertreturning_select와_불변정책을_보존한다()",
+            1,
+        )[1].split("private static", 1)[0]
+
+        for marker in (
+            'last = "20260918000017_rls_auto_enable_execute_boundary.sql"',
+            "applycanonicalthroughsecurityboundary(versioncontainer)",
+            "show server_version_num",
+            "expectedmajor",
+            "wrongownerkey",
+            "invalidkey",
+            "update storage.objects",
+            "delete from storage.objects",
+            '"anon"',
+        ):
+            self.assertIn(marker, source if marker.startswith("last =") else method)
 
     def test_manifest_registers_slot_055_sha_and_dependency(self) -> None:
         manifest = json.loads(

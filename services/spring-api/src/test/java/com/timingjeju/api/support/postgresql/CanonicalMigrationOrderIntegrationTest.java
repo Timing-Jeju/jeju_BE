@@ -115,11 +115,17 @@ class CanonicalMigrationOrderIntegrationTest {
   @Test
   void Postgis_PG16과_PG17은_rlsAutoEnable_RPC권한을_회수하고_eventTrigger를_보존한다() throws Exception {
     for (String image : POSTGIS_IMAGES) {
-      PostgreSQLContainer container = PostgreSqlTestContainerFactory.create();
+      int expectedMajor = image.contains(":16-") ? 16 : 17;
+      PostgreSQLContainer container =
+          PostgreSqlTestContainerFactory.createBefore(FIRST_SUFFIX, image);
       try {
         container.start();
+        applyCanonicalSuffix(container);
         JdbcTemplate jdbc = jdbc(container);
 
+        assertThat(jdbc.queryForObject("show server_version_num", Integer.class) / 10_000)
+            .as(image)
+            .isEqualTo(expectedMajor);
         assertThat(
                 jdbc.queryForObject(
                     "select has_function_privilege('anon','public.rls_auto_enable()','EXECUTE')",

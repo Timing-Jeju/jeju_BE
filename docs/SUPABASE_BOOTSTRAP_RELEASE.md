@@ -50,6 +50,12 @@ order by version;
 disposable PostgreSQL 17에서 auth compatibility → immutable prefix → canonical suffix → seed 순서의
 전체 replay 및 profile-images 실제 RLS 계약을 통과시킨 뒤에만 운영 변경을 예약한다.
 
+Reviewer 승인과 정확한 project ref 재확인 뒤에도 실제 적용 전에 `supabase db push --dry-run`만
+실행해 원격에 적용될 pending migration basename 목록을 저장한다. manifest exact ordered list는
+`(.immutablePrefix + .canonicalSuffix)[] | .path` 순서이며 dry-run pending 목록과 line-by-line으로
+대조한다. 마지막 항목은 055이고 seed는 목록에 없어야 한다. 경로, 순서, 개수 또는 원격 migration
+history가 하나라도 mismatch이면 즉시 중단하고 `supabase db push`를 실행하지 않는다.
+
 ## 적용 후 점검
 
 권한 회수와 event trigger 보존을 같은 세션에서 확인한다.
