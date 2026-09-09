@@ -275,3 +275,17 @@ zero verifier 초안은 `/tmp/jeju-223-residue-verifier.sql`이며, 이름/count
 
 - 최종 `/tmp/jeju-223-group-lock-interruption.log`: PG16/17 statement timeout·연결 종료·잠금 timeout 6건 PASS. `/tmp/jeju-223-group-final-static.log`:829건826PASS/3SKIP. 생성 SQL 두 종류의 `--check`와 diff 공백 검사 PASS.
 - 이 증거는 수정된 소스의 집중 검증이며, 커밋 후 같은 SHA pre-push 공식 전체 품질 게이트와 독립 리뷰를 별도로 수행한다. 실제 staging/provider/native는 여전히 SKIPPED다.
+
+## 2026-09-09 최종 fixture 및 Docker 정리 보강
+
+HEAD717fbb0의 공식 gate는 unit1351(실패0/skip9), slice56, integration926(실패0/skip4, 1h50m26s), OpenAPI11, architecture48과 coverage/build를 통과했다. Docker health·fingerprint·legacy audits·두 세션·schema·negative·최종 fixture도 통과했다. 앞서 금지된 metadata 키가 append-only 검사보다 먼저 거부되던 입력은 허용된 source 값 변경으로 수정했으며017/018은 불변이다.
+
+그러나 cleanup의 Docker 이미지 삭제 CLI가 5분 넘게 반환하지 않았다. 정확한 smoke 이미지 태그·container/network/volume project label 조회는 모두 성공/잔류0이었지만, 기존 gate의 성공 근거로 대체하지 않았다. 이번에 생성한 삭제 명령 PID51119/51120만 TERM으로 종료했다. gate는 cleanup 실패 및 push 실패로 종료했고 승인 기록은 생성하지 않았다.
+
+새 `docker_cleanup_command.py`는 기존 watchdog의 process incarnation/group guard를 재사용한다. Unix cleanup의 명령마다30초 제한과 자식 그룹 종료 검증을 적용하며 stdout 임시 파일은 RLIMIT_FSIZE로64KiB를 넘지 못한다. 실행 중 그룹 재검증으로 부모 선종료 이전에 자식을 추적한다. 124는 실제 timeout 후 소유 그룹 종료가 입증된 경우에만 반환하며 native exit124는 일반 실패로 구분한다. 조회 실패·출력 초과·소유권 불확실성은 성공으로 취급하지 않는다.
+
+shell cleanup의 모든 Docker 명령/조회가 제한된 실행기를 사용한다. 이미지 timeout은 container/network/volume/image 조회가 전부 성공·잔류0이고 다른 cleanup 실패가 없을 때에만 명시적 복구로 기록한다. 원래 본 작업 실패 코드는 항상 보존한다. Docker daemon이나 다른 프로젝트에 신호·prune을 수행하지 않는다. PowerShell의 기존 정리 경로는 이번 Unix CLI 응답 지연 보강 범위 밖이며 동등한 제한 시간이 구현됐다고 주장하지 않는다.
+
+TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 및 실행 중 출력 초과 처리 공백은 실제 RED2(자식 잔류, 초과 출력을124로 오인)로 확인한 뒤 수정했다. 신규 process/recovery 및 기존 isolation/layout 테스트 총39개 PASS(15.307s), shell 문법과 diff 검사 PASS. 실제 Docker focused 검증을 실행 중이며 최종 결과와 커밋 후 정규 전체 gate를 별도로 확인한다.
+
+최종 focused 결과: `/tmp/jeju-223-bounded-cleanup-docker.log`의 실제 Docker smoke가 exit0으로 완료됐다. 이미지 삭제 응답 timeout을 감지하여 소유 프로세스를 종료한 뒤 네 종류 자원의 조회 성공·잔류0을 확인한 복구 메시지가 기록됐다. health·fingerprint·legacy audits·동시성·schema·negative·fixture 모두 통과했다. `/tmp/jeju-223-cleanup-all-static.log`는839개 중836 PASS/3 SKIP(47.114s)이다. 독립 source 재리뷰 추가 finding0. 커밋 후 같은 SHA 전체 gate와 공식 승인은 아직 별도 필요하다.

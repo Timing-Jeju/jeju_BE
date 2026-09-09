@@ -26,8 +26,13 @@ HOURS_CONFLICT_LOG=$(mktemp -t timing-jeju-hours-conflict.XXXXXX)
 RESULT_DAY_CONFLICT_LOG=$(mktemp -t timing-jeju-result-day-conflict.XXXXXX)
 CONSISTENCY_CONFLICT_LOG=$(mktemp -t timing-jeju-consistency-conflict.XXXXXX)
 
+bounded_cleanup() {
+  python3 scripts/docker_cleanup_command.py "$@"
+}
+
 cleanup() {
   cleanup_status=0
+  image_timeout_recovered=0
   for database in \
     "$UPGRADE_DB" "$ORIGIN_DEVELOP_DB" "$HOURS_CONFLICT_DB" "$RESULT_DAY_CONFLICT_DB" \
     "$RECOMMENDATION_DAY_CONFLICT_DB" \
@@ -39,9 +44,9 @@ cleanup() {
     "$SOURCE_LINEAGE_CONFLICT_DB" "$OPTIONAL_LINEAGE_CONFLICT_DB" \
     "$CONCURRENCY_DB"
   do
-    docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+    bounded_cleanup docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
       dropdb --username timing_jeju_test --if-exists --force "$database" \
-      >/dev/null 2>&1 || true
+      >/dev/null 2>&1 || cleanup_status=1
   done
   if [ -f "$HOURS_CONFLICT_LOG" ]; then
     rm -f "$HOURS_CONFLICT_LOG"
@@ -52,25 +57,30 @@ cleanup() {
   if [ -f "$CONSISTENCY_CONFLICT_LOG" ]; then
     rm -f "$CONSISTENCY_CONFLICT_LOG"
   fi
-  if ! docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans \
+  if ! bounded_cleanup docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans \
     >/dev/null 2>&1; then
     echo "[Docker] smoke project 정리에 실패했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
 
-  if image_residue=$(docker image ls \
+  if image_residue=$(bounded_cleanup docker image ls \
     --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
-    if [ -n "$image_residue" ] \
-      && ! docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1; then
-      echo "[Docker] smoke API 이미지 정리에 실패했습니다: ${PROJECT}-api:latest" >&2
-      cleanup_status=1
+    if [ -n "$image_residue" ]; then
+      image_status=0
+      bounded_cleanup docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1 || image_status=$?
+      if [ "$image_status" -eq 124 ]; then
+        image_timeout_recovered=1
+      elif [ "$image_status" -ne 0 ]; then
+        echo "[Docker] smoke API 이미지 정리에 실패했습니다: ${PROJECT}-api:latest" >&2
+        cleanup_status=1
+      fi
     fi
   else
     echo "[Docker] smoke API 이미지 상태를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
 
-  if compose_residue=$(docker compose -p "$PROJECT" -f compose.test.yml ps -aq 2>/dev/null); then
+  if compose_residue=$(bounded_cleanup docker compose -p "$PROJECT" -f compose.test.yml ps -aq 2>/dev/null); then
     if [ -n "$compose_residue" ]; then
       echo "[Docker] smoke container residue가 남았습니다: $compose_residue" >&2
       cleanup_status=1
@@ -79,7 +89,7 @@ cleanup() {
     echo "[Docker] smoke container residue를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
-  if network_residue=$(docker network ls \
+  if network_residue=$(bounded_cleanup docker network ls \
     --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
     if [ -n "$network_residue" ]; then
       echo "[Docker] smoke network residue가 남았습니다: $network_residue" >&2
@@ -89,7 +99,7 @@ cleanup() {
     echo "[Docker] smoke network residue를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
-  if volume_residue=$(docker volume ls \
+  if volume_residue=$(bounded_cleanup docker volume ls \
     --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
     if [ -n "$volume_residue" ]; then
       echo "[Docker] smoke volume residue가 남았습니다: $volume_residue" >&2
@@ -99,7 +109,7 @@ cleanup() {
     echo "[Docker] smoke volume residue를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
-  if image_residue=$(docker image ls \
+  if image_residue=$(bounded_cleanup docker image ls \
     --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
     if [ -n "$image_residue" ]; then
       echo "[Docker] smoke API image residue가 남았습니다: ${PROJECT}-api:latest" >&2
@@ -110,6 +120,9 @@ cleanup() {
     cleanup_status=1
   fi
 
+  if [ "$cleanup_status" -eq 0 ] && [ "$image_timeout_recovered" -eq 1 ]; then
+    echo "[Docker] 이미지 삭제 응답 timeout 복구: 소유 프로세스 종료 및 모든 smoke 자원 잔류 0 확인"
+  fi
   return "$cleanup_status"
 }
 
