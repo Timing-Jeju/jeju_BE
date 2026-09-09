@@ -8,6 +8,7 @@ import com.timingjeju.api.application.trip.ReplaceTripPreferencesRecord;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripPreferencesMutation;
 import com.timingjeju.api.application.trip.TripTransportMode;
+import com.timingjeju.api.support.postgresql.LocationFreeComputeInputFixture;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -388,17 +389,23 @@ class JdbcTripPreferencesPostgreSqlIntegrationTest
                   version,
                   TRIP);
             });
-    jdbc.update(
-        "insert into"
-            + " public.compute_runs(id,trip_plan_id,schedule_version_id,run_type,status,input_hash,contract_version,algorithm_version,facts_snapshot_at,source_data_version,result_summary,result_source,started_at,completed_at)"
-            + " values"
-            + " (?,?,?,'feasibility','succeeded','issue46','v1','v1',?,'fixture','{\"score\":80}','computed',?,?)",
-        UUID.fromString("46000000-0000-0000-0000-000000000049"),
-        TRIP,
-        version,
-        Timestamp.from(INITIAL),
-        Timestamp.from(INITIAL),
-        Timestamp.from(INITIAL));
+    UUID run = UUID.fromString("46000000-0000-0000-0000-000000000049");
+    new TransactionTemplate(transactions)
+        .executeWithoutResult(
+            ignored -> {
+              jdbc.update(
+                  "insert into"
+                      + " public.compute_runs(id,trip_plan_id,schedule_version_id,run_type,status,input_hash,contract_version,algorithm_version,facts_snapshot_at,source_data_version,result_summary,result_source,started_at,completed_at)"
+                      + " values"
+                      + " (?,?,?,'feasibility','succeeded','issue46','v1','v1',?,'fixture','{\"score\":80}','computed',?,?)",
+                  run,
+                  TRIP,
+                  version,
+                  Timestamp.from(INITIAL),
+                  Timestamp.from(INITIAL),
+                  Timestamp.from(INITIAL));
+              LocationFreeComputeInputFixture.attachFeasibilityInput(jdbc, run);
+            });
     return version;
   }
 

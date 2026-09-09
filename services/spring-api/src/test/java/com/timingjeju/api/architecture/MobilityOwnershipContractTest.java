@@ -91,7 +91,7 @@ class MobilityOwnershipContractTest {
             "domain/weather/controller/WeatherForecastController.java");
     assertThat(mappingAnnotationCount()).isEqualTo(54);
     assertThat(migrationInventory())
-        .hasSize(52)
+        .hasSize(54)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -100,7 +100,7 @@ class MobilityOwnershipContractTest {
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260918000016_planned_route_reference_integrity.sql");
+        .isEqualTo("20260918000018_revision_request_hash_audit.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {
