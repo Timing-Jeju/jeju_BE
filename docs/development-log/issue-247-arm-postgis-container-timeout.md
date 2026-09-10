@@ -11,6 +11,7 @@
 - multi-context Red는 실제 profile binding에서 context 4개의 maximum pool이 `[10, 10, 10, 10]`, minimum idle이 `[-1, -1, -1, -1]`임을 재현했다. 즉 공유 물리 컨테이너가 아니라 cache에 유지된 Spring context별 기본 Hikari 예산이 연결 고갈 원인이다.
 - Reviewer 재검증은 peak 15/100에서 `JdbcIdempotencyRecordRepositoryIntegrationTest`의 blocker와 loser가 Hikari 2개를 점유한 뒤 main control/release가 세 번째 연결을 기다리는 교착을 찾았다. 예외 정리도 executor가 blocker보다 먼저 닫혀 waiter를 영구 대기했다. thread 증거는 `reviewer-247-9864db94-threads.json`이다.
 - connection-budget 선행-context Red는 다른 cached context 연결 1개를 유지하자 기존 session-wide `close=0` 단언이 실제 1로 실패해 테스트 순서 의존성을 재현했다.
+- 세 번째 Reviewer Red는 unrelated cached context를 두 개로 늘리자 own close 뒤 session 절대값 단언이 `expected 1, but was 2`로 실패해 남은 순서 의존성을 재현했다.
 
 ## Green 구현
 
@@ -23,7 +24,7 @@
 - 테스트 datasource의 Hikari는 context당 최대 2, minimum idle 0으로 제한했다. integration TestContext cache도 24로 제한해 cached-context 이론 상한은 48 connections이고, PostgreSQL 기본 100 connections 중 template/cleanup/direct migration을 위한 52 connections를 남긴다. 운영 datasource와 PostgreSQL `max_connections`는 변경하지 않았다.
 - `pg_stat_activity` 계측은 Spring context 4개가 동시에 연결 2개씩 점유할 때 peak 8, 모든 context close 직후 0을 확인하고 replacement context의 신규 쿼리 성공까지 검증한다.
 - idempotency 동시성 harness의 advisory-lock blocker는 Hikari 밖의 단일 direct control connection으로 명시해 loser와 main release가 Hikari 2개 예산 안에서 진행한다. 정상·중간실패 모두 `unlock → statement/control connection close → executor close` 순서를 보장한다. cached Hikari 48에 동시성 control 1을 더한 전체 테스트 상한은 49이며 운영 설정, timeout, 전역 Hikari 2 및 PostgreSQL `max_connections`는 유지한다.
-- connection 계측 API는 호출자가 소유한 정확한 case DB 이름 목록만 집계하는 값과 launcher session 전체 집계를 분리한다. 선행 cached context가 살아 있어도 own peak 8/close 0을 검증하고 session 전체 48 상한은 별도로 유지한다.
+- connection 계측 API는 호출자가 소유한 정확한 case DB 이름 목록만 집계하는 값과 launcher session 전체 집계를 분리한다. unrelated context 2개를 시작 baseline으로 캡처하고 own peak 8/close 0 뒤 baseline이 그대로 보존되는지 확인하며 session 전체 48 상한은 별도로 유지한다.
 - 기존 PG16/17 parameter matrix 70건, migration assertion, timeout/connection termination/lock rollback case는 제거하거나 skip하지 않았고 startup timeout도 늘리지 않았다.
 
 ## 검증 기록
@@ -33,7 +34,7 @@
 - `PostgreSqlSpringContextConnectionBudgetIntegrationTest`: Red 후 최종 Green 1건, XML 50.498초(Gradle 1분 7초). 실제 pooled PG16에서 context 4개 peak 8, close 후 0, replacement context 성공과 cache 24/Hikari 2·0 설정을 확인했다.
 - `PostgreSqlLauncherSessionPoolIntegrationTest`: 2건 성공, failures/errors/skipped 0, XML 46.959초(Gradle 1분 22초). PG17과 다른 prefix를 먼저 실행해도 PG16/17 실제 physical start가 각각 1회이며, 같은 prefix template identity 재사용, 다른 prefix 분리, case DB 격리를 확인했다. 각 테스트는 실행 순서와 무관하게 필요한 handle을 직접 열며 전역 절대 개수 대신 baseline delta와 identity를 사용한다.
 - 두 번째 Reviewer 수정 뒤 `JdbcIdempotencyRecordRepositoryIntegrationTest`: 정상 race와 새 중간실패 cleanup 회귀를 포함한 12건 성공(Gradle 2분 43초). 첫 실행의 기존 2초 latch 실패는 재실행에서 재현되지 않았고, 교착 없이 Hikari shutdown까지 완료됐다.
-- 선행 cached context를 포함한 `PostgreSqlSpringContextConnectionBudgetIntegrationTest`: 1건 성공(Gradle 1분 1초). own peak 8/close 0, 선행 연결 1 유지, replacement context 성공, session 전체 48 이하를 확인했다.
+- unrelated cached context 2개를 포함한 `PostgreSqlSpringContextConnectionBudgetIntegrationTest`: Red 후 1건 성공, failures/errors/skipped 0, XML 44.021초(Gradle 57초). own peak 8/close 0, unrelated baseline 2 보존, replacement context 성공, session 전체 48 이하를 확인했다.
 - 두 번째 Reviewer 수정 뒤 PG16/17 `PostgreSqlLauncherSessionPoolIntegrationTest`: 2건 성공, failures/errors/skipped 0, XML 28.152초(Gradle 38초).
 - `PostgreSqlRepositoryTestHarnessTest`: 5건 성공, failures/errors/skipped 0, XML 총 51.996초. Spring `@ServiceConnection`, canonical schema, transaction rollback 및 Hikari 종료를 검증했다.
 - `SavedPlacesMigrationIntegrationTest`: 3건 성공, failures/errors/skipped 0, XML 총 17.364초. direct migration과 외부 SQL copy/exec 위임 경로를 검증했다. 두 대표 클래스의 최종 묶음 실행은 Gradle 1분 25초에 성공했다.

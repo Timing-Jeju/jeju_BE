@@ -33,6 +33,8 @@ class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
   void 여러_Spring_context의_Hikari_연결은_예산안에_머물고_close후_새_context가_성공한다() throws Exception {
     PostgreSQLContainer precedingContainer = PostgreSqlTestContainerFactory.create();
     precedingContainer.start();
+    PostgreSQLContainer otherPrecedingContainer = PostgreSqlTestContainerFactory.create();
+    otherPrecedingContainer.start();
     List<PostgreSQLContainer> containers = new ArrayList<>();
     List<ConfigurableApplicationContext> contexts = new ArrayList<>();
     List<Connection> heldConnections = new ArrayList<>();
@@ -43,7 +45,13 @@ class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
     try (ConfigurableApplicationContext precedingContext =
             context(precedingContainer, "issue247-preceding-cached-context");
         Connection precedingConnection =
-            precedingContext.getBean(HikariDataSource.class).getConnection()) {
+            precedingContext.getBean(HikariDataSource.class).getConnection();
+        ConfigurableApplicationContext otherPrecedingContext =
+            context(otherPrecedingContainer, "issue247-other-preceding-cached-context");
+        Connection otherPrecedingConnection =
+            otherPrecedingContext.getBean(HikariDataSource.class).getConnection()) {
+      int unrelatedBaseline = PostgreSqlLauncherSessionPool.sessionCaseConnectionCount(IMAGE);
+      assertThat(unrelatedBaseline).isGreaterThanOrEqualTo(2);
       for (int index = 0; index < CONTEXT_COUNT; index++) {
         PostgreSQLContainer container = PostgreSqlTestContainerFactory.create();
         container.start();
@@ -75,7 +83,9 @@ class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
       closeConnections(heldConnections);
       closeContexts(contexts);
       assertThat(PostgreSqlLauncherSessionPool.caseConnectionCount(IMAGE, ownedDatabases)).isZero();
-      assertThat(PostgreSqlLauncherSessionPool.sessionCaseConnectionCount(IMAGE)).isOne();
+      assertThat(PostgreSqlLauncherSessionPool.sessionCaseConnectionCount(IMAGE))
+          .isEqualTo(unrelatedBaseline)
+          .isLessThanOrEqualTo(SESSION_CONNECTION_BUDGET);
 
       PostgreSQLContainer replacement = PostgreSqlTestContainerFactory.create();
       replacement.start();
@@ -92,6 +102,8 @@ class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
               PostgreSqlLauncherSessionPool.caseConnectionCount(
                   IMAGE, List.of(replacement.getDatabaseName())))
           .isZero();
+      assertThat(PostgreSqlLauncherSessionPool.sessionCaseConnectionCount(IMAGE))
+          .isEqualTo(unrelatedBaseline);
 
       assertSoftly(
           softly -> {
@@ -103,6 +115,9 @@ class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
             softly.assertThat(peakConnections).isEqualTo(PEAK_BUDGET);
             softly
                 .assertThat(sessionPeakConnections)
+                .isEqualTo(unrelatedBaseline + peakConnections);
+            softly
+                .assertThat(sessionPeakConnections)
                 .isLessThanOrEqualTo(SESSION_CONNECTION_BUDGET);
             softly.assertThat(SESSION_CONNECTION_BUDGET).isEqualTo(48);
           });
@@ -112,6 +127,7 @@ class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
       for (int index = containers.size() - 1; index >= 0; index--) {
         containers.get(index).stop();
       }
+      otherPrecedingContainer.stop();
       precedingContainer.stop();
     }
   }
