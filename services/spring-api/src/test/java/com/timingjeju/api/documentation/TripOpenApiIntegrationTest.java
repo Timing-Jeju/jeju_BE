@@ -231,7 +231,9 @@ class TripOpenApiIntegrationTest
         .andExpect(jsonPath("$.components.schemas.TripDay.additionalProperties").value(false))
         .andExpect(
             jsonPath("$.components.schemas.TripDay.required")
-                .value(containsInAnyOrder("dayId", "dayNo", "date")))
+                .value(
+                    containsInAnyOrder(
+                        "dayId", "dayNo", "date", "activityStartTime", "activityEndTime")))
         .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.minimum").value(1))
         .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.maximum").value(30))
         .andExpect(

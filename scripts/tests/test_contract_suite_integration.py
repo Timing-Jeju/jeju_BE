@@ -30,6 +30,7 @@ EXPECTED_ENDPOINTS = {
     ("PATCH", "/api/v1/trips/{tripId}"),
     ("DELETE", "/api/v1/trips/{tripId}"),
     ("PUT", "/api/v1/trips/{tripId}/preferences"),
+    ("PUT", "/api/v1/trips/{tripId}/day-activity-windows"),
     ("PUT", "/api/v1/trips/{tripId}/place-preferences"),
     ("PUT", "/api/v1/trips/{tripId}/transport-event"),
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"),
@@ -93,10 +94,12 @@ def _assert_catalog_endpoints(catalog: dict) -> None:
 
 class ContractSuiteIntegrationTest(unittest.TestCase):
     def test_catalog_preserves_all_places_saved_places_and_trips_endpoints(self) -> None:
+        """공개 endpoint의 정확한 집합과 계약 검사를 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         _assert_catalog_endpoints(catalog)
 
     def test_endpoint_projection_rejects_duplicate_omission_addition_and_issue113_drift(self):
+        """공개 endpoint의 정확한 집합과 계약 검사를 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         issue_113 = next(
             endpoint
@@ -128,6 +131,7 @@ class ContractSuiteIntegrationTest(unittest.TestCase):
         _assert_catalog_endpoints(reordered)
 
     def test_quality_gates_execute_all_contract_validators(self) -> None:
+        """공개 endpoint의 정확한 집합과 계약 검사를 검증한다."""
         shell_commands = _active_commands(SHELL_GATE.read_text(encoding="utf-8"), "python3 scripts/")
         powershell_commands = _active_commands(
             POWERSHELL_GATE.read_text(encoding="utf-8"), "py -3 scripts/"
@@ -140,6 +144,7 @@ class ContractSuiteIntegrationTest(unittest.TestCase):
                 self.assertIn(f"py -3 scripts/{validator}", powershell_commands)
 
     def test_commented_validator_commands_are_not_active(self) -> None:
+        """공개 endpoint의 정확한 집합과 계약 검사를 검증한다."""
         source = """
         # python3 scripts/validate_rest_contracts.py
         python3 scripts/validate_places_contract.py

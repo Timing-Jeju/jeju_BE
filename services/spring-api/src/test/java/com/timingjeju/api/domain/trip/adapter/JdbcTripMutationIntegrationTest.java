@@ -46,6 +46,13 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
 
   @Autowired private JdbcTemplate jdbc;
   @Autowired private JdbcTripStore store;
+  @Autowired private com.timingjeju.api.application.trip.service.TripService tripService;
+  @Autowired private com.timingjeju.api.application.idempotency.IdempotencyUseCase idempotency;
+
+  @Autowired
+  private com.timingjeju.api.domain.trip.controller.TripProblemExceptionHandler tripProblemHandler;
+
+  @Autowired private JdbcTripDayActivityWindowStore activityWindows;
   @Autowired private PlatformTransactionManager transactions;
   @Autowired private ObjectMapper objectMapper;
   @Autowired private CommandInputCanonicalizer commandInputCanonicalizer;
@@ -61,11 +68,352 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
 
   @AfterEach
   void clean() {
+    jdbc.update("delete from public.api_idempotency_records where owner_sub = ?", OWNER);
     jdbc.update("delete from public.trip_plans where id = ?", TRIP);
     jdbc.update("delete from public.tour_places where id = ?", PLACE);
     jdbc.update("delete from public.data_import_runs where id = ?", IMPORT_RUN);
     jdbc.update("delete from public.user_profiles where id in (?, ?)", OWNER, OTHER);
     jdbc.update("delete from auth.users where id in (?, ?)", OWNER, OTHER);
+  }
+
+  @Test
+  void GET_도중_활동창이_바뀌어도_revision과_Day는_같은_스냅샷이다() throws Exception {
+    var rootRead = new CountDownLatch(1);
+    var continueRead = new CountDownLatch(1);
+    var delayed =
+        new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc) {
+          @Override
+          public <T> List<T> query(
+              String sql,
+              java.util.Map<String, ?> params,
+              org.springframework.jdbc.core.RowMapper<T> mapper) {
+            var result = super.query(sql, params, mapper);
+            if (sql.contains("from public.trip_plans p")) {
+              rootRead.countDown();
+              try {
+                if (!continueRead.await(15, java.util.concurrent.TimeUnit.SECONDS))
+                  throw new AssertionError("동시 writer 완료 대기 초과");
+              } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(failure);
+              }
+            }
+            return result;
+          }
+        };
+    var proxy =
+        new org.springframework.aop.framework.ProxyFactory(new JdbcTripStore(jdbc, delayed));
+    proxy.addAdvice(
+        new org.springframework.transaction.interceptor.TransactionInterceptor(
+            transactions,
+            new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+    var reader = (com.timingjeju.api.application.trip.TripStore) proxy.getProxy();
+    var command = activityCommand();
+    try (var executor = Executors.newSingleThreadExecutor()) {
+      var reading = executor.submit(() -> reader.findOwned(OWNER, TRIP, NOW).orElseThrow());
+      try {
+        assertThat(rootRead.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        activityWindows.replace(OWNER, TRIP, 1, command, NOW.plusSeconds(1));
+      } finally {
+        continueRead.countDown();
+      }
+      var snapshot = reading.get(20, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(snapshot.revision()).isEqualTo(1);
+      assertThat(snapshot.days()).allSatisfy(day -> assertThat(day.activityStartTime()).isNull());
+    }
+    assertThat(store.findOwned(OWNER, TRIP, NOW).orElseThrow().revision()).isEqualTo(2);
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(ints = {1, 5, 30})
+  void 하루_닷새와_기존_30일여행의_활동시간은_재조회로_복원된다(int count) {
+    var start = LocalDate.of(2026, 9, 1);
+    store.updateOwned(record(dates(start, start.plusDays(count - 1)), 1, NOW));
+    var expected = activityCommand();
+    activityWindows.replace(OWNER, TRIP, 2, expected, NOW.plusSeconds(1));
+    var actual = store.findOwned(OWNER, TRIP, NOW.plusSeconds(2)).orElseThrow();
+    assertThat(actual.days()).hasSize(count);
+    assertThat(actual.revision()).isEqualTo(3);
+    for (int index = 0; index < count; index++) {
+      assertThat(actual.days().get(index).activityStartTime())
+          .isEqualTo(expected.days().get(index).startTime());
+      assertThat(actual.days().get(index).activityEndTime())
+          .isEqualTo(expected.days().get(index).endTime());
+    }
+  }
+
+  @Test
+  void HTTP_저장_새컨트롤러_재조회와_멱등_replay는_DB스냅샷을_보존한다() throws Exception {
+    String path = "/api/v1/trips/" + TRIP + "/day-activity-windows";
+    String etag = com.timingjeju.api.application.trip.TripEntityTag.strong(TRIP, 1);
+    byte[] body =
+        objectMapper.writeValueAsBytes(
+            java.util.Map.of(
+                "days",
+                activityCommand().days().stream()
+                    .map(
+                        day ->
+                            java.util.Map.of(
+                                "dayId",
+                                day.dayId().toString(),
+                                "startTime",
+                                day.startTime().toString(),
+                                "endTime",
+                                day.endTime().toString()))
+                    .toList()));
+    var first =
+        activityMvc()
+            .perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(path)
+                    .header("If-Match", etag)
+                    .header("Idempotency-Key", "activity-239-http")
+                    .contentType("application/json")
+                    .content(body))
+            .andExpect(
+                org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+            .andExpect(
+                org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                    .string("Idempotency-Replayed", "false"))
+            .andReturn()
+            .getResponse();
+    var replay =
+        activityMvc()
+            .perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(path)
+                    .header("If-Match", etag)
+                    .header("Idempotency-Key", "activity-239-http")
+                    .contentType("application/json")
+                    .content(body))
+            .andExpect(
+                org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+            .andExpect(
+                org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                    .string("Idempotency-Replayed", "true"))
+            .andReturn()
+            .getResponse();
+    assertThat(replay.getContentAsByteArray()).isEqualTo(first.getContentAsByteArray());
+    assertThat(replay.getHeader("ETag")).isEqualTo(first.getHeader("ETag"));
+    activityMvc()
+        .perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                "/api/v1/trips/" + TRIP))
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                    "$.days[0].activityStartTime")
+                .value("10:00"));
+    activityMvc()
+        .perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(path)
+                .header("If-Match", etag)
+                .header("Idempotency-Key", "activity-239-http")
+                .contentType("application/json")
+                .content(
+                    new String(body, java.nio.charset.StandardCharsets.UTF_8)
+                        .replace("18:00", "19:00")))
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict())
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code")
+                .value("IDEMPOTENCY_KEY_REUSED"));
+    assertThat(root("revision", Long.class)).isEqualTo(2L);
+  }
+
+  private org.springframework.test.web.servlet.MockMvc activityMvc() {
+    var users =
+        org.mockito.Mockito.mock(com.timingjeju.api.application.security.CurrentUserAccessor.class);
+    org.mockito.Mockito.when(users.getRequired())
+        .thenReturn(
+            new com.timingjeju.api.application.security.CurrentUser(
+                OWNER,
+                com.timingjeju.api.application.security.AuthenticatedRole.AUTHENTICATED,
+                null));
+    var controller =
+        new com.timingjeju.api.domain.trip.controller.TripController(
+            tripService,
+            users,
+            idempotency,
+            objectMapper,
+            new com.timingjeju.api.application.trip.service.TripDayActivityWindowService(
+                activityWindows, java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC)));
+    return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+        .setControllerAdvice(tripProblemHandler)
+        .build();
+  }
+
+  @Test
+  void 활성일정이_참조하는_Day의_활동창변경은_재생성충돌로_거부한다() {
+    installActiveSchedule();
+    String before = fingerprint();
+    assertCode(
+        () -> activityWindows.replace(OWNER, TRIP, 1, activityCommand(), NOW),
+        "TRIP_REGENERATION_REQUIRED");
+    assertThat(fingerprint()).isEqualTo(before);
+  }
+
+  @Test
+  void 두세션의_활동창변경은_같은_ETag에서_한번만_성공한다() throws Exception {
+    var command = activityCommand();
+    var ready = new CountDownLatch(2);
+    var start = new CountDownLatch(1);
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      java.util.concurrent.Callable<String> operation =
+          () -> {
+            ready.countDown();
+            start.await();
+            try {
+              activityWindows.replace(OWNER, TRIP, 1, command, NOW);
+              return "success";
+            } catch (TripException failure) {
+              return failure.code();
+            }
+          };
+      var first = executor.submit(operation);
+      var second = executor.submit(operation);
+      assertThat(ready.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+      start.countDown();
+      assertThat(
+              List.of(
+                  first.get(20, java.util.concurrent.TimeUnit.SECONDS),
+                  second.get(20, java.util.concurrent.TimeUnit.SECONDS)))
+          .containsExactlyInAnyOrder("success", "TRIP_VERSION_CONFLICT");
+    }
+    assertThat(root("revision", Long.class)).isEqualTo(2L);
+  }
+
+  @Test
+  void 두번째_Day_DB실패는_첫_Day와_revision도_롤백한다() {
+    var command = activityCommand();
+    String before = fingerprint();
+    jdbc.execute(
+        "create function public.issue239_fail_second() returns trigger language plpgsql as $$ begin if new.day_no=2 then raise exception 'fixture failure'; end if; return new; end; $$");
+    jdbc.execute(
+        "create trigger issue239_fail_second before update of start_time on public.trip_days for each row execute function public.issue239_fail_second()");
+    try {
+      assertCode(
+          () -> activityWindows.replace(OWNER, TRIP, 1, command, NOW), "TRIP_DATA_UNAVAILABLE");
+      assertThat(fingerprint()).isEqualTo(before);
+      assertThat(store.findOwned(OWNER, TRIP, NOW).orElseThrow().days())
+          .allSatisfy(day -> assertThat(day.activityStartTime()).isNull());
+    } finally {
+      jdbc.execute("drop trigger issue239_fail_second on public.trip_days");
+      jdbc.execute("drop function public.issue239_fail_second()");
+    }
+  }
+
+  @Test
+  void 활동시간_전체교체는_revision을_한번_증가시키고_새조회와_noop을_보존한다() {
+    var command = activityCommand();
+    var saved = activityWindows.replace(OWNER, TRIP, 1, command, NOW);
+    assertThat(saved.revision()).isEqualTo(2);
+    assertThat(saved.days())
+        .allSatisfy(
+            day -> {
+              assertThat(day.activityStartTime())
+                  .isEqualTo(java.time.LocalTime.of(9 + day.dayNo() % 9, 0));
+              assertThat(day.activityEndTime()).isEqualTo(java.time.LocalTime.of(18, 0));
+            });
+    assertThat(store.findOwned(OWNER, TRIP, NOW).orElseThrow().days()).isEqualTo(saved.days());
+    assertThat(activityWindows.replace(OWNER, TRIP, 2, command, NOW.plusSeconds(1)).revision())
+        .isEqualTo(2);
+  }
+
+  @Test
+  void 누락Day_외부Day_비소유자_stale은_어느활동시간도_변경하지않는다() {
+    var command = activityCommand();
+    String before = fingerprint();
+    assertCode(() -> activityWindows.replace(OTHER, TRIP, 1, command, NOW), "TRIP_NOT_FOUND");
+    assertCode(
+        () -> activityWindows.replace(OWNER, TRIP, 2, command, NOW), "TRIP_VERSION_CONFLICT");
+    var missing =
+        new com.timingjeju.api.application.trip.ReplaceTripDayActivityWindowsCommand(
+            command.days().subList(0, 2));
+    assertCode(
+        () -> activityWindows.replace(OWNER, TRIP, 1, missing, NOW), "TRIP_CONSTRAINT_VIOLATION");
+    var foreign = new ArrayList<>(command.days());
+    foreign.set(
+        2,
+        new com.timingjeju.api.application.trip.TripDayActivityWindow(
+            UUID.randomUUID(), java.time.LocalTime.of(9, 0), java.time.LocalTime.of(18, 0)));
+    assertCode(
+        () ->
+            activityWindows.replace(
+                OWNER,
+                TRIP,
+                1,
+                new com.timingjeju.api.application.trip.ReplaceTripDayActivityWindowsCommand(
+                    foreign),
+                NOW),
+        "TRIP_CONSTRAINT_VIOLATION");
+    assertThat(fingerprint()).isEqualTo(before);
+    assertThat(store.findOwned(OWNER, TRIP, NOW).orElseThrow().days())
+        .allSatisfy(day -> assertThat(day.activityStartTime()).isNull());
+  }
+
+  private com.timingjeju.api.application.trip.ReplaceTripDayActivityWindowsCommand
+      activityCommand() {
+    return new com.timingjeju.api.application.trip.ReplaceTripDayActivityWindowsCommand(
+        store.findOwned(OWNER, TRIP, NOW).orElseThrow().days().stream()
+            .map(
+                day ->
+                    new com.timingjeju.api.application.trip.TripDayActivityWindow(
+                        day.dayId(),
+                        java.time.LocalTime.of(9 + day.dayNo() % 9, 0),
+                        java.time.LocalTime.of(18, 0)))
+            .toList());
+  }
+
+  @Test
+  void 새조회는_저장된_활동시간과_미입력_null을_복원한다() {
+    jdbc.update(
+        "update public.trip_days set start_time='10:15', end_time='17:45' where trip_plan_id=? and day_no=2",
+        TRIP);
+    var days = store.findOwned(OWNER, TRIP, NOW).orElseThrow().days();
+    assertThat(days.get(1))
+        .extracting("activityStartTime", "activityEndTime")
+        .containsExactly(java.time.LocalTime.of(10, 15), java.time.LocalTime.of(17, 45));
+    assertThat(days.getFirst())
+        .extracting("activityStartTime", "activityEndTime")
+        .containsExactly(null, null);
+  }
+
+  @Test
+  void 날짜변경은_겹치는_Day_ID와_사용자_활동시간을_보존한다() {
+    UUID retained =
+        jdbc.queryForObject(
+            "select id from public.trip_days where trip_plan_id=? and trip_date='2026-09-02'",
+            UUID.class,
+            TRIP);
+    jdbc.update(
+        "update public.trip_days set start_time='10:15', end_time='17:45' where id=?", retained);
+    var changed =
+        store.updateOwned(
+            record(dates(LocalDate.parse("2026-08-31"), LocalDate.parse("2026-09-04")), 1, NOW));
+    assertThat(changed.trip().days())
+        .filteredOn(day -> day.date().equals(LocalDate.parse("2026-09-02")))
+        .extracting(day -> day.dayId())
+        .containsExactly(retained);
+    assertThat(
+            jdbc.queryForObject(
+                "select start_time::text || '/' || end_time::text from public.trip_days where id=?",
+                String.class,
+                retained))
+        .isEqualTo("10:15:00/17:45:00");
+    var shrunk =
+        store.updateOwned(
+            record(
+                dates(LocalDate.parse("2026-09-02"), LocalDate.parse("2026-09-04")),
+                2,
+                NOW.plusSeconds(1)));
+    assertThat(shrunk.trip().days().getFirst().dayId()).isEqualTo(retained);
+    assertThat(shrunk.trip().days().getFirst().dayNo()).isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_days where trip_plan_id=? and trip_date='2026-09-04' and start_time is null and end_time is null",
+                Integer.class,
+                TRIP))
+        .isEqualTo(1);
   }
 
   @Test

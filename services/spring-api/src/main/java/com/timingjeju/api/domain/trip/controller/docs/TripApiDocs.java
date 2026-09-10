@@ -17,6 +17,50 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 
 public interface TripApiDocs {
+  @Operation(
+      summary = "날짜별 활동 시간 전체 교체",
+      description = "현재 여행의 모든 Day를 한 번씩 포함합니다. Asia/Seoul HH:mm, 시작 < 종료. 기존 1~30일 여행을 지원합니다.")
+  @Parameter(
+      name = "tripId",
+      in = ParameterIn.PATH,
+      required = true,
+      schema = @Schema(type = "string", format = "uuid"))
+  @Parameter(
+      name = "If-Match",
+      in = ParameterIn.HEADER,
+      required = true,
+      schema = @Schema(type = "string"))
+  @Parameter(
+      name = "Idempotency-Key",
+      in = ParameterIn.HEADER,
+      required = true,
+      schema = @Schema(type = "string", minLength = 1, maxLength = 128, pattern = "^[ -~]+$"))
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema =
+                  @Schema(
+                      implementation =
+                          com.timingjeju.api.domain.trip.dto.request
+                              .ReplaceTripDayActivityWindowsRequest.class)))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        content =
+            @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = TripAggregateResponse.class))),
+    @ApiResponse(responseCode = "400", description = "형식 또는 필수 헤더 오류"),
+    @ApiResponse(responseCode = "401", description = "인증 필요"),
+    @ApiResponse(responseCode = "404", description = "소유한 여행 없음"),
+    @ApiResponse(responseCode = "409", description = "revision 또는 멱등성 충돌"),
+    @ApiResponse(responseCode = "422", description = "시간 또는 Day 집합 제약 위반"),
+    @ApiResponse(responseCode = "503", description = "데이터 사용 불가")
+  })
+  ResponseEntity<byte[]> replaceDayActivityWindows(String tripId, HttpServletRequest request);
+
   String UUID_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
 
   @Operation(summary = "내 여행 목록 조회", description = "소유자 범위에서 updatedAt 내림차순 keyset cursor로 조회합니다.")
