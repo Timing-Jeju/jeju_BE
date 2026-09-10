@@ -885,8 +885,8 @@ begin
 end;
 $$;
 
--- Legacy audit stays semantic: recognize normalized aliases without guessing that
--- every numeric array is a coordinate. New writes use a separate typed contract below.
+-- Legacy audit recognizes normalized aliases and nested Jeju coordinate pairs.
+-- A valid typed childAges array is the explicit safe numeric-array exception.
 create or replace function timing_jeju_private.is_user_location_key(input_key text)
 returns boolean language sql immutable strict security invoker set search_path = ''
 as $$
@@ -911,6 +911,16 @@ declare entry record;
 begin
   if jsonb_typeof(input_value) = 'object' then
     for entry in select key, value from jsonb_each(input_value) loop
+      if lower(regexp_replace(entry.key, '[^a-zA-Z0-9]', '', 'g')) = 'childages'
+         and jsonb_typeof(entry.value) = 'array'
+         and jsonb_array_length(entry.value) <= 20
+         and not exists (
+           select 1 from jsonb_array_elements(entry.value) element
+           where jsonb_typeof(element) <> 'number'
+              or element #>> '{}' !~ '^(0|[1-9]|1[0-7])$'
+         ) then
+        continue;
+      end if;
       if timing_jeju_private.is_user_location_key(entry.key)
          or (entry.key = 'type' and entry.value = '"GRID_100M"'::jsonb)
          or timing_jeju_private.user_json_contains_location(entry.value) then
@@ -918,6 +928,17 @@ begin
       end if;
     end loop;
   elsif jsonb_typeof(input_value) = 'array' then
+    if jsonb_array_length(input_value) = 2
+       and jsonb_typeof(input_value -> 0) = 'number'
+       and jsonb_typeof(input_value -> 1) = 'number'
+       and (
+         ((input_value ->> 0)::numeric between 124 and 132
+           and (input_value ->> 1)::numeric between 30 and 40)
+         or ((input_value ->> 1)::numeric between 124 and 132
+           and (input_value ->> 0)::numeric between 30 and 40)
+       ) then
+      return true;
+    end if;
     for entry in select value from jsonb_array_elements(input_value) loop
       if timing_jeju_private.user_json_contains_location(entry.value) then return true; end if;
     end loop;
@@ -1972,8 +1993,8 @@ begin
 end;
 $$;
 
--- Legacy audit stays semantic: recognize normalized aliases without guessing that
--- every numeric array is a coordinate. New writes use a separate typed contract below.
+-- Legacy audit recognizes normalized aliases and nested Jeju coordinate pairs.
+-- A valid typed childAges array is the explicit safe numeric-array exception.
 create or replace function timing_jeju_private.is_user_location_key(input_key text)
 returns boolean language sql immutable strict security invoker set search_path = ''
 as $$
@@ -1998,6 +2019,16 @@ declare entry record;
 begin
   if jsonb_typeof(input_value) = 'object' then
     for entry in select key, value from jsonb_each(input_value) loop
+      if lower(regexp_replace(entry.key, '[^a-zA-Z0-9]', '', 'g')) = 'childages'
+         and jsonb_typeof(entry.value) = 'array'
+         and jsonb_array_length(entry.value) <= 20
+         and not exists (
+           select 1 from jsonb_array_elements(entry.value) element
+           where jsonb_typeof(element) <> 'number'
+              or element #>> '{}' !~ '^(0|[1-9]|1[0-7])$'
+         ) then
+        continue;
+      end if;
       if timing_jeju_private.is_user_location_key(entry.key)
          or (entry.key = 'type' and entry.value = '"GRID_100M"'::jsonb)
          or timing_jeju_private.user_json_contains_location(entry.value) then
@@ -2005,6 +2036,17 @@ begin
       end if;
     end loop;
   elsif jsonb_typeof(input_value) = 'array' then
+    if jsonb_array_length(input_value) = 2
+       and jsonb_typeof(input_value -> 0) = 'number'
+       and jsonb_typeof(input_value -> 1) = 'number'
+       and (
+         ((input_value ->> 0)::numeric between 124 and 132
+           and (input_value ->> 1)::numeric between 30 and 40)
+         or ((input_value ->> 1)::numeric between 124 and 132
+           and (input_value ->> 0)::numeric between 30 and 40)
+       ) then
+      return true;
+    end if;
     for entry in select value from jsonb_array_elements(input_value) loop
       if timing_jeju_private.user_json_contains_location(entry.value) then return true; end if;
     end loop;

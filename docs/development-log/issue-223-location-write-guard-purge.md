@@ -324,3 +324,10 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - 실제 격리 PG17과 Supabase CLI 2.116.0에서 root layout은 016까지만 적용했다. 첫 실행은 검증용 psql wrapper가 host 상대 파일을 container path로 전달해 atomic 적용 전에 중단됐고 제품 실패로 보지 않는다. wrapper 수정 후 같은 DB의 bootstrap은 `applied: []`, atomic release는 `INSERT 0 3`/`COMMIT`, list는 017·018·020을 표시했으며 fetch 원문 byte/SHA verifier도 통과했다. 생성한 container와 wrapper는 모두 제거했다.
 - 요청에 따라 전체 quality gate와 Docker smoke는 #247 테스트 인프라 병목 수정 전 재실행하지 않았고, push·PR·live Supabase·운영 DB 적용도 수행하지 않았다.
 - exact HEAD `5b43f2a0` 독립 재리뷰에서 `MobilityOwnershipContractTest`가 raw CLI 디렉터리만 읽어 55개 대신 52개, 최종 020 대신 016으로 판단하는 회귀를 확인했다. 수정 전 focused architecture는 3건 중 해당 1건이 의도대로 실패했다. inventory를 `supabase/migrations`와 `supabase/atomic-migrations`의 합집합으로 바꾸고 directory/regular-file/non-symlink/14자리 파일명/filename·timestamp 중복을 fail closed한 뒤 architecture 3/3, canonical Python 26/26, generated SQL 양쪽 byte check, Spotless와 diff 검사가 통과했다.
+
+## 2026-09-11 Astra nested coordinate 보정
+
+- 유효한 pre-017 fixture에 `{"nested":[[126.51,33.51]]}`를 추가한 PG16/17 테스트가 atomic release의 예외 부재로 각각 실패해 alias 없는 좌표 배열 audit 누락을 Red로 확인했다. 초기 두 실행의 transport mode 누락과 ambiguous metadata 실패는 verifier에 도달하지 못한 fixture 오류라 제품 Red에서 제외했다.
+- 020 legacy recursion은 Jeju 범위의 2원소 numeric coordinate pair를 중첩 깊이와 무관하게 감지한다. `childAges`는 최대 20개의 0..17 정수라는 typed 계약을 만족할 때만 안전 예외로 보존하며, residue를 자동 삭제하지 않고 017부터 020의 DDL·data·ledger 전체를 rollback한다.
+- Schedule mutation fixture의 `derivation=fixture` 두 곳을 보안 enum을 완화하지 않고 `conservative_walk_v1`으로 정렬했다. runbook은 현재 atomic release와 ledger를 017·018·019·020 네 이력으로 기록한다.
+- 관련 Python 83건, 신규 PG16/17 rollback/childAges 보존 2건, `JdbcScheduleMutationStoreIntegrationTest` 전체가 통과했다. 전체 quality gate와 Docker smoke, live DB, push와 PR은 이 focused 보정에서 실행하지 않았다.
