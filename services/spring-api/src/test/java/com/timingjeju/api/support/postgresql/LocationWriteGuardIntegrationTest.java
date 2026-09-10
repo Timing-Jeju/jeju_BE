@@ -216,7 +216,10 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         "{\"current_position\":[126.51,33.51]}",
         "{\"currentPosition\":[126.51,33.51]}",
         "{\"nested\":{\"point\":[126.51,33.51]}}",
-        "{\"nested\":[[126.51,33.51]]}"
+        "{\"nested\":[[126.51,33.51]]}",
+        "{\"currentPosition\":[126.51,33.51,15]}",
+        "{\"current_position\":[\"126.51\",\"33.51\"]}",
+        "{\"unknown\":{\"path\":[\"126.51\",\"33.51\",\"15\"]}}"
       })
   void 알려진_position_alias와_중첩_좌표_배열은_값_반사없이_거부한다(String payload) {
     jdbc.execute("set local role service_role");
@@ -243,7 +246,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
             jdbc.update(
                 """
         insert into public.trip_preferences(trip_plan_id,start_place_id,end_place_id,arrival_region_code,departure_region_code,raw_answers)
-        values (?,?,?,'JEJU','JEJU','{"pace":"relaxed","partySize":2}'::jsonb)
+        values (?,?,?,'JEJU','JEJU','{"pace":"relaxed","partySize":2,"childAges":[7,10]}'::jsonb)
         """,
                 trip,
                 place,
@@ -308,8 +311,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"generation", "revision"})
-  void 생성과_수정도_입력_없는_parent의_commit을_거부한다(String kind) {
+  @ValueSource(strings = {"generation"})
+  void 생성은_입력_없는_parent의_commit을_거부한다(String kind) {
     UUID run = UUID.randomUUID(), day = UUID.randomUUID();
     insertPlannerParent(kind, run, day);
     jdbc.execute("set local role service_role");
@@ -320,12 +323,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   @ParameterizedTest
-  @org.junit.jupiter.params.provider.CsvSource({
-    "generation,delete",
-    "revision,delete",
-    "generation,mismatch"
-  })
-  void 생성과_수정의_입력_삭제와_parent_변조는_지연_검증에서_거부한다(String kind, String mutation) throws Exception {
+  @org.junit.jupiter.params.provider.CsvSource({"generation,delete", "generation,mismatch"})
+  void 생성의_입력_삭제와_parent_변조는_지연_검증에서_거부한다(String kind, String mutation) throws Exception {
     UUID run = UUID.randomUUID(), day = UUID.randomUUID();
     insertPlannerParent(kind, run, day);
     savePlannerInput(kind, run, day);
@@ -352,9 +351,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"generation", "revision"})
-  void 생성과_수정의_실제_repository_입력은_같은_transaction에서_검증되고_parent_삭제가_가능하다(String kind)
-      throws Exception {
+  @ValueSource(strings = {"generation"})
+  void 생성의_실제_repository_입력은_같은_transaction에서_검증되고_parent_삭제가_가능하다(String kind) throws Exception {
     UUID run = UUID.randomUUID(), day = UUID.randomUUID();
     insertPlannerParent(kind, run, day);
     savePlannerInput(kind, run, day);
@@ -374,19 +372,11 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   @Test
-  void 수정_parent의_메타데이터는_기존_불변_제약에서_즉시_거부된다() throws Exception {
+  void 수정_parent는_독립_hash_출처없이는_DB_owner도_생성하지_못한다() {
     UUID run = UUID.randomUUID(), day = UUID.randomUUID();
-    insertPlannerParent("revision", run, day);
-    savePlannerInput("revision", run, day);
-    jdbc.execute("set constraints all immediate");
-    jdbc.execute("set local role service_role");
-    assertThatThrownBy(
-            () ->
-                jdbc.update(
-                    "update public.schedule_revision_runs set algorithm_version='changed' where id=?",
-                    run))
+    assertThatThrownBy(() -> insertPlannerParent("revision", run, day))
         .isInstanceOf(DataIntegrityViolationException.class)
-        .hasMessageContaining("schedule revision run identity is immutable")
+        .hasMessageContaining("independent hash provenance required")
         .hasMessageNotContaining(run.toString());
   }
 

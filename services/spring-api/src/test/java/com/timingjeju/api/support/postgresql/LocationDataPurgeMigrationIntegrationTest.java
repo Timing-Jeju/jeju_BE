@@ -1382,21 +1382,21 @@ class LocationDataPurgeMigrationIntegrationTest {
       PostgreSqlTestContainerFactory.executeScript(container, script);
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from supabase_migrations.schema_migrations where version in ('20260918000017','20260918000018')",
+                  "select count(*) from supabase_migrations.schema_migrations where version in ('20260918000017','20260918000018','20260918000020')",
                   Integer.class))
-          .isEqualTo(2);
+          .isEqualTo(3);
       assertThat(
               jdbc.queryForObject(
                   "select count(*) from supabase_migrations.schema_migrations "
-                      + "where version in ('20260918000017','20260918000018') "
+                      + "where version in ('20260918000017','20260918000018','20260918000020') "
                       + "and name is not null and statements is not null",
                   Integer.class))
-          .isEqualTo(2);
+          .isEqualTo(3);
       assertThat(
               jdbc.queryForObject(
                   "select timing_jeju_planner_private.user_location_guard_purge_revision()",
                   String.class))
-          .isEqualTo("20260918000018");
+          .isEqualTo("20260918000020");
       assertThat(
               jdbc.queryForObject(
                   "select sum(residue_count) from timing_jeju_planner_private.user_location_residue_counts()",

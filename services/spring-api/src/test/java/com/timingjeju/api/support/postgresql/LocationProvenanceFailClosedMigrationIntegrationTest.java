@@ -91,6 +91,25 @@ class LocationProvenanceFailClosedMigrationIntegrationTest {
                     String.class))
             .isEqualTo("20260918000020");
 
+        assertSqlState23514(
+            () ->
+                jdbc.update(
+                    "insert into public.schedule_revision_runs "
+                        + "(owner_user_id,trip_plan_id,base_schedule_version_id,target_trip_day_id,"
+                        + "contract_version,algorithm_version,idempotency_key,request_hash) "
+                        + "values (?,?,?,?, 'fixture','fixture',?,repeat('c',64))",
+                    owner,
+                    trip,
+                    version,
+                    day,
+                    UUID.randomUUID()));
+        assertSqlState23514(
+            () ->
+                jdbc.update(
+                    "insert into public.mcp_compute_call_logs"
+                        + "(request_id,tool_name,status,contract_version,mcp_input_hash) "
+                        + "values ('owner-unproven-mcp','evaluate_jeju_day_trip','transport_error',"
+                        + "'0.7.0',repeat('c',64))"));
         jdbc.execute("set role service_role");
         assertSqlState23514(
             () ->
@@ -133,6 +152,8 @@ class LocationProvenanceFailClosedMigrationIntegrationTest {
                 String.class,
                 version,
                 revisionInput);
+        jdbc.execute(
+            "alter table public.schedule_revision_runs disable trigger aaa_independent_hash_provenance");
         connection.setAutoCommit(false);
         jdbc.update(
             "insert into public.schedule_revision_runs "
@@ -162,6 +183,10 @@ class LocationProvenanceFailClosedMigrationIntegrationTest {
             commandInputHash);
         connection.commit();
         connection.setAutoCommit(true);
+        jdbc.execute(
+            "alter table public.schedule_revision_runs enable trigger aaa_independent_hash_provenance");
+        jdbc.execute(
+            "alter table public.mcp_compute_call_logs disable trigger aaa_independent_hash_provenance");
         jdbc.update(
             """
             insert into public.mcp_compute_call_logs
@@ -174,6 +199,18 @@ class LocationProvenanceFailClosedMigrationIntegrationTest {
             from public.compute_run_inputs where schedule_revision_run_id=?
             """,
             existingRevision);
+        jdbc.execute(
+            "alter table public.mcp_compute_call_logs enable trigger aaa_independent_hash_provenance");
+        assertSqlState23514(
+            () ->
+                jdbc.update(
+                    "update public.schedule_revision_runs set request_hash=repeat('b',64) where id=?",
+                    existingRevision));
+        assertSqlState23514(
+            () ->
+                jdbc.update(
+                    "update public.mcp_compute_call_logs set mcp_input_hash=repeat('c',64) "
+                        + "where request_id='existing-mcp'"));
         jdbc.execute("set role service_role");
         assertSqlState23514(
             () ->
@@ -185,6 +222,12 @@ class LocationProvenanceFailClosedMigrationIntegrationTest {
                 jdbc.update(
                     "update public.mcp_compute_call_logs set mcp_input_hash=repeat('c',64) "
                         + "where request_id='existing-mcp'"));
+        jdbc.execute("reset role");
+        assertSqlState23514(
+            () ->
+                jdbc.update(
+                    "update public.schedule_revision_runs set request_hash=repeat('b',64) where id=?",
+                    existingRevision));
       }
     } finally {
       container.stop();

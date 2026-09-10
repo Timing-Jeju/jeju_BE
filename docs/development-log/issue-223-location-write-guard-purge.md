@@ -303,3 +303,12 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - 최종 재검증에서 `LocationProvenanceFailClosedMigrationIntegrationTest`와 전체 `LocationWriteGuardIntegrationTest`를 함께 PG16/17에서 실행해 3분 내 PASS했다. 유효한 typed command input hash fixture로 독립 hash UPDATE 거부까지 확인했다.
 - 관련 Python 계약 116건, 두 generated SQL `--check`, shell 문법, manifest SHA-256(`ae34d8d5...595670`), `git diff --check`가 PASS했다. PowerShell fresh smoke의 최종 revision 기대도 020으로 정렬했다.
 - #240은 2026-09-09 확인 시 OPEN이므로 요청한 자원/병합 선행 조건에 따라 전체 품질 게이트와 Docker 전체 smoke는 이번 post-merge 보정에서 실행하지 않았다. 따라서 집중 검증은 완료했지만 전체 DoD와 독립 Reviewer 승인은 아직 남아 있다.
+
+## 2026-09-10 exact-HEAD 독립 리뷰 4건 보정
+
+- 보존 worktree의 8개 수정과 2개 신규 파일은 모두 이 작업 소유임을 확인했다. 중단 전 pre-push heavy gate는 실행 중 파일 변경으로 compiled expectation과 migration source가 달라진 오염 실행이므로 성공/제품 실패 증거에서 제외했다.
+- hash guard의 `current_user <> 'service_role'` 우회를 제거했다. Compose owner/JDBC writer, service_role, RESET ROLE 이후 INSERT와 hash identity UPDATE가 모두 SQLSTATE 23514를 반환한다. provenance 없는 revision runtime 경로는 기존 lineage 성공 기대보다 먼저 fail closed하도록 테스트를 정렬했다.
+- legacy residue audit에서 숫자 2개 배열 heuristic을 제거하고 alias 의미 검출만 유지했다. 신규 write는 surface별 closed field/type 계약으로 분리해 3원소 좌표, 숫자 문자열, nested unknown field를 거부하고 `childAges` 숫자 배열은 허용한다.
+- CLI 2.116.0 `--help`와 upstream fetch 구현을 확인했다. 공식 `scripts/supabase-release.sh`는 임시 workdir에 016 이하만 제공하고, 017·018·020 DDL/data/ledger를 한 psql transaction으로 적용한 뒤 list/fetch를 수행한다. ledger statements는 fetch의 `join(';\n') + ';\n'`이 immutable 원문 byte를 재구성하도록 저장한다.
+- 격리 PG17 실제 CLI 실행에서 첫 TLS 누락은 schema 변경 전 거부됐고, 두 번째 psql test wrapper role 누락은 000..016 bootstrap 뒤 017 전 중단됐다. 수정 후 atomic release가 INSERT 3/COMMIT됐고 list에 017·018·020이 나타났으며 fetch된 017 이후 파일의 byte/SHA 검증이 PASS했다. 컨테이너는 중지·자동 제거했다.
+- 최종 source SHA `f59c67e19a22c9a3362f283922866498c74f751abfd567609f4ba9ab7d7529c6`에서 focused Python 120건, LocationWriteGuard, 신규 provenance PG16/17, atomic ledger PG16/17, canonical 전체 PG16/17이 통과했다. canonical class 실행 시간은 8분32초다. 새 격리 PG17에서도 CLI 2.116.0 전체 release/list/fetch 검증을 다시 통과했고 컨테이너를 제거했다. 새 전체 heavy gate는 아직 실행하지 않았다.

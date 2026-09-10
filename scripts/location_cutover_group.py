@@ -22,6 +22,33 @@ def body(source: bytes, checksum: str) -> bytes:
     return first_line + b"\n" + remainder[len(b"begin;\n"):-len(b"commit;\n")]
 
 
+def release_body(source: bytes, checksum: str) -> bytes:
+    if hashlib.sha256(source).hexdigest() != checksum:
+        raise ValueError("release source mismatch")
+    first_line, remainder = source.split(b"\n", 1)
+    if (
+        not first_line.startswith(b"-- Issue #")
+        or not remainder.startswith(b"begin;\n")
+        or not remainder.endswith(b"commit;\n")
+    ):
+        raise ValueError("release envelope mismatch")
+    return first_line + b"\n" + remainder[len(b"begin;\n"):-len(b"commit;\n")]
+
+
+def fetch_statement(source: bytes, checksum: str, tag: str) -> str:
+    if hashlib.sha256(source).hexdigest() != checksum:
+        raise ValueError("location cutover source mismatch")
+    if not source.endswith(b";\n"):
+        raise ValueError("location cutover fetch envelope mismatch")
+    text = source[:-2].decode("utf-8")
+    delimiter = f"$timing_jeju_{tag}$"
+    if delimiter in text:
+        raise ValueError("location cutover fetch delimiter collision")
+    # CLI v2.116.0 fetch writes statements.join(';\n') + ';\n'. One element
+    # containing the immutable source without its last separator restores exact bytes.
+    return f"{delimiter}{text}{delimiter}"
+
+
 def render(root: Path) -> bytes:
     bodies = [body((root / "supabase/migrations" / name).read_bytes(), checksum) for name, checksum in SOURCES]
     return b"-- Generated location cutover group; do not edit.\nbegin;\n" + b"\n".join(bodies) + b"\ncommit;\n"
@@ -48,18 +75,35 @@ begin
 end;
 $history$;
 """
-    bodies = b"\n".join(body((root / "supabase/migrations" / name).read_bytes(), checksum)
-                        for name, checksum in SOURCES)
-    # Supabase CLI 2.116.0 owns this exact ledger shape. The grouped execution is
-    # not a native per-file statement list, so record immutable checksum markers
-    # instead of pretending that either original file ran independently.
+    post_entries = [
+        entry
+        for entry in manifest["canonicalSuffix"]
+        if entry["path"].split("/")[-1][:14] > "20260918000018"
+    ]
+    release_sources = [(name, checksum) for name, checksum in SOURCES]
+    release_sources.extend(
+        (entry["path"].split("/")[-1], entry["sha256"]) for entry in post_entries
+    )
+    bodies = b"\n".join(
+        release_body((root / "supabase/migrations" / name).read_bytes(), checksum)
+        for name, checksum in release_sources
+    )
+    # Supabase CLI 2.116.0 fetch joins statements with ';\n' and appends ';\n'.
+    # Store each immutable source without that final separator so list/fetch/replay
+    # reconstructs the exact original bytes and checksum.
+    ledger_values = []
+    for filename, checksum in release_sources:
+        source = (root / "supabase/migrations" / filename).read_bytes()
+        version, name = filename[:-4].split("_", 1)
+        ledger_values.append(
+            "  ('" + version + "', '" + name + "', array["
+            + fetch_statement(source, checksum, "migration_" + version[-3:])
+            + "]::text[])"
+        )
     history = """
 insert into supabase_migrations.schema_migrations(version, name, statements)
 values
-  ('20260918000017', 'user_location_write_guard_purge',
-    array['-- grouped source sha256:""" + SOURCES[0][1] + """']::text[]),
-  ('20260918000018', 'revision_request_hash_audit',
-    array['-- grouped source sha256:""" + SOURCES[1][1] + """']::text[]);
+""" + ",\n".join(ledger_values) + ";\n" + """
 commit;
 """
     return preflight.encode() + bodies + history.encode()

@@ -15,8 +15,8 @@ begin
 end;
 $$;
 
--- Generic user JSON is not a provenance contract. Recognize normalized aliases
--- and fail closed for the common GeoJSON-style numeric coordinate tuple at any depth.
+-- Legacy audit stays semantic: recognize normalized aliases without guessing that
+-- every numeric array is a coordinate. New writes use a separate typed contract below.
 create or replace function timing_jeju_private.is_user_location_key(input_key text)
 returns boolean language sql immutable strict security invoker set search_path = ''
 as $$
@@ -48,12 +48,6 @@ begin
       end if;
     end loop;
   elsif jsonb_typeof(input_value) = 'array' then
-    if jsonb_array_length(input_value) = 2 and not exists (
-      select 1 from jsonb_array_elements(input_value) element
-      where jsonb_typeof(element) <> 'number'
-    ) then
-      return true;
-    end if;
     for entry in select value from jsonb_array_elements(input_value) loop
       if timing_jeju_private.user_json_contains_location(entry.value) then return true; end if;
     end loop;
@@ -64,8 +58,86 @@ $$;
 revoke all on function timing_jeju_private.user_json_contains_location(jsonb)
   from public, anon, authenticated, service_role;
 
--- The verifier and every generic-JSON trigger call the same helper. Audit before
--- adding more guards so an unknown legacy tuple rolls back this whole migration.
+-- Each user-owned JSON surface has a closed field/type contract. Empty objects
+-- remain valid where the application has not defined a typed payload yet.
+create function timing_jeju_private.user_json_matches_write_contract(
+  input_surface text, input_value jsonb
+) returns boolean language sql immutable strict security invoker set search_path = ''
+as $$
+  select case input_surface
+    when 'trip_preferences.raw_answers' then
+      jsonb_typeof(input_value) = 'object'
+      and not exists (
+        select 1 from jsonb_object_keys(input_value) key
+        where key not in ('pace', 'partySize', 'childAges')
+      )
+      and (not input_value ? 'pace' or jsonb_typeof(input_value -> 'pace') = 'string')
+      and (not input_value ? 'partySize' or jsonb_typeof(input_value -> 'partySize') = 'number')
+      and (not input_value ? 'childAges' or (
+        jsonb_typeof(input_value -> 'childAges') = 'array'
+        and not exists (
+          select 1 from jsonb_array_elements(input_value -> 'childAges') element
+          where jsonb_typeof(element) <> 'number'
+        )
+      ))
+    when 'trip_legs.facts' then
+      input_value = '{}'::jsonb or (
+        jsonb_typeof(input_value) = 'object'
+        and not exists (
+          select 1 from jsonb_object_keys(input_value) key where key <> 'derivation'
+        )
+        and jsonb_typeof(input_value -> 'derivation') = 'string'
+      )
+    when 'itinerary_generation_runs.structured_input' then
+      jsonb_typeof(input_value) = 'object'
+      and not exists (
+        select 1 from jsonb_object_keys(input_value) key
+        where key not in ('targetDayId', 'candidateCount', 'refreshExternalFacts')
+      )
+      and jsonb_typeof(input_value -> 'targetDayId') = 'string'
+      and jsonb_typeof(input_value -> 'candidateCount') = 'number'
+      and jsonb_typeof(input_value -> 'refreshExternalFacts') = 'boolean'
+    when 'compute_runs.result_summary' then
+      jsonb_typeof(input_value) = 'object'
+      and not exists (
+        select 1 from jsonb_object_keys(input_value) key
+        where key not in ('score', 'observedAt', 'expiresAt')
+      )
+      and (not input_value ? 'score' or jsonb_typeof(input_value -> 'score') = 'number')
+      and (not input_value ? 'observedAt' or jsonb_typeof(input_value -> 'observedAt') = 'string')
+      and (not input_value ? 'expiresAt' or jsonb_typeof(input_value -> 'expiresAt') = 'string')
+    when 'ai_messages.structured_payload' then input_value = '{}'::jsonb
+    when 'risk_events.computed_facts' then input_value = '{}'::jsonb
+    when 'trip_weather_impacts.computed_facts' then input_value = '{}'::jsonb
+    when 'recommendation_candidates.facts' then input_value = '{}'::jsonb
+    when 'recovery_options.change_summary' then input_value = '{}'::jsonb
+    when 'recovery_option_changes.before_value' then input_value = '{}'::jsonb
+    when 'recovery_option_changes.after_value' then input_value = '{}'::jsonb
+    else false
+  end;
+$$;
+revoke all on function timing_jeju_private.user_json_matches_write_contract(text, jsonb)
+  from public, anon, authenticated, service_role;
+
+create or replace function timing_jeju_private.reject_user_json_location()
+returns trigger language plpgsql security definer set search_path = ''
+as $$
+declare field_name text; row_value jsonb := to_jsonb(new); surface text;
+begin
+  foreach field_name in array tg_argv loop
+    surface := tg_table_name || '.' || field_name;
+    if not timing_jeju_private.user_json_matches_write_contract(surface, row_value -> field_name) then
+      raise exception using errcode = '23514', message = 'user location storage is disabled';
+    end if;
+  end loop;
+  return new;
+end;
+$$;
+revoke all on function timing_jeju_private.reject_user_json_location()
+  from public, anon, authenticated, service_role;
+
+-- The legacy verifier uses the semantic alias helper. Audit before installing
+-- the separate typed write contracts so legacy residue rolls back this migration.
 do $$
 begin
   if exists (
@@ -83,7 +155,6 @@ create function timing_jeju_private.reject_unproven_revision_hash()
 returns trigger language plpgsql security invoker set search_path = ''
 as $$
 begin
-  if current_user <> 'service_role' then return new; end if;
   if tg_op = 'INSERT' then
     raise exception using errcode = '23514', message = 'independent hash provenance required';
   end if;
@@ -100,7 +171,6 @@ create function timing_jeju_private.reject_unproven_mcp_hash()
 returns trigger language plpgsql security invoker set search_path = ''
 as $$
 begin
-  if current_user <> 'service_role' then return new; end if;
   if tg_op = 'INSERT' then
     raise exception using errcode = '23514', message = 'independent hash provenance required';
   end if;
