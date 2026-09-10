@@ -291,9 +291,15 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         org.junit.jupiter.params.provider.Arguments.of(
             "trip_preferences.raw_answers", "{\"pace\":\"current-position\"}"),
         org.junit.jupiter.params.provider.Arguments.of(
+            "trip_preferences.raw_answers", "{\"generationMode\":\"current-position\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_preferences.raw_answers", "{\"dayGeneration\":{\"nested\":[[126.51,33.51]]}}"),
+        org.junit.jupiter.params.provider.Arguments.of(
             "trip_preferences.raw_answers", "{\"childAges\":[126.51,33.51,15]}"),
         org.junit.jupiter.params.provider.Arguments.of(
             "trip_legs.facts", "{\"derivation\":\"current-position\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_legs.facts", "{\"recovery\":{\"nested\":[126.51,33.51]}}"),
         org.junit.jupiter.params.provider.Arguments.of(
             "itinerary_generation_runs.structured_input",
             "{\"targetDayId\":\"current-position\",\"candidateCount\":1,\"refreshExternalFacts\":false}"),
@@ -305,7 +311,18 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         org.junit.jupiter.params.provider.Arguments.of(
             "compute_runs.result_summary", "{\"observedAt\":\"current-position\"}"),
         org.junit.jupiter.params.provider.Arguments.of(
-            "compute_runs.result_summary", "{\"expiresAt\":\"2026-02-30T00:00:00Z\"}"));
+            "compute_runs.result_summary", "{\"expiresAt\":\"2026-02-30T00:00:00Z\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "risk_events.computed_facts", "{\"routeNo\":\"201\",\"nested\":[126.51,33.51]}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_weather_impacts.computed_facts",
+            "{\"precipitationProbabilityPercent\":60,\"location\":[126.51,33.51]}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "recommendation_candidates.facts", "{\"distanceMeters\":[126.51,33.51]}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "recovery_options.change_summary", "{\"changedItemCount\":1,\"nested\":{}}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "recovery_option_changes.before_value", "{\"dayNo\":1,\"startTime\":[126.51,33.51]}"));
   }
 
   @ParameterizedTest
@@ -326,13 +343,38 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
             "trip_preferences.raw_answers",
             "{\"pace\":\"normal\",\"partySize\":2,\"childAges\":[7,10]}"),
         org.junit.jupiter.params.provider.Arguments.of(
+            "trip_preferences.raw_answers",
+            "{\"pace\":\"normal\",\"generationMode\":\"structured\",\"dayGeneration\":\"one_click\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
             "trip_legs.facts", "{\"derivation\":\"conservative_walk_v1\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_legs.facts", "{\"routeNo\":\"201\",\"lowFrequency\":true}"),
+        org.junit.jupiter.params.provider.Arguments.of("trip_legs.facts", "{\"candidate\":true}"),
+        org.junit.jupiter.params.provider.Arguments.of("trip_legs.facts", "{\"recovery\":true}"),
         org.junit.jupiter.params.provider.Arguments.of(
             "itinerary_generation_runs.structured_input",
             "{\"targetDayId\":\"44000000-0000-4000-8000-000000000044\",\"candidateCount\":10,\"refreshExternalFacts\":false}"),
         org.junit.jupiter.params.provider.Arguments.of(
             "compute_runs.result_summary",
-            "{\"score\":100,\"observedAt\":\"2026-09-10T00:00:00Z\",\"expiresAt\":\"2026-09-10T00:10:00+00:00\"}"));
+            "{\"score\":100,\"observedAt\":\"2026-09-10T00:00:00Z\",\"expiresAt\":\"2026-09-10T00:10:00+00:00\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "compute_runs.result_summary", "{\"overallStatus\":\"caution\",\"score\":81}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "compute_runs.result_summary", "{\"optionCount\":1,\"bestScore\":90}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "risk_events.computed_facts", "{\"routeNo\":\"201\",\"missedBusWaitMinutes\":42}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_weather_impacts.computed_facts",
+            "{\"precipitationProbabilityPercent\":60,\"precipitationAmountMm\":1.5}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "recommendation_candidates.facts", "{\"distanceMeters\":1800}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "recovery_options.change_summary",
+            "{\"changedItemCount\":1,\"preservedRequiredItems\":true}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "recovery_option_changes.before_value", "{\"dayNo\":1,\"startTime\":\"13:20\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "recovery_option_changes.after_value", "{\"dayNo\":2,\"startTime\":\"10:20\"}"));
   }
 
   @ParameterizedTest

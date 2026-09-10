@@ -345,3 +345,11 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - 정상 DB writer fixture와 legacy malformed read 검증을 분리했다. Schedule integration은 정상 freshness의 expiry equality만 쓰고, malformed freshness는 mock ResultSet 기반 read boundary에서 stale로 판정한다. Trip score integration은 정상 JSON number와 timestamp만 쓰며 문자열 score와 malformed `observedAt` fail-closed는 기존 `JdbcTripScoreJsonTest`가 DB write 없이 검증한다.
 - 삭제 cascade fixture는 독립 provenance가 없는 revision hash를 만들지 않는다. 실제 feasibility compute parent를 같은 transaction에서 만들고 `LocationFreeComputeInputFixture`가 canonical structured input hash를 계산해 parent와 input 양쪽에 연결한 뒤, 여행 삭제가 compute run/input만 cascade하고 외부 fact와 사용자를 보존하는 계약을 유지한다.
 - 세 integration 클래스는 21건 모두 통과했고 두 legacy read-boundary unit 클래스도 통과했다. 관련 Python 83건과 local/Supabase generator byte check가 통과했다. 운영 guard·migration은 완화하거나 변경하지 않았으며 전체 gate, Docker smoke, live DB, push와 PR은 실행하지 않았다.
+
+## 2026-09-11 canonical title-only fixture 보정
+
+- 중단된 pre-push gate의 Testcontainers 세션과 Gradle 프로세스만 식별해 정리하고 공유 daemon과 기존 anonymous volume은 보존했다. 이후 동일 session label의 컨테이너 잔류가 없음을 확인했다.
+- RED: `trip_preferences.raw_answers`의 실제 canonical seed 값인 `pace=normal`, `generationMode=structured`, `dayGeneration=one_click`을 typed contract 양성 사례로 추가하자 기존 020 predicate가 false를 반환해 5개 사례 중 해당 1개가 실패했다.
+- 020 closed allowlist에 `generationMode`와 `dayGeneration`을 임의 문자열로 열지 않고 각각 정확한 문자열 enum `structured`, `one_click`로 추가했다. surface별 진단에서 canonical seed의 정상 non-location residue가 이 값 외에도 trip leg 14건, compute summary 2건, risk/weather/recommendation/recovery 각 1건씩 있음을 확인했다. 해당 surface도 실제 고정 key 집합과 boolean·bounded number·time type만 허용한다.
+- 새 field의 위치 문자열, legitimate-looking field의 좌표 배열, unknown/nested object는 계속 거부하며 기존 unknown/nested/location payload와 네 legacy rollback fixture도 그대로 fail closed한다. canonical migration 테스트는 020 적용 전후에 title-only seed의 `raw_answers`가 byte-independent JSON 동등성으로 보존되는지 명시적으로 검증한다.
+- direct typed contract 32건, 정확한 title-only PG16/17 회귀, canonical class 전체 7건, location purge/provenance PG16/17 전체가 통과했다. 관련 Python 83건과 local/Supabase generator byte check도 통과했다. 전체 quality gate, Docker smoke, live DB, push와 PR은 실행하지 않는다.

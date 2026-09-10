@@ -127,6 +127,16 @@ class CanonicalMigrationOrderIntegrationTest {
         PostgreSqlTestContainerFactory.executeScript(
             container, repositoryPath("db/local-postgres/seed_fixtures.sql"));
         JdbcTemplate jdbc = jdbc(container);
+        String canonicalRawAnswers =
+            "{\"pace\":\"normal\",\"generationMode\":\"structured\",\"dayGeneration\":\"one_click\"}";
+        assertThat(
+                jdbc.queryForObject(
+                    "select raw_answers = cast(? as jsonb) from public.trip_preferences "
+                        + "where trip_plan_id='50000000-0000-0000-0000-000000000001'",
+                    Boolean.class,
+                    canonicalRawAnswers))
+            .as(image)
+            .isTrue();
         // 이 테스트는 정상 일정의 schema upgrade를 검증한다. 원문 없는 역사 MCP audit의
         // 전환 거부는 LocationDataPurgeMigrationIntegrationTest에서 별도로 검증한다.
         assertThat(
@@ -142,6 +152,14 @@ class CanonicalMigrationOrderIntegrationTest {
             CANONICAL_EXECUTION_SUFFIX.subList(10, CANONICAL_EXECUTION_SUFFIX.size())) {
           PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
         }
+        assertThat(
+                jdbc.queryForObject(
+                    "select raw_answers = cast(? as jsonb) from public.trip_preferences "
+                        + "where trip_plan_id='50000000-0000-0000-0000-000000000001'",
+                    Boolean.class,
+                    canonicalRawAnswers))
+            .as(image)
+            .isTrue();
         assertThat(
                 jdbc.queryForObject(
                     "select sum(residue_count) from"
