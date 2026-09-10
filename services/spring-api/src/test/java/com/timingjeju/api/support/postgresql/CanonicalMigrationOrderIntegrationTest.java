@@ -43,7 +43,8 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000014_planned_anchor_resolver.sql",
           "20260918000015_planned_route_snapshot_provenance.sql",
           "20260918000016_planned_route_reference_integrity.sql",
-          "20260918000017_location_cutover_group.sql");
+          "20260918000017_location_cutover_group.sql",
+          "20260918000019_planned_route_request_hash_policy.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -130,11 +131,11 @@ class CanonicalMigrationOrderIntegrationTest {
         assertThat(
                 jdbc.update(
                     """
-            delete from public.mcp_compute_call_logs where id in (
-              '67000000-0000-0000-0000-000000000001',
-              '67000000-0000-0000-0000-000000000002',
-              '67000000-0000-0000-0000-000000000003')
-            """))
+                    delete from public.mcp_compute_call_logs where id in (
+                      '67000000-0000-0000-0000-000000000001',
+                      '67000000-0000-0000-0000-000000000002',
+                      '67000000-0000-0000-0000-000000000003')
+                    """))
             .isEqualTo(3);
         for (String migration :
             CANONICAL_EXECUTION_SUFFIX.subList(10, CANONICAL_EXECUTION_SUFFIX.size())) {
@@ -142,7 +143,8 @@ class CanonicalMigrationOrderIntegrationTest {
         }
         assertThat(
                 jdbc.queryForObject(
-                    "select sum(residue_count) from timing_jeju_planner_private.user_location_residue_counts()",
+                    "select sum(residue_count) from"
+                        + " timing_jeju_planner_private.user_location_residue_counts()",
                     Long.class))
             .isZero();
         var mutation =
@@ -156,13 +158,17 @@ class CanonicalMigrationOrderIntegrationTest {
                 "--dbname",
                 container.getDatabaseName(),
                 "--command",
-                "set session_replication_role=replica; update public.trip_items set item_type='custom', place_id=null, title='메모 일정', facts='{}'::jsonb where id='61200000-0000-0000-0000-000000000006'; set session_replication_role=origin;");
+                "set session_replication_role=replica; update public.trip_items set"
+                    + " item_type='custom', place_id=null, title='메모 일정', facts='{}'::jsonb where"
+                    + " id='61200000-0000-0000-0000-000000000006'; set"
+                    + " session_replication_role=origin;");
         assertThat(mutation.getExitCode()).as(mutation.getStderr()).isZero();
 
         assertThatCode(
                 () ->
                     jdbc.execute(
-                        "select public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
+                        "select"
+                            + " public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
             .as(image)
             .doesNotThrowAnyException();
         var invalidMutation =
@@ -176,12 +182,17 @@ class CanonicalMigrationOrderIntegrationTest {
                 "--dbname",
                 container.getDatabaseName(),
                 "--command",
-                "alter table public.trip_items drop constraint chk_trip_items_required_references; set session_replication_role=replica; update public.trip_items set title=E'\\n' where id='61200000-0000-0000-0000-000000000006'; set session_replication_role=origin;");
+                "alter table public.trip_items drop constraint chk_trip_items_required_references;"
+                    + " set session_replication_role=replica; update public.trip_items set"
+                    + " title=E'\\n"
+                    + "' where id='61200000-0000-0000-0000-000000000006'; set"
+                    + " session_replication_role=origin;");
         assertThat(invalidMutation.getExitCode()).as(invalidMutation.getStderr()).isZero();
         assertThatThrownBy(
                 () ->
                     jdbc.execute(
-                        "select public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
+                        "select"
+                            + " public.assert_schedule_version_sealable('60000000-0000-0000-0000-000000000003','50000000-0000-0000-0000-000000000001')"))
             .as(image)
             .hasRootCauseInstanceOf(org.postgresql.util.PSQLException.class)
             .hasMessageContaining("required reference invariants");
