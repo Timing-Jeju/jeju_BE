@@ -353,3 +353,10 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - 020 closed allowlist에 `generationMode`와 `dayGeneration`을 임의 문자열로 열지 않고 각각 정확한 문자열 enum `structured`, `one_click`로 추가했다. surface별 진단에서 canonical seed의 정상 non-location residue가 이 값 외에도 trip leg 14건, compute summary 2건, risk/weather/recommendation/recovery 각 1건씩 있음을 확인했다. 해당 surface도 실제 고정 key 집합과 boolean·bounded number·time type만 허용한다.
 - 새 field의 위치 문자열, legitimate-looking field의 좌표 배열, unknown/nested object는 계속 거부하며 기존 unknown/nested/location payload와 네 legacy rollback fixture도 그대로 fail closed한다. canonical migration 테스트는 020 적용 전후에 title-only seed의 `raw_answers`가 byte-independent JSON 동등성으로 보존되는지 명시적으로 검증한다.
 - direct typed contract 32건, 정확한 title-only PG16/17 회귀, canonical class 전체 7건, location purge/provenance PG16/17 전체가 통과했다. 관련 Python 83건과 local/Supabase generator byte check도 통과했다. 전체 quality gate, Docker smoke, live DB, push와 PR은 실행하지 않는다.
+
+## 2026-09-11 planned route atomic source 경로 보정
+
+- 중단된 push hook의 전용 Gradle wrapper·daemon·test worker와 session label을 식별해 종료했다. 같은 session의 Testcontainers residue는 0이었고 공유 Gradle daemon과 보호 자원은 보존했다.
+- RED: `PlannedRouteHashPolicyMigrationIntegrationTest` 전체에서 PG16/17 모두 raw CLI 디렉터리의 이동 전 019 경로를 읽어 `NoSuchFileException`이 발생했고, duplicate rollback 사례도 migration을 실행하지 못해 예상 예외가 없었다.
+- 테스트의 로컬 `path()`를 raw 경로 조합 대신 공용 `canonicalMigrationPath()`로 교체했다. 019 production migration을 복제하거나 raw CLI 디렉터리로 되돌리지 않고 raw+atomic canonical source 규칙을 공유한다.
+- PG16/17 hash policy migration 전체 4건이 통과했다. manifest canonical order, atomic generator/checksum과 planned route hash policy Python 30건, local/Supabase generated SQL byte check와 diff check도 통과했다. 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
