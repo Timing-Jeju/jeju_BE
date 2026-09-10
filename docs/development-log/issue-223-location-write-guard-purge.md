@@ -367,3 +367,9 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - RED: `ScheduleRevisionRunSchemaIntegrationTest` 5건 중 idempotency 동시 INSERT와 fencing 전이 fixture 2건이 opaque `request_hash`를 사용해 `independent hash provenance required`로 실패했다.
 - 020의 runtime revision INSERT 전면 차단은 유지했다. schema fixture만 정확한 trigger 이름으로 설치 구간에 한해 guard를 disable하고 `try/finally`로 복원한다. parent와 `compute_run_inputs`는 같은 transaction에서 canonical structured input과 DB 함수가 계산한 동일 hash로 연결하며 FK, unique, lifecycle과 fencing trigger는 우회하지 않는다.
 - 첫 Green 시도에서 deferred lineage event가 남은 transaction 안의 trigger 재-enable이 PostgreSQL 55006으로 실패했다. 복원 경계를 transaction 밖으로 이동한 뒤 schema class 전체 5건, provenance migration PG16/17, 관련 Python 72건과 두 generator check가 통과했다. 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 schedule revision status assertion 보정
+
+- RED: unknown status INSERT의 assertion을 PostgreSQL SQLSTATE와 status constraint까지 구체화하자 constraint가 `null`로 나타났다. 현행 provenance trigger가 status 계약보다 먼저 거부해 기존 broad `DataIntegrityViolationException` assertion이 잘못 통과하던 사실을 확인했다.
+- 해당 negative fixture만 기존 exact provenance trigger disable/`finally` restore 경계에 넣었다. 이후 lifecycle trigger의 SQLSTATE `23514`와 고유 메시지 `schedule revision run must be created as queued`를 함께 검증해 provenance 오류와 구분한다. 운영 trigger와 migration은 변경하지 않았다.
+- 단일 Red/Green 재현 후 `ScheduleRevisionRunSchemaIntegrationTest` 전체와 `LocationProvenanceFailClosedMigrationIntegrationTest`의 PG16/17 매트릭스가 통과했다. 요청에 따라 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.

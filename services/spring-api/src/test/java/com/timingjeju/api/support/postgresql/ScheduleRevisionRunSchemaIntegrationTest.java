@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -107,19 +108,33 @@ class ScheduleRevisionRunSchemaIntegrationTest {
             Integer.class);
     assertThat(compositeForeignKeys).isEqualTo(3);
 
-    assertThatThrownBy(
-            () ->
-                jdbcTemplate.update(
-                    insertSql(),
-                    UUID.randomUUID(),
-                    OWNER_ONE,
-                    TRIP_ONE,
-                    BASE_ONE,
-                    DAY_ONE,
-                    "unknown",
-                    UUID.randomUUID(),
-                    canonicalRequestHash(BASE_ONE, DAY_ONE)))
-        .isInstanceOf(DataIntegrityViolationException.class);
+    disableRevisionFixtureGuard();
+    try {
+      assertThatThrownBy(
+              () ->
+                  jdbcTemplate.update(
+                      insertSql(),
+                      UUID.randomUUID(),
+                      OWNER_ONE,
+                      TRIP_ONE,
+                      BASE_ONE,
+                      DAY_ONE,
+                      "unknown",
+                      UUID.randomUUID(),
+                      canonicalRequestHash(BASE_ONE, DAY_ONE)))
+          .isInstanceOf(DataIntegrityViolationException.class)
+          .rootCause()
+          .isInstanceOfSatisfying(
+              PSQLException.class,
+              error -> {
+                assertThat(error.getSQLState()).isEqualTo("23514");
+                assertThat(error.getServerErrorMessage()).isNotNull();
+                assertThat(error.getServerErrorMessage().getMessage())
+                    .isEqualTo("schedule revision run must be created as queued");
+              });
+    } finally {
+      enableRevisionFixtureGuard();
+    }
   }
 
   @Test
