@@ -30,3 +30,5 @@
 최종 집중 검증은 unitTest 1,381개(실패/오류 0, 기존 skip 9), architectureTest 48개(실패/오류/skip 0), JDBC mutation 24개(실패/오류/skip 0)로 통과했다. 새 1/5/30일 복원과 HTTP registry replay를 포함한다. 변경한 Python 테스트의 한글 목적 docstring은 AST 검사로 누락 0건을 확인했다. 최종 전체 gate는 정상 push 훅에서 한 번 실행한다.
 
 최종 조회 경쟁 검증에서 READ_COMMITTED가 이전 revision과 새 Day 시간을 섞는 RED를 재현했다(`/tmp/jeju239-read-snapshot-red.log`). `findOwned`의 신규 read-only transaction을 REPEATABLE_READ로 고쳐 root·Day를 같은 snapshot에서 읽는다. 기존 writer transaction 안에서는 owner root lock을 유지한다. 두 세션 barrier를 포함한 전체 JDBC mutation 25개가 실패/오류/skip 0으로 통과했다(`/tmp/jeju239-read-snapshot-green.log`).
+
+첫 정상 push(`95bde05`)는 초기 Python 875개 중 #114 통합 테스트의 이전 CLI choices 문자열 한 곳이 남아 실패했다. 아직 Docker/전체 통과 근거가 아니다. 역사 모드는 유지하고 새 mode38을 정확한 choices 목록에 추가한 뒤 해당 회귀 5개를 재검증했다. 다음 SHA에서 정상 push 전체 gate를 다시 수행한다.
