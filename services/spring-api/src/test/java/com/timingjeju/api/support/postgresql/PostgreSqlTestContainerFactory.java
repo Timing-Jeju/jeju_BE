@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
@@ -23,6 +24,8 @@ final class PostgreSqlTestContainerFactory {
   private static final DockerImageName POSTGIS_IMAGE =
       DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
   private static final Pattern CANONICAL_MIGRATION = Pattern.compile("^\\d{14}_.+\\.sql$");
+  private static final Map<String, String> DATA_DIRECTORY_TMPFS =
+      Map.of("/var/lib/postgresql/data", "rw,noexec,nosuid,size=2g");
 
   private PostgreSqlTestContainerFactory() {}
 
@@ -58,6 +61,16 @@ final class PostgreSqlTestContainerFactory {
   }
 
   static void executeScript(PostgreSQLContainer container, Path script) throws Exception {
+    executeScript(container, container.getDatabaseName(), script);
+  }
+
+  static void executeScript(PostgreSqlImageFixturePool.IsolatedDatabase database, Path script)
+      throws Exception {
+    database.executeScript(script);
+  }
+
+  static void executeScript(PostgreSQLContainer container, String databaseName, Path script)
+      throws Exception {
     String target = "/tmp/" + UUID.randomUUID() + "_" + script.getFileName();
     container.copyFileToContainer(MountableFile.forHostPath(script), target);
     var result =
@@ -69,7 +82,7 @@ final class PostgreSqlTestContainerFactory {
             "--username",
             container.getUsername(),
             "--dbname",
-            container.getDatabaseName(),
+            databaseName,
             "--file",
             target);
     if (result.getExitCode() != 0) {
@@ -99,6 +112,7 @@ final class PostgreSqlTestContainerFactory {
             .withDatabaseName("timing_jeju_repository_test")
             .withUsername("timing_jeju_repository_test")
             .withPassword(UUID.randomUUID().toString())
+            .withTmpFs(DATA_DIRECTORY_TMPFS)
             .withStartupTimeout(Duration.ofMinutes(3));
 
     for (int index = 0; index < initScripts.size(); index++) {
@@ -120,6 +134,10 @@ final class PostgreSqlTestContainerFactory {
     if (!available) {
       throw new IllegalStateException(DOCKER_UNAVAILABLE_MESSAGE);
     }
+  }
+
+  static Map<String, String> dataDirectoryTmpFs() {
+    return DATA_DIRECTORY_TMPFS;
   }
 
   static List<Path> canonicalInitScripts(Path repositoryRoot) {
