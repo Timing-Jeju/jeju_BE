@@ -36,8 +36,12 @@ final class PostgreSqlLauncherSessionPool {
     return IMAGES.get(canonicalImage).templateCount();
   }
 
-  static int caseConnectionCount(String canonicalImage) {
-    return IMAGES.get(canonicalImage).caseConnectionCount();
+  static int caseConnectionCount(String canonicalImage, List<String> databases) {
+    return IMAGES.get(canonicalImage).caseConnectionCount(databases);
+  }
+
+  static int sessionCaseConnectionCount(String canonicalImage) {
+    return IMAGES.get(canonicalImage).sessionCaseConnectionCount();
   }
 
   static int physicalStartCount(String canonicalImage) {
@@ -139,7 +143,25 @@ final class PostgreSqlLauncherSessionPool {
       return templates.size();
     }
 
-    private synchronized int caseConnectionCount() {
+    private synchronized int caseConnectionCount(List<String> databases) {
+      if (databases.isEmpty()) return 0;
+      String placeholders = String.join(",", java.util.Collections.nCopies(databases.size(), "?"));
+      Object[] arguments = new Object[databases.size() + 1];
+      arguments[0] = container.getUsername();
+      for (int index = 0; index < databases.size(); index++) {
+        arguments[index + 1] = databases.get(index);
+      }
+      Integer count =
+          admin.queryForObject(
+              "select count(*) from pg_stat_activity where usename=? and datname in ("
+                  + placeholders
+                  + ")",
+              Integer.class,
+              arguments);
+      return count == null ? 0 : count;
+    }
+
+    private synchronized int sessionCaseConnectionCount() {
       Integer count =
           admin.queryForObject(
               "select count(*) from pg_stat_activity "
