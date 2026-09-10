@@ -373,3 +373,9 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - RED: unknown status INSERT의 assertion을 PostgreSQL SQLSTATE와 status constraint까지 구체화하자 constraint가 `null`로 나타났다. 현행 provenance trigger가 status 계약보다 먼저 거부해 기존 broad `DataIntegrityViolationException` assertion이 잘못 통과하던 사실을 확인했다.
 - 해당 negative fixture만 기존 exact provenance trigger disable/`finally` restore 경계에 넣었다. 이후 lifecycle trigger의 SQLSTATE `23514`와 고유 메시지 `schedule revision run must be created as queued`를 함께 검증해 provenance 오류와 구분한다. 운영 trigger와 migration은 변경하지 않았다.
 - 단일 Red/Green 재현 후 `ScheduleRevisionRunSchemaIntegrationTest` 전체와 `LocationProvenanceFailClosedMigrationIntegrationTest`의 PG16/17 매트릭스가 통과했다. 요청에 따라 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 direct command hash inventory 보정
+
+- push gate의 Python 851건 중 command-input snapshot inventory 1건이 실패했다. 실제 분류는 direct exact 26건, invalid 1건, migration definition·typed internal·privilege signature 각 1건이었다. invalid는 schedule revision fixture가 `jsonb_build_object(...)`의 반환 타입을 암묵적으로 사용한 신규 direct hash call이었다.
+- RED에서 정당한 27번째 direct call을 인벤토리에 고정하고 JSON 함수 표현식의 암묵 타입을 거부하는 테스트를 추가했다. 결과는 direct exact 26건과 invalid 1건으로 계속 실패해 단순 기대치 증가가 아닌 실제 cast 누락을 확인했다.
+- fixture가 canonical structured input JSON을 parameter로 전달하고 SQL에서 `?::jsonb`를 명시하도록 바꿨다. 최종 분류는 direct exact 27건, migration definition·typed internal·privilege signature 각 1건, invalid 0건이다. command-input snapshot과 DB hardening 66건, atomic cutover generator 계약 12건, local/Supabase 생성물 byte check가 통과했다.

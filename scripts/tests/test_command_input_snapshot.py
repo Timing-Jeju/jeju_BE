@@ -75,7 +75,7 @@ MIGRATION_TYPED_INTERNAL_HASH_CALL = re.compile(
 )
 EXPECTED_HASH_OCCURRENCE_COUNTS = Counter(
     {
-        "direct exact": 26,
+        "direct exact": 27,
         "migration definition": 1,
         "migration privilege signature": 1,
         "migration typed internal": 1,
@@ -258,6 +258,23 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         ):
             with self.subTest(expression=expression):
                 self.assertTrue(invalid_direct_hash_calls(call.replace(expression, expression.split("::")[0])))
+
+    def test_hash_call_rejects_implicitly_typed_json_function_expression(self):
+        call = """
+          public.compute_command_input_hash(
+            'schedule_revision'::text, 1::smallint,
+            'revision-v1'::text, 'algorithm-v1'::text,
+            ?::uuid, jsonb_build_object('targetDayId', ?::text),
+            false::boolean, null::jsonb)
+        """
+        self.assertEqual(1, len(invalid_direct_hash_calls(call)))
+        self.assertFalse(
+            invalid_direct_hash_calls(
+                call.replace(
+                    "jsonb_build_object('targetDayId', ?::text)", "?::jsonb"
+                )
+            )
+        )
 
     def test_repository_direct_hash_calls_use_all_exact_declared_types(self):
         self.assertEqual(

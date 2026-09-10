@@ -585,16 +585,20 @@ class ScheduleRevisionRunSchemaIntegrationTest {
   }
 
   private String canonicalRequestHash(UUID baseId, UUID dayId) {
+    String structuredInput =
+        """
+        {"targetDayId":"%s","affectedItemIds":[],"instructionCodes":[]}
+        """
+            .formatted(dayId);
     return jdbcTemplate.queryForObject(
         """
         select public.compute_command_input_hash(
           'schedule_revision'::text,1::smallint,'revision-v1'::text,'algorithm-v1'::text,
-          ?::uuid,jsonb_build_object('targetDayId',?::text,'affectedItemIds','[]'::jsonb,
-            'instructionCodes','[]'::jsonb),false::boolean,null::jsonb)
+          ?::uuid,?::jsonb,false::boolean,null::jsonb)
         """,
         String.class,
         baseId,
-        dayId);
+        structuredInput);
   }
 
   private void disableRevisionFixtureGuard() {
