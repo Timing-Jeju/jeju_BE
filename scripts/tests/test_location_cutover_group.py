@@ -1,4 +1,4 @@
-"""위치 정리의 두 불변 migration을 단일 실행 단위로 검증한다."""
+"""위치 정리와 후속 hash 정책 migration을 안전한 실행 단위로 검증한다."""
 from pathlib import Path
 import hashlib
 import importlib.util
@@ -52,7 +52,7 @@ class LocationCutoverGroupTest(unittest.TestCase):
         self.assertIn('db/local-postgres/20260918000017_location_cutover_group.sql', factory)
 
     def test_supabase_history_is_recorded_inside_the_group_after_final_audit(self):
-        """실제 적용 SQL은 최종 감사 이후 같은 transaction에서 두 이력을 등록한다."""
+        """실제 적용 SQL은 최종 감사 이후 같은 transaction에서 전체 이력을 등록한다."""
         module = self.load()
         sql = module.render_supabase(ROOT)
         self.assertEqual(sql, (ROOT / "db/local-postgres/location_cutover_supabase.sql").read_bytes())
@@ -62,7 +62,12 @@ class LocationCutoverGroupTest(unittest.TestCase):
         self.assertGreater(sql.index(b"insert into supabase_migrations.schema_migrations"), sql.index(b"select '20260918000018'::text"))
         self.assertIn(b"location cutover migration history mismatch", sql)
         self.assertIn(b"-- Issue #223 post-merge remediation", sql)
+        self.assertIn(b"'20260918000019', 'planned_route_request_hash_policy'", sql)
         self.assertIn(b"'20260918000020', 'location_provenance_fail_closed'", sql)
+        self.assertLess(
+            sql.index(b"'20260918000019', 'planned_route_request_hash_policy'"),
+            sql.index(b"'20260918000020', 'location_provenance_fail_closed'"),
+        )
 
     def test_default_smoke_refuses_raw_sequential_migrations(self):
         """config는 보조층이고 기본 smoke는 017·018 순차 실행 전에 거부한다."""
@@ -109,6 +114,7 @@ class LocationCutoverGroupTest(unittest.TestCase):
         expected_atomic = {
             "20260918000017_user_location_write_guard_purge.sql",
             "20260918000018_revision_request_hash_audit.sql",
+            "20260918000019_planned_route_request_hash_policy.sql",
             "20260918000020_location_provenance_fail_closed.sql",
         }
         self.assertTrue(expected_atomic.isdisjoint(cli_names))

@@ -1302,7 +1302,7 @@ class LocationDataPurgeMigrationIntegrationTest {
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
-  void Supabase_이력은_감사_실패시_유지하고_성공시에만_세_버전을_같이_등록한다(String image) throws Exception {
+  void Supabase_이력은_감사_실패시_유지하고_성공시에만_네_버전을_같이_등록한다(String image) throws Exception {
     var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
     try {
       container.start();
@@ -1391,16 +1391,16 @@ class LocationDataPurgeMigrationIntegrationTest {
       PostgreSqlTestContainerFactory.executeScript(container, script);
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from supabase_migrations.schema_migrations where version in ('20260918000017','20260918000018','20260918000020')",
+                  "select count(*) from supabase_migrations.schema_migrations where version in ('20260918000017','20260918000018','20260918000019','20260918000020')",
                   Integer.class))
-          .isEqualTo(3);
+          .isEqualTo(4);
       assertThat(
               jdbc.queryForObject(
                   "select count(*) from supabase_migrations.schema_migrations "
-                      + "where version in ('20260918000017','20260918000018','20260918000020') "
+                      + "where version in ('20260918000017','20260918000018','20260918000019','20260918000020') "
                       + "and name is not null and statements is not null",
                   Integer.class))
-          .isEqualTo(3);
+          .isEqualTo(4);
       assertThat(
               jdbc.queryForObject(
                   "select timing_jeju_planner_private.user_location_guard_purge_revision()",

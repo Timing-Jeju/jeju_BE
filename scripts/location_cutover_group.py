@@ -1,4 +1,4 @@
-"""017·018의 검증된 외곽 transaction만 합치는 전용 오프라인 생성기."""
+"""017·018과 후속 canonical migration을 원자 적용하는 오프라인 생성기."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -16,7 +16,7 @@ SOURCES = (
 def body(source: bytes, checksum: str) -> bytes:
     if hashlib.sha256(source).hexdigest() != checksum:
         raise ValueError("location cutover source mismatch")
-    # Only these two pinned files are accepted. SQL bodies are never parsed or rewritten.
+    # Only the pinned 017/018 files are accepted here. SQL bodies are never parsed or rewritten.
     first_line, remainder = source.split(b"\n", 1)
     if not first_line.startswith(b"-- Issue #223:") or not remainder.startswith(b"begin;\n") or not remainder.endswith(b"commit;\n"):
         raise ValueError("location cutover envelope mismatch")

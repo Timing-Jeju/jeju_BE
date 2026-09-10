@@ -28,7 +28,7 @@ mkdir -p "$FETCH_DIR/supabase/migrations"
 cp supabase/config.toml "$FETCH_DIR/supabase/config.toml"
 
 # The repository layout exposes only the safe bootstrap prefix to raw CLI migration up.
-# Atomic 017+ sources live in supabase/atomic-migrations and are applied below by psql.
+# Atomic 017+ sources, including #225 hash policy, are applied below by psql.
 "$SUPABASE_BIN" --workdir "$ROOT" migration up \
   --db-url "$DATABASE_URL" --include-all
 "$PSQL_BIN" "$DATABASE_URL" --no-psqlrc --set ON_ERROR_STOP=1 \

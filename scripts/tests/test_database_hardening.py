@@ -150,12 +150,17 @@ class DatabaseHardeningTest(unittest.TestCase):
         )
 
     def test_every_postgres_compose_mounts_all_migrations_before_fixture_seed(self):
+        """위치 원자 그룹과 후속 migration을 원래 순서로 seed 전에 적용한다."""
         migration_mounts = []
         for path in sorted(MIGRATIONS.glob("*.sql")):
-            if path.name == "20260918000017_user_location_write_guard_purge.sql":
-                migration_mounts.append("./db/local-postgres/20260918000017_location_cutover_group.sql")
-            elif path.name != "20260918000018_revision_request_hash_audit.sql":
-                migration_mounts.append(f"./supabase/migrations/{path.name}")
+            migration_mounts.append(f"./supabase/migrations/{path.name}")
+        migration_mounts.extend(
+            [
+                "./db/local-postgres/20260918000017_location_cutover_group.sql",
+                "./supabase/atomic-migrations/20260918000019_planned_route_request_hash_policy.sql",
+                "./supabase/atomic-migrations/20260918000020_location_provenance_fail_closed.sql",
+            ]
+        )
         ordered_mounts = [
             "./db/local-postgres/auth_compat.sql",
             *migration_mounts,

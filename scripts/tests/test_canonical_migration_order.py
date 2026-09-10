@@ -35,6 +35,7 @@ CANONICAL_SUFFIX = (
     ("20260918000016_planned_route_reference_integrity.sql", "054", 225),
     ("20260918000017_user_location_write_guard_purge.sql", "055", 223),
     ("20260918000018_revision_request_hash_audit.sql", "056", 223),
+    ("20260918000019_planned_route_request_hash_policy.sql", "057", 225),
     ("20260918000020_location_provenance_fail_closed.sql", "058", 223),
 )
 
@@ -59,6 +60,7 @@ def digest(path: Path) -> str:
 
 class CanonicalMigrationOrderTest(unittest.TestCase):
     def test_architecture_documents_complete_canonical_suffix_and_title_only_correction(self) -> None:
+        """최종 migration과 Docker 슬롯 범위가 아키텍처 설명과 일치한다."""
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
@@ -193,6 +195,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertLess(block.index(dependency), block.index(resolver))
 
     def test_compose_and_both_smoke_scripts_follow_the_manifest(self) -> None:
+        """위치 원자 그룹 이후 hash 정책까지 manifest 순서로 마운트한다."""
         expected_mounts = []
         for path, slot, _ in CANONICAL_SUFFIX:
             if slot == "056":
@@ -203,7 +206,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
                      "/docker-entrypoint-initdb.d/055_location_cutover_group.sql")
                 )
                 continue
-            source_dir = "supabase/atomic-migrations" if slot == "058" else "supabase/migrations"
+            source_dir = "supabase/atomic-migrations" if slot in {"057", "058"} else "supabase/migrations"
             expected_mounts.append(
                 (f"./{source_dir}/{path}", f"/docker-entrypoint-initdb.d/{slot}_{path[15:]}")
             )
