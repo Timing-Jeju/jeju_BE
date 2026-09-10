@@ -132,6 +132,7 @@ def repositoryTestSchema = files(
 
 integrationTestTask.configure {
 	inputs.files(repositoryTestSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+	systemProperty 'spring.test.context.cache.maxSize', '24'
 	filter {
 		excludeTestsMatching openApiWriterClass
 	}

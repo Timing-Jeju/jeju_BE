@@ -8,6 +8,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.testcontainers.containers.Container.ExecResult;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -18,6 +20,7 @@ final class PostgreSqlLauncherSessionPool {
   private static final String SESSION_ID = UUID.randomUUID().toString();
   private static final ImageResourcePool<SharedImage> IMAGES =
       new ImageResourcePool<>(PostgreSqlLauncherSessionPool::startImage);
+  private static final Map<String, AtomicInteger> PHYSICAL_STARTS = new ConcurrentHashMap<>();
 
   private PostgreSqlLauncherSessionPool() {}
 
@@ -31,6 +34,22 @@ final class PostgreSqlLauncherSessionPool {
 
   static int cachedTemplateCount(String canonicalImage) {
     return IMAGES.get(canonicalImage).templateCount();
+  }
+
+  static int caseConnectionCount(String canonicalImage) {
+    return IMAGES.get(canonicalImage).caseConnectionCount();
+  }
+
+  static int physicalStartCount(String canonicalImage) {
+    AtomicInteger count = PHYSICAL_STARTS.get(canonicalImage);
+    return count == null ? 0 : count.get();
+  }
+
+  static String templateIdentity(PostgreSQLContainer container) {
+    if (!(container instanceof PooledContainer pooled)) {
+      throw new IllegalArgumentException("launcher session pool handle이 아닙니다.");
+    }
+    return pooled.templateIdentity();
   }
 
   static void closeSession() {
@@ -57,7 +76,11 @@ final class PostgreSqlLauncherSessionPool {
             .withStartupTimeout(Duration.ofMinutes(3));
     try {
       container.start();
-      return new SharedImage(container);
+      SharedImage sharedImage = new SharedImage(container);
+      PHYSICAL_STARTS
+          .computeIfAbsent(canonicalImage, ignored -> new AtomicInteger())
+          .incrementAndGet();
+      return sharedImage;
     } catch (RuntimeException failure) {
       String diagnostic =
           PostgreSqlImageFixturePool.startupDiagnostic(
@@ -109,11 +132,20 @@ final class PostgreSqlLauncherSessionPool {
           templates.computeIfAbsent(templateKey, ignored -> createTemplate(migrations));
       String database = databaseName("tj_case_");
       admin.execute("create database " + database + " template " + template);
-      return new DatabaseLease(this, database);
+      return new DatabaseLease(this, database, template);
     }
 
     private synchronized int templateCount() {
       return templates.size();
+    }
+
+    private synchronized int caseConnectionCount() {
+      Integer count =
+          admin.queryForObject(
+              "select count(*) from pg_stat_activity "
+                  + "where usename=? and datname like 'tj_case_%'",
+              Integer.class, container.getUsername());
+      return count == null ? 0 : count;
     }
 
     private String createTemplate(List<Path> migrations) {
@@ -166,11 +198,13 @@ final class PostgreSqlLauncherSessionPool {
   private static final class DatabaseLease implements AutoCloseable {
     private final SharedImage owner;
     private final String database;
+    private final String template;
     private boolean closed;
 
-    private DatabaseLease(SharedImage owner, String database) {
+    private DatabaseLease(SharedImage owner, String database, String template) {
       this.owner = owner;
       this.database = database;
+      this.template = template;
     }
 
     private synchronized void requireOpen() {
@@ -254,6 +288,10 @@ final class PostgreSqlLauncherSessionPool {
     @Override
     public synchronized String getLogs() {
       return lease == null ? "" : lease.owner.container.getLogs();
+    }
+
+    private synchronized String templateIdentity() {
+      return requireLease().template;
     }
 
     @Override

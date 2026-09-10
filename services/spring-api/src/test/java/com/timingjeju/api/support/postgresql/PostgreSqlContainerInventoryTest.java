@@ -48,4 +48,16 @@ class PostgreSqlContainerInventoryTest {
         .contains("PostgreSqlTestContainerFactory.create()")
         .doesNotContain("new PostgreSQLContainer(");
   }
+
+  @Test
+  void integration_test의_Spring_context와_Hikari_연결_예산을_고정한다() throws Exception {
+    Path repository = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+    String build = Files.readString(repository.resolve("services/spring-api/build.gradle"));
+    String testApplication =
+        Files.readString(
+            repository.resolve("services/spring-api/src/test/resources/application.yml"));
+
+    assertThat(build).contains("systemProperty 'spring.test.context.cache.maxSize', '24'");
+    assertThat(testApplication).contains("maximum-pool-size: 2").contains("minimum-idle: 0");
+  }
 }

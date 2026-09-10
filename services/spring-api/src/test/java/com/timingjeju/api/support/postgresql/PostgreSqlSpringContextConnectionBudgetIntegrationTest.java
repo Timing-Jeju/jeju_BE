@@ -1,0 +1,147 @@
+package com.timingjeju.api.support.postgresql;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.SoftAssertions.assertSoftly;
+
+import com.zaxxer.hikari.HikariDataSource;
+import java.sql.Connection;
+import java.util.ArrayList;
+import java.util.List;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.jdbc.autoconfigure.JdbcTemplateAutoConfiguration;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+
+@Tag("integration")
+class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
+  private static final String IMAGE = "postgis/postgis:16-3.4";
+  private static final int CONTEXT_COUNT = 4;
+  private static final int CONNECTIONS_PER_CONTEXT = 2;
+  private static final int PEAK_BUDGET = CONTEXT_COUNT * CONNECTIONS_PER_CONTEXT;
+  private static final int CONTEXT_CACHE_BUDGET = 24;
+
+  @Test
+  void 여러_Spring_context의_Hikari_연결은_예산안에_머물고_close후_새_context가_성공한다() throws Exception {
+    List<PostgreSQLContainer> containers = new ArrayList<>();
+    List<ConfigurableApplicationContext> contexts = new ArrayList<>();
+    List<Connection> heldConnections = new ArrayList<>();
+    List<Integer> maximumPoolSizes = new ArrayList<>();
+    List<Integer> minimumIdleSizes = new ArrayList<>();
+    int peakConnections;
+    try {
+      for (int index = 0; index < CONTEXT_COUNT; index++) {
+        PostgreSQLContainer container = PostgreSqlTestContainerFactory.create();
+        container.start();
+        containers.add(container);
+
+        ConfigurableApplicationContext context = context(container, "issue247-context-" + index);
+        contexts.add(context);
+        HikariDataSource dataSource = context.getBean(HikariDataSource.class);
+        maximumPoolSizes.add(dataSource.getMaximumPoolSize());
+        minimumIdleSizes.add(dataSource.getMinimumIdle());
+        for (int connection = 0; connection < CONNECTIONS_PER_CONTEXT; connection++) {
+          heldConnections.add(dataSource.getConnection());
+        }
+      }
+      int settledConnectionTarget =
+          java.util.stream.IntStream.range(0, CONTEXT_COUNT)
+              .map(
+                  index ->
+                      Math.max(
+                          CONNECTIONS_PER_CONTEXT,
+                          minimumIdleSizes.get(index) < 0
+                              ? maximumPoolSizes.get(index)
+                              : minimumIdleSizes.get(index)))
+              .sum();
+      peakConnections = awaitConnectionCount(settledConnectionTarget);
+
+      closeConnections(heldConnections);
+      closeContexts(contexts);
+      assertThat(PostgreSqlLauncherSessionPool.caseConnectionCount(IMAGE)).isZero();
+
+      PostgreSQLContainer replacement = PostgreSqlTestContainerFactory.create();
+      replacement.start();
+      containers.add(replacement);
+      try (ConfigurableApplicationContext replacementContext =
+          context(replacement, "issue247-context-replacement")) {
+        Integer value =
+            replacementContext
+                .getBean(JdbcTemplate.class)
+                .queryForObject("select 1", Integer.class);
+        assertThat(value).isOne();
+      }
+      assertThat(PostgreSqlLauncherSessionPool.caseConnectionCount(IMAGE)).isZero();
+
+      assertSoftly(
+          softly -> {
+            softly
+                .assertThat(Integer.getInteger("spring.test.context.cache.maxSize"))
+                .isEqualTo(CONTEXT_CACHE_BUDGET);
+            softly.assertThat(maximumPoolSizes).containsOnly(CONNECTIONS_PER_CONTEXT);
+            softly.assertThat(minimumIdleSizes).containsOnly(0);
+            softly.assertThat(peakConnections).isEqualTo(PEAK_BUDGET);
+            softly.assertThat(CONTEXT_CACHE_BUDGET * CONNECTIONS_PER_CONTEXT).isEqualTo(48);
+          });
+    } finally {
+      closeConnections(heldConnections);
+      closeContexts(contexts);
+      for (int index = containers.size() - 1; index >= 0; index--) {
+        containers.get(index).stop();
+      }
+    }
+  }
+
+  private static ConfigurableApplicationContext context(
+      PostgreSQLContainer container, String poolName) {
+    return new SpringApplicationBuilder(DataSourceContextConfiguration.class)
+        .web(WebApplicationType.NONE)
+        .profiles("postgresql-integration")
+        .run(
+            "--spring.datasource.url=" + container.getJdbcUrl(),
+            "--spring.datasource.username=" + container.getUsername(),
+            "--spring.datasource.password=" + container.getPassword(),
+            "--spring.datasource.driver-class-name=org.postgresql.Driver",
+            "--spring.datasource.hikari.pool-name=" + poolName,
+            "--spring.main.banner-mode=off");
+  }
+
+  private static int awaitConnectionCount(int target) throws InterruptedException {
+    long deadline = System.nanoTime() + java.time.Duration.ofSeconds(5).toNanos();
+    int observed;
+    do {
+      observed = PostgreSqlLauncherSessionPool.caseConnectionCount(IMAGE);
+      if (observed >= target) return observed;
+      Thread.sleep(50);
+    } while (System.nanoTime() < deadline);
+    return observed;
+  }
+
+  private static void closeConnections(List<Connection> connections) {
+    for (int index = connections.size() - 1; index >= 0; index--) {
+      try {
+        connections.get(index).close();
+      } catch (Exception ignored) {
+        // Best-effort cleanup continues so every context can release its pool.
+      }
+    }
+    connections.clear();
+  }
+
+  private static void closeContexts(List<ConfigurableApplicationContext> contexts) {
+    for (int index = contexts.size() - 1; index >= 0; index--) {
+      contexts.get(index).close();
+    }
+    contexts.clear();
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @ImportAutoConfiguration({DataSourceAutoConfiguration.class, JdbcTemplateAutoConfiguration.class})
+  static class DataSourceContextConfiguration {}
+}
