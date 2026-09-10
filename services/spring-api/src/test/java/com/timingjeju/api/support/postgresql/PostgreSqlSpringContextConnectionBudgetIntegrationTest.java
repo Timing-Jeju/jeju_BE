@@ -23,11 +23,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
   private static final String IMAGE = "postgis/postgis:16-3.4";
   private static final int CONTEXT_COUNT = 4;
-  private static final int CONNECTIONS_PER_CONTEXT = 2;
+  private static final int CONNECTIONS_PER_CONTEXT =
+      PostgreSqlTestConnectionBudget.HIKARI_PER_CONTEXT;
   private static final int PEAK_BUDGET = CONTEXT_COUNT * CONNECTIONS_PER_CONTEXT;
-  private static final int CONTEXT_CACHE_BUDGET = 24;
+  private static final int CONTEXT_CACHE_BUDGET =
+      PostgreSqlTestConnectionBudget.CONTEXT_CACHE_LIMIT;
   private static final int SESSION_CONNECTION_BUDGET =
-      CONTEXT_CACHE_BUDGET * CONNECTIONS_PER_CONTEXT;
+      PostgreSqlTestConnectionBudget.CACHED_HIKARI_CONNECTIONS;
 
   @Test
   void 여러_Spring_context의_Hikari_연결은_예산안에_머물고_close후_새_context가_성공한다() throws Exception {
@@ -119,7 +121,7 @@ class PostgreSqlSpringContextConnectionBudgetIntegrationTest {
             softly
                 .assertThat(sessionPeakConnections)
                 .isLessThanOrEqualTo(SESSION_CONNECTION_BUDGET);
-            softly.assertThat(SESSION_CONNECTION_BUDGET).isEqualTo(48);
+            softly.assertThat(SESSION_CONNECTION_BUDGET).isEqualTo(72);
           });
     } finally {
       closeConnections(heldConnections);

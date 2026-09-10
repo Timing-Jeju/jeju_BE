@@ -58,6 +58,6 @@ class PostgreSqlContainerInventoryTest {
             repository.resolve("services/spring-api/src/test/resources/application.yml"));
 
     assertThat(build).contains("systemProperty 'spring.test.context.cache.maxSize', '24'");
-    assertThat(testApplication).contains("maximum-pool-size: 2").contains("minimum-idle: 0");
+    assertThat(testApplication).contains("maximum-pool-size: 3").contains("minimum-idle: 0");
   }
 }
