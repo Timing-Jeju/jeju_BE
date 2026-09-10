@@ -885,8 +885,8 @@ begin
 end;
 $$;
 
--- Legacy audit recognizes normalized aliases and nested Jeju coordinate pairs.
--- A valid typed childAges array is the explicit safe numeric-array exception.
+-- Alias recognition remains available for the already completed 017 event cleanup.
+-- The 020 legacy audit below does not infer provenance from coordinate-like values.
 create or replace function timing_jeju_private.is_user_location_key(input_key text)
 returns boolean language sql immutable strict security invoker set search_path = ''
 as $$
@@ -911,16 +911,6 @@ declare entry record;
 begin
   if jsonb_typeof(input_value) = 'object' then
     for entry in select key, value from jsonb_each(input_value) loop
-      if lower(regexp_replace(entry.key, '[^a-zA-Z0-9]', '', 'g')) = 'childages'
-         and jsonb_typeof(entry.value) = 'array'
-         and jsonb_array_length(entry.value) <= 20
-         and not exists (
-           select 1 from jsonb_array_elements(entry.value) element
-           where jsonb_typeof(element) <> 'number'
-              or element #>> '{}' !~ '^(0|[1-9]|1[0-7])$'
-         ) then
-        continue;
-      end if;
       if timing_jeju_private.is_user_location_key(entry.key)
          or (entry.key = 'type' and entry.value = '"GRID_100M"'::jsonb)
          or timing_jeju_private.user_json_contains_location(entry.value) then
@@ -928,17 +918,6 @@ begin
       end if;
     end loop;
   elsif jsonb_typeof(input_value) = 'array' then
-    if jsonb_array_length(input_value) = 2
-       and jsonb_typeof(input_value -> 0) = 'number'
-       and jsonb_typeof(input_value -> 1) = 'number'
-       and (
-         ((input_value ->> 0)::numeric between 124 and 132
-           and (input_value ->> 1)::numeric between 30 and 40)
-         or ((input_value ->> 1)::numeric between 124 and 132
-           and (input_value ->> 0)::numeric between 30 and 40)
-       ) then
-      return true;
-    end if;
     for entry in select value from jsonb_array_elements(input_value) loop
       if timing_jeju_private.user_json_contains_location(entry.value) then return true; end if;
     end loop;
@@ -1032,6 +1011,93 @@ $$;
 revoke all on function timing_jeju_private.user_json_matches_write_contract(text, jsonb)
   from public, anon, authenticated, service_role;
 
+-- Replace the 017 legacy verifier used by the 018 wrapper. Every generic JSON
+-- surface is accepted only when its exact non-location shape and types are known.
+-- Unknown keys, aliases and nested containers remain in place for manual audit.
+create or replace function timing_jeju_planner_private.user_location_residue_counts_v17()
+returns table (object_name text, residue_count bigint)
+language sql stable security invoker set search_path = ''
+as $$
+  select 'trip_execution_events'::text, count(*) from public.trip_execution_events
+  where location is not null
+    or not coalesce(metadata = '{}'::jsonb or (
+      jsonb_typeof(metadata) = 'object' and metadata - 'source' = '{}'::jsonb
+      and metadata ->> 'source' in ('manual', 'time', 'system', 'mobile')
+    ), false)
+  union all
+  select 'live_state_snapshots', count(*) from public.live_state_snapshots
+  where current_location is not null or current_place_id is not null
+    or facts <> '{}'::jsonb or next_action is not null
+  union all
+  select 'compute_run_inputs', count(*) from public.compute_run_inputs
+  where location_supplied or coarse_location is not null or location_precision_meters is not null
+    or location_policy_version is not null or location_observed_at is not null
+    or location_expires_at is not null or location_redacted_at is not null
+  union all
+  select 'trip_preferences.raw_answers', count(*) from public.trip_preferences
+  where timing_jeju_private.user_json_matches_write_contract(
+    'trip_preferences.raw_answers', raw_answers) is not true
+  union all
+  select 'trip_items.facts', count(*) from public.trip_items
+  where facts is distinct from '{}'::jsonb
+  union all
+  select 'trip_legs.facts', count(*) from public.trip_legs
+  where timing_jeju_private.user_json_matches_write_contract('trip_legs.facts', facts) is not true
+  union all
+  select 'itinerary_generation_runs.structured_input', count(*)
+  from public.itinerary_generation_runs
+  where timing_jeju_private.user_json_matches_write_contract(
+    'itinerary_generation_runs.structured_input', structured_input) is not true
+  union all
+  select 'ai_messages.structured_payload', count(*) from public.ai_messages
+  where timing_jeju_private.user_json_matches_write_contract(
+    'ai_messages.structured_payload', structured_payload) is not true
+  union all
+  select 'compute_runs.result_summary', count(*) from public.compute_runs
+  where timing_jeju_private.user_json_matches_write_contract(
+    'compute_runs.result_summary', result_summary) is not true
+  union all
+  select 'risk_events.computed_facts', count(*) from public.risk_events
+  where timing_jeju_private.user_json_matches_write_contract(
+    'risk_events.computed_facts', computed_facts) is not true
+  union all
+  select 'trip_weather_impacts.computed_facts', count(*) from public.trip_weather_impacts
+  where timing_jeju_private.user_json_matches_write_contract(
+    'trip_weather_impacts.computed_facts', computed_facts) is not true
+  union all
+  select 'recommendation_candidates.facts', count(*) from public.recommendation_candidates
+  where timing_jeju_private.user_json_matches_write_contract(
+    'recommendation_candidates.facts', facts) is not true
+  union all
+  select 'recovery_options.change_summary', count(*) from public.recovery_options
+  where timing_jeju_private.user_json_matches_write_contract(
+    'recovery_options.change_summary', change_summary) is not true
+  union all
+  select 'recovery_option_changes', count(*) from public.recovery_option_changes
+  where timing_jeju_private.user_json_matches_write_contract(
+    'recovery_option_changes.before_value', before_value) is not true
+    or timing_jeju_private.user_json_matches_write_contract(
+      'recovery_option_changes.after_value', after_value) is not true
+  union all
+  select 'compute_runs.missing_input', count(*) from public.compute_runs run
+  where not exists (select 1 from public.compute_run_inputs input where input.compute_run_id = run.id)
+  union all
+  select 'itinerary_generation_runs.missing_input', count(*)
+  from public.itinerary_generation_runs run
+  where not exists (
+    select 1 from public.compute_run_inputs input where input.generation_run_id = run.id)
+  union all
+  select 'schedule_revision_runs.missing_input', count(*) from public.schedule_revision_runs run
+  where not exists (
+    select 1 from public.compute_run_inputs input where input.schedule_revision_run_id = run.id)
+  union all
+  select 'unclassified_api_idempotency_records', count(*) from public.api_idempotency_records
+  union all
+  select 'unclassified_mcp_compute_call_logs', count(*) from public.mcp_compute_call_logs;
+$$;
+revoke all on function timing_jeju_planner_private.user_location_residue_counts_v17()
+  from public, anon, authenticated, service_role;
+
 create or replace function timing_jeju_private.reject_user_json_location()
 returns trigger language plpgsql security definer set search_path = ''
 as $$
@@ -1050,8 +1116,8 @@ $$;
 revoke all on function timing_jeju_private.reject_user_json_location()
   from public, anon, authenticated, service_role;
 
--- The legacy verifier uses the semantic alias helper. Audit before installing
--- the separate typed write contracts so legacy residue rolls back this migration.
+-- Audit after installing the closed contracts so unproven legacy payloads roll
+-- back every 017-020 schema, data and ledger change without deleting their rows.
 do $$
 begin
   if exists (
@@ -1993,8 +2059,8 @@ begin
 end;
 $$;
 
--- Legacy audit recognizes normalized aliases and nested Jeju coordinate pairs.
--- A valid typed childAges array is the explicit safe numeric-array exception.
+-- Alias recognition remains available for the already completed 017 event cleanup.
+-- The 020 legacy audit below does not infer provenance from coordinate-like values.
 create or replace function timing_jeju_private.is_user_location_key(input_key text)
 returns boolean language sql immutable strict security invoker set search_path = ''
 as $$
@@ -2019,16 +2085,6 @@ declare entry record;
 begin
   if jsonb_typeof(input_value) = 'object' then
     for entry in select key, value from jsonb_each(input_value) loop
-      if lower(regexp_replace(entry.key, '[^a-zA-Z0-9]', '', 'g')) = 'childages'
-         and jsonb_typeof(entry.value) = 'array'
-         and jsonb_array_length(entry.value) <= 20
-         and not exists (
-           select 1 from jsonb_array_elements(entry.value) element
-           where jsonb_typeof(element) <> 'number'
-              or element #>> '{}' !~ '^(0|[1-9]|1[0-7])$'
-         ) then
-        continue;
-      end if;
       if timing_jeju_private.is_user_location_key(entry.key)
          or (entry.key = 'type' and entry.value = '"GRID_100M"'::jsonb)
          or timing_jeju_private.user_json_contains_location(entry.value) then
@@ -2036,17 +2092,6 @@ begin
       end if;
     end loop;
   elsif jsonb_typeof(input_value) = 'array' then
-    if jsonb_array_length(input_value) = 2
-       and jsonb_typeof(input_value -> 0) = 'number'
-       and jsonb_typeof(input_value -> 1) = 'number'
-       and (
-         ((input_value ->> 0)::numeric between 124 and 132
-           and (input_value ->> 1)::numeric between 30 and 40)
-         or ((input_value ->> 1)::numeric between 124 and 132
-           and (input_value ->> 0)::numeric between 30 and 40)
-       ) then
-      return true;
-    end if;
     for entry in select value from jsonb_array_elements(input_value) loop
       if timing_jeju_private.user_json_contains_location(entry.value) then return true; end if;
     end loop;
@@ -2140,6 +2185,93 @@ $$;
 revoke all on function timing_jeju_private.user_json_matches_write_contract(text, jsonb)
   from public, anon, authenticated, service_role;
 
+-- Replace the 017 legacy verifier used by the 018 wrapper. Every generic JSON
+-- surface is accepted only when its exact non-location shape and types are known.
+-- Unknown keys, aliases and nested containers remain in place for manual audit.
+create or replace function timing_jeju_planner_private.user_location_residue_counts_v17()
+returns table (object_name text, residue_count bigint)
+language sql stable security invoker set search_path = ''
+as $$
+  select 'trip_execution_events'::text, count(*) from public.trip_execution_events
+  where location is not null
+    or not coalesce(metadata = '{}'::jsonb or (
+      jsonb_typeof(metadata) = 'object' and metadata - 'source' = '{}'::jsonb
+      and metadata ->> 'source' in ('manual', 'time', 'system', 'mobile')
+    ), false)
+  union all
+  select 'live_state_snapshots', count(*) from public.live_state_snapshots
+  where current_location is not null or current_place_id is not null
+    or facts <> '{}'::jsonb or next_action is not null
+  union all
+  select 'compute_run_inputs', count(*) from public.compute_run_inputs
+  where location_supplied or coarse_location is not null or location_precision_meters is not null
+    or location_policy_version is not null or location_observed_at is not null
+    or location_expires_at is not null or location_redacted_at is not null
+  union all
+  select 'trip_preferences.raw_answers', count(*) from public.trip_preferences
+  where timing_jeju_private.user_json_matches_write_contract(
+    'trip_preferences.raw_answers', raw_answers) is not true
+  union all
+  select 'trip_items.facts', count(*) from public.trip_items
+  where facts is distinct from '{}'::jsonb
+  union all
+  select 'trip_legs.facts', count(*) from public.trip_legs
+  where timing_jeju_private.user_json_matches_write_contract('trip_legs.facts', facts) is not true
+  union all
+  select 'itinerary_generation_runs.structured_input', count(*)
+  from public.itinerary_generation_runs
+  where timing_jeju_private.user_json_matches_write_contract(
+    'itinerary_generation_runs.structured_input', structured_input) is not true
+  union all
+  select 'ai_messages.structured_payload', count(*) from public.ai_messages
+  where timing_jeju_private.user_json_matches_write_contract(
+    'ai_messages.structured_payload', structured_payload) is not true
+  union all
+  select 'compute_runs.result_summary', count(*) from public.compute_runs
+  where timing_jeju_private.user_json_matches_write_contract(
+    'compute_runs.result_summary', result_summary) is not true
+  union all
+  select 'risk_events.computed_facts', count(*) from public.risk_events
+  where timing_jeju_private.user_json_matches_write_contract(
+    'risk_events.computed_facts', computed_facts) is not true
+  union all
+  select 'trip_weather_impacts.computed_facts', count(*) from public.trip_weather_impacts
+  where timing_jeju_private.user_json_matches_write_contract(
+    'trip_weather_impacts.computed_facts', computed_facts) is not true
+  union all
+  select 'recommendation_candidates.facts', count(*) from public.recommendation_candidates
+  where timing_jeju_private.user_json_matches_write_contract(
+    'recommendation_candidates.facts', facts) is not true
+  union all
+  select 'recovery_options.change_summary', count(*) from public.recovery_options
+  where timing_jeju_private.user_json_matches_write_contract(
+    'recovery_options.change_summary', change_summary) is not true
+  union all
+  select 'recovery_option_changes', count(*) from public.recovery_option_changes
+  where timing_jeju_private.user_json_matches_write_contract(
+    'recovery_option_changes.before_value', before_value) is not true
+    or timing_jeju_private.user_json_matches_write_contract(
+      'recovery_option_changes.after_value', after_value) is not true
+  union all
+  select 'compute_runs.missing_input', count(*) from public.compute_runs run
+  where not exists (select 1 from public.compute_run_inputs input where input.compute_run_id = run.id)
+  union all
+  select 'itinerary_generation_runs.missing_input', count(*)
+  from public.itinerary_generation_runs run
+  where not exists (
+    select 1 from public.compute_run_inputs input where input.generation_run_id = run.id)
+  union all
+  select 'schedule_revision_runs.missing_input', count(*) from public.schedule_revision_runs run
+  where not exists (
+    select 1 from public.compute_run_inputs input where input.schedule_revision_run_id = run.id)
+  union all
+  select 'unclassified_api_idempotency_records', count(*) from public.api_idempotency_records
+  union all
+  select 'unclassified_mcp_compute_call_logs', count(*) from public.mcp_compute_call_logs;
+$$;
+revoke all on function timing_jeju_planner_private.user_location_residue_counts_v17()
+  from public, anon, authenticated, service_role;
+
 create or replace function timing_jeju_private.reject_user_json_location()
 returns trigger language plpgsql security definer set search_path = ''
 as $$
@@ -2158,8 +2290,8 @@ $$;
 revoke all on function timing_jeju_private.reject_user_json_location()
   from public, anon, authenticated, service_role;
 
--- The legacy verifier uses the semantic alias helper. Audit before installing
--- the separate typed write contracts so legacy residue rolls back this migration.
+-- Audit after installing the closed contracts so unproven legacy payloads roll
+-- back every 017-020 schema, data and ledger change without deleting their rows.
 do $$
 begin
   if exists (

@@ -331,3 +331,10 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - 020 legacy recursion은 Jeju 범위의 2원소 numeric coordinate pair를 중첩 깊이와 무관하게 감지한다. `childAges`는 최대 20개의 0..17 정수라는 typed 계약을 만족할 때만 안전 예외로 보존하며, residue를 자동 삭제하지 않고 017부터 020의 DDL·data·ledger 전체를 rollback한다.
 - Schedule mutation fixture의 `derivation=fixture` 두 곳을 보안 enum을 완화하지 않고 `conservative_walk_v1`으로 정렬했다. runbook은 현재 atomic release와 ledger를 017·018·019·020 네 이력으로 기록한다.
 - 관련 Python 83건, 신규 PG16/17 rollback/childAges 보존 2건, `JdbcScheduleMutationStoreIntegrationTest` 전체가 통과했다. 전체 quality gate와 Docker smoke, live DB, push와 PR은 이 focused 보정에서 실행하지 않았다.
+
+## 2026-09-11 Astra legacy closed allowlist 보정
+
+- PG16/17 테스트에서 alias 없는 nested payload의 2원소 숫자, 3원소 숫자, 문자열 숫자와 범위 밖 숫자 배열을 차례로 감사한다. 기존 020은 첫 사례만 heuristic으로 거부하고 다음 3원소 사례를 통과시켜 두 DB 버전 모두 `Expecting code to raise a throwable`로 Red가 재현됐다.
+- 020은 좌표 개수·JSON 숫자 type·제주 범위를 추정하는 heuristic을 제거했다. 018 verifier가 호출하는 legacy v17 집계를 교체해 각 JSON surface의 알려진 non-location field와 type만 허용한다. unknown key·alias·nested container는 값을 해석하지 않고 provenance 불명 residue로 집계한다.
+- 감사 실패 시 미분류 `raw_answers`와 기존 위치 event, schema fingerprint 및 016까지의 ledger가 그대로 유지됨을 검증했다. 정상 `pace=normal`, `partySize=4`, `childAges=[7,10]`은 보존되고 성공할 때만 017·018·019·020 ledger 네 행이 함께 기록된다.
+- 신규 rollback/allowlist 테스트와 기존 020 alias/hash 회귀는 PG16/17에서 각각 2건씩 통과했다. 관련 Python 83건, local/Supabase generator byte check와 diff 검사도 통과했다. 전체 quality gate, Docker smoke, live DB, push와 PR은 실행하지 않았다.

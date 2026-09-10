@@ -63,7 +63,7 @@
     {"path":"supabase/atomic-migrations/20260918000017_user_location_write_guard_purge.sql","initSlot":"055","owner":{"issue":223,"pullRequest":null},"sha256":"3f1cb04a7a6f0b5577229eb4f9efc9a3e064b203e7423d3712b217bafa8fccbe","dependencies":["20260918000016_planned_route_reference_integrity.sql"]},
     {"path":"supabase/atomic-migrations/20260918000018_revision_request_hash_audit.sql","initSlot":"056","owner":{"issue":223,"pullRequest":null},"sha256":"5bdd91f35b45a7bec2490a5e4c19597f7a2eab521da9889ff89599c887acdd33","dependencies":["20260918000017_user_location_write_guard_purge.sql"]},
     {"path":"supabase/atomic-migrations/20260918000019_planned_route_request_hash_policy.sql","initSlot":"057","owner":{"issue":225,"pullRequest":null},"sha256":"a52ecfae11f9cc24fa47ca6a10061cf3c4dffc0ee4a493b797ac68af179effd2","dependencies":["20260918000018_revision_request_hash_audit.sql"]},
-    {"path":"supabase/atomic-migrations/20260918000020_location_provenance_fail_closed.sql","initSlot":"058","owner":{"issue":223,"pullRequest":null},"sha256":"035d14f1458fc76c1d079e29317a46cb2d770a27ddb55c3283f02bdc0c85287f","dependencies":["20260918000019_planned_route_request_hash_policy.sql"]}
+    {"path":"supabase/atomic-migrations/20260918000020_location_provenance_fail_closed.sql","initSlot":"058","owner":{"issue":223,"pullRequest":null},"sha256":"414f1a4796a1438358dc43043553283e2e7d4bda0cec592cd35e556de027ed08","dependencies":["20260918000019_planned_route_request_hash_policy.sql"]}
   ],
   "seedInitSlot": "099"
 }
