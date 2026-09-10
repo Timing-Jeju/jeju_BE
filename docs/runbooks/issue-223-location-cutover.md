@@ -1,6 +1,6 @@
 # 위치 비수집 DB 전환 — #223 검증 중
 
-이 문서는 미출시 017·018 atomic group의 로컬·격리 staging 실행 조건을 기록한다. 운영 적용 승인이나 전체 위치 비수집 완료 증거가 아니다. #224의 ingress 사전 검증과 구버전 runtime 제거가 추가로 필요하다.
+이 문서는 미출시 017·018·020 atomic release의 로컬·격리 staging 실행 조건을 기록한다. 운영 적용 승인이나 전체 위치 비수집 완료 증거가 아니다. #224의 ingress 사전 검증과 구버전 runtime 제거가 추가로 필요하다.
 
 ## 적용 조건
 
@@ -22,9 +22,9 @@ select * from timing_jeju_planner_private.user_location_residue_counts();
 select timing_jeju_planner_private.user_location_guard_purge_revision();
 ```
 
-017·018은 검증한 atomic group으로 한 번만 적용한다. 이미 적용된 DB의 재확인은 위 읽기 전용 verifier를 반복 실행한다. `CREATE FUNCTION`을 포함한 migration 본문을 수동 재실행하거나 이력에서 지워 재적용하지 않는다.
+017·018·020은 검증한 atomic release로 한 번만 적용한다. 이미 적용된 DB의 재확인은 위 읽기 전용 verifier를 반복 실행한다. `CREATE FUNCTION`을 포함한 migration 본문을 수동 재실행하거나 이력에서 지워 재적용하지 않는다.
 
-모든 count가 0이고 revision이 `20260918000018`일 때만 DB 단계의 성공으로 기록한다. 이 marker는 fleet 버전, 요청 hash 수집 여부, 로그·백업의 삭제 완료를 보증하지 않는다. 값을 포함한 사용자 payload를 감사 로그에 남기지 않는다.
+모든 count가 0이고 revision이 `20260918000020`일 때만 현행 DB 단계의 성공으로 기록한다. 018 marker는 020 적용 전 역사 상태일 뿐 현행 성공 기준이 아니다. 이 marker는 fleet 버전, 요청 hash 수집 여부, 로그·백업의 삭제 완료를 보증하지 않는다. 값을 포함한 사용자 payload를 감사 로그에 남기지 않는다.
 
 ## 보존과 실패 경계
 
@@ -36,7 +36,7 @@ route snapshot의 version/item 참조 FK 세 개는 삭제 transaction 안에서
 
 ## 남은 인수 증거
 
-017 전체 PG16/17 fresh·upgrade·동시성·fingerprint, 같은 SHA 전체 quality gate, 독립 리뷰, #224 runtime 검증 및 실제 staging readback은 각각 별도로 기록한다. 합성 테스트 통과를 실제 provider 또는 네이티브 앱 통합 완료로 표현하지 않는다.
+017 이후 atomic release 전체의 PG16/17 fresh·upgrade·동시성·fingerprint, 같은 SHA 전체 quality gate, 독립 리뷰, #224 runtime 검증 및 실제 staging readback은 각각 별도로 기록한다. 합성 테스트 통과를 실제 provider 또는 네이티브 앱 통합 완료로 표현하지 않는다.
 
 ## 018 추가 감사와 실행 경계 — 검증 중
 
@@ -44,7 +44,7 @@ route snapshot의 version/item 참조 FK 세 개는 삭제 transaction 안에서
 
 017 자체 COMMIT 때문에 017과 018을 별도 실행하면 018 실패 시 017을 되돌릴 수 없다. 기본 Docker·Java canonical 경로는 두 원문의 checksum을 검증해 생성한 단일 transaction 파일을 사용한다. 생성 검증은 `python3 scripts/location_cutover_group.py --check`다. 017 이전 DB의 그룹 실패는 017 변경까지 rollback해야 한다. 이미 017을 단독 적용한 로컬 DB는 별도 감사 대상이며 이전 상태까지 rollback했다고 기록하지 않는다.
 
-일반 `supabase migration up`/`db push`로 원문 파일을 각각 실행하는 경로는 이 원자성 계약을 충족하지 않는다. `[db.migrations].enabled=false`는 `migration up`을 차단하지 않으므로 안전 경계로 주장하지 않는다. 공식 진입점 `scripts/supabase-release.sh`는 고정 CLI 2.116.0에 016 이하만 복사한 임시 workdir을 제공한 뒤, 생성 SQL `db/local-postgres/location_cutover_supabase.sql`로 017·018과 018 이후 canonical suffix를 ledger와 함께 한 transaction에서 적용한다. 실패하면 017 이후 DDL·data·ledger 전체가 rollback된다. 운영 적용은 작업 범위 밖이다.
+일반 `supabase migration up`/`db push`로 atomic 원문을 각각 실행하는 경로는 이 원자성 계약을 충족하지 않는다. `[db.migrations].enabled=false`는 `migration up`을 차단하지 않으므로 안전 경계로 주장하지 않는다. canonical layout의 root `supabase/migrations`에는 016 이하 격리 prefix만 두고 017 이후 원문은 sibling `supabase/atomic-migrations`에 둔다. 공식 진입점 `scripts/supabase-release.sh`는 고정 CLI 2.116.0으로 root prefix를 bootstrap한 뒤, 생성 SQL `db/local-postgres/location_cutover_supabase.sql`로 017·018·020과 이후 canonical suffix를 ledger와 함께 한 transaction에서 적용한다. 실패하면 017 이후 DDL·data·ledger 전체가 rollback된다. 운영 적용은 작업 범위 밖이다.
 
 남은 검증: 그룹 정상 종료·감사 실패·연결 종료·잠금 timeout의 PG16/17 데이터/schema/ACL/trigger 복구, canonical fresh/upgrade fingerprint, 일반 적용 경로 우회 방지, 동일 SHA 전체 품질 게이트와 독립 리뷰.
 

@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -143,12 +144,24 @@ class MobilityOwnershipContractTest {
   }
 
   private static List<String> migrationInventory() throws IOException {
-    try (var paths = Files.list(REPOSITORY_ROOT.resolve("supabase/migrations"))) {
-      return paths
-          .filter(path -> path.getFileName().toString().endsWith(".sql"))
-          .map(path -> path.getFileName().toString())
-          .sorted()
-          .toList();
+    List<String> inventory = new ArrayList<>();
+    for (String directory : List.of("supabase/migrations", "supabase/atomic-migrations")) {
+      Path migrationDirectory = REPOSITORY_ROOT.resolve(directory);
+      assertThat(migrationDirectory).isDirectory();
+      try (var paths = Files.list(migrationDirectory)) {
+        for (Path path :
+            paths.filter(candidate -> candidate.toString().endsWith(".sql")).toList()) {
+          assertThat(path).isRegularFile();
+          assertThat(Files.isSymbolicLink(path)).isFalse();
+          String name = path.getFileName().toString();
+          assertThat(name).matches("[0-9]{14}_.+[.]sql");
+          inventory.add(name);
+        }
+      }
     }
+    assertThat(inventory).doesNotHaveDuplicates();
+    assertThat(inventory.stream().map(name -> name.substring(0, 14)).toList())
+        .doesNotHaveDuplicates();
+    return inventory.stream().sorted().toList();
   }
 }
