@@ -6,6 +6,152 @@
   "ownerIssue": 85,
   "implementationIssues": [44, 45, 239],
   "schemas": {
+  "TripDayLegacyV1": {
+    "type": "object",
+    "nullable": false,
+    "additionalProperties": false,
+    "required": [
+      "dayId",
+      "dayNo",
+      "date"
+    ],
+    "properties": {
+      "dayId": {
+        "type": "string",
+        "nullable": false,
+        "format": "uuid"
+      },
+      "dayNo": {
+        "type": "integer",
+        "nullable": false,
+        "minimum": 1,
+        "maximum": 30
+      },
+      "date": {
+        "$ref": "TripDate",
+        "nullable": false
+      }
+    }
+  },
+  "TripDetailLegacyV1": {
+    "type": "object",
+    "nullable": false,
+    "additionalProperties": false,
+    "required": [
+      "tripId",
+      "title",
+      "status",
+      "startDate",
+      "endDate",
+      "timezone",
+      "userPace",
+      "transportModes",
+      "days",
+      "activeScheduleVersionId",
+      "totalScore",
+      "scoreProvenance",
+      "scheduleEffect",
+      "regenerationRequired",
+      "createdAt",
+      "updatedAt"
+    ],
+    "properties": {
+      "tripId": {
+        "$ref": "TripId",
+        "nullable": false
+      },
+      "title": {
+        "$ref": "TripTitle",
+        "nullable": false
+      },
+      "status": {
+        "$ref": "TripStatus",
+        "nullable": false
+      },
+      "startDate": {
+        "$ref": "TripDate",
+        "nullable": false
+      },
+      "endDate": {
+        "$ref": "TripDate",
+        "nullable": false
+      },
+      "timezone": {
+        "$ref": "TripTimezone",
+        "nullable": false
+      },
+      "userPace": {
+        "$ref": "UserPace",
+        "nullable": false
+      },
+      "transportModes": {
+        "$ref": "TransportModes",
+        "nullable": false
+      },
+      "days": {
+        "type": "array",
+        "nullable": false,
+        "minItems": 1,
+        "maxItems": 30,
+        "items": {
+          "$ref": "TripDayLegacyV1",
+          "nullable": false
+        }
+      },
+      "activeScheduleVersionId": {
+        "type": "string",
+        "nullable": true,
+        "format": "uuid"
+      },
+      "totalScore": {
+        "type": "integer",
+        "nullable": true,
+        "minimum": 0,
+        "maximum": 100
+      },
+      "scoreProvenance": {
+        "$ref": "ScoreProvenance",
+        "nullable": true
+      },
+      "scheduleEffect": {
+        "type": "string",
+        "nullable": false,
+        "enum": [
+          "none",
+          "maintained",
+          "invalidated"
+        ]
+      },
+      "regenerationRequired": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "createdAt": {
+        "type": "string",
+        "nullable": false,
+        "format": "date-time"
+      },
+      "updatedAt": {
+        "type": "string",
+        "nullable": false,
+        "format": "date-time"
+      }
+    }
+  },
+  "TripCreateResponse": {
+    "nullable": false,
+    "description": "새 생성은 TripDetail이다. 배포 전 완료 receipt의 24시간 TTL 안에서 Idempotency-Replayed=true인 경우에만 TripDetailLegacyV1 원본을 그대로 반환한다. 최신 값은 Location의 GET으로 조회한다.",
+    "oneOf": [
+      {
+        "$ref": "TripDetail",
+        "nullable": false
+      },
+      {
+        "$ref": "TripDetailLegacyV1",
+        "nullable": false
+      }
+    ]
+  },
     "DayActivityWindowHeaders": {"type":"object","nullable":false,"additionalProperties":false,"required":["If-Match","Idempotency-Key"],"properties":{"If-Match":{"type":"string","nullable":false,"pattern":"^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"},"Idempotency-Key":{"type":"string","nullable":false,"minLength":1,"maxLength":128,"pattern":"^[ -~]+$"}}},
     "TripDayActivityWindowInput": {"type":"object","nullable":false,"additionalProperties":false,"required":["dayId","startTime","endTime"],"properties":{"dayId":{"$ref":"TripId","nullable":false},"startTime":{"type":"string","nullable":false,"pattern":"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},"endTime":{"type":"string","nullable":false,"pattern":"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"}}},
     "ReplaceTripDayActivityWindowsRequest": {"type":"object","nullable":false,"additionalProperties":false,"required":["days"],"properties":{"days":{"type":"array","nullable":false,"minItems":1,"maxItems":30,"items":{"$ref":"TripDayActivityWindowInput","nullable":false}}}},
@@ -247,7 +393,7 @@
       "operation": "create",
       "requestSchema": "CreateTripRequest",
       "headersSchema": "CreateTripHeaders",
-      "successSchema": "TripDetail",
+      "successSchema": "TripCreateResponse",
       "auth": {"mode": "required", "missingToken": 401, "invalidToken": 401},
       "owner": "canonical JWT sub",
       "responses": {"success": [201], "errors": [400, 401, 409, 422, 503]},

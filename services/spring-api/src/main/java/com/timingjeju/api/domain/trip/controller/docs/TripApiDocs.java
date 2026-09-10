@@ -108,7 +108,10 @@ public interface TripApiDocs {
       @Parameter(schema = @Schema(type = "integer", minimum = "1", maximum = "50")) Integer size,
       @Parameter(hidden = true) HttpServletRequest request);
 
-  @Operation(summary = "여행 생성", description = "여행과 날짜별 Day를 하나의 트랜잭션으로 생성합니다.")
+  @Operation(
+      summary = "여행 생성",
+      description =
+          "여행과 날짜별 Day를 하나의 트랜잭션으로 생성합니다. 새 응답은 최신 TripDetail이며, 배포 전 완료 receipt의 24시간 TTL 내 재시도는 과거 body를 그대로 반환합니다. 최신 상세는 Location의 GET으로 조회합니다.")
   @RequestBody(
       required = true,
       content =
@@ -127,7 +130,12 @@ public interface TripApiDocs {
               schema = @Schema(type = "string", pattern = "^\\\"[A-Za-z0-9._:-]{1,128}\\\"$")),
           @Header(name = "Idempotency-Replayed", schema = @Schema(type = "boolean"))
         },
-        content = @Content(schema = @Schema(implementation = TripAggregateResponse.class))),
+        content =
+            @Content(
+                schema =
+                    @Schema(
+                        implementation =
+                            com.timingjeju.api.domain.trip.dto.response.TripCreateResponse.class))),
     @ApiResponse(
         responseCode = "400",
         content =

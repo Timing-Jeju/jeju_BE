@@ -40,7 +40,7 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "9d713f9cf753b4980a33ad024dc4a31b7e9d6597da80bc03e074de5413646440"
+CANONICAL_CONTRACT_SHA256 = "bf98696a7a047b35aa8171b49722e8130c37e60867256cc816c032d4d5c76ba0"
 CANONICAL_CATALOG_SHA256 = "d6efacfd02286fcb6cc61480561299724700e7da7a338627968d02764548315f"
 CONTRACT_FIELDS = {
     "schemaVersion",
@@ -882,6 +882,16 @@ def _validate_value(value: Any, schema: Any, schemas: dict[str, Any], label: str
         merged = dict(target)
         merged.update({key: item for key, item in schema.items() if key != "$ref"})
         _validate_value(value, merged, schemas, label, errors)
+        return
+    if "oneOf" in schema:
+        branches = schema["oneOf"]
+        matches = 0
+        for branch in branches:
+            branch_errors: list[str] = []
+            _validate_value(value, branch, schemas, label, branch_errors)
+            matches += not branch_errors
+        if matches != 1:
+            errors.append(f"{label}은 oneOf 응답 분기 정확히 하나와 일치해야 합니다.")
         return
     nullable = schema.get("nullable") is True
     if value is None:

@@ -1090,3 +1090,9 @@ Accept: application/json
 GET Day에는 required nullable `activityStartTime`과 `activityEndTime`이 추가됐다. null은 미입력이고 화면 기본 시각을 서버 저장값으로 표시하면 안 된다. FE 입력은 1~5일을 유지하며 서버는 기존 1~30일 여행의 저장·복원을 지원한다. 날짜 수정 뒤에도 남은 날짜의 Day ID와 활동 시간이 보존된다. active/candidate 일정 참조가 있으면 변경은 `409 TRIP_REGENERATION_REQUIRED`로 거부된다.
 
 생성된 client operation은 `tripDayActivityWindowsUpdate`다. `./scripts/generate_frontend_api_client.sh`는 38개 operation을 검증하고 `services/spring-api/build/distributions/timing-jeju-frontend-api-client.tgz`를 만든다. 활동 시간 저장 UI 및 Notion/Figma 연결은 별도 실제 readback 전까지 완료로 표시하지 않는다.
+
+### #239 생성 재시도의 과거 응답 계약
+
+`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH/Day PUT의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
+
+TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연장하지 않는다. 만료 경계에서는 기존 registry 규칙을 그대로 따른다. receipt 삭제·namespace 교체·body 재작성·최신 GET 응답으로 치환하는 데이터 변경은 없다. 이 호환 계약 때문에 DB migration을 추가하지 않는다.

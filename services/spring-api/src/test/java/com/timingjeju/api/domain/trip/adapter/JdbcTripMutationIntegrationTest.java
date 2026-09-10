@@ -55,6 +55,7 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   @Autowired private JdbcTripDayActivityWindowStore activityWindows;
   @Autowired private PlatformTransactionManager transactions;
   @Autowired private ObjectMapper objectMapper;
+  @Autowired private com.timingjeju.api.global.idempotency.JdbcIdempotencyRecordRepository receipts;
   @Autowired private CommandInputCanonicalizer commandInputCanonicalizer;
   @Autowired private CommandInputSnapshotRepository commandInputRepository;
 
@@ -140,6 +141,75 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
       assertThat(actual.days().get(index).activityEndTime())
           .isEqualTo(expected.days().get(index).endTime());
     }
+  }
+
+  @Test
+  void 배포전_POST_receipt는_24시간_동안_원본을_재전송하고_여행을_중복생성하지_않는다() throws Exception {
+    byte[] original =
+        java.nio.file.Files.readAllBytes(
+            java.nio.file.Path.of("../../fixtures/contracts/trips/legacy-create-replay.json"));
+    byte[] body =
+        "{\"title\":\"과거 생성\",\"startDate\":\"2026-09-01\",\"endDate\":\"2026-09-03\"}"
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    String key = "23900000-0000-0000-0000-000000000099";
+    var request =
+        com.timingjeju.api.application.idempotency.IdempotencyRequest.create(
+            OWNER, "POST", "/api/v1/trips", key, body);
+    Instant completed =
+        Instant.now().minusSeconds(3600).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    var acquired =
+        receipts.acquire(request.scope(), request.requestHash(), completed.minusSeconds(1));
+    String location = "/api/v1/trips/" + objectMapper.readTree(original).path("tripId").asText();
+    String etag = "\"trip-legacy-v1\"";
+    var originalResponse =
+        new com.timingjeju.api.application.idempotency.IdempotencyResponse(
+            201,
+            List.of(
+                new com.timingjeju.api.application.idempotency.IdempotencyHeader(
+                    "Content-Type", "application/json"),
+                new com.timingjeju.api.application.idempotency.IdempotencyHeader(
+                    "Location", location),
+                new com.timingjeju.api.application.idempotency.IdempotencyHeader("ETag", etag)),
+            original);
+    receipts.complete(
+        request.scope(),
+        request.requestHash(),
+        acquired.attemptToken().orElseThrow(),
+        originalResponse,
+        completed);
+    long before =
+        jdbc.queryForObject(
+            "select count(*) from public.trip_plans where user_id = ?", Long.class, OWNER);
+    var replay =
+        activityMvc()
+            .perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                        "/api/v1/trips")
+                    .header("Idempotency-Key", key)
+                    .contentType("application/json")
+                    .content(body))
+            .andReturn()
+            .getResponse();
+    assertThat(replay.getStatus()).isEqualTo(201);
+    assertThat(replay.getHeader("Idempotency-Replayed")).isEqualTo("true");
+    assertThat(replay.getHeader("ETag")).isEqualTo(etag);
+    assertThat(replay.getHeader("Location")).isEqualTo(location);
+    assertThat(replay.getContentAsByteArray()).isEqualTo(original);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_plans where user_id = ?", Long.class, OWNER))
+        .isEqualTo(before);
+    Instant expires = completed.plus(java.time.Duration.ofHours(24));
+    assertThat(
+            receipts
+                .acquire(request.scope(), request.requestHash(), expires.minusNanos(1000))
+                .response()
+                .orElseThrow()
+                .body())
+        .isEqualTo(original);
+    assertThat(receipts.acquire(request.scope(), request.requestHash(), expires).disposition())
+        .isEqualTo(
+            com.timingjeju.api.application.idempotency.IdempotencyAcquisition.Disposition.ACQUIRED);
   }
 
   @Test
