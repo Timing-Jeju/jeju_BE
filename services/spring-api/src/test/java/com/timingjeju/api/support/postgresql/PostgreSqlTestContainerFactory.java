@@ -3,7 +3,6 @@ package com.timingjeju.api.support.postgresql;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -107,21 +106,7 @@ final class PostgreSqlTestContainerFactory {
       List<Path> initScripts, DockerImageName image) {
     requireDocker(() -> DockerClientFactory.instance().isDockerAvailable());
 
-    PostgreSQLContainer container =
-        new PostgreSQLContainer(image)
-            .withDatabaseName("timing_jeju_repository_test")
-            .withUsername("timing_jeju_repository_test")
-            .withPassword(UUID.randomUUID().toString())
-            .withTmpFs(DATA_DIRECTORY_TMPFS)
-            .withStartupTimeout(Duration.ofMinutes(3));
-
-    for (int index = 0; index < initScripts.size(); index++) {
-      Path script = initScripts.get(index);
-      String target =
-          "/docker-entrypoint-initdb.d/%03d_%s".formatted(index + 1, script.getFileName());
-      container.withCopyFileToContainer(MountableFile.forHostPath(script), target);
-    }
-    return container;
+    return PostgreSqlLauncherSessionPool.container(image, initScripts);
   }
 
   static void requireDocker(BooleanSupplier availability) {
