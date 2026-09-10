@@ -49,10 +49,23 @@ route snapshot의 version/item 참조 FK 세 개는 삭제 transaction 안에서
 남은 검증: 그룹 정상 종료·감사 실패·연결 종료·잠금 timeout의 PG16/17 데이터/schema/ACL/trigger 복구, canonical fresh/upgrade fingerprint, 일반 적용 경로 우회 방지, 동일 SHA 전체 품질 게이트와 독립 리뷰.
 
 
-Supabase용 산출물은 `python3 scripts/location_cutover_group.py --supabase --check`로 검사한다. 이력을 따로 `migration repair`로 등록하지 않는다. 공식 문서는 `supabase_migrations.schema_migrations`가 적용 여부의 기준이며 repair 자체는 SQL을 적용하지 않는다고 설명한다: https://supabase.com/docs/guides/deployment/database-migrations . 생성 SQL은 기존 이력 테이블이 있어야 하며 016까지의 정확한 선행 집합과 marker 부재를 검사한다. 이미 017 또는 018 이력이 있거나 다른 선행 집합이면 수정·삭제 없이 거부한다. 실제 Supabase CLI 버전/ledger 스키마와의 호환성 및 격리 staging 확인 전에는 활성화하지 않는다.
+Supabase용 산출물은 `python3 scripts/location_cutover_group.py --supabase --check`로 검사한다. 이력을 따로 `migration repair`로 등록하지 않는다. 공식 문서는 `supabase_migrations.schema_migrations`가 적용 여부의 기준이며 repair 자체는 SQL을 적용하지 않는다고 설명한다: https://supabase.com/docs/guides/deployment/database-migrations . 생성 SQL은 기존 이력 테이블이 있어야 하며 016까지의 정확한 선행 집합과 marker 부재, 실제 ledger 열/PK, server major별 검토된 schema/RLS/ACL fingerprint를 같은 transaction의 ledger 잠금 뒤 검사한다. 이미 017 또는 018 이력이 있거나 다른 선행 집합이면 수정·삭제 없이 거부한다.
 
 
-적용 담당자는 marker/이력만으로 predecessor가 맞다고 판단하지 않는다. migration repair로 이력만 바뀔 수 있으므로 016까지의 실제 schema·RLS·ACL fingerprint를 같은 release의 검증 결과와 대조해야 한다. 그룹 실행 동안 일반 `db push`와 다른 migration runner를 중지해야 한다. ledger table 잠금만으로 개별 017 SQL을 병행 실행하는 경로까지 안전해지는 것은 아니다. 실제 CLI ledger 스키마 호환·predecessor 검증·단독 실행 조건이 확인되지 않으면 staging 적용하지 않는다.
+적용 담당자는 marker/이력만으로 predecessor가 맞다고 판단하지 않는다. migration repair로 이력만 바뀔 수 있으므로 검토된 `db/fingerprints/location_cutover_predecessors.json`과 query SHA를 함께 사용한다. 그룹 실행 동안 일반 `db push`와 다른 migration runner를 중지한다. 저장소 script/workflow의 raw `db push`는 공통 품질 gate가 거부한다.
+
+실제 적용은 깨끗한 reviewed SHA에서만 다음 전용 실행기를 사용한다. DB URL 파일은 현재 사용자 소유의 일반 파일이며 권한은 정확히 `0600`, 내용은 개행 없는 PostgreSQL URL 한 줄이어야 한다. URL은 명령 인자나 로그에 넣지 않는다.
+
+```sh
+python3 scripts/apply_location_cutover.py \
+  --reviewed-sha "$REVIEWED_SHA" \
+  --db-url-file /secure/path/location-cutover-db-url \
+  --psql-bin /secure/tools/psql17 \
+  --psql-sha256 "$REVIEWED_PSQL_SHA256" \
+  --expected-psql-major 17
+```
+
+실행기는 절대 경로 psql을 한 번 열어 소유자·권한·reviewed SHA-256을 확인하고, 같은 바이트를 권한 0700 임시 디렉터리의 전용 복사본으로 고정한다. 버전·선행 ledger·적용·사후 조회는 모두 그 복사본만 사용하며 부모의 loader·PG 환경을 상속하지 않고 `PGDATABASE`와 연결 timeout만 새 환경으로 전달한다. 생성 SQL도 한 번 연 파일의 바이트를 재생성값과 비교해 보관하고 `psql --file=-` 표준입력으로 한 번만 적용한다. DB URL 파일은 `O_NOFOLLOW`로 한 번 열어 같은 FD의 소유자·권한·내용을 검사한다. 적용 뒤 marker018·residue0·ledger 두 행을 다시 읽는다. Supabase CLI2.110.0 격리 PG17에서 group 적용 후 `db push --dry-run`이 017·018을 건너뛰고 019·020만 제시하는 것을 확인했다. 이 로컬 검증은 staging approval이나 원격 적용 완료를 뜻하지 않는다.
 
 
 로컬 검증 증거: revision verifier/그룹 rollback 4건, canonical fresh/upgrade fingerprint 2건, 합성 ledger PG16/17 2건, 이력 INSERT 실패/중간 statement timeout/연결 종료 6건, 위치 revision 정상 정리 2건은 각각 해당 개발 일지의 로그에 기록했다. 일부 시나리오는 같은 테스트의 확장 재실행이며 서로 다른 전체 테스트 개수로 합산하지 않는다. 잠금 timeout 추가와 동일 SHA 전체 품질 게이트는 별도 확인한다.

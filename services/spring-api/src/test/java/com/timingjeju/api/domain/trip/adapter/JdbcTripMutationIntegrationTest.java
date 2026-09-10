@@ -94,7 +94,9 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
     assertThat(changed.trip().revision()).isEqualTo(2);
 
     jdbc.update(
-        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'arrival', 'flight', '제주공항', '2026-09-02T00:00:00Z')",
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type,"
+            + " terminal_name, scheduled_at) values (?, 'arrival', 'flight', '제주공항',"
+            + " '2026-09-02T00:00:00Z')",
         TRIP);
     String before = fingerprint();
     assertCode(
@@ -111,10 +113,14 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   @Test
   void 도착출발_event가_있으면_여행경계_확장도_exact_date_invariant로_원자거부한다() {
     jdbc.update(
-        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'arrival', 'flight', '제주공항', '2026-09-01T00:00:00Z')",
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type,"
+            + " terminal_name, scheduled_at) values (?, 'arrival', 'flight', '제주공항',"
+            + " '2026-09-01T00:00:00Z')",
         TRIP);
     jdbc.update(
-        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'departure', 'flight', '제주공항', '2026-09-03T00:00:00Z')",
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type,"
+            + " terminal_name, scheduled_at) values (?, 'departure', 'flight', '제주공항',"
+            + " '2026-09-03T00:00:00Z')",
         TRIP);
     String before = calendarFingerprint();
 
@@ -139,7 +145,8 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   void Day3_장소선호가_있는_여행을_2일로_축소하면_도메인422와_aggregate무변경을_보장한다() {
     installExternalFactReference();
     jdbc.update(
-        "insert into public.trip_place_preferences (trip_plan_id, place_id, preference_type, target_day_no, priority) values (?, ?, 'must_visit', 3, 90)",
+        "insert into public.trip_place_preferences (trip_plan_id, place_id, preference_type,"
+            + " target_day_no, priority) values (?, ?, 'must_visit', 3, 90)",
         TRIP,
         PLACE);
     String before = calendarFingerprint();
@@ -154,7 +161,8 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
     assertThat(calendarFingerprint()).isEqualTo(before);
     assertThat(
             jdbc.queryForObject(
-                "select target_day_no from public.trip_place_preferences where trip_plan_id=? and place_id=?",
+                "select target_day_no from public.trip_place_preferences where trip_plan_id=? and"
+                    + " place_id=?",
                 Integer.class,
                 TRIP,
                 PLACE))
@@ -165,7 +173,8 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   void DB직접_root축소도_named_23514로_거부하고_preference와_revision을_보존한다() {
     installExternalFactReference();
     jdbc.update(
-        "insert into public.trip_place_preferences (trip_plan_id, place_id, preference_type, target_day_no, priority) values (?, ?, 'must_visit', 3, 90)",
+        "insert into public.trip_place_preferences (trip_plan_id, place_id, preference_type,"
+            + " target_day_no, priority) values (?, ?, 'must_visit', 3, 90)",
         TRIP,
         PLACE);
     String before = calendarFingerprint();
@@ -173,7 +182,8 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
     assertThatThrownBy(
             () ->
                 jdbc.update(
-                    "update public.trip_plans set end_date='2026-09-02', revision=revision+1 where id=?",
+                    "update public.trip_plans set end_date='2026-09-02', revision=revision+1 where"
+                        + " id=?",
                     TRIP))
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
         .satisfies(failure -> assertThat(sqlState(failure)).isEqualTo("23514"));
@@ -286,7 +296,9 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   @Test
   void departure_event와_root_endDate를_동시에_확장해도_둘다_거부되고_revision과_event는_불변이다() throws Exception {
     jdbc.update(
-        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type, terminal_name, scheduled_at) values (?, 'departure', 'flight', '제주공항', '2026-09-03T00:00:00Z')",
+        "insert into public.trip_transport_events (trip_plan_id, event_type, transport_type,"
+            + " terminal_name, scheduled_at) values (?, 'departure', 'flight', '제주공항',"
+            + " '2026-09-03T00:00:00Z')",
         TRIP);
     String before = calendarFingerprint();
     CountDownLatch start = new CountDownLatch(1);
@@ -316,7 +328,9 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                       .executeWithoutResult(
                           ignored ->
                               jdbc.update(
-                                  "update public.trip_transport_events set scheduled_at='2026-09-04T00:00:00Z' where trip_plan_id=? and event_type='departure'",
+                                  "update public.trip_transport_events set"
+                                      + " scheduled_at='2026-09-04T00:00:00Z' where trip_plan_id=?"
+                                      + " and event_type='departure'",
                                   TRIP));
                   return "success";
                 } catch (org.springframework.dao.DataAccessException failure) {
@@ -442,7 +456,8 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         "issue45-trip-token-" + status,
         status);
     jdbc.update(
-        "insert into public.trip_transport_modes (trip_plan_id, transport_mode, priority, is_primary) values (?, 'public_transit', 1, true)",
+        "insert into public.trip_transport_modes (trip_plan_id, transport_mode, priority,"
+            + " is_primary) values (?, 'public_transit', 1, true)",
         TRIP);
     for (int index = 0; index < 3; index++) {
       jdbc.update(
@@ -457,7 +472,8 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
 
   private void installDraftSchedule() {
     jdbc.update(
-        "insert into public.trip_schedule_versions (id, trip_plan_id, version_no, status, source_type) values (?, ?, 1, 'draft', 'initial')",
+        "insert into public.trip_schedule_versions (id, trip_plan_id, version_no, status,"
+            + " source_type) values (?, ?, 1, 'draft', 'initial')",
         VERSION,
         TRIP);
   }
@@ -467,7 +483,8 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         .executeWithoutResult(
             ignored -> {
               jdbc.update(
-                  "insert into public.trip_schedule_versions (id, trip_plan_id, version_no, status, source_type) values (?, ?, 1, 'draft', 'initial')",
+                  "insert into public.trip_schedule_versions (id, trip_plan_id, version_no, status,"
+                      + " source_type) values (?, ?, 1, 'draft', 'initial')",
                   VERSION,
                   TRIP);
               for (int index = 0; index < 3; index++) {
@@ -499,11 +516,13 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                     java.sql.Date.valueOf(LocalDate.parse("2026-09-01").plusDays(index)));
               }
               jdbc.update(
-                  "update public.trip_plans set status = 'planned', active_schedule_version_id = ? where id = ?",
+                  "update public.trip_plans set status = 'planned', active_schedule_version_id = ?"
+                      + " where id = ?",
                   VERSION,
                   TRIP);
               jdbc.update(
-                  "update public.trip_schedule_versions set status = 'active', applied_at = now() where id = ? and trip_plan_id = ?",
+                  "update public.trip_schedule_versions set status = 'active', applied_at = now()"
+                      + " where id = ? and trip_plan_id = ?",
                   VERSION,
                   TRIP);
             });
@@ -519,44 +538,45 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
     new TransactionTemplate(transactions)
         .executeWithoutResult(
             status -> {
-              jdbc.update(
-                  """
-        insert into public.schedule_revision_runs (
-          id, owner_user_id, trip_plan_id, base_schedule_version_id,
-          target_trip_day_id, contract_version, algorithm_version,
-          idempotency_key, request_hash
-        ) values (?, ?, ?, ?, ?, 'revision/v1', 'algorithm/v1', ?, repeat('a', 64))
-        """,
-                  REVISION_RUN,
-                  OWNER,
-                  TRIP,
-                  VERSION,
-                  targetDay,
-                  UUID.fromString("45000000-0000-0000-0000-000000000109"));
               var structuredInput = objectMapper.createObjectNode();
               structuredInput.put("targetDayId", targetDay.toString());
               structuredInput.putArray("affectedItemIds");
               structuredInput.putArray("instructionCodes").add("MOVE_ITEM");
-              commandInputRepository.save(
+              var snapshot =
                   commandInputCanonicalizer.canonicalize(
                       new CommandInputRequest(
                           new CommandInputParent.ScheduleRevision(REVISION_RUN),
                           "schedule_revision",
-                          1,
+                          2,
                           "revision/v1",
                           "algorithm/v1",
                           structuredInput,
                           OWNER,
                           TRIP,
-                          VERSION,
-                          null)));
+                          VERSION));
               jdbc.update(
                   """
-        update public.schedule_revision_runs
-        set status = 'cancelled', failure_code = 'USER_CANCELLED',
-            completed_at = now(), next_attempt_at = null
-        where id = ?
-        """,
+                  insert into public.schedule_revision_runs (
+                    id, owner_user_id, trip_plan_id, base_schedule_version_id,
+                    target_trip_day_id, contract_version, algorithm_version,
+                    idempotency_key, request_hash
+                  ) values (?, ?, ?, ?, ?, 'revision/v1', 'algorithm/v1', ?, ?)
+                  """,
+                  REVISION_RUN,
+                  OWNER,
+                  TRIP,
+                  VERSION,
+                  targetDay,
+                  UUID.fromString("45000000-0000-0000-0000-000000000109"),
+                  snapshot.commandInputHash());
+              commandInputRepository.save(snapshot);
+              jdbc.update(
+                  """
+                  update public.schedule_revision_runs
+                  set status = 'cancelled', failure_code = 'USER_CANCELLED',
+                      completed_at = now(), next_attempt_at = null
+                  where id = ?
+                  """,
                   REVISION_RUN);
             });
   }
@@ -605,11 +625,11 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
             status -> {
               jdbc.update(
                   """
-          insert into public.itinerary_generation_runs
-            (id,trip_plan_id,trip_day_id,base_schedule_version_id,status,structured_input,
-             contract_version,algorithm_version,idempotency_key,requested_by_user_id)
-          values (?,?,?,?,'queued',?::jsonb,'recommendation.v1','issue45-v1',?,?)
-          """,
+                  insert into public.itinerary_generation_runs
+                    (id,trip_plan_id,trip_day_id,base_schedule_version_id,status,structured_input,
+                     contract_version,algorithm_version,idempotency_key,requested_by_user_id)
+                  values (?,?,?,?,'queued',?::jsonb,'recommendation.v1','issue45-v1',?,?)
+                  """,
                   run,
                   TRIP,
                   dayId,
@@ -622,14 +642,13 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                       new CommandInputRequest(
                           new CommandInputParent.Generation(run),
                           "itinerary_generation",
-                          1,
+                          2,
                           "recommendation.v1",
                           "issue45-v1",
                           input,
                           OWNER,
                           TRIP,
-                          VERSION,
-                          null)));
+                          VERSION)));
             });
   }
 

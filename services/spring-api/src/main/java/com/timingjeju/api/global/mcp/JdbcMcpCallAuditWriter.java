@@ -20,9 +20,9 @@ public final class JdbcMcpCallAuditWriter implements McpCallAuditWriter {
         insert into public.mcp_compute_call_logs (
           compute_run_id, generation_run_id, schedule_revision_run_id,
           request_id, tool_name, status, contract_version, latency_ms, error_code,
-          command_input_hash, mcp_input_hash, schema_checksum,
+          command_input_hash, schema_checksum,
           request_fact_count, response_fact_count, attempt_no
-        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         audit.parent().computeRunId(),
         audit.parent().generationRunId(),
@@ -34,7 +34,6 @@ public final class JdbcMcpCallAuditWriter implements McpCallAuditWriter {
         audit.latencyMs(),
         audit.errorCode(),
         audit.commandInputHash(),
-        audit.mcpInputHash(),
         audit.schemaChecksum(),
         audit.requestFactCount(),
         audit.responseFactCount(),

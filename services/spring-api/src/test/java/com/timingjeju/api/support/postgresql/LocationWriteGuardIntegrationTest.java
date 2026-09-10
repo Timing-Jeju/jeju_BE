@@ -41,9 +41,9 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     jdbc.update("insert into auth.users(id,email) values (?,?)", owner, email);
     jdbc.update("insert into public.user_profiles(id,email) values (?,?)", owner, email);
     jdbc.update(
-        "insert into public.trip_plans "
-            + "(id,user_id,public_token,title,status,start_date,end_date,source_mode,data_version,revision) "
-            + "values (?,?,?,'위치 비수집','draft','2026-09-01','2026-09-01','fixture','issue223',1)",
+        "insert into public.trip_plans"
+            + " (id,user_id,public_token,title,status,start_date,end_date,source_mode,data_version,revision)"
+            + " values (?,?,?,'위치 비수집','draft','2026-09-01','2026-09-01','fixture','issue223',1)",
         trip,
         owner,
         "issue223-" + trip);
@@ -53,12 +53,13 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         version,
         trip);
     jdbc.update(
-        "insert into public.tour_places(id,name,normalized_name,category,location,source_provider) "
-            + "values (?,'공개 장소','공개 장소','ATTRACTION',ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography,'fixture')",
+        "insert into public.tour_places(id,name,normalized_name,category,location,source_provider)"
+            + " values (?,'공개 장소','공개"
+            + " 장소','ATTRACTION',ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography,'fixture')",
         place);
     jdbc.update(
-        "insert into public.bus_stops(id,node_id,node_name,location,source_provider) "
-            + "values (?,?,'공개 정류장',ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography,'fixture')",
+        "insert into public.bus_stops(id,node_id,node_name,location,source_provider) values"
+            + " (?,?,'공개 정류장',ST_SetSRID(ST_MakePoint(126.5,33.5),4326)::geography,'fixture')",
         stop,
         "issue223-" + stop);
   }
@@ -75,9 +76,23 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
       })
   void service_role도_현재_간접_위치를_신규_저장할_수_없다(String kind) {
     jdbc.execute("set local role service_role");
+    boolean removedColumn =
+        kind.equals("event_direct") || kind.equals("live_direct") || kind.equals("live_place");
     assertThatThrownBy(() -> insertLocationRow(kind))
-        .isInstanceOf(DataIntegrityViolationException.class)
-        .hasMessageContaining("user location storage is disabled")
+        .isInstanceOf(
+            removedColumn
+                ? org.springframework.jdbc.BadSqlGrammarException.class
+                : DataIntegrityViolationException.class)
+        .satisfies(
+            error -> {
+              if (removedColumn) {
+                assertThat(error.getCause()).isInstanceOf(java.sql.SQLException.class);
+                assertThat(((java.sql.SQLException) error.getCause()).getSQLState())
+                    .isEqualTo("42703");
+              } else {
+                assertThat(error).hasMessageContaining("user location storage is disabled");
+              }
+            })
         .hasMessageNotContaining("126.51")
         .hasMessageNotContaining("33.51")
         .hasMessageNotContaining("private-location-marker")
@@ -89,16 +104,17 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     jdbc.execute("set local role service_role");
     assertThat(
             jdbc.update(
-                "insert into public.trip_execution_events "
-                    + "(trip_plan_id,schedule_version_id,event_type,client_event_id,occurred_at,metadata) "
-                    + "values (?,?,'trip_started','manual-event',now(),'{}'::jsonb)",
+                "insert into public.trip_execution_events"
+                    + " (trip_plan_id,schedule_version_id,event_type,client_event_id,occurred_at,metadata)"
+                    + " values (?,?,'trip_started','manual-event',now(),'{}'::jsonb)",
                 trip,
                 version))
         .isEqualTo(1);
     assertThat(
             jdbc.update(
-                "insert into public.live_state_snapshots(trip_plan_id,schedule_version_id,status,facts) "
-                    + "values (?,?,'green','{}'::jsonb)",
+                "insert into"
+                    + " public.live_state_snapshots(trip_plan_id,schedule_version_id,status,facts)"
+                    + " values (?,?,'green','{}'::jsonb)",
                 trip,
                 version))
         .isEqualTo(1);
@@ -118,12 +134,17 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
                 + "\":\""
                 + (kind.equals("PLACE") ? place : stop)
                 + "\"}";
-    String hash = commandHash(coarse);
+    String hash = "a".repeat(64);
     jdbc.execute("set local role service_role");
     assertThatThrownBy(
             () -> insertCommandInput(run, coarse, kind.equals("GRID_100M") ? 100 : null, hash))
-        .isInstanceOf(DataIntegrityViolationException.class)
-        .hasMessageContaining("user location storage is disabled")
+        .isInstanceOf(org.springframework.jdbc.BadSqlGrammarException.class)
+        .satisfies(
+            error -> {
+              assertThat(error.getCause()).isInstanceOf(java.sql.SQLException.class);
+              assertThat(((java.sql.SQLException) error.getCause()).getSQLState())
+                  .isEqualTo("42703");
+            })
         .hasMessageNotContaining("Failing row")
         .hasMessageNotContaining(place.toString())
         .hasMessageNotContaining(stop.toString());
@@ -135,16 +156,17 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     UUID id = UUID.randomUUID();
     if (kind.equals("event")) {
       jdbc.update(
-          "insert into public.trip_execution_events "
-              + "(id,trip_plan_id,schedule_version_id,event_type,client_event_id,occurred_at,metadata) "
-              + "values (?,?,?,'trip_started','clean-update-event',now(),'{}'::jsonb)",
+          "insert into public.trip_execution_events"
+              + " (id,trip_plan_id,schedule_version_id,event_type,client_event_id,occurred_at,metadata)"
+              + " values (?,?,?,'trip_started','clean-update-event',now(),'{}'::jsonb)",
           id,
           trip,
           version);
     } else {
       jdbc.update(
-          "insert into public.live_state_snapshots(id,trip_plan_id,schedule_version_id,status,facts) "
-              + "values (?,?,?,'green','{}'::jsonb)",
+          "insert into"
+              + " public.live_state_snapshots(id,trip_plan_id,schedule_version_id,status,facts)"
+              + " values (?,?,?,'green','{}'::jsonb)",
           id,
           trip,
           version);
@@ -153,10 +175,16 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     String sql =
         kind.equals("event")
             ? "update public.trip_execution_events set location=ST_GeogFromText(?) where id=?"
-            : "update public.live_state_snapshots set current_location=ST_GeogFromText(?) where id=?";
+            : "update public.live_state_snapshots set current_location=ST_GeogFromText(?) where"
+                + " id=?";
     assertThatThrownBy(() -> jdbc.update(sql, "SRID=4326;POINT(126.51 33.51)", id))
-        .isInstanceOf(DataIntegrityViolationException.class)
-        .hasMessageContaining("user location storage is disabled")
+        .isInstanceOf(org.springframework.jdbc.BadSqlGrammarException.class)
+        .satisfies(
+            error -> {
+              assertThat(error.getCause()).isInstanceOf(java.sql.SQLException.class);
+              assertThat(((java.sql.SQLException) error.getCause()).getSQLState())
+                  .isEqualTo("42703");
+            })
         .hasMessageNotContaining("126.51")
         .hasMessageNotContaining("33.51")
         .hasMessageNotContaining(id.toString())
@@ -201,7 +229,9 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     assertThatThrownBy(
             () ->
                 jdbc.update(
-                    "insert into public.trip_preferences(trip_plan_id,arrival_region_code,departure_region_code,raw_answers) values (?,'JEJU','JEJU',?::jsonb)",
+                    "insert into"
+                        + " public.trip_preferences(trip_plan_id,arrival_region_code,departure_region_code,raw_answers)"
+                        + " values (?,'JEJU','JEJU',?::jsonb)",
                     trip,
                     payload))
         .isInstanceOf(DataIntegrityViolationException.class)
@@ -214,14 +244,15 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   void 위치없는_선호_JSON과_명시_선택한_공개_장소는_service_role도_저장한다() {
     jdbc.execute("set local role service_role");
     jdbc.update(
-        "insert into public.trip_transport_modes(trip_plan_id,transport_mode,priority,is_primary) values (?,'public_transit',1,true)",
+        "insert into public.trip_transport_modes(trip_plan_id,transport_mode,priority,is_primary)"
+            + " values (?,'public_transit',1,true)",
         trip);
     assertThat(
             jdbc.update(
                 """
-        insert into public.trip_preferences(trip_plan_id,start_place_id,end_place_id,arrival_region_code,departure_region_code,raw_answers)
-        values (?,?,?,'JEJU','JEJU','{"pace":"relaxed","partySize":2}'::jsonb)
-        """,
+                insert into public.trip_preferences(trip_plan_id,start_place_id,end_place_id,arrival_region_code,departure_region_code,raw_answers)
+                values (?,?,?,'JEJU','JEJU','{"pace":"relaxed","partySize":2}'::jsonb)
+                """,
                 trip,
                 place,
                 place))
@@ -235,7 +266,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     jdbc.execute("set constraints all immediate");
     assertThat(
             jdbc.queryForObject(
-                "select start_place_id=end_place_id from public.trip_preferences where trip_plan_id=?",
+                "select start_place_id=end_place_id from public.trip_preferences where"
+                    + " trip_plan_id=?",
                 Boolean.class,
                 trip))
         .isTrue();
@@ -246,24 +278,24 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   void API_역할은_위치_guard_함수를_직접_실행할_권한이_없다(String role) {
     assertThat(
             jdbc.queryForObject(
-                "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
-                    + "where n.nspname='timing_jeju_private' and p.proname in "
+                "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where"
+                    + " n.nspname='timing_jeju_private' and p.proname in "
                     + "('reject_execution_event_location','reject_live_state_location','reject_command_input_location','reject_user_json_location')",
                 Integer.class))
         .isEqualTo(4);
     assertThat(
             jdbc.queryForObject(
-                "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
-                    + "where n.nspname='timing_jeju_private' and p.proname in "
-                    + "('reject_execution_event_location','reject_live_state_location','reject_command_input_location','reject_user_json_location') "
-                    + "and has_function_privilege(?,p.oid,'EXECUTE')",
+                "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where"
+                    + " n.nspname='timing_jeju_private' and p.proname in"
+                    + " ('reject_execution_event_location','reject_live_state_location','reject_command_input_location','reject_user_json_location')"
+                    + " and has_function_privilege(?,p.oid,'EXECUTE')",
                 Integer.class,
                 role))
         .isZero();
   }
 
   @Test
-  void 위치없는_compute_input은_기존_canonical_hash로_저장된다() {
+  void 위치없는_compute_input은_v2_canonical_hash로_저장된다() {
     UUID run = createComputeParent();
     String hash = commandHash(null);
     jdbc.update("update public.compute_runs set input_hash=? where id=?", hash, run);
@@ -275,9 +307,9 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   private UUID createComputeParent() {
     UUID run = UUID.randomUUID();
     jdbc.update(
-        "insert into public.compute_runs "
-            + "(id,trip_plan_id,schedule_version_id,run_type,status,input_hash,contract_version,algorithm_version) "
-            + "values (?,?,?,'feasibility','queued','fixture-parent-hash','fixture','fixture')",
+        "insert into public.compute_runs"
+            + " (id,trip_plan_id,schedule_version_id,run_type,status,input_hash,contract_version,algorithm_version)"
+            + " values (?,?,?,'feasibility','queued','fixture-parent-hash','fixture','fixture')",
         run,
         trip,
         version);
@@ -360,7 +392,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     assertThatThrownBy(
             () ->
                 jdbc.update(
-                    "update public.schedule_revision_runs set algorithm_version='changed' where id=?",
+                    "update public.schedule_revision_runs set algorithm_version='changed' where"
+                        + " id=?",
                     run))
         .isInstanceOf(DataIntegrityViolationException.class)
         .hasMessageContaining("schedule revision run identity is immutable")
@@ -369,7 +402,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
 
   private void insertPlannerParent(String kind, UUID run, UUID day) {
     jdbc.update(
-        "insert into public.trip_days(id,trip_plan_id,day_no,trip_date) values (?,?,1,'2026-09-01')",
+        "insert into public.trip_days(id,trip_plan_id,day_no,trip_date) values"
+            + " (?,?,1,'2026-09-01')",
         day,
         trip);
     if (kind.equals("generation")) {
@@ -388,19 +422,30 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
           run.toString(),
           owner);
     } else {
+      String requestHash =
+          jdbc.queryForObject(
+              """
+              select public.compute_command_input_hash(
+                'schedule_revision'::text,2::smallint,'fixture'::text,'fixture'::text,
+                ?::uuid,?::jsonb)
+              """,
+              String.class,
+              version,
+              plannerInput(kind, day));
       jdbc.update(
           """
           insert into public.schedule_revision_runs
             (id,owner_user_id,trip_plan_id,base_schedule_version_id,target_trip_day_id,
              contract_version,algorithm_version,idempotency_key,request_hash)
-          values (?,?,?,?,?,'fixture','fixture',?,repeat('a',64))
+          values (?,?,?,?,?,'fixture','fixture',?,?)
           """,
           run,
           owner,
           trip,
           version,
           day,
-          UUID.randomUUID());
+          UUID.randomUUID(),
+          requestHash);
     }
   }
 
@@ -424,14 +469,13 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
             new com.timingjeju.api.application.commandinput.CommandInputRequest(
                 parent,
                 kind.equals("generation") ? "itinerary_generation" : "schedule_revision",
-                1,
+                2,
                 "fixture",
                 "fixture",
                 objectMapper.readTree(plannerInput(kind, day)),
                 owner,
                 trip,
-                version,
-                null));
+                version));
     assertThat(inputs.save(snapshot)).isEqualTo(snapshot);
     assertThat(inputs.find(parent)).contains(snapshot);
   }
@@ -498,20 +542,18 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
             new com.timingjeju.api.application.commandinput.CommandInputRequest(
                 parent,
                 "feasibility",
-                1,
+                2,
                 "fixture",
                 "fixture",
                 objectMapper.readTree("{\"refreshExternalFacts\":false}"),
                 owner,
                 trip,
-                version,
-                null));
+                version));
     jdbc.update(
         "update public.compute_runs set input_hash=? where id=?", snapshot.commandInputHash(), run);
     assertThat(inputs.save(snapshot)).isEqualTo(snapshot);
     jdbc.execute("set constraints all immediate");
     assertThat(inputs.find(parent)).contains(snapshot);
-    assertThat(inputs.findUsableLocation(parent, java.time.Instant.now())).isEmpty();
     assertThat(
             jdbc.queryForObject(
                 "select command_input_hash from public.compute_run_inputs where compute_run_id=?",
@@ -530,10 +572,12 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   void 입력없는_만료된_마지막_시도는_보존하고_정상_queued만_claim한다() {
     UUID run = createComputeParent();
     jdbc.update(
-        "update public.compute_runs set status='running',attempt_count=5,fencing_token=5,"
-            + "started_at=now()-interval '1 minute',facts_snapshot_at=now()-interval '1 minute',"
-            + "source_data_version='fixture',lease_owner='legacy-worker',heartbeat_at=now()-interval '1 minute',"
-            + "lease_expires_at=now()-interval '1 second',next_attempt_at=null,input_hash=? where id=?",
+        "update public.compute_runs set"
+            + " status='running',attempt_count=5,fencing_token=5,started_at=now()-interval '1"
+            + " minute',facts_snapshot_at=now()-interval '1"
+            + " minute',source_data_version='fixture',lease_owner='legacy-worker',heartbeat_at=now()-interval"
+            + " '1 minute',lease_expires_at=now()-interval '1"
+            + " second',next_attempt_at=null,input_hash=? where id=?",
         "legacy-orphan-hash",
         run);
     UUID validRun = createComputeParent();
@@ -547,8 +591,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     assertThat(leases.getFirst().runId()).isEqualTo(validRun);
     assertThat(
             jdbc.queryForObject(
-                "select count(*) from public.compute_runs where id=? "
-                    + "and status='running' and attempt_count=5 and fencing_token=5 and lease_owner='legacy-worker'",
+                "select count(*) from public.compute_runs where id=? and status='running' and"
+                    + " attempt_count=5 and fencing_token=5 and lease_owner='legacy-worker'",
                 Integer.class,
                 run))
         .isEqualTo(1);
@@ -562,10 +606,12 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
     insertCommandInput(run, null, null, hash);
     jdbc.execute("set constraints all immediate");
     jdbc.update(
-        "update public.compute_runs set status='running',attempt_count=5,fencing_token=5,"
-            + "started_at=now()-interval '1 minute',facts_snapshot_at=now()-interval '1 minute',"
-            + "source_data_version='fixture',lease_owner='fixture-worker',heartbeat_at=now()-interval '1 minute',"
-            + "lease_expires_at=now()-interval '1 second',next_attempt_at=null where id=?",
+        "update public.compute_runs set"
+            + " status='running',attempt_count=5,fencing_token=5,started_at=now()-interval '1"
+            + " minute',facts_snapshot_at=now()-interval '1"
+            + " minute',source_data_version='fixture',lease_owner='fixture-worker',heartbeat_at=now()-interval"
+            + " '1 minute',lease_expires_at=now()-interval '1 second',next_attempt_at=null where"
+            + " id=?",
         run);
     assertThat(
             new JdbcRunLeaseRepository(jdbc)
@@ -573,9 +619,9 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         .isEmpty();
     assertThat(
             jdbc.queryForObject(
-                "select count(*) from public.compute_runs where id=? "
-                    + "and status='failed' and error_code='ASYNC_RUN_RETRY_EXHAUSTED' "
-                    + "and attempt_count=5 and fencing_token=5 and lease_owner is null and completed_at is not null",
+                "select count(*) from public.compute_runs where id=? and status='failed' and"
+                    + " error_code='ASYNC_RUN_RETRY_EXHAUSTED' and attempt_count=5 and"
+                    + " fencing_token=5 and lease_owner is null and completed_at is not null",
                 Integer.class,
                 run))
         .isEqualTo(1);
@@ -635,9 +681,8 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   private int insertMcpLog(UUID run, String hash) {
     return jdbc.update(
         "insert into public.mcp_compute_call_logs "
-            + "(compute_run_id,request_id,tool_name,status,contract_version,command_input_hash,mcp_input_hash,"
-            + "schema_checksum,request_fact_count,response_fact_count,attempt_no,latency_ms,error_code) "
-            + "values (?,?,'evaluate_jeju_day_trip','transport_error','0.7.0',?,repeat('a',64),"
+            + "(compute_run_id,request_id,tool_name,status,contract_version,command_input_hash,schema_checksum,request_fact_count,response_fact_count,attempt_no,latency_ms,error_code)"
+            + " values (?,?,'evaluate_jeju_day_trip','transport_error','0.7.0',?,"
             + "repeat('b',64),0,0,1,1,'MCP_TIMEOUT')",
         run,
         "fixture-call-" + run,
@@ -645,18 +690,32 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   private String commandHash(String coarse) {
+    if (coarse != null) throw new IllegalArgumentException("위치 입력은 hash fixture에서 제외합니다.");
     return jdbc.queryForObject(
         """
-        select public.compute_command_input_hash('feasibility'::text,1::smallint,
-          'fixture'::text,'fixture'::text,?::uuid,'{"refreshExternalFacts":false}'::jsonb,?::boolean,?::jsonb)
+        select public.compute_command_input_hash('feasibility'::text,2::smallint,
+          'fixture'::text,'fixture'::text,?::uuid,'{"refreshExternalFacts":false}'::jsonb)
         """,
         String.class,
-        version,
-        coarse != null,
-        coarse);
+        version);
   }
 
   private int insertCommandInput(UUID run, String coarse, Integer precision, String hash) {
+    if (coarse == null) {
+      return jdbc.update(
+          """
+          insert into public.compute_run_inputs
+            (compute_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,schema_version,
+             contract_version,algorithm_version,structured_input,command_input_hash)
+          values (?,?,?,?,'feasibility',2,'fixture','fixture','{"refreshExternalFacts":false}'::jsonb,?)
+          """,
+          run,
+          owner,
+          trip,
+          version,
+          hash);
+    }
+    // 구버전 client의 제거된 열 쓰기가 DB에서 거부되는지 확인하는 부정 fixture다.
     return jdbc.update(
         """
         with command as (select ?::jsonb as coarse, '{"refreshExternalFacts":false}'::jsonb as input)
@@ -680,6 +739,31 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   }
 
   private void insertLocationRow(String kind) {
+    if (kind.equals("event_nested") || kind.equals("event_grid")) {
+      jdbc.update(
+          """
+          insert into public.trip_execution_events
+            (trip_plan_id,schedule_version_id,event_type,client_event_id,occurred_at,metadata)
+          values (?,?,'trip_started','location-event',now(),?::jsonb)
+          """,
+          trip,
+          version,
+          kind.equals("event_nested")
+              ? "{\"nested\":[{\"currentLocation\":{\"latitude\":33.51}}]}"
+              : "{\"gridX\":53,\"locationDigest\":\"private-location-marker\"}");
+      return;
+    }
+    if (kind.equals("live_nested")) {
+      jdbc.update(
+          """
+          insert into public.live_state_snapshots(trip_plan_id,schedule_version_id,status,facts)
+          values (?,?,'green',?::jsonb)
+          """,
+          trip,
+          version,
+          "{\"nested\":{\"nearestPlaceId\":\"private-location-marker\"}}");
+      return;
+    }
     if (kind.startsWith("event_")) {
       String location = kind.equals("event_direct") ? "SRID=4326;POINT(126.51 33.51)" : null;
       String metadata =
@@ -689,9 +773,9 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
                   ? "{\"gridX\":53,\"locationDigest\":\"private-location-marker\"}"
                   : "{}";
       jdbc.update(
-          "insert into public.trip_execution_events "
-              + "(trip_plan_id,schedule_version_id,event_type,client_event_id,occurred_at,location,metadata) "
-              + "values (?,?,'trip_started','location-event',now(),ST_GeogFromText(?),?::jsonb)",
+          "insert into public.trip_execution_events"
+              + " (trip_plan_id,schedule_version_id,event_type,client_event_id,occurred_at,location,metadata)"
+              + " values (?,?,'trip_started','location-event',now(),ST_GeogFromText(?),?::jsonb)",
           trip,
           version,
           location,
