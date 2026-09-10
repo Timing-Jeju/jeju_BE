@@ -190,7 +190,7 @@ $$;
 
   Invoke-ComposePostgres @("createdb", "--username", "timing_jeju_test", $concurrencyDatabase)
   # Historical #109 cleanup uses the pre-cutover schema; current races run in PG16/17 integration.
-  Invoke-CanonicalManifest $concurrencyDatabase "supabase/migrations/20260918000017_user_location_write_guard_purge.sql"
+  Invoke-CanonicalManifest $concurrencyDatabase "supabase/atomic-migrations/20260918000017_user_location_write_guard_purge.sql"
   Invoke-SqlFile $concurrencyDatabase "/queries/database_concurrency_contract.sql"
   Write-Host "[Docker] canonical migration fresh/upgrade/fingerprint/concurrency 성공"
 } catch {

@@ -29,9 +29,8 @@ class ComputeInputLineageConcurrencyIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(
           container,
-          PostgreSqlTestContainerFactory.locateRepositoryRoot()
-              .resolve("supabase/migrations")
-              .resolve(TARGET));
+          PostgreSqlTestContainerFactory.canonicalMigrationPath(
+              PostgreSqlTestContainerFactory.locateRepositoryRoot(), TARGET));
       var source =
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());
@@ -100,9 +99,8 @@ class ComputeInputLineageConcurrencyIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(
           container,
-          PostgreSqlTestContainerFactory.locateRepositoryRoot()
-              .resolve("supabase/migrations")
-              .resolve(TARGET));
+          PostgreSqlTestContainerFactory.canonicalMigrationPath(
+              PostgreSqlTestContainerFactory.locateRepositoryRoot(), TARGET));
       var source =
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());
@@ -170,9 +168,8 @@ class ComputeInputLineageConcurrencyIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(
           container,
-          PostgreSqlTestContainerFactory.locateRepositoryRoot()
-              .resolve("supabase/migrations")
-              .resolve(TARGET));
+          PostgreSqlTestContainerFactory.canonicalMigrationPath(
+              PostgreSqlTestContainerFactory.locateRepositoryRoot(), TARGET));
       var source =
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());

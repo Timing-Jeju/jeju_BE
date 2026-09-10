@@ -22,6 +22,7 @@ SELF = Path(__file__).resolve()
 def repository_raw_sql_sources() -> tuple[Path, ...]:
     sources = set((ROOT / "db").rglob("*.sql"))
     sources.update((ROOT / "supabase/migrations").rglob("*.sql"))
+    sources.update((ROOT / "supabase/atomic-migrations").rglob("*.sql"))
     for pattern in ("*.py", "*.sh"):
         sources.update(
             path

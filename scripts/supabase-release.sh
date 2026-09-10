@@ -23,22 +23,13 @@ command -v "$PSQL_BIN" >/dev/null 2>&1 || exit 69
 python3 scripts/location_cutover_group.py --supabase --check
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/timing-jeju-release.XXXXXX")
 trap 'rm -rf "$TEMP_DIR"' EXIT INT TERM
-BOOTSTRAP_DIR="$TEMP_DIR/bootstrap"
 FETCH_DIR="$TEMP_DIR/fetch"
-mkdir -p "$BOOTSTRAP_DIR/supabase/migrations" "$FETCH_DIR/supabase/migrations"
-cp supabase/config.toml "$BOOTSTRAP_DIR/supabase/config.toml"
+mkdir -p "$FETCH_DIR/supabase/migrations"
 cp supabase/config.toml "$FETCH_DIR/supabase/config.toml"
 
-# Never expose immutable 017/018 or later files to the CLI sequential runner.
-for migration in supabase/migrations/*.sql; do
-  filename=${migration##*/}
-  version=${filename%%_*}
-  if [ "$version" -lt 20260918000017 ]; then
-    cp "$migration" "$BOOTSTRAP_DIR/supabase/migrations/$filename"
-  fi
-done
-
-"$SUPABASE_BIN" --workdir "$BOOTSTRAP_DIR" migration up \
+# The repository layout exposes only the safe bootstrap prefix to raw CLI migration up.
+# Atomic 017+ sources live in supabase/atomic-migrations and are applied below by psql.
+"$SUPABASE_BIN" --workdir "$ROOT" migration up \
   --db-url "$DATABASE_URL" --include-all
 "$PSQL_BIN" "$DATABASE_URL" --no-psqlrc --set ON_ERROR_STOP=1 \
   --file db/local-postgres/location_cutover_supabase.sql

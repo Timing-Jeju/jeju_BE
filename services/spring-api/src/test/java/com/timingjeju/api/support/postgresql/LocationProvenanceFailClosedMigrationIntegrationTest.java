@@ -69,7 +69,8 @@ class LocationProvenanceFailClosedMigrationIntegrationTest {
         assertThatThrownBy(
                 () ->
                     PostgreSqlTestContainerFactory.executeScript(
-                        container, root.resolve("supabase/migrations").resolve(TARGET)))
+                        container,
+                        PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("user location residue requires audit")
             .hasMessageNotContaining("126.51")
@@ -84,7 +85,7 @@ class LocationProvenanceFailClosedMigrationIntegrationTest {
 
         jdbc.update("delete from public.trip_preferences where trip_plan_id=?", trip);
         PostgreSqlTestContainerFactory.executeScript(
-            container, root.resolve("supabase/migrations").resolve(TARGET));
+            container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
         assertThat(
                 jdbc.queryForObject(
                     "select timing_jeju_planner_private.user_location_guard_purge_revision()",

@@ -125,23 +125,25 @@ final class PostgreSqlTestContainerFactory {
   static List<Path> canonicalInitScripts(Path repositoryRoot) {
     Path authCompatibility = repositoryRoot.resolve("db/local-postgres/auth_compat.sql");
     Path migrationDirectory = repositoryRoot.resolve("supabase/migrations");
+    Path atomicMigrationDirectory = repositoryRoot.resolve("supabase/atomic-migrations");
     if (!Files.isRegularFile(authCompatibility)) {
       throw new IllegalStateException(
           "PostgreSQL 테스트용 Auth 호환 SQL을 찾을 수 없습니다: " + authCompatibility);
     }
 
-    List<Path> migrations;
-    try (var files = Files.list(migrationDirectory)) {
-      migrations =
-          files
-              .filter(Files::isRegularFile)
-              .filter(path -> CANONICAL_MIGRATION.matcher(path.getFileName().toString()).matches())
-              .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-              .toList();
-    } catch (IOException exception) {
-      throw new IllegalStateException(
-          "Supabase canonical migration을 읽을 수 없습니다: " + migrationDirectory, exception);
+    List<Path> migrations = new ArrayList<>();
+    for (Path sourceDirectory : List.of(migrationDirectory, atomicMigrationDirectory)) {
+      try (var files = Files.list(sourceDirectory)) {
+        files
+            .filter(Files::isRegularFile)
+            .filter(path -> CANONICAL_MIGRATION.matcher(path.getFileName().toString()).matches())
+            .forEach(migrations::add);
+      } catch (IOException exception) {
+        throw new IllegalStateException(
+            "Supabase canonical migration을 읽을 수 없습니다: " + sourceDirectory, exception);
+      }
     }
+    migrations.sort(Comparator.comparing(path -> path.getFileName().toString()));
     if (migrations.isEmpty()) {
       throw new IllegalStateException("Supabase canonical migration이 없습니다: " + migrationDirectory);
     }
@@ -151,6 +153,12 @@ final class PostgreSqlTestContainerFactory {
       if (previous.equals(current)) {
         throw new IllegalStateException("Supabase migration timestamp가 중복됐습니다: " + current);
       }
+    }
+    if (migrations.stream()
+        .filter(path -> path.startsWith(migrationDirectory))
+        .map(path -> path.getFileName().toString())
+        .anyMatch(name -> name.substring(0, 14).compareTo("20260918000017") >= 0)) {
+      throw new IllegalStateException("017 이후 atomic migration은 raw CLI 디렉터리에 둘 수 없습니다");
     }
 
     List<Path> initScripts = new ArrayList<>(migrations.size() + 1);
@@ -166,6 +174,14 @@ final class PostgreSqlTestContainerFactory {
       }
     }
     return List.copyOf(initScripts);
+  }
+
+  static Path canonicalMigrationPath(Path repositoryRoot, String migrationName) {
+    for (String directory : List.of("supabase/migrations", "supabase/atomic-migrations")) {
+      Path candidate = repositoryRoot.resolve(directory).resolve(migrationName);
+      if (Files.isRegularFile(candidate)) return candidate;
+    }
+    throw new IllegalStateException("대상 Supabase migration이 없습니다: " + migrationName);
   }
 
   static Path locateRepositoryRoot() {

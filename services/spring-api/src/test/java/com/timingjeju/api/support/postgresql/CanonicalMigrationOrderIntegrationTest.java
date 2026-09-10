@@ -426,7 +426,8 @@ class CanonicalMigrationOrderIntegrationTest {
     if (name.equals("20260918000017_location_cutover_group.sql")) {
       return repositoryPath("db/local-postgres/" + name);
     }
-    return repositoryPath("supabase/migrations/" + name);
+    return PostgreSqlTestContainerFactory.canonicalMigrationPath(
+        PostgreSqlTestContainerFactory.locateRepositoryRoot(), name);
   }
 
   private static Path repositoryPath(String relative) {

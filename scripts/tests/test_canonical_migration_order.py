@@ -67,10 +67,14 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
         migration_dir = ROOT / "supabase/migrations"
-        actual = tuple(path.name for path in sorted(migration_dir.glob("20260918*.sql")))
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        actual = tuple(Path(entry["path"]).name for entry in manifest["canonicalSuffix"])
         expected = tuple(path for path, _, _ in CANONICAL_SUFFIX)
         self.assertEqual(expected, actual)
         self.assertEqual(len(expected), len({path[:14] for path in expected}))
+        self.assertFalse((migration_dir / expected[-3]).exists())
+        self.assertFalse((migration_dir / expected[-2]).exists())
+        self.assertFalse((migration_dir / expected[-1]).exists())
         for obsolete in OLD_SUFFIX_PATHS:
             self.assertFalse((migration_dir / obsolete).exists(), obsolete)
 
@@ -107,6 +111,8 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn("pullRequest", entry["owner"])
             self.assertTrue(entry["dependencies"])
             self.assertEqual(entry["sha256"], digest(ROOT / entry["path"]))
+        for entry in suffix[-3:]:
+            self.assertEqual("supabase/atomic-migrations", str(Path(entry["path"]).parent))
         ordered_names = [entry["path"].split("/")[-1] for entry in (*prefix, *suffix)]
         for entry in suffix:
             current_index = ordered_names.index(entry["path"].split("/")[-1])
@@ -197,9 +203,9 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
                      "/docker-entrypoint-initdb.d/055_location_cutover_group.sql")
                 )
                 continue
+            source_dir = "supabase/atomic-migrations" if slot == "058" else "supabase/migrations"
             expected_mounts.append(
-                (f"./supabase/migrations/{path}",
-                 f"/docker-entrypoint-initdb.d/{slot}_{path[15:]}")
+                (f"./{source_dir}/{path}", f"/docker-entrypoint-initdb.d/{slot}_{path[15:]}")
             )
         seed = "/docker-entrypoint-initdb.d/099_seed_fixtures.sql"
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):

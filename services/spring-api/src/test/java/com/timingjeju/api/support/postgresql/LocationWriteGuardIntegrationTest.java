@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.timingjeju.api.global.asyncrun.JdbcRunLeaseRepository;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -213,6 +214,12 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
   @ParameterizedTest
   @ValueSource(
       strings = {
+        "{\"pace\":\"current-position:126.51,33.51\"}",
+        "{\"pace\":null}",
+        "{\"partySize\":2.5}",
+        "{\"partySize\":126}",
+        "{\"childAges\":[126.51,33.51,15]}",
+        "{\"childAges\":[\"7\",\"10\"]}",
         "{\"current_position\":[126.51,33.51]}",
         "{\"currentPosition\":[126.51,33.51]}",
         "{\"nested\":{\"point\":[126.51,33.51]}}",
@@ -221,7 +228,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         "{\"current_position\":[\"126.51\",\"33.51\"]}",
         "{\"unknown\":{\"path\":[\"126.51\",\"33.51\",\"15\"]}}"
       })
-  void 알려진_position_alias와_중첩_좌표_배열은_값_반사없이_거부한다(String payload) {
+  void 허용_field를_악용한_문자열_좌표tuple과_중첩_alias는_값_반사없이_거부한다(String payload) {
     jdbc.execute("set local role service_role");
     assertThatThrownBy(
             () ->
@@ -246,7 +253,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
             jdbc.update(
                 """
         insert into public.trip_preferences(trip_plan_id,start_place_id,end_place_id,arrival_region_code,departure_region_code,raw_answers)
-        values (?,?,?,'JEJU','JEJU','{"pace":"relaxed","partySize":2,"childAges":[7,10]}'::jsonb)
+        values (?,?,?,'JEJU','JEJU','{"pace":"normal","partySize":2,"childAges":[7,10]}'::jsonb)
         """,
                 trip,
                 place,
@@ -257,7 +264,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
                 "select raw_answers->>'pace' from public.trip_preferences where trip_plan_id=?",
                 String.class,
                 trip))
-        .isEqualTo("relaxed");
+        .isEqualTo("normal");
     jdbc.execute("set constraints all immediate");
     assertThat(
             jdbc.queryForObject(
@@ -265,6 +272,67 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
                 Boolean.class,
                 trip))
         .isTrue();
+  }
+
+  @ParameterizedTest
+  @org.junit.jupiter.params.provider.MethodSource("invalidTypedSurfacePayloads")
+  void surface별_typed_contract는_형식만_맞춘_위치문자열과_비정수값을_fail_closed한다(String surface, String payload) {
+    assertThat(
+            jdbc.queryForObject(
+                "select timing_jeju_private.user_json_matches_write_contract(?, ?::jsonb) is true",
+                Boolean.class,
+                surface,
+                payload))
+        .isFalse();
+  }
+
+  static Stream<org.junit.jupiter.params.provider.Arguments> invalidTypedSurfacePayloads() {
+    return Stream.of(
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_preferences.raw_answers", "{\"pace\":\"current-position\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_preferences.raw_answers", "{\"childAges\":[126.51,33.51,15]}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_legs.facts", "{\"derivation\":\"current-position\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "itinerary_generation_runs.structured_input",
+            "{\"targetDayId\":\"current-position\",\"candidateCount\":1,\"refreshExternalFacts\":false}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "itinerary_generation_runs.structured_input",
+            "{\"targetDayId\":\"44000000-0000-4000-8000-000000000044\",\"candidateCount\":1.5,\"refreshExternalFacts\":false}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "compute_runs.result_summary", "{\"score\":126.51}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "compute_runs.result_summary", "{\"observedAt\":\"current-position\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "compute_runs.result_summary", "{\"expiresAt\":\"2026-02-30T00:00:00Z\"}"));
+  }
+
+  @ParameterizedTest
+  @org.junit.jupiter.params.provider.MethodSource("validTypedSurfacePayloads")
+  void surface별_typed_contract는_유효한_enum_정수_UUID_timestamp를_보존한다(String surface, String payload) {
+    assertThat(
+            jdbc.queryForObject(
+                "select timing_jeju_private.user_json_matches_write_contract(?, ?::jsonb) is true",
+                Boolean.class,
+                surface,
+                payload))
+        .isTrue();
+  }
+
+  static Stream<org.junit.jupiter.params.provider.Arguments> validTypedSurfacePayloads() {
+    return Stream.of(
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_preferences.raw_answers",
+            "{\"pace\":\"normal\",\"partySize\":2,\"childAges\":[7,10]}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "trip_legs.facts", "{\"derivation\":\"conservative_walk_v1\"}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "itinerary_generation_runs.structured_input",
+            "{\"targetDayId\":\"44000000-0000-4000-8000-000000000044\",\"candidateCount\":10,\"refreshExternalFacts\":false}"),
+        org.junit.jupiter.params.provider.Arguments.of(
+            "compute_runs.result_summary",
+            "{\"score\":100,\"observedAt\":\"2026-09-10T00:00:00Z\",\"expiresAt\":\"2026-09-10T00:10:00+00:00\"}"));
   }
 
   @ParameterizedTest

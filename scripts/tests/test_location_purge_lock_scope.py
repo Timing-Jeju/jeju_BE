@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION = ROOT / "supabase/migrations/20260918000017_user_location_write_guard_purge.sql"
+MIGRATION = ROOT / "supabase/atomic-migrations/20260918000017_user_location_write_guard_purge.sql"
 
 
 class LocationPurgeLockScopeTest(unittest.TestCase):

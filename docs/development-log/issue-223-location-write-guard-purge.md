@@ -312,3 +312,14 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - CLI 2.116.0 `--help`와 upstream fetch 구현을 확인했다. 공식 `scripts/supabase-release.sh`는 임시 workdir에 016 이하만 제공하고, 017·018·020 DDL/data/ledger를 한 psql transaction으로 적용한 뒤 list/fetch를 수행한다. ledger statements는 fetch의 `join(';\n') + ';\n'`이 immutable 원문 byte를 재구성하도록 저장한다.
 - 격리 PG17 실제 CLI 실행에서 첫 TLS 누락은 schema 변경 전 거부됐고, 두 번째 psql test wrapper role 누락은 000..016 bootstrap 뒤 017 전 중단됐다. 수정 후 atomic release가 INSERT 3/COMMIT됐고 list에 017·018·020이 나타났으며 fetch된 017 이후 파일의 byte/SHA 검증이 PASS했다. 컨테이너는 중지·자동 제거했다.
 - 최종 source SHA `f59c67e19a22c9a3362f283922866498c74f751abfd567609f4ba9ab7d7529c6`에서 focused Python 120건, LocationWriteGuard, 신규 provenance PG16/17, atomic ledger PG16/17, canonical 전체 PG16/17이 통과했다. canonical class 실행 시간은 8분32초다. 새 격리 PG17에서도 CLI 2.116.0 전체 release/list/fetch 검증을 다시 통과했고 컨테이너를 제거했다. 새 전체 heavy gate는 아직 실행하지 않았다.
+
+## 2026-09-10 Astra MAJOR 2건 TDD 보정
+
+- RED 계약을 먼저 추가했다. `pace`에 위치 문자열, `partySize` 소수·범위 밖 값, `childAges` 3원소 좌표 tuple·숫자 문자열, nullable predicate, derivation/UUID/timestamp 허용 field 우회를 모두 거부하고 정상 enum·정수·UUID·timestamp payload는 보존하도록 고정했다.
+- 020의 surface 계약은 `pace=slow|normal|fast`, `partySize=1..20` 정수, 최대 20개의 `childAges=0..17` 정수, `derivation=conservative_walk_v1`, canonical UUID, `candidateCount=1..10` 정수, `score=0..100` 정수, 유효한 RFC3339 timestamp만 허용한다. trigger는 predicate가 `TRUE`가 아닌 null/false를 모두 SQLSTATE 23514로 거부한다.
+- immutable 017·018 원문 byte와 SHA는 바꾸지 않고 `supabase/atomic-migrations`로 이동했다. 020도 같은 atomic source 디렉터리에 두어 raw CLI가 읽는 `supabase/migrations`에는 016 이하만 남긴다. manifest가 두 디렉터리의 canonical 순서·원문 SHA를 계속 소유하고 Docker/Java 초기화는 manifest와 atomic group을 소비한다.
+- 공식 `scripts/supabase-release.sh`는 더 이상 임시 bootstrap 복사본의 필터에 안전성을 의존하지 않는다. root layout의 016 이하를 CLI 2.116.0으로 bootstrap한 뒤 017·018·020과 ledger를 생성 SQL 한 transaction으로 적용하고, 임시 fetch workdir에서 원문 byte/SHA를 검증한다.
+- 원문/manifest 변경 뒤 결정적 generator로 local group과 Supabase atomic SQL을 동기화했다. 관련 Python 124건과 두 generated SQL `--check`, shell 문법, diff 검사가 통과했다.
+- `LocationWriteGuardIntegrationTest`와 `LocationProvenanceFailClosedMigrationIntegrationTest`의 payload 양성/음성 및 PG16/17 적용·rollback 검증이 4분52초에 통과했다. atomic ledger의 선행 이력 거부, 감사 실패 전체 rollback, 성공 시 017·018·020 동시 등록 PG16/17 focused 검증도 7분8초에 통과했다.
+- 실제 격리 PG17과 Supabase CLI 2.116.0에서 root layout은 016까지만 적용했다. 첫 실행은 검증용 psql wrapper가 host 상대 파일을 container path로 전달해 atomic 적용 전에 중단됐고 제품 실패로 보지 않는다. wrapper 수정 후 같은 DB의 bootstrap은 `applied: []`, atomic release는 `INSERT 0 3`/`COMMIT`, list는 017·018·020을 표시했으며 fetch 원문 byte/SHA verifier도 통과했다. 생성한 container와 wrapper는 모두 제거했다.
+- 요청에 따라 전체 quality gate와 Docker smoke는 #247 테스트 인프라 병목 수정 전 재실행하지 않았고, push·PR·live Supabase·운영 DB 적용도 수행하지 않았다.

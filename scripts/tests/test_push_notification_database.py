@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 import unittest
 from pathlib import Path
 
@@ -71,9 +72,11 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000018_revision_request_hash_audit.sql",
             "20260918000020_location_provenance_fail_closed.sql",
         )
+        manifest = json.loads((ROOT / "supabase/migrations/manifest.json").read_text())
         migration_names = tuple(
-            path.name
-            for path in sorted((ROOT / "supabase/migrations").glob("202609*.sql"))
+            Path(entry["path"]).name
+            for entry in manifest["immutablePrefix"] + manifest["canonicalSuffix"]
+            if Path(entry["path"]).name.startswith("202609")
         )
         versions = tuple(name[:14] for name in migration_names)
 

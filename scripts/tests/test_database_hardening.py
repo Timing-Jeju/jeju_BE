@@ -984,7 +984,10 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("orphan provenance remained", concurrency_contract)
         self.assertIn("database_concurrency_contract", concurrency_contract)
 
-        for migration in MIGRATIONS.glob("*.sql"):
+        for migration in (
+            *MIGRATIONS.glob("*.sql"),
+            *(ROOT / "supabase/atomic-migrations").glob("*.sql"),
+        ):
             with self.subTest(migration=migration.name):
                 self.assertNotIn(
                     "dblink",

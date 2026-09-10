@@ -2,6 +2,7 @@
 from pathlib import Path
 import hashlib
 import importlib.util
+import json
 import re
 import shutil
 import subprocess
@@ -9,6 +10,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+ATOMIC_MIGRATIONS = ROOT / "supabase/atomic-migrations"
 
 
 class LocationCutoverGroupTest(unittest.TestCase):
@@ -26,14 +28,14 @@ class LocationCutoverGroupTest(unittest.TestCase):
         self.assertTrue(generated.startswith(b"-- Generated location cutover group; do not edit.\nbegin;\n"))
         self.assertTrue(generated.endswith(b"\ncommit;\n"))
         for filename, checksum in module.SOURCES:
-            source = (ROOT / "supabase/migrations" / filename).read_bytes()
+            source = (ATOMIC_MIGRATIONS / filename).read_bytes()
             self.assertIn(module.body(source, checksum), generated)
 
     def test_changed_source_or_unexpected_envelope_is_rejected(self):
         """검증한 원문과 transaction 외곽이 달라지면 생성부터 거절한다."""
         module = self.load()
         filename, checksum = module.SOURCES[0]
-        original = (ROOT / "supabase/migrations" / filename).read_bytes()
+        original = (ATOMIC_MIGRATIONS / filename).read_bytes()
         for changed in (original + b"\n", original.replace(b"begin;", b"BEGIN;", 1), b"\xef\xbb\xbf" + original):
             with self.subTest(size=len(changed)), self.assertRaises(ValueError):
                 module.body(changed, checksum)
@@ -73,7 +75,7 @@ class LocationCutoverGroupTest(unittest.TestCase):
 
     def test_forward_remediation_uses_reserved_safe_chronology(self):
         """#242의 019/057 예약을 건드리지 않고 020/058을 사용한다."""
-        migration = ROOT / "supabase/migrations/20260918000020_location_provenance_fail_closed.sql"
+        migration = ATOMIC_MIGRATIONS / "20260918000020_location_provenance_fail_closed.sql"
         self.assertTrue(migration.is_file())
         manifest = (ROOT / "supabase/migrations/manifest.json").read_text()
         self.assertIn("20260918000020_location_provenance_fail_closed.sql", manifest)
@@ -97,14 +99,31 @@ class LocationCutoverGroupTest(unittest.TestCase):
             stored = re.search(re.escape(tag) + r"(.*?)" + re.escape(tag), sql, re.DOTALL)
             self.assertIsNotNone(stored)
             fetched = (stored.group(1) + ";\n").encode("utf-8")
-            self.assertEqual((ROOT / "supabase/migrations" / filename).read_bytes(), fetched)
+            self.assertEqual((ATOMIC_MIGRATIONS / filename).read_bytes(), fetched)
             self.assertEqual(checksum, hashlib.sha256(fetched).hexdigest())
 
-    def test_official_release_never_exposes_cutover_files_to_cli_sequence(self):
-        """CLI는 016까지만 보고 017 이후는 한 psql transaction으로 실행한다."""
+    def test_repository_layout_never_exposes_atomic_sources_to_raw_cli_sequence(self):
+        """기본 CLI 디렉터리는 016까지만 가지며 017 이후 원문은 sibling에 격리한다."""
+        cli_names = {path.name for path in (ROOT / "supabase/migrations").glob("*.sql")}
+        atomic_names = {path.name for path in ATOMIC_MIGRATIONS.glob("*.sql")}
+        expected_atomic = {
+            "20260918000017_user_location_write_guard_purge.sql",
+            "20260918000018_revision_request_hash_audit.sql",
+            "20260918000020_location_provenance_fail_closed.sql",
+        }
+        self.assertTrue(expected_atomic.isdisjoint(cli_names))
+        self.assertTrue(expected_atomic.issubset(atomic_names))
+        manifest = (ROOT / "supabase/migrations/manifest.json").read_text()
+        for name in expected_atomic:
+            self.assertIn(f'"path":"supabase/atomic-migrations/{name}"', manifest)
+
+    def test_official_release_bootstraps_root_layout_then_runs_atomic_release(self):
+        """공식 runner는 안전한 root bootstrap 뒤 017 이후를 한 psql transaction으로 실행한다."""
         release = (ROOT / "scripts/supabase-release.sh").read_text()
         self.assertIn("EXPECTED_CLI_VERSION=2.116.0", release)
-        self.assertIn('if [ "$version" -lt 20260918000017 ]', release)
+        self.assertNotIn('if [ "$version" -lt 20260918000017 ]', release)
+        self.assertNotIn('cp "$migration"', release)
+        self.assertIn('--workdir "$ROOT" migration up', release)
         self.assertIn('location_cutover_supabase.sql', release)
         self.assertLess(release.index('migration up'), release.index('location_cutover_supabase.sql'))
         self.assertLess(release.index('location_cutover_supabase.sql'), release.index('migration list'))
@@ -131,7 +150,11 @@ class LocationCutoverGroupTest(unittest.TestCase):
         spec.loader.exec_module(verifier)
         with tempfile.TemporaryDirectory() as directory:
             fetched = Path(directory)
-            for source in (ROOT / "supabase/migrations").glob("*.sql"):
+            manifest = json.loads(
+                (ROOT / "supabase/migrations/manifest.json").read_text()
+            )
+            for entry in manifest["immutablePrefix"] + manifest["canonicalSuffix"]:
+                source = ROOT / entry["path"]
                 shutil.copy2(source, fetched / source.name)
             verifier.verify(ROOT, fetched)
             target = fetched / self.load().SOURCES[0][0]

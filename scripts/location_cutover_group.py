@@ -6,6 +6,7 @@ import json
 import re
 
 OUTPUT = "db/local-postgres/20260918000017_location_cutover_group.sql"
+ATOMIC_DIRECTORY = "supabase/atomic-migrations"
 SOURCES = (
     ("20260918000017_user_location_write_guard_purge.sql", "3f1cb04a7a6f0b5577229eb4f9efc9a3e064b203e7423d3712b217bafa8fccbe"),
     ("20260918000018_revision_request_hash_audit.sql", "5bdd91f35b45a7bec2490a5e4c19597f7a2eab521da9889ff89599c887acdd33"),
@@ -50,7 +51,7 @@ def fetch_statement(source: bytes, checksum: str, tag: str) -> str:
 
 
 def render(root: Path) -> bytes:
-    bodies = [body((root / "supabase/migrations" / name).read_bytes(), checksum) for name, checksum in SOURCES]
+    bodies = [body((root / ATOMIC_DIRECTORY / name).read_bytes(), checksum) for name, checksum in SOURCES]
     return b"-- Generated location cutover group; do not edit.\nbegin;\n" + b"\n".join(bodies) + b"\ncommit;\n"
 
 
@@ -80,20 +81,21 @@ $history$;
         for entry in manifest["canonicalSuffix"]
         if entry["path"].split("/")[-1][:14] > "20260918000018"
     ]
-    release_sources = [(name, checksum) for name, checksum in SOURCES]
+    release_sources = [(Path(ATOMIC_DIRECTORY) / name, checksum) for name, checksum in SOURCES]
     release_sources.extend(
-        (entry["path"].split("/")[-1], entry["sha256"]) for entry in post_entries
+        (Path(entry["path"]), entry["sha256"]) for entry in post_entries
     )
     bodies = b"\n".join(
-        release_body((root / "supabase/migrations" / name).read_bytes(), checksum)
-        for name, checksum in release_sources
+        release_body((root / path).read_bytes(), checksum)
+        for path, checksum in release_sources
     )
     # Supabase CLI 2.116.0 fetch joins statements with ';\n' and appends ';\n'.
     # Store each immutable source without that final separator so list/fetch/replay
     # reconstructs the exact original bytes and checksum.
     ledger_values = []
-    for filename, checksum in release_sources:
-        source = (root / "supabase/migrations" / filename).read_bytes()
+    for path, checksum in release_sources:
+        source = (root / path).read_bytes()
+        filename = path.name
         version, name = filename[:-4].split("_", 1)
         ledger_values.append(
             "  ('" + version + "', '" + name + "', array["
