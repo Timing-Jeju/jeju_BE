@@ -360,3 +360,10 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - RED: `PlannedRouteHashPolicyMigrationIntegrationTest` 전체에서 PG16/17 모두 raw CLI 디렉터리의 이동 전 019 경로를 읽어 `NoSuchFileException`이 발생했고, duplicate rollback 사례도 migration을 실행하지 못해 예상 예외가 없었다.
 - 테스트의 로컬 `path()`를 raw 경로 조합 대신 공용 `canonicalMigrationPath()`로 교체했다. 019 production migration을 복제하거나 raw CLI 디렉터리로 되돌리지 않고 raw+atomic canonical source 규칙을 공유한다.
 - PG16/17 hash policy migration 전체 4건이 통과했다. manifest canonical order, atomic generator/checksum과 planned route hash policy Python 30건, local/Supabase generated SQL byte check와 diff check도 통과했다. 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 schedule revision schema fixture provenance 보정
+
+- 시작 시 중단 hook의 Gradle/Testcontainers process와 session residue가 없고 worktree가 clean임을 확인했다. remote-tracking 기준 HEAD는 미게시 상태다.
+- RED: `ScheduleRevisionRunSchemaIntegrationTest` 5건 중 idempotency 동시 INSERT와 fencing 전이 fixture 2건이 opaque `request_hash`를 사용해 `independent hash provenance required`로 실패했다.
+- 020의 runtime revision INSERT 전면 차단은 유지했다. schema fixture만 정확한 trigger 이름으로 설치 구간에 한해 guard를 disable하고 `try/finally`로 복원한다. parent와 `compute_run_inputs`는 같은 transaction에서 canonical structured input과 DB 함수가 계산한 동일 hash로 연결하며 FK, unique, lifecycle과 fencing trigger는 우회하지 않는다.
+- 첫 Green 시도에서 deferred lineage event가 남은 transaction 안의 trigger 재-enable이 PostgreSQL 55006으로 실패했다. 복원 경계를 transaction 밖으로 이동한 뒤 schema class 전체 5건, provenance migration PG16/17, 관련 Python 72건과 두 generator check가 통과했다. 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
