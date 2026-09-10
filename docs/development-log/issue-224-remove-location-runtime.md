@@ -202,3 +202,17 @@ composite action까지 넓히고 Python subprocess는 AST로 검사한다. 집�
 기존 #223 병합 index를 커밋한 뒤 #224 변경을 untracked 포함 stash에 보존하고 최신 develop을
 병합했다. stash 복원에서 019·020 관련 10개 충돌을 검토·해결했고, 모든 기존 untracked 파일의
 원본 바이트 일치를 확인했다. 보존용 stash는 유지한다. diff-check는 통과했다.
+
+### 최종 독립 검토의 배포 진입점 회귀 보정
+
+88affe5 독립 검토에서 Make recipe 접두 @/-/+와 asyncio 분리 positional argv의 직접
+Supabase push가 탐지되지 않는 MINOR finding을 재현했다. 한글 목적 회귀 테스트를 먼저 추가해
+5개 실패를 확인하고, Make 접두 제거 및 asyncio argv AST 처리로 12개 모두 통과했다.
+재검토에서 추가 소스 finding은 없었다. 무해한 reset 명령 허용도 함께 검증했다.
+이 변경의 최종 SHA 전체 gate와 Docker 확인 전에는 승인 완료로 표시하지 않는다.
+
+전체 gate에서 JdbcTripMutationIntegrationTest의 revision 부모가 임시 해시를 사용해
+compute input lineage 제약을 위반하는 실패를 확인했다. fixture에서 canonical snapshot을 먼저
+만들어 부모 request_hash와 같은 값을 사용하도록 수정했다. 수정 전 전체 실행은 실패 확인 후
+종료했으며 통과 근거로 사용하지 않는다. 수정 후 해당 통합 클래스는 통과했다
+(`/tmp/jeju224-fixture-fix.log`).

@@ -538,25 +538,11 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
     new TransactionTemplate(transactions)
         .executeWithoutResult(
             status -> {
-              jdbc.update(
-                  """
-                  insert into public.schedule_revision_runs (
-                    id, owner_user_id, trip_plan_id, base_schedule_version_id,
-                    target_trip_day_id, contract_version, algorithm_version,
-                    idempotency_key, request_hash
-                  ) values (?, ?, ?, ?, ?, 'revision/v1', 'algorithm/v1', ?, repeat('a', 64))
-                  """,
-                  REVISION_RUN,
-                  OWNER,
-                  TRIP,
-                  VERSION,
-                  targetDay,
-                  UUID.fromString("45000000-0000-0000-0000-000000000109"));
               var structuredInput = objectMapper.createObjectNode();
               structuredInput.put("targetDayId", targetDay.toString());
               structuredInput.putArray("affectedItemIds");
               structuredInput.putArray("instructionCodes").add("MOVE_ITEM");
-              commandInputRepository.save(
+              var snapshot =
                   commandInputCanonicalizer.canonicalize(
                       new CommandInputRequest(
                           new CommandInputParent.ScheduleRevision(REVISION_RUN),
@@ -567,7 +553,23 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                           structuredInput,
                           OWNER,
                           TRIP,
-                          VERSION)));
+                          VERSION));
+              jdbc.update(
+                  """
+                  insert into public.schedule_revision_runs (
+                    id, owner_user_id, trip_plan_id, base_schedule_version_id,
+                    target_trip_day_id, contract_version, algorithm_version,
+                    idempotency_key, request_hash
+                  ) values (?, ?, ?, ?, ?, 'revision/v1', 'algorithm/v1', ?, ?)
+                  """,
+                  REVISION_RUN,
+                  OWNER,
+                  TRIP,
+                  VERSION,
+                  targetDay,
+                  UUID.fromString("45000000-0000-0000-0000-000000000109"),
+                  snapshot.commandInputHash());
+              commandInputRepository.save(snapshot);
               jdbc.update(
                   """
                   update public.schedule_revision_runs

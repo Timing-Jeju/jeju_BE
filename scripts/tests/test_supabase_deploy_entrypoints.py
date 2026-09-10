@@ -187,6 +187,21 @@ class SupabaseDeployEntrypointsTest(unittest.TestCase):
             (".github/actions/deploy/action.yml:4",), self._labels(violations)
         )
 
+    def test_make_recipe_prefixes_are_rejected(self) -> None:
+        """Make 실행 접두사가 붙은 직접 배포도 거부하고 reset은 허용한다."""
+        for prefix in ("@", "-", "+", "@-+"):
+            with self.subTest(접두사=prefix), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self._write(root, "Makefile", f"deploy:\n\t{prefix}supabase db push --linked\n\t@supabase db reset\n")
+                self.assertEqual(("Makefile:2",), self._labels(find_violations(root)))
+
+    def test_asyncio_positional_argv_is_rejected(self) -> None:
+        """비동기 프로세스의 분리 인자 직접 배포를 거부하고 reset은 허용한다."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write(root, "scripts/release.py", 'asyncio.create_subprocess_exec("supabase", "db", "push", "--linked")\nasyncio.create_subprocess_exec("supabase", "db", "reset")\n')
+            self.assertEqual(("scripts/release.py:1",), self._labels(find_violations(root)))
+
     @staticmethod
     def _labels(violations) -> tuple[str, ...]:
         return tuple(f"{item.path.as_posix()}:{item.line}" for item in violations)

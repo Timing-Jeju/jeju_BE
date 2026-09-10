@@ -160,6 +160,8 @@ def _python_violations(path: Path, source: str) -> tuple[Violation, ...]:
             ),
             None,
         )
+        if _call_name(node.func) == "asyncio.create_subprocess_exec":
+            command = ast.List(elts=node.args, ctx=ast.Load())
         if command is not None and _python_command_is_push(command):
             violations.append(Violation(path, node.lineno))
     return tuple(violations)
@@ -212,6 +214,8 @@ def _text_violations(path: Path, source: str) -> tuple[Violation, ...]:
     if buffered:
         logical_lines.append((start_line, buffered))
     for line_number, code in logical_lines:
+        if path.name in MAKEFILE_NAMES or path.suffix == ".mk":
+            code = re.sub(r"^\s*[@+\-]+\s*", "", code)
         if _SHELL_PUSH.search(code):
             violations.append(Violation(path, line_number))
     return tuple(violations)
