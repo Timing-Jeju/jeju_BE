@@ -14,6 +14,7 @@ import com.timingjeju.api.application.trip.TripMutationResult;
 import com.timingjeju.api.application.trip.TripPatchValue;
 import com.timingjeju.api.application.trip.TripTransportMode;
 import com.timingjeju.api.application.trip.TripUpdateRecord;
+import com.timingjeju.api.support.postgresql.LocationFreeComputeInputFixture;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -41,7 +42,7 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   private static final UUID VERSION = UUID.fromString("45000000-0000-0000-0000-000000000104");
   private static final UUID IMPORT_RUN = UUID.fromString("45000000-0000-0000-0000-000000000105");
   private static final UUID PLACE = UUID.fromString("45000000-0000-0000-0000-000000000106");
-  private static final UUID REVISION_RUN = UUID.fromString("45000000-0000-0000-0000-000000000107");
+  private static final UUID COMPUTE_RUN = UUID.fromString("45000000-0000-0000-0000-000000000107");
   private static final Instant NOW = Instant.parse("2026-09-01T04:00:00Z");
 
   @Autowired private JdbcTemplate jdbc;
@@ -360,15 +361,15 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                 String.class))
         .as("trip_plans 직접 자식 FK는 모두 ON DELETE CASCADE여야 한다")
         .isEmpty();
-    installRevisionCommandInputAggregate();
+    installCanonicalComputeInputAggregate();
     installExternalFactReference();
-    assertThat(count("schedule_revision_runs", "trip_plan_id", TRIP)).isOne();
+    assertThat(count("compute_runs", "trip_plan_id", TRIP)).isOne();
     assertThat(count("compute_run_inputs", "trip_plan_id", TRIP)).isOne();
     store.deleteOwned(OWNER, TRIP);
 
     assertThat(count("trip_plans", "id", TRIP)).isZero();
     assertThat(count("trip_days", "trip_plan_id", TRIP)).isZero();
-    assertThat(count("schedule_revision_runs", "trip_plan_id", TRIP)).isZero();
+    assertThat(count("compute_runs", "trip_plan_id", TRIP)).isZero();
     assertThat(count("compute_run_inputs", "trip_plan_id", TRIP)).isZero();
     assertThat(count("tour_places", "id", PLACE)).isOne();
     assertThat(count("data_import_runs", "id", IMPORT_RUN)).isOne();
@@ -509,7 +510,7 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
             });
   }
 
-  private void installRevisionCommandInputAggregate() {
+  private void installCanonicalComputeInputAggregate() {
     installActiveSchedule();
     UUID targetDay =
         jdbc.queryForObject(
@@ -519,45 +520,25 @@ class JdbcTripMutationIntegrationTest extends PostgreSqlRepositoryIntegrationTes
     new TransactionTemplate(transactions)
         .executeWithoutResult(
             status -> {
+              jdbc.execute(
+                  "set constraints compute_parent_input_lineage, compute_input_parent_lineage deferred");
               jdbc.update(
                   """
-        insert into public.schedule_revision_runs (
-          id, owner_user_id, trip_plan_id, base_schedule_version_id,
-          target_trip_day_id, contract_version, algorithm_version,
-          idempotency_key, request_hash
-        ) values (?, ?, ?, ?, ?, 'revision/v1', 'algorithm/v1', ?, repeat('a', 64))
+        insert into public.compute_runs (
+          id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+          input_hash, contract_version, algorithm_version, facts_snapshot_at,
+          source_data_version, result_summary, started_at, completed_at
+        ) values (?, ?, ?, ?, 'feasibility', 'succeeded', 'pending-canonical-hash',
+                  'feasibility.v1', 'algorithm/v1', now(), 'issue45-source-v1',
+                  '{}'::jsonb, now(), now())
         """,
-                  REVISION_RUN,
-                  OWNER,
+                  COMPUTE_RUN,
                   TRIP,
-                  VERSION,
                   targetDay,
-                  UUID.fromString("45000000-0000-0000-0000-000000000109"));
-              var structuredInput = objectMapper.createObjectNode();
-              structuredInput.put("targetDayId", targetDay.toString());
-              structuredInput.putArray("affectedItemIds");
-              structuredInput.putArray("instructionCodes").add("MOVE_ITEM");
-              commandInputRepository.save(
-                  commandInputCanonicalizer.canonicalize(
-                      new CommandInputRequest(
-                          new CommandInputParent.ScheduleRevision(REVISION_RUN),
-                          "schedule_revision",
-                          1,
-                          "revision/v1",
-                          "algorithm/v1",
-                          structuredInput,
-                          OWNER,
-                          TRIP,
-                          VERSION,
-                          null)));
-              jdbc.update(
-                  """
-        update public.schedule_revision_runs
-        set status = 'cancelled', failure_code = 'USER_CANCELLED',
-            completed_at = now(), next_attempt_at = null
-        where id = ?
-        """,
-                  REVISION_RUN);
+                  VERSION);
+              LocationFreeComputeInputFixture.attachFeasibilityInput(jdbc, COMPUTE_RUN);
+              jdbc.execute(
+                  "set constraints compute_parent_input_lineage, compute_input_parent_lineage immediate");
             });
   }
 

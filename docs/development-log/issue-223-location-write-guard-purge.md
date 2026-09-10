@@ -338,3 +338,10 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - 020은 좌표 개수·JSON 숫자 type·제주 범위를 추정하는 heuristic을 제거했다. 018 verifier가 호출하는 legacy v17 집계를 교체해 각 JSON surface의 알려진 non-location field와 type만 허용한다. unknown key·alias·nested container는 값을 해석하지 않고 provenance 불명 residue로 집계한다.
 - 감사 실패 시 미분류 `raw_answers`와 기존 위치 event, schema fingerprint 및 016까지의 ledger가 그대로 유지됨을 검증했다. 정상 `pace=normal`, `partySize=4`, `childAges=[7,10]`은 보존되고 성공할 때만 017·018·019·020 ledger 네 행이 함께 기록된다.
 - 신규 rollback/allowlist 테스트와 기존 020 alias/hash 회귀는 PG16/17에서 각각 2건씩 통과했다. 관련 Python 83건, local/Supabase generator byte check와 diff 검사도 통과했다. 전체 quality gate, Docker smoke, live DB, push와 PR은 실행하지 않았다.
+
+## 2026-09-11 full gate fixture 회귀 보정
+
+- focused integration Red에서 `JdbcScheduleStoreIntegrationTest`의 malformed `observedAt`, `JdbcTripScoreIntegrationTest`의 문자열 `score`, `JdbcTripMutationIntegrationTest`의 opaque revision `request_hash`가 각각 현행 closed guard에 거부되어 21건 중 3건이 실패했다.
+- 정상 DB writer fixture와 legacy malformed read 검증을 분리했다. Schedule integration은 정상 freshness의 expiry equality만 쓰고, malformed freshness는 mock ResultSet 기반 read boundary에서 stale로 판정한다. Trip score integration은 정상 JSON number와 timestamp만 쓰며 문자열 score와 malformed `observedAt` fail-closed는 기존 `JdbcTripScoreJsonTest`가 DB write 없이 검증한다.
+- 삭제 cascade fixture는 독립 provenance가 없는 revision hash를 만들지 않는다. 실제 feasibility compute parent를 같은 transaction에서 만들고 `LocationFreeComputeInputFixture`가 canonical structured input hash를 계산해 parent와 input 양쪽에 연결한 뒤, 여행 삭제가 compute run/input만 cascade하고 외부 fact와 사용자를 보존하는 계약을 유지한다.
+- 세 integration 클래스는 21건 모두 통과했고 두 legacy read-boundary unit 클래스도 통과했다. 관련 Python 83건과 local/Supabase generator byte check가 통과했다. 운영 guard·migration은 완화하거나 변경하지 않았으며 전체 gate, Docker smoke, live DB, push와 PR은 실행하지 않았다.
