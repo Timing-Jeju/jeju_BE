@@ -216,3 +216,13 @@ compute input lineage 제약을 위반하는 실패를 확인했다. fixture에�
 만들어 부모 request_hash와 같은 값을 사용하도록 수정했다. 수정 전 전체 실행은 실패 확인 후
 종료했으며 통과 근거로 사용하지 않는다. 수정 후 해당 통합 클래스는 통과했다
 (`/tmp/jeju224-fixture-fix.log`).
+
+### 016 역사 migration 검사와 020 현행 schema 계약 분리
+
+e61c9fe 전체 integrationTest는 969개 중963 PASS/2 FAIL/4 SKIP였다. 실패는 PG16·17에서
+016까지만 적용한 역사 DB에 020 현행 schema_contract를 실행한 동일 오류다. 집중 RED 재현 뒤
+016의 16개 index 정의와 validated owner FK cascade를 직접 검증하도록 수정했다. 020 최신 전체
+schema_contract 검증은 NoLocationSchemaMigrationIntegrationTest에서 계속 유지한다.
+독립 소스 재검토 finding0이며 수정 후 PG16·17 집중2/2가 통과했다
+(`/tmp/jeju224-historical-index-green.log`). 이전 전체 gate는 실패 결과로 보존한다.
+최종 전체 gate는 일반 push 훅으로 실행하며 중복 사전 실행은 하지 않는다.
