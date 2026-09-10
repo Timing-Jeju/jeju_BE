@@ -4,6 +4,37 @@ begin;
 
 set local time zone 'Asia/Seoul';
 
+-- Local fixture compatibility only: production runtime never falls back to v1.
+create function pg_temp.fixture_command_schema_version()
+returns smallint language plpgsql as $$
+begin
+  if to_regprocedure('timing_jeju_planner_private.user_location_schema_revision()') is null then
+    return 1;
+  end if;
+  if timing_jeju_planner_private.user_location_schema_revision() is distinct from '20260918000020' then
+    raise exception 'unsupported local fixture schema revision';
+  end if;
+  return 2;
+end;
+$$;
+
+create function pg_temp.fixture_command_input_hash(
+  input_run_type text, input_contract_version text, input_algorithm_version text,
+  input_base_schedule_version_id uuid, input_structured_input jsonb
+)
+returns text language plpgsql as $$
+begin
+  if pg_temp.fixture_command_schema_version()=2 then
+    return public.compute_command_input_hash(input_run_type::text,2::smallint,
+      input_contract_version::text,input_algorithm_version::text,input_base_schedule_version_id::uuid,
+      input_structured_input::jsonb);
+  end if;
+  return public.compute_command_input_hash(input_run_type::text,1::smallint,
+    input_contract_version::text,input_algorithm_version::text,input_base_schedule_version_id::uuid,
+    input_structured_input::jsonb,false::boolean,null::jsonb);
+end;
+$$;
+
 insert into data_import_runs (
   id, source_kind, source_name, source_operation, data_version,
   status, finished_at, row_count, metadata, source_provider, source_service,
@@ -761,7 +792,7 @@ where schedule_version_id = '60000000-0000-0000-0000-000000000001'
 
 insert into trip_execution_events (
   id, trip_plan_id, schedule_version_id, trip_item_id, trip_leg_id,
-  event_type, client_event_id, location, occurred_at, metadata
+  event_type, client_event_id, occurred_at, metadata
 ) values (
   '62500000-0000-0000-0000-000000000001',
   '50000000-0000-0000-0000-000000000001',
@@ -769,7 +800,6 @@ insert into trip_execution_events (
   '61000000-0000-0000-0000-000000000002',
   '62000000-0000-0000-0000-000000000001',
   'arrived', 'demo-arrive-seongsan-001',
-  null,
   current_date + time '11:20',
   '{"source":"mobile"}'::jsonb
 );
@@ -812,8 +842,8 @@ insert into compute_runs (
   '51000000-0000-0000-0000-000000000001',
   '60000000-0000-0000-0000-000000000001',
    'feasibility', 'succeeded',
-  public.compute_command_input_hash('feasibility'::text,1::smallint,'feasibility.v1'::text,'risk-engine-2026-07'::text,
-    '60000000-0000-0000-0000-000000000001'::uuid,'{"refreshExternalFacts":false}'::jsonb,false::boolean,null::jsonb),
+  pg_temp.fixture_command_input_hash('feasibility'::text,'feasibility.v1'::text,'risk-engine-2026-07'::text,
+    '60000000-0000-0000-0000-000000000001'::uuid,'{"refreshExternalFacts":false}'::jsonb),
   'feasibility.v1', 'risk-engine-2026-07', now(), 'fixture-v1.1', 'computed',
   '{"overallStatus":"caution","score":81}'::jsonb,
   now() - interval '2 seconds', now()
@@ -824,9 +854,9 @@ insert into compute_runs (
   '51000000-0000-0000-0000-000000000001',
   '60000000-0000-0000-0000-000000000001',
    'recovery', 'succeeded',
-  public.compute_command_input_hash('recovery'::text,1::smallint,'recovery.v1'::text,'recovery-engine-2026-07'::text,
+  pg_temp.fixture_command_input_hash('recovery'::text,'recovery.v1'::text,'recovery-engine-2026-07'::text,
     '60000000-0000-0000-0000-000000000001'::uuid,
-    '{"riskEventId":"63100000-0000-0000-0000-000000000001","optionCount":1}'::jsonb,false::boolean,null::jsonb),
+    '{"riskEventId":"63100000-0000-0000-0000-000000000001","optionCount":1}'::jsonb),
   'recovery.v1', 'recovery-engine-2026-07', now(), 'fixture-v1.1', 'computed',
   '{"optionCount":1,"bestScore":90}'::jsonb,
   now() - interval '2 seconds', now()
@@ -918,7 +948,7 @@ insert into recovery_option_changes (
 
 insert into live_state_snapshots (
   id, trip_plan_id, schedule_version_id, active_item_id, active_leg_id,
-  compute_run_id, status, current_location, current_place_id, next_action, facts
+  compute_run_id, status, next_action, facts
 ) values (
   '66000000-0000-0000-0000-000000000001',
   '50000000-0000-0000-0000-000000000001',
@@ -927,29 +957,29 @@ insert into live_state_snapshots (
   '62000000-0000-0000-0000-000000000002',
   '63000000-0000-0000-0000-000000000001',
   'yellow',
-  null, null, null, '{}'::jsonb
+  null, '{}'::jsonb
 );
 
 -- Normal current fixtures have the same closed command lineage as application writes.
 -- Historical location fixtures remain in their separate upgrade-only scripts.
 insert into compute_run_inputs
   (compute_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,schema_version,
-   contract_version,algorithm_version,structured_input,command_input_hash,location_supplied)
-select run.id,trip.user_id,run.trip_plan_id,run.schedule_version_id,run.run_type,1,
+   contract_version,algorithm_version,structured_input,command_input_hash)
+select run.id,trip.user_id,run.trip_plan_id,run.schedule_version_id,run.run_type,pg_temp.fixture_command_schema_version(),
        run.contract_version,run.algorithm_version,
        case run.run_type when 'feasibility' then '{"refreshExternalFacts":false}'::jsonb
          else '{"riskEventId":"63100000-0000-0000-0000-000000000001","optionCount":1}'::jsonb end,
-       run.input_hash,false
+       run.input_hash
 from compute_runs run join trip_plans trip on trip.id=run.trip_plan_id
 where run.id in ('63000000-0000-0000-0000-000000000001','63000000-0000-0000-0000-000000000002');
 
 insert into compute_run_inputs
   (generation_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,schema_version,
-   contract_version,algorithm_version,structured_input,command_input_hash,location_supplied)
-select id,requested_by_user_id,trip_plan_id,base_schedule_version_id,'itinerary_generation',1,
+   contract_version,algorithm_version,structured_input,command_input_hash)
+select id,requested_by_user_id,trip_plan_id,base_schedule_version_id,'itinerary_generation',pg_temp.fixture_command_schema_version(),
        contract_version,algorithm_version,structured_input,
-       public.compute_command_input_hash('itinerary_generation'::text,1::smallint,contract_version::text,
-         algorithm_version::text,base_schedule_version_id::uuid,structured_input::jsonb,false::boolean,null::jsonb),false
+       pg_temp.fixture_command_input_hash('itinerary_generation'::text,contract_version::text,
+         algorithm_version::text,base_schedule_version_id::uuid,structured_input::jsonb)
 from itinerary_generation_runs where id='64000000-0000-0000-0000-000000000001';
 
 -- Historical pre-cutover audit fixtures only. Opaque MCP wire hashes cannot prove

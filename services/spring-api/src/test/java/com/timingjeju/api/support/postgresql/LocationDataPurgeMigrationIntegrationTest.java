@@ -1306,7 +1306,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       UUID run = insertNormalRevisionInput(jdbc, source, fixture);
       jdbc.execute("create schema supabase_migrations");
       jdbc.execute(
-          "create table supabase_migrations.schema_migrations(version text primary key, name text, statements text[])");
+          "create table supabase_migrations.schema_migrations(version text primary key, statements text[], name text)");
       try (var files = Files.list(root.resolve("supabase/migrations"))) {
         for (var file :
             files

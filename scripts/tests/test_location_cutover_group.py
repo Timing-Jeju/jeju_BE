@@ -1,6 +1,10 @@
 """위치 정리의 두 불변 migration을 단일 실행 단위로 검증한다."""
 from pathlib import Path
+import hashlib
 import importlib.util
+import json
+import shutil
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -12,6 +16,23 @@ class LocationCutoverGroupTest(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
+
+    def minimal_root(self):
+        temporary = tempfile.TemporaryDirectory()
+        root = Path(temporary.name)
+        for relative in (
+            "supabase/migrations/manifest.json",
+            "db/queries/canonical_migration_fingerprint.sql",
+            "db/fingerprints/location_cutover_predecessors.json",
+        ):
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, target)
+        for filename, _ in self.load().SOURCES:
+            target = root / "supabase/migrations" / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / "supabase/migrations" / filename, target)
+        return temporary, root
 
     def test_generated_group_has_one_outer_transaction_and_exact_bodies(self):
         """두 원문 본문은 보존하고 최종 감사 뒤에만 커밋한다."""
@@ -54,3 +75,76 @@ class LocationCutoverGroupTest(unittest.TestCase):
         self.assertLess(sql.index(b"lock table supabase_migrations.schema_migrations"), sql.index(b"-- Issue #223:"))
         self.assertGreater(sql.index(b"insert into supabase_migrations.schema_migrations"), sql.index(b"select '20260918000018'::text"))
         self.assertIn(b"location cutover migration history mismatch", sql)
+
+    def test_predecessor_policy_pins_canonical_query_and_reviewed_fingerprints(self):
+        """선행 스키마 허용 목록은 검토한 query SHA와 서버 major별 fingerprint만 고정한다."""
+        module = self.load()
+        policy = module.load_predecessor_policy(ROOT)
+        self.assertEqual(
+            hashlib.sha256((ROOT / module.PREFLIGHT_POLICY).read_bytes()).hexdigest(),
+            module.PREFLIGHT_POLICY_SHA256,
+        )
+        self.assertEqual(
+            policy["canonicalQuerySha256"],
+            "1ec0ac58bf7d45fc37c24e59936b19b2723049ac3fc85260d89c0e834bd81966",
+        )
+        self.assertEqual(
+            policy["allowedFingerprints"],
+            {
+                "16": ["19745c65ef17192f09bfbb7d3167a3d1"],
+                "17": [
+                    "948a3dbda299b1b6621522b69c3167bb",
+                    "f653e443df2891370dcb07d2ce36260e",
+                ],
+            },
+        )
+
+    def test_supabase_preflight_guards_ledger_shape_primary_key_and_server_fingerprint(self):
+        """동일 transaction 사전 검증은 ledger 열·version PK와 서버별 선행 fingerprint를 닫아 둔다."""
+        sql = self.load().render_supabase(ROOT)
+        self.assertIn(b"version:text:NO", sql)
+        self.assertIn(b"statements:ARRAY:YES", sql)
+        self.assertIn(b"name:text:YES", sql)
+        self.assertIn(b"location cutover migration ledger shape mismatch", sql)
+        self.assertIn(b"location cutover predecessor schema fingerprint mismatch", sql)
+        self.assertIn(b"current_setting('server_version_num')::integer / 10000", sql)
+        self.assertIn(b"19745c65ef17192f09bfbb7d3167a3d1", sql)
+        self.assertIn(b"948a3dbda299b1b6621522b69c3167bb", sql)
+        self.assertIn(b"f653e443df2891370dcb07d2ce36260e", sql)
+        self.assertIn(b"constraint_type = 'PRIMARY KEY'", sql)
+        self.assertIn(b"array_agg(key_column.column_name::text", sql)
+
+    def test_supabase_preflight_is_locked_and_runs_before_first_cutover_body(self):
+        """선행 검증은 BEGIN 뒤 ledger 전용 잠금 안에서 첫 017 본문보다 먼저 끝난다."""
+        sql = self.load().render_supabase(ROOT)
+        begin = sql.index(b"begin;")
+        ledger_lock = sql.index(b"lock table supabase_migrations.schema_migrations in access exclusive mode;")
+        ledger_guard = sql.index(b"location cutover migration ledger shape mismatch")
+        schema_guard = sql.index(b"location cutover predecessor schema fingerprint mismatch")
+        preflight_end = sql.index(b"$preflight$;")
+        first_body = sql.index(b"-- Issue #223:")
+        self.assertLess(begin, ledger_lock)
+        self.assertLess(ledger_lock, ledger_guard)
+        self.assertLess(ledger_guard, schema_guard)
+        self.assertLess(schema_guard, preflight_end)
+        self.assertLess(preflight_end, first_body)
+        self.assertNotIn(b"\\i ", sql)
+        self.assertNotIn(b"\\ir ", sql)
+
+    def test_changed_query_or_reviewed_policy_is_rejected_before_render(self):
+        """canonical query나 검토 JSON이 바뀌면 Supabase SQL 생성을 즉시 거절한다."""
+        module = self.load()
+        temporary, root = self.minimal_root()
+        self.addCleanup(temporary.cleanup)
+        query = root / "db/queries/canonical_migration_fingerprint.sql"
+        query.write_text(query.read_text() + "\n-- mutation\n")
+        with self.assertRaisesRegex(ValueError, "canonical fingerprint query mismatch"):
+            module.render_supabase(root)
+
+        shutil.copy2(ROOT / "db/queries/canonical_migration_fingerprint.sql", query)
+        policy_path = root / "db/fingerprints/location_cutover_predecessors.json"
+        policy = json.loads(policy_path.read_text())
+        policy["allowedFingerprints"]["17"].append("0" * 32)
+        policy_path.write_text(json.dumps(policy))
+        with self.assertRaisesRegex(ValueError, "predecessor fingerprint policy mismatch"):
+            module.render_supabase(root)

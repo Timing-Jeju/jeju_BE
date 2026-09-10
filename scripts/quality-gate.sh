@@ -73,6 +73,7 @@ run_common_checks() {
 
   stage "배포 SQL 정책 검사"
   python3 scripts/deploy_sql_policy.py
+  python3 scripts/validate_supabase_deploy_entrypoints.py
 
   stage "REST 공통 계약 readiness 검사"
   python3 scripts/validate_rest_contracts.py
