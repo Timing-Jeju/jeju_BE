@@ -63,6 +63,7 @@ services:
       - ./supabase/migrations/20260918000014_planned_anchor_resolver.sql:/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql:ro
       - ./supabase/migrations/20260918000015_planned_route_snapshot_provenance.sql:/docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql:ro
       - ./supabase/migrations/20260918000016_planned_route_reference_integrity.sql:/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql:ro
+      - ./db/local-postgres/20260918000017_location_cutover_group.sql:/docker-entrypoint-initdb.d/055_location_cutover_group.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

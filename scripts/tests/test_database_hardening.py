@@ -153,7 +153,9 @@ class DatabaseHardeningTest(unittest.TestCase):
         migration_mounts = [
             f"./supabase/migrations/{path.name}"
             for path in sorted(MIGRATIONS.glob("*.sql"))
+            if path.name not in ("20260918000017_user_location_write_guard_purge.sql", "20260918000018_revision_request_hash_audit.sql")
         ]
+        migration_mounts.append("./db/local-postgres/20260918000017_location_cutover_group.sql")
         ordered_mounts = [
             "./db/local-postgres/auth_compat.sql",
             *migration_mounts,

@@ -95,7 +95,7 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
 - `20260918000006` `#78` 프로필 이미지 Storage migration은 `user_profiles` 상태, cleanup outbox와 public bucket의 immutable INSERT-only RLS를 additive하게 적용합니다.
 - `20260918000009`은 #38 시간표 provenance와 TAGO route reference scope를 additive하게 분리합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000016`까지 고유 timestamp와 Docker init `038`부터 `054`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000017`까지 고유 timestamp와 Docker init `038`부터 `055`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -229,3 +229,10 @@ release OpenAPI 생성이나 실제 frontend readiness 판정에 사용하지 �
 실제 catalog HTTP 검사와 미래 not-ready selector HTTP 검사를 별도로 유지합니다.
 Python 검사도 같은 implementation 상태에 따라 canonical schema 비교만 분기하며,
 endpoint 집합·인증·runtime status/Problem·예제 nullable 검증은 계속 수행합니다.
+
+### #223 위치 정리 atomic group (검증 중)
+
+`20260918000017`과 `20260918000018`은 055 실행 슬롯의 단일 transaction으로 적용합니다. 056은 원문 manifest의 예약 슬롯이며 별도 Docker init을 실행하지 않습니다. `scripts/location_cutover_group.py --check`는 고정된 원문 checksum과 생성 SQL의 byte 일치를 확인합니다. 017의 이미 커밋한 SQL은 변경하지 않습니다. 기본 Docker와 Java canonical 초기화는 `db/local-postgres/20260918000017_location_cutover_group.sql`을 사용합니다. 017 단독 역사 회귀 테스트는 전체 cutover 성공 증거가 아닙니다.
+
+
+Supabase ledger 적용용 별도 산출물은 `db/local-postgres/location_cutover_supabase.sql`입니다. 원문 schema migration 파일 두 개를 따로 `db push`하는 방식은 #223 원자성 완료 근거로 사용하지 않습니다. 이력/DDL을 함께 처리하는 SQL과 실제 CLI 호환·격리 staging 검증을 구분합니다. `createBefore(018)`처럼 그룹 내부를 canonical 초기화 경계로 선택하는 동작은 지원하지 않습니다. 017만 적용된 과거 DB는 별도 역사 fixture와 감사 경로로 다룹니다.

@@ -33,6 +33,8 @@ CANONICAL_SUFFIX = (
     ("20260918000014_planned_anchor_resolver.sql", "052", 225),
     ("20260918000015_planned_route_snapshot_provenance.sql", "053", 225),
     ("20260918000016_planned_route_reference_integrity.sql", "054", 225),
+    ("20260918000017_user_location_write_guard_purge.sql", "055", 223),
+    ("20260918000018_revision_request_hash_audit.sql", "056", 223),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -59,7 +61,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `054`", architecture)
+        self.assertIn("Docker init `038`부터 `055`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
@@ -114,6 +116,11 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             compose = (ROOT / compose_name).read_text(encoding="utf-8")
             positions = []
             for entry in (*prefix, *suffix):
+                if entry["initSlot"] == "056":
+                    continue
+                entry = dict(entry)
+                if entry["initSlot"] == "055":
+                    entry["path"] = "db/local-postgres/20260918000017_location_cutover_group.sql"
                 mount = re.search(
                     rf"\./{re.escape(entry['path'])}:"
                     rf"/docker-entrypoint-initdb\.d/{entry['initSlot']}_[^:]+\.sql:ro",
@@ -184,8 +191,10 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
                 f"./supabase/migrations/{path}",
                 f"/docker-entrypoint-initdb.d/{slot}_{path[15:]}",
             )
-            for path, slot, _ in CANONICAL_SUFFIX
+            for path, slot, _ in CANONICAL_SUFFIX if slot not in ("055", "056")
         ]
+        expected_mounts.append(("./db/local-postgres/20260918000017_location_cutover_group.sql",
+                                "/docker-entrypoint-initdb.d/055_location_cutover_group.sql"))
         seed = "/docker-entrypoint-initdb.d/099_seed_fixtures.sql"
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             source = (ROOT / compose_name).read_text(encoding="utf-8")

@@ -38,7 +38,13 @@ final class PostgreSqlTestContainerFactory {
     List<Path> scripts = canonicalInitScripts(locateRepositoryRoot());
     int targetIndex = -1;
     for (int index = 0; index < scripts.size(); index++) {
-      if (exclusiveMigration.equals(scripts.get(index).getFileName().toString())) {
+      if (exclusiveMigration.equals(scripts.get(index).getFileName().toString())
+          || (exclusiveMigration.equals("20260918000017_user_location_write_guard_purge.sql")
+              && scripts
+                  .get(index)
+                  .getFileName()
+                  .toString()
+                  .equals("20260918000017_location_cutover_group.sql"))) {
         targetIndex = index;
         break;
       }
@@ -149,7 +155,16 @@ final class PostgreSqlTestContainerFactory {
 
     List<Path> initScripts = new ArrayList<>(migrations.size() + 1);
     initScripts.add(authCompatibility);
-    initScripts.addAll(migrations);
+    for (Path migration : migrations) {
+      String name = migration.getFileName().toString();
+      if (name.equals("20260918000018_revision_request_hash_audit.sql")) continue;
+      if (name.equals("20260918000017_user_location_write_guard_purge.sql")) {
+        initScripts.add(
+            repositoryRoot.resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
+      } else {
+        initScripts.add(migration);
+      }
+    }
     return List.copyOf(initScripts);
   }
 
