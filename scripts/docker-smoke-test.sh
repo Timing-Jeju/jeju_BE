@@ -209,6 +209,7 @@ fi
 echo "[Docker] Health Check 성공"
 
 # Fresh install includes /docker-entrypoint-initdb.d/055_location_cutover_group.sql.
+# Fresh install then includes /docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql.
 # Verify the owner-only cutover marker and zero counts without logging user values.
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
