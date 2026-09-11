@@ -140,7 +140,7 @@ public interface SavedPlacesApiDocs {
       PatchSavedPlaceRequest request,
       @Parameter(hidden = true) HttpServletRequest httpRequest);
 
-  @Operation(summary = "관심 장소 삭제")
+  @Operation(summary = "관심 장소 삭제", description = "If-Match strong ETag를 소유자 행 잠금 안에서 비교한 뒤 삭제합니다.")
   @ApiResponses({
     @ApiResponse(responseCode = "204", description = "삭제 완료"),
     @ApiResponse(
@@ -154,10 +154,22 @@ public interface SavedPlacesApiDocs {
         content =
             @Content(
                 mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   ResponseEntity<Void> delete(
       @Pattern(regexp = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
           String placeId,
+      @Parameter(
+              name = "If-Match",
+              in = io.swagger.v3.oas.annotations.enums.ParameterIn.HEADER,
+              required = true,
+              description = "목록 또는 최근 저장에서 받은 단일 strong ETag")
+          String ifMatch,
       @Parameter(hidden = true) HttpServletRequest httpRequest);
 }

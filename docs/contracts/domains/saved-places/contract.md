@@ -17,7 +17,7 @@ Issue #84가 확정하는 Spring 공개 API 계약입니다. machine 기준은 �
 | GET | `/api/v1/me/saved-places` | 200 | Required | owner 목록, tag/category/regionCode/sort/cursor/size |
 | POST | `/api/v1/me/saved-places` | 201 또는 중복 동일 상태 200 | Required | `Idempotency-Key` 필수 |
 | PATCH | `/api/v1/me/saved-places/{placeId}` | 200 | Required | `If-Match` 필수, 부분 변경 |
-| DELETE | `/api/v1/me/saved-places/{placeId}` | 204 | Required | 반복·타 사용자 모두 404 |
+| DELETE | `/api/v1/me/saved-places/{placeId}` | 204 | Required | 단일 strong `If-Match` 필수, stale 409, 반복·타 사용자 404 |
 
 `placeId`는 소문자 canonical UUID입니다. 목록 외 endpoint는 query를 받지 않습니다. DELETE는 request·response body가 없습니다.
 
@@ -80,7 +80,9 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 
 ## DELETE와 소유 리소스 은닉
 
-첫 owner DELETE는 body 없는 204입니다. 같은 요청을 반복하면 404입니다. 대상이 없거나 다른 canonical `sub` 소유여도 동일한 `404 SAVED_PLACE_NOT_FOUND`로 응답하여 존재 여부를 은닉합니다. owner 판단 전에 사용자 입력이나 이메일을 조회하지 않습니다.
+단일 strong `If-Match`가 필수입니다. 누락, weak ETag, wildcard, 다중 값·중복 헤더, 잘못된 형식은 repository 진입 전에 `400 INVALID_REQUEST`입니다. 소유자 행을 같은 트랜잭션에서 `SELECT FOR UPDATE`로 잠근 뒤 현재 `placeId`와 `updatedAt`의 ETag를 비교하고 `version` 조건으로 삭제합니다. 오래된 ETag는 `409 SAVED_PLACE_VERSION_CONFLICT`이며 수정된 행은 보존합니다. 잠금을 기다린 삭제도 앞선 수정의 commit 후 최신 값을 다시 확인합니다.
+
+최신 ETag를 전달한 첫 owner DELETE는 body 없는 204입니다. 같은 요청을 반복하면 404입니다. 대상이 없거나 다른 canonical `sub` 소유여도 동일한 `404 SAVED_PLACE_NOT_FOUND`로 응답하여 존재 여부를 은닉합니다. owner 판단 전에 사용자 입력이나 이메일을 조회하지 않습니다.
 
 ## 성공 응답
 
@@ -107,7 +109,7 @@ PATCH body는 `memo`, `tags`, `priority`, `targetDay` 중 최소 하나가 있�
 | 변경·삭제 | 404 | `SAVED_PLACE_NOT_FOUND` | 없음·반복 삭제·타 사용자 소유 |
 | 생성 | 409 | `IDEMPOTENCY_PAYLOAD_CONFLICT` | 같은 key에 다른 payload |
 | 생성 | 409 | `SAVED_PLACE_ALREADY_EXISTS` | 다른 key로 다른 현재 값 중복 저장 |
-| 변경 | 409 | `SAVED_PLACE_VERSION_CONFLICT` | If-Match 불일치 |
+| 변경·삭제 | 409 | `SAVED_PLACE_VERSION_CONFLICT` | If-Match 불일치 |
 | 생성·변경 | 422 | `SAVED_PLACE_CONSTRAINT_VIOLATION` | 정규화 후 도메인 제약 위반 |
 
 오류는 `application/problem+json`의 `type,title,status,detail,instance,code,traceId,fieldErrors`만 반환합니다. 사용자에게 보이는 `title/detail`은 한국어이며 token, 이메일, 원본 provider payload를 포함하지 않습니다.
@@ -168,3 +170,7 @@ python3 scripts/validate_rest_contracts.py
 POST 200/201만 SavedPlaceCreateResponse = SavedPlace | SavedPlaceLegacyV1이다. 배포전완료receipt에etag필드가없으면 기존만료시각까지 Idempotency-Replayed:true와함께그body/status/Location/ETag를원본그대로재전송한다. 새응답에만etag를추가하며 과거receipt수정·삭제·namespace교체·TTL연장은없다. 과거POSTreplay를받은FE는목록GET으로현재row와etag를복원한다. GET/PATCH는legacy분기를허용하지않는다.
 
 기존saved_places와saved_place_idempotency 컬럼을그대로사용하므로schema migration은불필요하다. 실제DB/PG16·17 및release gate는구현검증단계에서별도로완료해야하며 liveSupabase나운영배포를수행한것으로간주하지않는다.
+
+## Issue #248 로컬 구현 상태
+
+삭제의 버전 선행조건을 추가했으며 DB schema와 POST replay의 원본 바이트·TTL은 변경하지 않습니다. 이전 Notion 조회 기록의 canonical 1.0.0 표기는 당시 증거로 보존합니다. 이번 1.2.0의 Notion/Figma 재조회·실제 staging 검증은 아직 수행하지 않았습니다. #238의 목록 ETag 노출과 함께 병합한 뒤 프런트엔드 계약을 갱신해야 합니다.

@@ -2,6 +2,7 @@ package com.timingjeju.api.domain.savedplaces.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -313,15 +314,19 @@ class SavedPlacesHttpPostgreSqlIntegrationTest {
                     "http-snapshot-key"))
         .isInstanceOf(org.springframework.dao.DataAccessException.class);
 
-    mvc.perform(
-            patch("/api/v1/me/saved-places/{placeId}", PLACE)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
-                .header("If-Match", etag)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"memo\":\"변경\"}"))
-        .andExpect(status().isOk());
+    var updated =
+        mvc.perform(
+                patch("/api/v1/me/saved-places/{placeId}", PLACE)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                    .header("If-Match", etag)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"memo\":\"변경\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse();
     mvc.perform(
             delete("/api/v1/me/saved-places/{placeId}", PLACE)
+                .header("If-Match", updated.getHeader("ETag"))
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token()))
         .andExpect(status().isNoContent());
     jdbc.update("delete from public.tour_places where id=?", PLACE);
@@ -366,6 +371,72 @@ class SavedPlacesHttpPostgreSqlIntegrationTest {
             .andReturn();
     assertThat(conflict.getResponse().getContentAsString())
         .contains("\"code\":\"IDEMPOTENCY_PAYLOAD_CONFLICT\"");
+  }
+
+  @Test
+  void DELETE는_stale_ETag에서_409를_반환하고_최신_ETag로만_204와_재삭제_404를_반환한다() throws Exception {
+    var created =
+        mvc.perform(
+                post("/api/v1/me/saved-places")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                    .header("Idempotency-Key", "delete-http-cas")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"placeId\":\"" + PLACE + "\"}"))
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse();
+    var updated =
+        mvc.perform(
+                patch("/api/v1/me/saved-places/{placeId}", PLACE)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                    .header("If-Match", created.getHeader("ETag"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"memo\":\"유지할 수정\"}"))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse();
+    mvc.perform(
+            delete("/api/v1/me/saved-places/{placeId}", PLACE)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("If-Match", created.getHeader("ETag")))
+        .andExpect(status().isConflict())
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code")
+                .value("SAVED_PLACE_VERSION_CONFLICT"));
+    assertThat(
+            jdbc.queryForObject(
+                "select memo from public.saved_places where user_id=? and place_id=?",
+                String.class,
+                USER,
+                PLACE))
+        .isEqualTo("유지할 수정");
+    var latest =
+        mvc.perform(
+                get("/api/v1/me/saved-places")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token()))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse();
+    String latestEtag =
+        mapper.readTree(latest.getContentAsByteArray()).path("items").get(0).path("etag").asText();
+    assertThat(latestEtag).isEqualTo(updated.getHeader("ETag"));
+    var deleted =
+        mvc.perform(
+                delete("/api/v1/me/saved-places/{placeId}", PLACE)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                    .header("If-Match", latestEtag))
+            .andExpect(status().isNoContent())
+            .andReturn()
+            .getResponse();
+    assertThat(deleted.getContentAsByteArray()).isEmpty();
+    mvc.perform(
+            delete("/api/v1/me/saved-places/{placeId}", PLACE)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("If-Match", latestEtag))
+        .andExpect(status().isNotFound())
+        .andExpect(
+            org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code")
+                .value("SAVED_PLACE_NOT_FOUND"));
   }
 
   private static String token() throws Exception {

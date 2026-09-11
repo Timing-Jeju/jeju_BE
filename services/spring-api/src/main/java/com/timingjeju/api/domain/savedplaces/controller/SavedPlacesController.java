@@ -91,7 +91,12 @@ public class SavedPlacesController implements SavedPlacesApiDocs {
   }
 
   @DeleteMapping("/{placeId}")
-  public ResponseEntity<Void> delete(@PathVariable String placeId, HttpServletRequest httpRequest) {
+  public ResponseEntity<Void> delete(
+      @PathVariable String placeId,
+      @RequestHeader("If-Match") String ifMatch,
+      HttpServletRequest httpRequest) {
+    if (java.util.Collections.list(httpRequest.getHeaders("If-Match")).size() != 1)
+      throw SavedPlaceException.invalidRequest();
     validateQuery(httpRequest, java.util.Set.of(), "INVALID_REQUEST");
     try {
       if (httpRequest.getInputStream().read() != -1) {
@@ -100,7 +105,7 @@ public class SavedPlacesController implements SavedPlacesApiDocs {
     } catch (java.io.IOException exception) {
       throw SavedPlaceException.invalidRequest();
     }
-    service.delete(users.getRequired().userId(), CanonicalSavedPlaceId.parse(placeId));
+    service.delete(users.getRequired().userId(), CanonicalSavedPlaceId.parse(placeId), ifMatch);
     return ResponseEntity.noContent().build();
   }
 

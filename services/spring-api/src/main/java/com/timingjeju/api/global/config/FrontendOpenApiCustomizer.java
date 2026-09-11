@@ -934,7 +934,8 @@ final class FrontendOpenApiCustomizer {
                   "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
           "\"trip-47000000-0000-4000-8000-000000000047-r1\"");
     }
-    if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
+    if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")
+        || key.equals("DELETE /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
           operation,
           "If-Match",
@@ -1527,7 +1528,8 @@ final class FrontendOpenApiCustomizer {
             Map.of(
                 "400", "INVALID_REQUEST",
                 "401", "AUTHENTICATION_REQUIRED",
-                "404", "SAVED_PLACE_NOT_FOUND")));
+                "404", "SAVED_PLACE_NOT_FOUND",
+                "409", "SAVED_PLACE_VERSION_CONFLICT")));
     result.put(
         "PUT /api/v1/me/push-devices/{deviceId}",
         doc(

@@ -51,6 +51,16 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
   }
 
   @Test
+  void 요청한_PostgreSQL_major에서_실제_실행한다() {
+    assertThat(jdbc.queryForObject("show server_version_num", Integer.class) / 10000)
+        .isEqualTo(expectedPostgresMajor());
+  }
+
+  protected int expectedPostgresMajor() {
+    return 16;
+  }
+
+  @Test
   void POST는_첫_201과_same_key_replay와_payload_conflict를_24시간_registry로_보장한다() {
     var command = SavedPlaceCommand.create(PLACE_A, " 오전 ", List.of("필수", "동쪽"), 5, 1);
 
@@ -65,8 +75,8 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
     assertThat(replay.etag()).isEqualTo(first.etag());
     PatchSavedPlaceRequest change = new PatchSavedPlaceRequest();
     change.setMemo("변경 후 삭제");
-    repository.patch(USER_A, PLACE_A, first.etag(), change.toCommand());
-    repository.delete(USER_A, PLACE_A);
+    var changed = repository.patch(USER_A, PLACE_A, first.etag(), change.toCommand());
+    repository.delete(USER_A, PLACE_A, changed.etag());
     var replayAfterMutation = repository.create(USER_A, "saved-place-key-001", command);
     assertThat(replayAfterMutation.place()).isEqualTo(first.place());
     assertThat(replayAfterMutation.etag()).isEqualTo(first.etag());
@@ -179,12 +189,15 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
 
   @Test
   void DELETE와_cross_owner는_동일한_not_found경계를_유지한다() {
-    repository.create(
-        USER_A, "saved-place-key-401", SavedPlaceCommand.create(PLACE_A, null, null, null, null));
+    var created =
+        repository.create(
+            USER_A,
+            "saved-place-key-401",
+            SavedPlaceCommand.create(PLACE_A, null, null, null, null));
 
-    assertThat(repository.delete(USER_B, PLACE_A)).isFalse();
-    assertThat(repository.delete(USER_A, PLACE_A)).isTrue();
-    assertThat(repository.delete(USER_A, PLACE_A)).isFalse();
+    assertThat(repository.delete(USER_B, PLACE_A, created.etag())).isFalse();
+    assertThat(repository.delete(USER_A, PLACE_A, created.etag())).isTrue();
+    assertThat(repository.delete(USER_A, PLACE_A, created.etag())).isFalse();
   }
 
   @Test
@@ -498,6 +511,163 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
             .isFalse();
       }
     }
+  }
+
+  @Test
+  void DELETE는_PATCH_이전_ETag를_거부하고_변경된_행을_보존한다() {
+    var created =
+        repository.create(
+            USER_A, "delete-stale", SavedPlaceCommand.create(PLACE_A, null, List.of(), 0, null));
+    PatchSavedPlaceRequest patch = new PatchSavedPlaceRequest();
+    patch.setMemo("보존할 새 메모");
+    var changed = repository.patch(USER_A, PLACE_A, created.etag(), patch.toCommand());
+    assertThatThrownBy(() -> repository.delete(USER_A, PLACE_A, created.etag()))
+        .isInstanceOf(SavedPlaceException.class)
+        .extracting("code")
+        .isEqualTo("SAVED_PLACE_VERSION_CONFLICT");
+    assertThat(
+            jdbc.queryForObject(
+                "select memo from public.saved_places where user_id=? and place_id=?",
+                String.class,
+                USER_A,
+                PLACE_A))
+        .isEqualTo("보존할 새 메모");
+    assertThat(repository.delete(USER_A, PLACE_A, changed.etag())).isTrue();
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void 동시_DELETE는_한번만_성공하고_다른_요청에는_404를_반환한다() throws Exception {
+    var created =
+        tx(
+            () ->
+                repository.create(
+                    USER_A,
+                    "delete-race",
+                    SavedPlaceCommand.create(PLACE_A, null, List.of(), 0, null)));
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var first =
+          futureOutcome(
+              executor,
+              () -> {
+                service.delete(USER_A, PLACE_A, created.etag());
+                return null;
+              });
+      var second =
+          futureOutcome(
+              executor,
+              () -> {
+                service.delete(USER_A, PLACE_A, created.etag());
+                return null;
+              });
+      var outcomes = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+      assertThat(outcomes).filteredOn("success", true).hasSize(1);
+      assertThat(outcomes).filteredOn("code", "SAVED_PLACE_NOT_FOUND").hasSize(1);
+      assertThat(savedPlaceCount()).isZero();
+    }
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void PATCH가_잠금을_선점하면_DELETE는_commit_후_새_ETag를_검사한다() throws Exception {
+    var created =
+        tx(
+            () ->
+                repository.create(
+                    USER_A,
+                    "patch-before-delete",
+                    SavedPlaceCommand.create(PLACE_A, null, List.of(), 0, null)));
+    PatchSavedPlaceRequest patch = new PatchSavedPlaceRequest();
+    patch.setMemo("수정 승자");
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var deleting =
+          tx(
+              () -> {
+                repository.patch(USER_A, PLACE_A, created.etag(), patch.toCommand());
+                var waiting =
+                    futureOutcome(
+                        executor,
+                        () -> {
+                          jdbc.execute("set local application_name = 'saved-delete-waits-patch'");
+                          return repository.delete(USER_A, PLACE_A, created.etag());
+                        });
+                awaitDatabaseLock("saved-delete-waits-patch");
+                assertThat(waiting).isNotDone();
+                return waiting;
+              });
+      assertThat(deleting.get(10, TimeUnit.SECONDS))
+          .isEqualTo(new Outcome(false, "SAVED_PLACE_VERSION_CONFLICT"));
+      assertThat(savedPlaceCount()).isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select memo from public.saved_places where user_id=? and place_id=?",
+                  String.class,
+                  USER_A,
+                  PLACE_A))
+          .isEqualTo("수정 승자");
+    }
+  }
+
+  @Test
+  @Transactional(propagation = Propagation.NOT_SUPPORTED)
+  void DELETE가_잠금을_선점하면_PATCH는_삭제된_행을_되살리지_않는다() throws Exception {
+    var created =
+        tx(
+            () ->
+                repository.create(
+                    USER_A,
+                    "delete-before-patch",
+                    SavedPlaceCommand.create(PLACE_A, null, List.of(), 0, null)));
+    PatchSavedPlaceRequest patch = new PatchSavedPlaceRequest();
+    patch.setMemo("거부할 수정");
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var updating =
+          tx(
+              () -> {
+                assertThat(repository.delete(USER_A, PLACE_A, created.etag())).isTrue();
+                var waiting =
+                    futureOutcome(
+                        executor,
+                        () -> {
+                          jdbc.execute("set local application_name = 'saved-patch-waits-delete'");
+                          return repository.patch(
+                              USER_A, PLACE_A, created.etag(), patch.toCommand());
+                        });
+                awaitDatabaseLock("saved-patch-waits-delete");
+                assertThat(waiting).isNotDone();
+                return waiting;
+              });
+      assertThat(updating.get(10, TimeUnit.SECONDS))
+          .isEqualTo(new Outcome(false, "SAVED_PLACE_VERSION_CONFLICT"));
+      assertThat(savedPlaceCount()).isZero();
+    }
+  }
+
+  private int savedPlaceCount() {
+    return jdbc.queryForObject(
+        "select count(*) from public.saved_places where user_id=? and place_id=?",
+        Integer.class,
+        USER_A,
+        PLACE_A);
+  }
+
+  private void awaitDatabaseLock(String applicationName) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      Integer count =
+          jdbc.queryForObject(
+              "select count(*) from pg_stat_activity where application_name=? and wait_event_type='Lock'",
+              Integer.class,
+              applicationName);
+      if (count != null && count == 1) return;
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError("DB 잠금 대기 확인이 중단되었습니다", interrupted);
+      }
+    }
+    throw new AssertionError("실제 PostgreSQL 행 잠금 대기를 확인하지 못했습니다: " + applicationName);
   }
 
   private void assertInvalidDirectInsert(String tagsSql, int priority, int targetDay, String memo) {

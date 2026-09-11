@@ -1,6 +1,6 @@
 {
   "schemaVersion": "timing-jeju-saved-places-contract/v1",
-  "contractVersion": "1.1.0",
+  "contractVersion": "1.2.0",
   "sourceSpecVersion": "v1.1",
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 84,
@@ -515,6 +515,20 @@
           "$ref": "SavedPlaceLegacyV1"
         }
       ]
+    },
+    "DeleteSavedPlaceHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "If-Match"
+      ],
+      "properties": {
+        "If-Match": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^\"[A-Za-z0-9._:-]{1,128}\"$"
+        }
+      }
     }
   },
   "endpoints": [
@@ -841,7 +855,7 @@
       "path": "/api/v1/me/saved-places/{placeId}",
       "operation": "delete",
       "requestSchema": "SavedPlacePath",
-      "headersSchema": "CommonHeaders",
+      "headersSchema": "DeleteSavedPlaceHeaders",
       "successSchema": "none",
       "auth": {
         "mode": "required",
@@ -876,7 +890,7 @@
       "responseHeaders": {},
       "problems": [
         {
-          "condition": "placeId is not canonical UUID",
+          "condition": "placeId is not canonical UUID, If-Match missing/malformed/multiple, or forbidden body/query",
           "status": 400,
           "code": "INVALID_REQUEST",
           "type": "https://api.timing-jeju.com/problems/invalid-request"
@@ -898,6 +912,12 @@
           "status": 404,
           "code": "SAVED_PLACE_NOT_FOUND",
           "type": "https://api.timing-jeju.com/problems/saved-place-not-found"
+        },
+        {
+          "condition": "current owner row strong ETag differs from If-Match",
+          "status": 409,
+          "code": "SAVED_PLACE_VERSION_CONFLICT",
+          "type": "https://api.timing-jeju.com/problems/saved-place-version-conflict"
         }
       ]
     }
@@ -988,7 +1008,10 @@
     "first": "204",
     "repeat": "404",
     "crossOwner": "404",
-    "responseBody": "none"
+    "responseBody": "none",
+    "precondition": "single strong If-Match required",
+    "stale": "409 SAVED_PLACE_VERSION_CONFLICT",
+    "atomicity": "owner row SELECT FOR UPDATE, compare ETag and version-qualified delete in one transaction"
   },
   "ownership": {
     "principal": "canonical JWT sub",
@@ -1083,6 +1106,7 @@
   },
   "implementationIssues": [
     34,
-    238
+    238,
+    248
   ]
 }
