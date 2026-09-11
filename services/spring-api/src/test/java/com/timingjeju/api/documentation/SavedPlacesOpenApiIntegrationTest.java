@@ -36,6 +36,15 @@ class SavedPlacesOpenApiIntegrationTest {
   }
 
   @Test
+  void 목록_ETag는_opaque_strong_형식을_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceResponse.properties.etag.pattern")
+                .value("^\"[A-Za-z0-9._:-]{1,128}\"$"));
+  }
+
+  @Test
   void saved_places는_success_status_headers와_endpoint_error_matrix를_문서화한다() throws Exception {
     String collection = "$.paths['/api/v1/me/saved-places']";
     String item = "$.paths['/api/v1/me/saved-places/{placeId}']";
