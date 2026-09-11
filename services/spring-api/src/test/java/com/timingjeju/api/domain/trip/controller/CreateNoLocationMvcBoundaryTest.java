@@ -89,7 +89,14 @@ class CreateNoLocationMvcBoundaryTest {
     Object controller =
         schedule
             ? new ScheduleMutationController(schedules, users, idempotency, mapper, canonicalizer)
-            : new TripController(trips, users, idempotency, mapper);
+            : new TripController(
+                trips,
+                users,
+                idempotency,
+                mapper,
+                org.mockito.Mockito.mock(
+                    com.timingjeju.api.application.trip.service.TripDayActivityWindowService
+                        .class));
     Object advice =
         schedule
             ? new ScheduleMutationProblemExceptionHandler(writer)

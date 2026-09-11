@@ -45,6 +45,22 @@ class TripOpenApiIntegrationTest
   }
 
   @Test
+  void POST만_과거_receipt_union을_허용하고_GET은_최신_Day_필수필드를_유지한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.responses['201'].content['application/json'].schema.oneOf")
+                .value(hasSize(2)))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].schema.properties.days.items.required")
+                .value(
+                    containsInAnyOrder(
+                        "dayId", "dayNo", "date", "activityStartTime", "activityEndTime")));
+  }
+
+  @Test
   void trip_create_list_detail은_bearer_DTO_cursor와_problem을_문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
@@ -231,7 +247,9 @@ class TripOpenApiIntegrationTest
         .andExpect(jsonPath("$.components.schemas.TripDay.additionalProperties").value(false))
         .andExpect(
             jsonPath("$.components.schemas.TripDay.required")
-                .value(containsInAnyOrder("dayId", "dayNo", "date")))
+                .value(
+                    containsInAnyOrder(
+                        "dayId", "dayNo", "date", "activityStartTime", "activityEndTime")))
         .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.minimum").value(1))
         .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.maximum").value(30))
         .andExpect(

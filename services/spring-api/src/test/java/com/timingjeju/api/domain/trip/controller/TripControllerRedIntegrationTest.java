@@ -84,6 +84,20 @@ class TripControllerRedIntegrationTest {
   @MockitoBean private TripService tripService;
   @MockitoBean private IdempotencyUseCase idempotency;
 
+  @Test
+  void 활동시간_PUT는_GPS_unknown을_멱등해시_저장전에_거부한다() throws Exception {
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/v1/trips/44000000-0000-0000-0000-000000000002/day-activity-windows")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header(HttpHeaders.IF_MATCH, "\"trip-44000000-0000-0000-0000-000000000002-r1\"")
+                .header("Idempotency-Key", "activity-239-test")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"days\":[],\"gps\":{}}"))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(idempotency);
+  }
+
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
     registry.add("app.security.jwt.secret", () -> SECRET);

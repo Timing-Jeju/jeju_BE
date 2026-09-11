@@ -201,7 +201,9 @@ public class JdbcTripStore implements TripStore {
   }
 
   @Override
-  @Transactional(readOnly = true)
+  @Transactional(
+      readOnly = true,
+      isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
   public Optional<TripAggregate> findOwned(UUID ownerId, UUID tripId, Instant responseTime) {
     try {
       return loadOwned(ownerId, tripId, responseTime, false);
@@ -259,7 +261,7 @@ public class JdbcTripStore implements TripStore {
             () ->
                 jdbc.query(
                     """
-                    select id, day_no, trip_date
+                    select id, day_no, trip_date, start_time, end_time
                     from public.trip_days
                     where trip_plan_id = ?
                     order by day_no
@@ -268,7 +270,9 @@ public class JdbcTripStore implements TripStore {
                         new TripDay(
                             rs.getObject("id", UUID.class),
                             rs.getInt("day_no"),
-                            rs.getDate("trip_date").toLocalDate()),
+                            rs.getDate("trip_date").toLocalDate(),
+                            rs.getObject("start_time", java.time.LocalTime.class),
+                            rs.getObject("end_time", java.time.LocalTime.class)),
                     tripId));
     return Optional.of(
         runTripJdbcStage(
@@ -831,9 +835,51 @@ public class JdbcTripStore implements TripStore {
   }
 
   private void rebuildDays(TripUpdateRecord record, LocalDate startDate, int dayCount) {
-    jdbc.update("delete from public.trip_days where trip_plan_id = ?", record.tripId());
+    LocalDate endDate = startDate.plusDays(dayCount - 1L);
+    List<TripDay> retained =
+        new ArrayList<>(
+            jdbc.query(
+                "select id, day_no, trip_date from public.trip_days "
+                    + "where trip_plan_id=? and trip_date between ? and ? order by day_no",
+                (rs, row) ->
+                    new TripDay(
+                        rs.getObject("id", UUID.class),
+                        rs.getInt("day_no"),
+                        rs.getDate("trip_date").toLocalDate()),
+                record.tripId(),
+                Date.valueOf(startDate),
+                Date.valueOf(endDate)));
+    jdbc.update(
+        "delete from public.trip_days where trip_plan_id=? "
+            + "and (trip_date < ? or trip_date > ?)",
+        record.tripId(),
+        Date.valueOf(startDate),
+        Date.valueOf(endDate));
+    // Move larger day numbers first when extending the beginning of the trip,
+    // and smaller numbers first when shrinking it, preserving the immediate unique key.
+    if (!retained.isEmpty()
+        && retained.getFirst().dayNo()
+            < ChronoUnit.DAYS.between(startDate, retained.getFirst().date()) + 1) {
+      java.util.Collections.reverse(retained);
+    }
+    Set<LocalDate> retainedDates = new java.util.HashSet<>();
+    for (TripDay day : retained) {
+      int nextDayNo = (int) ChronoUnit.DAYS.between(startDate, day.date()) + 1;
+      if (nextDayNo != day.dayNo()) {
+        jdbc.update(
+            "update public.trip_days set day_no=?, updated_at=? " + "where id=? and trip_plan_id=?",
+            nextDayNo,
+            Timestamp.from(record.updatedAt()),
+            day.dayId(),
+            record.tripId());
+      }
+      retainedDates.add(day.date());
+    }
     List<Object[]> rows = new ArrayList<>(dayCount);
     for (int index = 0; index < dayCount; index++) {
+      if (retainedDates.contains(startDate.plusDays(index))) {
+        continue;
+      }
       rows.add(
           new Object[] {
             record.dayIds().get(index),

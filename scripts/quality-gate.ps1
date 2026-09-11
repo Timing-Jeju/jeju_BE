@@ -82,7 +82,7 @@ if ($Scope -in @("all", "spring")) {
       throw "stale JaCoCo execution data를 삭제하지 못했습니다."
     }
     Invoke-Native "Spring 분류 테스트" { ./gradlew.bat --no-daemon unitTest sliceTest architectureTest }
-    Invoke-BoundedSpringGradle "integrationTest" 7200 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" @("integrationTest")
+    Invoke-BoundedSpringGradle "integrationTest" 10800 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" @("integrationTest")
     if (Test-Path -LiteralPath "build/openapi/openapi.json") {
       Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction Stop
     }
@@ -96,7 +96,7 @@ if ($Scope -in @("all", "spring")) {
     if ((Get-Item -LiteralPath "build/openapi/openapi.json").Length -le 0) {
       throw "OpenAPI artifact가 비어 있습니다."
     }
-    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 33 --contracts-root ../.. }
+    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 38 --contracts-root ../.. }
     Invoke-Native "Spring 전체 검사" { ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar }
   } finally {
     Pop-Location

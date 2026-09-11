@@ -73,3 +73,23 @@ Issue #44는 `trip_plans.timezone`의 `Asia/Seoul` default/check를 추가했고
 - Notion의 다섯 endpoint 원본은 source spec v1.1이며 이 canonical 1.0.0 내용을 반영한 뒤에도 구현 증거가 없으므로 Draft/not-ready다.
 - Figma에서 직접 확인한 근거는 `182:3248 홈 - 01. 여행 기본 조건`의 입력·저장 동작뿐이다. 목록·상세·삭제와 loading/empty/error 상태의 직접 근거는 없어 not-ready다.
 - 로컬 catalog와 외부 문서의 metadata/example/implementation readiness를 추측으로 ready로 올리지 않는다.
+
+## #239 날짜별 활동 시간 (계약 1.1.0)
+
+`PUT /api/v1/trips/{tripId}/day-activity-windows`는 모든 현재 Day를 정확히 한 번 포함하는 전체 교체다. Bearer 인증, strong `If-Match`, printable ASCII 1~128자의 `Idempotency-Key`가 필요하다. body는 `{"days":[{"dayId":"…","startTime":"09:00","endTime":"18:00"}]}` 형태이며 미지 필드·중복 JSON key·누락·null·타입 오류를 해시 생성 전에 400으로 거부한다. 시각은 Asia/Seoul의 정확한 `HH:mm`, 00:00~23:59, 시작 < 종료다. 잘못된 시각·중복/누락/다른 여행 Day는 `422 TRIP_CONSTRAINT_VIOLATION`이다. 소유하지 않은 여행은 404이며 다른 Day 소유자 정보는 공개하지 않는다.
+
+성공은 GET과 같은 `TripDetail`과 ETag다. 각 Day의 `activityStartTime`·`activityEndTime`은 required nullable 문자열이다. 미입력은 null 쌍이며 서버 기본 시각을 만들지 않는다. 시간 일부 null이나 초·소수초를 포함한 legacy 값은 마이그레이션 사전 검사에서 기존 값을 변경하지 않고 적용을 중단한다. 이미 저장된 초 단위 값을 조회 응답에서 조용히 절삭하지 않는다.
+
+전체 Day·aggregate revision·멱등 응답 snapshot을 동일 트랜잭션으로 저장한다. 같은 키와 body는 원본 응답을 replay하고 다른 body는 `409 IDEMPOTENCY_KEY_REUSED`다. stale revision은 `409 TRIP_VERSION_CONFLICT`, completed/cancelled/failed는 `409 TRIP_TERMINAL_STATE_CONFLICT`다. 값이 동일한 no-op은 revision을 증가시키지 않는다. active/candidate 일정이 참조하는 Day의 시간 변경은 `409 TRIP_REGENERATION_REQUIRED`이며 해당 일정을 수정하거나 다시 계산하지 않는다.
+
+날짜 PATCH는 날짜가 겹치는 Day의 ID·활동 시간을 보존하고 새 Day를 null 쌍으로 만든다. BE의 기존 1~30일 계약을 유지한다. FE의 1차 입력 범위 1~5일은 UI 제한이며 기존 6~30일 여행을 삭제하거나 읽기 불가로 만들지 않는다. MCP 생성 입력·worker 연결은 #89 후속 범위다. Figma/Notion의 이 저장 동작은 실제 연결 확인 전 `not-linked`다.
+
+forward migration은 `20260918000021_day_activity_window_pair.sql`, manifest/Docker 슬롯은 `059`다. 소스 QA는 disposable PostgreSQL에서 실행하며 live DB 적용·운영 배포 완료를 의미하지 않는다.
+
+상세 GET의 신규 read-only transaction은 REPEATABLE_READ를 사용한다. root 조회와 Day 조회 사이에 동시 writer가 완료되더라도 이전 revision과 새 시간을 섞지 않는다. writer 안의 aggregate 반환은 기존 owner root lock과 동일 트랜잭션을 유지한다.
+
+### #239 생성 재시도의 과거 응답 계약
+
+`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH/Day PUT의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
+
+TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연장하지 않는다. 만료 경계에서는 기존 registry 규칙을 그대로 따른다. receipt 삭제·namespace 교체·body 재작성·최신 GET 응답으로 치환하는 데이터 변경은 없다. 이 호환 계약 때문에 DB migration을 추가하지 않는다.
