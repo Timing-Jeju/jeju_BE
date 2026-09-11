@@ -221,7 +221,7 @@ Spring 공개 API · 일정 계산용 facts
 ### Canonical OpenAPI의 구현 준비 상태 (#226)
 
 `FrontendOpenApiCustomizer`는 catalog의 `readiness.implementation`을 검증합니다.
-`ready`인 도메인만 canonical parameter/body/response를 투영하며 누락은 생성 오류입니다.
+`ready`인 도메인만 canonical parameter/body/success·error response를 투영하며 누락은 생성 오류입니다.
 `not-ready`인 도메인은 현행 Controller와 DTO에서 생성한 schema를 유지합니다.
 누락·중복 domain과 비정상 status/evidence는 명시적인 구성 오류로 처리합니다.
 문서 링크·예제 준비 상태를 구현 완료로 추정하거나 실제 catalog를 테스트 때문에 승격하지 않습니다.
