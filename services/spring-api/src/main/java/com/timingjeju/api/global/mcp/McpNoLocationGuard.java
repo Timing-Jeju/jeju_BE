@@ -8,6 +8,22 @@ import tools.jackson.databind.JsonNode;
 final class McpNoLocationGuard {
   private static final Set<String> FORBIDDEN =
       Set.of(
+          "gps",
+          "coordinate",
+          "coordinates",
+          "telemetry",
+          "lat",
+          "lng",
+          "lon",
+          "latitude",
+          "longitude",
+          "accuracy",
+          "altitude",
+          "heading",
+          "bearing",
+          "speed",
+          "velocity",
+          "course",
           "currentposition",
           "currentlocation",
           "currentplaceid",
@@ -27,6 +43,7 @@ final class McpNoLocationGuard {
           "locationobservedat",
           "locationexpiresat",
           "locationredactedat",
+          "grid",
           "grid100m",
           "gridx",
           "gridy",
@@ -37,9 +54,9 @@ final class McpNoLocationGuard {
   static void validate(JsonNode node) {
     if (node.isObject()) {
       for (var field : node.properties()) {
-        String key = field.getKey().replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
+        String key = normalize(field.getKey());
         if (FORBIDDEN.contains(key)
-            || (key.equals("type") && field.getValue().asString().equals("GRID_100M"))) {
+            || (key.equals("type") && normalize(field.getValue().asString()).equals("grid100m"))) {
           throw new McpContractException("MCP_USER_LOCATION_FORBIDDEN");
         }
         validate(field.getValue());
@@ -47,5 +64,9 @@ final class McpNoLocationGuard {
     } else if (node.isArray()) {
       node.forEach(McpNoLocationGuard::validate);
     }
+  }
+
+  private static String normalize(String value) {
+    return value.replaceAll("[^a-zA-Z0-9]", "").toLowerCase(Locale.ROOT);
   }
 }
