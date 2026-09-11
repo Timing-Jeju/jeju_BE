@@ -36,7 +36,7 @@
 - 로컬 PG16/17: 선행 schema에서020으로 전환하는 정상2개 및 미분류 의존성·활성 상태 등의 차단20개가 통과했다. 입력/부모 hash와 공개 장소 보존, 제거된 열·함수, ACL, 실패 rollback의 값·catalog fingerprint를 확인했다.
 - 이후 실제 seed와 schema/negative SQL을 정상 사례에 추가해 삭제된 event.location 참조2개 RED를 재현했다. 로컬 fixture 전용 pg_temp 버전 분기로 수정한 뒤 PG16/17 정상2개가 통과했다(2분8초). 운영 runtime에 v1 fallback은 없다.
 - 최신 공통 품질 검사는 원자 cutover generator·실행기·직접 push 차단 정책과 Python865개 중862 PASS/3 SKIP를 포함해 성공했다.
-- DB020 SHA-256은 `69df6c6f019efb1e3544ae36ec4b0332a8c299cca059a8931cebd04dcc3d163a`로 manifest와 일치한다. MCP wire hash 열 제거와 revision request hash의 closed command hash 일치를 포함한 schema class30개가 PG16/17에서 통과했다.
+- DB020 SHA-256은 `9c03252865ff070580f81e513b1dbe181d4b043b6d96410123deeab0c2b4734a`로 manifest와 일치한다. MCP wire hash 열 제거와 revision request hash의 closed command hash 일치, #223의 surface별 JSON closed allowlist를 함께 검증한다.
 - canonical7, 두 세션 lineage6, command snapshot22, 위치 guard50, revision5, schema v2 30의 총120개 확장 회귀가 18분45초에 failures/errors/skips0으로 통과했다.
 - 017·018 Supabase 생성 SQL은 ledger 열/PK·정확한 선행 이력·server major별 schema/RLS/ACL fingerprint를 같은 transaction에서 검사한다. PG16/17 합성 ledger2개와 실제 Supabase CLI2.110.0 격리 PG17 적용이 통과했고, 적용 후 dry-run은 019·020만 제시했다.
 - 아직 완료되지 않은 항목: 선행 PR241 병합 뒤 clean committed SHA의 전체 품질 gate, 공식 독립 승인, 원격 staging 적용, MCP0.8 교차 저장소 검증, native/staging/provider E2E.

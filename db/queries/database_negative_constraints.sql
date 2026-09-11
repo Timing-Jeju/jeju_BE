@@ -38,6 +38,39 @@ begin
 end;
 $$;
 
+create function pg_temp.expect_rejected_constraint(
+  test_name text,
+  statement text,
+  expected_state text,
+  expected_constraint text
+)
+returns void
+language plpgsql
+as $$
+declare
+  rejected boolean := false;
+  actual_state text;
+  actual_constraint text;
+begin
+  begin
+    execute statement;
+  exception when others then
+    actual_state := sqlstate;
+    get stacked diagnostics actual_constraint = constraint_name;
+    if actual_state = expected_state and actual_constraint = expected_constraint then
+      rejected := true;
+    else
+      raise exception 'negative contract % returned SQLSTATE % constraint %, expected % %',
+        test_name, actual_state, actual_constraint, expected_state, expected_constraint;
+    end if;
+  end;
+
+  if not rejected then
+    raise exception 'negative contract % unexpectedly succeeded', test_name;
+  end if;
+end;
+$$;
+
 insert into data_import_runs (
   id, source_kind, source_name, source_operation, data_version, status,
   started_at, finished_at, row_count, parser_version, schema_version,
@@ -2763,10 +2796,15 @@ insert into public.schedule_revision_runs (
   'f1630000-0000-0000-0000-000000000001',
   'f1620000-0000-0000-0000-000000000001',
   'revision-v1', 'algorithm-v1',
-  'f1650000-0000-0000-0000-000000000001', repeat('a', 64)
+  'f1650000-0000-0000-0000-000000000001',
+  public.compute_command_input_hash(
+    'schedule_revision'::text, 2::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+    'f1630000-0000-0000-0000-000000000001'::uuid,
+    '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb
+  )
 );
 
-select pg_temp.expect_rejected(
+select pg_temp.expect_rejected_constraint(
   'schedule revision owner lineage mismatch',
   $statement$
     insert into public.schedule_revision_runs (
@@ -2777,13 +2815,19 @@ select pg_temp.expect_rejected(
       'f1610000-0000-0000-0000-000000000001',
       'f1630000-0000-0000-0000-000000000001',
       'f1620000-0000-0000-0000-000000000001',
-      'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('b', 64)
+      'revision-v1', 'algorithm-v1', gen_random_uuid(),
+      public.compute_command_input_hash(
+        'schedule_revision'::text, 2::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+        'f1630000-0000-0000-0000-000000000001'::uuid,
+        '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb
+      )
     )
   $statement$,
-  array['23503']
+  '23503',
+  'fk_schedule_revision_runs_owner_trip'
 );
 
-select pg_temp.expect_rejected(
+select pg_temp.expect_rejected_constraint(
   'schedule revision base lineage mismatch',
   $statement$
     insert into public.schedule_revision_runs (
@@ -2794,13 +2838,19 @@ select pg_temp.expect_rejected(
       'f1610000-0000-0000-0000-000000000001',
       'f1730000-0000-0000-0000-000000000002',
       'f1620000-0000-0000-0000-000000000001',
-      'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('c', 64)
+      'revision-v1', 'algorithm-v1', gen_random_uuid(),
+      public.compute_command_input_hash(
+        'schedule_revision'::text, 2::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+        'f1730000-0000-0000-0000-000000000002'::uuid,
+        '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb
+      )
     )
   $statement$,
-  array['23503']
+  '23503',
+  'fk_schedule_revision_runs_base_schedule'
 );
 
-select pg_temp.expect_rejected(
+select pg_temp.expect_rejected_constraint(
   'schedule revision day lineage mismatch',
   $statement$
     insert into public.schedule_revision_runs (
@@ -2811,10 +2861,16 @@ select pg_temp.expect_rejected(
       'f1610000-0000-0000-0000-000000000001',
       'f1630000-0000-0000-0000-000000000001',
       'f1720000-0000-0000-0000-000000000002',
-      'revision-v1', 'algorithm-v1', gen_random_uuid(), repeat('d', 64)
+      'revision-v1', 'algorithm-v1', gen_random_uuid(),
+      public.compute_command_input_hash(
+        'schedule_revision'::text, 2::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+        'f1630000-0000-0000-0000-000000000001'::uuid,
+        '{"targetDayId":"f1720000-0000-0000-0000-000000000002","affectedItemIds":[],"instructionCodes":[]}'::jsonb
+      )
     )
   $statement$,
-  array['23503']
+  '23503',
+  'fk_schedule_revision_runs_target_day'
 );
 
 select pg_temp.expect_rejected(
