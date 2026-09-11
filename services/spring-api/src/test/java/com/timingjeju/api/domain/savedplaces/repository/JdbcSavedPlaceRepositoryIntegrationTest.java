@@ -584,6 +584,13 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
           tx(
               () -> {
                 repository.patch(USER_A, PLACE_A, created.etag(), patch.toCommand());
+                // 경쟁 작업 시작 전 통계 스냅샷이 있어도 이후 실제 잠금 대기를 관찰해야 한다.
+                assertThat(
+                        jdbc.queryForObject(
+                            "select count(*) from pg_stat_activity where application_name=?",
+                            Integer.class,
+                            "saved-delete-waits-patch"))
+                    .isZero();
                 var waiting =
                     futureOutcome(
                         executor,
@@ -625,6 +632,13 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
           tx(
               () -> {
                 assertThat(repository.delete(USER_A, PLACE_A, created.etag())).isTrue();
+                // 경쟁 작업 시작 전 통계 스냅샷이 있어도 이후 실제 잠금 대기를 관찰해야 한다.
+                assertThat(
+                        jdbc.queryForObject(
+                            "select count(*) from pg_stat_activity where application_name=?",
+                            Integer.class,
+                            "saved-patch-waits-delete"))
+                    .isZero();
                 var waiting =
                     futureOutcome(
                         executor,
@@ -654,6 +668,8 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
   private void awaitDatabaseLock(String applicationName) {
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
     while (System.nanoTime() < deadline) {
+      // pg_stat_activity는 트랜잭션 통계 스냅샷을 재사용하므로 매 관찰 전에 갱신한다.
+      jdbc.execute("select pg_stat_clear_snapshot()");
       Integer count =
           jdbc.queryForObject(
               "select count(*) from pg_stat_activity where application_name=? and wait_event_type='Lock'",

@@ -49,3 +49,11 @@
 - 독립 소스 사전 검토 finding 0. 실제 PG와 수정 후 동일 SHA 전체 게이트는 별도 완료해야 하며 공식 승인은 아직 기록하지 않았다.
 
 - 수정 후 실제 PG 집중 검증: DayActivityWindowMigrationIntegrationTest(PG16·17), SavedPlacesHttpPostgreSqlIntegrationTest, JdbcSavedPlaceRepositoryPg17IntegrationTest 합계 29개 통과, 실패·오류·skip 0, 3분 30초. /tmp/jeju248-archive-pg-green.log. 컨테이너 정리 확인.
+
+## 2026-09-12 CI 잠금 관찰 회귀 수정
+
+HEAD e377740의 로컬 전체 게이트는 통합 1049개(4 skip), test 1569개(9 skip), Python 884개(3 skip), OpenAPI 38 operations, 커버리지·빌드·Docker 및 정리까지 통과했고 PR256을 생성했다. 이후 GitHub run34644481753에서 PG17 DELETE 선점 테스트 1개가 잠금 대기를 관찰하지 못해 실패했다. CI 실패 상태에서는 병합하지 않았다.
+
+경쟁 작업 시작 전에 pg_stat_activity 통계 스냅샷을 생성하도록 두 순서 제어 테스트를 보강했다. 동일한 DELETE 선점 실패를 1개 테스트로 재현했다(1분 7초, /tmp/jeju248-lock-snapshot-red.log). 관찰 루프에서 매번 pg_stat_clear_snapshot()을 호출해 트랜잭션에 캐시된 과거 활동 정보 대신 최신 잠금 대기를 확인하도록 수정했다. PostgreSQL 17 공식 monitoring-stats 문서의 통계 스냅샷 동작과 일치한다. 운영 삭제·수정 SQL, 트랜잭션 순서, 실제 잠금 확인 assertion 및 5초 기한은 유지한다.
+
+PG16·17 저장소 전체 집중 검증 40개, 실패·오류·skip 0, 1분 49초 통과(/tmp/jeju248-lock-snapshot-green.log). 독립 소스 사전 검토 finding 0. 새 SHA 전체 게이트와 원격 CI는 이후 다시 수행한다.
