@@ -226,6 +226,37 @@ final class FrontendOpenApiCustomizer {
     documentComponentProblems(openApi);
     DOCUMENTS.forEach((key, document) -> applyOperation(openApi, key, document));
     projectCanonicalContracts(openApi);
+    alignNullableTripReferences(openApi);
+  }
+
+  private static void alignNullableTripReferences(OpenAPI openApi) {
+    if (openApi.getComponents() == null || openApi.getComponents().getSchemas() == null) {
+      return;
+    }
+    for (String name :
+        List.of(
+            "TripTransportEvents",
+            "TripDetail",
+            "TripDetailLegacyV11",
+            "TripDetailLegacyV1",
+            "TripSummary",
+            "TransportEventMutationResponse")) {
+      Schema<?> schema = openApi.getComponents().getSchemas().get(name);
+      if (schema == null || schema.getProperties() == null) continue;
+      for (Schema<?> property : schema.getProperties().values()) {
+        if (property.get$ref() != null
+            && (Boolean.TRUE.equals(property.getNullable())
+                || property.getTypes() != null && property.getTypes().contains("null"))) {
+          Schema<?> reference = new Schema<>().$ref(property.get$ref());
+          Schema<?> nullSchema = new Schema<>().types(Set.of("null"));
+          property.set$ref(null);
+          property.setType(null);
+          property.setTypes(null);
+          property.setNullable(null);
+          property.setAnyOf(List.of(reference, nullSchema));
+        }
+      }
+    }
   }
 
   private void projectCanonicalContracts(OpenAPI openApi) {
@@ -1591,7 +1622,7 @@ final class FrontendOpenApiCustomizer {
                 "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
     String tripExample =
         """
-        {"tripId":"44000000-0000-4000-8000-000000000044","title":"제주 3박 4일","status":"draft","startDate":"2026-09-10","endDate":"2026-09-13","timezone":"Asia/Seoul","userPace":"normal","transportModes":[{"mode":"public_transit","priority":1,"primary":true}],"days":[{"dayId":"44000000-0000-4000-8001-000000000044","dayNo":1,"date":"2026-09-10","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8002-000000000044","dayNo":2,"date":"2026-09-11","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8003-000000000044","dayNo":3,"date":"2026-09-12","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8004-000000000044","dayNo":4,"date":"2026-09-13","activityStartTime":null,"activityEndTime":null}],"activeScheduleVersionId":null,"totalScore":null,"scoreProvenance":null,"scheduleEffect":"none","regenerationRequired":false,"createdAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}
+        {"tripId":"44000000-0000-4000-8000-000000000044","title":"제주 3박 4일","status":"draft","startDate":"2026-09-10","endDate":"2026-09-13","timezone":"Asia/Seoul","userPace":"normal","transportEvents":{"arrival":null,"departure":null},"accommodations":[],"transportModes":[{"mode":"public_transit","priority":1,"primary":true}],"days":[{"dayId":"44000000-0000-4000-8001-000000000044","dayNo":1,"date":"2026-09-10","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8002-000000000044","dayNo":2,"date":"2026-09-11","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8003-000000000044","dayNo":3,"date":"2026-09-12","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8004-000000000044","dayNo":4,"date":"2026-09-13","activityStartTime":null,"activityEndTime":null}],"activeScheduleVersionId":null,"totalScore":null,"scoreProvenance":null,"scheduleEffect":"none","regenerationRequired":false,"createdAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}
         """;
     result.put(
         "GET /api/v1/trips",

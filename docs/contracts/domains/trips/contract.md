@@ -90,6 +90,18 @@ forward migration은 `20260918000021_day_activity_window_pair.sql`, manifest/Doc
 
 ### #239 생성 재시도의 과거 응답 계약
 
-`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH/Day PUT의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
+`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV11 | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH와 새 Day PUT 응답의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
 
 TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연장하지 않는다. 만료 경계에서는 기존 registry 규칙을 그대로 따른다. receipt 삭제·namespace 교체·body 재작성·최신 GET 응답으로 치환하는 데이터 변경은 없다. 이 호환 계약 때문에 DB migration을 추가하지 않는다.
+
+## Issue #246 여행 상세 하위 값 복원
+
+여행 상세·새 생성·PATCH·새 Day 활동 시간 저장이 반환하는 `TripDetail`은 `transportEvents`와 `accommodations`를 항상 포함한다. `transportEvents`는 닫힌 `{arrival, departure}` 객체이며 각 슬롯의 미입력 값은 `null`이다. 숙소 미입력은 `[]`다. 교통은 기존 `TransportEventRequest`와 동일한 필드·enum·nullability이고, 숙소는 기존 `Accommodation` 저장 응답과 동일한 값이다. 숙소의 순서는 `sequenceNo ASC, accommodationId ASC`로 고정한다. 별도 조회 endpoint나 pagination은 추가하지 않는다.
+
+root owner 조회가 성공한 뒤 `trip_plan_id` 조건으로 교통 한 번과 숙소 한 번을 조회한다. 숙소 이름은 기존 저장 계약의 `coalesce(tour_places.name, trip_accommodations.custom_name)`을 따른다. root·이동 수단·Day·교통·숙소의 query 수는 행 수와 무관하게 다섯 번이며, 비소유/없는 root는 첫 조회 후 기존 `404 TRIP_NOT_FOUND`로 종료한다. #239의 repeatable-read 상세 조회 transaction을 사용해 revision/strong ETag와 하위 값은 같은 snapshot에 속한다. mutation 응답은 기존 owner root lock이 적용된 transaction 안에서 같은 projection을 읽는다.
+
+교통·숙소 조회 실패나 정규화되지 않은 숙소 표시값은 cause 없는 `503 TRIP_DATA_UNAVAILABLE`로 전체 요청을 실패시킨다. 일부 하위 값만 성공 응답으로 반환하지 않는다. 외부 provider를 호출하지 않고 사용자 GPS·현재·간접 위치, 예약 정보 등 새 필드를 추가하지 않는다.
+
+새 migration은 필요하지 않다. `20260918000002_trip_accommodation_contract.sql`과 `20260918000003_trip_transport_event_contract.sql`에 이미 있는 정규화 컬럼과 순번·소유 참조를 읽으며, schema/ACL과 write 의미를 변경하지 않는다.
+
+#246에서도 과거 완료 receipt를 다시 쓰거나 만료시키지 않는다. POST는 활동 시간 도입 전 `TripDetailLegacyV1` 또는 숙소·교통 도입 전 `TripDetailLegacyV11`을 replay할 수 있다. Day PUT의 `TripDayActivityWindowsResponse`는 최신 TripDetail과 TripDetailLegacyV11의 닫힌 union이다. legacy 분기는 `Idempotency-Replayed: true`에서만 반환하며 과거 원본 status/ETag/body/기존Location을 유지한다. 새 mutation과 GET/PATCH는 최신 required child를 반환한다. FE는 replay 응답에 child가 없으면 빈 값으로 덮어쓰지 않고 canonical 여행 GET으로 복원한다.

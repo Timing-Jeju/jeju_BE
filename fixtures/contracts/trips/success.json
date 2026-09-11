@@ -58,6 +58,8 @@
       "startDate": "2026-08-03",
       "endDate": "2026-08-05",
       "timezone": "Asia/Seoul",
+      "transportEvents": {"arrival": null, "departure": null},
+      "accommodations": [],
       "userPace": "normal",
       "transportModes": [
         {"mode": "public_transit", "priority": 1, "primary": true},
@@ -98,6 +100,8 @@
       "startDate": "2026-08-03",
       "endDate": "2026-08-05",
       "timezone": "Asia/Seoul",
+      "transportEvents": {"arrival": null, "departure": null},
+      "accommodations": [],
       "userPace": "normal",
       "transportModes": [
         {"mode": "public_transit", "priority": 1, "primary": true},
@@ -136,6 +140,8 @@
       "startDate": "2026-08-03",
       "endDate": "2026-08-05",
       "timezone": "Asia/Seoul",
+      "transportEvents": {"arrival": null, "departure": null},
+      "accommodations": [],
       "userPace": "normal",
       "transportModes": [
         {"mode": "public_transit", "priority": 1, "primary": true},
@@ -173,6 +179,8 @@
       "startDate": "2026-08-03",
       "endDate": "2026-08-05",
       "timezone": "Asia/Seoul",
+      "transportEvents": {"arrival": null, "departure": null},
+      "accommodations": [],
       "userPace": "slow",
       "transportModes": [{"mode": "rental_car", "priority": 1, "primary": true}],
       "days": [
@@ -199,6 +207,8 @@
       "startDate": "2026-09-01",
       "endDate": "2026-09-02",
       "timezone": "Asia/Seoul",
+      "transportEvents": {"arrival": null, "departure": null},
+      "accommodations": [],
       "userPace": "normal",
       "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}],
       "days": [
