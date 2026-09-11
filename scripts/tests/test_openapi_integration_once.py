@@ -1102,6 +1102,33 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
         self.assertEqual(2, guard.revalidate.call_count)
         killpg.assert_not_called()
 
+    def test_completed_posix_group_retries_transient_collector_identity_drain_without_signal(
+        self,
+    ) -> None:
+        root = watchdog.PosixProcessIdentity(100, 1, 100, "root-start")
+        collector = watchdog.PosixProcessIdentity(200, 100, 100, "collector-start")
+        guard = watchdog.PosixProcessGroupGuard(root)
+        self.assertTrue(guard.discover((root, collector)))
+        process = Mock(pid=100)
+        process.poll.return_value = 0
+
+        with (
+            patch.object(guard, "revalidate", side_effect=(None, ())) as revalidate,
+            patch.object(watchdog.time, "sleep") as sleep,
+            patch.object(
+                watchdog.time, "monotonic", side_effect=(0.0, 0.1, 0.2)
+            ),
+            patch.object(watchdog.os, "killpg") as killpg,
+        ):
+            drained = watchdog.wait_for_tracked_posix_process_group_drain(
+                process, guard, timeout_seconds=1.0
+            )
+
+        self.assertTrue(drained)
+        self.assertEqual(2, revalidate.call_count)
+        sleep.assert_called_once_with(watchdog.POSIX_PROCESS_POLL_SECONDS)
+        killpg.assert_not_called()
+
     def test_completed_posix_group_drain_is_bounded_and_identity_fail_closed(self) -> None:
         root = watchdog.PosixProcessIdentity(100, 1, 100, "root-start")
         collector = watchdog.PosixProcessIdentity(200, 100, 100, "collector-start")
@@ -1125,6 +1152,50 @@ class OpenApiIntegrationOnceTest(unittest.TestCase):
                 self.assertFalse(drained)
                 sleep.assert_not_called()
                 killpg.assert_not_called()
+
+    def test_completed_posix_group_persistent_identity_failure_is_bounded(self) -> None:
+        root = watchdog.PosixProcessIdentity(100, 1, 100, "root-start")
+        collector = watchdog.PosixProcessIdentity(200, 100, 100, "collector-start")
+        guard = watchdog.PosixProcessGroupGuard(root)
+        self.assertTrue(guard.discover((root, collector)))
+        process = Mock(pid=100)
+        process.poll.return_value = 0
+
+        with (
+            patch.object(guard, "revalidate", return_value=None) as revalidate,
+            patch.object(watchdog.time, "sleep") as sleep,
+            patch.object(
+                watchdog.time, "monotonic", side_effect=(0.0, 0.05, 0.1)
+            ),
+            patch.object(watchdog.os, "killpg") as killpg,
+        ):
+            drained = watchdog.wait_for_tracked_posix_process_group_drain(
+                process, guard, timeout_seconds=0.1
+            )
+
+        self.assertFalse(drained)
+        self.assertEqual(2, revalidate.call_count)
+        sleep.assert_called_once_with(watchdog.POSIX_PROCESS_POLL_SECONDS)
+        killpg.assert_not_called()
+
+    def test_completed_posix_group_does_not_retry_untrusted_root_only_guard(self) -> None:
+        root = watchdog.PosixProcessIdentity(100, 1, 100, "root-start")
+        guard = watchdog.PosixProcessGroupGuard(root)
+        process = Mock(pid=100)
+        process.poll.return_value = 0
+
+        with (
+            patch.object(guard, "revalidate", return_value=None),
+            patch.object(watchdog.time, "sleep") as sleep,
+            patch.object(watchdog.os, "killpg") as killpg,
+        ):
+            drained = watchdog.wait_for_tracked_posix_process_group_drain(
+                process, guard, timeout_seconds=1.0
+            )
+
+        self.assertFalse(drained)
+        sleep.assert_not_called()
+        killpg.assert_not_called()
 
     @unittest.skipUnless(sys.platform != "win32", "POSIX process-group contract")
     def test_successful_root_with_unobserved_child_fails_closed_without_signaling_group(
