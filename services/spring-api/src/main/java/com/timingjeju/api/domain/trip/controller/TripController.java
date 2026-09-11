@@ -52,17 +52,71 @@ public class TripController implements TripApiDocs {
   private final IdempotencyUseCase idempotency;
   private final ObjectMapper objectMapper;
   private final TripPreferencesRequestCodec preferencesCodec;
+  private final com.timingjeju.api.application.trip.service.TripDayActivityWindowService
+      activityWindows;
+  private final TripDayActivityWindowsRequestCodec activityWindowsCodec;
 
   public TripController(
       TripService trips,
       CurrentUserAccessor currentUsers,
       IdempotencyUseCase idempotency,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      com.timingjeju.api.application.trip.service.TripDayActivityWindowService activityWindows) {
     this.trips = trips;
     this.currentUsers = currentUsers;
     this.idempotency = idempotency;
     this.objectMapper = objectMapper;
     this.preferencesCodec = new TripPreferencesRequestCodec(objectMapper);
+    this.activityWindows = activityWindows;
+    this.activityWindowsCodec = new TripDayActivityWindowsRequestCodec(objectMapper);
+  }
+
+  @Override
+  @PutMapping(path = "/{tripId}/day-activity-windows", produces = MediaType.APPLICATION_JSON_VALUE)
+  public ResponseEntity<byte[]> replaceDayActivityWindows(
+      @PathVariable String tripId, HttpServletRequest servletRequest) {
+    TripPreferencesRequestBoundary.requireNoQuery(servletRequest);
+    TripPreferencesRequestBoundary.requireJsonMediaType(servletRequest);
+    UUID id = parseCanonicalUuid(tripId);
+    var expected = TripEntityTag.parse(servletRequest.getHeader(HttpHeaders.IF_MATCH));
+    if (!id.equals(expected.tripId())) throw TripException.invalidIfMatch();
+    var matches = servletRequest.getHeaders(HttpHeaders.IF_MATCH);
+    if (matches != null) {
+      matches.nextElement();
+      if (matches.hasMoreElements()) throw TripException.invalidIfMatch();
+    }
+    byte[] body = TripPreferencesRequestBoundary.readRequiredBody(servletRequest);
+    var command = activityWindowsCodec.decode(body);
+    var user = currentUsers.getRequired();
+    var keys = servletRequest.getHeaders("Idempotency-Key");
+    String key = keys != null && keys.hasMoreElements() ? keys.nextElement() : null;
+    if (keys != null && keys.hasMoreElements()) {
+      throw com.timingjeju.api.application.idempotency.IdempotencyException.invalid();
+    }
+    var request =
+        TripDayActivityWindowIdempotencyKey.createRequest(
+            user.userId(), "PUT", "/api/v1/trips/" + id + "/day-activity-windows", key, body);
+    AtomicBoolean replayed = new AtomicBoolean(true);
+    var result =
+        idempotency.execute(
+            request,
+            () -> {
+              replayed.set(false);
+              var trip = activityWindows.replace(user, id, expected.revision(), command);
+              return new IdempotencyResponse(
+                  200,
+                  List.of(
+                      new IdempotencyHeader(
+                          HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE),
+                      new IdempotencyHeader(
+                          HttpHeaders.ETAG, TripEntityTag.strong(id, trip.revision()))),
+                  serialize(TripAggregateResponse.from(trip)));
+            });
+    var response = ResponseEntity.status(result.status());
+    result.headers().forEach(header -> response.header(header.name(), header.value()));
+    return response
+        .header("Idempotency-Replayed", Boolean.toString(replayed.get()))
+        .body(result.body());
   }
 
   @Override

@@ -17,6 +17,7 @@ class SpringOpenApiTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
     def test_springdoc_swagger_ui_dependency_is_fixed(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         self.assertIn(
             "org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3",
             self.build_gradle,
@@ -25,9 +26,10 @@ class SpringOpenApiTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('run_bounded_spring_gradle "openApiDocs"', quality_gate)
-        self.assertIn("--mode 33", quality_gate)
+        self.assertIn("--mode 38", quality_gate)
 
     def test_quality_gate_validates_generated_artifact_after_generation(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         quality_gate = (ROOT / "scripts" / "quality-gate.sh").read_text(
             encoding="utf-8"
         )
@@ -49,7 +51,7 @@ class SpringOpenApiTest(unittest.TestCase):
             windows_gate,
         )
         self.assertIn("--contracts-root ../..", windows_gate)
-        self.assertIn("--mode 33", windows_gate)
+        self.assertIn("--mode 38", windows_gate)
         self.assert_windows_gate_fail_closed(windows_gate)
         unwrapped = windows_gate.replace(
             'Invoke-BoundedSpringGradle "openApiDocs" 900 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:openApiDocsTest" @("openApiDocs")',
@@ -81,6 +83,7 @@ class SpringOpenApiTest(unittest.TestCase):
         self.assertLess(generation, validation)
 
     def test_windows_openapi_stale_artifact_delete_is_fail_closed(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         gate = (ROOT / "scripts" / "quality-gate.ps1").read_text(encoding="utf-8")
         self.assert_windows_stale_delete_contract(gate)
         mutations = {
@@ -121,6 +124,7 @@ class SpringOpenApiTest(unittest.TestCase):
         )
 
     def test_frontend_customizer는_inferred_schema_drift를_false로_덮지_않는다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         customizer = (
             SPRING_API
             / "src/main/java/com/timingjeju/api/global/config/FrontendOpenApiCustomizer.java"
@@ -128,6 +132,7 @@ class SpringOpenApiTest(unittest.TestCase):
         self.assertNotIn("setAdditionalProperties(false)", customizer)
 
     def test_canonical_contract_resource를_런타임_swagger에_fail_closed_projection한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         customizer = (
             SPRING_API
             / "src/main/java/com/timingjeju/api/global/config/FrontendOpenApiCustomizer.java"
@@ -148,6 +153,7 @@ class SpringOpenApiTest(unittest.TestCase):
         self.assertIn("schema.setTypes(nullable ? Set.of(type, \"null\")", customizer)
 
     def test_docker_build도_repository_root의_canonical_contract를_포함한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         dockerfile = (SPRING_API / "Dockerfile").read_text(encoding="utf-8")
         dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
         compose_documents = {
@@ -232,6 +238,7 @@ class SpringOpenApiTest(unittest.TestCase):
         )
 
     def test_closed_response_shape은_각_authority_DTO에_명시한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         sources = (
             "global/error/ApiProblemDetails.java",
             "global/error/FieldErrorDetail.java",
@@ -249,6 +256,7 @@ class SpringOpenApiTest(unittest.TestCase):
                 )
 
     def test_saved_places_non_contributor_problem도_runtime_definition으로_해결한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         customizer = (
             SPRING_API
             / "src/main/java/com/timingjeju/api/global/config/FrontendOpenApiCustomizer.java"
@@ -301,6 +309,7 @@ class SpringOpenApiTest(unittest.TestCase):
                 self.assertLess(fallback, validation)
 
     def test_saved_place_generated_artifact는_standard와_override_problem을_함께_검사한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         integration_test = (
             SPRING_API
             / "src/test/java/com/timingjeju/api/documentation/OpenApiDocumentationTest.java"
@@ -320,6 +329,7 @@ class SpringOpenApiTest(unittest.TestCase):
             self.assertIn(expected, section)
 
     def test_saved_place_presentation은_description과_inline_header를_exact_merge한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         customizer = (
             SPRING_API
             / "src/main/java/com/timingjeju/api/global/config/FrontendOpenApiCustomizer.java"
@@ -334,6 +344,7 @@ class SpringOpenApiTest(unittest.TestCase):
         self.assertIn('"\\\"saved-place.34.v1\\\""', customizer)
 
     def test_saved_place_delete는_request_body와_success_content가_없다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         document = (ROOT / "docs" / "FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         section = document.split("### `DELETE /api/v1/me/saved-places/{placeId}`", 1)[1]
         section = section.split("### `GET /api/v1/trips`", 1)[0]
@@ -343,11 +354,13 @@ class SpringOpenApiTest(unittest.TestCase):
         self.assertIn("response content 없음", section)
 
     def test_only_public_api_paths_are_exposed(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         self.assertIn("paths-to-match: /api/v1/**", self.application_yml)
         self.assertIn("SPRINGDOC_API_DOCS_ENABLED", self.application_yml)
         self.assertIn("SPRINGDOC_SWAGGER_UI_ENABLED", self.application_yml)
 
     def test_global_configuration_owns_common_openapi_metadata(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         config = (
             SPRING_API
             / "src"
@@ -368,6 +381,7 @@ class SpringOpenApiTest(unittest.TestCase):
         self.assertNotIn("@OpenAPIDefinition", content)
 
     def test_korean_document_explains_annotation_minimization_policy(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         document = ROOT / "docs" / "API_DOCUMENTATION.md"
 
         self.assertTrue(document.is_file())

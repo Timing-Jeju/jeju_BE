@@ -96,6 +96,7 @@ class TripsContractTest(unittest.TestCase):
         return hashlib.sha256(payload).hexdigest()
 
     def test_repository_trips_contract_is_valid(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         result = self._run(ROOT)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("여행 CRUD 계약 검사 성공", result.stdout)
@@ -126,11 +127,12 @@ class TripsContractTest(unittest.TestCase):
         self.assertIn("aggregateTables", result.stdout)
 
     def test_contract_is_closed_and_has_exact_endpoint_identities(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         self.assertEqual("timing-jeju-trips-contract/v1", contract["schemaVersion"])
-        self.assertEqual("1.0.0", contract["contractVersion"])
+        self.assertEqual("1.1.0", contract["contractVersion"])
         self.assertEqual("v1.1", contract["sourceSpecVersion"])
-        self.assertEqual([44, 45], contract["implementationIssues"])
+        self.assertEqual([44, 45, 239], contract["implementationIssues"])
         self.assertEqual(
             [
                 ("GET", "/api/v1/trips"),
@@ -138,11 +140,13 @@ class TripsContractTest(unittest.TestCase):
                 ("GET", "/api/v1/trips/{tripId}"),
                 ("PATCH", "/api/v1/trips/{tripId}"),
                 ("DELETE", "/api/v1/trips/{tripId}"),
+                ("PUT", "/api/v1/trips/{tripId}/day-activity-windows"),
             ],
             [(item["method"], item["path"]) for item in contract["endpoints"]],
         )
 
     def test_canonical_contract_cannot_be_changed_by_updating_only_the_digest(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "ownership": lambda c: c["ownership"].update({"crossOwnerConcealment": 403}),
             "trip path canonical UUID": lambda c: c["schemas"]["TripId"].update(
@@ -177,6 +181,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("semantic", result.stdout)
 
     def test_endpoint_semantics_are_independently_enforced(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "list path": lambda c: c["endpoints"][0].update({"path": "/api/v1/me/trips"}),
             "post idempotency": lambda c: c["endpoints"][1]["idempotency"].update({"required": False}),
@@ -204,6 +209,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("canonical", result.stdout)
 
     def test_trip_create_profile_provisioning_error_mapping_is_stable_and_cause_free(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         self.assertEqual(
             [400, 401, 409, 422, 503], contract["endpoints"][1]["responses"]["errors"]
@@ -225,6 +231,7 @@ class TripsContractTest(unittest.TestCase):
         )
 
     def test_trip_reads_expose_stable_data_unavailable_contract(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         catalog = self._load(CATALOG)
         expected = {
@@ -256,6 +263,7 @@ class TripsContractTest(unittest.TestCase):
         )
 
     def test_trip_id_schema_requires_exact_lowercase_canonical_uuid_pattern(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         expected_pattern = (
             "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
         )
@@ -296,6 +304,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("lowercase canonical UUID semantic", result.stdout)
 
     def test_catalog_projection_is_exact_and_not_falsely_ready(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         with self._temporary_repository() as root:
             path = root / CATALOG.relative_to(ROOT)
             catalog = self._load(path)
@@ -308,6 +317,7 @@ class TripsContractTest(unittest.TestCase):
         self.assertIn("catalog canonical", result.stdout)
 
     def test_catalog_trip_create_idempotency_matches_common_contract_semantically(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         catalog = self._load(CATALOG)
         contract_create = contract["endpoints"][1]["idempotency"]
@@ -337,6 +347,7 @@ class TripsContractTest(unittest.TestCase):
         )
 
     def test_catalog_trip_create_rejects_legacy_idempotency_codes_independent_of_digest(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations = (
             ("payloadConflict", "409 IDEMPOTENCY_PAYLOAD_CONFLICT"),
             ("concurrentRequest", "single writer then replay or 409 IDEMPOTENCY_REQUEST_IN_PROGRESS"),
@@ -373,6 +384,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("catalog idempotency semantic", result.stdout)
 
     def test_trip_list_size_inherits_common_cursor_page_maximum(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         catalog = self._load(CATALOG)
         source = CURSOR_PAGE_REQUEST.read_text(encoding="utf-8")
@@ -401,6 +413,7 @@ class TripsContractTest(unittest.TestCase):
         self.assertNotIn("최대 크기는 100", document)
 
     def test_validator_rejects_common_cursor_page_maximum_drift(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         with self._temporary_repository() as root:
             path = root / CURSOR_PAGE_REQUEST.relative_to(ROOT)
             source = path.read_text(encoding="utf-8")
@@ -411,6 +424,7 @@ class TripsContractTest(unittest.TestCase):
         self.assertIn("pagination common", result.stdout)
 
     def test_strict_json_rejects_duplicate_and_non_finite_values(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         raw_values = (
             '{"contractVersion":"1.0.0","list":{"method":"GET","method":"POST"}}',
             '{"contractVersion":"1.0.0","list":{"query":{"size":NaN}}}',
@@ -424,6 +438,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertNotIn("Traceback", result.stdout + result.stderr)
 
     def test_request_fixture_enforces_closed_http_envelopes(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "unknown header": lambda v: v["create"]["headers"].update({"X-Api-Key": "secret"}),
             "missing if-match": lambda v: v["patchMaintain"]["headers"].pop("If-Match"),
@@ -442,6 +457,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("request fixture", result.stdout)
 
     def test_create_idempotency_inherits_the_common_uuid_and_problem_contract(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         with self._temporary_repository() as root:
             contract_path = root / CONTRACT.relative_to(ROOT)
             contract = self._load(contract_path)
@@ -466,6 +482,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
 
     def test_common_idempotency_sources_cannot_drift_silently(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations = (
             (Path("supabase/migrations/20260810000000_api_idempotency_registry.sql"), "idempotency_key uuid not null", "idempotency_key text not null"),
             (Path("services/spring-api/src/main/java/com/timingjeju/api/application/idempotency/IdempotencyRequest.java"), "UUID.fromString(value)", "UUID.randomUUID()"),
@@ -480,6 +497,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("idempotency common", result.stdout)
 
     def test_date_timezone_and_transport_boundaries_are_validated(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "invalid date": lambda v: v["create"]["body"].update({"startDate": "2026-02-30"}),
             "reversed range": lambda v: v["create"]["body"].update({"endDate": "2026-08-01"}),
@@ -500,6 +518,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("semantic", result.stdout)
 
     def test_every_request_transport_modes_collection_is_validated(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         for mutation in (
             lambda modes: modes[1].update({"priority": 3}),
             lambda modes: modes[1].update({"mode": modes[0]["mode"]}),
@@ -516,6 +535,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("transportModes", result.stdout)
 
     def test_success_fixture_validates_total_score_provenance_and_freshness(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "score without provenance": lambda v: v["list"]["body"]["items"][1].update({"scoreProvenance": None}),
             "provenance without score": lambda v: v["detail"]["body"].update({"totalScore": None}),
@@ -534,6 +554,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("score semantic", result.stdout)
 
     def test_every_scored_response_requires_response_time_for_stale_derivation(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         for name in ("detail", "patchMaintain"):
             with self.subTest(name=name), self._temporary_repository() as root:
                 path = root / FIXTURES.relative_to(ROOT) / "success.json"
@@ -545,6 +566,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("responseTime", result.stdout)
 
     def test_cursor_and_list_order_invariants_are_validated(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "cursor missing": lambda v: v["list"]["body"]["page"].update({"hasNext": True, "nextCursor": None}),
             "terminal cursor": lambda v: v["list"]["body"]["page"].update({"hasNext": False, "nextCursor": "opaque"}),
@@ -561,6 +583,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("pagination semantic", result.stdout)
 
     def test_list_order_uses_actual_instants_not_timestamp_text(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         with self._temporary_repository() as root:
             path = root / FIXTURES.relative_to(ROOT) / "success.json"
             value = self._load(path)
@@ -581,6 +604,7 @@ class TripsContractTest(unittest.TestCase):
         self.assertIn("pagination semantic", result.stdout)
 
     def test_patch_presence_and_schedule_effect_matrix_are_closed(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         matrix = contract["patchSemantics"]["scheduleEffectMatrix"]
         self.assertEqual(
@@ -599,6 +623,7 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual("replace", contract["patchSemantics"]["collections"])
 
     def test_success_envelopes_and_patch_effects_are_exact(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         mutations: dict[str, Callable[[dict[str, Any]], None]] = {
             "create replay": lambda v: v["createReplay"]["headers"].update({"Idempotency-Replayed": "false"}),
             "missing etag": lambda v: v["patchInvalidate"]["headers"].pop("ETag"),
@@ -617,6 +642,7 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("success fixture", result.stdout)
 
     def test_problem_fixture_has_exact_conditions_status_codes_and_types(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         for field, replacement in (("status", 500), ("code", "ARBITRARY"), ("type", "https://example.com/problem")):
             with self.subTest(field=field), self._temporary_repository() as root:
                 path = root / FIXTURES.relative_to(ROOT) / "problem.json"
@@ -628,9 +654,10 @@ class TripsContractTest(unittest.TestCase):
             self.assertIn("problem fixture", result.stdout)
 
     def test_storage_drift_and_delete_lineage_policy_are_explicit(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         storage = contract["storage"]
-        self.assertEqual([44, 45], storage["implementationIssues"])
+        self.assertEqual([44, 45, 239], storage["implementationIssues"])
         self.assertEqual("supabase/migrations", storage["migrationSourceOfTruth"])
         self.assertFalse(storage["flywayAllowed"])
         self.assertEqual(
@@ -658,6 +685,7 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual("preserve", deletion["userAndAuthIdentity"])
 
     def test_legacy_owner_write_rls_text_cannot_match_zero_policy_migration_and_smoke(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         with self._temporary_repository() as root:
             path = root / CONTRACT.relative_to(ROOT)
             contract = self._load(path)
@@ -678,6 +706,7 @@ class TripsContractTest(unittest.TestCase):
         self.assertIn("storage writer", result.stdout)
 
     def test_external_traceability_does_not_claim_missing_design_states(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         notion = contract["externalTraceability"]["notion"]
         figma = contract["externalTraceability"]["figma"]
@@ -691,12 +720,14 @@ class TripsContractTest(unittest.TestCase):
         self.assertEqual("not-observed", figma["error"])
 
     def test_quality_gates_run_the_trips_contract_validator(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         shell = (ROOT / "scripts" / "quality-gate.sh").read_text(encoding="utf-8")
         powershell = (ROOT / "scripts" / "quality-gate.ps1").read_text(encoding="utf-8")
         self.assertIn("python3 scripts/validate_trips_contract.py", shell)
         self.assertIn("py -3 scripts/validate_trips_contract.py", powershell)
 
     def test_markdown_is_korean_and_keeps_implementation_out_of_scope(self) -> None:
+        """여행 공개 계약과 회귀 불변조건을 검증한다."""
         document = (ROOT / "docs" / "contracts" / "domains" / "trips" / "contract.md").read_text(encoding="utf-8")
         for phrase in (
             "여행 CRUD API canonical 계약",

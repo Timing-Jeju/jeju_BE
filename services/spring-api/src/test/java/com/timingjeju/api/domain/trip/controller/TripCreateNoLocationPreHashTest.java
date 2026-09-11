@@ -28,7 +28,13 @@ class TripCreateNoLocationPreHashTest {
   private TripController controller() {
     when(users.getRequired())
         .thenReturn(new CurrentUser(OWNER, AuthenticatedRole.AUTHENTICATED, null));
-    return new TripController(trips, users, idempotency, new ObjectMapper());
+    return new TripController(
+        trips,
+        users,
+        idempotency,
+        new ObjectMapper(),
+        org.mockito.Mockito.mock(
+            com.timingjeju.api.application.trip.service.TripDayActivityWindowService.class));
   }
 
   private static final String VALID_BODY =

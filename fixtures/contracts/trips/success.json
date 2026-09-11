@@ -64,9 +64,9 @@
         {"mode": "taxi", "priority": 2, "primary": false}
       ],
       "days": [
-        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
-        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
-        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05", "activityStartTime": null, "activityEndTime": null}
       ],
       "activeScheduleVersionId": null,
       "totalScore": null,
@@ -104,9 +104,9 @@
         {"mode": "taxi", "priority": 2, "primary": false}
       ],
       "days": [
-        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
-        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
-        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05", "activityStartTime": null, "activityEndTime": null}
       ],
       "activeScheduleVersionId": "60000000-0000-0000-0000-000000000001",
       "totalScore": 81,
@@ -142,9 +142,9 @@
         {"mode": "taxi", "priority": 2, "primary": false}
       ],
       "days": [
-        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
-        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
-        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05", "activityStartTime": null, "activityEndTime": null}
       ],
       "activeScheduleVersionId": "60000000-0000-0000-0000-000000000001",
       "totalScore": 81,
@@ -176,9 +176,9 @@
       "userPace": "slow",
       "transportModes": [{"mode": "rental_car", "priority": 1, "primary": true}],
       "days": [
-        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03"},
-        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04"},
-        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05"}
+        {"dayId": "51000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-08-03", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-08-04", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "51000000-0000-0000-0000-000000000003", "dayNo": 3, "date": "2026-08-05", "activityStartTime": null, "activityEndTime": null}
       ],
       "activeScheduleVersionId": null,
       "totalScore": null,
@@ -202,8 +202,8 @@
       "userPace": "normal",
       "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}],
       "days": [
-        {"dayId": "52000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-09-01"},
-        {"dayId": "52000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-09-02"}
+        {"dayId": "52000000-0000-0000-0000-000000000001", "dayNo": 1, "date": "2026-09-01", "activityStartTime": null, "activityEndTime": null},
+        {"dayId": "52000000-0000-0000-0000-000000000002", "dayNo": 2, "date": "2026-09-02", "activityStartTime": null, "activityEndTime": null}
       ],
       "activeScheduleVersionId": null,
       "totalScore": null,

@@ -37,6 +37,7 @@ CANONICAL_SUFFIX = (
     ("20260918000018_revision_request_hash_audit.sql", "056", 223),
     ("20260918000019_planned_route_request_hash_policy.sql", "057", 225),
     ("20260918000020_remove_user_location_runtime.sql", "058", 224),
+    ("20260918000021_day_activity_window_pair.sql", "059", 239),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -64,10 +65,11 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `058`", architecture)
+        self.assertIn("Docker init `038`부터 `059`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         migration_dir = ROOT / "supabase/migrations"
         actual = tuple(path.name for path in sorted(migration_dir.glob("20260918*.sql")))
         expected = tuple(path for path, _, _ in CANONICAL_SUFFIX)
@@ -77,6 +79,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertFalse((migration_dir / obsolete).exists(), obsolete)
 
     def test_manifest_freezes_origin_develop_prefix_and_suffix_ownership(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         self.assertTrue(MANIFEST.is_file(), "canonical migration manifest가 없습니다")
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         base = manifest["canonicalBase"]
@@ -137,6 +140,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         self.assertNotIn("cf086714", manifest_text.lower(), "PR #209 overwrite blob must not be canonical")
 
     def test_issue_50_baseline_blob_and_issue_51_additive_correction_are_separate(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         baseline_path = ROOT / "supabase/migrations" / CANONICAL_SUFFIX[7][0]
         correction_path = ROOT / "supabase/migrations" / CANONICAL_SUFFIX[8][0]
         self.assertEqual(BASELINE_SHA256, digest(baseline_path))
@@ -163,6 +167,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn(f"revoke execute on function {signature} from authenticated", correction)
 
     def test_issue_215_additively_aligns_core_sealing_with_title_only_items(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         correction_path = ROOT / "supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql"
         source = re.sub(r"\s+", " ", correction_path.read_text(encoding="utf-8").lower())
 
@@ -229,6 +234,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn("database_concurrency_contract.sql", source)
 
     def test_actual_postgresql_contract_source_covers_all_upgrade_paths(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         integration = ROOT / (
             "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/"
             "CanonicalMigrationOrderIntegrationTest.java"
@@ -251,6 +257,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn(catalog, fingerprint_sql)
 
     def test_fingerprint_excludes_extension_routines_and_projects_security_acl(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         fingerprint_sql = (ROOT / "db/queries/canonical_migration_fingerprint.sql").read_text(
             encoding="utf-8"
         ).lower()
@@ -270,6 +277,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         self.assertIn("not exists", fingerprint_sql)
 
     def test_fingerprint_serializes_catalog_scalar_types_without_ambiguous_concat(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         fingerprint_sql = (ROOT / "db/queries/canonical_migration_fingerprint.sql").read_text(
             encoding="utf-8"
         ).lower()
@@ -282,6 +290,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn(marker, fingerprint_sql)
 
     def test_storage_policy_actual_postgresql_contract_covers_pg16_and_pg17(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         source = (ROOT / (
             "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/"
             "ProfileImageStoragePolicyMigrationIntegrationTest.java"
@@ -297,6 +306,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn(marker, source)
 
     def test_powershell_bootstraps_auth_before_both_manifest_replays(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         powershell = (ROOT / "scripts/docker-smoke-test.ps1").read_text(encoding="utf-8")
         auth = 'Invoke-SqlFile $database "/docker-entrypoint-initdb.d/001_auth_compat.sql"'
         self.assertIn(auth, powershell)
@@ -310,6 +320,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         self.assertIn("Invoke-CanonicalManifest $concurrencyDatabase", powershell)
 
     def test_actual_postgresql_source_covers_postgis_versions_and_acl_mutations(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         source = (ROOT / (
             "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/"
             "CanonicalMigrationOrderIntegrationTest.java"
@@ -328,6 +339,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn(marker, source.lower())
 
     def test_ci_does_not_automatically_apply_supabase_migrations(self) -> None:
+        """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         workflows = ROOT / ".github/workflows"
         sources = "\n".join(
             path.read_text(encoding="utf-8")

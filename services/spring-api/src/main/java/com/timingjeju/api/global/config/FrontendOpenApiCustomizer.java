@@ -839,7 +839,20 @@ final class FrontendOpenApiCustomizer {
   }
 
   private static void documentConditionalHeaders(String key, Operation operation) {
-    if (key.equals("POST /api/v1/me/saved-places")) {
+    if (key.equals("PUT /api/v1/trips/{tripId}/day-activity-windows")) {
+      mergeRequiredHeader(
+          operation,
+          "Idempotency-Key",
+          "24시간 재시도 키; printable ASCII 1~128자",
+          new StringSchema().minLength(1).maxLength(128).pattern("^[ -~]+$"),
+          "day-window-save-239");
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 aggregate의 strong ETag",
+          new StringSchema().pattern("^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"),
+          "\"trip-44000000-0000-4000-8000-000000000044-r1\"");
+    } else if (key.equals("POST /api/v1/me/saved-places")) {
       mergeRequiredHeader(
           operation,
           "Idempotency-Key",
@@ -937,6 +950,9 @@ final class FrontendOpenApiCustomizer {
     } else if (key.equals("POST /api/v1/trips")) {
       addResponseHeaderReferences(
           operation, List.of("201"), List.of("Location", "ETag", "Idempotency-Replayed"));
+    } else if (key.equals("PUT /api/v1/trips/{tripId}/day-activity-windows")) {
+      addResponseHeaderReferences(
+          operation, List.of("200"), List.of("ETag", "Idempotency-Replayed"));
     } else if (key.equals("GET /api/v1/trips/{tripId}")
         || key.equals("PATCH /api/v1/trips/{tripId}")
         || key.equals("PUT /api/v1/trips/{tripId}/preferences")
@@ -1575,7 +1591,7 @@ final class FrontendOpenApiCustomizer {
                 "503", "PUSH_NOTIFICATION_DATA_UNAVAILABLE")));
     String tripExample =
         """
-        {"tripId":"44000000-0000-4000-8000-000000000044","title":"제주 3박 4일","status":"draft","startDate":"2026-09-10","endDate":"2026-09-13","timezone":"Asia/Seoul","userPace":"normal","transportModes":[{"mode":"public_transit","priority":1,"primary":true}],"days":[{"dayId":"44000000-0000-4000-8001-000000000044","dayNo":1,"date":"2026-09-10"},{"dayId":"44000000-0000-4000-8002-000000000044","dayNo":2,"date":"2026-09-11"},{"dayId":"44000000-0000-4000-8003-000000000044","dayNo":3,"date":"2026-09-12"},{"dayId":"44000000-0000-4000-8004-000000000044","dayNo":4,"date":"2026-09-13"}],"activeScheduleVersionId":null,"totalScore":null,"scoreProvenance":null,"scheduleEffect":"none","regenerationRequired":false,"createdAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}
+        {"tripId":"44000000-0000-4000-8000-000000000044","title":"제주 3박 4일","status":"draft","startDate":"2026-09-10","endDate":"2026-09-13","timezone":"Asia/Seoul","userPace":"normal","transportModes":[{"mode":"public_transit","priority":1,"primary":true}],"days":[{"dayId":"44000000-0000-4000-8001-000000000044","dayNo":1,"date":"2026-09-10","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8002-000000000044","dayNo":2,"date":"2026-09-11","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8003-000000000044","dayNo":3,"date":"2026-09-12","activityStartTime":null,"activityEndTime":null},{"dayId":"44000000-0000-4000-8004-000000000044","dayNo":4,"date":"2026-09-13","activityStartTime":null,"activityEndTime":null}],"activeScheduleVersionId":null,"totalScore":null,"scoreProvenance":null,"scheduleEffect":"none","regenerationRequired":false,"createdAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}
         """;
     result.put(
         "GET /api/v1/trips",
@@ -1633,6 +1649,30 @@ final class FrontendOpenApiCustomizer {
                 "409", "TRIP_VERSION_CONFLICT",
                 "422", "TRIP_CONSTRAINT_VIOLATION",
                 "503", "TRIP_DATA_UNAVAILABLE")));
+    result.put(
+        "PUT /api/v1/trips/{tripId}/day-activity-windows",
+        doc(
+            "tripDayActivityWindowsUpdate",
+            "여행",
+            """
+            {"days":[{"dayId":"44000000-0000-4000-8001-000000000044","startTime":"09:00","endTime":"18:00"},{"dayId":"44000000-0000-4000-8002-000000000044","startTime":"09:00","endTime":"18:00"},{"dayId":"44000000-0000-4000-8003-000000000044","startTime":"09:00","endTime":"18:00"},{"dayId":"44000000-0000-4000-8004-000000000044","startTime":"09:00","endTime":"18:00"}]}
+            """,
+            tripExample
+                .replace("\"activityStartTime\":null", "\"activityStartTime\":\"09:00\"")
+                .replace("\"activityEndTime\":null", "\"activityEndTime\":\"18:00\""),
+            Map.of(
+                "400",
+                "INVALID_REQUEST",
+                "401",
+                "AUTHENTICATION_REQUIRED",
+                "404",
+                "TRIP_NOT_FOUND",
+                "409",
+                "TRIP_VERSION_CONFLICT",
+                "422",
+                "TRIP_CONSTRAINT_VIOLATION",
+                "503",
+                "TRIP_DATA_UNAVAILABLE")));
     result.put(
         "DELETE /api/v1/trips/{tripId}",
         doc(
