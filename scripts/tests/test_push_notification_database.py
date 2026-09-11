@@ -228,10 +228,6 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 if target.endswith(
                     (
                         "054_planned_route_reference_integrity.sql",
-                        "055_location_cutover_group.sql",
-                        "057_planned_route_request_hash_policy.sql",
-                        "058_remove_user_location_runtime.sql",
-                        "059_day_activity_window_pair.sql",
                         "060_rls_auto_enable_execute_boundary.sql",
                     )
                 )
@@ -247,7 +243,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 last_target = (
                     "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql"
                     if next_contract.endswith("legacy_v1_upgrade_contract.sql")
-                    else "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql"
+                    else "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql"
                 )
                 targets = migration_targets[:migration_targets.index(last_target) + 1]
                 exact_sequence = " \\\n  ".join((*targets, next_contract))

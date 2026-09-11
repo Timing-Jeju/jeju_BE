@@ -106,3 +106,13 @@ PG16/PG17 실행은 15분 14초에 성공했고 Testcontainers session의 contai
 dependency는 `20260918000021_day_activity_window_pair.sql`을 정확히 가리킨다. compose 3종, Docker
 smoke replay, canonical order, PG16/17 full replay, profile-images LAST boundary도 모두 060으로 맞춘다.
 공유 Docker 검증이 진행 중인 동안에는 Testcontainers와 전체 gate를 실행하거나 정리하지 않는다.
+
+재통합 후 정적 계약을 실행하자 `test_docker_init_applies_trip_saved_push_correction_then_seed_exactly_once`
+가 `database_concurrency_contract` 앞에서 054 다음 060을 바로 적용하는 순서 오류로 Red가 됐다.
+테스트 기대 boundary를 먼저 060으로 강화하자 누락된 055/057/058/059 전체 sequence가 명확히
+실패했다. Green에서는 Docker smoke의 concurrency replay에 보존된 055~059를 순서대로 복원하고
+마지막에 060을 적용했다. 관련 migration/RLS/compose Python 계약 38건이 모두 통과했다.
+
+최신 merge commit hook에서는 Spotless, Java test compile, 전체 비-Docker unit test가 성공했다.
+실제 PG16/17 canonical replay와 profile-images RLS matrix, 전체 quality gate 및 Docker smoke는 공유
+Docker 작업 종료 뒤 독립 검증 대상으로 남긴다. live Supabase 적용과 PR 생성은 수행하지 않았다.

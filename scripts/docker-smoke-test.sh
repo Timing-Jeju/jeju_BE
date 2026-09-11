@@ -663,6 +663,10 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql \
   /docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql \
   /docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql \
+  /docker-entrypoint-initdb.d/055_location_cutover_group.sql \
+  /docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql \
+  /docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql \
+  /docker-entrypoint-initdb.d/059_day_activity_window_pair.sql \
   /docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql \
   /queries/database_concurrency_contract.sql
 do
