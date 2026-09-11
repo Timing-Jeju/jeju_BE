@@ -23,6 +23,18 @@ final class PostgreSqlTestContainerFactory {
   private static final DockerImageName POSTGIS_IMAGE =
       DockerImageName.parse("postgis/postgis:16-3.4").asCompatibleSubstituteFor("postgres");
   private static final Pattern CANONICAL_MIGRATION = Pattern.compile("^\\d{14}_.+\\.sql$");
+  private static final Pattern SQLSTATE_ERROR =
+      Pattern.compile("\\bERROR:\\s*([0-9A-Z]{5})\\b(.*)", Pattern.CASE_INSENSITIVE);
+  private static final Pattern SINGLE_QUOTED_VALUE = Pattern.compile("'(?:''|[^'])*'");
+  private static final Pattern DOUBLE_QUOTED_VALUE = Pattern.compile("\"(?:\"\"|[^\"])*\"");
+  private static final Pattern UNTAGGED_DOLLAR_QUOTED_VALUE =
+      Pattern.compile("\\$\\$.*?\\$\\$", Pattern.DOTALL);
+  private static final Pattern TAGGED_DOLLAR_QUOTED_VALUE =
+      Pattern.compile("\\$([A-Za-z_][A-Za-z0-9_]*)\\$.*?\\$\\1\\$", Pattern.DOTALL);
+  private static final Pattern FILESYSTEM_PATH = Pattern.compile("(?i)(?:[a-z]:\\\\|/)[^\\s,;)]*");
+  private static final Pattern UUID_VALUE =
+      Pattern.compile("(?i)\\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\b");
+  private static final int MAX_DIAGNOSTIC_LENGTH = 512;
 
   private PostgreSqlTestContainerFactory() {}
 
@@ -66,6 +78,8 @@ final class PostgreSqlTestContainerFactory {
             "--no-psqlrc",
             "--set",
             "ON_ERROR_STOP=1",
+            "--set",
+            "VERBOSITY=sqlstate",
             "--username",
             container.getUsername(),
             "--dbname",
@@ -78,12 +92,63 @@ final class PostgreSqlTestContainerFactory {
               + script.getFileName()
               + " (exit="
               + result.getExitCode()
-              + ", stdout="
-              + result.getStdout()
-              + ", stderr="
-              + result.getStderr()
+              + ", error="
+              + safePsqlErrorSummary(result.getStderr())
               + ")");
     }
+  }
+
+  static String safePsqlErrorSummary(String stderr) {
+    String diagnosticSource = stderr == null ? "" : stderr;
+    String diagnostic =
+        diagnosticSource
+            .lines()
+            .map(String::strip)
+            .filter(line -> !line.isEmpty())
+            .filter(line -> line.contains("ERROR:"))
+            .findFirst()
+            .orElse("");
+    var match = SQLSTATE_ERROR.matcher(diagnostic);
+    if (!match.find()) {
+      return "psql: ERROR: unknown [cause=database-error; details=<redacted>]";
+    }
+
+    String sqlState = match.group(1).toUpperCase(java.util.Locale.ROOT);
+    String detail = redactPsqlDetail(match.group(2));
+    String summary =
+        "psql: ERROR: "
+            + sqlState
+            + " [cause="
+            + sqlStateCause(sqlState)
+            + "]"
+            + (detail.isEmpty() ? "" : " detail=" + detail);
+    if (summary.length() <= MAX_DIAGNOSTIC_LENGTH) {
+      return summary;
+    }
+    return summary.substring(0, MAX_DIAGNOSTIC_LENGTH - 1) + "…";
+  }
+
+  private static String redactPsqlDetail(String detail) {
+    String sanitized = TAGGED_DOLLAR_QUOTED_VALUE.matcher(detail).replaceAll("<redacted>");
+    sanitized = UNTAGGED_DOLLAR_QUOTED_VALUE.matcher(sanitized).replaceAll("<redacted>");
+    sanitized = SINGLE_QUOTED_VALUE.matcher(sanitized).replaceAll("<redacted>");
+    sanitized = DOUBLE_QUOTED_VALUE.matcher(sanitized).replaceAll("<redacted>");
+    sanitized = FILESYSTEM_PATH.matcher(sanitized).replaceAll("<redacted>");
+    sanitized = UUID_VALUE.matcher(sanitized).replaceAll("<redacted>");
+    return sanitized.replaceAll("\\s+", " ").strip();
+  }
+
+  private static String sqlStateCause(String sqlState) {
+    return switch (sqlState.substring(0, 2)) {
+      case "2B" -> "dependent-objects";
+      case "22" -> "data-exception";
+      case "23" -> "integrity-constraint";
+      case "28" -> "authorization";
+      case "40" -> "transaction-rollback";
+      case "42" -> "syntax-or-access-rule";
+      case "53" -> "insufficient-resources";
+      default -> "database-error";
+    };
   }
 
   private static PostgreSQLContainer createWithScripts(List<Path> initScripts) {
