@@ -82,7 +82,7 @@ if ($Scope -in @("all", "spring")) {
       throw "stale JaCoCo execution data를 삭제하지 못했습니다."
     }
     Invoke-Native "Spring 분류 테스트" { ./gradlew.bat --no-daemon unitTest sliceTest architectureTest }
-    Invoke-BoundedSpringGradle "integrationTest" 7200 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" @("integrationTest")
+    Invoke-BoundedSpringGradle "integrationTest" 10800 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" @("integrationTest")
     if (Test-Path -LiteralPath "build/openapi/openapi.json") {
       Remove-Item -LiteralPath "build/openapi/openapi.json" -Force -ErrorAction Stop
     }

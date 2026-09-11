@@ -51,3 +51,7 @@
 최신GET으로 복원해야 한다는 클라이언트 인계와 과거response허용범위를 명시했다. 새커밋전체gate, generatedclient, 최종Reviewer/PR/CI가 남아 있다.
 
 기본 runtime OpenAPI는 ready canonical projection 테스트와 달리 기존 DTO ref를 사용하고 있어 `/tmp/jeju239-legacy-runtime-red.log`에서 union누락을 추가 재현했다. POST ApiDocs에 문서 전용TripCreateResponse/TripDetailLegacyV1Response/TripDayLegacyV1Response를 지정해 기존 snapshot shape를 고정했다. `/tmp/jeju239-legacy-runtime-green.log`에서 기본·ready OpenAPI와 architecture/export가 PASS했다. 재생성된 실제 artifact의 POST는 TripCreateResponse ref이며 components의oneOf2분기를 직접확인했다. `/tmp/jeju239-legacy-client-fixed.log`에서38operations 생성client를 검사한다. 이전 `/tmp/jeju239-legacy-client.log`는 생성 자체PASS여도 기본runtime분기를 검증하지 못한 산출물로 구분한다.
+
+## 전체 gate 시간 제한 보완
+
+bba4d8e의 정상 push는 통합 테스트 7200초 한도에서 stage-timeout으로 종료됐다. rootSuiteComplete=false이며 통과나 push 완료가 아니다. 종료 stack은 TransportEventMigrationIntegrationTest의 과거 schema 초기화 단계다. 기존 #224 통합 실행도 1시간 50분 50초를 사용했다. 모든 테스트와 실패 검출을 유지하면서 sh/PowerShell의 통합 단계 한도를 10800초로 맞췄다. 완료 후 프로세스 정리 제한 120초와 실패 시 진단·실패 반환은 유지한다. 새 HEAD에서 전체 정상 gate를 다시 실행한다.

@@ -132,7 +132,7 @@ run_spring_checks() {
   stage "Spring Slice 테스트"
   run_spring_gradle sliceTest
   stage "Spring 통합 테스트"
-  run_bounded_spring_gradle "integrationTest" 7200 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" integrationTest
+  run_bounded_spring_gradle "integrationTest" 10800 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" integrationTest
   stage "Spring OpenAPI 문서 생성"
   rm -f services/spring-api/build/openapi/openapi.json
   if [ -e services/spring-api/build/openapi/openapi.json ]; then
