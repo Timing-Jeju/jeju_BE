@@ -103,6 +103,68 @@ class ScheduleAiContractTest(unittest.TestCase):
             lambda contract: contract["idempotencyPolicy"].update(ttl="PT12H")
         )
 
+    def test_idempotency_key_is_printable_ascii_not_uuid(self):
+        expected = {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[ -~]+$",
+            "nullable": False,
+        }
+        for schema_name in ["AsyncCreateHeaders", "AsyncApplyHeaders"]:
+            with self.subTest(schema=schema_name):
+                key = self.contract["schemas"][schema_name]["properties"]["Idempotency-Key"]
+                self.assertEqual(expected, key)
+                self.assertNotIn("format", key)
+
+    def test_location_input_is_closed_to_direct_user_selections(self):
+        policy = self.contract["locationInputPolicy"]
+        self.assertEqual(
+            ["regionCode", "placeId", "tripItemId"],
+            policy["allowedUserSelectedReferences"],
+        )
+        self.assertEqual("reject", policy["unknownFields"])
+        self.assertEqual("owned trip item only", policy["tripItemIdOwnership"])
+        self.assertFalse(policy["receiveCurrentOrIndirectLocation"])
+        self.assertEqual(
+            [
+                "accuracy", "altitude", "currentLocation", "currentPlaceId",
+                "deviceLocation", "geohash", "gps", "gridX", "gridY", "heading",
+                "latitude", "locationSupplied", "longitude", "speed",
+            ],
+            policy["forbiddenFields"],
+        )
+
+    def test_generation_snapshot_preserves_saved_day_window_without_invented_default(self):
+        snapshot = self.contract["generationSnapshotPolicy"]
+        self.assertEqual(
+            {
+                "source": "trip_days.activity_start_time + trip_days.activity_end_time",
+                "snapshot": "immutable exact stored pair for targetDayId",
+                "missing": "explicitly absent",
+                "defaulting": "forbidden; absence is never persisted or reported as a user fact",
+            },
+            snapshot["dayActivityWindow"],
+        )
+
+    def test_transport_event_snapshot_matches_current_public_contract(self):
+        self.assertEqual(
+            {
+                "source": "trip_transport_events",
+                "slots": ["arrival", "departure"],
+                "eventTypes": ["arrival", "departure"],
+                "transportTypes": ["flight", "ferry"],
+                "fields": [
+                    "eventType", "transportType", "terminalPlaceId", "customTerminalName",
+                    "scheduledAt", "transportNumber", "note",
+                ],
+                "terminalSelector": "exactly one of terminalPlaceId or customTerminalName",
+                "scheduledAt": "RFC3339 date-time with mandatory +09:00 offset",
+                "missingSlot": "null",
+            },
+            self.contract["generationSnapshotPolicy"]["transportEvents"],
+        )
+
     def test_apply_endpoints_share_exact_ordered_first_match_precedence(self):
         expected = [
             "AUTHENTICATION_REQUIRED",

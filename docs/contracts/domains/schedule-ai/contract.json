@@ -4,7 +4,7 @@
   "sourceSpecVersion": "1.0.0",
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 89,
-  "prerequisiteIssues": [72, 108],
+  "prerequisiteIssues": [47, 68, 72, 108, 180, 220, 223, 224, 239],
   "endpointGroups": {
     "ALL_6": ["POST /api/v1/trips/{tripId}/generation-runs","GET /api/v1/trips/{tripId}/generation-runs/{runId}","POST /api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply","POST /api/v1/trips/{tripId}/schedule-revision-runs","GET /api/v1/trips/{tripId}/schedule-revision-runs/{runId}","POST /api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply"],
     "CREATE_2": ["POST /api/v1/trips/{tripId}/generation-runs","POST /api/v1/trips/{tripId}/schedule-revision-runs"],
@@ -125,9 +125,9 @@
     "AsyncCandidatePath": {"type":"object","additionalProperties":false,"required":["tripId","runId","candidateId"],"properties":{"tripId":{"type":"string","format":"uuid","nullable":false},"runId":{"type":"string","format":"uuid","nullable":false},"candidateId":{"type":"string","format":"uuid","nullable":false}}},
     "NoQuery": {"type":"object","additionalProperties":false,"required":[],"properties":{}},
     "BodyForbidden": {"kind":"forbidden","accepts":[]},
-    "AsyncCreateHeaders": {"type":"object","additionalProperties":false,"required":["Authorization","Idempotency-Key"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false},"Idempotency-Key":{"type":"string","format":"uuid","nullable":false}}},
+    "AsyncCreateHeaders": {"type":"object","additionalProperties":false,"required":["Authorization","Idempotency-Key"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false},"Idempotency-Key":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[ -~]+$","nullable":false}}},
     "AsyncReadHeaders": {"type":"object","additionalProperties":false,"required":["Authorization"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false}}},
-    "AsyncApplyHeaders": {"type":"object","additionalProperties":false,"required":["Authorization","Idempotency-Key","If-Match"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false},"Idempotency-Key":{"type":"string","format":"uuid","nullable":false},"If-Match":{"type":"string","pattern":"^\"schedule:[0-9a-f-]{36}\"$","nullable":false}}},
+    "AsyncApplyHeaders": {"type":"object","additionalProperties":false,"required":["Authorization","Idempotency-Key","If-Match"],"properties":{"Authorization":{"type":"string","pattern":"^Bearer [^\\s]{1,2048}$","nullable":false},"Idempotency-Key":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[ -~]+$","nullable":false},"If-Match":{"type":"string","pattern":"^\"schedule:[0-9a-f-]{36}\"$","nullable":false}}},
     "GenerationRunRequest": {"type":"object","additionalProperties":false,"required":["targetDayId","candidateCount","refreshExternalFacts"],"properties":{"targetDayId":{"type":"string","format":"uuid","nullable":false},"candidateCount":{"type":"integer","minimum":1,"maximum":10,"nullable":false},"refreshExternalFacts":{"type":"boolean","nullable":false}}},
     "ScheduleRevisionRunRequest": {"type":"object","additionalProperties":false,"required":["targetDayId","affectedItemIds","instructionCodes"],"properties":{"targetDayId":{"type":"string","format":"uuid","nullable":false},"affectedItemIds":{"type":"array","minItems":0,"maxItems":100,"uniqueItems":true,"nullable":false,"items":{"type":"string","format":"uuid","nullable":false}},"instructionCodes":{"type":"array","minItems":1,"maxItems":32,"uniqueItems":true,"nullable":false,"items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]{0,63}$","nullable":false}}}},
     "ApplyCandidateRequest": {"type":"object","additionalProperties":false,"required":["expectedActiveScheduleVersionId"],"properties":{"expectedActiveScheduleVersionId":{"type":"string","format":"uuid","nullable":false}}},
@@ -235,6 +235,31 @@
     "forbiddenAuthorityInputs": ["user_metadata", "email", "provider payload", "raw token"],
     "fastApiBoundary": "private MCP has no public endpoint, JWT, DB access, provider credential, or ownership decision"
   },
+  "locationInputPolicy": {
+    "receiveCurrentOrIndirectLocation": false,
+    "unknownFields": "reject",
+    "allowedUserSelectedReferences": ["regionCode", "placeId", "tripItemId"],
+    "tripItemIdOwnership": "owned trip item only",
+    "forbiddenFields": ["accuracy", "altitude", "currentLocation", "currentPlaceId", "deviceLocation", "geohash", "gps", "gridX", "gridY", "heading", "latitude", "locationSupplied", "longitude", "speed"]
+  },
+  "generationSnapshotPolicy": {
+    "dayActivityWindow": {
+      "source": "trip_days.activity_start_time + trip_days.activity_end_time",
+      "snapshot": "immutable exact stored pair for targetDayId",
+      "missing": "explicitly absent",
+      "defaulting": "forbidden; absence is never persisted or reported as a user fact"
+    },
+    "transportEvents": {
+      "source": "trip_transport_events",
+      "slots": ["arrival", "departure"],
+      "eventTypes": ["arrival", "departure"],
+      "transportTypes": ["flight", "ferry"],
+      "fields": ["eventType", "transportType", "terminalPlaceId", "customTerminalName", "scheduledAt", "transportNumber", "note"],
+      "terminalSelector": "exactly one of terminalPlaceId or customTerminalName",
+      "scheduledAt": "RFC3339 date-time with mandatory +09:00 offset",
+      "missingSlot": "null"
+    }
+  },
   "databasePolicy": {
     "publicSchemaSource": "supabase/migrations only; no Flyway",
     "runDiscriminator": {"itineraryGeneration": "itinerary_generation", "scheduleRevision": "schedule_revision"},
@@ -272,7 +297,7 @@
   "idempotencyPolicy": {
     "requiredOperations": ["generation create", "generation apply", "revision create", "revision apply"],
     "scope": "canonicalSub + uppercase method + normalized path + Idempotency-Key",
-    "key": "canonical UUID",
+    "key": "1..128 printable ASCII characters (U+0020..U+007E)",
     "ttl": "PT24H after completion",
     "sameKeySamePayload": "replay exact status, Location/Retry-After or ETag/Location, and body without rerunning worker/apply",
     "sameKeyDifferentPayload": "409 IDEMPOTENCY_KEY_REUSED",

@@ -93,3 +93,13 @@ REST 계약 readiness 검사 성공
 - Green: 양 endpoint에 동일한 exact first-match 순서를 추가했다. 인증→형식→trip/run/candidate 404 은닉→완료 replay/registry conflict→already-applied→run/candidate status→expiry→locked active CAS→candidate base stale→lineage/봉인→429/503→success 순서다.
 - 겹침 결과는 완료 replay가 현재 candidate 문제보다 우선하고, fresh request에서는 already-applied가 status/expiry/CAS/stale보다 우선한다. already-applied가 아니면 status, expiry, locked active CAS, candidate stale, lineage 순으로 최초 하나만 선택한다. candidate base=`A`, request=`A`, locked active=`B`는 `ACTIVE_SCHEDULE_VERSION_CONFLICT`; already-applied까지 겹치면 `CANDIDATE_ALREADY_APPLIED`다.
 - validator는 두 endpoint의 배열을 exact 비교하며 순서 reverse mutation을 거부한다. 테스트 oracle도 인증·형식·404 은닉·멱등·candidate 상태·잠금 후 CAS·stale/lineage 중첩을 단일 결과로 검증한다.
+
+## 2026-09-11 #223/#239 이후 계약 최신화
+
+- 기존 #89 source 5개 commit을 보존한 채 `origin/develop` `06785b9a`와 pending #223 exact HEAD `7473dd6f`를 순서대로 merge해 stacked ancestry를 명시적으로 확보했다.
+- Red: printable ASCII idempotency key, 위치 무수신 closed policy, 저장된 Day 활동 시간 pair, 최신 교통 이벤트 snapshot을 먼저 테스트했다. focused 4개는 기존 UUID schema 2 failures와 신규 policy 부재 3 errors로 실패했다.
+- Green: create/apply `Idempotency-Key`를 1..128 printable ASCII로 고정했다. 현재·간접 위치는 받지 않고 사용자 직접 선택 `regionCode/placeId/tripItemId`만 허용하며 `tripItemId`는 owner 여행 소속만 사용한다. 위치성 field와 unknown field는 거부한다.
+- #239의 `trip_days.activity_start_time/activity_end_time` 저장 pair는 target Day generation snapshot에 그대로 보존한다. pair 부재는 명시적 absent이며 임의 기본값을 사용자 사실로 기록하지 않는다.
+- #47/#180 최신 공개 계약에 맞춰 arrival/departure nullable slot, flight/ferry, terminal XOR, +09:00 scheduledAt과 transport metadata를 snapshot에 고정했다. `commandInputHash`와 실제 redacted MCP wire의 `mcpInputHash` 분리는 유지했다.
+- endpoint status/error와 apply first-match precedence는 변경하지 않았다. 운영 Java/DB schema도 변경하지 않았다.
+- 실제 Notion/Figma read/write/readback은 수행하지 않았으며 외부 evidence는 계속 `not-linked/not-ready`다. Docker/Testcontainers/full gate/PR/live Supabase는 이번 #89 범위에서 실행하지 않는다.

@@ -15,7 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/schedule-ai/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
-CANONICAL_DIGEST = "8e6320a633ee49be1828ee920ae5e2e38a50b077df929c6c0e84e3436a8a2ad2"
+CANONICAL_DIGEST = "8ede7b980f4d39133b1a81e80af245d2d1f5c4f058105ea7d482178436bf4ece"
 IDENTITIES = [
     ("POST", "/api/v1/trips/{tripId}/generation-runs", "compute", [202], [400, 401, 404, 409, 422, 429, 503]),
     ("GET", "/api/v1/trips/{tripId}/generation-runs/{runId}", "read", [200], [400, 401, 404, 410, 429, 503]),
@@ -28,7 +28,7 @@ TOP_FIELDS = {
     "schemaVersion", "contractVersion", "sourceSpecVersion", "inherits", "ownerIssue",
     "prerequisiteIssues", "endpointGroups", "implementationOwners", "ownerBindings", "endpoints", "schemas", "commonAlignment",
     "stateResponses", "runningStateVariants", "terminalStateVariants", "intakeIsolationPolicy", "lifecyclePolicy", "headerPolicy", "problemMatrix", "problemDetailsPolicy", "problemConditions",
-    "securityPolicy", "databasePolicy", "retentionPolicy", "idempotencyPolicy",
+    "securityPolicy", "locationInputPolicy", "generationSnapshotPolicy", "databasePolicy", "retentionPolicy", "idempotencyPolicy",
     "hashPolicy", "examples", "catalogProjection", "externalTraceability", "readiness", "schemaGaps",
     "excludedScope",
 }
@@ -262,10 +262,59 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
                 continue
             if not isinstance(schema, dict) or schema.get("additionalProperties") is not False or not isinstance(schema.get("required"), list) or not isinstance(schema.get("properties"), dict):
                 errors.append(f"{name} schema는 closed typed object여야 합니다.")
+        expected_idempotency_key = {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[ -~]+$",
+            "nullable": False,
+        }
+        for name in ["AsyncCreateHeaders", "AsyncApplyHeaders"]:
+            key_schema = schemas.get(name, {}).get("properties", {}).get("Idempotency-Key")
+            if key_schema != expected_idempotency_key:
+                errors.append(f"{name} Idempotency-Key는 1..128 printable ASCII여야 합니다.")
     for endpoint in contract.get("endpoints", []):
         references = endpoint.get("schemas") if isinstance(endpoint, dict) else None
         if not isinstance(references, dict) or set(references) != {"path", "query", "headers", "body"} or not set(references.values()) <= expected_schemas:
             errors.append(f"endpoint path/query/header/body schema가 닫혀 있지 않습니다: {endpoint.get('path') if isinstance(endpoint, dict) else 'unknown'}")
+
+    expected_location_policy = {
+        "receiveCurrentOrIndirectLocation": False,
+        "unknownFields": "reject",
+        "allowedUserSelectedReferences": ["regionCode", "placeId", "tripItemId"],
+        "tripItemIdOwnership": "owned trip item only",
+        "forbiddenFields": [
+            "accuracy", "altitude", "currentLocation", "currentPlaceId", "deviceLocation",
+            "geohash", "gps", "gridX", "gridY", "heading", "latitude",
+            "locationSupplied", "longitude", "speed",
+        ],
+    }
+    if contract.get("locationInputPolicy") != expected_location_policy:
+        errors.append("#223/#224 위치 무수신과 사용자 직접 선택 reference allowlist가 정확하지 않습니다.")
+
+    expected_generation_snapshot = {
+        "dayActivityWindow": {
+            "source": "trip_days.activity_start_time + trip_days.activity_end_time",
+            "snapshot": "immutable exact stored pair for targetDayId",
+            "missing": "explicitly absent",
+            "defaulting": "forbidden; absence is never persisted or reported as a user fact",
+        },
+        "transportEvents": {
+            "source": "trip_transport_events",
+            "slots": ["arrival", "departure"],
+            "eventTypes": ["arrival", "departure"],
+            "transportTypes": ["flight", "ferry"],
+            "fields": [
+                "eventType", "transportType", "terminalPlaceId", "customTerminalName",
+                "scheduledAt", "transportNumber", "note",
+            ],
+            "terminalSelector": "exactly one of terminalPlaceId or customTerminalName",
+            "scheduledAt": "RFC3339 date-time with mandatory +09:00 offset",
+            "missingSlot": "null",
+        },
+    }
+    if contract.get("generationSnapshotPolicy") != expected_generation_snapshot:
+        errors.append("#239 day activity window와 #47/#180 transport event snapshot 계약이 정확하지 않습니다.")
 
     matrix_codes = {code for codes in contract.get("problemMatrix", {}).values() if isinstance(codes, list) for code in codes}
     conditions = contract.get("problemConditions")

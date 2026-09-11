@@ -27,9 +27,13 @@ FastAPI MCP는 private 계산기다. Spring이 JWT 검증, owner 판정, command
 
 generation 입력은 `targetDayId`, `candidateCount(1..10)`, `refreshExternalFacts` 세 필드를 모두 non-null로 요구한다. revision 입력은 `targetDayId`, 최대 100개의 unique `affectedItemIds`, 1..32개의 stable uppercase `instructionCodes`를 요구한다. unknown/null/omitted 필드는 거부한다.
 
+#223/#224 위치 무수집 경계에 따라 현재 위치와 간접 추론 위치는 HTTP command, immutable snapshot, MCP wire input 어디에서도 받지 않는다. 위치 reference가 필요하면 사용자가 직접 선택한 `regionCode`, public `placeId`, 또는 canonical owner의 여행에 속한 `tripItemId`만 허용한다. `latitude`, `longitude`, `accuracy`, `altitude`, `heading`, `speed`, `gps`, `geohash`, `gridX`, `gridY`, `currentLocation`, `currentPlaceId`, `deviceLocation`, `locationSupplied`와 unknown field는 닫힌 입력 경계에서 거부한다.
+
+generation snapshot은 #239가 저장한 target Day의 `activity_start_time`/`activity_end_time` pair를 그대로 불변 복사한다. 저장된 pair가 없으면 명시적 absent이며, 임의 기본 활동 시간을 사용자 사실로 저장하거나 응답하지 않는다. #47/#180의 교통 이벤트는 `arrival`/`departure` nullable slot, `flight`/`ferry`, `eventType`, `transportType`, terminal XOR, `scheduledAt(+09:00)`, `transportNumber`, `note`의 현재 공개 계약 그대로 snapshot한다.
+
 `commandInputHash`는 Issue #108 `compute_run_inputs`의 versioned immutable structured snapshot digest다. `mcpInputHash`는 worker가 snapshot과 normalized facts로 만든 실제 redacted MCP wire input digest다. 두 필드는 alias가 아니며 재시작은 HTTP body나 mutable trip state가 아니라 snapshot만 읽는다.
 
-create/apply의 key scope는 `canonicalSub + method + normalized path + Idempotency-Key`, 완료 TTL은 24시간이다. 같은 key/body는 저장된 response를 replay하고 다른 body는 `409 IDEMPOTENCY_KEY_REUSED`다. 처리 중 loser도 `Retry-After: 1`과 409를 받는다. active run unique arbiter와 apply의 trip lock/expected-active CAS가 동시 writer를 직렬화한다.
+create/apply의 `Idempotency-Key`는 #68과 같은 1..128자 printable ASCII(U+0020..U+007E)이며 UUID로 제한하지 않는다. key scope는 `canonicalSub + method + normalized path + Idempotency-Key`, 완료 TTL은 24시간이다. 같은 key/body는 저장된 response를 replay하고 다른 body는 `409 IDEMPOTENCY_KEY_REUSED`다. 처리 중 loser도 `Retry-After: 1`과 409를 받는다. active run unique arbiter와 apply의 trip lock/expected-active CAS가 동시 writer를 직렬화한다.
 
 두 apply endpoint는 machine contract의 `firstMatchPrecedence`를 위에서 아래로 평가하고 최초 한 결과만 반환한다. 인증 누락·token 오류, path/body/key/`If-Match` 형식 오류, trip→run→candidate owner·domain·parent lineage 404 은닉, 완료 멱등 replay, 멱등 충돌, 이미 적용됨, run/candidate 상태 부적합, 만료 순이다. 그 뒤에만 여행 root를 잠그고 request/`If-Match` expected version과 locked active version의 불일치를 `ACTIVE_SCHEDULE_VERSION_CONFLICT`로 결정한다. 둘이 같을 때 candidate base가 다르면 `CANDIDATE_STALE`, 마지막 candidate schedule lineage·봉인 불변식 위반은 `CANDIDATE_NOT_APPLICABLE`이다. quota·bounded internal access failure는 앞선 결정 가능한 match가 없을 때만 각각 429·503이며, 모두 통과해야 apply가 성공한다.
 
@@ -54,7 +58,7 @@ failed/cancelled는 DB provenance와 `startedAt`/`mcpInputHash` presence를 disc
 ## 추적성과 readiness
 
 - authoritative local evidence: 이 문서, `contract.json`, `scripts/validate_schedule_ai_contract.py`, `scripts/tests/test_schedule_ai_contract.py`, GitHub Issue #89.
-- Notion/Figma: `docs`와 `fixtures`의 전체 추적 파일명·내용에서 notion/figma/export/schedule-ai/generation/revision 근거를 read-only 탐색했다. 여섯 endpoint의 canonical Notion page ID/URL/version readback export는 없었다. 일반 Figma fileKey와 기능 매핑은 있지만 endpoint별 node/action/loading/empty/error/API contractVersion tuple은 없었다. 따라서 version을 추정하지 않고 `not-linked`다.
+- Notion/Figma: 이번 최신화에서도 실제 외부 read/write/readback은 수행하지 않았다. 기존 로컬 `docs`와 `fixtures` 추적 근거만 유지하며, 여섯 endpoint의 canonical Notion page ID/URL/version readback export와 Figma endpoint별 node/action/loading/empty/error/API contractVersion tuple은 여전히 없다. 따라서 version을 추정하지 않고 `not-linked`다.
 - 외부 evidence blocker: Notion 6행의 page ID·canonical URL·method/path·`1.0.0` readback, Figma endpoint별 fileKey/node/action/loading/empty/error/contractVersion 연결이 필요하다.
 - local: `ready`; Metadata/Example/Implementation: 모두 `not-ready`. 외부 링크, fixture와 Spring 구현 증거가 모두 존재하기 전에는 승격하지 않는다.
 
