@@ -160,3 +160,11 @@ python3 -m unittest scripts.tests.test_saved_places_contract
 python3 scripts/validate_saved_places_contract.py
 python3 scripts/validate_rest_contracts.py
 ```
+
+## #238 목록 버전 복원과 과거 생성 응답
+
+계약1.1.0의 SavedPlace는 required non-null `etag`를 제공한다. 목록의 각항목, 새POST응답과PATCH응답은 기존 SavedPlaceEtag 함수가 실제placeId/updatedAt에서 계산한 같은 opaque strong ETag를 사용한다. 클라이언트는 이를 If-Match에 그대로 전달하며 hash 규칙을복제하지않는다. 새POST/PATCH는body.etag와HTTP ETag가같다. 목록복원후 다른세션이수정하면 이전ETag는기존409 SAVED_PLACE_VERSION_CONFLICT로거부하며 재조회후새버전으로재시도한다. owner/query/cursor/정렬/write동작은유지한다.
+
+POST 200/201만 SavedPlaceCreateResponse = SavedPlace | SavedPlaceLegacyV1이다. 배포전완료receipt에etag필드가없으면 기존만료시각까지 Idempotency-Replayed:true와함께그body/status/Location/ETag를원본그대로재전송한다. 새응답에만etag를추가하며 과거receipt수정·삭제·namespace교체·TTL연장은없다. 과거POSTreplay를받은FE는목록GET으로현재row와etag를복원한다. GET/PATCH는legacy분기를허용하지않는다.
+
+기존saved_places와saved_place_idempotency 컬럼을그대로사용하므로schema migration은불필요하다. 실제DB/PG16·17 및release gate는구현검증단계에서별도로완료해야하며 liveSupabase나운영배포를수행한것으로간주하지않는다.

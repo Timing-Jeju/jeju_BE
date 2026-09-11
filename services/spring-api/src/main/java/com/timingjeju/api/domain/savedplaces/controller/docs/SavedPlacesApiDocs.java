@@ -50,7 +50,13 @@ public interface SavedPlacesApiDocs {
           @Header(name = "ETag"),
           @Header(name = "Idempotency-Replayed")
         },
-        content = @Content(schema = @Schema(implementation = SavedPlaceResponse.class))),
+        content =
+            @Content(
+                schema =
+                    @Schema(
+                        implementation =
+                            com.timingjeju.api.domain.savedplaces.dto.SavedPlaceCreateResponse
+                                .class))),
     @ApiResponse(
         responseCode = "200",
         description = "동일 요청 replay 또는 동일한 현재 resource",
@@ -59,7 +65,13 @@ public interface SavedPlacesApiDocs {
           @Header(name = "ETag"),
           @Header(name = "Idempotency-Replayed")
         },
-        content = @Content(schema = @Schema(implementation = SavedPlaceResponse.class))),
+        content =
+            @Content(
+                schema =
+                    @Schema(
+                        implementation =
+                            com.timingjeju.api.domain.savedplaces.dto.SavedPlaceCreateResponse
+                                .class))),
     @ApiResponse(
         responseCode = "400",
         content =
