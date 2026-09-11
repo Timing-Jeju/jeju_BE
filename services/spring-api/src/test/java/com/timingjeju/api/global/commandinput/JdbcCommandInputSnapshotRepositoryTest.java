@@ -29,19 +29,6 @@ class JdbcCommandInputSnapshotRepositoryTest {
   private final ObjectMapper objectMapper = new ObjectMapper();
 
   @Test
-  void MCP_직전_location_query는_redacted와_expiry_정확경계를_DB에서_제외한다() {
-    String sql = canonical(JdbcCommandInputSnapshotRepository.USABLE_LOCATION_SQL);
-
-    assertThat(sql)
-        .contains(
-            "location_supplied",
-            "location_redacted_at is null",
-            "location_expires_at > ?",
-            "coarse_location is not null")
-        .doesNotContain("location_expires_at >= ?", "structured_input", "command_input_hash");
-  }
-
-  @Test
   void repository는_Spring_exception_translation_proxy가_생성할_수_있다() {
     assertThat(Modifier.isFinal(JdbcCommandInputSnapshotRepository.class.getModifiers())).isFalse();
   }
@@ -107,14 +94,13 @@ class JdbcCommandInputSnapshotRepositoryTest {
         new CommandInputRequest(
             new CommandInputParent.Compute(UUID.fromString("10810000-0000-0000-0000-000000000001")),
             "feasibility",
-            1,
+            2,
             "command/v1",
             "algorithm/v1",
             objectMapper.readTree("{\"refreshExternalFacts\":false}"),
             UUID.fromString("10810000-0000-0000-0000-000000000002"),
             UUID.fromString("10810000-0000-0000-0000-000000000003"),
-            UUID.fromString("10810000-0000-0000-0000-000000000004"),
-            null);
+            UUID.fromString("10810000-0000-0000-0000-000000000004"));
     return new CommandInputCanonicalizer(objectMapper).canonicalize(request);
   }
 

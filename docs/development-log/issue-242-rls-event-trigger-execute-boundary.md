@@ -2,9 +2,9 @@
 
 ## 범위
 
-- 기준: 최신 `origin/develop` `ec2225d3ca5324b45a41860eb4232ed9dcd5d72b`
+- 기준: `origin/develop` `06785b9a4e2350b3b1a07d0089cd48cbf70a1747` 및 의존 #223 `7473dd6fd4d79540b0f35f117514f151bbbb57db`
 - 브랜치: `fix/242-rls-event-trigger-execute-boundary`
-- canonical suffix에 append-only 055 migration을 추가해 `public.rls_auto_enable()`의
+- canonical suffix에 append-only 060 migration을 추가해 `public.rls_auto_enable()`의
   PUBLIC·anon·authenticated EXECUTE를 회수한다.
 - 함수 본문과 event trigger는 변경하지 않고 신규 public table의 RLS 자동 활성화를 보존한다.
 - `profile-images` bucket/RLS를 포함한 전체 canonical replay와 PostgreSQL 17 검증을 완료하기 전에는
@@ -14,7 +14,7 @@
 
 운영 SQL보다 먼저 `scripts/tests/test_rls_auto_enable_security_migration.py`를 추가하고 다음을 고정했다.
 
-- 055 migration의 append-only 경로와 정확한 세 역할 권한 회수
+- 당시 055 migration의 append-only 경로와 정확한 세 역할 권한 회수
 - 함수/event trigger의 create·replace·drop 금지
 - manifest slot, owner Issue, SHA-256, 직전 migration dependency
 - compose 3종 및 shell replay 순서
@@ -29,7 +29,7 @@ Red를 확인했다.
 
 ## Green과 보안 판단
 
-`20260918000017_rls_auto_enable_execute_boundary.sql`은 기존 함수를 전제로 plain `REVOKE`만 수행한다.
+최종 `20260918000022_rls_auto_enable_execute_boundary.sql`은 기존 함수를 전제로 plain `REVOKE`만 수행한다.
 지원 환경은 실제 Supabase의 사전 설치 함수 또는 일반 PostgreSQL QA의 명시적 `auth_compat.sql`
 fixture다. 함수가 없으면 조용히 통과시키지 않고 migration을 실패시켜 event-trigger가 사라진
 bootstrap을 숨기지 않는다.
@@ -66,14 +66,14 @@ Reviewer는 첫 Green 뒤 세 가지 검증 공백을 확인했다.
 
 1. 신규 canonical loop가 image 문자열을 순회하면서도 default `create()`만 호출해 PG17을 실제로
    선택하지 않았다.
-2. profile-images PG16/17 테스트가 044만 적용해 045~055 전체 canonical replay 뒤의 정책을
+2. profile-images PG16/17 테스트가 044만 적용해 당시 045~055 전체 canonical replay 뒤의 정책을
    검증하지 않았다.
 3. release runbook에 remote dry-run pending 목록과 manifest exact order 대조가 없었다.
 
 세 계약을 먼저 정적 테스트로 강화하자 정확히 3건이 실패했다. Green에서는 canonical loop를
 `createBefore(FIRST_SUFFIX, image)`와 전체 suffix replay로 바꾸고 각 컨테이너의
 `server_version_num` major를 16/17로 확인했다. Storage loop는 044 직전에 호환 schema를 만들고
-044부터 055까지 같은 DB에 적용한 뒤 public bucket, owner insert, wrong-owner/invalid-key 거부,
+044부터 당시 마지막 migration까지 같은 DB에 적용한 뒤 public bucket, owner insert, wrong-owner/invalid-key 거부,
 UPDATE/DELETE 거부, anon INSERT/SELECT 거부를 실행한다. Runbook은 Reviewer 승인과 project ref
 재확인 뒤 `supabase db push --dry-run` pending 목록을 manifest exact ordered list와 대조하며 mismatch면
 실제 push를 중단하도록 보강했다.
@@ -83,7 +83,7 @@ UPDATE/DELETE 거부, anon INSERT/SELECT 거부를 실행한다. Runbook은 Revi
 PG16/PG17 실행은 15분 14초에 성공했고 Testcontainers session의 container/network/volume은 모두
 0으로 정리됐다. live Supabase는 적용하지 않았다.
 
-## 공식 gate의 develop 의존성과 055 expectation 보정
+## 공식 gate의 develop 의존성과 초기 055 expectation 보정
 
 정확한 HEAD `64e31a14dbae1dea0cf7165d2817489f7cfa1a19`에서 공식 quality gate를
 1회 실행했다. 저장소 자동화 Python 단계에서 830건 중 8건이 실패해 Docker 단계 전 종료됐다.
@@ -97,3 +97,12 @@ PG16/PG17 실행은 15분 14초에 성공했고 Testcontainers session의 contai
 `3dc4f3618a62722050beeb06eb3725778d5325e3`이 있으나 현재 `develop`에는 포함되지 않았다.
 #242 범위에서는 OpenAPI harness/watchdog 파일을 수정하지 않고 #240 merge 뒤 최신 develop 통합을
 기다린다. 따라서 이 시점의 공식 gate는 성공이 아니며 Docker smoke도 실행하지 않았다.
+
+## 최신 canonical chain 재통합
+
+`origin/develop` `06785b9a`와 위치 제거 의존선 #223 exact HEAD `7473dd6f`를 기존 #242 커밋 위에
+병합했다. 새 canonical suffix `20260918000017`~`20260918000021`과 Docker init `055`~`059`는
+수정하지 않고, 권한 회수 migration을 최종 `20260918000022` / init `060`으로 이동했다. manifest
+dependency는 `20260918000021_day_activity_window_pair.sql`을 정확히 가리킨다. compose 3종, Docker
+smoke replay, canonical order, PG16/17 full replay, profile-images LAST boundary도 모두 060으로 맞춘다.
+공유 Docker 검증이 진행 중인 동안에는 Testcontainers와 전체 gate를 실행하거나 정리하지 않는다.

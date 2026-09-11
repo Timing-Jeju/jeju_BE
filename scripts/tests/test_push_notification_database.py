@@ -67,7 +67,12 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000014_planned_anchor_resolver.sql",
             "20260918000015_planned_route_snapshot_provenance.sql",
             "20260918000016_planned_route_reference_integrity.sql",
-            "20260918000017_rls_auto_enable_execute_boundary.sql",
+            "20260918000017_user_location_write_guard_purge.sql",
+            "20260918000018_revision_request_hash_audit.sql",
+            "20260918000019_planned_route_request_hash_policy.sql",
+            "20260918000020_remove_user_location_runtime.sql",
+            "20260918000021_day_activity_window_pair.sql",
+            "20260918000022_rls_auto_enable_execute_boundary.sql",
         )
         migration_names = tuple(
             path.name
@@ -178,8 +183,24 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql",
             ),
             (
-                "./supabase/migrations/20260918000017_rls_auto_enable_execute_boundary.sql",
-                "/docker-entrypoint-initdb.d/055_rls_auto_enable_execute_boundary.sql",
+                "./db/local-postgres/20260918000017_location_cutover_group.sql",
+                "/docker-entrypoint-initdb.d/055_location_cutover_group.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000019_planned_route_request_hash_policy.sql",
+                "/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000020_remove_user_location_runtime.sql",
+                "/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000021_day_activity_window_pair.sql",
+                "/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000022_rls_auto_enable_execute_boundary.sql",
+                "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",
@@ -207,7 +228,11 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 if target.endswith(
                     (
                         "054_planned_route_reference_integrity.sql",
-                        "055_rls_auto_enable_execute_boundary.sql",
+                        "055_location_cutover_group.sql",
+                        "057_planned_route_request_hash_policy.sql",
+                        "058_remove_user_location_runtime.sql",
+                        "059_day_activity_window_pair.sql",
+                        "060_rls_auto_enable_execute_boundary.sql",
                     )
                 )
                 else 2
@@ -219,7 +244,12 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         ):
             with self.subTest(next_contract=next_contract):
                 # The historical database must abort 053 in a separate audited transaction.
-                targets = migration_targets[:-3] if next_contract.endswith("legacy_v1_upgrade_contract.sql") else migration_targets
+                last_target = (
+                    "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql"
+                    if next_contract.endswith("legacy_v1_upgrade_contract.sql")
+                    else "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql"
+                )
+                targets = migration_targets[:migration_targets.index(last_target) + 1]
                 exact_sequence = " \\\n  ".join((*targets, next_contract))
                 self.assertEqual(
                     1,
@@ -228,6 +258,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 )
 
     def test_server_writer_boundary_is_additive_and_removes_all_client_write_paths(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         self.assertTrue(SERVER_WRITER_BOUNDARY_MIGRATION.is_file())
         correction = compact(
             SERVER_WRITER_BOUNDARY_MIGRATION.read_text(encoding="utf-8")
@@ -284,6 +315,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         )
 
     def test_smoke_client_grant_allowlist_rejects_predicate_bypass_mutations(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         smoke_check = compact(SMOKE_CHECK.read_text(encoding="utf-8"))
         mutations = {
             "or_true": smoke_check.replace(
@@ -304,6 +336,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                     self.assert_client_grant_allowlist_is_exact(mutation)
 
     def test_deploy_negative_sql_creates_owner_through_local_helper_before_push_rows(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         negative = compact(NEGATIVE_SQL.read_text(encoding="utf-8"))
         helper = compact(LOCAL_HELPER_SQL.read_text(encoding="utf-8"))
 
@@ -335,6 +368,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         self.assertEqual(1, smoke_check.count(SMOKE_CLIENT_GRANT_ALLOWLIST))
 
     def test_tables_constraints_indexes_and_owner_rls_are_explicit(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         self.assertTrue(MIGRATION.is_file())
         sql = compact(MIGRATION.read_text(encoding="utf-8"))
 
@@ -365,6 +399,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         self.assertNotIn("grant select, insert, update on public.push_devices", sql)
 
     def test_token_columns_have_no_plaintext_surface_and_service_role_cannot_truncate(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         sql = compact(MIGRATION.read_text(encoding="utf-8"))
         self.assertIn("token_ciphertext text not null", sql)
         self.assertIn("token_fingerprint bytea not null", sql)

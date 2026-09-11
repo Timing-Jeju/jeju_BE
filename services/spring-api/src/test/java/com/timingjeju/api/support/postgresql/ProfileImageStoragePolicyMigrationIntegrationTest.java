@@ -23,7 +23,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class ProfileImageStoragePolicyMigrationIntegrationTest {
 
   private static final String TARGET = "20260918000006_profile_image_storage.sql";
-  private static final String LAST = "20260918000017_rls_auto_enable_execute_boundary.sql";
+  private static final String LAST = "20260918000022_rls_auto_enable_execute_boundary.sql";
   private static final UUID OWNER = UUID.fromString("78000000-0000-4000-8000-000000000011");
   private static final UUID OTHER = UUID.fromString("78000000-0000-4000-8000-000000000012");
   private static final String GENERATION = "018f47a1-43d2-7b6e-9fa2-11a1cc32c675";

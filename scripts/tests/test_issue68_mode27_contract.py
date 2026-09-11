@@ -18,6 +18,7 @@ def load_validator():
 
 class Issue68Mode27ContractTest(unittest.TestCase):
     def test_accommodation_problem_examples_are_named_and_exact(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         validator_module = load_validator()
         validator = validator_module.Validator({}, 27, ROOT)
         pairs = {
@@ -45,6 +46,7 @@ class Issue68Mode27ContractTest(unittest.TestCase):
         self.assertTrue(any("canonical matrix" in error for error in validator.errors))
 
     def test_mode27_is_current_mode24_plus_accommodation_crud(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         validator = load_validator()
 
         self.assertEqual(
@@ -58,6 +60,7 @@ class Issue68Mode27ContractTest(unittest.TestCase):
         )
 
     def test_cli_preserves_mode27_and_active_gates_select_mode33(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         result = subprocess.run(
             ["python3", str(VALIDATOR), "--help"],
             cwd=ROOT,
@@ -70,7 +73,7 @@ class Issue68Mode27ContractTest(unittest.TestCase):
         self.assertIn("30", result.stdout)
         for path in ("scripts/quality-gate.sh", "scripts/quality-gate.ps1"):
             gate = (ROOT / path).read_text(encoding="utf-8")
-            self.assertIn("--mode 33", gate, path)
+            self.assertIn("--mode 38", gate, path)
 
 
 if __name__ == "__main__":

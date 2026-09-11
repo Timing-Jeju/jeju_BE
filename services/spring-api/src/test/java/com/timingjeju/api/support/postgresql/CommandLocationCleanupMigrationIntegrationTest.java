@@ -48,13 +48,113 @@ class CommandLocationCleanupMigrationIntegrationTest {
     assertThat(immutableSnapshot()).isEqualTo(before);
     assertThat(
             jdbc.queryForObject(
-                "select to_regprocedure('public.redact_due_compute_run_input_locations(timestamptz,integer)') is not null",
+                "select"
+                    + " to_regprocedure('public.redact_due_compute_run_input_locations(timestamptz,integer)')"
+                    + " is not null",
                 Boolean.class))
         .isTrue();
     assertThat(
             jdbc.queryForObject(
                 "select public.redact_due_compute_run_input_locations(now(), 500)", Integer.class))
         .isZero();
+  }
+
+  @Test
+  void 역사_SQL의_501_due_row는_첫_batch_500과_다음_batch_1로_정리된다() {
+    var transaction =
+        new org.springframework.transaction.support.TransactionTemplate(
+            new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                jdbc.getDataSource()));
+    transaction.executeWithoutResult(
+        status -> {
+          var dueAt =
+              java.time.Instant.now()
+                  .minusSeconds(60)
+                  .truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+          insertDeterministicallyOrderedDueInputs(dueAt);
+          var expected =
+              jdbc.queryForObject(
+                  """
+                  select id from public.compute_run_inputs where location_expires_at <= ?
+                  order by location_expires_at, id offset 500 limit 1
+                  """,
+                  java.util.UUID.class,
+                  java.sql.Timestamp.from(dueAt));
+          jdbc.execute("set local role service_role");
+          assertThat(
+                  jdbc.queryForObject(
+                      "select public.redact_due_compute_run_input_locations(?,500)",
+                      Integer.class,
+                      java.sql.Timestamp.from(dueAt)))
+              .isEqualTo(500);
+          assertThat(
+                  jdbc.queryForObject(
+                      "select id from public.compute_run_inputs where location_expires_at <= ?",
+                      java.util.UUID.class,
+                      java.sql.Timestamp.from(dueAt)))
+              .isEqualTo(expected)
+              .isEqualTo(java.util.UUID.fromString("10931000-0000-0000-0000-000000000501"));
+          assertThat(
+                  jdbc.queryForObject(
+                      "select public.redact_due_compute_run_input_locations(?,500)",
+                      Integer.class,
+                      java.sql.Timestamp.from(dueAt)))
+              .isOne();
+          assertThat(
+                  jdbc.queryForObject(
+                      "select public.redact_due_compute_run_input_locations(?,500)",
+                      Integer.class,
+                      java.sql.Timestamp.from(dueAt)))
+              .isZero();
+          status.setRollbackOnly();
+        });
+  }
+
+  private static void insertDeterministicallyOrderedDueInputs(java.time.Instant dueAt) {
+    java.time.Instant terminalAt = dueAt.minus(java.time.Duration.ofHours(24));
+    jdbc.update(
+        """
+        insert into public.compute_runs (
+          id, trip_plan_id, trip_day_id, schedule_version_id, run_type, status,
+          input_hash, contract_version, algorithm_version, completed_at, error_code
+        )
+        select ('10930000-0000-0000-0000-' || lpad(series::text, 12, '0'))::uuid,
+               ?, ?, ?, 'feasibility', 'failed', 'input-' || series,
+               'compute/v1', 'algorithm/v1', ?, 'TEST_TERMINAL'
+        from generate_series(1, 501) series
+        """,
+        java.util.UUID.fromString("10950000-0000-0000-0000-000000000002"),
+        java.util.UUID.fromString("10950000-0000-0000-0000-000000000003"),
+        java.util.UUID.fromString("10950000-0000-0000-0000-000000000004"),
+        java.sql.Timestamp.from(terminalAt));
+    jdbc.update(
+        """
+        insert into public.compute_run_inputs (
+          id, compute_run_id, owner_user_id, trip_plan_id, base_schedule_version_id,
+          run_type, schema_version, contract_version, algorithm_version,
+          structured_input, command_input_hash, location_supplied, coarse_location,
+          location_precision_meters, location_policy_version, location_observed_at,
+          location_expires_at
+        )
+        select ('10931000-0000-0000-0000-' || lpad((502 - series)::text, 12, '0'))::uuid,
+               ('10930000-0000-0000-0000-' || lpad(series::text, 12, '0'))::uuid,
+               ?, ?, ?, 'feasibility', 1, 'command/v1', 'algorithm/v1',
+               '{"refreshExternalFacts":false}'::jsonb,
+               public.compute_command_input_hash(
+                 'feasibility'::text, 1::smallint, 'command/v1'::text,
+                 'algorithm/v1'::text, ?::uuid,
+                 '{"refreshExternalFacts":false}'::jsonb, true::boolean,
+                 '{"type":"GRID_100M","gridX":109,"gridY":109}'::jsonb),
+               true, '{"type":"GRID_100M","gridX":109,"gridY":109}'::jsonb,
+               100, '2026-08-11.v1', ?, ?
+        from generate_series(1, 501) series
+        """,
+        java.util.UUID.fromString("10950000-0000-0000-0000-000000000001"),
+        java.util.UUID.fromString("10950000-0000-0000-0000-000000000002"),
+        java.util.UUID.fromString("10950000-0000-0000-0000-000000000004"),
+        java.util.UUID.fromString("10950000-0000-0000-0000-000000000004"),
+        java.sql.Timestamp.from(terminalAt),
+        java.sql.Timestamp.from(dueAt));
   }
 
   private static Map<String, Object> immutableSnapshot() {
@@ -70,9 +170,11 @@ class CommandLocationCleanupMigrationIntegrationTest {
 
   private static void insertNonLocationSnapshot() {
     jdbc.update(
-        "insert into auth.users(id,email) values ('10950000-0000-0000-0000-000000000001','issue109@example.test')");
+        "insert into auth.users(id,email) values"
+            + " ('10950000-0000-0000-0000-000000000001','issue109@example.test')");
     jdbc.update(
-        "insert into public.user_profiles(id,email) values ('10950000-0000-0000-0000-000000000001','issue109@example.test')");
+        "insert into public.user_profiles(id,email) values"
+            + " ('10950000-0000-0000-0000-000000000001','issue109@example.test')");
     jdbc.update(
         """
         insert into public.trip_plans(

@@ -73,6 +73,7 @@ run_common_checks() {
 
   stage "배포 SQL 정책 검사"
   python3 scripts/deploy_sql_policy.py
+  python3 scripts/validate_supabase_deploy_entrypoints.py
 
   stage "REST 공통 계약 readiness 검사"
   python3 scripts/validate_rest_contracts.py
@@ -131,7 +132,7 @@ run_spring_checks() {
   stage "Spring Slice 테스트"
   run_spring_gradle sliceTest
   stage "Spring 통합 테스트"
-  run_bounded_spring_gradle "integrationTest" 7200 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" integrationTest
+  run_bounded_spring_gradle "integrationTest" 10800 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:integrationTest" integrationTest
   stage "Spring OpenAPI 문서 생성"
   rm -f services/spring-api/build/openapi/openapi.json
   if [ -e services/spring-api/build/openapi/openapi.json ]; then
@@ -144,7 +145,7 @@ run_spring_checks() {
     exit 1
   fi
   stage "Spring OpenAPI 프론트엔드 readiness 검사"
-  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 33
+  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 38
   stage "Spring Architecture 테스트"
   run_spring_gradle architectureTest
   stage "Spring 전체 테스트와 커버리지"

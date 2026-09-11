@@ -1,8 +1,6 @@
 package com.timingjeju.api.application.commandinput;
 
-import java.time.Instant;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -17,30 +15,17 @@ public record CommandInputSnapshot(
     String commandInputHash,
     UUID ownerUserId,
     UUID tripPlanId,
-    UUID baseScheduleVersionId,
-    CommandLocationSnapshot locationSnapshot) {
+    UUID baseScheduleVersionId) {
 
   public CommandInputSnapshot {
+    if (schemaVersion != 2) {
+      throw new IllegalArgumentException("지원하지 않는 snapshot schema version입니다.");
+    }
     Objects.requireNonNull(parent, "parent는 필수입니다.");
     Objects.requireNonNull(canonicalStructuredInput, "canonical structured input은 필수입니다.");
     if (commandInputHash == null || !commandInputHash.matches("[0-9a-f]{64}")) {
       throw new IllegalArgumentException("commandInputHash 형식이 올바르지 않습니다.");
     }
-  }
-
-  public Optional<CommandLocationSnapshot> location() {
-    return Optional.ofNullable(locationSnapshot);
-  }
-
-  public CommandLocationSnapshot nullableLocation() {
-    return locationSnapshot;
-  }
-
-  public boolean isLocationDue(Instant evaluatedAt) {
-    Objects.requireNonNull(evaluatedAt, "evaluatedAt은 필수입니다.");
-    return locationSnapshot != null
-        && locationSnapshot.nullableExpiresAt() != null
-        && !evaluatedAt.isBefore(locationSnapshot.nullableExpiresAt());
   }
 
   public JsonNode restoreStructuredInput(ObjectMapper objectMapper) {

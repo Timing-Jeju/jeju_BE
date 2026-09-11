@@ -12,6 +12,7 @@
     "ACCOMMODATION_DATA_UNAVAILABLE": "https://api.timing-jeju.com/problems/accommodation-data-unavailable"
   },
   "operations": {
+    "PUT /api/v1/trips/{tripId}/day-activity-windows": {"statuses":[200,400,401,403,404,409,422,500,503],"statusAdditions":[403,500,503],"statusOmissions":[],"runtimeOnlyProblemStatuses":["400","404","409","422","503"],"problems":{"400":["INVALID_REQUEST","https://api.timing-jeju.com/problems/invalid-request"],"401":["AUTHENTICATION_REQUIRED","https://api.timing-jeju.com/problems/authentication-required"],"403":["AUTH_ACCESS_DENIED","https://api.timing-jeju.example/problems/auth-access-denied"],"404":["TRIP_NOT_FOUND","https://api.timing-jeju.com/problems/trip-not-found"],"409":["TRIP_VERSION_CONFLICT","https://api.timing-jeju.com/problems/trip-version-conflict"],"422":["TRIP_CONSTRAINT_VIOLATION","https://api.timing-jeju.com/problems/trip-constraint-violation"],"500":["INTERNAL_SERVER_ERROR","https://api.timing-jeju.example/problems/internal-server-error"],"503":["TRIP_DATA_UNAVAILABLE","https://api.timing-jeju.com/problems/trip-data-unavailable"]}},
     "GET /api/v1/me/profile-image": {"statuses": [200, 401, 403, 500, 503],
       "statusAdditions": [403, 500],
       "statusOmissions": [],

@@ -279,33 +279,8 @@ class ArchitectureTest {
   }
 
   @Test
-  void command_location_cleanup은_application_port와_내부_adapter_경계를_유지한다() {
-    noClasses()
-        .that()
-        .resideInAPackage("..application.commandinput.cleanup..")
-        .should()
-        .dependOnClassesThat()
-        .resideInAnyPackage(
-            "org.springframework..", "io.micrometer..", "..global.commandinput.cleanup..")
-        .allowEmptyShould(false)
-        .check(classes);
-    classes()
-        .that()
-        .haveSimpleName("JdbcCommandLocationCleanupRepository")
-        .should()
-        .resideInAPackage("..global.commandinput.cleanup..")
-        .andShould()
-        .dependOnClassesThat()
-        .resideInAPackage("..application.commandinput.cleanup..")
-        .allowEmptyShould(false)
-        .check(classes);
-    noClasses()
-        .that()
-        .resideInAPackage("..global.commandinput.cleanup..")
-        .should()
-        .beAnnotatedWith(RestController.class)
-        .allowEmptyShould(false)
-        .check(classes);
+  void 위치_수집_정리_runtime_package는_운영_클래스에_존재하지_않는다() {
+    noClasses().should().resideInAnyPackage("..commandinput.cleanup..").check(classes);
   }
 
   @Test

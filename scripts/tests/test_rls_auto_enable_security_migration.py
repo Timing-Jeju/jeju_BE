@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION_NAME = "20260918000017_rls_auto_enable_execute_boundary.sql"
+MIGRATION_NAME = "20260918000022_rls_auto_enable_execute_boundary.sql"
 MIGRATION = ROOT / "supabase/migrations" / MIGRATION_NAME
 AUTH_COMPAT = ROOT / "db/local-postgres/auth_compat.sql"
 RELEASE_GUIDE = ROOT / "docs/SUPABASE_BOOTSTRAP_RELEASE.md"
@@ -18,7 +18,7 @@ PROFILE_IMAGE_INTEGRATION = ROOT / (
 )
 MOUNT = (
     f"./supabase/migrations/{MIGRATION_NAME}:"
-    "/docker-entrypoint-initdb.d/055_rls_auto_enable_execute_boundary.sql:ro"
+    "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql:ro"
 )
 
 
@@ -118,7 +118,7 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         ):
             self.assertIn(marker, guide)
 
-    def test_storage_pg16_pg17_applies_slot_044_through_055_before_actual_rls_matrix(self) -> None:
+    def test_storage_pg16_pg17_applies_slot_044_through_060_before_actual_rls_matrix(self) -> None:
         source = PROFILE_IMAGE_INTEGRATION.read_text(encoding="utf-8").lower()
         method = source.split(
             "void storage_do는_postgresql16과17에서_insertreturning_select와_불변정책을_보존한다()",
@@ -126,7 +126,7 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         )[1].split("private static", 1)[0]
 
         for marker in (
-            'last = "20260918000017_rls_auto_enable_execute_boundary.sql"',
+            'last = "20260918000022_rls_auto_enable_execute_boundary.sql"',
             "applycanonicalthroughsecurityboundary(versioncontainer)",
             "show server_version_num",
             "expectedmajor",
@@ -138,32 +138,32 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         ):
             self.assertIn(marker, source if marker.startswith("last =") else method)
 
-    def test_manifest_registers_slot_055_sha_and_dependency(self) -> None:
+    def test_manifest_registers_slot_060_sha_and_dependency(self) -> None:
         manifest = json.loads(
             (ROOT / "supabase/migrations/manifest.json").read_text(encoding="utf-8")
         )
         entry = manifest["canonicalSuffix"][-1]
 
         self.assertEqual(f"supabase/migrations/{MIGRATION_NAME}", entry["path"])
-        self.assertEqual("055", entry["initSlot"])
+        self.assertEqual("060", entry["initSlot"])
         self.assertEqual({"issue": 242, "pullRequest": None}, entry["owner"])
         self.assertEqual(
-            ["20260918000016_planned_route_reference_integrity.sql"],
+            ["20260918000021_day_activity_window_pair.sql"],
             entry["dependencies"],
         )
         self.assertEqual(hashlib.sha256(MIGRATION.read_bytes()).hexdigest(), entry["sha256"])
 
-    def test_compose_and_smoke_replay_include_slot_055_before_seed(self) -> None:
+    def test_compose_and_smoke_replay_include_slot_060_after_059_before_seed(self) -> None:
         for relative_path in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             with self.subTest(relative_path=relative_path):
                 source = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertEqual(1, source.count(MOUNT))
                 self.assertLess(
-                    source.index("054_planned_route_reference_integrity.sql"),
-                    source.index("055_rls_auto_enable_execute_boundary.sql"),
+                    source.index("059_day_activity_window_pair.sql"),
+                    source.index("060_rls_auto_enable_execute_boundary.sql"),
                 )
                 self.assertLess(
-                    source.index("055_rls_auto_enable_execute_boundary.sql"),
+                    source.index("060_rls_auto_enable_execute_boundary.sql"),
                     source.index("099_seed_fixtures.sql"),
                 )
 
@@ -171,7 +171,7 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         self.assertEqual(
             1,
             smoke.count(
-                "/docker-entrypoint-initdb.d/055_rls_auto_enable_execute_boundary.sql"
+                "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql"
             ),
         )
 

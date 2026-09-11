@@ -17,7 +17,7 @@ RLS 자동 활성화는 계속 동작한다.
 다음 읽기 전용 SQL 결과와 실행 시각을 변경 기록에 보존한다. 함수가 없거나 SECURITY DEFINER가
 아니거나 event trigger가 비활성화된 경우에는 migration을 적용하지 말고 원인을 조사한다.
 canonical 지원 환경은 Supabase의 기존 함수 또는 Docker의 명시적 호환 fixture를 전제로 하며,
-대상 함수가 없으면 055 migration은 조용히 건너뛰지 않고 실패해 잘못된 bootstrap을 차단한다.
+대상 함수가 없으면 060 migration은 조용히 건너뛰지 않고 실패해 잘못된 bootstrap을 차단한다.
 
 ```sql
 select current_database(), current_user, now();
@@ -54,7 +54,7 @@ Reviewer 승인과 정확한 project ref 재확인 뒤에도 실제 적용 전�
 실행해 원격에 적용될 pending migration basename 목록을 저장한다. manifest exact ordered list는
 `(.immutablePrefix + .canonicalSuffix)[] | .path | split("/")[-1]`로 path를 canonical basename으로
 정규화한 순서이며 dry-run pending basename 목록과 line-by-line으로 대조한다. 마지막 항목은
-055이고 seed는 목록에 없어야 한다. basename, 순서, 개수 또는 원격 migration history가 하나라도
+060이고 seed는 목록에 없어야 한다. basename, 순서, 개수 또는 원격 migration history가 하나라도
 mismatch이면 즉시 중단하고 `supabase db push`를 실행하지 않는다.
 
 ## 적용 후 점검
