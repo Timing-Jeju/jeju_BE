@@ -411,3 +411,8 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - 숫자 2원소·3원소·문자열·범위 밖 nested payload는 자동 삭제 없이 020 전체를 rollback하고, 정상 `pace`·`partySize`·`childAges` payload는 보존된다. 최종 PG16/17 두 사례는 1분35초에 Green이었고, 관련 Python 136건과 generator byte check도 다시 통과했다.
 - 1차 develop 통합은 정상 commit hook의 Spotless·unitTest를 통과해 merge commit `c2086c8d`로 기록했다. 이후 authoritative `origin/develop` `dbae7654`(#239)을 추가 merge했고, 유일한 manifest 충돌은 보정된 020 checksum과 신규 021/init059를 모두 보존해 해결했다.
 - 최신 base에서 canonical/static Python 128건과 PG16/17 migration/schema·#239 겹침 repository 8개 클래스 160건이 각각 통과했다. 최종 Testcontainers residue는 0이며 보호 live-demo 컨테이너는 건드리지 않았다.
+
+## 2026-09-11 Astra positive fixture enum 보정
+
+- RED: 최종 020이 허용하지 않는 `pace=relaxed`를 positive fixture가 사용해 `LocationWriteGuardIntegrationTest` 50건 중 해당 1건이 production JSON guard의 `user location storage is disabled`로 실패했다.
+- 운영 allowlist `slow|normal|fast`는 변경하지 않고 fixture와 조회 기대값만 canonical `normal`로 정렬했다. 클래스 전체 50건이 Green으로 통과했다.
