@@ -51,7 +51,11 @@ public interface TripApiDocs {
         content =
             @Content(
                 mediaType = "application/json",
-                schema = @Schema(implementation = TripAggregateResponse.class))),
+                schema =
+                    @Schema(
+                        implementation =
+                            com.timingjeju.api.domain.trip.dto.response
+                                .TripDayActivityWindowsResponse.class))),
     @ApiResponse(responseCode = "400", description = "형식 또는 필수 헤더 오류"),
     @ApiResponse(responseCode = "401", description = "인증 필요"),
     @ApiResponse(responseCode = "404", description = "소유한 여행 없음"),
