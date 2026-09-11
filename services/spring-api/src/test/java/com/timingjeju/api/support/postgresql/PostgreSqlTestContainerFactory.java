@@ -104,7 +104,7 @@ final class PostgreSqlTestContainerFactory {
     requireDocker(() -> DockerClientFactory.instance().isDockerAvailable());
 
     PostgreSQLContainer container =
-        new PostgreSQLContainer(image)
+        new PostgreSqlArchiveContainer(image)
             .withDatabaseName("timing_jeju_repository_test")
             .withUsername("timing_jeju_repository_test")
             .withPassword(UUID.randomUUID().toString())

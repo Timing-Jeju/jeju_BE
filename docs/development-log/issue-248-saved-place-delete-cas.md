@@ -35,3 +35,17 @@
 - 원격 최신 develop 통합, 동일 SHA 전체 품질 게이트 및 독립 Reviewer 최종 승인은 아직 별도 수행해야 한다.
 
 - 통합 Trip/SavedPlaces OpenAPI slice 및 openApiDocs PASS: /tmp/jeju248-integrated-openapi.log. 공식 frontend client 생성·검증 38 operations 및 배포 archive 생성 PASS: /tmp/jeju248-integrated-client.log.
+
+
+## 2026-09-12 최종 검증 중 파일 복사 교착 수정
+
+선행 #239(PR252), #246(PR253), #238(PR255) 병합을 최신 develop으로 통합했다. HEAD24bc8b1의 전체 게이트는 1시간 29분 47초 실행 후 Testcontainers 2.0.5의 파일 복사 정지로 실패 처리했다. main과 writer가 같은 PipedInputStream을 기다리고 컨테이너는 created 상태에 머물렀다. 자체 테스트 worker를 종료했고 실행 컨테이너는 정리됐다. 일부 테스트 결과를 전체 통과로 간주하지 않는다.
+
+검증 차단 원인이 #238 첫 시도에서도 발생했던 같은 파이프 종료 교착이므로, 테스트 전용 PostgreSQL 컨테이너의 복사를 완료된 임시 tar의 InputStream으로 바꿨다. tar 작성과 Docker 읽기를 서로 다른 스레드에서 동시에 하지 않는다. SQL 내용·순서·파일 권한, 이미지, DB 격리와 timeout, 운영 API는 유지한다. 전송 성공·실패 모두 자원을 닫고 임시 파일을 삭제하며 Docker의 원래 RuntimeException을 보존한다.
+
+- 실패 증거: /tmp/jeju248-thread-copy-wait.txt, /tmp/jeju248-push-final.log.
+- 새 테스트 먼저 추가 후 구현 없음으로 compile RED: /tmp/jeju248-archive-red.log. 실제 파이프 교착 증거와 구분한다.
+- 큰 한글 SQL의 tar 경로·권한·내용·EOF 및 Docker가 본문을 읽기 전 실패해도 2초 내 동일 오류 반환 회귀 검사 추가. 신규 2개+기존 factory 2개 통과: /tmp/jeju248-archive-green-final.log.
+- 독립 소스 사전 검토 finding 0. 실제 PG와 수정 후 동일 SHA 전체 게이트는 별도 완료해야 하며 공식 승인은 아직 기록하지 않았다.
+
+- 수정 후 실제 PG 집중 검증: DayActivityWindowMigrationIntegrationTest(PG16·17), SavedPlacesHttpPostgreSqlIntegrationTest, JdbcSavedPlaceRepositoryPg17IntegrationTest 합계 29개 통과, 실패·오류·skip 0, 3분 30초. /tmp/jeju248-archive-pg-green.log. 컨테이너 정리 확인.
