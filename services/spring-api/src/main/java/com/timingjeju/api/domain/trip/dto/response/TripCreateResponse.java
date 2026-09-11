@@ -6,8 +6,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 @Schema(
     name = "TripCreateResponse",
     description =
-        "새 생성은 TripDetail, 배포 전 완료 receipt의 24시간 TTL 내 replay만 TripDetailLegacyV1이다. 최신 값은 Location의 GET으로 조회한다.",
-    oneOf = {TripAggregateResponse.class, TripDetailLegacyV1Response.class})
+        "새 생성은 TripDetail, 배포 전 완료 receipt의 24시간 TTL 내 replay만 TripDetailLegacyV1 또는 TripDetailLegacyV11이다. 최신 값은 Location의 GET으로 조회한다.",
+    oneOf = {
+      TripAggregateResponse.class,
+      TripDetailLegacyV11Response.class,
+      TripDetailLegacyV1Response.class
+    })
 public final class TripCreateResponse {
   private TripCreateResponse() {}
 }

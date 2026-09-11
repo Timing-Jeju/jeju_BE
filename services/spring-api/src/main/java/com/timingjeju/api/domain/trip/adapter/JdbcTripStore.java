@@ -1,5 +1,8 @@
 package com.timingjeju.api.domain.trip.adapter;
 
+import com.timingjeju.api.application.accommodation.Accommodation;
+import com.timingjeju.api.application.accommodation.AccommodationException;
+import com.timingjeju.api.application.transportevent.TransportEvent;
 import com.timingjeju.api.application.trip.CreateTripRecord;
 import com.timingjeju.api.application.trip.ReplaceTripPreferencesCommand;
 import com.timingjeju.api.application.trip.ReplaceTripPreferencesRecord;
@@ -15,6 +18,7 @@ import com.timingjeju.api.application.trip.TripPreferencesMutation;
 import com.timingjeju.api.application.trip.TripScore;
 import com.timingjeju.api.application.trip.TripStore;
 import com.timingjeju.api.application.trip.TripSummary;
+import com.timingjeju.api.application.trip.TripTransportEvents;
 import com.timingjeju.api.application.trip.TripTransportMode;
 import com.timingjeju.api.application.trip.TripUpdateRecord;
 import com.timingjeju.api.global.trip.TripAggregateMutationCoordinator;
@@ -274,11 +278,86 @@ public class JdbcTripStore implements TripStore {
                             rs.getObject("start_time", java.time.LocalTime.class),
                             rs.getObject("end_time", java.time.LocalTime.class)),
                     tripId));
+    TripTransportEvents transportEvents =
+        runTripJdbcStage(
+            diagnostic, TripJdbcStage.TRANSPORT_EVENTS_QUERY, () -> loadTransportEvents(tripId));
+    List<Accommodation> accommodations =
+        runTripJdbcStage(
+            diagnostic, TripJdbcStage.ACCOMMODATIONS_QUERY, () -> loadAccommodations(tripId));
     return Optional.of(
         runTripJdbcStage(
             diagnostic,
             TripJdbcStage.SCORE_RESOLUTION,
-            () -> root.aggregate(modes, days, responseTime)));
+            () -> root.aggregate(modes, days, responseTime, transportEvents, accommodations)));
+  }
+
+  private TripTransportEvents loadTransportEvents(UUID tripId) {
+    List<TransportEvent> values =
+        jdbc.query(
+            """
+        select event_type, transport_type, terminal_place_id, terminal_name,
+               scheduled_at, transport_number, note
+        from public.trip_transport_events
+        where trip_plan_id = ?
+        order by event_type
+        """,
+            (rs, row) ->
+                new TransportEvent(
+                    rs.getString("event_type"),
+                    rs.getString("transport_type"),
+                    rs.getObject("terminal_place_id", UUID.class),
+                    rs.getString("terminal_name"),
+                    rs.getTimestamp("scheduled_at")
+                        .toInstant()
+                        .atOffset(java.time.ZoneOffset.ofHours(9)),
+                    rs.getString("transport_number"),
+                    rs.getString("note")),
+            tripId);
+    TransportEvent arrival = null;
+    TransportEvent departure = null;
+    for (TransportEvent value : values) {
+      if ("arrival".equals(value.eventType()) && arrival == null) {
+        arrival = value;
+      } else if ("departure".equals(value.eventType()) && departure == null) {
+        departure = value;
+      } else {
+        throw TripException.dataUnavailable();
+      }
+    }
+    return new TripTransportEvents(arrival, departure);
+  }
+
+  private List<Accommodation> loadAccommodations(UUID tripId) {
+    try {
+      return jdbc.query(
+          """
+          select accommodation.id, accommodation.place_id, accommodation.custom_name,
+                 coalesce(place.name, accommodation.custom_name) as name,
+                 accommodation.check_in_date, accommodation.check_out_date,
+                 accommodation.check_in_time, accommodation.check_out_time,
+                 accommodation.sequence_no, accommodation.created_at, accommodation.updated_at
+          from public.trip_accommodations accommodation
+          left join public.tour_places place on place.id = accommodation.place_id
+          where accommodation.trip_plan_id = ?
+          order by accommodation.sequence_no, accommodation.id
+          """,
+          (rs, row) ->
+              new Accommodation(
+                  rs.getObject("id", UUID.class),
+                  rs.getObject("place_id", UUID.class),
+                  rs.getString("custom_name"),
+                  rs.getString("name"),
+                  rs.getDate("check_in_date").toLocalDate(),
+                  rs.getDate("check_out_date").toLocalDate(),
+                  rs.getTime("check_in_time").toLocalTime(),
+                  rs.getTime("check_out_time").toLocalTime(),
+                  rs.getInt("sequence_no"),
+                  rs.getTimestamp("created_at").toInstant(),
+                  rs.getTimestamp("updated_at").toInstant()),
+          tripId);
+    } catch (AccommodationException invalidStoredValue) {
+      throw TripException.dataUnavailable();
+    }
   }
 
   private static <T> T runTripJdbcStage(
@@ -308,6 +387,8 @@ public class JdbcTripStore implements TripStore {
     ROOT_QUERY,
     TRANSPORT_MODES_QUERY,
     DAYS_QUERY,
+    TRANSPORT_EVENTS_QUERY,
+    ACCOMMODATIONS_QUERY,
     SCORE_RESOLUTION
   }
 
@@ -1064,7 +1145,11 @@ public class JdbcTripStore implements TripStore {
     }
 
     TripAggregate aggregate(
-        List<TripTransportMode> modes, List<TripDay> days, Instant responseTime) {
+        List<TripTransportMode> modes,
+        List<TripDay> days,
+        Instant responseTime,
+        TripTransportEvents transportEvents,
+        List<Accommodation> accommodations) {
       TripScore score = score(responseTime);
       return new TripAggregate(
           tripId,
@@ -1081,7 +1166,9 @@ public class JdbcTripStore implements TripStore {
           score.totalScore(),
           score.provenance(),
           createdAt,
-          updatedAt);
+          updatedAt,
+          transportEvents,
+          accommodations);
     }
   }
 }

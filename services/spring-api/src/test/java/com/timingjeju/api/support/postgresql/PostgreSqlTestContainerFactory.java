@@ -30,6 +30,15 @@ final class PostgreSqlTestContainerFactory {
     return createWithScripts(canonicalInitScripts(locateRepositoryRoot()));
   }
 
+  static PostgreSQLContainer create(String image) {
+    if (!List.of("postgis/postgis:16-3.4", "postgis/postgis:17-3.5").contains(image)) {
+      throw new IllegalArgumentException("검증한 PostgreSQL 16/17 이미지가 필요합니다.");
+    }
+    return createWithScripts(
+        canonicalInitScripts(locateRepositoryRoot()),
+        DockerImageName.parse(image).asCompatibleSubstituteFor("postgres"));
+  }
+
   static PostgreSQLContainer createBefore(String exclusiveMigration) {
     return createBefore(exclusiveMigration, POSTGIS_IMAGE.asCanonicalNameString());
   }

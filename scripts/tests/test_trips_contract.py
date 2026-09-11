@@ -130,9 +130,9 @@ class TripsContractTest(unittest.TestCase):
         """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         self.assertEqual("timing-jeju-trips-contract/v1", contract["schemaVersion"])
-        self.assertEqual("1.1.0", contract["contractVersion"])
+        self.assertEqual("1.2.0", contract["contractVersion"])
         self.assertEqual("v1.1", contract["sourceSpecVersion"])
-        self.assertEqual([44, 45, 239], contract["implementationIssues"])
+        self.assertEqual([44, 45, 239, 246], contract["implementationIssues"])
         self.assertEqual(
             [
                 ("GET", "/api/v1/trips"),
@@ -657,7 +657,7 @@ class TripsContractTest(unittest.TestCase):
         """여행 공개 계약과 회귀 불변조건을 검증한다."""
         contract = self._load(CONTRACT)
         storage = contract["storage"]
-        self.assertEqual([44, 45, 239], storage["implementationIssues"])
+        self.assertEqual([44, 45, 239, 246], storage["implementationIssues"])
         self.assertEqual("supabase/migrations", storage["migrationSourceOfTruth"])
         self.assertFalse(storage["flywayAllowed"])
         self.assertEqual(

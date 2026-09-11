@@ -221,6 +221,26 @@ class TripControllerRedIntegrationTest {
   }
 
   @Test
+  void GET_trip은_미입력_숙소와_교통도_required_빈_shape와_동일_ETag로_반환한다() throws Exception {
+    TripAggregate trip = aggregate();
+    when(tripService.read(any(), eq(trip.tripId()))).thenReturn(trip);
+    mvc.perform(
+            get("/api/v1/trips/{tripId}", trip.tripId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+        .andExpect(status().isOk())
+        .andExpect(
+            header()
+                .string(
+                    HttpHeaders.ETAG,
+                    com.timingjeju.api.application.trip.TripEntityTag.strong(
+                        trip.tripId(), trip.revision())))
+        .andExpect(jsonPath("$.transportEvents.arrival").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.transportEvents.departure").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.accommodations").isArray())
+        .andExpect(jsonPath("$.accommodations.length()").value(0));
+  }
+
+  @Test
   void GET_trip_path는_lowercase_canonical_UUID만_허용하고_그외에는_service를_호출하지_않는다() throws Exception {
     UUID canonical = UUID.fromString("44000000-0000-0000-0000-000000000044");
     when(tripService.read(any(), eq(canonical))).thenReturn(aggregate());
