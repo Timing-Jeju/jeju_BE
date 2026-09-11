@@ -91,8 +91,18 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripPlacePreferencesController.java",
             "domain/weather/controller/WeatherForecastController.java");
     assertThat(mappingAnnotationCount()).isEqualTo(54);
+    List<String> atomicLocationCutover =
+        List.of(
+            "20260918000017_user_location_write_guard_purge.sql",
+            "20260918000018_revision_request_hash_audit.sql",
+            "20260918000019_planned_route_request_hash_policy.sql",
+            "20260918000020_location_provenance_fail_closed.sql");
+    assertThat(migrationInventory("supabase/atomic-migrations"))
+        .containsExactlyElementsOf(atomicLocationCutover);
+    assertThat(migrationInventory("supabase/migrations"))
+        .doesNotContainAnyElementsOf(atomicLocationCutover);
     assertThat(migrationInventory())
-        .hasSize(55)
+        .hasSize(56)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -150,22 +160,27 @@ class MobilityOwnershipContractTest {
   private static List<String> migrationInventory() throws IOException {
     List<String> inventory = new ArrayList<>();
     for (String directory : List.of("supabase/migrations", "supabase/atomic-migrations")) {
-      Path migrationDirectory = REPOSITORY_ROOT.resolve(directory);
-      assertThat(migrationDirectory).isDirectory();
-      try (var paths = Files.list(migrationDirectory)) {
-        for (Path path :
-            paths.filter(candidate -> candidate.toString().endsWith(".sql")).toList()) {
-          assertThat(path).isRegularFile();
-          assertThat(Files.isSymbolicLink(path)).isFalse();
-          String name = path.getFileName().toString();
-          assertThat(name).matches("[0-9]{14}_.+[.]sql");
-          inventory.add(name);
-        }
-      }
+      inventory.addAll(migrationInventory(directory));
     }
     assertThat(inventory).doesNotHaveDuplicates();
     assertThat(inventory.stream().map(name -> name.substring(0, 14)).toList())
         .doesNotHaveDuplicates();
+    return inventory.stream().sorted().toList();
+  }
+
+  private static List<String> migrationInventory(String directory) throws IOException {
+    Path migrationDirectory = REPOSITORY_ROOT.resolve(directory);
+    assertThat(migrationDirectory).isDirectory();
+    List<String> inventory = new ArrayList<>();
+    try (var paths = Files.list(migrationDirectory)) {
+      for (Path path : paths.filter(candidate -> candidate.toString().endsWith(".sql")).toList()) {
+        assertThat(path).isRegularFile();
+        assertThat(Files.isSymbolicLink(path)).isFalse();
+        String name = path.getFileName().toString();
+        assertThat(name).matches("[0-9]{14}_.+[.]sql");
+        inventory.add(name);
+      }
+    }
     return inventory.stream().sorted().toList();
   }
 }

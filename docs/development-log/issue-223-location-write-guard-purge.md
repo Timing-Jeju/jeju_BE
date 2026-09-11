@@ -379,3 +379,9 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - push gate의 Python 851건 중 command-input snapshot inventory 1건이 실패했다. 실제 분류는 direct exact 26건, invalid 1건, migration definition·typed internal·privilege signature 각 1건이었다. invalid는 schedule revision fixture가 `jsonb_build_object(...)`의 반환 타입을 암묵적으로 사용한 신규 direct hash call이었다.
 - RED에서 정당한 27번째 direct call을 인벤토리에 고정하고 JSON 함수 표현식의 암묵 타입을 거부하는 테스트를 추가했다. 결과는 direct exact 26건과 invalid 1건으로 계속 실패해 단순 기대치 증가가 아닌 실제 cast 누락을 확인했다.
 - fixture가 canonical structured input JSON을 parameter로 전달하고 SQL에서 `?::jsonb`를 명시하도록 바꿨다. 최종 분류는 direct exact 27건, migration definition·typed internal·privilege signature 각 1건, invalid 0건이다. command-input snapshot과 DB hardening 66건, atomic cutover generator 계약 12건, local/Supabase 생성물 byte check가 통과했다.
+
+## 2026-09-11 architecture migration inventory 보정
+
+- push gate의 integration 단계는 완료됐지만 architecture inventory가 expected 55, actual 56으로 실패했다. exact 단일 테스트에서도 canonical union이 020까지 56개임을 같은 원인으로 재현했다.
+- 단순 총량 변경 전에 atomic 디렉터리가 017·018·019·020 네 파일만 정확한 순서로 포함하고 raw CLI 디렉터리는 네 파일을 모두 포함하지 않는다는 assertion을 추가했다. 이 강화 상태에서도 유일한 Red가 55/56 총량임을 확인한 뒤 canonical manifest의 058 슬롯과 정렬해 56으로 수정했다.
+- 디렉터리별 inventory helper는 regular file, non-symlink, 14자리 version filename 검사를 공유하고 canonical union의 filename/version 중복 거부를 유지한다. 단일 테스트, `MobilityOwnershipContractTest` 전체와 architectureTest 전체, 관련 manifest/atomic generator Python 72건 및 local/Supabase byte check가 통과했다.
