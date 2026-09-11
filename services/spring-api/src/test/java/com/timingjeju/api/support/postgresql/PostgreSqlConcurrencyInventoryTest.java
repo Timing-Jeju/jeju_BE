@@ -24,6 +24,7 @@ class PostgreSqlConcurrencyInventoryTest {
           "com/timingjeju/api/domain/savedplaces/repository/JdbcSavedPlaceRepositoryIntegrationTest.java",
           "com/timingjeju/api/domain/schedule/repository/JdbcScheduleMutationStoreIntegrationTest.java",
           "com/timingjeju/api/domain/transportevent/adapter/JdbcTransportEventConcurrencyIntegrationTest.java",
+          "com/timingjeju/api/domain/trip/adapter/JdbcTripDetailProjectionIntegrationTest.java",
           "com/timingjeju/api/domain/trip/adapter/JdbcTripMutationIntegrationTest.java",
           "com/timingjeju/api/domain/trip/adapter/JdbcTripPlacePreferencesConcurrencyIntegrationTest.java",
           "com/timingjeju/api/domain/trip/adapter/JdbcTripPreferencesPostgreSqlIntegrationTest.java",
@@ -59,7 +60,7 @@ class PostgreSqlConcurrencyInventoryTest {
     declared.add(PUSH);
 
     assertThat(discoverConcurrencyTests()).containsExactlyInAnyOrderElementsOf(declared);
-    assertThat(HIKARI_TWO).hasSize(28);
+    assertThat(HIKARI_TWO).hasSize(29);
   }
 
   @Test
