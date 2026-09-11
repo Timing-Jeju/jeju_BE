@@ -116,3 +116,21 @@ smoke replay, canonical order, PG16/17 full replay, profile-images LAST boundary
 최신 merge commit hook에서는 Spotless, Java test compile, 전체 비-Docker unit test가 성공했다.
 실제 PG16/17 canonical replay와 profile-images RLS matrix, 전체 quality gate 및 Docker smoke는 공유
 Docker 작업 종료 뒤 독립 검증 대상으로 남긴다. live Supabase 적용과 PR 생성은 수행하지 않았다.
+
+## #247 병합 뒤 cold HTTP fixture readiness 보정
+
+#247 exact `160752e4baf1cff9520aba990e5d02b232febebc`를 일반 merge로 통합한 뒤 full gate의
+`ScheduleMutationHttpPostgreSqlIntegrationTest` 첫 POST가 10초 client timeout으로 실패했다. 경쟁
+작업을 종료한 단독 focused 첫 실행에서도 같은 parameter 1이 재현됐다. 보존 로그에서 실패 context는
+amd64 PostGIS를 ARM에서 emulation한다는 경고와 114.8초 cold startup을 보였고, 이후 context는
+57~60초에 시작했다. Hikari 10 비교 실행은 성공했지만 warmed 기본 Hikari 3 강제 실행도 성공했으며,
+live thread dump에서 connection-adder는 idle이었다. 따라서 Hikari hard starvation이나 transaction
+deadlock이 아니라 cold server/clone DB 준비 비용을 첫 mutation의 bounded request가 떠안은 fixture
+readiness flake로 판정했다.
+
+Red에서는 실제 HTTP 일정 mutation test가 fixture mutation보다 먼저 server/DB read-only readiness를
+검증하는지 inventory test를 추가했고 호출 부재로 실패했다. Green에서는 각 parameter setup 첫 줄에서
+5초 bounded actuator health, `select 1`, 존재하지 않는 trip의 authenticated schedule GET 404를 확인한다.
+read-only probe 전후 `trip_plans` row count 불변도 검사하며 예외를 삼키거나 mutation timeout을 늘리거나
+재시도하지 않는다. 보정 뒤 전체 HTTP focused class를 새 Testcontainers session에서 `--rerun-tasks`로
+두 번 실행해 각각 1분 40초, 1분 44초에 성공했고 매 실행 뒤 container/network/volume residue는 0이었다.
