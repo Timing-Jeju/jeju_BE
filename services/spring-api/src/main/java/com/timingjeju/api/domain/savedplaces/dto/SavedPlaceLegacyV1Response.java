@@ -1,19 +1,12 @@
 package com.timingjeju.api.domain.savedplaces.dto;
 
-import com.timingjeju.api.domain.savedplaces.model.SavedPlace;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-@Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
-public record SavedPlaceResponse(
-    @Schema(
-            requiredMode = Schema.RequiredMode.REQUIRED,
-            description = "항목의 opaque strong ETag. If-Match에 그대로 사용한다.",
-            minLength = 3,
-            maxLength = 130)
-        String etag,
+@Schema(name = "SavedPlaceLegacyV1", additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+public record SavedPlaceLegacyV1Response(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uuid") UUID placeId,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minLength = 1, maxLength = 200)
         String name,
@@ -56,23 +49,4 @@ public record SavedPlaceResponse(
             maximum = "365")
         Integer targetDay,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant savedAt,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant updatedAt) {
-
-  public static SavedPlaceResponse from(SavedPlace place) {
-    return new SavedPlaceResponse(
-        com.timingjeju.api.domain.savedplaces.model.SavedPlaceEtag.strong(
-            place.placeId(), place.updatedAt()),
-        place.placeId(),
-        place.name(),
-        place.category(),
-        place.regionLabel(),
-        place.thumbnailUrl(),
-        place.recommendedStayMinutes(),
-        place.memo(),
-        place.tags(),
-        place.priority(),
-        place.targetDay(),
-        place.savedAt(),
-        place.updatedAt());
-  }
-}
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant updatedAt) {}

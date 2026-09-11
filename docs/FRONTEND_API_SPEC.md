@@ -1104,3 +1104,7 @@ TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연�
 `TripDetail.transportEvents`의 `arrival`·`departure`는 항상 존재하며 각각 기존 교통 저장 payload 또는 `null`이다. `TripDetail.accommodations`는 기존 숙소 저장 payload 배열이고 `sequenceNo`, `accommodationId` 순으로 정렬된다. GET 한 번의 ETag와 모든 값은 같은 revision snapshot이다. 앱 초기화·다른 기기 로그인에서는 이 값을 기준으로 상태를 새로 채우고 `null`/`[]`인 항목은 이전 여행 값이 남지 않게 비운다. 날짜별 활동 시간은 #239의 nullable Day 필드를 사용하며 미입력 값에 임의 시간을 만들지 않는다.
 
 #246에서도 과거 완료 receipt를 다시 쓰거나 만료시키지 않는다. POST는 활동 시간 도입 전 `TripDetailLegacyV1` 또는 숙소·교통 도입 전 `TripDetailLegacyV11`을 replay할 수 있다. Day PUT의 `TripDayActivityWindowsResponse`는 최신 TripDetail과 TripDetailLegacyV11의 닫힌 union이다. legacy 분기는 `Idempotency-Replayed: true`에서만 반환하며 과거 원본 status/ETag/body/기존Location을 유지한다. 새 mutation과 GET/PATCH는 최신 required child를 반환한다. FE는 replay 응답에 child가 없으면 빈 값으로 덮어쓰지 않고 canonical 여행 GET으로 복원한다.
+
+### #238 찜 ETag 복원
+
+찜 목록의 각 항목과 새 저장·수정 body는 필수 `etag`를 제공한다. HTTP ETag와 동일한 opaque 값을 If-Match로 사용한다. 과거 POST receipt replay만 etag 없는 원본 body를 유지하므로 그 경우 목록 GET으로 현재 버전을 복원한다. 목록·수정의 필수 필드는 유지하고 receipt나 TTL을 다시 쓰지 않는다. DELETE의 If-Match 확장은 별도 #248이다.
