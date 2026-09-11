@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "timing-jeju-preferences-transport-ownership/v1",
+  "contractVersion": "1.0.0",
+  "implementationIssues": [46, 47, 48],
+  "endpointOwners": [
+    {
+      "method": "PUT",
+      "path": "/api/v1/trips/{tripId}/place-preferences",
+      "implementationIssue": 48,
+      "dbOwner": "Spring transaction replaces trip_place_preferences; implementation #48"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/trips/{tripId}/preferences",
+      "implementationIssue": 46,
+      "dbOwner": "Spring transaction replaces trip_preferences and trip_transport_modes; implementation #46"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/trips/{tripId}/transport-event",
+      "implementationIssue": 47,
+      "dbOwner": "Spring deletes selected trip_transport_events row; implementation #47"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/trips/{tripId}/transport-event",
+      "implementationIssue": 47,
+      "dbOwner": "Spring upserts unique trip_transport_events(trip,eventType); implementation #47"
+    }
+  ],
+  "readiness": {
+    "metadata": {"status": "not-ready", "evidence": null},
+    "example": {"status": "not-ready", "evidence": null},
+    "implementation": {"status": "not-ready", "evidence": null}
+  },
+  "projectionSha256": "67e392355fb00ccff3298905887c5bf1f079a5acfefaa629dc5ccaf6e2251f10",
+  "wireContractSha256": "6955a6f977a7dfe482b991c619e8a90a622d4c10026dbe44d620b3bd01b6bd55"
+}

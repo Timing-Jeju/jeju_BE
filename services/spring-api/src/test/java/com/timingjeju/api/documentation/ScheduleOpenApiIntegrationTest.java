@@ -1,11 +1,14 @@
 package com.timingjeju.api.documentation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.security.SecureRandom;
 import java.util.Base64;
 import org.junit.jupiter.api.Tag;
@@ -28,9 +31,16 @@ import org.springframework.test.web.servlet.MockMvc;
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
     })
 @AutoConfigureMockMvc
-class ScheduleOpenApiIntegrationTest {
+class ScheduleOpenApiIntegrationTest
+    extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
+  @Override
+  protected String canonicalDomain() {
+    return "schedules";
+  }
+
   private static final String JWT_KEY = randomKey();
   @Autowired private MockMvc mvc;
+  private final ObjectMapper objectMapper = new ObjectMapper();
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -109,6 +119,17 @@ class ScheduleOpenApiIntegrationTest {
         .andExpect(jsonPath(path + ".parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
             jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].required").value(true))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.minLength").value(1))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.maxLength")
+                .value(128))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.pattern")
+                .value("^[ -~]{1,128}$"))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].schema.format")
+                .doesNotExist())
         .andExpect(jsonPath(path + ".requestBody.required").value(true))
         .andExpect(jsonPath(path + ".responses['201'].headers.ETag").exists())
         .andExpect(jsonPath(path + ".responses['201'].headers.Idempotency-Replayed").exists())
@@ -148,11 +169,54 @@ class ScheduleOpenApiIntegrationTest {
                     containsInAnyOrder(
                         "IDEMPOTENCY_KEY_REUSED",
                         "TRIP_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT",
                         "ACTIVE_SCHEDULE_VERSION_CONFLICT")))
         .andExpect(jsonPath(path + ".responses['409'].headers['Retry-After']").exists())
         .andExpect(
             jsonPath(path + ".responses['422'].content['application/problem+json'].examples.keys()")
                 .value(containsInAnyOrder("SCHEDULE_ITEM_INVALID", "SCHEDULE_LEG_INCOMPLETE")));
+  }
+
+  @Test
+  void schedule_edit_OpenAPI_example은_실행가능한_단일_reference와_DELETE_empty_changedIds를_쓴다()
+      throws Exception {
+    JsonNode document =
+        objectMapper.readTree(
+            mvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsByteArray());
+    JsonNode patch =
+        document.at(
+            "/paths/~1api~1v1~1trips~1{tripId}~1schedule-items~1{itemId}/patch/requestBody/content/application~1json/example");
+    JsonNode deleted =
+        document.at(
+            "/paths/~1api~1v1~1trips~1{tripId}~1schedule-items~1{itemId}/delete/responses/200/content/application~1json/example");
+
+    assertThat(patch.path("placeId").isTextual()).isTrue();
+    assertThat(patch.has("accommodationId")).isFalse();
+    assertThat(patch.has("transportEventId")).isFalse();
+    assertThat(deleted.path("changedItemIds").isArray()).isTrue();
+    assertThat(deleted.path("changedItemIds")).isEmpty();
+  }
+
+  @Test
+  void schedule_item_create_Idempotency_Key_pattern은_canonical_contract와_문자열까지_같다()
+      throws Exception {
+    String document =
+        mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsString();
+    JsonNode parameters =
+        objectMapper
+            .readTree(document)
+            .at("/paths/~1api~1v1~1trips~1{tripId}~1schedule-items/post/parameters");
+    JsonNode idempotencyKey =
+        java.util.stream.StreamSupport.stream(parameters.spliterator(), false)
+            .filter(parameter -> "Idempotency-Key".equals(parameter.path("name").asText()))
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(idempotencyKey.at("/schema/pattern").asText()).isEqualTo("^[ -~]{1,128}$");
   }
 
   private static String randomKey() {

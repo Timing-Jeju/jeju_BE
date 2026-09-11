@@ -195,11 +195,12 @@ erDiagram
 | `timetable_entries` | 확보된 정적 시간표 | 보조 source; TAGO 보장 아님 |
 | `bus_arrival_snapshots` | 정류장별 실시간 도착 snapshot | TAGO, 짧은 TTL |
 | `tago_arrival_flights` | 다중 Spring instance의 도착 요청 generation·lease·terminal outcome | 내부 service role 전용, 원문 미저장 |
-| `mobility_route_snapshots` | 저장 허용 공급자의 provider-neutral 경로 cache | TMAP 저장 금지; #40 DEFER 경계 |
+| `mobility_route_snapshots` | 기존 저장 허용 공급자를 위한 호환 스키마 | Spring 신규 writer 없음; TMAP 저장 금지 |
 
-`trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. 저장 허용 원천 route cache는
-`mobility_route_snapshots`에 분리한다. TMAP 원문·geometry·개별 route metric은 두 테이블
-모두에 저장하지 않으며 요청 프로세스 메모리에서만 사용한다.
+`trip_legs`에는 확정 일정 버전의 이동 구간만 저장한다. `mobility_route_snapshots`는 기존
+마이그레이션 호환을 위해 유지하지만 Spring은 신규 route cache writer를 소유하지 않는다.
+TMAP 원문·geometry·개별 route metric은 두 테이블 모두에 저장하지 않으며 AI 런타임의
+요청 프로세스 메모리에서만 사용한다.
 
 `bus_arrival_snapshots` 신규 행은 `source_service`, `source_snapshot_id`, `import_run_id`를 함께 가져야
 하며 TAGO 정류장 reference의 provider/service/city/node 범위와 일치해야 한다. 같은
@@ -208,7 +209,7 @@ trigger가 거부하고, 같은 lineage의 여러 노선 행은 허용한다. �
 유효한 도착·잔여 정류장 범위만 대상으로 `observed_at DESC, source_snapshot_id DESC` 순서를 사용한다.
 `idx_bus_arrivals_source_stop_freshness`가 이 lookup을 지원하고 anon/authenticated 직접 접근은 차단한다.
 
-TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취급하지 않는다. 정류장과 노선은 provider/service/city 범위로 식별한다. `route_stops`도 provider와 city를 소유해 다른 공급자·도시의 노선과 정류장을 섞지 못한다. UUID FK는 route/stop 존재와 삭제 전파를 담당하고, source scope trigger가 route·stop·route_stop의 provider/city 조합을 잠금과 함께 정확히 검증한다. `timetable_entries.city_code`는 legacy의 경유지 누락·provider 불일치 행을 보존하기 위해 물리적으로 nullable이다. 신규·관련 컬럼 변경에는 trigger가 non-null provider/city와 동일 route/direction/stop/provider/city의 유효한 route_stop을 요구한다. lineage 없는 legacy 행은 그대로 변경할 수 없지만 `parsed`/`tombstoned` snapshot과 일치 run을 함께 연결해 유효 범위로 복구할 수 있다. 같은 source record의 유효기간은 GiST exclusion으로 겹칠 수 없다.
+TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취급하지 않는다. 정류장과 노선은 provider/service/city 범위로 식별한다. `route_stops`도 provider와 city를 소유해 다른 공급자·도시의 노선과 정류장을 섞지 못한다. 시간표의 `source_provider/source_service`는 원천 provenance이며 제주 공식 XLSX canonical 값은 `JEJU_PROVINCE/jeju-bus-schedule-xlsx`다. `route_source_provider/route_city_code`는 참조 catalog 범위이며 현재 `TAGO/39`다. UUID FK와 trigger는 `(route_id,direction_key,stop_id,route_source_provider,route_city_code)`를 잠금 검증한다. additive migration은 기존 provider/city를 새 컬럼에 backfill하되 누락 legacy를 조용히 수정·삭제하지 않고 `NOT VALID`로 보존한다. 같은 source record의 유효기간은 GiST exclusion으로 겹칠 수 없다.
 
 ### 4.4 Weather
 
@@ -264,7 +265,11 @@ TAGO의 `node_id`, `external_stop_id`, `external_route_id`는 전역 키로 취�
 
 `schedule_revision_runs`는 generation/compute 실행과 별도 테이블을 사용한다. `(trip_plan_id, owner_user_id)`, `(base_schedule_version_id, trip_plan_id)`, `(target_trip_day_id, trip_plan_id)` 실제 복합 FK가 owner·base·Day 혼합을 막는다. 새 run은 queued로만 생성하며 active base/Day scope와 사용자·여행 idempotency key는 각각 DB unique arbiter로 경쟁을 직렬화한다. contract/algorithm version, request hash와 lineage는 불변이고 terminal 상태는 running으로 돌아갈 수 없다. 최초 queued와 running/succeeded에는 failure code가 없고 retry queued와 failed/cancelled에는 1~100자 stable code가 필수다. claim과 만료 lease reclaim만 attempt/fencing을 정확히 1씩 증가시키며 heartbeat는 live lease owner와 counters를, retry/terminal은 counters를 보존한다. 5번째 attempt는 retry할 수 없고 만료된 5번째 running만 counters를 보존한 `ASYNC_RUN_RETRY_EXHAUSTED` failed로 fencing-safe 복구한다. HTTP 요청, immutable structured input과 `mcp_compute_call_logs` 확장은 이 foundation의 범위가 아니다.
 
-`compute_run_inputs`는 generic compute, generation, revision parent 중 정확히 하나만 참조하고 parent마다 한 행만 허용한다. owner·trip·base schedule·run type은 parent와 일치해야 하며 canonical structured input과 command SHA-256은 생성 후 불변이다. schema version 1은 run type별 exact field/type projection을 사용하고 unknown, alias, nested raw object를 허용하지 않는다. optional 위치는 `GRID_100M(gridX,gridY)`, `PLACE(placeId)`, `STOP(stopId)` closed union이며 raw 위경도/accuracy는 저장하지 않는다. DB가 최초 `completed` 여행 전이에 기록해 이후 일반 update에도 불변인 `trip_plans.trip_ended_at`과 실제 parent terminal `completed_at`을 도착 anchor로 삼고, 제한 함수가 +24시간 후보 중 earliest로 expiry를 단조 단축해 `expires_at <= evaluated_at`부터 due다. legacy completed 여행은 알 수 없는 과거 시각을 추측하지 않고 migration DB 시각으로 보수 backfill한다. `service_role`도 snapshot DELETE나 일반 UPDATE를 할 수 없다. MCP input hash/call log와 due redaction job은 별도 소유권이다.
+`compute_run_inputs`는 generic compute, generation, revision parent 중 정확히 하나만 참조하고 parent마다 한 행만 허용한다. owner·trip·base schedule·run type은 parent와 일치하고 canonical structured input과 command SHA-256은 생성 후 불변이다. Java v2는 run type별 exact field/type projection으로 unknown·alias·nested raw object를 거부하고 위치 필드를 포함하지 않는다. 과거 schema v1의 GRID_100M/PLACE/STOP 및 TTL은 역사 계약으로만 보존한다. DB v2 전환은 별도 forward migration 검증이 필요하며, service_role에 일반 snapshot UPDATE/DELETE 권한을 추가하지 않는다.
+
+역사 migration010의 `redact_due_compute_run_input_locations`는 위치 TTL 정리를 구현했다. 해당 SQL과 역사 회귀는 보존하지만, #224에서 애플리케이션 cleanup bean·설정·resolver를 제거한다. 위치 저장을 다시 활성화하는 기능으로 사용하지 않는다.
+
+#224 전환에서는 위치 admission을 호출하지 않는다. Java command snapshot은 schemaVersion=2만 읽고 위치 필드·digest를 hash에서 제거하며, worker는 동일 v2 lineage만 claim한다. MCP는 schema/ID 검증이 반환한 독립 snapshot의 위치 파생 필드를 hash 전에 다시 검사하고 실제 wire hash 검증도 유지한다. DB020과 MCP0.8 release 검증이 완료되기 전에는 intake/MCP 기능을 비활성으로 유지한다.
 
 ### 4.7 Compute/Recovery
 
@@ -395,7 +400,7 @@ stateDiagram-v2
 | --- | --- |
 | place content/address/location/image | TourAPI |
 | stop/route/arrival | TAGO |
-| 영속 mobility distance/duration/fare | 저장 약관이 승인된 provider-neutral route provider |
+| 영속 mobility distance/duration/fare | 기존 스키마 호환 전용; Spring 신규 writer 없음 |
 | TMAP distance/duration | FastAPI on-demand memory-only fact; DB 저장 금지 |
 | weather observation/forecast | KMA |
 | saved/memo/required/pace | user input |

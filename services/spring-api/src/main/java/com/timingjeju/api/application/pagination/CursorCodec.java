@@ -31,6 +31,11 @@ public final class CursorCodec {
     return new CursorCodec(signingKey);
   }
 
+  public CursorCodec scoped(String scope) {
+    if (scope == null || scope.isBlank()) throw new IllegalArgumentException("scope is required");
+    return new CursorCodec(hmacSha256Hex("cursor-signing-key:" + scope));
+  }
+
   public String encode(CursorContext context, CursorPosition position) {
     Map<String, String> unsignedPayload = unsignedPayload(context, position);
     String signature = hmacSha256Hex(canonicalJson(unsignedPayload));

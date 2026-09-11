@@ -9,6 +9,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 class TripMigrationIntegrationTest extends PostgreSqlRepositoryIntegrationTestSupport {
+  private static final List<String> TRIP_TABLES =
+      List.of("trip_plans", "trip_preferences", "trip_transport_modes", "trip_days");
+  private static final List<String> AUTHENTICATED_OWNER_READ_TABLES =
+      List.of("trip_preferences", "trip_transport_modes");
+
   @Autowired private JdbcTemplate jdbc;
 
   @Test
@@ -48,10 +53,14 @@ class TripMigrationIntegrationTest extends PostgreSqlRepositoryIntegrationTestSu
 
   @Test
   void trip_table의_anon_authenticated_service_role_ACL_matrix가_최소권한이다() {
-    for (String table : List.of("trip_plans", "trip_transport_modes", "trip_days")) {
+    for (String table : TRIP_TABLES) {
       for (String privilege : List.of("SELECT", "INSERT", "UPDATE", "DELETE")) {
         assertPrivilege("anon", table, privilege, false);
-        assertPrivilege("authenticated", table, privilege, false);
+        assertPrivilege(
+            "authenticated",
+            table,
+            privilege,
+            privilege.equals("SELECT") && AUTHENTICATED_OWNER_READ_TABLES.contains(table));
         assertPrivilege("service_role", table, privilege, true);
       }
       for (String role : List.of("anon", "authenticated", "service_role")) {

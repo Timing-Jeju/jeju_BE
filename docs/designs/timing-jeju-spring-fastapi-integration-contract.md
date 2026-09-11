@@ -1,8 +1,14 @@
 # 타이밍제주 Spring–MCP private HTTP 연동 명세 v2.0
 
+> 현행 위치 정책: [사용자 현재·간접 위치 무수집 v2](../contracts/domains/location-noncollection/contract.md). Issue #220이 #73을 대체한다.
+> 아래 위치 보관·동의·GRID_100M·위치 파생 hash 관련 설명은 제거 대상인 기존 구현/계약의 이력이며
+> 신규 위치 수신·저장의 허용 근거가 아니다. 런타임 전환은 #221 → #222 → #225 → #223 → #224에서 검증한다.
+
 ## 1. 기준 계약
 
 planner runtime 계약은 [`Timing-Jeju/jeju_AI`](https://github.com/Timing-Jeju/jeju_AI)의 Pydantic `0.7.0`이 유일한 원본이다. transport·인증·경계 설명은 AI의 [`docs/FASTAPI_MCP_CONTRACT.md`](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)를 따른다. BE는 release artifact인 `mcp-tools-v0.7.json`만 포함하며 Pydantic schema를 Java DTO로 다시 정의하지 않는다.
+
+route 계산·route fact·TTL cache·fallback은 AI가 소유한다. Spring은 private MCP 연결·계약 검증·감사와 제품 DB 결과 저장을 소유한다. Spring은 AI의 TMAP route 정책이나 cache를 Java application package로 복제하지 않는다.
 
 | 항목 | 값 |
 | --- | --- |
@@ -76,7 +82,7 @@ canonical fingerprint는 UTF-8 JSON key 정렬, 공백 없는 JSON 표현의 SHA
 8. schema ID field와 정확히 대응하는 inbound allowlist를 검사한다.
 9. worker가 evidence closure와 도메인 invariant를 추가 검증한 뒤 transaction으로 저장한다.
 
-intake의 immutable `commandInputHash`와 3단계의 `mcpInputHash`는 의미가 다르며 서로 덮어쓰지 않는다.
+intake의 immutable `commandInputHash`와 3단계의 `mcpInputHash`는 의미가 다르며 서로 덮어쓰지 않는다. `mcpInputHash`는 wire 요청 검증이 끝난 뒤 감사 DB에 영속 저장하지 않는다.
 
 ## 6. 데이터 경계
 
@@ -88,7 +94,7 @@ private MCP는 `jeju_AI/config/data_sources.toml`에 승인된 데이터 소스�
 - TAGO/TourAPI provider 원본 body
 - 지도 SDK의 정밀 현재 위치
 
-BE가 영속화할 수 있는 계산 데이터는 schema 검증된 `structuredContent` artifact와 evidence ID뿐이다. `mcp_compute_call_logs`에는 parent run, tool name, contract/schema checksum, `commandInputHash`, `mcpInputHash`, fact count, attempt, status, latency, stable error code만 저장한다.
+BE가 영속화할 수 있는 계산 데이터는 schema 검증된 `structuredContent` artifact와 evidence ID뿐이다. `mcp_compute_call_logs`에는 parent run, tool name, contract/schema checksum, 재현 가능한 `commandInputHash`, fact count, attempt, status, latency, stable error code만 저장한다. 독립 `mcpInputHash`는 저장하지 않는다.
 
 ## 7. 실패 분류
 

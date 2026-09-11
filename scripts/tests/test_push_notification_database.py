@@ -24,6 +24,14 @@ NEGATIVE_SQL = ROOT / "db/queries/database_negative_constraints.sql"
 LOCAL_HELPER_SQL = ROOT / "db/local-postgres/supabase_smoke_fixture_helper.sql"
 DOCKER_SMOKE = ROOT / "scripts/docker-smoke-test.sh"
 FIXTURE_USER = "f1130000-0000-0000-0000-000000000001"
+SMOKE_CLIENT_GRANT_ALLOWLIST = (
+    "and not ( "
+    "( grantee = 'authenticated' and table_name = 'notification_preferences' "
+    "and privilege_type = 'select' ) "
+    "or ( grantee = 'authenticated' and table_name in "
+    "('trip_preferences', 'trip_transport_modes') and privilege_type = 'select' ) "
+    ")"
+)
 
 
 def compact(value: str) -> str:
@@ -32,6 +40,7 @@ def compact(value: str) -> str:
 
 class PushNotificationDatabaseTest(unittest.TestCase):
     def test_latest_migration_versions_are_unique_and_chronological(self):
+        """후속 planned anchor migration까지 시간순 버전 중복 없이 등록한다."""
         expected = (
             "20260901000000_legal_documents_consents.sql",
             "20260902000000_trip_create_contract.sql",
@@ -41,6 +50,28 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260905000000_mcp_private_http_client.sql",
             "20260906000000_trip_update_delete_contract.sql",
             "20260907000000_schedule_item_create_contract.sql",
+            "20260918000000_trip_preferences_replace_contract.sql",
+            "20260918000001_trip_preferences_owner_read_helper.sql",
+            "20260918000002_trip_accommodation_contract.sql",
+            "20260918000003_trip_transport_event_contract.sql",
+            "20260918000004_trip_place_preference_contract.sql",
+            "20260918000005_trip_calendar_child_invariant_correction.sql",
+            "20260918000006_profile_image_storage.sql",
+            "20260918000007_schedule_item_required_references.sql",
+            "20260918000008_schedule_item_required_references_correction.sql",
+            "20260918000009_jeju_timetable_route_scope.sql",
+            "20260918000010_compute_run_input_location_cleanup.sql",
+            "20260918000011_private_trip_ownership_helper.sql",
+            "20260918000012_schedule_title_only_sealing_correction.sql",
+            "20260918000013_schedule_item_closed_facts.sql",
+            "20260918000014_planned_anchor_resolver.sql",
+            "20260918000015_planned_route_snapshot_provenance.sql",
+            "20260918000016_planned_route_reference_integrity.sql",
+            "20260918000017_user_location_write_guard_purge.sql",
+            "20260918000018_revision_request_hash_audit.sql",
+            "20260918000019_planned_route_request_hash_policy.sql",
+            "20260918000020_remove_user_location_runtime.sql",
+            "20260918000021_day_activity_window_pair.sql",
         )
         migration_names = tuple(
             path.name
@@ -52,6 +83,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         self.assertEqual(len(versions), len(set(versions)))
 
     def test_docker_init_applies_trip_saved_push_correction_then_seed_exactly_once(self):
+        """현재 설치와 역사 audit의 서로 다른 완료 지점을 정확히 유지한다."""
         mounts = (
             (
                 "./supabase/migrations/20260902000000_trip_create_contract.sql",
@@ -82,6 +114,86 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql",
             ),
             (
+                "./supabase/migrations/20260918000000_trip_preferences_replace_contract.sql",
+                "/docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000001_trip_preferences_owner_read_helper.sql",
+                "/docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000002_trip_accommodation_contract.sql",
+                "/docker-entrypoint-initdb.d/040_trip_accommodation_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000003_trip_transport_event_contract.sql",
+                "/docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000004_trip_place_preference_contract.sql",
+                "/docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000005_trip_calendar_child_invariant_correction.sql",
+                "/docker-entrypoint-initdb.d/043_trip_calendar_child_invariant_correction.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000006_profile_image_storage.sql",
+                "/docker-entrypoint-initdb.d/044_profile_image_storage.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000007_schedule_item_required_references.sql",
+                "/docker-entrypoint-initdb.d/045_schedule_item_required_references.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000008_schedule_item_required_references_correction.sql",
+                "/docker-entrypoint-initdb.d/046_schedule_item_required_references_correction.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000009_jeju_timetable_route_scope.sql",
+                "/docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql",
+                "/docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000011_private_trip_ownership_helper.sql",
+                "/docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql",
+                "/docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000013_schedule_item_closed_facts.sql",
+                "/docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000014_planned_anchor_resolver.sql",
+                "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000015_planned_route_snapshot_provenance.sql",
+                "/docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000016_planned_route_reference_integrity.sql",
+                "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql",
+            ),
+            (
+                "./db/local-postgres/20260918000017_location_cutover_group.sql",
+                "/docker-entrypoint-initdb.d/055_location_cutover_group.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000019_planned_route_request_hash_policy.sql",
+                "/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000020_remove_user_location_runtime.sql",
+                "/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql",
+            ),
+            (
                 "./db/local-postgres/seed_fixtures.sql",
                 "/docker-entrypoint-initdb.d/099_seed_fixtures.sql",
             ),
@@ -100,13 +212,27 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         docker_smoke = DOCKER_SMOKE.read_text(encoding="utf-8")
         migration_targets = tuple(target for _, target in mounts[:-1])
         for target in migration_targets:
-            self.assertEqual(2, docker_smoke.count(target), target)
+            expected_count = (
+                3
+                if target.endswith("046_schedule_item_required_references_correction.sql")
+                else 1
+                if target.endswith(("054_planned_route_reference_integrity.sql", "055_location_cutover_group.sql", "057_planned_route_request_hash_policy.sql", "058_remove_user_location_runtime.sql"))
+                else 2
+            )
+            self.assertEqual(expected_count, docker_smoke.count(target), target)
         for next_contract in (
             "/queries/legacy_v1_upgrade_contract.sql",
             "/queries/database_concurrency_contract.sql",
         ):
             with self.subTest(next_contract=next_contract):
-                exact_sequence = " \\\n  ".join((*migration_targets, next_contract))
+                # The historical database must abort 053 in a separate audited transaction.
+                last_target = (
+                    "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql"
+                    if next_contract.endswith("legacy_v1_upgrade_contract.sql")
+                    else "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql"
+                )
+                targets = migration_targets[:migration_targets.index(last_target) + 1]
+                exact_sequence = " \\\n  ".join((*targets, next_contract))
                 self.assertEqual(
                     1,
                     docker_smoke.count(exact_sequence),
@@ -114,6 +240,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 )
 
     def test_server_writer_boundary_is_additive_and_removes_all_client_write_paths(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         self.assertTrue(SERVER_WRITER_BOUNDARY_MIGRATION.is_file())
         correction = compact(
             SERVER_WRITER_BOUNDARY_MIGRATION.read_text(encoding="utf-8")
@@ -157,16 +284,41 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             )
 
         smoke_check = compact(SMOKE_CHECK.read_text(encoding="utf-8"))
-        self.assertIn(
-            "and not ( grantee = 'authenticated' and table_name = 'notification_preferences' and privilege_type = 'select' )",
+        self.assert_client_grant_allowlist_is_exact(smoke_check)
+        self.assertEqual(2, smoke_check.count("grantee = 'authenticated'"))
+        self.assertNotIn("grantee = 'anon' and table_name", smoke_check)
+        self.assertNotRegex(
             smoke_check,
+            r"grantee = 'authenticated' and table_name (?:= '[^']+'|in \([^)]*\)) and privilege_type = '(?!select')[^']+'",
         )
         self.assertIn(
             "unexpected anon/authenticated table grants must not exist",
             smoke_check,
         )
 
+    def test_smoke_client_grant_allowlist_rejects_predicate_bypass_mutations(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
+        smoke_check = compact(SMOKE_CHECK.read_text(encoding="utf-8"))
+        mutations = {
+            "or_true": smoke_check.replace(
+                SMOKE_CLIENT_GRANT_ALLOWLIST,
+                SMOKE_CLIENT_GRANT_ALLOWLIST[:-1] + "or true )",
+                1,
+            ),
+            "not_removed": smoke_check.replace(
+                SMOKE_CLIENT_GRANT_ALLOWLIST,
+                SMOKE_CLIENT_GRANT_ALLOWLIST.removeprefix("and not "),
+                1,
+            ),
+        }
+
+        for name, mutation in mutations.items():
+            with self.subTest(mutation=name):
+                with self.assertRaises(AssertionError):
+                    self.assert_client_grant_allowlist_is_exact(mutation)
+
     def test_deploy_negative_sql_creates_owner_through_local_helper_before_push_rows(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         negative = compact(NEGATIVE_SQL.read_text(encoding="utf-8"))
         helper = compact(LOCAL_HELPER_SQL.read_text(encoding="utf-8"))
 
@@ -175,6 +327,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "create function public.create_local_test_user(target_user_id uuid, target_email text)",
             helper,
         )
+
         fixture_call = (
             "select public.create_local_test_user( "
             f"'{FIXTURE_USER}', 'push-negative@issue113.test' );"
@@ -193,7 +346,11 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 self.assertIn(case, negative)
         self.assertTrue(negative.endswith("rollback;"))
 
+    def assert_client_grant_allowlist_is_exact(self, smoke_check: str):
+        self.assertEqual(1, smoke_check.count(SMOKE_CLIENT_GRANT_ALLOWLIST))
+
     def test_tables_constraints_indexes_and_owner_rls_are_explicit(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         self.assertTrue(MIGRATION.is_file())
         sql = compact(MIGRATION.read_text(encoding="utf-8"))
 
@@ -224,6 +381,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         self.assertNotIn("grant select, insert, update on public.push_devices", sql)
 
     def test_token_columns_have_no_plaintext_surface_and_service_role_cannot_truncate(self):
+        """DB 마이그레이션 순서와 알림 계약의 회귀를 검증한다."""
         sql = compact(MIGRATION.read_text(encoding="utf-8"))
         self.assertIn("token_ciphertext text not null", sql)
         self.assertIn("token_fingerprint bytea not null", sql)

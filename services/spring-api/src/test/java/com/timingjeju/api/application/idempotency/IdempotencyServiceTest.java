@@ -177,6 +177,50 @@ class IdempotencyServiceTest {
   }
 
   @Test
+  void 동일_UUID_key의_기본_scope와_schedule_printable_namespace는_각자_replay하고_conflict한다() {
+    InMemoryStore store = new InMemoryStore();
+    IdempotencyUseCase service = service(store);
+    String collisionKey = "ba8cb334-92ef-8999-8eb6-8b95ecd8bb71";
+    String path = "/api/v1/trips/50000000-0000-0000-0000-000000000001/schedule-items";
+    IdempotencyRequest canonical =
+        IdempotencyRequest.create(OWNER, "POST", path, collisionKey, bytes("canonical"));
+    IdempotencyRequest printable =
+        IdempotencyRequest.createInNamespace(
+            OWNER, "POST", path, "schedule-printable-ascii-v1", collisionKey, bytes("printable"));
+
+    service.execute(canonical, () -> response(201, "canonical-response"));
+    service.execute(printable, () -> response(201, "printable-response"));
+
+    assertThat(service.execute(canonical, () -> response(500, "wrong")).body())
+        .isEqualTo(bytes("canonical-response"));
+    assertThat(service.execute(printable, () -> response(500, "wrong")).body())
+        .isEqualTo(bytes("printable-response"));
+    assertThatThrownBy(
+            () ->
+                service.execute(
+                    IdempotencyRequest.create(
+                        OWNER, "POST", path, collisionKey, bytes("canonical-changed")),
+                    () -> response(201, "wrong")))
+        .isInstanceOf(IdempotencyException.class)
+        .extracting("code")
+        .isEqualTo("IDEMPOTENCY_KEY_REUSED");
+    assertThatThrownBy(
+            () ->
+                service.execute(
+                    IdempotencyRequest.createInNamespace(
+                        OWNER,
+                        "POST",
+                        path,
+                        "schedule-printable-ascii-v1",
+                        collisionKey,
+                        bytes("printable-changed")),
+                    () -> response(201, "wrong")))
+        .isInstanceOf(IdempotencyException.class)
+        .extracting("code")
+        .isEqualTo("IDEMPOTENCY_KEY_REUSED");
+  }
+
+  @Test
   void 완료_TTL_24시간과_processing_lease_2분의_직전과_경계를_구분한다() {
     InMemoryStore store = new InMemoryStore();
     MutableClock clock = new MutableClock(NOW);

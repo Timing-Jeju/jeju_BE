@@ -37,6 +37,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+@org.junit.jupiter.api.extension.ExtendWith(
+    org.springframework.boot.test.system.OutputCaptureExtension.class)
 @Tag("slice")
 @SpringBootTest(
     properties = {
@@ -65,14 +67,14 @@ class WeatherForecastControllerTest {
 
   @BeforeEach
   void successResponse() {
-    when(service.forecast(any())).thenReturn(success());
+    when(service.forecast(any(), any())).thenReturn(success());
   }
 
   @Test
   void anonymous와_valid_optional_JWT는_동일한_닫힌_200_projection을_받는다() throws Exception {
     mvc.perform(validRequest())
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.contractVersion").value("1.0.0"))
+        .andExpect(jsonPath("$.contractVersion").value("2.0.0"))
         .andExpect(jsonPath("$.grid.nx").value(60))
         .andExpect(jsonPath("$.grid.ny").value(37))
         .andExpect(jsonPath("$.observedAt").value("2026-08-03T14:10:00+09:00"))
@@ -97,7 +99,7 @@ class WeatherForecastControllerTest {
   }
 
   @Test
-  void WGS84_범위와_KST_정시_validation은_400이다() throws Exception {
+  void 좌표_입력과_잘못된_KST_정시는_400이다() throws Exception {
     mvc.perform(
             get(PATH)
                 .queryParam("lng", "126.94")
@@ -112,7 +114,7 @@ class WeatherForecastControllerTest {
   }
 
   @Test
-  void coordinate와_dateTime은_canonical_ASCII_lexeme만_허용한다() throws Exception {
+  void 구버전_좌표와_잘못된_시각은_거부한다() throws Exception {
     for (String lat : new String[] {" 33.458111", "33.458111 ", "0x1.0p0", "33.0d", "33e0"}) {
       mvc.perform(validRequest().queryParam("lat", lat)).andExpect(status().isBadRequest());
       mvc.perform(validRequest().queryParam("lng", lat)).andExpect(status().isBadRequest());
@@ -133,15 +135,15 @@ class WeatherForecastControllerTest {
   void unknown이나_duplicate_query는_canonical_400으로_닫는다() throws Exception {
     mvc.perform(validRequest().queryParam("raw", "provider-payload"))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("INVALID_WEATHER_FORECAST_QUERY"));
+        .andExpect(jsonPath("$.code").value("INVALID_WEATHER_SELECTOR"));
     mvc.perform(validRequest().queryParam("lat", "33.5"))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("INVALID_WEATHER_FORECAST_QUERY"));
+        .andExpect(jsonPath("$.code").value("INVALID_WEATHER_SELECTOR"));
   }
 
   @Test
   void typed_422와_503은_raw_provider_message없이_traceId를_반환한다() throws Exception {
-    when(service.forecast(any()))
+    when(service.forecast(any(), any()))
         .thenThrow(new WeatherForecastException("WEATHER_LOCATION_NOT_SUPPORTED"));
     mvc.perform(validRequest())
         .andExpect(status().isUnprocessableEntity())
@@ -151,7 +153,7 @@ class WeatherForecastControllerTest {
         .andExpect(jsonPath("$.providerMessage").doesNotExist());
 
     org.mockito.Mockito.reset(service);
-    when(service.forecast(any()))
+    when(service.forecast(any(), any()))
         .thenThrow(new WeatherForecastException("WEATHER_FORECAST_UNAVAILABLE"));
     mvc.perform(validRequest())
         .andExpect(status().isServiceUnavailable())
@@ -160,17 +162,62 @@ class WeatherForecastControllerTest {
         .andExpect(jsonPath("$.message").doesNotExist());
   }
 
+  @Test
+  void 선택자_누락_복수_중복과_위치_파생값은_원문_반사없이_거부한다(
+      org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+    mvc.perform(get(PATH).queryParam("dateTime", "2026-08-03T15:00:00+09:00"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_WEATHER_SELECTOR"));
+    for (String key :
+        new String[] {
+          "regionCode",
+          "placeId",
+          "tripItemId",
+          "currentLocation",
+          "gridHash",
+          "nearestPlaceId",
+          "lat",
+          "lng"
+        }) {
+      String body =
+          mvc.perform(validRequest().queryParam(key, "private-location-marker"))
+              .andExpect(status().isBadRequest())
+              .andExpect(jsonPath("$.code").value("INVALID_WEATHER_SELECTOR"))
+              .andReturn()
+              .getResponse()
+              .getContentAsString();
+      org.assertj.core.api.Assertions.assertThat(body).doesNotContain("private-location-marker");
+      org.assertj.core.api.Assertions.assertThat(output.getAll())
+          .doesNotContain("private-location-marker");
+    }
+  }
+
+  @Test
+  void 계획_조회는_검증된_JWT_sub만_service에_전달한다() throws Exception {
+    UUID owner = UUID.randomUUID();
+    UUID item = UUID.randomUUID();
+    mvc.perform(
+            get(PATH)
+                .queryParam("tripItemId", item.toString())
+                .queryParam("dateTime", "2026-08-03T15:00:00+09:00")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(owner)))
+        .andExpect(status().isOk());
+    org.mockito.Mockito.verify(service)
+        .forecast(
+            org.mockito.ArgumentMatchers.argThat(q -> item.equals(q.tripItemId())),
+            org.mockito.ArgumentMatchers.eq(owner));
+  }
+
   private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder
       validRequest() {
     return get(PATH)
-        .queryParam("lat", "33.458111")
-        .queryParam("lng", "126.941516")
+        .queryParam("regionCode", "seogwipo-si")
         .queryParam("dateTime", "2026-08-03T15:00:00+09:00");
   }
 
   private static WeatherForecastResponse success() {
     return new WeatherForecastResponse(
-        "1.0.0",
+        "2.0.0",
         new WeatherGridResponse(60, 37, "제주 동부"),
         "KMA",
         "VilageFcstInfoService_2.0",

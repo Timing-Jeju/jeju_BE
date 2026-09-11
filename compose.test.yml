@@ -44,6 +44,27 @@ services:
       - ./supabase/migrations/20260905000000_mcp_private_http_client.sql:/docker-entrypoint-initdb.d/035_mcp_private_http_client.sql:ro
       - ./supabase/migrations/20260906000000_trip_update_delete_contract.sql:/docker-entrypoint-initdb.d/036_trip_update_delete_contract.sql:ro
       - ./supabase/migrations/20260907000000_schedule_item_create_contract.sql:/docker-entrypoint-initdb.d/037_schedule_item_create_contract.sql:ro
+      - ./supabase/migrations/20260918000000_trip_preferences_replace_contract.sql:/docker-entrypoint-initdb.d/038_trip_preferences_replace_contract.sql:ro
+      - ./supabase/migrations/20260918000001_trip_preferences_owner_read_helper.sql:/docker-entrypoint-initdb.d/039_trip_preferences_owner_read_helper.sql:ro
+      - ./supabase/migrations/20260918000002_trip_accommodation_contract.sql:/docker-entrypoint-initdb.d/040_trip_accommodation_contract.sql:ro
+      - ./supabase/migrations/20260918000003_trip_transport_event_contract.sql:/docker-entrypoint-initdb.d/041_trip_transport_event_contract.sql:ro
+      - ./supabase/migrations/20260918000004_trip_place_preference_contract.sql:/docker-entrypoint-initdb.d/042_trip_place_preference_contract.sql:ro
+      - ./supabase/migrations/20260918000005_trip_calendar_child_invariant_correction.sql:/docker-entrypoint-initdb.d/043_trip_calendar_child_invariant_correction.sql:ro
+      - ./supabase/migrations/20260918000006_profile_image_storage.sql:/docker-entrypoint-initdb.d/044_profile_image_storage.sql:ro
+      - ./supabase/migrations/20260918000007_schedule_item_required_references.sql:/docker-entrypoint-initdb.d/045_schedule_item_required_references.sql:ro
+      - ./supabase/migrations/20260918000008_schedule_item_required_references_correction.sql:/docker-entrypoint-initdb.d/046_schedule_item_required_references_correction.sql:ro
+      - ./supabase/migrations/20260918000009_jeju_timetable_route_scope.sql:/docker-entrypoint-initdb.d/047_jeju_timetable_route_scope.sql:ro
+      - ./supabase/migrations/20260918000010_compute_run_input_location_cleanup.sql:/docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql:ro
+      - ./supabase/migrations/20260918000011_private_trip_ownership_helper.sql:/docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql:ro
+      - ./supabase/migrations/20260918000012_schedule_title_only_sealing_correction.sql:/docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql:ro
+      - ./supabase/migrations/20260918000013_schedule_item_closed_facts.sql:/docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql:ro
+      - ./supabase/migrations/20260918000014_planned_anchor_resolver.sql:/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql:ro
+      - ./supabase/migrations/20260918000015_planned_route_snapshot_provenance.sql:/docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql:ro
+      - ./supabase/migrations/20260918000016_planned_route_reference_integrity.sql:/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql:ro
+      - ./db/local-postgres/20260918000017_location_cutover_group.sql:/docker-entrypoint-initdb.d/055_location_cutover_group.sql:ro
+      - ./supabase/migrations/20260918000019_planned_route_request_hash_policy.sql:/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql:ro
+      - ./supabase/migrations/20260918000020_remove_user_location_runtime.sql:/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql:ro
+      - ./supabase/migrations/20260918000021_day_activity_window_pair.sql:/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
@@ -63,6 +84,9 @@ services:
       SUPABASE_JWT_ISSUER: https://test.supabase.invalid/auth/v1
       SUPABASE_JWT_AUDIENCE: authenticated
       SUPABASE_JWKS_URL: https://test.supabase.invalid/auth/v1/.well-known/jwks.json
+      SUPABASE_URL: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+      PROFILE_IMAGE_MAINTENANCE_ENABLED: "false"
       APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
       APP_SOCIAL_LOGIN_PROVIDER_IDS: google,kakao,custom:naver
       PUSH_TOKEN_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
@@ -91,7 +115,8 @@ services:
       KMA_CONNECT_TIMEOUT: 2s
       KMA_READ_TIMEOUT: 5s
     ports:
-      - "18080:8080"
+      - target: 8080
+        host_ip: "127.0.0.1"
     depends_on:
       postgres:
         condition: service_healthy

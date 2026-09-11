@@ -14,10 +14,10 @@
 - BE는 사용자 소유권, canonical place crosswalk, 일정 command와 적용 transaction을 소유한다.
 - BE→MCP 전송은 Pydantic v0.7 입력의 structured field로 제한한다.
 - MCP→BE 결과는 `structuredContent`만 사용하고 `tools/list` schema checksum, JSON Schema, ID allowlist를 통과해야 한다.
-- `commandInputHash`와 실제 MCP arguments의 `mcpInputHash`는 별도로 기록한다.
-- 감사 로그는 hash/count/status/latency만 저장한다. JWT, 사용자 원문, provider payload, TMAP geometry는 저장하지 않는다.
+- `commandInputHash`는 재현 가능한 closed command lineage로 기록한다. 실제 MCP arguments의 `mcpInputHash`는 wire 검증에만 사용하고 영속 저장하지 않는다.
+- 감사 로그는 command hash/schema checksum/count/status/latency만 저장한다. JWT, 사용자 원문, provider payload, TMAP geometry, MCP wire hash는 저장하지 않는다.
 - #31과 #62는 BE 자체 외부 데이터 기능의 이슈로 유지하며 완료 처리하지 않는다. planner #52의 선행조건에서는 제거한다.
-- 기존 BE route provider(#41)는 별도 BE 기능으로 유지하고 MCP planner 경로의 증거로 재사용하지 않는다.
+- planner 경로 계산·route fact·TTL cache·fallback은 `jeju_AI`가 소유한다. Spring은 같은 계산·cache를 중복 구현하지 않고 private MCP 연결·계약 검증·감사와 제품 DB 결과 저장을 소유한다.
 
 ## 결과
 

@@ -1,6 +1,9 @@
 package com.timingjeju.api.domain.schedule.controller.docs;
 
 import com.timingjeju.api.domain.schedule.dto.CreateScheduleItemRequest;
+import com.timingjeju.api.domain.schedule.dto.MoveScheduleItemRequest;
+import com.timingjeju.api.domain.schedule.dto.PatchScheduleItemRequest;
+import com.timingjeju.api.domain.schedule.dto.ReorderScheduleRequest;
 import com.timingjeju.api.domain.schedule.dto.ScheduleMutationResponse;
 import com.timingjeju.api.global.error.ApiProblemDetails;
 import io.swagger.v3.oas.annotations.Operation;
@@ -188,10 +191,100 @@ public interface ScheduleMutationApiDocs {
               name = "Idempotency-Key",
               in = ParameterIn.HEADER,
               required = true,
-              description = "이 일정 변경 요청을 24시간 식별하는 lowercase canonical UUID",
-              example = "45000000-0000-4000-8000-000000000050",
-              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN))
+              description = "이 일정 변경 요청을 24시간 식별하는 1~128자 printable ASCII 값",
+              example = "schedule-item-create-20260906-001",
+              schema =
+                  @Schema(
+                      type = "string",
+                      minLength = 1,
+                      maxLength = 128,
+                      pattern = "^[ -~]{1,128}$"))
           String idempotencyKey,
       byte[] body,
       @Parameter(hidden = true) HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleItemPatch", tags = "일정", summary = "일정 항목 수정")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = PatchScheduleItemRequest.class)))
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "수정된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> patchItem(
+      String tripId,
+      String itemId,
+      String ifMatch,
+      String idempotencyKey,
+      byte[] body,
+      HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleItemDelete", tags = "일정", summary = "일정 항목 삭제")
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "삭제가 반영된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> deleteItem(
+      String tripId,
+      String itemId,
+      String ifMatch,
+      String idempotencyKey,
+      String expectedActiveScheduleVersionId,
+      HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleOrderUpdate", tags = "일정", summary = "일정 순서 변경")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = ReorderScheduleRequest.class)))
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "순서가 반영된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> reorder(
+      String tripId,
+      String ifMatch,
+      String idempotencyKey,
+      byte[] body,
+      HttpServletRequest servletRequest);
+
+  @Operation(operationId = "tripScheduleItemMoveUpdate", tags = "일정", summary = "일정 항목 Day 이동")
+  @RequestBody(
+      required = true,
+      content =
+          @Content(
+              mediaType = "application/json",
+              schema = @Schema(implementation = MoveScheduleItemRequest.class)))
+  @ApiResponses(
+      @ApiResponse(
+          responseCode = "200",
+          description = "Day 이동이 반영된 새 일정 버전",
+          content =
+              @Content(
+                  mediaType = "application/json",
+                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  ResponseEntity<byte[]> moveItem(
+      String tripId,
+      String itemId,
+      String ifMatch,
+      String idempotencyKey,
+      byte[] body,
+      HttpServletRequest servletRequest);
 }

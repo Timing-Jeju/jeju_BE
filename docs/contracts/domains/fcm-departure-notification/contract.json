@@ -1,8 +1,8 @@
 {
   "schemaVersion": "timing-jeju-fcm-departure-notification/v1",
-  "contractVersion": "1.0.0",
+  "contractVersion": "2.0.0",
   "ownerIssue": 112,
-  "dependencies": [72, 73, 93],
+  "dependencies": [72, 220, 93],
   "excludedScope": [
     "Firebase Console and APNs setup",
     "mobile notification permission UI",
@@ -13,20 +13,20 @@
     "database migration"
   ],
   "readiness": {
-    "contractReady": true,
+    "contractReady": false,
     "implementationReady": false,
     "productionDefaultEnabled": false,
     "missingPreconditionAction": "fail_closed",
     "activationPreconditions": [
       "REST common contract #72 active",
-      "location policy #73 active",
+      "location noncollection policy #220 active",
       "live-state contract #93 implemented",
       "Issue #113 device registry and preference API implemented",
       "Issue #114 FCM adapter implemented with corrected outcome taxonomy",
       "Issue #115 logical job persistence implemented",
       "Issue #116 per-device attempt worker implemented with corrected attempt states",
       "FCM ADC or secret mount validated",
-      "OS, server and latest required location consent signals available",
+      "active device, OS GRANTED and server opt-in signals available",
       "focused integration and delivery-limit QA passed"
     ]
   },
@@ -172,7 +172,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "contractVersion": {"type": "string", "const": "1.0.0"},
+        "contractVersion": {"type": "string", "const": "2.0.0"},
         "tripId": {"type": "string", "format": "canonical-lowercase-uuid"},
         "tripItemId": {"type": "string", "format": "canonical-lowercase-uuid"},
         "scheduleVersionId": {"type": "string", "format": "canonical-lowercase-uuid"},
@@ -210,9 +210,9 @@
   },
   "consentPolicy": {
     "requiredSignals": [
+      "activeDevice",
       "osNotificationPermissionGranted",
-      "serverDepartureNotificationEnabled",
-      "latestRequiredLocationConsent"
+      "serverDepartureNotificationEnabled"
     ],
     "checkpoints": [
       "atSchedule",
@@ -221,28 +221,26 @@
     "anyMissingAction": "cancel_or_skip",
     "osPermissionSource": "latest device-reported GRANTED state; never inferred from token presence",
     "serverSettingSource": "Spring canonical nextDestinationDepartureEnabled preference",
-    "locationConsentEvaluation": {
-      "documentType": "location",
-      "requiredVersionSource": "latest effective required document at evaluation instant",
-      "eligibilityRule": "exact version match and active consent",
-      "oldNewOrWithdrawnAction": "not_eligible",
-      "canonicalVersionPattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
-      "allowedStatuses": ["ACTIVE", "WITHDRAWN"],
-      "invalidEvidenceAction": "fail_closed_without_audit_snapshot",
-      "auditSnapshotFields": [
-        "documentType",
-        "requiredVersion",
-        "consentedVersion",
-        "consentStatus",
-        "evaluatedAt"
-      ]
-    },
     "targetDeactivationTriggers": [
       "permission_denied_or_revoked",
       "logout",
       "device_unlinked",
       "account_deletion"
-    ]
+    ],
+    "eligibilityEvaluation": {
+      "signals": [
+        "deviceActive",
+        "osGranted",
+        "serverEnabled"
+      ],
+      "invalidEvidenceAction": "fail_closed_without_audit_snapshot",
+      "auditSnapshotFields": [
+        "deviceActive",
+        "osGranted",
+        "serverEnabled",
+        "evaluatedAt"
+      ]
+    }
   },
   "jobPolicy": {
     "persistenceOwnerIssue": 115,
@@ -290,21 +288,46 @@
       "USER_OPTED_OUT",
       "PREFERENCE_CHANGED",
       "OS_PERMISSION_REVOKED",
-      "LOCATION_CONSENT_INVALID",
       "NO_ACTIVE_PUSH_TARGET",
       "EXPIRED"
     ],
     "cancellationTriggerReasons": [
-      {"trigger": "schedule_version_replaced", "reason": "SCHEDULE_VERSION_REPLACED"},
-      {"trigger": "item_completed", "reason": "ITEM_COMPLETED"},
-      {"trigger": "item_skipped", "reason": "ITEM_SKIPPED"},
-      {"trigger": "trip_cancelled", "reason": "TRIP_CANCELLED"},
-      {"trigger": "user_opted_out", "reason": "USER_OPTED_OUT"},
-      {"trigger": "preference_changed", "reason": "PREFERENCE_CHANGED"},
-      {"trigger": "os_permission_revoked", "reason": "OS_PERMISSION_REVOKED"},
-      {"trigger": "location_consent_invalid", "reason": "LOCATION_CONSENT_INVALID"},
-      {"trigger": "no_active_push_target", "reason": "NO_ACTIVE_PUSH_TARGET"},
-      {"trigger": "expired", "reason": "EXPIRED"}
+      {
+        "trigger": "schedule_version_replaced",
+        "reason": "SCHEDULE_VERSION_REPLACED"
+      },
+      {
+        "trigger": "item_completed",
+        "reason": "ITEM_COMPLETED"
+      },
+      {
+        "trigger": "item_skipped",
+        "reason": "ITEM_SKIPPED"
+      },
+      {
+        "trigger": "trip_cancelled",
+        "reason": "TRIP_CANCELLED"
+      },
+      {
+        "trigger": "user_opted_out",
+        "reason": "USER_OPTED_OUT"
+      },
+      {
+        "trigger": "preference_changed",
+        "reason": "PREFERENCE_CHANGED"
+      },
+      {
+        "trigger": "os_permission_revoked",
+        "reason": "OS_PERMISSION_REVOKED"
+      },
+      {
+        "trigger": "no_active_push_target",
+        "reason": "NO_ACTIVE_PUSH_TARGET"
+      },
+      {
+        "trigger": "expired",
+        "reason": "EXPIRED"
+      }
     ],
     "preSendRecheck": [
       "active schedule version",
@@ -313,7 +336,6 @@
       "active target",
       "OS permission granted",
       "server departure notification enabled",
-      "latest required location consent active",
       "positive TTL"
     ],
     "claimRequirements": [
@@ -425,7 +447,7 @@
       {"case": "expired_lease_call_started", "observedMarker": "CALL_STARTED", "attemptStatus": "ACCEPTANCE_UNKNOWN", "retryAllowed": false, "recoveryAction": "same row terminal ambiguity update after exact reclaim", "sameAttemptRow": true, "requiredCas": "current owner/generation/fencing/unexpired lease CAS"}
     ],
     "targetRacePolicy": {
-      "immediatelyBeforeEachTargetCall": ["user setting", "OS permission", "latest required location consent", "device active"],
+      "immediatelyBeforeEachTargetCall": ["user setting", "OS permission", "device active"],
       "claimToPreparationActivation": "include when active at preparation",
       "claimToPreparationDeactivation": "exclude when inactive at preparation",
       "postSnapshotActivation": "do not add to current job",
@@ -574,11 +596,8 @@
       "115": "one device-independent logical job in notification_jobs",
       "116": "per-device immutable attempts, lease/fencing worker and retry cleanup"
     },
-    "issueReadbackEvidence": [
-      {"issue": 113, "updatedAt": "2026-08-28T20:11:58Z", "appliedMarkers": ["default 10 and integer 0..120 inclusive", "latest required location consent"]},
-      {"issue": 114, "updatedAt": "2026-08-28T23:50:45Z", "appliedMarkers": ["closed FCM data UTF-8 budgets", "provable pre-connect versus post-write/read ambiguity", "unexpected EOF is post-write ambiguous"]},
-      {"issue": 115, "updatedAt": "2026-08-26T03:57:27Z", "appliedMarkers": ["device-independent logical job key", "one logical job per notification", "safetyBuffer version-CAS atomic replacement"]},
-      {"issue": 116, "updatedAt": "2026-08-26T04:33:51Z", "blankLineNormalizedBodySha256": "de24ed51cd99f944a6a0ed10eba089252e906f8fbb25e2ff0789bc5ea6ebd5da", "appliedMarkers": ["exact per-device attempt key", "ACCEPTANCE_UNKNOWN no retry", "lease generation fencing", "push_delivery_targets closed snapshot and current states", "RESERVED/CALL_STARTED durable pre-I/O protocol", "marker-based crash and expired-lease recovery", "mutually exclusive target aggregation precedence", "exhausted transient attempt persistence", "single-row RESERVED/CALL_STARTED/terminal status lifecycle", "expired LEASED same-state reclaim with preserved generation and incremented fence", "post-claim preparation snapshot and claim/post-snapshot race rechecks", "existing CALL_STARTED plus IN_FLIGHT completion gate", "zero-target preparation cancellation", "closed target transitions and atomic attempt-target-job aggregation", "single generation naming", "inactive retry target terminal SKIPPED attempt"]}
-    ]
+    "issueReadbackEvidence": [],
+    "historicalContract": "docs/contracts/domains/fcm-departure-notification/historical-v1.contract.json",
+    "currentReadbackStatus": "not-linked; v2 owner revalidation required"
   }
 }

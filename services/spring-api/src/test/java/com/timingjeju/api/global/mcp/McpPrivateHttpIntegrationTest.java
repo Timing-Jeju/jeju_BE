@@ -38,7 +38,6 @@ class McpPrivateHttpIntegrationTest {
   private static final UUID COMPUTE_RUN_ID =
       UUID.fromString("10000000-0000-0000-0000-000000000001");
   private static final String REQUEST_ID = "request-live-0001";
-  private static final String COMMAND_INPUT_HASH = "a".repeat(64);
 
   @Autowired private McpToolClient client;
   @Autowired private JdbcTemplate jdbcTemplate;
@@ -57,7 +56,7 @@ class McpPrivateHttpIntegrationTest {
   @Test
   @Transactional
   void private_TLS와_RS256으로_initialize_list_call을_종단_검증한다() {
-    insertComputeRunFixture();
+    String commandInputHash = insertComputeRunFixture();
     jdbcTemplate.execute("set constraints all immediate");
 
     McpInvocationResult result =
@@ -66,7 +65,7 @@ class McpPrivateHttpIntegrationTest {
                 "search_jeju_places",
                 REQUEST_ID,
                 Map.of("request", Map.of("query", "제주", "limit", 1)),
-                COMMAND_INPUT_HASH,
+                commandInputHash,
                 McpCallParent.forComputeRun(COMPUTE_RUN_ID),
                 Map.of(),
                 Map.of(
@@ -84,7 +83,7 @@ class McpPrivateHttpIntegrationTest {
         jdbcTemplate.queryForMap(
             """
             select compute_run_id, tool_name, status, error_code,
-                   command_input_hash, mcp_input_hash, schema_checksum
+                   command_input_hash, schema_checksum
             from public.mcp_compute_call_logs
             where request_id = ?
             """,
@@ -94,8 +93,7 @@ class McpPrivateHttpIntegrationTest {
         .containsEntry("tool_name", "search_jeju_places")
         .containsEntry("status", "succeeded")
         .containsEntry("error_code", null)
-        .containsEntry("command_input_hash", COMMAND_INPUT_HASH);
-    assertThat(audit.get("mcp_input_hash")).asString().matches("[0-9a-f]{64}");
+        .containsEntry("command_input_hash", commandInputHash);
     assertThat(audit.get("schema_checksum")).asString().matches("[0-9a-f]{64}");
   }
 
@@ -112,7 +110,7 @@ class McpPrivateHttpIntegrationTest {
             "trip 10000000-0000-0000-0000-000000000011 with status planned requires an active schedule version");
   }
 
-  private void insertComputeRunFixture() {
+  private String insertComputeRunFixture() {
     insertParentGraph("draft");
     jdbcTemplate.update(
         """
@@ -125,8 +123,10 @@ class McpPrivateHttpIntegrationTest {
         TRIP_PLAN_ID,
         TRIP_DAY_ID,
         SCHEDULE_VERSION_ID,
-        COMMAND_INPUT_HASH,
+        "fixture-pending-hash",
         "issue-202-live-test");
+    return com.timingjeju.api.support.postgresql.LocationFreeComputeInputFixture
+        .attachFeasibilityInput(jdbcTemplate, COMPUTE_RUN_ID);
   }
 
   private void insertParentGraph(String scheduleStatus) {

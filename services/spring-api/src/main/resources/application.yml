@@ -38,6 +38,16 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  profile-image:
+    supabase-url: ${SUPABASE_URL:}
+    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+    connect-timeout: ${PROFILE_IMAGE_CONNECT_TIMEOUT:2s}
+    read-timeout: ${PROFILE_IMAGE_READ_TIMEOUT:5s}
+    maintenance:
+      enabled: ${PROFILE_IMAGE_MAINTENANCE_ENABLED:false}
+      cleanup-fixed-delay: ${PROFILE_IMAGE_CLEANUP_FIXED_DELAY:PT1M}
+      orphan-fixed-delay: ${PROFILE_IMAGE_ORPHAN_FIXED_DELAY:PT24H}
+      initial-delay: ${PROFILE_IMAGE_MAINTENANCE_INITIAL_DELAY:PT1M}
   mcp:
     enabled: ${MCP_ENABLED:false}
     base-url: ${MCP_BASE_URL:https://timing-jeju-ai:8000}

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class Issue114DevelopIntegrationTest(unittest.TestCase):
     def test_FCM_API_port는_caller_environment와_무관한_loopback_18083이다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         preflight = subprocess.run(
             (sys.executable, str(ROOT / "scripts/validate_docker_compose_version.py")),
             cwd=ROOT,
@@ -59,6 +60,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
             )
 
     def test_FCM_init은_Dockerfile_runtime_base를_정확히_재사용한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         dockerfile = (ROOT / "services/spring-api/Dockerfile").read_text(encoding="utf-8")
         override = (ROOT / "compose.fcm.yml").read_text(encoding="utf-8")
         self.assert_fcm_init_runtime_base_contract(dockerfile, override)
@@ -80,6 +82,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         self.assertEqual([f"    image: {runtime_image}"], [line for line in init.splitlines() if "image:" in line])
 
     def test_tago_expired_source_boundary는_DB_clock_domain을_사용한다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         source = (
             ROOT
             / "services/spring-api/src/test/java/com/timingjeju/api/global/tago/arrival"
@@ -101,7 +104,8 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         self.assertIn("databaseNow().minusSeconds(1)", method)
         self.assertNotIn("Instant.now().minusSeconds(1)", method)
 
-    def test_firebase_adapter와_현재_mode24_historical_mode23이_함께_유지된다(self):
+    def test_firebase_adapter와_현재_mode33_historical_modes가_함께_유지된다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         firebase_adapter = (
             ROOT
             / "services/spring-api/src/main/java/com/timingjeju/api/global/push/firebase"
@@ -111,14 +115,16 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
 
         for gate_name in ("quality-gate.sh", "quality-gate.ps1"):
             gate = (ROOT / "scripts" / gate_name).read_text(encoding="utf-8")
-            self.assertIn("--mode 24", gate, gate_name)
+            self.assertIn("--mode 38", gate, gate_name)
             self.assertNotIn("--mode 20", gate, gate_name)
             self.assertNotIn("--mode 16", gate, gate_name)
 
         validator = (
             ROOT / "scripts/validate_openapi_frontend_readiness.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("choices=(9, 16, 20, 21, 23, 24)", validator)
+        self.assertIn(
+            "choices=(9, 16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33, 38)", validator
+        )
 
         migration_names = {
             path.name for path in (ROOT / "supabase/migrations").glob("*.sql")
@@ -133,6 +139,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
         )
 
     def test_fcm_compose_runtime과_ADC_secret_boundary가_fail_closed이다(self):
+        """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
         compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
         compose_test = (ROOT / "compose.test.yml").read_text(encoding="utf-8")
         env_example = (ROOT / ".env.example").read_text(encoding="utf-8")

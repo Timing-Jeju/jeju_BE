@@ -94,14 +94,13 @@ class JdbcCommandInputSnapshotRepositoryTest {
         new CommandInputRequest(
             new CommandInputParent.Compute(UUID.fromString("10810000-0000-0000-0000-000000000001")),
             "feasibility",
-            1,
+            2,
             "command/v1",
             "algorithm/v1",
             objectMapper.readTree("{\"refreshExternalFacts\":false}"),
             UUID.fromString("10810000-0000-0000-0000-000000000002"),
             UUID.fromString("10810000-0000-0000-0000-000000000003"),
-            UUID.fromString("10810000-0000-0000-0000-000000000004"),
-            null);
+            UUID.fromString("10810000-0000-0000-0000-000000000004"));
     return new CommandInputCanonicalizer(objectMapper).canonicalize(request);
   }
 

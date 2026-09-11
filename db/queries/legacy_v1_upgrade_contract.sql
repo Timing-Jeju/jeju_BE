@@ -530,7 +530,7 @@ begin
     );
     raise exception 'new timetable reused an invalid legacy route-stop parent';
   exception
-    when check_violation then null;
+    when check_violation or not_null_violation then null;
   end;
 
   begin
@@ -589,6 +589,8 @@ begin
 
   update public.timetable_entries
   set city_code = '39',
+      route_source_provider = 'TAGO',
+      route_city_code = '39',
       import_run_id = 'e1100000-0000-0000-0000-000000000001',
       source_snapshot_id = 'e1200000-0000-0000-0000-000000000001'
   where id = 'e3500000-0000-0000-0000-000000000002';
@@ -624,6 +626,17 @@ begin
       and fencing_token = 0
   ) then
     raise exception 'legacy fallback compute run was not normalized';
+  end if;
+
+  if not exists (
+    select 1
+    from public.trip_items
+    where id = 'e4300000-0000-0000-0000-000000000001'
+      and item_type = 'place_visit'
+      and accommodation_id is null
+      and transport_event_id is null
+  ) then
+    raise exception 'valid legacy schedule item required references were not preserved';
   end if;
 
 

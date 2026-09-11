@@ -32,7 +32,10 @@ import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripMutationResult;
 import com.timingjeju.api.application.trip.TripTransportMode;
 import com.timingjeju.api.application.trip.service.TripService;
+import com.timingjeju.api.global.logging.RequestTraceId;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -55,6 +58,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Tag("integration")
 @SpringBootTest(
@@ -75,8 +80,23 @@ class TripControllerRedIntegrationTest {
   private static final UUID USER_ID = UUID.fromString("44000000-0000-0000-0000-000000000001");
 
   @Autowired private MockMvc mvc;
+  @Autowired private ObjectMapper objectMapper;
   @MockitoBean private TripService tripService;
   @MockitoBean private IdempotencyUseCase idempotency;
+
+  @Test
+  void 활동시간_PUT는_GPS_unknown을_멱등해시_저장전에_거부한다() throws Exception {
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/v1/trips/44000000-0000-0000-0000-000000000002/day-activity-windows")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header(HttpHeaders.IF_MATCH, "\"trip-44000000-0000-0000-0000-000000000002-r1\"")
+                .header("Idempotency-Key", "activity-239-test")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"days\":[],\"gps\":{}}"))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(idempotency);
+  }
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -201,6 +221,26 @@ class TripControllerRedIntegrationTest {
   }
 
   @Test
+  void GET_trip은_미입력_숙소와_교통도_required_빈_shape와_동일_ETag로_반환한다() throws Exception {
+    TripAggregate trip = aggregate();
+    when(tripService.read(any(), eq(trip.tripId()))).thenReturn(trip);
+    mvc.perform(
+            get("/api/v1/trips/{tripId}", trip.tripId())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+        .andExpect(status().isOk())
+        .andExpect(
+            header()
+                .string(
+                    HttpHeaders.ETAG,
+                    com.timingjeju.api.application.trip.TripEntityTag.strong(
+                        trip.tripId(), trip.revision())))
+        .andExpect(jsonPath("$.transportEvents.arrival").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.transportEvents.departure").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.accommodations").isArray())
+        .andExpect(jsonPath("$.accommodations.length()").value(0));
+  }
+
+  @Test
   void GET_trip_path는_lowercase_canonical_UUID만_허용하고_그외에는_service를_호출하지_않는다() throws Exception {
     UUID canonical = UUID.fromString("44000000-0000-0000-0000-000000000044");
     when(tripService.read(any(), eq(canonical))).thenReturn(aggregate());
@@ -273,6 +313,59 @@ class TripControllerRedIntegrationTest {
                 .content(body))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("INVALID_IF_MATCH"));
+  }
+
+  @Test
+  void PATCH_trip의_calendar_child_constraint는_422_problem으로_반환한다() throws Exception {
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    when(tripService.update(any(), eq(tripId), any(), any()))
+        .thenThrow(TripException.constraintViolation());
+
+    mvc.perform(
+            patch("/api/v1/trips/{tripId}", tripId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .header(HttpHeaders.IF_MATCH, "\"trip-" + tripId + "-r7\"")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"endDate\":\"2026-09-02\"}"))
+        .andExpect(status().isUnprocessableContent())
+        .andExpect(jsonPath("$.code").value("TRIP_CONSTRAINT_VIOLATION"));
+  }
+
+  @Test
+  void trips_controller의_공용_problem은_trips_fixture_3개와_exact_8필드다() throws Exception {
+    JsonNode fixture =
+        objectMapper.readTree(
+            Files.readString(
+                Path.of("..", "..", "fixtures", "contracts", "trips", "problem.json")));
+    UUID tripId = UUID.fromString("44000000-0000-0000-0000-000000000044");
+    String body = "{\"title\":\"제주 가족 여행\"}";
+
+    JsonNode invalid = fixture.get("400_invalid_request");
+    mvc.perform(
+            get("/api/v1/trips/{tripId}", "not-a-uuid")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                .requestAttr(RequestTraceId.TRACE_ID_ATTRIBUTE, invalid.get("traceId").asText()))
+        .andExpect(status().isBadRequest())
+        .andExpect(content().json(invalid.toString(), true));
+
+    for (String key : List.of("409_trip_version_conflict", "409_trip_terminal_state_conflict")) {
+      JsonNode expected = fixture.get(key);
+      reset(tripService);
+      when(tripService.update(any(), eq(tripId), any(), any()))
+          .thenThrow(
+              "TRIP_VERSION_CONFLICT".equals(expected.get("code").asText())
+                  ? TripException.versionConflict()
+                  : TripException.terminalStateConflict());
+      mvc.perform(
+              patch("/api/v1/trips/{tripId}", tripId)
+                  .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID))
+                  .header(HttpHeaders.IF_MATCH, "\"trip-" + tripId + "-r7\"")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body)
+                  .requestAttr(RequestTraceId.TRACE_ID_ATTRIBUTE, expected.get("traceId").asText()))
+          .andExpect(status().isConflict())
+          .andExpect(content().json(expected.toString(), true));
+    }
   }
 
   @Test

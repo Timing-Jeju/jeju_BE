@@ -1,5 +1,9 @@
 # 아키텍처
 
+> 현행 위치 정책: [사용자 현재·간접 위치 무수집 v2](contracts/domains/location-noncollection/contract.md). Issue #220이 #73을 대체한다.
+> 아래 위치 보관·동의·GRID_100M·위치 파생 hash 관련 설명은 제거 대상인 기존 구현/계약의 이력이며
+> 신규 위치 수신·저장의 허용 근거가 아니다. 런타임 전환은 #221 → #222 → #225 → #223 → #224에서 검증한다.
+
 ## 저장소 경계
 
 이 저장소는 Spring Boot 공개 API만 소유합니다. FastAPI MCP 구현은 별도 [Timing-Jeju/jeju_AI](https://github.com/Timing-Jeju/jeju_AI) 저장소가 소유하며, 두 서비스는 private network와 버전이 명시된 MCP 계약으로 연동합니다.
@@ -23,7 +27,7 @@
 └── AGENTS.md
 ```
 
-Spring은 외부 공개 API, 인증·인가, DB와 외부 API를 소유합니다. FastAPI 저장소는 Python 런타임, 패키지 구조, AI 계산 코드와 자체 CI를 독립적으로 결정합니다.
+Spring은 외부 공개 API, 인증·인가, 제품 DB, TourAPI·TAGO·KMA 적재와 private MCP 연결·계약 검증·결과 저장을 소유합니다. `jeju_AI`는 TMAP 호출, 경로 계산, route fact, TTL cache와 fallback을 포함한 AI 계산 런타임을 단독 소유합니다. FastAPI 저장소는 Python 런타임, 패키지 구조와 자체 CI를 독립적으로 결정합니다.
 
 ## Spring API 내부 구조
 
@@ -89,7 +93,11 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - `supabase/migrations`를 public 애플리케이션 스키마의 단일 버전 관리 기준으로 사용합니다.
 - 법정 문서는 `(document_type, locale, version)`으로 버전을 보존하고 Spring이 한 평가 시각의 최신 시행 문서만 조회합니다. 사용자 동의는 canonical JWT sub에만 귀속하며 다건 갱신과 필수 최신 문서 검증을 한 트랜잭션으로 처리합니다.
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `20260819000000` TAGO 정류장 적재, `20260820000000` `#36` 노선-정류장 적재, `20260820000001` `#76` KMA 예보, `20260822000000` `#37` 관광지-정류장 후보 link, `20260823000000` `#65` 추천 체류시간 정책, `20260824000000` `#75` TourAPI discovery checkpoint, `20260825000000` `#33` 공개 장소 tombstone, `20260826000000` `#39` TAGO 도착정보, `20260827000000` `#39` 도착 요청 flight state, `20260830000000` `#170` schedule revision run foundation, `20260902000000` `#44` 여행 생성, `20260903000000` `#182` 관심 장소, `20260904000000`·`20260904000001` `#113` 푸시 기기·알림 설정, `20260907000000` `#50` 일정 항목 전용 참조 순으로 누적 적용합니다. 병합 전 선택적 선행 migration이 없어도 timestamp 중복을 거부하고 현재 존재하는 canonical migration 전체를 적용합니다.
+- `20260918000006` `#78` 프로필 이미지 Storage migration은 `user_profiles` 상태, cleanup outbox와 public bucket의 immutable INSERT-only RLS를 additive하게 적용합니다.
+- `20260918000009`은 #38 시간표 provenance와 TAGO route reference scope를 additive하게 분리합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000021`까지 고유 timestamp와 Docker init `038`부터 `059`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
+- `20260918000019`은 동결된 015/016을 수정하지 않고 planned route hash를 contract version → trip ID → schedule version ID → origin kind/ID → destination kind/ID의 7개 길이-prefix 필드로 교체합니다. owner/item/source ID, 좌표, mode/departure/provider/operation은 hash 입력이 아닙니다. 공개 좌표 일치 검사는 INSERT·봉인 guard에 별도로 유지합니다. exclusive lock과 단일 transaction에서 hash만 backfill하고 provenance guard를 복원합니다. 축소된 identity가 기존 UNIQUE 제약과 충돌하면 원문 hash를 노출하거나 행을 합치지 않고 전체 rollback하므로 적용 전 중복 identity 감사가 필요합니다.
+- `20260918000020`은 018 위치 감사와 worker drain을 확인하고 증명된 무위치 입력·부모 hash를 v2로 함께 변환합니다. deferred 계보 검증을 마친 뒤 위치 열·TTL 함수만 제거합니다. event 참조 함수는 검토한 signature·본문 지문을 요구하며 미분류 함수가 있으면 전체 전환을 중단합니다. 공개 장소와 계획 anchor는 보존합니다. 호환되는 v2 애플리케이션과 함께 검증해야 하며 구형 위치 수집 런타임으로 되돌리지 않습니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -105,7 +113,7 @@ registration token 원문은 controller 요청에서 application crypto port로 
 
 푸시 eligibility의 위치 문서는 profile locale 우선, `ko-KR` fallback과 semantic version/document ID 안정 정렬을 #19 법정 문서 정책과 공유합니다. profile, 후보 문서, 최종 동의·기기의 세 조회는 `REPEATABLE READ` transaction의 첫 DB read 시점 snapshot 하나를 공유하며 동시 commit은 다음 eligibility 호출부터 반영합니다. #61/#106 회원 탈퇴 intake는 `PushNotificationWithdrawalBoundary`만 호출하며, notification 경계는 탈퇴 command/status를 소유하지 않고 모든 기기의 즉시 eligibility 차단과 Auth 삭제 cascade만 책임집니다.
 
-발송 eligibility는 활성 device, `GRANTED` OS 권한, 서버의 명시적 opt-in과 현재 유효한 최신 required 위치 동의를 모두 다시 검사합니다. 결과는 사용한 위치 동의 문서 ID/version을 함께 제공해 예약 계층이 audit snapshot으로 보존할 수 있게 하며, token 존재만으로 동의를 추론하지 않습니다.
+Issue #220의 v2 발송 eligibility는 활성 device, `GRANTED` OS 권한과 서버의 명시적 opt-in만 검사합니다. 위치 동의 문서 ID/version은 입력·audit에서 제외하며 token 존재만으로 알림 선택을 추론하지 않습니다. 기존 런타임의 위치 동의 의존성 제거는 후속 구현 전까지 미완료입니다.
 
 ## 변경 API 멱등성 경계
 
@@ -127,7 +135,11 @@ registration token 원문은 controller 요청에서 application crypto port로 
 
 `schedule_revision_runs`는 generation/compute run과 discriminator 없이 분리된 일정 보정 identity/lifecycle 부모입니다. canonical 사용자·여행·base 일정·target Day를 실제 복합 FK로 고정하고 같은 사용자/여행의 idempotency identity와 active base/Day scope를 DB unique로 직렬화합니다. 이 foundation은 queued 생성, lease/fencing 호환 상태와 terminal 불변성만 소유하며 HTTP 접수, structured command input, MCP call log와 결과 후보는 후속 Issue가 소유합니다.
 
-`application.commandinput`은 HTTP나 JDBC를 모르는 immutable command snapshot과 canonical JSON/SHA-256 계약을 소유하고, `global.commandinput` JDBC adapter가 `compute_run_inputs`에 한 번 저장하고 parent별로 복원합니다. snapshot은 generic compute, itinerary generation, schedule revision parent 중 실제 FK 하나만 참조하며 owner·여행·base 일정·run type을 부모와 재검증합니다. structured input은 denylist가 아니라 run type/schema version별 exact field·type projection으로 닫아 unknown/alias/nested raw object를 Java와 DB에서 동일하게 거부합니다. `spare_time` window는 연도 0001~9999, 실제 Gregorian 날짜, 시·분·초 범위, optional 1~9자리 fraction, `Z` 또는 최대 `±18:00` offset만 허용하는 canonical RFC3339 부분집합입니다. 위치는 `GRID_100M`, `PLACE`, `STOP` closed union만 허용합니다. DB가 최초 `completed` 여행 전이에 `trip_plans.trip_ended_at`을 한 번 기록해 불변화하며, 실제 parent terminal과 이 canonical 여행 종료 anchor의 +24시간 중 earliest cutoff만 제한 DB 함수로 단조 단축합니다. `expires_at <= evaluated_at`은 due입니다. Issue #168 release gate 전에는 production 위치 접수를 default-off로 유지합니다. HTTP intake, MCP 호출 hash/log와 due payload redaction 실행은 각각 후속 Issue가 소유합니다.
+`application.commandinput`은 HTTP나 JDBC를 모르는 immutable command snapshot과 canonical JSON/SHA-256 계약을 소유하고, `global.commandinput` JDBC adapter가 `compute_run_inputs`에 한 번 저장하고 parent별로 복원합니다. snapshot은 generic compute, itinerary generation, schedule revision parent 중 실제 FK 하나만 참조하며 owner·여행·base 일정·run type을 부모와 재검증합니다. structured input은 denylist가 아니라 run type/schema version별 exact field·type projection으로 닫아 unknown/alias/nested raw object를 Java와 DB에서 동일하게 거부합니다. `spare_time` window는 연도 0001~9999, 실제 Gregorian 날짜, 시·분·초 범위, optional 1~9자리 fraction, `Z` 또는 최대 `±18:00` offset만 허용하는 canonical RFC3339 부분집합입니다. 현행 위치 비수집 정책은 현재 GPS와 파생 장소·정류장·격자·hash를 허용하지 않는다. 과거 snapshot v1의 위치 union 및 TTL은 역사 migration 계약이며 v2 런타임에서 해석하거나 수집하지 않는다. 계획한 공개 장소·숙소·터미널 anchor의 출처는 별도로 보존한다.
+
+역사 migration010의 `redact_due_compute_run_input_locations`는 위치 TTL 정리를 구현했다. 해당 SQL과 역사 회귀는 보존하지만, #224에서 애플리케이션 cleanup bean·설정·resolver를 제거한다. 위치 저장을 다시 활성화하는 기능으로 사용하지 않는다.
+
+#224 전환에서는 위치 admission을 호출하지 않는다. Java command snapshot은 schemaVersion=2만 읽고 위치 필드·digest를 hash에서 제거하며, worker는 동일 v2 lineage만 claim한다. MCP는 schema/ID 검증이 반환한 독립 snapshot의 위치 파생 필드를 hash 전에 다시 검사하고 실제 wire hash 검증도 유지한다. DB020과 MCP0.8 release 검증이 완료되기 전에는 intake/MCP 기능을 비활성으로 유지한다.
 
 ## FCM 다음 목적지 출발 알림 경계
 
@@ -137,7 +149,7 @@ generation/expectedGeneration의 single generation naming만 사용한다. prepa
 
 앱 종료 상태의 사용자 표시 메시지는 `notification + data`다. `notifyAt = targetArrivalAt - expectedTravelDurationSeconds - safetyBufferMinutes`, `expiresAt = min(notifyAt + 15분, targetArrivalAt)`로 계산하고 `scheduledAt`은 `notifyAt`의 alias다. 세 시각은 UTC `timestamptz`로 저장한다. trusted `evaluatedAt`에 대해 notifyAt/expiresAt이 모두 미래일 때만 생성하며 equality/past는 생성·즉시 발송·provider 호출을 모두 금지한다. provider TTL은 `min(900, floor(expiresAt - sendAttemptAt))`만 사용한다. Android는 high priority와 `collapse_key`, APNs는 alert+sound와 `apns-expiration=sendAttemptAt+TTL` epoch seconds 및 `apns-collapse-id`에 같은 canonical collapse key를 사용한다. collapse key의 tripId는 canonical lowercase UUID를 regex와 UUID roundtrip으로 검증한다. safety buffer는 기본 10분, integer 0..120분 inclusive다. 여행 시간대로 표시하며 DST overlap의 두 offset과 DST gap은 모두 fail-closed다. data는 다섯 string field만 허용하고 canonical lowercase UUID·canonical deep link, key/value/전체 UTF-8 byte budget과 결정적 title/body fallback을 적용한다.
 
-OS 알림 권한, 서버 출발 알림 설정과 최신 required 위치 동의를 예약 시점과 발송 직전에 확인하며 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 기기 변화는 preparation snapshot에 반영하고 snapshot 뒤 신규 기기는 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 남은 호출 없이 `CANCELLED`다. 동의 version은 canonical nonblank string이고 missing/null/blank/wrong type/unknown status는 fail-closed한다. 일정 버전 변경·항목 완료/건너뜀·여행 취소·알림 비활성화는 이전 미발송 작업을 취소하며 deduplication key와 generation fencing으로 stale worker를 거부한다. `safetyBufferMinutes` 변경도 preference CAS부터 old generation 무효화·미발송 job 취소·재계산·새 job까지 원자 수행한다. TTL은 최대 15분이면서 유효 출발 시각을 넘지 않고, 만료되면 보내지 않는다.
+OS 알림 권한, 서버 출발 알림 설정과 활성 기기를 예약 시점과 발송 직전에 확인하며 각 target 호출 직전 recheck를 포함한다. claim과 preparation 사이 기기 변화는 preparation snapshot에 반영하고 snapshot 뒤 신규 기기는 제외한다. 호출 직전 device 비활성은 `SKIPPED`, job-wide 철회는 남은 호출 없이 `CANCELLED`다. 기기·알림 신호의 missing/null/wrong type과 잘못된 평가 시각은 fail-closed한다. 일정 버전 변경·항목 완료/건너뜀·여행 취소·알림 비활성화는 이전 미발송 작업을 취소하며 deduplication key와 generation fencing으로 stale worker를 거부한다. `safetyBufferMinutes` 변경도 preference CAS부터 old generation 무효화·미발송 job 취소·재계산·새 job까지 원자 수행한다. TTL은 최대 15분이면서 유효 출발 시각을 넘지 않고, 만료되면 보내지 않는다.
 
 FCM 접수는 단말 전달 완료가 아니다. provider message id는 `ACCEPTED` 증거일 뿐 `DELIVERED`로 표현하지 않는다. explicit transient rejection과 request byte 미전송이 증명된 pre-connect failure만 재시도한다. post-write/read timeout, connection reset, unexpected EOF 같은 일반 post-write ambiguity는 terminal `ACCEPTANCE_UNKNOWN`으로 남겨 자동 재시도하지 않는다. 세 번째/만료 transient attempt도 유실하지 않고 job `DEAD`와 원자 보존한다. 앱 재진입 시에는 푸시 payload가 아니라 `live-state`를 다시 조회한다. #93과 #113~#116의 정정된 구현, ADC 또는 secret mount가 검증되기 전에는 production default-off와 fail-closed를 유지한다.
 
@@ -188,10 +200,12 @@ Spring 공개 API · 일정 계산용 facts
 
 ## 서비스 간 경계
 
-- 외부 공개 `/api/v1/**`, 사용자 인증·인가, DB와 외부 API는 Spring API가 담당합니다.
+- 외부 공개 `/api/v1/**`, 사용자 인증·인가와 제품 DB는 Spring API가 담당합니다.
+- TourAPI·TAGO·KMA 외부 API 적재는 Spring API가 담당합니다.
+- 승인된 TMAP route 호출은 AI 계산 런타임이 담당합니다.
 - FastAPI MCP는 private network의 `/mcp`로만 호출합니다.
 - Spring은 정규화된 facts를 전달하고 FastAPI는 계산 결과를 `structuredContent`로 반환합니다.
-- FastAPI는 DB·외부 API·사용자 JWT에 직접 접근하지 않습니다.
+- FastAPI는 제품 DB·사용자 JWT에 직접 접근하지 않습니다.
 - Spring 관점의 wire 계약은 이 저장소의 `docs/designs`에서 관리하고, FastAPI 구현 계약은 [AI 저장소 문서](https://github.com/Timing-Jeju/jeju_AI/blob/develop/docs/FASTAPI_MCP_CONTRACT.md)에서 관리합니다.
 - 양쪽 계약을 바꿀 때는 두 저장소에 Issue와 PR을 각각 만들고 계약 버전과 fixture 호환 순서를 먼저 합의합니다.
 
@@ -203,3 +217,32 @@ Spring 공개 API · 일정 계산용 facts
 - FastAPI의 uv 잠금, Ruff, mypy와 pytest는 `jeju_AI` 저장소의 독립 CI에서 실행합니다.
 - 문서만 변경하고 서비스 계약을 건드리지 않으면 무거운 서비스 검사를 생략합니다.
 - 각 Job은 독립적으로 실행되지만 최종 `quality-gate`가 결과를 하나로 집계합니다.
+
+### Canonical OpenAPI의 구현 준비 상태 (#226)
+
+`FrontendOpenApiCustomizer`는 catalog의 `readiness.implementation`을 검증합니다.
+`ready`인 도메인만 canonical parameter/body/response를 투영하며 누락은 생성 오류입니다.
+`not-ready`인 도메인은 현행 Controller와 DTO에서 생성한 schema를 유지합니다.
+누락·중복 domain과 비정상 status/evidence는 명시적인 구성 오류로 처리합니다.
+문서 링크·예제 준비 상태를 구현 완료로 추정하거나 실제 catalog를 테스트 때문에 승격하지 않습니다.
+
+기존 canonical 투영 테스트는 테스트 전용 ready resource를 사용합니다. 이 fixture는
+release OpenAPI 생성이나 실제 frontend readiness 판정에 사용하지 않습니다.
+실제 catalog HTTP 검사와 미래 not-ready selector HTTP 검사를 별도로 유지합니다.
+Python 검사도 같은 implementation 상태에 따라 canonical schema 비교만 분기하며,
+endpoint 집합·인증·runtime status/Problem·예제 nullable 검증은 계속 수행합니다.
+
+### #223 위치 정리 atomic group (검증 중)
+
+`20260918000017`과 `20260918000018`은 055 실행 슬롯의 단일 transaction으로 적용합니다. 056은 원문 manifest의 예약 슬롯이며 별도 Docker init을 실행하지 않습니다. `scripts/location_cutover_group.py --check`는 고정된 원문 checksum과 생성 SQL의 byte 일치를 확인합니다. 017의 이미 커밋한 SQL은 변경하지 않습니다. 기본 Docker와 Java canonical 초기화는 `db/local-postgres/20260918000017_location_cutover_group.sql`을 사용합니다. 017 단독 역사 회귀 테스트는 전체 cutover 성공 증거가 아닙니다.
+
+
+Supabase ledger 적용용 별도 산출물은 `db/local-postgres/location_cutover_supabase.sql`입니다. 원문 schema migration 파일 두 개를 따로 `db push`하는 방식은 #223 원자성 완료 근거로 사용하지 않습니다. 이력/DDL을 함께 처리하는 SQL과 실제 CLI 호환·격리 staging 검증을 구분합니다. `createBefore(018)`처럼 그룹 내부를 canonical 초기화 경계로 선택하는 동작은 지원하지 않습니다. 017만 적용된 과거 DB는 별도 역사 fixture와 감사 경로로 다룹니다.
+
+원격 cutover는 `scripts/apply_location_cutover.py`만 사용합니다. 실행기는 reviewed SHA와 clean tree,
+reviewed SHA-256으로 고정한 psql, 0600 DB URL 파일, 생성 SQL byte 및 ledger 구조를 쓰기 전에 검사합니다.
+psql은 검증한 바이트의 비공개 복사본으로만 실행하고, 생성 SQL은 검증 뒤 보관한 바이트를 표준입력으로 전달합니다.
+psql 자식은 부모의 동적 loader·PG 환경을 상속하지 않고 필요한 연결값만 새 환경으로 받습니다.
+생성 SQL은 같은 transaction과 ledger 전용 잠금 안에서 정확한 선행 이력 및 server major별
+schema/RLS/ACL fingerprint를 017 본문보다 먼저 검증합니다. 실행 가능한 script/workflow의 raw
+`supabase db push`는 공통 품질 gate에서 거부합니다.

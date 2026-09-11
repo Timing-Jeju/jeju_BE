@@ -28,7 +28,13 @@ import org.springframework.test.web.servlet.MockMvc;
       "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
     })
 @AutoConfigureMockMvc
-class TripOpenApiIntegrationTest {
+class TripOpenApiIntegrationTest
+    extends com.timingjeju.api.global.config.ReadyCanonicalOpenApiTest {
+  @Override
+  protected String canonicalDomain() {
+    return "trips";
+  }
+
   private static final String JWT_KEY = randomKey();
 
   @Autowired private MockMvc mvc;
@@ -36,6 +42,106 @@ class TripOpenApiIntegrationTest {
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
     registry.add("app.security.jwt.secret", () -> JWT_KEY);
+  }
+
+  @Test
+  void 입출도_객체는_필수_필드와_enum을_보존하고_삭제_응답은_null을_허용한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEvent.required")
+                .value(
+                    org.hamcrest.Matchers.containsInAnyOrder(
+                        "eventType",
+                        "transportType",
+                        "terminalPlaceId",
+                        "customTerminalName",
+                        "scheduledAt",
+                        "transportNumber",
+                        "note")))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEvent.properties.eventType.enum")
+                .value(org.hamcrest.Matchers.containsInAnyOrder("arrival", "departure")))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEvent.properties.transportType.enum")
+                .value(org.hamcrest.Matchers.containsInAnyOrder("flight", "ferry")))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.TransportEventMutationResponse.properties.event.anyOf[1].type")
+                .value("null"));
+  }
+
+  @Test
+  void 여행_참조_객체의_null과_숙소_필수필드는_생성_계약에_보존된다() throws Exception {
+    var result = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk());
+    for (String field : java.util.List.of("arrival", "departure")) {
+      String path = "$.components.schemas.TripTransportEvents.properties." + field;
+      result
+          .andExpect(
+              jsonPath(path + ".anyOf[0]['$ref']").value("#/components/schemas/TransportEvent"))
+          .andExpect(jsonPath(path + ".anyOf[1].type").value("null"))
+          .andExpect(jsonPath(path + "['$ref']").doesNotExist());
+    }
+    for (String name :
+        java.util.List.of(
+            "TripDetail", "TripDetailLegacyV11", "TripDetailLegacyV1", "TripSummary")) {
+      result.andExpect(
+          jsonPath("$.components.schemas." + name + ".properties.scoreProvenance.anyOf[1].type")
+              .value("null"));
+    }
+    result.andExpect(
+        jsonPath("$.components.schemas.AccommodationPayload.required")
+            .value(
+                org.hamcrest.Matchers.containsInAnyOrder(
+                    "accommodationId",
+                    "placeId",
+                    "customName",
+                    "name",
+                    "checkInDate",
+                    "checkOutDate",
+                    "checkInTime",
+                    "checkOutTime",
+                    "sequenceNo")));
+  }
+
+  @Test
+  void POST만_과거_receipt_union을_허용하고_GET은_최신_Day_필수필드를_유지한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips'].post.responses['201'].content['application/json'].schema.oneOf")
+                .value(hasSize(3)))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].schema.properties.days.items.required")
+                .value(
+                    containsInAnyOrder(
+                        "dayId", "dayNo", "date", "activityStartTime", "activityEndTime")));
+  }
+
+  @Test
+  void TripDetail은_숙소와_입출도_복원_필드를_required로_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.required")
+                .value(org.hamcrest.Matchers.hasItems("transportEvents", "accommodations")))
+        .andExpect(jsonPath("$.components.schemas.TripDetail.properties.transportEvents").exists())
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.accommodations.type")
+                .value("array"))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}'].get.responses['200'].headers.ETag")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].example.transportEvents")
+                .isMap())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].example.accommodations")
+                .isArray());
   }
 
   @Test
@@ -188,6 +294,8 @@ class TripOpenApiIntegrationTest {
                         "userPace",
                         "transportModes",
                         "days",
+                        "transportEvents",
+                        "accommodations",
                         "activeScheduleVersionId",
                         "totalScore",
                         "scoreProvenance",
@@ -216,8 +324,8 @@ class TripOpenApiIntegrationTest {
             jsonPath("$.components.schemas.TripDetail.properties.totalScore.type")
                 .value(containsInAnyOrder("integer", "null")))
         .andExpect(
-            jsonPath("$.components.schemas.TripDetail.properties.scoreProvenance.type")
-                .value(containsInAnyOrder("object", "null")))
+            jsonPath("$.components.schemas.TripDetail.properties.scoreProvenance.anyOf[1].type")
+                .value("null"))
         .andExpect(
             jsonPath("$.components.schemas.TripDetail.properties.totalScore.minimum").value(0))
         .andExpect(
@@ -225,7 +333,9 @@ class TripOpenApiIntegrationTest {
         .andExpect(jsonPath("$.components.schemas.TripDay.additionalProperties").value(false))
         .andExpect(
             jsonPath("$.components.schemas.TripDay.required")
-                .value(containsInAnyOrder("dayId", "dayNo", "date")))
+                .value(
+                    containsInAnyOrder(
+                        "dayId", "dayNo", "date", "activityStartTime", "activityEndTime")))
         .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.minimum").value(1))
         .andExpect(jsonPath("$.components.schemas.TripDay.properties.dayNo.maximum").value(30))
         .andExpect(

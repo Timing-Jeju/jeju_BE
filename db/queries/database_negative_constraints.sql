@@ -7,7 +7,8 @@ set local time zone 'Asia/Seoul';
 create function pg_temp.expect_rejected(
   test_name text,
   statement text,
-  expected_states text[]
+  expected_states text[],
+  expected_message text default null
 )
 returns void
 language plpgsql
@@ -15,12 +16,15 @@ as $$
 declare
   rejected boolean := false;
   actual_state text;
+  actual_message text;
 begin
   begin
     execute statement;
   exception when others then
     actual_state := sqlstate;
-    if actual_state = any(expected_states) then
+    get stacked diagnostics actual_message = message_text;
+    if actual_state = any(expected_states)
+       and (expected_message is null or actual_message=expected_message) then
       rejected := true;
     else
       raise exception 'negative contract % returned unexpected SQLSTATE %',
@@ -2038,42 +2042,43 @@ select pg_temp.expect_rejected(
   'blank mobility request hash',
   $statement$
     insert into mobility_route_snapshots (
-      request_hash, origin_location, destination_location, transport_mode,
-      duration_minutes, source_provider, source_operation, expires_at
-    ) values (
-      '',
-      st_setsrid(st_makepoint(126.50, 33.50), 4326)::geography,
-      st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography,
-      'walk', 10, 'fixture', 'route', now() + interval '1 hour'
+      request_hash, trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+      origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+      transport_mode, departure_at, duration_minutes, source_provider, source_operation, expires_at
     )
+    select '', trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+           origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+           transport_mode, departure_at, duration_minutes, 'fixture', 'route', now() + interval '1 hour'
+    from mobility_route_snapshots order by id limit 1
   $statement$,
   array['23514']
 );
 
 select pg_temp.expect_rejected(
-  'oversized mobility source key',
+  'oversized mobility request hash',
   $statement$
     insert into mobility_route_snapshots (
-      request_hash, origin_location, destination_location, transport_mode,
-      duration_minutes, source_provider, source_operation, expires_at
-    ) values (
-      repeat('r', 513),
-      st_setsrid(st_makepoint(126.50, 33.50), 4326)::geography,
-      st_setsrid(st_makepoint(126.51, 33.51), 4326)::geography,
-      'walk', 10, 'fixture', 'route', now() + interval '1 hour'
+      request_hash, trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+      origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+      transport_mode, departure_at, duration_minutes, source_provider, source_operation, expires_at
     )
+    select repeat('r', 513), trip_plan_id, schedule_version_id, origin_item_id, destination_item_id,
+           origin_anchor_kind, origin_anchor_id, destination_anchor_kind, destination_anchor_id,
+           transport_mode, departure_at, duration_minutes, 'fixture', 'route', now() + interval '1 hour'
+    from mobility_route_snapshots order by id limit 1
   $statement$,
   array['23514']
 );
 
 insert into timetable_entries (
   route_id, stop_id, direction_key, service_day_type, departure_time,
-  source_provider, source_service, city_code, source_record_key, import_run_id
+  source_provider, source_service, city_code, source_record_key,
+  route_source_provider, route_city_code, import_run_id
 ) values (
   'f4100000-0000-0000-0000-000000000001',
   'f4000000-0000-0000-0000-000000000001', 'outbound',
   'weekday', '09:00', 'fixture', 'TimetableService', '39',
-  'route-1-stop-1-0900', null
+  'route-1-stop-1-0900', 'fixture', '39', null
 );
 
 select pg_temp.expect_rejected(
@@ -2081,12 +2086,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
       'weekday', '09:30', 'fixture', 'TimetableService', '39',
-      repeat('t', 513)
+      repeat('t', 513), 'fixture', '39'
     )
   $statement$,
   array['23514']
@@ -2097,12 +2103,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
       'weekday', '09:00', 'fixture', 'TimetableService', '39',
-      'route-1-stop-1-0900'
+      'route-1-stop-1-0900', 'fixture', '39'
     )
   $statement$,
   array['23505']
@@ -2113,12 +2120,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000003', 'outbound',
       'weekday', '10:00', 'fixture', 'TimetableService', '39',
-      'route-1-wrong-stop-1000'
+      'route-1-wrong-stop-1000', 'fixture', '39'
     )
   $statement$,
   array['23514']
@@ -2129,12 +2137,13 @@ select pg_temp.expect_rejected(
   $statement$
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
-      source_provider, source_service, city_code, source_record_key
+      source_provider, source_service, city_code, source_record_key,
+      route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', '',
       'weekday', '10:30', 'fixture', 'TimetableService', '39',
-      'blank-direction'
+      'blank-direction', 'fixture', '39'
     )
   $statement$,
   array['23514']
@@ -2146,12 +2155,13 @@ select pg_temp.expect_rejected(
     insert into timetable_entries (
       route_id, stop_id, direction_key, service_day_type, departure_time,
       valid_from, valid_to, source_provider, source_service, city_code,
-      source_record_key
+      source_record_key, route_source_provider, route_city_code
     ) values (
       'f4100000-0000-0000-0000-000000000001',
       'f4000000-0000-0000-0000-000000000001', 'outbound',
       'weekday', '09:00', '2026-01-01', '2026-12-31',
-      'fixture', 'TimetableService', '39', 'route-1-stop-1-0900'
+      'fixture', 'TimetableService', '39', 'route-1-stop-1-0900',
+      'fixture', '39'
     )
   $statement$,
   array['23P01']
@@ -2160,13 +2170,13 @@ select pg_temp.expect_rejected(
 insert into timetable_entries (
   route_id, stop_id, direction_key, service_day_type, departure_time,
   valid_from, valid_to, source_provider, source_service, city_code,
-  source_record_key, import_run_id
+  source_record_key, route_source_provider, route_city_code, import_run_id
 ) values (
   'f4100000-0000-0000-0000-000000000001',
   'f4000000-0000-0000-0000-000000000001', 'outbound',
   'weekday', '09:00', '2026-01-01', '2026-12-31',
   'fixture', 'OtherTimetableService', '39', 'route-1-stop-1-0900',
-  null
+  'fixture', '39', null
 );
 
 insert into app_sessions (id, public_token)
@@ -2844,13 +2854,12 @@ insert into public.compute_run_inputs (
   'f1600000-0000-0000-0000-000000000001',
   'f1610000-0000-0000-0000-000000000001',
   'f1630000-0000-0000-0000-000000000001',
-  'schedule_revision', 1, 'revision-v1', 'algorithm-v1',
+  'schedule_revision', 2, 'revision-v1', 'algorithm-v1',
   '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb,
   public.compute_command_input_hash(
-    'schedule_revision'::text, 1::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+    'schedule_revision'::text, 2::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
     'f1630000-0000-0000-0000-000000000001'::uuid,
-    '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb,
-    false::boolean, null::jsonb
+    '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb
   )
 );
 
@@ -2865,10 +2874,10 @@ select pg_temp.expect_rejected(
       'f1600000-0000-0000-0000-000000000001',
       'f1610000-0000-0000-0000-000000000001',
       'f1630000-0000-0000-0000-000000000001',
-      'schedule_revision', 1, 'revision-v1', 'algorithm/v1', '{}'::jsonb, repeat('a', 64)
+      'schedule_revision', 2, 'revision-v1', 'algorithm-v1', '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb, public.compute_command_input_hash('schedule_revision'::text,2::smallint,'revision-v1'::text,'algorithm-v1'::text,'f1630000-0000-0000-0000-000000000001'::uuid,'{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb)
     )
   $statement$,
-  array['23514']
+  array['23514'], 'command input parent lineage or run type mismatch'
 );
 
 select pg_temp.expect_rejected(
@@ -2884,12 +2893,12 @@ select pg_temp.expect_rejected(
       'f1600000-0000-0000-0000-000000000001',
       'f1610000-0000-0000-0000-000000000001',
       'f1630000-0000-0000-0000-000000000001',
-      'schedule_revision', 1, 'revision-v1', 'algorithm/v1',
-      '{"riskEventId":"f1800000-0000-0000-0000-000000000099","optionCount":3}'::jsonb,
-      repeat('a', 64)
+      'schedule_revision', 2, 'revision-v1', 'algorithm-v1',
+      '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb,
+      public.compute_command_input_hash('schedule_revision'::text,2::smallint,'revision-v1'::text,'algorithm-v1'::text,'f1630000-0000-0000-0000-000000000001'::uuid,'{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb)
     )
   $statement$,
-  array['23514']
+  array['23514'], 'command input parent lineage or run type mismatch'
 );
 
 select pg_temp.expect_rejected(
@@ -2904,12 +2913,12 @@ select pg_temp.expect_rejected(
       'f1600000-0000-0000-0000-000000000001',
       'f1610000-0000-0000-0000-000000000001',
       'f1630000-0000-0000-0000-000000000001',
-      'schedule_revision', 1, 'revision-v1', 'algorithm/v1',
+      'schedule_revision', 2, 'revision-v1', 'algorithm-v1',
       '{"targetDayId":"f1620000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb,
       repeat('a', 64)
     )
   $statement$,
-  array['23514']
+  array['23514'], 'command input hash mismatch'
 );
 
 select pg_temp.expect_rejected(
@@ -2924,21 +2933,21 @@ select pg_temp.expect_rejected(
       'f1600000-0000-0000-0000-000000000001',
       'f1610000-0000-0000-0000-000000000001',
       'f1630000-0000-0000-0000-000000000001',
-      'schedule_revision', 1, 'revision-v1', 'algorithm/v1',
+      'schedule_revision', 2, 'revision-v1', 'algorithm-v1',
       '{"nested":{"latitude":33.4}}'::jsonb, repeat('a', 64)
     )
   $statement$,
-  array['23514']
+  array['23514'], 'user location storage is disabled'
 );
 
 select pg_temp.expect_rejected(
   'command input snapshot immutable',
   $statement$
     update public.compute_run_inputs
-    set structured_input = '{"day":2}'::jsonb
+    set created_at = created_at + interval '1 second'
     where id = 'f1800000-0000-0000-0000-000000000001'
   $statement$,
-  array['23514']
+  array['23514'], 'command input snapshot is immutable'
 );
 
 select public.create_local_test_user(
@@ -3012,6 +3021,146 @@ select pg_temp.expect_rejected(
     ) values (
       'f1130000-0000-0000-0000-000000000001', true, 121, now(), now()
     )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'place_visit requires place reference',
+  $statement$
+    update trip_items set place_id = null
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'meal requires nonblank title',
+  $statement$
+    update trip_items set item_type = 'meal', place_id = null, title = null
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'meal rejects tab-only title',
+  $statement$
+    update trip_items set item_type = 'meal', place_id = null, title = E'\t'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'accommodation item requires accommodation reference',
+  $statement$
+    insert into trip_items (
+      trip_plan_id, trip_day_id, schedule_version_id, sequence_no, item_type,
+      place_id, title, planned_start_at, planned_end_at, stay_minutes, source
+    ) values (
+      'f5100000-0000-0000-0000-000000000001',
+      'f5200000-0000-0000-0000-000000000001',
+      'f5300000-0000-0000-0000-000000000002', 2, 'accommodation',
+      'f3000000-0000-0000-0000-000000000001', 'invalid accommodation',
+      '2026-08-10 13:00:00+09', '2026-08-10 14:00:00+09', 60, 'system'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'arrival item requires transport event reference',
+  $statement$
+    update trip_items set item_type = 'arrival'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'departure item requires transport event reference',
+  $statement$
+    update trip_items set item_type = 'departure', place_id = null
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'free_time requires nonblank title',
+  $statement$
+    update trip_items set item_type = 'free_time', place_id = null, title = ' '
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'free_time rejects newline-only title',
+  $statement$
+    update trip_items set item_type = 'free_time', place_id = null, title = E'\n'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'custom requires nonblank title',
+  $statement$
+    update trip_items set item_type = 'custom', place_id = null, title = null
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'place item forbids accommodation reference',
+  $statement$
+    update trip_items
+    set accommodation_id = 'f5400000-0000-0000-0000-000000000099'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'accommodation item forbids transport event reference',
+  $statement$
+    update trip_items
+    set item_type = 'accommodation',
+        accommodation_id = 'f5400000-0000-0000-0000-000000000098',
+        transport_event_id = 'f5400000-0000-0000-0000-000000000097'
+    where id = 'f5400000-0000-0000-0000-000000000003'
+  $statement$,
+  array['23514']
+);
+
+alter table public.trip_items
+  disable trigger trg_trip_items_required_references;
+alter table public.trip_items
+  drop constraint chk_trip_items_required_references;
+update public.trip_items
+set item_type = 'custom', place_id = null, accommodation_id = null,
+    transport_event_id = null, title = E'\t'
+where id = 'f5400000-0000-0000-0000-000000000003';
+
+select pg_temp.expect_rejected(
+  'direct helper rejects invalid required reference',
+  $statement$
+    select public.assert_schedule_item_required_references(
+      'f5300000-0000-0000-0000-000000000002',
+      'f5100000-0000-0000-0000-000000000001'
+    )
+  $statement$,
+  array['23514']
+);
+
+select pg_temp.expect_rejected(
+  'sealed schedule rejects invalid required reference',
+  $statement$
+    update trip_schedule_versions set status = 'candidate'
+    where id = 'f5300000-0000-0000-0000-000000000002'
   $statement$,
   array['23514']
 );

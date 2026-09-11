@@ -63,6 +63,20 @@ class SchedulesContractTest(unittest.TestCase):
             "existing version identity/content and child items/legs are never edited; only atomic draft-to-active and prior active-to-superseded status transitions are allowed",
             self.contract["versionPolicy"]["immutable"],
         )
+        self.assertEqual(
+            "every trip day has at least one item in a sealed version; delete or cross-day move that empties a day returns 422 SCHEDULE_DAY_EMPTY",
+            self.contract["versionPolicy"]["dayCoverage"],
+        )
+        self.assertEqual(
+            {
+                "create": "newly created item ID in the new active version namespace",
+                "patch": "patched old item ID mapped to its copied ID in the new active version namespace",
+                "delete": "empty array because the deleted old item has no counterpart in the new active version namespace",
+                "reorder": "submitted old item IDs mapped in submitted order to copied IDs in the new active version namespace",
+                "move": "moved old item ID mapped to its copied ID in the new active version namespace",
+            },
+            self.contract["mutationPolicy"]["changedItemIds"],
+        )
 
     def test_item_type_required_fields_completed_item_and_manual_validation_are_closed(self) -> None:
         self.assertEqual(
@@ -78,6 +92,10 @@ class SchedulesContractTest(unittest.TestCase):
             self.contract["itemPolicy"]["requiredByType"],
         )
         self.assertEqual("reject-422; completed item cannot be patched, deleted, reordered or moved", self.contract["itemPolicy"]["completedItem"])
+        self.assertEqual(
+            "non-null 1..200 UTF-16 code units and Java String.isBlank=false; DB removes the explicit Character.isWhitespace code-point set without locale-sensitive regex; NBSP, figure space and narrow NBSP remain nonblank characters",
+            self.contract["itemPolicy"]["title"],
+        )
         self.assertEqual("DB constraints and synchronous deterministic validator only", self.contract["mutationPolicy"]["validator"])
         self.assertEqual("never call MCP/AI; correction requires separate schedule revision run owned by #89", self.contract["mutationPolicy"]["aiCorrection"])
 
@@ -160,17 +178,25 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("command-scoped bijection oldItemIdToNewItemId", policy["itemIdentityMapping"]["mapping"])
         self.assertIn("new item IDs", policy["reuse"])
 
-    def test_db_source_types_and_uuid_idempotency_key_are_exact(self) -> None:
+    def test_db_source_types_and_printable_ascii_idempotency_key_are_exact(self) -> None:
         schemas = self.contract["schemas"]
         db_sources = ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]
         self.assertEqual(db_sources, schemas["ScheduleVersion"]["properties"]["sourceType"]["enum"])
         fixture_sources = json.loads((ROOT / "fixtures/contracts/schedules/success.json").read_text(encoding="utf-8"))["sourceTypeFixtures"]
         self.assertEqual(db_sources, fixture_sources)
         key_schema = schemas["MutationHeaders"]["properties"]["Idempotency-Key"]
-        self.assertEqual({"type": "string", "format": "uuid", "nullable": False}, key_schema)
-        errors = []
-        self.validator._validate_schema_value("not-a-uuid", key_schema, schemas, "Idempotency-Key", errors)
-        self.assertTrue(any("UUID" in error for error in errors))
+        self.assertEqual(
+            {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[ -~]{1,128}$", "nullable": False},
+            key_schema,
+        )
+        for valid in ("!", "printable-key", "~" * 128):
+            errors = []
+            self.validator._validate_schema_value(valid, key_schema, schemas, "Idempotency-Key", errors)
+            self.assertEqual([], errors)
+        for invalid in ("", "x" * 129, "line\nbreak", "제주"):
+            errors = []
+            self.validator._validate_schema_value(invalid, key_schema, schemas, "Idempotency-Key", errors)
+            self.assertTrue(errors)
 
     def test_all_mutations_inherit_fail_fast_idempotency_state_contract(self) -> None:
         endpoint_policy = {
@@ -189,6 +215,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(
             {
                 "scope": "canonical sub + method + normalized path + Idempotency-Key",
+                "registryEncoding": "canonical UUID keeps the legacy scope; other printable ASCII uses the schedule-printable-ascii-v1 internal namespace with a full SHA-256 discriminator and a deterministic UUID",
                 "processingLease": "2 minutes",
                 "completedTtl": "24 hours from completion",
                 "completedSameHash": endpoint_policy["replay"],
@@ -237,10 +264,10 @@ class SchedulesContractTest(unittest.TestCase):
             },
             "IDEMPOTENCY_KEY_INVALID": {
                 "status": 400,
-                "condition": "Idempotency-Key header is present but is not a canonical UUID",
+                "condition": "Idempotency-Key header is present but is outside 1..128 printable ASCII",
                 "type": "https://api.timing-jeju.com/problems/idempotency-key-invalid",
                 "title": "멱등성 키가 유효하지 않습니다",
-                "detail": "UUID 형식의 Idempotency-Key를 입력해 주세요.",
+                "detail": "1~128자 printable ASCII Idempotency-Key를 입력해 주세요.",
                 "fixture": "400_idempotency_key_invalid",
             },
         }
@@ -319,6 +346,7 @@ class SchedulesContractTest(unittest.TestCase):
 
     def test_reorder_and_move_boundaries_are_exact(self) -> None:
         self.assertEqual("each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID", self.contract["orderPolicy"]["permutation"])
+        self.assertEqual("within each Day, preserve the ordered active plannedStartAt slots and assign them by submitted position; recompute plannedEndAt from the reordered item's stayMinutes and reject an invalid or overlapping result", self.contract["orderPolicy"]["timeSlots"])
         self.assertEqual("renumber each affected day contiguously from 1 and rebuild every adjacent leg", self.contract["orderPolicy"]["result"])
         self.assertEqual("target day belongs to trip; local date of plannedStartAt equals target day date", self.contract["movePolicy"]["dayBoundary"])
         self.assertEqual("remove from source, insert at targetSequenceNo, compact both days, rebuild affected legs", self.contract["movePolicy"]["result"])
@@ -329,12 +357,44 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(404, conditions["SCHEDULE_ITEM_NOT_FOUND"]["status"])
         self.assertEqual(409, conditions["ACTIVE_SCHEDULE_VERSION_CONFLICT"]["status"])
         self.assertEqual(409, conditions["TRIP_VERSION_CONFLICT"]["status"])
+        self.assertEqual(409, conditions["TRIP_TERMINAL_STATE_CONFLICT"]["status"])
+        for endpoint in self.contract["endpoints"][1:]:
+            self.assertIn(
+                "TRIP_TERMINAL_STATE_CONFLICT", endpoint["errorMatrix"]["409"]
+            )
+        self.assertEqual(422, conditions["SCHEDULE_DAY_EMPTY"]["status"])
+        self.assertIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][3]["errorMatrix"]["422"])
+        self.assertIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][5]["errorMatrix"]["422"])
+        self.assertNotIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][2]["errorMatrix"]["422"])
+        self.assertNotIn("SCHEDULE_DAY_EMPTY", self.contract["endpoints"][4]["errorMatrix"]["422"])
         self.assertEqual(422, conditions["SCHEDULE_ITEM_COMPLETED"]["status"])
         self.assertTrue(all(item["title"] and item["detail"] for item in conditions.values()))
         external = self.contract["externalTraceability"]
         self.assertEqual("not-linked", external["notion"]["contractVersion"])
         self.assertEqual("not-linked", external["figma"]["contractVersion"])
         self.assertTrue(all(value["status"] == "not-ready" for value in self.contract["readiness"].values()))
+
+    def test_schedule_mutations_reject_terminal_trip_with_canonical_conflict(self) -> None:
+        """완료·취소·실패 여행의 모든 일정 변경은 canonical 409로 거부한다."""
+        conditions = {item["code"]: item for item in self.contract["errorConditions"]}
+        terminal = conditions["TRIP_TERMINAL_STATE_CONFLICT"]
+        self.assertEqual(409, terminal["status"])
+        self.assertEqual(
+            "https://api.timing-jeju.com/problems/trip-terminal-state-conflict",
+            terminal["type"],
+        )
+        self.assertEqual("종료된 여행은 변경할 수 없습니다", terminal["title"])
+        self.assertEqual(
+            "완료, 취소 또는 실패한 여행 일정은 변경할 수 없습니다.",
+            terminal["detail"],
+        )
+        self.assertEqual("409_trip_terminal_state_conflict", terminal["fixture"])
+        for endpoint in self.contract["endpoints"][1:]:
+            with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
+                self.assertIn(
+                    "TRIP_TERMINAL_STATE_CONFLICT",
+                    endpoint["errorMatrix"]["409"],
+                )
 
     def test_issue_50_schema_decision_is_recorded(self) -> None:
         schema_gap = self.contract["schemaGap"]
@@ -361,7 +421,7 @@ class SchedulesContractTest(unittest.TestCase):
             ("endpoint schema binding", lambda c: c["endpoints"][1]["schemas"].update(body="none")),
             ("leg derivation", lambda c: c["legDerivationPolicy"].update(requestTimeCall="private MCP")),
             ("sourceType", lambda c: c["schemas"]["ScheduleVersion"]["properties"]["sourceType"]["enum"].append("bogus")),
-            ("Idempotency-Key UUID", lambda c: c["schemas"]["MutationHeaders"]["properties"]["Idempotency-Key"].pop("format")),
+            ("Idempotency-Key 1~128자 printable ASCII", lambda c: c["schemas"]["MutationHeaders"]["properties"]["Idempotency-Key"].pop("pattern")),
             ("item identity mapping", lambda c: c["legDerivationPolicy"].pop("itemIdentityMapping")),
             ("error condition", lambda c: c["errorConditions"][0].update(condition="different but non-empty condition")),
             ("error condition", lambda c: c["errorConditions"][0].update(code="BOGUS")),
@@ -371,6 +431,9 @@ class SchedulesContractTest(unittest.TestCase):
             ("idempotency required/invalid", lambda c: c["errorConditions"].remove(next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_REQUIRED"))),
             ("idempotency required/invalid", lambda c: next(item for item in c["errorConditions"] if item["code"] == "IDEMPOTENCY_KEY_INVALID").update(code="INVALID_REQUEST")),
             ("error condition/matrix", lambda c: c["endpoints"][1]["errorMatrix"]["400"].remove("IDEMPOTENCY_KEY_INVALID")),
+            ("terminal trip", lambda c: c["endpoints"][3]["errorMatrix"]["409"].remove("TRIP_TERMINAL_STATE_CONFLICT")),
+            ("빈 Day", lambda c: c["versionPolicy"].pop("dayCoverage")),
+            ("changedItemIds", lambda c: c["mutationPolicy"]["changedItemIds"].update(delete="removed old ID")),
         )
         for expected, mutate in mutations:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as temporary:

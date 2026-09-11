@@ -36,31 +36,32 @@ class WeatherForecastContractTest(unittest.TestCase):
         common_spec.loader.exec_module(cls.common_validator)
 
     def test_identity_endpoint_and_common_inheritance_are_exact(self) -> None:
+        """위치 비수집 v2 계약과 오류·근거의 변경 경계를 검증한다."""
         self.assertEqual("timing-jeju-weather-forecast-contract/v1", self.contract["schemaVersion"])
-        self.assertEqual("1.0.0", self.contract["contractVersion"])
-        self.assertEqual("1.0.0", self.contract["sourceSpecVersion"])
+        self.assertEqual("2.0.0", self.contract["contractVersion"])
+        self.assertEqual("2.0.0", self.contract["sourceSpecVersion"])
         self.assertEqual("timing-jeju-rest-contract/v1", self.contract["inherits"])
         self.assertEqual(94, self.contract["ownerIssue"])
-        self.assertEqual([67], self.contract["implementationIssues"])
+        self.assertEqual([222], self.contract["implementationIssues"])
         self.assertEqual(
             {("GET", "/api/v1/weather/forecast")},
             {(item["method"], item["path"]) for item in self.contract["endpoints"]},
         )
 
-    def test_query_requires_lat_lng_datetime_together_and_is_closed(self) -> None:
+    def test_query_requires_exactly_one_selector_and_datetime(self) -> None:
+        """날씨는 GPS 대신 계획 selector 하나와 시각을 받는다."""
         query = self.contract["schemas"]["WeatherForecastQuery"]
         self.assertIs(False, query["additionalProperties"])
-        self.assertEqual(["lat", "lng", "dateTime"], query["required"])
-        self.assertEqual({"lat", "lng", "dateTime"}, set(query["properties"]))
-        self.assertEqual((-90, 90), (query["properties"]["lat"]["exclusiveMinimum"], query["properties"]["lat"]["exclusiveMaximum"]))
-        self.assertEqual((-180, 180), (query["properties"]["lng"]["minimum"], query["properties"]["lng"]["maximum"]))
-        date_time = query["properties"]["dateTime"]
-        self.assertEqual("date-time", date_time["format"])
-        self.assertEqual("Asia/Seoul", date_time["timezone"])
-        self.assertEqual("+09:00", date_time["requiredOffset"])
-        self.assertEqual(0, date_time["seconds"])
+        self.assertEqual(["dateTime"], query["required"])
+        self.assertEqual({"regionCode", "placeId", "tripItemId", "dateTime"}, set(query["properties"]))
+        self.assertEqual([{"required": [key]} for key in ("regionCode", "placeId", "tripItemId")], query["oneOf"])
+        for key, value in [("regionCode", "jeju-si"), ("placeId", "20000000-0000-4000-8000-000000000001"), ("tripItemId", "60000000-0000-4000-8000-000000000001")]:
+            errors = []
+            self.validator._validate_value({key: value, "dateTime": "2026-08-03T14:00:00+09:00"}, query, self.contract["schemas"], "query", errors)
+            self.assertEqual([], errors)
 
     def test_grid_base_horizon_version_and_selection_are_closed(self) -> None:
+        """기존 공공 사실과 새 계약의 검증 불가 상태를 정확히 유지한다."""
         self.assertEqual(
             {
                 "projection": "KMA DFS 5km Lambert conformal conic",
@@ -69,7 +70,7 @@ class WeatherForecastContractTest(unittest.TestCase):
                 "ny": {"minimum": 1, "maximum": 253},
                 "outOfGrid": "422 WEATHER_LOCATION_NOT_SUPPORTED",
             },
-            self.contract["gridPolicy"],
+            {key: value for key, value in self.contract["gridPolicy"].items() if key != "selectorResolution"},
         )
         forecast = self.contract["forecastPolicy"]
         self.assertEqual("Asia/Seoul", forecast["timezone"])
@@ -120,21 +121,23 @@ class WeatherForecastContractTest(unittest.TestCase):
             self.assertIn(field, response["required"])
 
     def test_auth_owner_security_and_no_cursor_are_exact(self) -> None:
+        """위치 비수집 v2 계약과 오류·근거의 변경 경계를 검증한다."""
         endpoint = self.contract["endpoints"][0]
         self.assertEqual({"mode": "optional", "missingToken": "anonymous", "invalidToken": 401}, endpoint["auth"])
-        self.assertEqual("none; public weather fact has no user owner", endpoint["owner"])
+        self.assertEqual("regionCode/placeId: public explicit selection; tripItemId: authenticated canonical JWT sub owner only", endpoint["owner"])
         self.assertEqual({"type": "none"}, endpoint["pagination"])
         self.assertEqual({"required": False, "header": "none"}, endpoint["idempotency"])
         security = self.contract["securityPolicy"]
-        self.assertEqual("canonical JWT sub only; not used for weather row selection", security["principal"])
+        self.assertEqual("canonical JWT sub only; tripItemId ownership required; never location-derived identity", security["principal"])
         self.assertIn("request precise coordinates", security["forbiddenPersistence"])
         self.assertIn("raw token", security["forbiddenLogging"])
 
     def test_problem_details_are_exact_eight_fields_and_korean(self) -> None:
+        """위치 비수집 v2 계약과 오류·근거의 변경 경계를 검증한다."""
         expected_fields = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
         problems = self.contract["errorConditions"]
         self.assertEqual(
-            {"INVALID_WEATHER_FORECAST_QUERY", "INVALID_ACCESS_TOKEN", "WEATHER_LOCATION_NOT_SUPPORTED", "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED", "WEATHER_FORECAST_UNAVAILABLE"},
+            {"INVALID_WEATHER_SELECTOR", "AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN", "WEATHER_REFERENCE_NOT_FOUND", "WEATHER_LOCATION_NOT_SUPPORTED", "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED", "WEATHER_FORECAST_UNAVAILABLE"},
             {item["code"] for item in problems},
         )
         for problem in problems:
@@ -158,92 +161,21 @@ class WeatherForecastContractTest(unittest.TestCase):
         for name in ("request.json", "success.json", "problem.json"):
             self.assertTrue((FIXTURES / name).is_file())
         rdb = RDB_SPEC.read_text(encoding="utf-8")
-        self.assertIn("contractVersion: `1.0.0`", rdb)
+        self.assertIn("contractVersion: `2.0.0`", rdb)
         self.assertIn("WEATHER_FORECAST_UNAVAILABLE", rdb)
 
-    def test_external_and_actual_implementation_evidence_are_exact_and_ready(self) -> None:
-        external = self.contract["externalTraceability"]
-        notion = external["notion"]
-        self.assertEqual(
-            {
-                "status": "ready",
-                "contractVersion": "1.0.0",
-                "evidence": {
-                    "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
-                    "pageUrl": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
-                    "method": "GET",
-                    "path": "/api/v1/weather/forecast",
-                    "specStatus": "Ready",
-                    "auth": "Optional",
-                    "screen": "장소 상세 / 일정 날씨 · Figma 1291:8816",
-                    "db": ["weather_grid_points", "weather_forecasts"],
-                    "alignedScope": ["response", "errors", "fallback", "security"],
-                    "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123",
-                },
-                "ownerFollowUp": None,
-            },
-            notion,
-        )
-        figma = external["figma"]
-        self.assertEqual(
-            {
-                "status": "ready",
-                "contractVersion": "1.0.0",
-                "evidence": {
-                    "fileKey": "4mKep38zm17iupVSQVsSJW",
-                    "contractNode": "1291:8816",
-                    "actionNode": "1291:8819",
-                    "loadingNode": "1291:8820",
-                    "successNode": "1291:8821",
-                    "emptyNode": "1291:8822",
-                    "errorNode": "1291:8823",
-                    "decisionComment": "https://github.com/Timing-Jeju/jeju_BE/issues/94#issuecomment-5387038123",
-                },
-                "ownerFollowUp": None,
-            },
-            figma,
-        )
-        self.assertEqual(
-            {
-                "metadata": {
-                    "status": "ready",
-                    "evidence": {
-                        "localDocument": "docs/contracts/domains/weather-forecast/contract.md",
-                        "notionPage": {
-                            "url": "https://app.notion.com/p/3a40a87c7ce5816ba8f7ed2027e94b8c",
-                            "pageId": "3a40a87c-7ce5-816b-a8f7-ed2027e94b8c",
-                        },
-                        "figmaNode": {
-                            "url": "https://www.figma.com/design/4mKep38zm17iupVSQVsSJW?node-id=1291-8816",
-                            "fileKey": "4mKep38zm17iupVSQVsSJW",
-                            "nodeId": "1291:8816",
-                        },
-                    },
-                },
-                "example": {
-                    "status": "ready",
-                    "evidence": {
-                        "requestFixture": "fixtures/contracts/weather-forecast/request.json",
-                        "successFixture": "fixtures/contracts/weather-forecast/success.json",
-                        "problemFixture": "fixtures/contracts/weather-forecast/problem.json",
-                    },
-                },
-                "implementation": {
-                    "status": "ready",
-                    "evidence": {
-                        "controller": "services/spring-api/src/main/java/com/timingjeju/api/domain/weather/controller/WeatherForecastController.java",
-                        "controllerTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/controller/WeatherForecastControllerTest.java",
-                        "serviceTest": "services/spring-api/src/test/java/com/timingjeju/api/domain/weather/service/WeatherForecastQueryServiceTest.java",
-                        "repositoryTest": "services/spring-api/src/test/java/com/timingjeju/api/global/weather/JdbcWeatherForecastRepositoryIntegrationTest.java",
-                        "openApiTest": "services/spring-api/src/test/java/com/timingjeju/api/documentation/WeatherForecastOpenApiIntegrationTest.java",
-                        "contractTest": "scripts/tests/test_weather_forecast_contract.py",
-                    },
-                },
-            },
-            self.contract["readiness"],
-        )
+    def test_v1_evidence_is_historical_and_v2_is_not_ready(self) -> None:
+        """이전 계약 근거를 보존하되 v2 구현/외부 승인의 근거로 재사용하지 않는다."""
+        import hashlib
+        history = ROOT / self.contract["supersedes"]["contract"]
+        self.assertEqual("60becfff2443526e541254009b64d436325168956fd9f9b8cb5409388b3cde6e", hashlib.sha256(history.read_bytes()).hexdigest())
+        for source in ("notion", "figma"):
+            self.assertEqual("not-linked", self.contract["externalTraceability"][source]["contractVersion"])
+            self.assertIsNone(self.contract["externalTraceability"][source]["evidence"])
+        self.assertEqual({stage: {"status": "not-ready", "evidence": None} for stage in ("metadata", "example", "implementation")}, self.contract["readiness"])
 
     def test_issue94_implementation_evidence_missing_wrong_or_tampered_path_fails(self) -> None:
+        """위치 비수집 v2 계약과 오류·근거의 변경 경계를 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         weather = next(item for item in catalog["domainContracts"] if item["issue"] == 94)
         evidence = {
@@ -258,7 +190,7 @@ class WeatherForecastContractTest(unittest.TestCase):
             "status": "ready",
             "evidence": evidence,
         }
-        self.assertEqual([], self.common_validator.validate_catalog(catalog))
+        self.assertTrue(self.common_validator.validate_catalog(catalog))
 
         mutations = (
             ("missing", lambda value: value.pop("serviceTest")),
@@ -288,13 +220,12 @@ class WeatherForecastContractTest(unittest.TestCase):
         )
 
     def test_external_and_readiness_reject_paired_authoritative_lineage_mutation(self) -> None:
+        """기존 공공 사실과 새 계약의 검증 불가 상태를 정확히 유지한다."""
         candidate = copy.deepcopy(self.contract)
         wrong_page_id = "ffffffff-ffff-ffff-ffff-ffffffffffff"
         wrong_page_url = "https://app.notion.com/p/ffffffffffffffffffffffffffffffff"
-        candidate["externalTraceability"]["notion"]["evidence"].update(
-            pageId=wrong_page_id,
-            pageUrl=wrong_page_url,
-        )
+        candidate["externalTraceability"]["notion"]["evidence"] = {"pageId": wrong_page_id, "pageUrl": wrong_page_url}
+        candidate["readiness"]["metadata"]["evidence"] = {}
         candidate["readiness"]["metadata"]["evidence"]["notionPage"] = {
             "url": wrong_page_url,
             "pageId": wrong_page_id,
@@ -308,9 +239,10 @@ class WeatherForecastContractTest(unittest.TestCase):
             with mock.patch.object(self.validator, "DEFAULT_CONTRACT", candidate_path):
                 errors = self.validator.validate(candidate, skip_catalog_fixtures=True)
 
-        self.assertTrue(any("authoritative lineage" in error for error in errors), errors)
+        self.assertTrue(any("external readiness" in error for error in errors), errors)
 
     def test_external_and_readiness_reject_figma_file_and_node_mismatch(self) -> None:
+        """기존 공공 사실과 새 계약의 검증 불가 상태를 정확히 유지한다."""
         mutations = (
             {"fileKey": "WrongFileKey"},
             {
@@ -321,18 +253,17 @@ class WeatherForecastContractTest(unittest.TestCase):
         for updates in mutations:
             with self.subTest(updates=updates):
                 candidate = copy.deepcopy(self.contract)
-                candidate["readiness"]["metadata"]["evidence"]["figmaNode"].update(
-                    updates
-                )
+                candidate["readiness"]["metadata"]["evidence"] = {"figmaNode": updates}
                 errors = self.validator.validate(candidate, skip_catalog_fixtures=True)
                 self.assertTrue(
-                    any("Figma authoritative lineage" in error for error in errors),
+                    any("external readiness" in error for error in errors),
                     errors,
                 )
 
     def test_validator_rejects_contract_drift(self) -> None:
+        """기존 공공 사실과 새 계약의 검증 불가 상태를 정확히 유지한다."""
         mutations = (
-            ("query", lambda value: value["schemas"]["WeatherForecastQuery"]["required"].remove("lng")),
+            ("query", lambda value: value["schemas"]["WeatherForecastQuery"]["required"].remove("dateTime")),
             ("grid", lambda value: value["gridPolicy"].update(rounding="round")),
             ("horizon", lambda value: value["forecastPolicy"].update(villageHorizon="unbounded")),
             ("storage projection", lambda value: value["forecastPolicy"]["storageTypeToResponseType"].update(short="short")),
@@ -340,8 +271,8 @@ class WeatherForecastContractTest(unittest.TestCase):
             ("fallback", lambda value: value["freshnessPolicy"].update(fallbackLimit="unbounded")),
             ("problem", lambda value: value["errorConditions"][0]["example"].update(message="forbidden")),
             ("external readiness", lambda value: value["externalTraceability"]["notion"].update(status="drift-blocked")),
-            ("external readiness", lambda value: value["externalTraceability"]["notion"]["evidence"].update(pageId="drift")),
-            ("external readiness", lambda value: value["externalTraceability"]["figma"].update(status="not-ready")),
+            ("external readiness", lambda value: value["externalTraceability"]["notion"].update(evidence={"pageId": "drift"})),
+            ("external readiness", lambda value: value["externalTraceability"]["figma"].update(status="ready")),
             ("response schema", lambda value: value["schemas"]["WeatherForecastResponse"]["properties"]["providerApiVersion"].update(const="drift")),
             ("endpoint canonical", lambda value: value["endpoints"][0].update(dbOwner="drift")),
             ("schemaGap exact", lambda value: value["schemaGap"].__setitem__(0, "drift")),
@@ -358,13 +289,15 @@ class WeatherForecastContractTest(unittest.TestCase):
         self.assertEqual([], self.validator.validate_fixtures(self.contract))
 
     def test_query_boundary_values_fail_schema_validation(self) -> None:
+        """selector 누락·복수·GPS·UUID·시간대·미지 필드를 거부한다."""
         schema = self.contract["schemas"]["WeatherForecastQuery"]
         cases = (
-            ({"lat": 33.4, "dateTime": "2026-08-03T14:00:00+09:00"}, "required"),
-            ({"lat": 90.0, "lng": 126.9, "dateTime": "2026-08-03T14:00:00+09:00"}, "exclusiveMaximum"),
-            ({"lat": 33.4, "lng": -180.1, "dateTime": "2026-08-03T14:00:00+09:00"}, "minimum"),
-            ({"lat": 33.4, "lng": 126.9, "dateTime": "2026-08-03T05:00:00Z"}, "+09:00"),
-            ({"lat": 33.4, "lng": 126.9, "dateTime": "2026-08-03T14:00:00+09:00", "cursor": "forbidden"}, "additionalProperties"),
+            ({"dateTime": "2026-08-03T14:00:00+09:00"}, "oneOf"),
+            ({"regionCode": "jeju-si", "placeId": "invalid", "dateTime": "2026-08-03T14:00:00+09:00"}, "oneOf"),
+            ({"placeId": "invalid", "dateTime": "2026-08-03T14:00:00+09:00"}, "pattern"),
+            ({"regionCode": "jeju-si", "lat": 33.4, "dateTime": "2026-08-03T14:00:00+09:00"}, "additionalProperties"),
+            ({"regionCode": "jeju-si", "dateTime": "2026-08-03T05:00:00Z"}, "+09:00"),
+            ({"regionCode": None, "dateTime": "2026-08-03T14:00:00+09:00"}, "nullable"),
         )
         for value, expected in cases:
             with self.subTest(expected=expected):
@@ -387,8 +320,9 @@ class WeatherForecastContractTest(unittest.TestCase):
         self.assertTrue(any("required" in error for error in errors), errors)
 
     def test_fixture_mutations_fail_closed(self) -> None:
+        """위치 비수집 v2 계약과 오류·근거의 변경 경계를 검증한다."""
         cases = (
-            ("request.json", lambda value: value["query"].pop("lat"), "required"),
+            ("request.json", lambda value: value["query"].pop("regionCode"), "oneOf"),
             ("request.json", lambda value: value["query"].update(dateTime="2026-08-03T05:00:00Z"), "+09:00"),
             ("request.json", lambda value: value["headers"].update(Authorization="Basic dXNlcjpwYXNz"), "pattern"),
             ("request.json", lambda value: value["headers"].update({"X-Internal-Secret": "forbidden"}), "additionalProperties"),

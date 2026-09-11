@@ -1,9 +1,9 @@
 {
-  "contractVersion": "1.0.0",
+  "contractVersion": "2.0.0",
   "status": 200,
   "evaluatedAt": "2026-08-03T09:06:00+09:00",
   "body": {
-    "contractVersion": "1.0.0",
+    "contractVersion": "2.0.0",
     "grid": {"nx": 60, "ny": 37, "regionName": "서귀포시 성산읍"},
     "provider": "KMA",
     "providerApiVersion": "VilageFcstInfoService_2.0",

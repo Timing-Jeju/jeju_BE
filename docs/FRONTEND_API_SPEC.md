@@ -1,8 +1,8 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **#50 기능 브랜치의 통합 공개 API 24개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 `--mode 24` 명령이 병합된 23개와 일정 항목 추가 POST 1개를 exact inventory로 고정하고 operationId, media type, header, schema/example 양방향 정합성, Problem Details, 비밀정보와 내부 경로를 fail-closed로 검사한다. historical `--mode 16`, `--mode 20`, `--mode 21`, `--mode 23`은 이전 inventory를 그대로 보존한다.
+> **현재 통합 공개 API 38개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 active `--mode 38` selector가 #78의 33개에 #51 schedule edit 4개와 #239 Day 활동창 PUT을 합친 exact inventory를 고정한다. historical `--mode 24`, `--mode 25`, `--mode 27`, `--mode 28`, `--mode 29`, `--mode 30`, `--mode 31`은 각 출시 시점의 목록으로 보존한다.
 
-이 문서는 현재 `develop`의 공개 Spring API 23개와 #50의 일정 항목 추가 POST를 합친 24개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 최신 source stack 공개 Spring API와 #51 일정 편집 4개와 #239 Day 활동창 PUT까지 합친 exact 38개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
@@ -10,8 +10,9 @@
 |---|---|---|
 | `develop` 사용 가능 | 공개 API 23 | `origin/develop`의 Controller/OpenAPI와 canonical contract; #45 trip PATCH/DELETE와 #49 schedule read 포함 |
 | **#50 기능 브랜치** | 일정 항목 추가 POST 1 | `feat/50-schedule-item-create`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
+| **#46 통합 브랜치** | 여행 선호 조건 PUT 1 | `fix/46-trip-preferences-reintegrate`의 canonical contract, runtime, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 
-현재 `develop`에서는 23개를 호출할 수 있다. 일정 항목 추가 POST는 독립 리뷰와 병합 전까지 #50 기능 브랜치에서만 검증하며, 이 문서는 해당 브랜치가 실제 생성한 24-operation artifact를 기준으로 한다.
+현재 통합 브랜치는 #78의 exact 33-operation artifact에 schedule edit 4개와 Day 활동창 PUT을 더한 exact 38-operation artifact를 기준으로 한다. historical mode24/25/27/28/29/30/31은 각 시점의 exact inventory를 계속 검증한다. mode24는 create만, mode28은 create와 edit 4개를 고정하며 historical mode33 selector는 기존 37개, active mode38 selector는 최신 38개 runtime inventory를 검증한다.
 
 ## Base URL과 인증
 
@@ -26,7 +27,7 @@
 
 ## OperationId와 code generation
 
-통합된 23개 operation은 stable lowerCamelCase operationId를 제공한다. #49의 `tripScheduleRead`를 유지하고 #45는 `tripsUpdate`, `tripsDelete`를 추가한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
+통합된 27개 operation은 stable lowerCamelCase operationId를 제공한다. #49의 `tripScheduleRead`, #50의 `tripScheduleItemCreate`, #45의 `tripsUpdate`·`tripsDelete`, #68의 숙소 CRUD 3개를 유지한다. `_1` 같은 자동 suffix 또는 generic `list/read/create/update/delete`가 다시 나타나면 품질 게이트가 실패한다.
 
 ## 공통 헤더와 응답
 
@@ -67,7 +68,7 @@
 
 cursor는 opaque하고 무결성이 보호된 문자열이다. `nextCursor`를 해석하거나 조합하지 말고 다음 요청의 `cursor`에 그대로 넣는다. `hasNext=false`이면 `nextCursor=null`이다. cursor를 받은 뒤 filter, sort, size 또는 사용자 scope를 바꾸면 `400 CURSOR_CONTEXT_MISMATCH`; 훼손된 cursor는 `400 INVALID_CURSOR`다.
 
-- places: 기본 `size=20`, 최대 100. 위치 검색은 `distanceMeters ASC NULLS LAST, name ASC, placeId ASC`, 그 외는 `name ASC, placeId ASC`.
+- places: 기본 `size=20`, 최대 100. 항상 `name ASC, placeId ASC` keyset 순서이며 사용자 거리 계산은 하지 않는다. 이전 위치 기반 cursor는 폐기하고 첫 페이지부터 조회한다.
 - saved places: 기본 `size=20`, 최대 100. sort는 `saved_at_desc`, `priority_desc`, `target_day_asc`.
 - trips: 기본 `size=20`, 최대 50. `updatedAt DESC, tripId DESC`.
 
@@ -388,14 +389,16 @@ Accept: application/json
 
 operationId: `placesList` · Codegen: **READY** · Canonical statuses: `200,400,401,422,429,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
-`develop` 사용 가능 · 인증 선택. query는 모두 optional/non-null: `query` trim 1..100자, `category` `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`, `regionCode` `^[a-z0-9][a-z0-9_-]{0,49}$`, `lat` 33..34와 `lng` 126..127은 쌍으로 사용, `radiusMeters` 100..50000(좌표가 있을 때, 기본 10000), `cursor` 1..2048, `size` 1..100(기본 20), `savedOnly` boolean(기본 false). category는 runtime Controller/OpenAPI의 public wire pattern을 따른다. 익명 `savedOnly=true`는 `401 AUTHENTICATION_REQUIRED`.
+위치 비수집 v2 조회 · 인증 선택. query는 여섯 개이며 모두 optional/non-null: `query` trim 1..100자, `category` `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`, `regionCode` `^[a-z0-9][a-z0-9_-]{0,49}$`, `cursor` 1..2048 (`plc2.` 접두사, 서버가 발급한 nextCursor만 전달), `size` 1..100(기본 20), `savedOnly` boolean(기본 false). category는 runtime Controller/OpenAPI의 public wire pattern을 따른다. 익명 `savedOnly=true`는 `401 AUTHENTICATION_REQUIRED`.
 
-성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER | INVALID_GEO_FILTER | CURSOR_CONTEXT_MISMATCH | INVALID_CURSOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `422 PLACE_QUERY_CONSTRAINT_VIOLATION`; `503 PLACE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`. canonical contract에는 `429 UPSTREAM_RATE_LIMITED`가 있으나 현재 Controller OpenAPI에는 빠져 있으므로 아래 “계약 충돌”에 기록한다.
+성공 `200`. 오류: `400 INVALID_QUERY_PARAMETER | CURSOR_CONTEXT_MISMATCH | INVALID_CURSOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `422 PLACE_QUERY_CONSTRAINT_VIOLATION`; `503 PLACE_DATA_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`. canonical contract에는 `429 UPSTREAM_RATE_LIMITED`가 있으나 현재 Controller OpenAPI에는 빠져 있으므로 아래 “계약 충돌”에 기록한다.
+
+사용자 GPS 및 GPS 파생 지역·nearest place·grid·hash를 입력하지 않는다. 알 수 없는 key와 중복 key는 400이다. 공개 장소 자체의 location 좌표 및 상세의 장소–정류장 거리는 유지한다.
 
 **요청 예시**
 
 ```http
-GET /api/v1/places?query=%EC%98%A4%EB%A6%84&category=content-type%3A12&regionCode=jeju-si&lat=33.4996&lng=126.5312&radiusMeters=10000&size=20 HTTP/1.1
+GET /api/v1/places?query=%EC%98%A4%EB%A6%84&category=content-type%3A12&regionCode=jeju-si&size=20 HTTP/1.1
 Accept: application/json
 ```
 
@@ -404,9 +407,6 @@ Accept: application/json
   "query": "오름",
   "category": "content-type:12",
   "regionCode": "jeju-si",
-  "lat": 33.4996,
-  "lng": 126.5312,
-  "radiusMeters": 10000,
   "size": 20,
   "savedOnly": false
 }
@@ -433,14 +433,13 @@ Accept: application/json
       "recommendedStayEffectiveAt": "2026-08-01T00:00:00Z",
       "recommendedStayUpdatedAt": "2026-08-01T00:00:00Z",
       "operationsSummary": null,
-      "distanceMeters": 1250,
       "dataFreshness": {"provider": "TOUR_API", "observedAt": "2026-08-25T00:00:00Z", "expiresAt": "2026-08-26T00:00:00Z", "stale": false},
       "saved": false,
       "memo": null,
       "tags": []
     }
   ],
-  "page": {"size": 20, "hasNext": true, "nextCursor": "opaque-public-cursor-example"}
+  "page": {"size": 20, "hasNext": true, "nextCursor": "plc2.cHVibGljLWN1cnNvci1leGFtcGxl"}
 }
 ```
 
@@ -448,12 +447,12 @@ Accept: application/json
 
 ```json
 {
-  "type": "https://api.timing-jeju.com/problems/invalid-geo-filter",
-  "title": "요청 위치 조건이 올바르지 않습니다",
+  "type": "https://api.timing-jeju.com/problems/invalid-query-parameter",
+  "title": "요청 조건이 올바르지 않습니다",
   "status": 400,
-  "detail": "위도와 경도는 함께 입력하고 제주 범위와 반경을 확인해 주세요.",
+  "detail": "허용된 검색 조건을 확인해 주세요.",
   "instance": "urn:timing-jeju:problem:0123456789abcdef0123456789abcdef",
-  "code": "INVALID_GEO_FILTER",
+  "code": "INVALID_QUERY_PARAMETER",
   "traceId": "0123456789abcdef0123456789abcdef",
   "fieldErrors": []
 }
@@ -1008,23 +1007,22 @@ Authorization: Bearer <access-token>
 
 ### `GET /api/v1/weather/forecast`
 
-operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,422,503` · Generated OpenAPI statuses: `200,400,401,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
+operationId: `weatherForecastRead` · Codegen: **READY** · Canonical statuses: `200,400,401,404,422,503` · Generated OpenAPI statuses: `200,400,401,404,422,500,503` · Generated success media type: `application/json` · Frontend success media type: `application/json`
 
-`develop` 사용 가능 · 인증 선택. query `lat`(-90 exclusive..90 exclusive), `lng`(-180..180), `dateTime` 모두 필수/non-null/finite. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
+#222 구현 검증 중 · 공개 regionCode/placeId는 인증 선택, tripItemId는 owner JWT 필수. query `regionCode | placeId | tripItemId` 중 정확히 하나와 `dateTime`을 받는다. GPS 및 GPS 파생 위치 입력, 중복/unknown query는 거부한다. 현재 공개 지역은 `jeju-si`, `seogwipo-si`, `seongsan`이다. dateTime은 `Asia/Seoul` 정시와 `+09:00`, 예: `2026-08-25T12:00:00+09:00`; 현재 정시부터 10일 이내만 지원한다. request-time KMA 호출 없이 저장된 정규화 예보를 반환한다.
 
-성공 `200`; `contractVersion=1.0.0`, `provider=KMA`, `providerApiVersion=VilageFcstInfoService_2.0`, `forecastType=ultra_short|village`. category-derived 값은 required nullable. 오류: `400 INVALID_WEATHER_FORECAST_QUERY`; `401 INVALID_ACCESS_TOKEN`; `422 WEATHER_LOCATION_NOT_SUPPORTED | WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`; `503 WEATHER_FORECAST_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
+성공 `200`; `contractVersion=2.0.0`, `provider=KMA`, `providerApiVersion=VilageFcstInfoService_2.0`, `forecastType=ultra_short|village`. category-derived 값은 required nullable. 오류: `400 INVALID_WEATHER_SELECTOR`; `401 AUTHENTICATION_REQUIRED | INVALID_ACCESS_TOKEN`; `404 WEATHER_REFERENCE_NOT_FOUND`; `422 WEATHER_LOCATION_NOT_SUPPORTED | WEATHER_FORECAST_HORIZON_NOT_SUPPORTED`; `503 WEATHER_FORECAST_UNAVAILABLE`; `500 INTERNAL_SERVER_ERROR`.
 
 **요청 예시**
 
 ```http
-GET /api/v1/weather/forecast?lat=33.4996&lng=126.5312&dateTime=2026-08-25T12%3A00%3A00%2B09%3A00 HTTP/1.1
+GET /api/v1/weather/forecast?regionCode=jeju-si&dateTime=2026-08-25T12%3A00%3A00%2B09%3A00 HTTP/1.1
 Accept: application/json
 ```
 
 ```json
 {
-  "lat": 33.4996,
-  "lng": 126.5312,
+  "regionCode": "jeju-si",
   "dateTime": "2026-08-25T12:00:00+09:00"
 }
 ```
@@ -1033,8 +1031,8 @@ Accept: application/json
 
 ```json
 {
-  "contractVersion": "1.0.0",
-  "grid": {"nx": 53, "ny": 38, "regionName": "제주시"},
+  "contractVersion": "2.0.0",
+  "grid": {"nx": 53, "ny": 38, "regionName": "제주특별자치도 제주시"},
   "provider": "KMA",
   "providerApiVersion": "VilageFcstInfoService_2.0",
   "forecastType": "village",
@@ -1082,5 +1080,27 @@ Accept: application/json
 7. Naver UserInfo의 생성 OpenAPI 200 media type은 #182에서 runtime과 같은 `application/json`으로 정렬했다.
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
-10. #44 최종 clean HEAD `9a4c4b2`와 선행 OpenAPI 보완 `88c50c3`에서 trip `Idempotency-Key`는 required canonical UUID로 정렬됐다. #34 clean snapshot의 `Idempotency-Replayed` header schema는 여전히 비어 있으므로 병합 artifact에서 boolean으로 보완돼야 한다. 요청 header는 필수로 보내고 replay header의 textual wire 값 `true|false`를 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. #50 기능 브랜치는 새로 생성한 단일 24-operation artifact에서 `--mode 24` 검사를 통과해야 Codegen READY다. historical `--mode 16`, `--mode 20`, `--mode 21`, `--mode 23`은 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+10. #68 이후 변경 API의 `Idempotency-Key`는 1~128자 printable ASCII이며 profile-image PUT도 같은 계약을 사용한다. `Idempotency-Replayed`의 textual wire 값 `true|false`는 boolean으로 변환한다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 현재 통합 브랜치는 새로 생성한 단일 38-operation artifact에서 active `--mode 38` 검사를 통과해야 Codegen READY다. historical `--mode 24`, `--mode 25`, `--mode 27`, `--mode 28`, `--mode 29`, `--mode 30`, `--mode 31`은 각 시점 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+
+## #239 날짜별 활동 시간 저장
+
+`PUT /api/v1/trips/{tripId}/day-activity-windows`에 GET으로 받은 모든 현재 `dayId`와 `startTime`/`endTime`을 보낸다. 시각은 정확한 `HH:mm`, 시작 < 종료이며 익일로 넘어가지 않는다. Bearer 인증, 직전 여행 `If-Match`, 새 편집마다 새로운 `Idempotency-Key`가 필요하다. timeout 재시도는 같은 키와 같은 body를 사용한다. 성공 응답은 여행 aggregate와 새 ETag이며 `Idempotency-Replayed`를 반환한다.
+
+GET Day에는 required nullable `activityStartTime`과 `activityEndTime`이 추가됐다. null은 미입력이고 화면 기본 시각을 서버 저장값으로 표시하면 안 된다. FE 입력은 1~5일을 유지하며 서버는 기존 1~30일 여행의 저장·복원을 지원한다. 날짜 수정 뒤에도 남은 날짜의 Day ID와 활동 시간이 보존된다. active/candidate 일정 참조가 있으면 변경은 `409 TRIP_REGENERATION_REQUIRED`로 거부된다.
+
+생성된 client operation은 `tripDayActivityWindowsUpdate`다. `./scripts/generate_frontend_api_client.sh`는 38개 operation을 검증하고 `services/spring-api/build/distributions/timing-jeju-frontend-api-client.tgz`를 만든다. 활동 시간 저장 UI 및 Notion/Figma 연결은 별도 실제 readback 전까지 완료로 표시하지 않는다.
+
+### #239 생성 재시도의 과거 응답 계약
+
+`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV11 | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH와 새 Day PUT 응답의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
+
+TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연장하지 않는다. 만료 경계에서는 기존 registry 규칙을 그대로 따른다. receipt 삭제·namespace 교체·body 재작성·최신 GET 응답으로 치환하는 데이터 변경은 없다. 이 호환 계약 때문에 DB migration을 추가하지 않는다.
+
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 현재 통합 브랜치는 새로 생성한 단일 37-operation artifact에서 active `--mode 33` 검사를 통과해야 Codegen READY다. historical `--mode 24`, `--mode 25`, `--mode 27`, `--mode 28`, `--mode 29`, `--mode 30`, `--mode 31`은 각 시점 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+
+### #246 여행 상세 재조회 복원
+
+`TripDetail.transportEvents`의 `arrival`·`departure`는 항상 존재하며 각각 기존 교통 저장 payload 또는 `null`이다. `TripDetail.accommodations`는 기존 숙소 저장 payload 배열이고 `sequenceNo`, `accommodationId` 순으로 정렬된다. GET 한 번의 ETag와 모든 값은 같은 revision snapshot이다. 앱 초기화·다른 기기 로그인에서는 이 값을 기준으로 상태를 새로 채우고 `null`/`[]`인 항목은 이전 여행 값이 남지 않게 비운다. 날짜별 활동 시간은 #239의 nullable Day 필드를 사용하며 미입력 값에 임의 시간을 만들지 않는다.
+
+#246에서도 과거 완료 receipt를 다시 쓰거나 만료시키지 않는다. POST는 활동 시간 도입 전 `TripDetailLegacyV1` 또는 숙소·교통 도입 전 `TripDetailLegacyV11`을 replay할 수 있다. Day PUT의 `TripDayActivityWindowsResponse`는 최신 TripDetail과 TripDetailLegacyV11의 닫힌 union이다. legacy 분기는 `Idempotency-Replayed: true`에서만 반환하며 과거 원본 status/ETag/body/기존Location을 유지한다. 새 mutation과 GET/PATCH는 최신 required child를 반환한다. FE는 replay 응답에 child가 없으면 빈 값으로 덮어쓰지 않고 canonical 여행 GET으로 복원한다.

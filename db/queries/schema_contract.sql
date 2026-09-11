@@ -1381,6 +1381,25 @@ begin
   if parent_unique_count <> 3 then
     raise exception 'compute_run_inputs per-parent unique count differs: %', parent_unique_count;
   end if;
+  if exists (select 1 from information_schema.columns where table_schema='public'
+      and ((table_name='compute_run_inputs' and column_name in
+        ('location_supplied','coarse_location','location_precision_meters','location_policy_version',
+         'location_observed_at','location_expires_at','location_redacted_at'))
+        or (table_name='trip_execution_events' and column_name='location')
+        or (table_name='live_state_snapshots' and column_name in ('current_location','current_place_id')))) then
+    raise exception 'removed user location columns are present';
+  end if;
+  if to_regprocedure('public.redact_due_compute_run_input_locations(timestamptz,integer)') is not null
+     or to_regprocedure('public.shorten_compute_run_input_location_expiry(uuid,timestamptz)') is not null
+     or to_regprocedure('public.compute_command_input_hash(text,smallint,text,text,uuid,jsonb,boolean,jsonb)') is not null
+     or to_regprocedure('public.compute_command_input_hash(text,smallint,text,text,uuid,jsonb)') is null then
+    raise exception 'no-location hash function boundary is invalid';
+  end if;
+  if timing_jeju_planner_private.user_location_schema_revision() is distinct from '20260918000020'
+     or exists (select 1 from public.compute_run_inputs where schema_version<>2)
+     or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts() where residue_count<>0) then
+    raise exception 'no-location schema revision or residue is invalid';
+  end if;
   if not (select relrowsecurity from pg_catalog.pg_class
           where oid = 'public.compute_run_inputs'::regclass)
      or exists (
@@ -1398,9 +1417,9 @@ begin
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRUNCATE')
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'REFERENCES')
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRIGGER')
-       or not has_function_privilege(
+       or has_function_privilege(
          'service_role',
-         'public.shorten_compute_run_input_location_expiry(uuid,timestamptz)',
+         'public.compute_command_input_hash(text,smallint,text,text,uuid,jsonb)',
          'EXECUTE'
        )
      ) then
@@ -1490,6 +1509,113 @@ begin
        or has_table_privilege('service_role', 'public.notification_preferences', 'TRUNCATE')
      ) then
     raise exception 'service role push notification DML/truncate boundary is invalid';
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.trip_items'::regclass
+      and constraint_row.conname = 'chk_trip_items_required_references'
+      and constraint_row.contype = 'c'
+      and constraint_row.convalidated
+  ) then
+    raise exception 'trip item required references by type constraint is missing';
+  end if;
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.trip_transport_events'::regclass
+      and constraint_row.conname = 'uq_trip_transport_events_id_plan_event_type'
+      and constraint_row.contype = 'u'
+      and constraint_row.convalidated
+      and pg_catalog.pg_get_constraintdef(constraint_row.oid)
+        = 'UNIQUE (id, trip_plan_id, event_type)'
+  ) then
+    raise exception 'trip transport event typed composite unique constraint is missing';
+  end if;
+  if not exists (
+    select 1
+    from pg_catalog.pg_constraint constraint_row
+    where constraint_row.conrelid = 'public.trip_items'::regclass
+      and constraint_row.conname = 'fk_trip_items_transport_event_type_plan'
+      and constraint_row.contype = 'f'
+      and constraint_row.convalidated
+      and pg_catalog.pg_get_constraintdef(constraint_row.oid)
+        = 'FOREIGN KEY (transport_event_id, trip_plan_id, item_type) REFERENCES trip_transport_events(id, trip_plan_id, event_type)'
+  ) then
+    raise exception 'trip item typed transport event composite foreign key is missing';
+  end if;
+  if not exists (
+    select 1
+    from pg_catalog.pg_indexes index_row
+    where index_row.schemaname = 'public'
+      and index_row.tablename = 'trip_items'
+      and index_row.indexname = 'idx_trip_items_transport_event'
+      and index_row.indexdef like '%(transport_event_id, trip_plan_id, item_type)%'
+      and index_row.indexdef like '%WHERE (transport_event_id IS NOT NULL)%'
+  ) then
+    raise exception 'trip item typed transport event lookup index is invalid';
+  end if;
+  if not exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.trip_items'::regclass
+      and trigger_row.tgname = 'trg_trip_items_required_references'
+      and not trigger_row.tgisinternal
+  ) then
+    raise exception 'trip item required references trigger is missing';
+  end if;
+  if to_regprocedure('public.assert_schedule_item_required_references(uuid,uuid)') is null then
+    raise exception 'schedule item required references sealing validator is missing';
+  end if;
+  if exists (
+    select 1
+    from pg_catalog.pg_proc function_row,
+         lateral pg_catalog.aclexplode(
+           coalesce(function_row.proacl, pg_catalog.acldefault('f', function_row.proowner))
+         ) privilege_row
+    where function_row.oid =
+        'public.assert_schedule_item_required_references(uuid,uuid)'::regprocedure
+      and privilege_row.grantee = 0
+      and privilege_row.privilege_type = 'EXECUTE'
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'anon')
+    and has_function_privilege(
+      'anon', 'public.assert_schedule_item_required_references(uuid,uuid)', 'EXECUTE')
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'authenticated')
+    and has_function_privilege(
+      'authenticated', 'public.assert_schedule_item_required_references(uuid,uuid)', 'EXECUTE')
+  ) or (
+    exists (select 1 from pg_catalog.pg_roles where rolname = 'service_role')
+    and not has_function_privilege(
+      'service_role', 'public.assert_schedule_item_required_references(uuid,uuid)', 'EXECUTE')
+  ) then
+    raise exception 'schedule item required references function privilege boundary is invalid';
+  end if;
+  if exists (
+    select 1
+    from pg_catalog.pg_proc function_row,
+         lateral pg_catalog.aclexplode(
+           coalesce(function_row.proacl, pg_catalog.acldefault('f', function_row.proowner))
+         ) privilege_row
+    where function_row.oid =
+        'public.validate_trip_item_required_references()'::regprocedure
+      and (
+        privilege_row.grantee = 0
+        or privilege_row.grantee in (
+          select role_row.oid
+          from pg_catalog.pg_roles role_row
+          where role_row.rolname in ('anon', 'authenticated', 'service_role')
+        )
+      )
+      and privilege_row.privilege_type = 'EXECUTE'
+  ) then
+    raise exception 'trip item required references trigger function privilege boundary is invalid';
   end if;
 end;
 $$;

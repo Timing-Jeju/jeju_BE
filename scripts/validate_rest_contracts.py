@@ -122,6 +122,7 @@ CATALOG_FIELDS = {
     "domainContracts",
 }
 COMMON_RULE_FIELDS = {
+    "locationPolicy",
     "authorization",
     "idempotency",
     "cursor",
@@ -337,6 +338,8 @@ def _validate_common_rules(rules: Any, errors: list[str]) -> None:
         errors.append("commonRules 객체가 필요합니다.")
         return
     _reject_unknown_fields(rules, COMMON_RULE_FIELDS, "commonRules", errors)
+    if rules.get("locationPolicy") != "docs/contracts/domains/location-noncollection/contract.json":
+        errors.append("위치 정책은 현행 무수집 v2를 참조해야 합니다.")
 
     authorization = _object(rules.get("authorization"), "commonRules.authorization", errors)
     _reject_unknown_fields(
@@ -506,7 +509,7 @@ def _validate_endpoints(
         expected_endpoint_version = (
             DOMAIN_LOCAL_VERSION_OVERRIDES[82]
             if profile_v11 and identity in PROFILE_LEGAL_ENDPOINTS
-            else contract_version
+            else "2.0.0" if identity == ("GET", "/api/v1/weather/forecast") else contract_version
         )
         if endpoint.get("contractVersion") != expected_endpoint_version:
             errors.append(f"{label}의 contract version이 공통 버전과 다릅니다.")
@@ -515,7 +518,10 @@ def _validate_endpoints(
         _validate_endpoint_schemas(endpoint.get("schemas"), label, errors)
         _validate_endpoint_responses(endpoint.get("responses"), label, errors)
         _validate_endpoint_figma(endpoint.get("figma"), label, errors)
-        _validate_endpoint_idempotency(endpoint.get("idempotency"), operation, label, errors)
+        _validate_endpoint_idempotency(
+            endpoint.get("idempotency"), operation, label, errors,
+            required=identity == ("PUT", _canonical_path("/api/v1/trips/{tripId}/day-activity-windows")),
+        )
         _validate_endpoint_pagination(
             endpoint.get("pagination"), operation, label, errors
         )
@@ -591,9 +597,9 @@ def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
 
 
 def _validate_endpoint_idempotency(
-    idempotency: Any, operation: Any, label: str, errors: list[str]
+    idempotency: Any, operation: Any, label: str, errors: list[str], *, required: bool = False
 ) -> None:
-    idempotent_operation = _allowed_string(operation, IDEMPOTENT_OPERATIONS)
+    idempotent_operation = required or _allowed_string(operation, IDEMPOTENT_OPERATIONS)
     allowed_fields = (
         REQUIRED_IDEMPOTENCY_FIELDS
         if idempotent_operation
@@ -748,7 +754,7 @@ def _validate_domain_versions(
     expected_local = (
         DOMAIN_LOCAL_VERSION_OVERRIDES[82]
         if profile_v11 and issue == 82
-        else contract_version
+        else "2.0.0" if issue in (83, 94) else contract_version
     )
     if versions.get("local") != expected_local:
         errors.append(f"도메인 계약 #{issue}의 local contract version이 다릅니다.")

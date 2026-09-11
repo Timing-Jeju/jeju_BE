@@ -91,8 +91,18 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
   @Override
   public McpInvocationResult call(McpInvocation invocation) {
     if (!ready.get()) throw new McpRemoteCallException("MCP_NOT_READY");
-    Map<String, Object> hashArguments = new LinkedHashMap<>(invocation.arguments());
-    hashArguments.put("requestId", invocation.requestId());
+    Map<String, Object> preflightArguments = new LinkedHashMap<>(invocation.arguments());
+    preflightArguments.put("requestId", invocation.requestId());
+    // Schema validation needs the envelope field; this sentinel is never sent or persisted.
+    preflightArguments.put("inputHash", "0".repeat(64));
+    McpNoLocationGuard.validate(objectMapper.valueToTree(preflightArguments));
+    Map<String, Object> hashArguments =
+        new LinkedHashMap<>(
+            contractGuard.validateArguments(
+                invocation.toolName(), preflightArguments, invocation.outboundIdAllowlist()));
+    // The guard owns a deep snapshot. Recheck that snapshot, not caller-owned nested maps.
+    McpNoLocationGuard.validate(objectMapper.valueToTree(hashArguments));
+    hashArguments.remove("inputHash");
     String mcpInputHash = McpSchemaFingerprint.sha256(hashArguments, objectMapper);
     Map<String, Object> wireArguments = new LinkedHashMap<>(hashArguments);
     wireArguments.put("inputHash", mcpInputHash);
@@ -232,7 +242,6 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
             invocation.toolName(),
             contractGuard.contractVersion(),
             invocation.commandInputHash(),
-            mcpInputHash,
             schemaChecksum,
             requestFactCount,
             responseFactCount,

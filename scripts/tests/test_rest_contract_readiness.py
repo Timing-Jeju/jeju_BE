@@ -54,6 +54,15 @@ class RestContractReadinessTest(unittest.TestCase):
             mutate(catalog)
         return self.validator.validate_catalog(catalog)
 
+    def test_places_catalog_describes_location_free_runtime(self):
+        """공개 목록 카탈로그가 GPS 없이 여섯 조건과 안정적인 이름·ID 정렬을 안내한다."""
+        endpoint = next(item for item in self.catalog["endpoints"]
+                        if item["method"] == "GET" and item["path"] == "/api/v1/places")
+        self.assertIn("query/category/regionCode/cursor/size/savedOnly", endpoint["presence"])
+        for removed in ("lat", "lng", "radiusMeters", "nearby", "distanceMeters"):
+            self.assertNotIn(removed, endpoint["presence"] + endpoint["pagination"]["stableSort"])
+        self.assertEqual("normalizedName ASC,placeId ASC", endpoint["pagination"]["stableSort"])
+
     @staticmethod
     def endpoint(method="GET", path="/api/v1/resources", operation="read"):
         return {
@@ -1159,8 +1168,12 @@ class RestContractReadinessTest(unittest.TestCase):
                     self.assertTrue(any("Figma linkage" in error for error in errors), errors)
 
     def test_issue94_authoritative_link_forms_are_exact(self):
+        """과거 링크 형식 검사와 v2 미연결 상태를 구분한다."""
         catalog = copy.deepcopy(self.catalog)
         weather = next(item for item in catalog["domainContracts"] if item["issue"] == 94)
+        self.assertIsNone(weather["readiness"]["metadata"]["evidence"])
+        historical = json.loads((ROOT / "docs/contracts/domains/weather-forecast/historical-v1.contract.json").read_text())
+        weather["readiness"]["metadata"] = historical["readiness"]["metadata"]
         metadata = weather["readiness"]["metadata"]["evidence"]
         self.assertEqual(
             {

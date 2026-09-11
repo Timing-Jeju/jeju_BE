@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timing-jeju.local/contracts/operator-timetable-mapping-v1.schema.json",
+  "title": "operator-mapping-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "datasetId", "scheduleId", "routeNo", "effectiveDate", "routeId", "routeSourceProvider", "routeCityCode", "directions"],
+  "properties": {
+    "version": {"const": "operator-mapping-v1"},
+    "datasetId": {"const": "3043887"},
+    "scheduleId": {"type": "string"},
+    "routeNo": {"type": "string"},
+    "effectiveDate": {"type": "string", "format": "date"},
+    "routeId": {"type": "string", "format": "uuid"},
+    "routeSourceProvider": {"const": "TAGO"},
+    "routeCityCode": {"const": "39"},
+    "directions": {"type": "object"}
+  },
+  "$defs": {
+    "header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exactLabel", "stopId", "unresolved", "annotationOverrides"],
+      "properties": {
+        "exactLabel": {"type": "string", "maxLength": 128},
+        "stopId": {"type": ["string", "null"], "format": "uuid"},
+        "unresolved": {"type": "boolean"},
+        "annotationOverrides": {
+          "type": "object",
+          "propertyNames": {"enum": ["성산일출봉 출발", "성산일출봉 종료", "고성 경유"]},
+          "additionalProperties": {"type": "string", "format": "uuid"}
+        }
+      }
+    },
+    "normal": {
+      "allOf": [
+        {"$ref": "#/$defs/header"},
+        {"properties": {"stopId": {"type": "string", "format": "uuid"}, "unresolved": {"const": false}}}
+      ]
+    },
+    "ignored": {
+      "allOf": [
+        {"$ref": "#/$defs/header"},
+        {"properties": {"exactLabel": {"const": ""}, "stopId": {"const": null}, "unresolved": {"const": true}}}
+      ]
+    },
+    "d101out": {
+      "type": "object", "additionalProperties": false,
+      "required": ["directionKey", "metadataDirection", "operationsSha256", "headers"],
+      "properties": {
+        "directionKey": {"const": "OUT"},
+        "metadataDirection": {"const": "남원 →일주동로 → 공항"},
+        "operationsSha256": {"const": "61c996045909e469fd4db6f557b058e5ebc5ee675facb4b275002ecf08ac410a"},
+        "headers": {
+          "type": "array", "minItems": 9, "maxItems": 9,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "남원"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "표선"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "고성"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "성산"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "세화"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "김녕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "함덕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "제주 버스터미널"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "공항"}}}]}
+          ]
+        }
+      }
+    },
+    "d101in": {
+      "type": "object", "additionalProperties": false,
+      "required": ["directionKey", "metadataDirection", "operationsSha256", "headers"],
+      "properties": {
+        "directionKey": {"const": "IN"},
+        "metadataDirection": {"const": "공항 → 일주동로→ 남원"},
+        "operationsSha256": {"const": "cba3ad3bef5bfdcdc34f3325aa716cf20057076c0679e86b9b76b2764ed1de68"},
+        "headers": {
+          "type": "array", "minItems": 9, "maxItems": 9,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "공항"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "제주 버스터미널"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "함덕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "김녕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "세화"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "성산"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "고성"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "표선"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "남원"}}}]}
+          ]
+        }
+      }
+    },
+    "d201out": {
+      "type": "object", "additionalProperties": false,
+      "required": ["directionKey", "metadataDirection", "operationsSha256", "headers"],
+      "properties": {
+        "directionKey": {"const": "OUT"},
+        "metadataDirection": {"const": "서귀포터미널→일주동로 →제주터미널"},
+        "operationsSha256": {"const": "f30b9a1643de93f631a896a2f3823e13dfc862a203834408d4a98675c38345b7"},
+        "headers": {
+          "type": "array", "minItems": 15, "maxItems": 15,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "서귀포버스터미널"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "서귀포중앙R"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "효돈초교(경유)"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "남원"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "표선"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "신산"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "고성"}}}]},
+            {"$ref": "#/$defs/ignored"},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "성산"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "오조(경유)"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "세화고(경유)"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "세화"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "김녕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "함덕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "제주버스터미널"}}}]}
+          ]
+        }
+      }
+    },
+    "d201in": {
+      "type": "object", "additionalProperties": false,
+      "required": ["directionKey", "metadataDirection", "operationsSha256", "headers"],
+      "properties": {
+        "directionKey": {"const": "IN"},
+        "metadataDirection": {"const": "제주터미널→일주동로 →서귀포터미널"},
+        "operationsSha256": {"const": "0e6de274bfa3ede79a11af6f3a77f4fb04383f9128ba4e3f2c52bbd09ae9bbb7"},
+        "headers": {
+          "type": "array", "minItems": 15, "maxItems": 15,
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "제주버스터미널"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "함덕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "김녕"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "세화"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "세화고(경유)"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "오조(경유)"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "성산"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "고성"}}}]},
+            {"$ref": "#/$defs/ignored"},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "신산"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "표선"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "남원"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "효돈초교(경유)"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "서귀포중앙R"}}}]},
+            {"allOf": [{"$ref": "#/$defs/normal"}, {"properties": {"exactLabel": {"const": "서귀포버스터미널"}}}]}
+          ]
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "scheduleId": {"const": "405001"}, "routeNo": {"const": "101"}, "effectiveDate": {"const": "2024-08-15"},
+        "directions": {
+          "type": "object", "additionalProperties": false,
+          "required": ["101 남원-성산-김녕-조천-공항", "101 공항-조천-김녕-성산-남원"],
+          "properties": {
+            "101 남원-성산-김녕-조천-공항": {"$ref": "#/$defs/d101out"},
+            "101 공항-조천-김녕-성산-남원": {"$ref": "#/$defs/d101in"}
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "scheduleId": {"const": "405009"}, "routeNo": {"const": "201"}, "effectiveDate": {"const": "2024-08-01"},
+        "directions": {
+          "type": "object", "additionalProperties": false,
+          "required": ["201 서귀포터미널-남원-성산-세화-조천-제주터미널", "201 제주터미널-조천-세화-성산-남원-서귀포터미널"],
+          "properties": {
+            "201 서귀포터미널-남원-성산-세화-조천-제주터미널": {"$ref": "#/$defs/d201out"},
+            "201 제주터미널-조천-세화-성산-남원-서귀포터미널": {"$ref": "#/$defs/d201in"}
+          }
+        }
+      }
+    }
+  ]
+}

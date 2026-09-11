@@ -9,11 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION_NAME = "20260831000000_compute_run_input_snapshot.sql"
 MIGRATION = ROOT / "supabase" / "migrations" / MIGRATION_NAME
-ACTUAL_PG_TEST = (
-    ROOT
-    / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql"
-    / "CommandInputSnapshotRepositoryIntegrationTest.java"
-)
+V2_MIGRATION = ROOT / "supabase/migrations/20260918000020_remove_user_location_runtime.sql"
 NEGATIVE_CONSTRAINTS = ROOT / "db/queries/database_negative_constraints.sql"
 OTHER_SCRIPT_TEST = ROOT / "scripts/tests/test_backend_layout.py"
 SELF = Path(__file__).resolve()
@@ -39,24 +35,45 @@ def compact_sql(contents: str) -> str:
     return re.sub(r"\s+", " ", contents.lower()).strip()
 
 
+SQL_TYPED_IDENTIFIER = r"[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?"
 EXACT_COMMAND_INPUT_HASH_CALL = re.compile(
     r"public\.compute_command_input_hash\(\s*"
-    r"(?:'[^']+'|\?)::text,\s*"
-    r"(?:[0-9]+|\?)::smallint,\s*"
-    r"(?:'[^']+'|\?)::text,\s*"
-    r"(?:'[^']+'|\?)::text,\s*"
-    r"(?:'[^']+'|\?)::uuid,\s*"
-    r"(?:'[^']*'|\?)::jsonb,\s*"
-    r"(?:true|false|\?)::boolean,\s*"
-    r"(?:null|'[^']*'|\?)::jsonb\s*\)"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:[0-9]+|\?|{SQL_TYPED_IDENTIFIER})::smallint,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::uuid,\s*"
+    + rf"(?:'[^']*'|\?|{SQL_TYPED_IDENTIFIER})::jsonb,\s*"
+    + rf"(?:true|false|\?|{SQL_TYPED_IDENTIFIER})::boolean,\s*"
+    + rf"(?:null|'[^']*'|\?|{SQL_TYPED_IDENTIFIER})::jsonb\s*\)"
 )
+
 HASH_CALL = re.compile(r"public\.compute_command_input_hash\(")
+EXACT_V2_COMMAND_INPUT_HASH_CALL = re.compile(
+    r"public\.compute_command_input_hash\(\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:[0-9]+|\?|{SQL_TYPED_IDENTIFIER})::smallint,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::text,\s*"
+    + rf"(?:'[^']+'|\?|{SQL_TYPED_IDENTIFIER})::uuid,\s*"
+    + rf"(?:'[^']*'|\?|{SQL_TYPED_IDENTIFIER})::jsonb\s*\)"
+)
+CATALOG_HASH_SIGNATURE = re.compile(
+    r"public\.compute_command_input_hash\(text,\s*smallint,\s*text,\s*text,\s*uuid,\s*jsonb"
+    r"(?:,\s*boolean,\s*jsonb)?\)"
+)
 MIGRATION_HASH_DEFINITION = re.compile(
     r"public\.compute_command_input_hash\(\s*"
     r"input_run_type text,\s*input_schema_version smallint,\s*"
     r"input_contract_version text,\s*input_algorithm_version text,\s*"
     r"input_base_schedule_version_id uuid,\s*input_structured_input jsonb,\s*"
     r"input_location_supplied boolean,\s*input_coarse_location jsonb\s*\)"
+)
+V2_HASH_DEFINITION = re.compile(
+    r"public\.compute_command_input_hash\(\s*"
+    r"input_run_type text,\s*input_schema_version smallint,\s*"
+    r"input_contract_version text,\s*input_algorithm_version text,\s*"
+    r"input_base_schedule_version_id uuid,\s*input_structured_input jsonb\s*\)"
 )
 MIGRATION_HASH_PRIVILEGE_SIGNATURE = re.compile(
     r"public\.compute_command_input_hash\("
@@ -72,7 +89,12 @@ MIGRATION_TYPED_INTERNAL_HASH_CALL = re.compile(
 )
 EXPECTED_HASH_OCCURRENCE_COUNTS = Counter(
     {
-        "direct exact": 2,
+        "direct exact": 16,
+        "direct v2 exact": 20,
+        "catalog signature": 8,
+        "v2 migration definition": 1,
+        "v2 privilege signature": 1,
+        "legacy hash removal": 1,
         "migration definition": 1,
         "migration privilege signature": 1,
         "migration typed internal": 1,
@@ -86,11 +108,19 @@ def invalid_direct_hash_calls(contents: str) -> list[int]:
         match.start()
         for match in HASH_CALL.finditer(source)
         if EXACT_COMMAND_INPUT_HASH_CALL.match(source, match.start()) is None
+        and EXACT_V2_COMMAND_INPUT_HASH_CALL.match(source, match.start()) is None
     ]
 
 
 def classify_hash_occurrence(path: Path, contents: str, start: int) -> str:
     prefix = contents[max(0, start - 40) : start]
+    if path == V2_MIGRATION:
+        if prefix.endswith("create function ") and V2_HASH_DEFINITION.match(contents, start):
+            return "v2 migration definition"
+        if prefix.endswith("revoke all on function ") and CATALOG_HASH_SIGNATURE.match(contents, start):
+            return "v2 privilege signature"
+        if prefix.endswith("drop function ") and CATALOG_HASH_SIGNATURE.match(contents, start):
+            return "legacy hash removal"
     if path == MIGRATION:
         if prefix.endswith("create function ") and MIGRATION_HASH_DEFINITION.match(
             contents, start
@@ -104,6 +134,10 @@ def classify_hash_occurrence(path: Path, contents: str, start: int) -> str:
             return "migration typed internal"
     if EXACT_COMMAND_INPUT_HASH_CALL.match(contents, start):
         return "direct exact"
+    if EXACT_V2_COMMAND_INPUT_HASH_CALL.match(contents, start):
+        return "direct v2 exact"
+    if prefix.endswith("'") and CATALOG_HASH_SIGNATURE.match(contents, start):
+        return "catalog signature"
     return "invalid"
 
 
@@ -237,7 +271,27 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
             migration,
         )
 
+    def test_hash_call_requires_explicit_types_for_column_arguments(self):
+        """컬럼 기반 해시도 여덟 인자의 정확한 SQL 타입을 빠짐없이 명시한다."""
+        call = """
+          public.compute_command_input_hash(
+            input.run_type::text, input.schema_version::smallint,
+            input.contract_version::text, input.algorithm_version::text,
+            input.base_schedule_version_id::uuid, input.structured_input::jsonb,
+            input.location_supplied::boolean, input.coarse_location::jsonb)
+        """
+        self.assertFalse(invalid_direct_hash_calls(call))
+        for expression in (
+            "input.run_type::text", "input.schema_version::smallint",
+            "input.contract_version::text", "input.algorithm_version::text",
+            "input.base_schedule_version_id::uuid", "input.structured_input::jsonb",
+            "input.location_supplied::boolean", "input.coarse_location::jsonb",
+        ):
+            with self.subTest(expression=expression):
+                self.assertTrue(invalid_direct_hash_calls(call.replace(expression, expression.split("::")[0])))
+
     def test_repository_direct_hash_calls_use_all_exact_declared_types(self):
+        """저장소의 모든 직접 hash 호출이 선언된 인자형과 정확히 일치하는지 검증한다."""
         self.assertEqual(
             EXPECTED_HASH_OCCURRENCE_COUNTS,
             repository_hash_occurrence_counts(),
@@ -254,6 +308,19 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         """
         mutated_call = valid_call.replace("'feasibility'::text", "?")
         self.assertEqual(1, len(invalid_direct_hash_calls(mutated_call)))
+
+    def test_v2_six_argument_hash_calls_keep_exact_types(self):
+        """위치 인수가 없는 새 hash 호출도 모든 SQL 타입과 정확한 인수 수를 요구한다."""
+        valid = "public.compute_command_input_hash(?::text,2::smallint,?::text,?::text,?::uuid,?::jsonb)"
+        self.assertEqual([], invalid_direct_hash_calls(valid))
+        for changed in (
+            valid.replace("?::text", "?", 1),
+            valid.replace("2::smallint", "2"),
+            valid.replace("?::uuid", "?::text"),
+            valid.replace("?::jsonb)", "?::jsonb,true::boolean)"),
+        ):
+            with self.subTest(changed=changed):
+                self.assertEqual(1, len(invalid_direct_hash_calls(changed)))
 
     def test_repository_hash_call_inventory_rejects_removed_known_call(self):
         contents = (ROOT / "db/queries/database_negative_constraints.sql").read_text(
@@ -301,37 +368,6 @@ class CommandInputSnapshotContractTest(unittest.TestCase):
         """
         self.assertTrue(
             repository_hash_contract_violations({OTHER_SCRIPT_TEST: injected})
-        )
-
-    def test_actual_pg_completed_trip_fixture_satisfies_schedule_sealing_contract(self):
-        source = compact_sql(ACTUAL_PG_TEST.read_text(encoding="utf-8"))
-        self.assertIn("insert into public.trip_items", source)
-        self.assertIn("planned_start_at, planned_end_at, stay_minutes", source)
-        self.assertIn("stay_minutes, source, facts", source)
-        self.assertIn(
-            "'{\"location\":{\"lat\":33.0,\"lng\":126.0}}'::jsonb",
-            source,
-        )
-        self.assertIn("'active', applied_at = now()", source)
-        self.assertNotIn("active_schedule_version_id = (select id from activated)", source)
-        self.assertNotIn("with activated as (", source)
-        self.assertIn(
-            "update public.trip_schedule_versions set status = 'active', applied_at = now() where id = ? and trip_plan_id = ?",
-            source,
-        )
-        self.assertIn("connection.setautocommit(false)", source)
-        self.assertIn(
-            "update public.trip_plans set active_schedule_version_id = ? where id = ?",
-            source,
-        )
-        self.assertIn("set constraints all immediate", source)
-        self.assertIn(
-            "p.active_schedule_version_id = ? and v.status = 'active' and v.applied_at is not null",
-            source,
-        )
-        self.assertIn(
-            'jdbc.update("update public.trip_plans set status = \'completed\' where id = ?", trip)',
-            source,
         )
 
     def test_coarse_location_is_a_closed_union_without_raw_coordinates(self):
