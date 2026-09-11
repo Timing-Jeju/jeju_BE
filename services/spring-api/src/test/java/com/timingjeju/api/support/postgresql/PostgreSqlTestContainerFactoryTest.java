@@ -32,4 +32,11 @@ class PostgreSqlTestContainerFactoryTest {
         .doesNotHaveDuplicates();
     assertThat(names).doesNotContain("seed_fixtures.sql", "seed.sql");
   }
+
+  @Test
+  void PostGIS_data_directory는_익명_volume대신_tmpfs를_사용한다() {
+    assertThat(PostgreSqlTestContainerFactory.dataDirectoryTmpFs())
+        .containsExactlyEntriesOf(
+            java.util.Map.of("/var/lib/postgresql/data", "rw,noexec,nosuid,size=2g"));
+  }
 }
