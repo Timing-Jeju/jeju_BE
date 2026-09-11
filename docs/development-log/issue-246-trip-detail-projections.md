@@ -28,3 +28,20 @@ PG16·17 각각 13개 시나리오를 작성했고 컴파일했다. 실제 serve
 ## 실제 DB 집중 검증 결과
 
 최초 73개 실행에서 PG16/17의 root PATCH 테스트 두 개만 실패했다. 테스트가 TripUpdateRecord에 빈 Day ID 목록을 직접 넘겨 저장 계층의 기간 제약을 위반한 것이 원인이었다. 실제 HTTP PATCH→GET으로 바꾸어 서비스의 Day 준비와 숙소 보존, title 및 새 ETag를 함께 확인했다. 나머지 기존 mutation/controller 47개는 최초 실행에서 통과했다. 수정 후 PG16/17 상세 projection 26개 모두 PASS(실패/skip 0), /tmp/jeju246-pg-projection-green.log. 최초 실패는 /tmp/jeju246-pg-projection.log에 보존했다. 전체 gate 및 원격 병합은 여전히 별도 절차다.
+
+
+## FE 타입 생성으로 발견한 OpenAPI 표현 보완
+
+실제 export를 FE openapi-typescript로 생성하니 transportEvents의 null과 숙소 required가 누락되는 문제를 확인했다. 독립 Reviewer도 nullable reference MAJOR 및 required MINOR를 확인했다. JSON Schema 공식 참조 설명(https://json-schema.org/understanding-json-schema/structuring)에 따라 `$ref` 대상 제약도 적용되므로 객체 참조 옆 type [object,null]만으로 null을 허용할 수 없다.
+
+- 기본 runtime 및 ready projection 컨텍스트의 Spring 테스트에서 nullable anyOf 및 숙소 required를 먼저 요구해 7개 중 3개 실패를 재현했다: /tmp/jeju246-nullable-ref-red.log.
+- TripTransportEvents와 TripDetail/legacy/Summary의 nullable 참조를 `$ref` 또는 null의 anyOf로 변환한다. canonical 확장된 inline schema의 정상 nullable 표현은 그대로 유지한다.
+- 기존 AccommodationPayload에 필수 9필드, 문자열 길이, 날짜·시각 pattern 및 순서 최소값을 명시했다. 실제 JSON/DB/write 처리와 receipt는 변경하지 않는다.
+- #239 f8c612c 전체 gate가 실행 중인 worktree는 변경하지 않았다. 이 보완은 #246 이후 로컬 스택으로 순차 통합한다.
+
+- 보완 후 runtime/ready Spring OpenAPI 테스트 및 export PASS: /tmp/jeju246-nullable-ref-green.log. 공식 38-operation client/archive PASS: /tmp/jeju246-nullable-ref-client.log. 생성된 types.gen.ts에서 arrival/departure 및 scoreProvenance의 `| null`, 숙소 9필드 필수를 확인했다.
+
+- 같은 입출도 payload의 7필드 required/enum 누락도 RED로 확인하고 annotation을 보완했다. 삭제 응답 event 참조의 null도 같은 방식으로 정규화했다. runtime/ready 테스트 및 export PASS (41초): /tmp/jeju246-transport-fields-red.log, /tmp/jeju246-transport-fields-green.log. 기존 저장 처리·DB·UI는 변경하지 않는다.
+- nullable 보완 후 Python 전체 880개 실행, 3 skip, 실패 0: /tmp/jeju246-nullable-ref-python.log.
+
+- 최종 공식 38-operation client/archive PASS: /tmp/jeju246-contract-final-client.log. 독립 Reviewer 보완 사전검토 finding 0; 전체 gate 전이므로 공식 승인/recorder는 수행하지 않았다.
