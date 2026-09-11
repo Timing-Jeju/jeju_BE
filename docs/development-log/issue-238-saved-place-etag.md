@@ -22,3 +22,7 @@ FE의고정OpenAPI는조회ETag와DELETE CAS를전제로하지만현재develop93
 ## 선행 로컬 통합
 
 작업을 stash 09bfd732c3384f0059e8c13b3dc26b2c5aeee809에 보존한 뒤 #246 0aeffc0로 fast-forward하고 복원했다. FRONTEND_API_SPEC의 append 충돌은 #246과 #238 내용을 모두 보존했다. stash는 유지한다. 통합 후 Python 882개(3 skip), Trip/SavedPlaces 기본 OpenAPI 검사 및 export PASS. /tmp/jeju238-integrated-client.log에서 공식 38-operation client와 archive 생성도 PASS했다. 앞선 33/37 불일치는 이 통합으로 해소됐으며 최종 전체 gate/원격 PR/병합은 아직 남아 있다.
+
+
+## FE 통합의 ETag 문서 검증
+실제 runtime DTO의 etag pattern이 canonical opaque strong 형식과 일치하도록 annotation을 보완했다. FE의 과거 고정 sp-hash 표현은 opaque 계약으로 검증한다. DB/ETag 생성 알고리즘은 변경하지 않는다. Spring OpenAPI 회귀 RED→GREEN 및 export PASS (40초): /tmp/jeju238-etag-pattern-red.log, /tmp/jeju238-etag-pattern-green.log.

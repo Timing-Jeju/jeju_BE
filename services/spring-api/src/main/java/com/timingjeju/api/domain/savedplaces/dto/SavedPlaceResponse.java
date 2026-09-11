@@ -11,6 +11,7 @@ public record SavedPlaceResponse(
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
             description = "항목의 opaque strong ETag. If-Match에 그대로 사용한다.",
+            pattern = "^\"[A-Za-z0-9._:-]{1,128}\"$",
             minLength = 3,
             maxLength = 130)
         String etag,
