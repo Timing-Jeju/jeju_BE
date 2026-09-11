@@ -38,15 +38,36 @@ public record AccommodationMutationPayload(
 
   @Schema(additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
   public record AccommodationPayload(
-      UUID accommodationId,
-      @Schema(types = {"string", "null"}) UUID placeId,
-      @Schema(types = {"string", "null"}) String customName,
-      String name,
-      java.time.LocalDate checkInDate,
-      java.time.LocalDate checkOutDate,
-      @JsonFormat(pattern = "HH:mm") java.time.LocalTime checkInTime,
-      @JsonFormat(pattern = "HH:mm") java.time.LocalTime checkOutTime,
-      int sequenceNo) {
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED) UUID accommodationId,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              types = {"string", "null"})
+          UUID placeId,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              types = {"string", "null"},
+              minLength = 1,
+              maxLength = 100)
+          String customName,
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minLength = 1, maxLength = 100)
+          String name,
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED, pattern = "^\\d{4}-\\d{2}-\\d{2}$")
+          java.time.LocalDate checkInDate,
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED, pattern = "^\\d{4}-\\d{2}-\\d{2}$")
+          java.time.LocalDate checkOutDate,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              type = "string",
+              pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$")
+          @JsonFormat(pattern = "HH:mm")
+          java.time.LocalTime checkInTime,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              type = "string",
+              pattern = "^(?:[01]\\d|2[0-3]):[0-5]\\d$")
+          @JsonFormat(pattern = "HH:mm")
+          java.time.LocalTime checkOutTime,
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int sequenceNo) {
     public static AccommodationPayload from(Accommodation value) {
       return new AccommodationPayload(
           value.accommodationId(),
