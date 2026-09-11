@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.timingjeju.api.global.asyncrun.JdbcRunLeaseRepository;
 import java.nio.file.Files;
+import java.sql.Connection;
 import java.time.Duration;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -17,13 +19,59 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 @Tag("integration")
 class LocationDataPurgeMigrationIntegrationTest {
   private static final String TARGET = "20260918000017_user_location_write_guard_purge.sql";
+  private static final PostgreSqlImageFixturePool FIXTURES = new PostgreSqlImageFixturePool(TARGET);
+
+  @AfterAll
+  static void stopImageFixtures() {
+    FIXTURES.close();
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
+  void image별_container는_재사용하고_case_database의_schema_data_ledger와_연결은_격리한다(String image)
+      throws Exception {
+    var first = FIXTURES.open(image);
+    int afterFirstOpen = FIXTURES.startedContainerCount();
+    String firstDatabase = first.getDatabaseName();
+    var firstSource =
+        new DriverManagerDataSource(first.getJdbcUrl(), first.getUsername(), first.getPassword());
+    Connection abandoned = firstSource.getConnection();
+    try {
+      var jdbc = new JdbcTemplate(firstSource);
+      jdbc.execute("create table public.issue_247_case_leak(id integer primary key)");
+      jdbc.update("insert into public.issue_247_case_leak values (247)");
+      jdbc.execute("create schema supabase_migrations");
+      jdbc.execute("create table supabase_migrations.schema_migrations(version text primary key)");
+      jdbc.update("insert into supabase_migrations.schema_migrations values ('issue-247-leak')");
+    } finally {
+      first.close();
+    }
+    assertThat(abandoned.isValid(1)).isFalse();
+    abandoned.close();
+
+    try (var second = FIXTURES.open(image)) {
+      var jdbc = second.jdbc();
+      assertThat(FIXTURES.startedContainerCount()).isEqualTo(afterFirstOpen);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from pg_database where datname=?", Integer.class, firstDatabase))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regclass('public.issue_247_case_leak') is null", Boolean.class))
+          .isTrue();
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regnamespace('supabase_migrations') is null", Boolean.class))
+          .isTrue();
+    }
+  }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 직접_nested_위치를_제거해도_수동_event와_공개_geodata는_보존된다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -71,16 +119,15 @@ class LocationDataPurgeMigrationIntegrationTest {
                   Long.class))
           .isZero();
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 의미가_불명확한_event_metadata는_삭제하지_않고_스키마와_데이터를_롤백한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -106,7 +153,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThat(jdbc.queryForObject(schema, String.class)).isEqualTo(beforeSchema);
       assertThat(jdbc.queryForObject(data, String.class)).isEqualTo(beforeData);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
@@ -117,9 +164,8 @@ class LocationDataPurgeMigrationIntegrationTest {
   })
   void redacted_여부와_무관하게_위치_input과_부모_run_MCP_hash를_함께_제거한다(String image, boolean redacted)
       throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -153,7 +199,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   fixture.trip()))
           .isEqualTo(1);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
@@ -163,9 +209,8 @@ class LocationDataPurgeMigrationIntegrationTest {
     "postgis/postgis:16-3.4,running", "postgis/postgis:17-3.5,running"
   })
   void 실행_가능한_위치_run이_있으면_삭제나_lease_변경없이_전체_롤백한다(String image, String status) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -207,16 +252,15 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThat(jdbc.queryForObject(schema, String.class)).isEqualTo(beforeSchema);
       assertThat(jdbc.queryForObject(data, String.class)).isEqualTo(beforeData);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 위치_결과의_proposed_version과_후손만_제거하고_평가_대상_원본은_보존한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -272,7 +316,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   Long.class))
           .isZero();
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
@@ -284,9 +328,8 @@ class LocationDataPurgeMigrationIntegrationTest {
     "postgis/postgis:16-3.4,matched_corrupt_hash", "postgis/postgis:17-3.5,matched_corrupt_hash"
   })
   void 입력_없음이나_hash_관계가_불명확한_legacy_계보는_추정_삭제하지_않는다(String image, String kind) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -345,16 +388,15 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThat(jdbc.queryForObject(schema, String.class)).isEqualTo(beforeSchema);
       assertThat(jdbc.queryForObject(data, String.class)).isEqualTo(beforeData);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 이미_commit된_입력없는_legacy_parent도_worker가_claim하지_않는다(String image) {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var jdbc =
           new JdbcTemplate(
               new DriverManagerDataSource(
@@ -379,7 +421,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   run))
           .isEqualTo(1);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
@@ -390,9 +432,8 @@ class LocationDataPurgeMigrationIntegrationTest {
     "postgis/postgis:16-3.4,applied_option", "postgis/postgis:17-3.5,applied_option"
   })
   void 활성_출력이나_후손_또는_이미_적용한_수정안이_있으면_모든_계보를_보존한다(String image, String kind) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -488,7 +529,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThat(jdbc.queryForObject(schema, String.class)).isEqualTo(beforeSchema);
       assertThat(jdbc.queryForObject(data, String.class)).isEqualTo(beforeData);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
@@ -508,9 +549,8 @@ class LocationDataPurgeMigrationIntegrationTest {
     boolean sealed = !candidateShape.equals("draft");
     boolean forcedFailure = candidateShape.equals("sealed_route_delete_failure");
     boolean withRoute = candidateShape.equals("sealed_route") || forcedFailure;
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -712,7 +752,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   fixture.place()))
           .isEqualTo(1);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
@@ -809,9 +849,8 @@ class LocationDataPurgeMigrationIntegrationTest {
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 위치없는_command라도_원문없는_MCP_wire_hash는_안전으로_판정하지_않는다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -911,16 +950,15 @@ class LocationDataPurgeMigrationIntegrationTest {
                   "select input_hash from public.compute_runs where id=?", String.class, run))
           .isEqualTo(hash);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 생성_메시지는_대화_owner와_trip이_일치하는_생성_출력만_정리한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -1029,16 +1067,15 @@ class LocationDataPurgeMigrationIntegrationTest {
                   otherTrip))
           .isEqualTo(2);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 출처를_입증할_수_없는_멱등성_hash와_응답은_삭제하거나_안전으로_판정하지_않는다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -1123,16 +1160,15 @@ class LocationDataPurgeMigrationIntegrationTest {
             .isFalse();
       }
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 일반_JSON의_geohash_잔여량은_자동_삭제없이_전환을_중단한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var source =
           new DriverManagerDataSource(
@@ -1175,16 +1211,15 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThat(jdbc.queryForObject(schema, String.class)).isEqualTo(beforeSchema);
       assertThat(jdbc.queryForObject(data, String.class)).isEqualTo(beforeData);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 현재_seed는_미분류_wire_hash없이_정상_일정과_입력만_제공한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       PostgreSqlTestContainerFactory.executeScript(
           container, root.resolve("supabase/migrations").resolve(TARGET));
@@ -1212,16 +1247,15 @@ class LocationDataPurgeMigrationIntegrationTest {
                   Integer.class))
           .isPositive();
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 정상_command도_독립_revision_request_hash의_비위치를_증명하지_못한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var dataSource =
           new DriverManagerDataSource(
@@ -1244,16 +1278,15 @@ class LocationDataPurgeMigrationIntegrationTest {
                   Long.class))
           .isEqualTo(1);
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 미분류_revision_hash는_017_정리까지_같은_transaction에서_되돌린다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var dataSource =
           new DriverManagerDataSource(
@@ -1287,6 +1320,100 @@ class LocationDataPurgeMigrationIntegrationTest {
                   Boolean.class))
           .isTrue();
     } finally {
+      container.close();
+    }
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
+  void 미분류_nested_payload는_020을_rollback하고_closed_allowlist는_보존한다(String image) throws Exception {
+    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    try {
+      container.start();
+      var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+      var jdbc =
+          new JdbcTemplate(
+              new DriverManagerDataSource(
+                  container.getJdbcUrl(), container.getUsername(), container.getPassword()));
+      Fixture fixture = insertLegacyFixture(jdbc, false);
+      jdbc.update(
+          "insert into public.trip_transport_modes"
+              + "(trip_plan_id,transport_mode,priority,is_primary) values (?,'public_transit',1,true)",
+          fixture.trip());
+      jdbc.update(
+          "insert into public.trip_preferences"
+              + "(trip_plan_id,arrival_region_code,departure_region_code,raw_answers) "
+              + "values (?,'JEJU','JEJU','{}'::jsonb)",
+          fixture.trip());
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
+      PostgreSqlTestContainerFactory.executeScript(
+          container,
+          root.resolve("supabase/migrations/20260918000019_planned_route_request_hash_policy.sql"));
+      String fingerprint =
+          Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql"));
+      String before = jdbc.queryForObject(fingerprint, String.class);
+      var script =
+          root.resolve("supabase/migrations/20260918000020_remove_user_location_runtime.sql");
+
+      for (String unknownPayload :
+          new String[] {
+            "{\"nested\":[[126.51,33.51]]}",
+            "{\"nested\":[[126.51,33.51,15]]}",
+            "{\"nested\":[[\"126.51\",\"33.51\"]]}",
+            "{\"nested\":[[200,95]]}"
+          }) {
+        jdbc.update(
+            "update public.trip_preferences set raw_answers=cast(? as jsonb) where trip_plan_id=?",
+            unknownPayload,
+            fixture.trip());
+        assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("user location residue requires audit")
+            .hasMessageNotContaining("126.51")
+            .hasMessageNotContaining("33.51");
+        assertThat(jdbc.queryForObject(fingerprint, String.class)).isEqualTo(before);
+        assertThat(
+                jdbc.queryForObject(
+                    "select raw_answers=cast(? as jsonb) from public.trip_preferences "
+                        + "where trip_plan_id=?",
+                    Boolean.class,
+                    unknownPayload,
+                    fixture.trip()))
+            .isTrue();
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from public.trip_execution_events where id=? and location is null",
+                    Integer.class,
+                    fixture.event()))
+            .isEqualTo(1);
+        assertThat(
+                jdbc.queryForObject(
+                    "select to_regprocedure('timing_jeju_planner_private.user_location_schema_revision()') is null",
+                    Boolean.class))
+            .isTrue();
+      }
+
+      jdbc.update(
+          "update public.trip_preferences set "
+              + "raw_answers='{\"pace\":\"normal\",\"partySize\":4,\"childAges\":[7,10]}'::jsonb "
+              + "where trip_plan_id=?",
+          fixture.trip());
+      PostgreSqlTestContainerFactory.executeScript(container, script);
+      assertThat(
+              jdbc.queryForObject(
+                  "select raw_answers = "
+                      + "'{\"pace\":\"normal\",\"partySize\":4,\"childAges\":[7,10]}'::jsonb "
+                      + "from public.trip_preferences where trip_plan_id=?",
+                  Boolean.class,
+                  fixture.trip()))
+          .isTrue();
+      assertThat(
+              jdbc.queryForObject(
+                  "select timing_jeju_planner_private.user_location_schema_revision()",
+                  String.class))
+          .isEqualTo("20260918000020");
+    } finally {
       container.stop();
     }
   }
@@ -1294,7 +1421,8 @@ class LocationDataPurgeMigrationIntegrationTest {
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void Supabase_이력은_감사_실패시_유지하고_성공시에만_두_버전을_같이_등록한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container =
+        PostgreSqlTestContainerFactory.createHistoricalCutoverPredecessor(TARGET, image);
     try {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
@@ -1302,11 +1430,37 @@ class LocationDataPurgeMigrationIntegrationTest {
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());
       var jdbc = new JdbcTemplate(source);
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regprocedure('public.rls_auto_enable()') is null "
+                      + "and not exists (select 1 from pg_event_trigger where evtname='rls_auto_enable')",
+                  Boolean.class))
+          .as(
+              "historical raw-PostGIS cutover predecessor excludes the later #242 bootstrap boundary")
+          .isTrue();
+      String predecessorFingerprint =
+          jdbc.queryForObject(
+              Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql")),
+              String.class);
+      assertThat(predecessorFingerprint)
+          .as("%s canonical fixture must retain an approved cutover predecessor", image)
+          .isIn(
+              image.contains(":16-")
+                  ? new String[] {"19745c65ef17192f09bfbb7d3167a3d1"}
+                  : new String[] {
+                    "948a3dbda299b1b6621522b69c3167bb", "f653e443df2891370dcb07d2ce36260e"
+                  });
       Fixture fixture = insertLegacyFixture(jdbc, false);
       UUID run = insertNormalRevisionInput(jdbc, source, fixture);
       jdbc.execute("create schema supabase_migrations");
       jdbc.execute(
           "create table supabase_migrations.schema_migrations(version text primary key, statements text[], name text)");
+      assertThat(
+              jdbc.queryForObject(
+                  Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql")),
+                  String.class))
+          .as("data and Supabase ledger fixture must not alter the approved predecessor")
+          .isEqualTo(predecessorFingerprint);
       try (var files = Files.list(root.resolve("supabase/migrations"))) {
         for (var file :
             files
@@ -1410,9 +1564,8 @@ class LocationDataPurgeMigrationIntegrationTest {
     "postgis/postgis:16-3.4,lock", "postgis/postgis:17-3.5,lock"
   })
   void 그룹_중간_timeout과_연결_종료는_017의_데이터와_schema를_복구한다(String image, String mode) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var source =
           new DriverManagerDataSource(
@@ -1508,16 +1661,15 @@ class LocationDataPurgeMigrationIntegrationTest {
                   Boolean.class))
           .isTrue();
     } finally {
-      container.stop();
+      container.close();
     }
   }
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void 위치_계보가_입증된_종료_revision은_원본_일정을_남기고_그룹에서_정리한다(String image) throws Exception {
-    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    var container = FIXTURES.open(image);
     try {
-      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var jdbc =
           new JdbcTemplate(
@@ -1593,7 +1745,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   Long.class))
           .isZero();
     } finally {
-      container.stop();
+      container.close();
     }
   }
 

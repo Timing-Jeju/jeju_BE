@@ -250,30 +250,38 @@ class JdbcStayPolicyRepositoryIntegrationTest {
     store.publish(payload("v1", null, V1_EFFECTIVE, List.of(category("VE", 80))), IMPORTED);
 
     Throwable publicationFailure;
-    try (Connection mutator = dataSource.getConnection();
-        var executor = Executors.newSingleThreadExecutor()) {
+    try (var executor = Executors.newSingleThreadExecutor();
+        Connection mutator = dataSource.getConnection()) {
       mutator.setAutoCommit(false);
-      try (PreparedStatement statement = mutator.prepareStatement(mutation.sql)) {
-        mutation.bind(statement);
-        assertThat(statement.executeUpdate()).isEqualTo(1);
+      boolean committed = false;
+      try {
+        try (PreparedStatement statement = mutator.prepareStatement(mutation.sql)) {
+          mutation.bind(statement);
+          assertThat(statement.executeUpdate()).isEqualTo(1);
+        }
+        CountDownLatch publisherStarted = new CountDownLatch(1);
+        Future<Throwable> publication =
+            executor.submit(
+                () -> {
+                  publisherStarted.countDown();
+                  try {
+                    store.publish(
+                        payload("v2", "v1", V2_EFFECTIVE, List.of(candidate)),
+                        IMPORTED.plusSeconds(1));
+                    return null;
+                  } catch (Throwable failure) {
+                    return failure;
+                  }
+                });
+        publisherStarted.await();
+        mutator.commit();
+        committed = true;
+        publicationFailure = publication.get();
+      } finally {
+        if (!committed) {
+          mutator.rollback();
+        }
       }
-      CountDownLatch publisherStarted = new CountDownLatch(1);
-      Future<Throwable> publication =
-          executor.submit(
-              () -> {
-                publisherStarted.countDown();
-                try {
-                  store.publish(
-                      payload("v2", "v1", V2_EFFECTIVE, List.of(candidate)),
-                      IMPORTED.plusSeconds(1));
-                  return null;
-                } catch (Throwable failure) {
-                  return failure;
-                }
-              });
-      publisherStarted.await();
-      mutator.commit();
-      publicationFailure = publication.get();
     }
 
     assertThat(publicationFailure)

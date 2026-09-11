@@ -289,3 +289,130 @@ shell cleanup의 모든 Docker 명령/조회가 제한된 실행기를 사용한
 TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 및 실행 중 출력 초과 처리 공백은 실제 RED2(자식 잔류, 초과 출력을124로 오인)로 확인한 뒤 수정했다. 신규 process/recovery 및 기존 isolation/layout 테스트 총39개 PASS(15.307s), shell 문법과 diff 검사 PASS. 실제 Docker focused 검증을 실행 중이며 최종 결과와 커밋 후 정규 전체 gate를 별도로 확인한다.
 
 최종 focused 결과: `/tmp/jeju-223-bounded-cleanup-docker.log`의 실제 Docker smoke가 exit0으로 완료됐다. 이미지 삭제 응답 timeout을 감지하여 소유 프로세스를 종료한 뒤 네 종류 자원의 조회 성공·잔류0을 확인한 복구 메시지가 기록됐다. health·fingerprint·legacy audits·동시성·schema·negative·fixture 모두 통과했다. `/tmp/jeju-223-cleanup-all-static.log`는839개 중836 PASS/3 SKIP(47.114s)이다. 독립 source 재리뷰 추가 finding0. 커밋 후 같은 SHA 전체 gate와 공식 승인은 아직 별도 필요하다.
+
+## 2026-09-09 post-merge 독립 리뷰 보정
+
+- 최신 `origin/develop` `73cb2b93`에서 `fix/223-post-merge-location-guard`를 만들었다. 병합된 017·018 원문은 수정하지 않았다. #242 예약 019/057과 충돌하지 않는 forward migration 020/058을 선택했다.
+- Issue 댓글로 설계를 먼저 기록하려 했으나 외부 보안 설계 게시가 실행 승인 계층에서 거부됐다. 우회하지 않고 이 개발일지와 runbook에 같은 경계를 기록했다.
+- RED: Python group 계약 7건 중 3건이 020 부재, raw CLI enabled, version-only ledger로 실패했다. PG16 focused 6건은 독립 MCP/revision hash와 `current_position`/camelCase/중첩 좌표 배열 모두 예외가 발생하지 않아 실패했다.
+- GREEN: 020이 generic JSON alias/두 numeric tuple helper를 보강하고 residue verifier와 신규 write guard가 같은 helper를 사용한다. typed provenance가 없는 동안 service_role의 revision/MCP 독립 hash INSERT 및 hash UPDATE는 SQLSTATE 23514로 차단한다.
+- PG16 focused 6건 PASS. PG16/17 forward migration 2건은 legacy alias에서 schema/data/revision 전체 rollback, 정리 후 두 독립 hash INSERT/UPDATE 및 중첩 좌표 배열 차단을 확인했다. 공용 trigger의 서로 다른 row type field 해석으로 42703이 발생한 중간 Green 실패는 table별 trigger 분리 후 두 버전 모두 23514로 고정했다.
+- 기존 017+018 Supabase ledger/최종 감사 rollback PG16/17 2건 PASS. ledger는 CLI 2.116.0 source의 `version`, `name`, `statements text[]` shape와 맞추되 statements에는 개별 실행을 가장하지 않는 고정 source checksum marker를 기록한다.
+- raw Supabase sequential path는 `[db.migrations].enabled=false`이고 smoke runner가 CLI 실행 전에 exit 64로 거부함을 실제 실행으로 확인했다. 실제 Supabase CLI 설치·staging·provider/live 적용은 수행하지 않았다.
+- 전체 Python 842건 실행에서 task 관련 migration inventory/hash count 결함은 보정했다. 나머지 9 failure/1 error는 sandbox의 `ps` 금지와 아직 미병합 PR #240의 collector exit 129 재현이며 이 branch에서 unrelated watchdog/cleanup 코드를 수정하지 않는다.
+- 최종 재검증에서 `LocationProvenanceFailClosedMigrationIntegrationTest`와 전체 `LocationWriteGuardIntegrationTest`를 함께 PG16/17에서 실행해 3분 내 PASS했다. 유효한 typed command input hash fixture로 독립 hash UPDATE 거부까지 확인했다.
+- 관련 Python 계약 116건, 두 generated SQL `--check`, shell 문법, manifest SHA-256(`ae34d8d5...595670`), `git diff --check`가 PASS했다. PowerShell fresh smoke의 최종 revision 기대도 020으로 정렬했다.
+- #240은 2026-09-09 확인 시 OPEN이므로 요청한 자원/병합 선행 조건에 따라 전체 품질 게이트와 Docker 전체 smoke는 이번 post-merge 보정에서 실행하지 않았다. 따라서 집중 검증은 완료했지만 전체 DoD와 독립 Reviewer 승인은 아직 남아 있다.
+
+## 2026-09-10 exact-HEAD 독립 리뷰 4건 보정
+
+- 보존 worktree의 8개 수정과 2개 신규 파일은 모두 이 작업 소유임을 확인했다. 중단 전 pre-push heavy gate는 실행 중 파일 변경으로 compiled expectation과 migration source가 달라진 오염 실행이므로 성공/제품 실패 증거에서 제외했다.
+- hash guard의 `current_user <> 'service_role'` 우회를 제거했다. Compose owner/JDBC writer, service_role, RESET ROLE 이후 INSERT와 hash identity UPDATE가 모두 SQLSTATE 23514를 반환한다. provenance 없는 revision runtime 경로는 기존 lineage 성공 기대보다 먼저 fail closed하도록 테스트를 정렬했다.
+- legacy residue audit에서 숫자 2개 배열 heuristic을 제거하고 alias 의미 검출만 유지했다. 신규 write는 surface별 closed field/type 계약으로 분리해 3원소 좌표, 숫자 문자열, nested unknown field를 거부하고 `childAges` 숫자 배열은 허용한다.
+- CLI 2.116.0 `--help`와 upstream fetch 구현을 확인했다. 공식 `scripts/supabase-release.sh`는 임시 workdir에 016 이하만 제공하고, 017·018·020 DDL/data/ledger를 한 psql transaction으로 적용한 뒤 list/fetch를 수행한다. ledger statements는 fetch의 `join(';\n') + ';\n'`이 immutable 원문 byte를 재구성하도록 저장한다.
+- 격리 PG17 실제 CLI 실행에서 첫 TLS 누락은 schema 변경 전 거부됐고, 두 번째 psql test wrapper role 누락은 000..016 bootstrap 뒤 017 전 중단됐다. 수정 후 atomic release가 INSERT 3/COMMIT됐고 list에 017·018·020이 나타났으며 fetch된 017 이후 파일의 byte/SHA 검증이 PASS했다. 컨테이너는 중지·자동 제거했다.
+- 최종 source SHA `f59c67e19a22c9a3362f283922866498c74f751abfd567609f4ba9ab7d7529c6`에서 focused Python 120건, LocationWriteGuard, 신규 provenance PG16/17, atomic ledger PG16/17, canonical 전체 PG16/17이 통과했다. canonical class 실행 시간은 8분32초다. 새 격리 PG17에서도 CLI 2.116.0 전체 release/list/fetch 검증을 다시 통과했고 컨테이너를 제거했다. 새 전체 heavy gate는 아직 실행하지 않았다.
+
+## 2026-09-10 Astra MAJOR 2건 TDD 보정
+
+- RED 계약을 먼저 추가했다. `pace`에 위치 문자열, `partySize` 소수·범위 밖 값, `childAges` 3원소 좌표 tuple·숫자 문자열, nullable predicate, derivation/UUID/timestamp 허용 field 우회를 모두 거부하고 정상 enum·정수·UUID·timestamp payload는 보존하도록 고정했다.
+- 020의 surface 계약은 `pace=slow|normal|fast`, `partySize=1..20` 정수, 최대 20개의 `childAges=0..17` 정수, `derivation=conservative_walk_v1`, canonical UUID, `candidateCount=1..10` 정수, `score=0..100` 정수, 유효한 RFC3339 timestamp만 허용한다. trigger는 predicate가 `TRUE`가 아닌 null/false를 모두 SQLSTATE 23514로 거부한다.
+- immutable 017·018 원문 byte와 SHA는 바꾸지 않고 `supabase/atomic-migrations`로 이동했다. 020도 같은 atomic source 디렉터리에 두어 raw CLI가 읽는 `supabase/migrations`에는 016 이하만 남긴다. manifest가 두 디렉터리의 canonical 순서·원문 SHA를 계속 소유하고 Docker/Java 초기화는 manifest와 atomic group을 소비한다.
+- 공식 `scripts/supabase-release.sh`는 더 이상 임시 bootstrap 복사본의 필터에 안전성을 의존하지 않는다. root layout의 016 이하를 CLI 2.116.0으로 bootstrap한 뒤 017·018·020과 ledger를 생성 SQL 한 transaction으로 적용하고, 임시 fetch workdir에서 원문 byte/SHA를 검증한다.
+- 원문/manifest 변경 뒤 결정적 generator로 local group과 Supabase atomic SQL을 동기화했다. 관련 Python 124건과 두 generated SQL `--check`, shell 문법, diff 검사가 통과했다.
+- `LocationWriteGuardIntegrationTest`와 `LocationProvenanceFailClosedMigrationIntegrationTest`의 payload 양성/음성 및 PG16/17 적용·rollback 검증이 4분52초에 통과했다. atomic ledger의 선행 이력 거부, 감사 실패 전체 rollback, 성공 시 017·018·020 동시 등록 PG16/17 focused 검증도 7분8초에 통과했다.
+- 실제 격리 PG17과 Supabase CLI 2.116.0에서 root layout은 016까지만 적용했다. 첫 실행은 검증용 psql wrapper가 host 상대 파일을 container path로 전달해 atomic 적용 전에 중단됐고 제품 실패로 보지 않는다. wrapper 수정 후 같은 DB의 bootstrap은 `applied: []`, atomic release는 `INSERT 0 3`/`COMMIT`, list는 017·018·020을 표시했으며 fetch 원문 byte/SHA verifier도 통과했다. 생성한 container와 wrapper는 모두 제거했다.
+- 요청에 따라 전체 quality gate와 Docker smoke는 #247 테스트 인프라 병목 수정 전 재실행하지 않았고, push·PR·live Supabase·운영 DB 적용도 수행하지 않았다.
+- exact HEAD `5b43f2a0` 독립 재리뷰에서 `MobilityOwnershipContractTest`가 raw CLI 디렉터리만 읽어 55개 대신 52개, 최종 020 대신 016으로 판단하는 회귀를 확인했다. 수정 전 focused architecture는 3건 중 해당 1건이 의도대로 실패했다. inventory를 `supabase/migrations`와 `supabase/atomic-migrations`의 합집합으로 바꾸고 directory/regular-file/non-symlink/14자리 파일명/filename·timestamp 중복을 fail closed한 뒤 architecture 3/3, canonical Python 26/26, generated SQL 양쪽 byte check, Spotless와 diff 검사가 통과했다.
+
+## 2026-09-11 Astra nested coordinate 보정
+
+- 유효한 pre-017 fixture에 `{"nested":[[126.51,33.51]]}`를 추가한 PG16/17 테스트가 atomic release의 예외 부재로 각각 실패해 alias 없는 좌표 배열 audit 누락을 Red로 확인했다. 초기 두 실행의 transport mode 누락과 ambiguous metadata 실패는 verifier에 도달하지 못한 fixture 오류라 제품 Red에서 제외했다.
+- 020 legacy recursion은 Jeju 범위의 2원소 numeric coordinate pair를 중첩 깊이와 무관하게 감지한다. `childAges`는 최대 20개의 0..17 정수라는 typed 계약을 만족할 때만 안전 예외로 보존하며, residue를 자동 삭제하지 않고 017부터 020의 DDL·data·ledger 전체를 rollback한다.
+- Schedule mutation fixture의 `derivation=fixture` 두 곳을 보안 enum을 완화하지 않고 `conservative_walk_v1`으로 정렬했다. runbook은 현재 atomic release와 ledger를 017·018·019·020 네 이력으로 기록한다.
+- 관련 Python 83건, 신규 PG16/17 rollback/childAges 보존 2건, `JdbcScheduleMutationStoreIntegrationTest` 전체가 통과했다. 전체 quality gate와 Docker smoke, live DB, push와 PR은 이 focused 보정에서 실행하지 않았다.
+
+## 2026-09-11 Astra legacy closed allowlist 보정
+
+- PG16/17 테스트에서 alias 없는 nested payload의 2원소 숫자, 3원소 숫자, 문자열 숫자와 범위 밖 숫자 배열을 차례로 감사한다. 기존 020은 첫 사례만 heuristic으로 거부하고 다음 3원소 사례를 통과시켜 두 DB 버전 모두 `Expecting code to raise a throwable`로 Red가 재현됐다.
+- 020은 좌표 개수·JSON 숫자 type·제주 범위를 추정하는 heuristic을 제거했다. 018 verifier가 호출하는 legacy v17 집계를 교체해 각 JSON surface의 알려진 non-location field와 type만 허용한다. unknown key·alias·nested container는 값을 해석하지 않고 provenance 불명 residue로 집계한다.
+- 감사 실패 시 미분류 `raw_answers`와 기존 위치 event, schema fingerprint 및 016까지의 ledger가 그대로 유지됨을 검증했다. 정상 `pace=normal`, `partySize=4`, `childAges=[7,10]`은 보존되고 성공할 때만 017·018·019·020 ledger 네 행이 함께 기록된다.
+- 신규 rollback/allowlist 테스트와 기존 020 alias/hash 회귀는 PG16/17에서 각각 2건씩 통과했다. 관련 Python 83건, local/Supabase generator byte check와 diff 검사도 통과했다. 전체 quality gate, Docker smoke, live DB, push와 PR은 실행하지 않았다.
+
+## 2026-09-11 full gate fixture 회귀 보정
+
+- focused integration Red에서 `JdbcScheduleStoreIntegrationTest`의 malformed `observedAt`, `JdbcTripScoreIntegrationTest`의 문자열 `score`, `JdbcTripMutationIntegrationTest`의 opaque revision `request_hash`가 각각 현행 closed guard에 거부되어 21건 중 3건이 실패했다.
+- 정상 DB writer fixture와 legacy malformed read 검증을 분리했다. Schedule integration은 정상 freshness의 expiry equality만 쓰고, malformed freshness는 mock ResultSet 기반 read boundary에서 stale로 판정한다. Trip score integration은 정상 JSON number와 timestamp만 쓰며 문자열 score와 malformed `observedAt` fail-closed는 기존 `JdbcTripScoreJsonTest`가 DB write 없이 검증한다.
+- 삭제 cascade fixture는 독립 provenance가 없는 revision hash를 만들지 않는다. 실제 feasibility compute parent를 같은 transaction에서 만들고 `LocationFreeComputeInputFixture`가 canonical structured input hash를 계산해 parent와 input 양쪽에 연결한 뒤, 여행 삭제가 compute run/input만 cascade하고 외부 fact와 사용자를 보존하는 계약을 유지한다.
+- 세 integration 클래스는 21건 모두 통과했고 두 legacy read-boundary unit 클래스도 통과했다. 관련 Python 83건과 local/Supabase generator byte check가 통과했다. 운영 guard·migration은 완화하거나 변경하지 않았으며 전체 gate, Docker smoke, live DB, push와 PR은 실행하지 않았다.
+
+## 2026-09-11 canonical title-only fixture 보정
+
+- 중단된 pre-push gate의 Testcontainers 세션과 Gradle 프로세스만 식별해 정리하고 공유 daemon과 기존 anonymous volume은 보존했다. 이후 동일 session label의 컨테이너 잔류가 없음을 확인했다.
+- RED: `trip_preferences.raw_answers`의 실제 canonical seed 값인 `pace=normal`, `generationMode=structured`, `dayGeneration=one_click`을 typed contract 양성 사례로 추가하자 기존 020 predicate가 false를 반환해 5개 사례 중 해당 1개가 실패했다.
+- 020 closed allowlist에 `generationMode`와 `dayGeneration`을 임의 문자열로 열지 않고 각각 정확한 문자열 enum `structured`, `one_click`로 추가했다. surface별 진단에서 canonical seed의 정상 non-location residue가 이 값 외에도 trip leg 14건, compute summary 2건, risk/weather/recommendation/recovery 각 1건씩 있음을 확인했다. 해당 surface도 실제 고정 key 집합과 boolean·bounded number·time type만 허용한다.
+- 새 field의 위치 문자열, legitimate-looking field의 좌표 배열, unknown/nested object는 계속 거부하며 기존 unknown/nested/location payload와 네 legacy rollback fixture도 그대로 fail closed한다. canonical migration 테스트는 020 적용 전후에 title-only seed의 `raw_answers`가 byte-independent JSON 동등성으로 보존되는지 명시적으로 검증한다.
+- direct typed contract 32건, 정확한 title-only PG16/17 회귀, canonical class 전체 7건, location purge/provenance PG16/17 전체가 통과했다. 관련 Python 83건과 local/Supabase generator byte check도 통과했다. 전체 quality gate, Docker smoke, live DB, push와 PR은 실행하지 않는다.
+
+## 2026-09-11 planned route atomic source 경로 보정
+
+- 중단된 push hook의 전용 Gradle wrapper·daemon·test worker와 session label을 식별해 종료했다. 같은 session의 Testcontainers residue는 0이었고 공유 Gradle daemon과 보호 자원은 보존했다.
+- RED: `PlannedRouteHashPolicyMigrationIntegrationTest` 전체에서 PG16/17 모두 raw CLI 디렉터리의 이동 전 019 경로를 읽어 `NoSuchFileException`이 발생했고, duplicate rollback 사례도 migration을 실행하지 못해 예상 예외가 없었다.
+- 테스트의 로컬 `path()`를 raw 경로 조합 대신 공용 `canonicalMigrationPath()`로 교체했다. 019 production migration을 복제하거나 raw CLI 디렉터리로 되돌리지 않고 raw+atomic canonical source 규칙을 공유한다.
+- PG16/17 hash policy migration 전체 4건이 통과했다. manifest canonical order, atomic generator/checksum과 planned route hash policy Python 30건, local/Supabase generated SQL byte check와 diff check도 통과했다. 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 schedule revision schema fixture provenance 보정
+
+- 시작 시 중단 hook의 Gradle/Testcontainers process와 session residue가 없고 worktree가 clean임을 확인했다. remote-tracking 기준 HEAD는 미게시 상태다.
+- RED: `ScheduleRevisionRunSchemaIntegrationTest` 5건 중 idempotency 동시 INSERT와 fencing 전이 fixture 2건이 opaque `request_hash`를 사용해 `independent hash provenance required`로 실패했다.
+- 020의 runtime revision INSERT 전면 차단은 유지했다. schema fixture만 정확한 trigger 이름으로 설치 구간에 한해 guard를 disable하고 `try/finally`로 복원한다. parent와 `compute_run_inputs`는 같은 transaction에서 canonical structured input과 DB 함수가 계산한 동일 hash로 연결하며 FK, unique, lifecycle과 fencing trigger는 우회하지 않는다.
+- 첫 Green 시도에서 deferred lineage event가 남은 transaction 안의 trigger 재-enable이 PostgreSQL 55006으로 실패했다. 복원 경계를 transaction 밖으로 이동한 뒤 schema class 전체 5건, provenance migration PG16/17, 관련 Python 72건과 두 generator check가 통과했다. 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 schedule revision status assertion 보정
+
+- RED: unknown status INSERT의 assertion을 PostgreSQL SQLSTATE와 status constraint까지 구체화하자 constraint가 `null`로 나타났다. 현행 provenance trigger가 status 계약보다 먼저 거부해 기존 broad `DataIntegrityViolationException` assertion이 잘못 통과하던 사실을 확인했다.
+- 해당 negative fixture만 기존 exact provenance trigger disable/`finally` restore 경계에 넣었다. 이후 lifecycle trigger의 SQLSTATE `23514`와 고유 메시지 `schedule revision run must be created as queued`를 함께 검증해 provenance 오류와 구분한다. 운영 trigger와 migration은 변경하지 않았다.
+- 단일 Red/Green 재현 후 `ScheduleRevisionRunSchemaIntegrationTest` 전체와 `LocationProvenanceFailClosedMigrationIntegrationTest`의 PG16/17 매트릭스가 통과했다. 요청에 따라 전체 quality gate, Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 direct command hash inventory 보정
+
+- push gate의 Python 851건 중 command-input snapshot inventory 1건이 실패했다. 실제 분류는 direct exact 26건, invalid 1건, migration definition·typed internal·privilege signature 각 1건이었다. invalid는 schedule revision fixture가 `jsonb_build_object(...)`의 반환 타입을 암묵적으로 사용한 신규 direct hash call이었다.
+- RED에서 정당한 27번째 direct call을 인벤토리에 고정하고 JSON 함수 표현식의 암묵 타입을 거부하는 테스트를 추가했다. 결과는 direct exact 26건과 invalid 1건으로 계속 실패해 단순 기대치 증가가 아닌 실제 cast 누락을 확인했다.
+- fixture가 canonical structured input JSON을 parameter로 전달하고 SQL에서 `?::jsonb`를 명시하도록 바꿨다. 최종 분류는 direct exact 27건, migration definition·typed internal·privilege signature 각 1건, invalid 0건이다. command-input snapshot과 DB hardening 66건, atomic cutover generator 계약 12건, local/Supabase 생성물 byte check가 통과했다.
+
+## 2026-09-11 architecture migration inventory 보정
+
+- push gate의 integration 단계는 완료됐지만 architecture inventory가 expected 55, actual 56으로 실패했다. exact 단일 테스트에서도 canonical union이 020까지 56개임을 같은 원인으로 재현했다.
+- 단순 총량 변경 전에 atomic 디렉터리가 017·018·019·020 네 파일만 정확한 순서로 포함하고 raw CLI 디렉터리는 네 파일을 모두 포함하지 않는다는 assertion을 추가했다. 이 강화 상태에서도 유일한 Red가 55/56 총량임을 확인한 뒤 canonical manifest의 058 슬롯과 정렬해 56으로 수정했다.
+- 디렉터리별 inventory helper는 regular file, non-symlink, 14자리 version filename 검사를 공유하고 canonical union의 filename/version 중복 거부를 유지한다. 단일 테스트, `MobilityOwnershipContractTest` 전체와 architectureTest 전체, 관련 manifest/atomic generator Python 72건 및 local/Supabase byte check가 통과했다.
+
+## 2026-09-11 schedule revision negative SQL provenance 보정
+
+- Docker smoke의 `database_negative_constraints.sql`에서 schedule revision 부모 fixture가 opaque `repeat('a', 64)` hash로 인해 의도한 owner/base/day/FK·lifecycle 경계보다 신규 provenance guard에서 먼저 실패했다. Python 계약을 먼저 추가해 해당 block의 `repeat(...)` 네 건과 exact guard seam 부재를 Red로 확인했다.
+- fixture 전용으로 정확한 `aaa_independent_hash_provenance` trigger만 잠시 disable하고, 부모와 대응 `compute_run_inputs`에 동일한 typed `compute_command_input_hash(...)`를 사용했다. owner/base/day 음성 fixture도 canonical hash를 계산하며 SQLSTATE `23503`뿐 아니라 각각의 FK constraint 이름을 고정해 다른 guard의 오탐 통과를 막았다.
+- deferred lineage 때문에 trigger 복원 전 `SET CONSTRAINTS ALL`을 시도하면 큰 smoke transaction의 unrelated compute lineage event까지 실행되는 실패를 확인했다. 최종 seam은 `revision_parent_input_lineage`만 immediate로 평가하고 trigger 복원 뒤 deferred로 되돌려 운영 guard나 다른 constraint를 완화하지 않는다.
+- disposable Postgres에서 정확한 negative-constraints query 전체가 `database_negative_constraints | PASS`와 `ROLLBACK`으로 끝났다. 관련 Python inventory/hardening 79건, local/Supabase atomic generator byte check와 `git diff --check`도 통과했다. 전체 quality gate와 전체 Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 schedule revision smoke SQL provenance 보정
+
+- 최종 Docker smoke의 `smoke_check.sql` 일정 보정 fixture가 `repeat('a', 64)` hash로 신규 provenance guard에서 실패했다. exact trigger seam, canonical parent/input 순서와 opaque hash 부재를 요구하는 Python 계약을 먼저 추가해 Red를 확인했다.
+- fixture transaction에서 정확한 `aaa_independent_hash_provenance` trigger만 잠시 disable한다. 부모와 `compute_run_inputs`는 같은 typed `compute_command_input_hash(...)`와 structured input을 공유하고, immutable hash update도 opaque 문자열 대신 다른 contract version의 typed canonical hash를 사용한다. 부모 삭제 뒤 input cascade까지 같은 block에서 확인한다.
+- 첫 정확한 SQL Green 시도는 deferred lineage event 때문에 trigger 복원 시 PostgreSQL 55006으로 실패했다. 전역 constraint flush 없이 `revision_parent_input_lineage`만 immediate로 평가하고 trigger를 복원한 뒤 deferred로 되돌리며, 실패 시 전체 seam이 rollback되는 명시적 transaction으로 닫았다.
+- disposable PostgreSQL 16에서 `/queries/smoke_check.sql` 전체가 schema·negative·fixture·PostGIS·compute input cleanup까지 PASS했다. 관련 Python inventory/hardening 80건과 local/Supabase generator byte check가 통과했다. 전체 quality gate와 전체 Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 #224 최신 develop 통합
+
+- `origin/develop` `93bcb754`를 정상 merge했다. 충돌은 #224의 최종 구조를 기준으로 해소해 017부터 020을 다시 `supabase/migrations`의 canonical 연속 이력으로 두고, 020은 위치 runtime/schema 제거와 6인자 hash v2 전환을 담당하게 했다. 과거 #223의 별도 atomic runner, 중복 020 provenance migration과 raw CLI 격리 설정은 복원하지 않았다.
+- RED: #224 구조에 기존 #223 SQL fixture를 그대로 합치면 smoke 계약은 삭제된 provenance trigger seam과 8인자 hash를, negative 계약은 opaque `repeat(...)` hash 네 건을 검출했다. 또한 과거 atomic mount를 기대한 database-hardening 계약 3건이 canonical compose 구성과 불일치했다.
+- smoke와 negative fixture는 schema version 2의 6인자 `compute_command_input_hash`와 일치하는 parent/input lineage를 사용한다. owner/base/day 음성 검증은 운영 guard를 끄지 않고 SQLSTATE `23503`과 정확한 FK constraint를 확인하며, cascade·immutable hash 검증도 유지한다.
+- 폐기된 atomic 경로만을 위한 테스트 helper/config 변경은 #224 canonical 버전으로 정렬했다. 관련 Python 계약 136건과 local/Supabase generator byte check가 통과했으며, Testcontainers 기반 focused 검증은 별도 #235 integration 세션 종료 뒤 순차 실행한다.
+- 첫 focused integration 255건 중 251건이 통과했고, 실패 4건은 과거 017-020 단일 ledger를 가정한 합성 fixture였다. #224의 실제 ledger 열 순서와 017·018 offline group 등록 계약으로 fixture를 정렬한 뒤 해당 PG16/17 ledger 2건은 통과했다.
+- 최종 020 경계로 옮긴 unknown/nested payload 검증은 PG16/17 모두 처음에는 예외 없이 통과해, 충돌 해소 과정에서 #223 closed allowlist가 누락된 실제 Red를 확인했다. 020에 surface별 exact non-location shape/type predicate, 기존 JSON write-trigger replacement와 v17 audit replacement를 이식하고, 최종 residue audit도 같은 predicate를 사용한다. 수정된 residue function의 자체 승인 fingerprint와 migration manifest checksum `9c03252865ff070580f81e513b1dbe181d4b043b6d96410123deeab0c2b4734a`를 함께 갱신했다.
+- 숫자 2원소·3원소·문자열·범위 밖 nested payload는 자동 삭제 없이 020 전체를 rollback하고, 정상 `pace`·`partySize`·`childAges` payload는 보존된다. 최종 PG16/17 두 사례는 1분35초에 Green이었고, 관련 Python 136건과 generator byte check도 다시 통과했다.
+- 1차 develop 통합은 정상 commit hook의 Spotless·unitTest를 통과해 merge commit `c2086c8d`로 기록했다. 이후 authoritative `origin/develop` `dbae7654`(#239)을 추가 merge했고, 유일한 manifest 충돌은 보정된 020 checksum과 신규 021/init059를 모두 보존해 해결했다.
+- 최신 base에서 canonical/static Python 128건과 PG16/17 migration/schema·#239 겹침 repository 8개 클래스 160건이 각각 통과했다. 최종 Testcontainers residue는 0이며 보호 live-demo 컨테이너는 건드리지 않았다.
+
+## 2026-09-11 Astra positive fixture enum 보정
+
+- RED: 최종 020이 허용하지 않는 `pace=relaxed`를 positive fixture가 사용해 `LocationWriteGuardIntegrationTest` 50건 중 해당 1건이 production JSON guard의 `user location storage is disabled`로 실패했다.
+- 운영 allowlist `slow|normal|fast`는 변경하지 않고 fixture와 조회 기대값만 canonical `normal`로 정렬했다. 클래스 전체 50건이 Green으로 통과했다.

@@ -51,6 +51,7 @@ import tools.jackson.databind.ObjectMapper;
 @Import(PostgreSqlTestcontainersConfiguration.class)
 @Tag("integration")
 class ScheduleMutationHttpPostgreSqlIntegrationTest {
+  private static final Duration READINESS_TIMEOUT = Duration.ofSeconds(5);
   private static final String ISSUER = "http://127.0.0.1:54321/auth/v1";
   private static final String SIGNING_KEY = "test-only-hs256-signing-key-32-bytes";
   private static final UUID OWNER = UUID.fromString("49000000-0000-0000-0000-000000000401");
@@ -73,7 +74,8 @@ class ScheduleMutationHttpPostgreSqlIntegrationTest {
       HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
   @BeforeEach
-  void setUp() {
+  void setUp() throws Exception {
+    verifyColdReadiness();
     cleanUp();
     jdbc.update(
         "insert into auth.users(id,email) values (?,?)",
@@ -303,13 +305,35 @@ class ScheduleMutationHttpPostgreSqlIntegrationTest {
   }
 
   private HttpResponse<byte[]> get(String bearer) throws Exception {
+    return get(bearer, TRIP);
+  }
+
+  private HttpResponse<byte[]> get(String bearer, UUID tripId) throws Exception {
     HttpRequest request =
-        HttpRequest.newBuilder(endpoint("/api/v1/trips/" + TRIP + "/schedule"))
+        HttpRequest.newBuilder(endpoint("/api/v1/trips/" + tripId + "/schedule"))
             .timeout(Duration.ofSeconds(10))
             .header("Authorization", "Bearer " + bearer)
             .GET()
             .build();
     return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+  }
+
+  private void verifyColdReadiness() throws Exception {
+    HttpRequest healthRequest =
+        HttpRequest.newBuilder(endpoint("/actuator/health"))
+            .timeout(READINESS_TIMEOUT)
+            .GET()
+            .build();
+    HttpResponse<byte[]> health = http.send(healthRequest, HttpResponse.BodyHandlers.ofByteArray());
+    assertThat(health.statusCode()).isEqualTo(200);
+    assertThat(jdbc.queryForObject("select 1", Integer.class)).isOne();
+
+    int tripsBefore = jdbc.queryForObject("select count(*) from public.trip_plans", Integer.class);
+    HttpResponse<byte[]> readOnlyScheduleProbe =
+        get(token(OWNER), UUID.fromString("49000000-0000-0000-0000-000000000499"));
+    assertProblem(readOnlyScheduleProbe, 404, "TRIP_NOT_FOUND");
+    assertThat(jdbc.queryForObject("select count(*) from public.trip_plans", Integer.class))
+        .isEqualTo(tripsBefore);
   }
 
   private void assertProblem(HttpResponse<byte[]> response, int status, String code)

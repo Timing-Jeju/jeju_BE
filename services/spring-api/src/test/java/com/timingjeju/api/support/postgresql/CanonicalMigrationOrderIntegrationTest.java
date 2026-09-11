@@ -46,7 +46,8 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000017_location_cutover_group.sql",
           "20260918000019_planned_route_request_hash_policy.sql",
           "20260918000020_remove_user_location_runtime.sql",
-          "20260918000021_day_activity_window_pair.sql");
+          "20260918000021_day_activity_window_pair.sql",
+          "20260918000022_rls_auto_enable_execute_boundary.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -109,6 +110,75 @@ class CanonicalMigrationOrderIntegrationTest {
 
         assertThat(first).as(image).isNotBlank();
         assertThat(schemaAndAclFingerprint(jdbc(container))).as(image).isEqualTo(first);
+      } finally {
+        container.stop();
+      }
+    }
+  }
+
+  @Test
+  void Postgis_PG16과_PG17은_rlsAutoEnable_RPC권한을_회수하고_eventTrigger를_보존한다() throws Exception {
+    for (String image : POSTGIS_IMAGES) {
+      int expectedMajor = image.contains(":16-") ? 16 : 17;
+      PostgreSQLContainer container =
+          PostgreSqlTestContainerFactory.createBefore(FIRST_SUFFIX, image);
+      try {
+        container.start();
+        applyCanonicalSuffix(container);
+        JdbcTemplate jdbc = jdbc(container);
+
+        assertThat(jdbc.queryForObject("show server_version_num", Integer.class) / 10_000)
+            .as(image)
+            .isEqualTo(expectedMajor);
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_function_privilege('anon','public.rls_auto_enable()','EXECUTE')",
+                    Boolean.class))
+            .as(image)
+            .isFalse();
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_function_privilege('authenticated','public.rls_auto_enable()','EXECUTE')",
+                    Boolean.class))
+            .as(image)
+            .isFalse();
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_function_privilege(current_user,'public.rls_auto_enable()','EXECUTE')",
+                    Boolean.class))
+            .as(image)
+            .isTrue();
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from pg_catalog.pg_event_trigger evt "
+                        + "join pg_catalog.pg_proc proc on proc.oid=evt.evtfoid "
+                        + "join pg_catalog.pg_namespace ns on ns.oid=proc.pronamespace "
+                        + "where evt.evtname='rls_auto_enable' and evt.evtenabled='O' "
+                        + "and ns.nspname='public' and proc.proname='rls_auto_enable' "
+                        + "and proc.prosecdef",
+                    Integer.class))
+            .as(image)
+            .isOne();
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from pg_catalog.pg_class relation "
+                        + "join pg_catalog.pg_namespace namespace "
+                        + "on namespace.oid=relation.relnamespace "
+                        + "where namespace.nspname='public' "
+                        + "and relation.relkind in ('r','p') and not relation.relrowsecurity",
+                    Integer.class))
+            .as(image)
+            .isZero();
+
+        jdbc.execute("create table public.issue242_rls_probe (id bigint primary key)");
+        assertThat(
+                jdbc.queryForObject(
+                    "select relrowsecurity from pg_catalog.pg_class "
+                        + "where oid='public.issue242_rls_probe'::regclass",
+                    Boolean.class))
+            .as(image)
+            .isTrue();
+        jdbc.execute("drop table public.issue242_rls_probe");
       } finally {
         container.stop();
       }

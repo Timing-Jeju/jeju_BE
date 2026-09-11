@@ -61,3 +61,33 @@ stable
 as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
+
+-- Supabase 프로젝트에 사전 설치된 public table RLS event-trigger 경계를
+-- 일반 PostgreSQL 16/17 canonical replay에서도 재현한다.
+create or replace function public.rls_auto_enable()
+returns event_trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  command record;
+begin
+  for command in
+    select ddl_command.*
+    from pg_catalog.pg_event_trigger_ddl_commands() as ddl_command
+    where ddl_command.schema_name = 'public'
+      and ddl_command.object_type in ('table', 'partitioned table')
+  loop
+    execute pg_catalog.format(
+      'alter table %s enable row level security',
+      command.object_identity
+    );
+  end loop;
+end;
+$$;
+
+create event trigger rls_auto_enable
+on ddl_command_end
+when tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+execute function public.rls_auto_enable();

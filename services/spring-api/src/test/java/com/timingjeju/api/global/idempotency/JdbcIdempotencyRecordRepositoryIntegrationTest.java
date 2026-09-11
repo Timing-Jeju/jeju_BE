@@ -11,7 +11,10 @@ import com.timingjeju.api.application.idempotency.IdempotencyResponse;
 import com.timingjeju.api.application.idempotency.IdempotencyScope;
 import com.timingjeju.api.application.idempotency.IdempotencyUseCase;
 import com.timingjeju.api.support.postgresql.PostgreSqlTestcontainersConfiguration;
+import com.zaxxer.hikari.HikariDataSource;
 import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -20,7 +23,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -49,7 +51,7 @@ class JdbcIdempotencyRecordRepositoryIntegrationTest {
   @Autowired private JdbcIdempotencyRecordRepository repository;
   @Autowired private IdempotencyUseCase useCase;
   @Autowired private JdbcTemplate jdbcTemplate;
-  @Autowired private DataSource dataSource;
+  @Autowired private HikariDataSource dataSource;
 
   @AfterEach
   void cleanUp() {
@@ -271,52 +273,39 @@ class JdbcIdempotencyRecordRepositoryIntegrationTest {
     IdempotencyAcquisition winner = repository.acquire(request.scope(), request.requestHash(), NOW);
     AtomicInteger executions = new AtomicInteger();
 
-    jdbcTemplate.execute(
-        """
-        create or replace function public.test_block_idempotency_update()
-        returns trigger language plpgsql as $$
-        begin
-          perform pg_advisory_lock(170017);
-          perform pg_advisory_unlock(170017);
-          return null;
-        end
-        $$
-        """);
-    jdbcTemplate.execute(
-        """
-        create trigger test_block_idempotency_update
-        before update on public.api_idempotency_records
-        for each statement execute function public.test_block_idempotency_update()
-        """);
+    IdempotencyResponse loser =
+        runAtBlockedUpdate(
+            request,
+            executions,
+            () ->
+                repository.release(
+                    request.scope(), request.requestHash(), winner.attemptToken().orElseThrow()));
 
-    try (var blocker = dataSource.getConnection();
-        var statement = blocker.createStatement();
-        var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      statement.execute("select pg_advisory_lock(170017)");
-      var loser =
-          executor.submit(
-              () ->
-                  useCase.execute(
-                      request,
-                      () -> {
-                        executions.incrementAndGet();
-                        return response("loser-winner");
-                      }));
-
-      awaitAdvisoryLockWaiter();
-      repository.release(
-          request.scope(), request.requestHash(), winner.attemptToken().orElseThrow());
-      statement.execute("select pg_advisory_unlock(170017)");
-
-      assertThat(loser.get(2, TimeUnit.SECONDS).body()).containsExactly(bytes("loser-winner"));
-    } finally {
-      jdbcTemplate.execute(
-          "drop trigger if exists test_block_idempotency_update on public.api_idempotency_records");
-      jdbcTemplate.execute("drop function if exists public.test_block_idempotency_update()");
-    }
-
+    assertThat(loser.body()).containsExactly(bytes("loser-winner"));
     assertThat(executions).hasValue(1);
     assertThat(recordState(request.scope())).isEqualTo("COMPLETED");
+  }
+
+  @Test
+  void blocked_loser의_중간검증이_실패해도_blocker를_먼저_해제하고_bounded_종료한다() {
+    IdempotencyRequest request = request(UUID.randomUUID(), UUID.randomUUID());
+    repository.acquire(request.scope(), request.requestHash(), NOW);
+    AtomicInteger executions = new AtomicInteger();
+    long startedAt = System.nanoTime();
+
+    assertThatThrownBy(
+            () ->
+                runAtBlockedUpdate(
+                    request,
+                    executions,
+                    () -> {
+                      throw new IllegalStateException("intentional intermediate failure");
+                    }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("intentional intermediate failure");
+
+    assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(5));
+    assertThat(executions.get()).isBetween(0, 1);
   }
 
   @Test
@@ -395,6 +384,67 @@ class JdbcIdempotencyRecordRepositoryIntegrationTest {
         scope.idempotencyKey());
   }
 
+  private IdempotencyResponse runAtBlockedUpdate(
+      IdempotencyRequest request, AtomicInteger executions, CheckedAction whileBlocked)
+      throws Exception {
+    installBlockingUpdateTrigger();
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor();
+        Connection blocker = openControlConnection();
+        var statement = blocker.createStatement()) {
+      boolean locked = false;
+      try {
+        statement.execute("select pg_advisory_lock(170017)");
+        locked = true;
+        var loser =
+            executor.submit(
+                () ->
+                    useCase.execute(
+                        request,
+                        () -> {
+                          executions.incrementAndGet();
+                          return response("loser-winner");
+                        }));
+
+        awaitAdvisoryLockWaiter();
+        whileBlocked.run();
+        statement.execute("select pg_advisory_unlock(170017)");
+        locked = false;
+        return loser.get(2, TimeUnit.SECONDS);
+      } finally {
+        if (locked) statement.execute("select pg_advisory_unlock(170017)");
+      }
+    } finally {
+      jdbcTemplate.execute(
+          "drop trigger if exists test_block_idempotency_update on public.api_idempotency_records");
+      jdbcTemplate.execute("drop function if exists public.test_block_idempotency_update()");
+    }
+  }
+
+  private Connection openControlConnection() throws Exception {
+    return DriverManager.getConnection(
+        dataSource.getJdbcUrl(), dataSource.getUsername(), dataSource.getPassword());
+  }
+
+  private void installBlockingUpdateTrigger() {
+    jdbcTemplate.execute(
+        """
+        create or replace function public.test_block_idempotency_update()
+        returns trigger language plpgsql as $$
+        begin
+          perform pg_advisory_lock(170017);
+          perform pg_advisory_unlock(170017);
+          return null;
+        end
+        $$
+        """);
+    jdbcTemplate.execute(
+        """
+        create trigger test_block_idempotency_update
+        before update on public.api_idempotency_records
+        for each statement execute function public.test_block_idempotency_update()
+        """);
+  }
+
   private void awaitAdvisoryLockWaiter() {
     for (int attempt = 0; attempt < 200; attempt++) {
       Integer waiters =
@@ -438,5 +488,10 @@ class JdbcIdempotencyRecordRepositoryIntegrationTest {
       Thread.currentThread().interrupt();
       throw new IllegalStateException(exception);
     }
+  }
+
+  @FunctionalInterface
+  private interface CheckedAction {
+    void run() throws Exception;
   }
 }
