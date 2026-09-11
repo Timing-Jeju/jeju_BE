@@ -67,7 +67,7 @@ dependencies {
 	testImplementation "com.tngtech.archunit:archunit-junit5:${archUnitVersion}"
 	testImplementation 'org.testcontainers:testcontainers-postgresql'
 	testRuntimeOnly 'com.h2database:h2'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testImplementation 'org.junit.platform:junit-platform-launcher'
 }
 
 spotless {
@@ -132,6 +132,7 @@ def repositoryTestSchema = files(
 
 integrationTestTask.configure {
 	inputs.files(repositoryTestSchema).withPathSensitivity(PathSensitivity.RELATIVE)
+	systemProperty 'spring.test.context.cache.maxSize', '24'
 	filter {
 		excludeTestsMatching openApiWriterClass
 	}
