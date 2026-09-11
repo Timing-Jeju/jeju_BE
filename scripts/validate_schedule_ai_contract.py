@@ -15,7 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/schedule-ai/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
-CANONICAL_DIGEST = "8ede7b980f4d39133b1a81e80af245d2d1f5c4f058105ea7d482178436bf4ece"
+CANONICAL_DIGEST = "88a2dccb74f1aa59edf236958a3cae1ae2540482f6d57a5ff21173213c065ca9"
 IDENTITIES = [
     ("POST", "/api/v1/trips/{tripId}/generation-runs", "compute", [202], [400, 401, 404, 409, 422, 429, 503]),
     ("GET", "/api/v1/trips/{tripId}/generation-runs/{runId}", "read", [200], [400, 401, 404, 410, 429, 503]),
@@ -321,6 +321,29 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
     condition_by_code = {item.get("code"): item for item in conditions if isinstance(item, dict)} if isinstance(conditions, list) else {}
     if set(condition_by_code) != matrix_codes or len(condition_by_code) != len(conditions or []):
         errors.append("Problem matrix와 condition code가 exact bijection이 아닙니다.")
+    expected_idempotency_invalid = {
+        "condition": "Idempotency-Key is outside 1..128 printable ASCII characters",
+        "detail": "1~128자 printable ASCII Idempotency-Key를 입력해 주세요.",
+        "fieldErrors": [
+            {"field": "Idempotency-Key", "reason": "1~128자 printable ASCII여야 합니다."}
+        ],
+        "endpoints": ["CREATE_2", "APPLY_2"],
+    }
+    idempotency_invalid = condition_by_code.get("IDEMPOTENCY_KEY_INVALID", {})
+    if any(
+        idempotency_invalid.get(field) != value
+        for field, value in expected_idempotency_invalid.items()
+    ):
+        errors.append("Idempotency-Key invalid Problem은 1..128 printable ASCII header 정책과 달라서는 안 됩니다.")
+
+    expected_get_rejections = {
+        "INVALID_QUERY_PARAMETER": "GET contains any query parameter; NoQuery is closed",
+        "REQUEST_BODY_NOT_ALLOWED": "GET contains any request body, including empty object or null",
+    }
+    for code, expected_condition in expected_get_rejections.items():
+        condition = condition_by_code.get(code, {})
+        if condition.get("status") != 400 or condition.get("condition") != expected_condition or condition.get("endpoints") != ["GET_2"]:
+            errors.append(f"GET NoQuery/BodyForbidden 400 Problem scope가 정확하지 않습니다: {code}")
     problem_fields = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
     condition_fields = {"code", "status", "condition", "type", "title", "detail", "fieldErrors", "endpoints", "example"}
     for code, condition in condition_by_code.items():

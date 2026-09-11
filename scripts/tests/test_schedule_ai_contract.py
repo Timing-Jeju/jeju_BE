@@ -117,6 +117,26 @@ class ScheduleAiContractTest(unittest.TestCase):
                 self.assertEqual(expected, key)
                 self.assertNotIn("format", key)
 
+        invalid = next(
+            item
+            for item in self.contract["problemConditions"]
+            if item["code"] == "IDEMPOTENCY_KEY_INVALID"
+        )
+        self.assertEqual(
+            "Idempotency-Key is outside 1..128 printable ASCII characters",
+            invalid["condition"],
+        )
+        self.assertEqual(
+            "1~128자 printable ASCII Idempotency-Key를 입력해 주세요.",
+            invalid["detail"],
+        )
+        self.assertEqual(
+            [{"field": "Idempotency-Key", "reason": "1~128자 printable ASCII여야 합니다."}],
+            invalid["fieldErrors"],
+        )
+        self.assertEqual(invalid["detail"], invalid["example"]["detail"])
+        self.assertEqual(invalid["fieldErrors"], invalid["example"]["fieldErrors"])
+
     def test_location_input_is_closed_to_direct_user_selections(self):
         policy = self.contract["locationInputPolicy"]
         self.assertEqual(
@@ -523,6 +543,61 @@ class ScheduleAiContractTest(unittest.TestCase):
         self.assertTrue(get_endpoints)
         self.assertTrue(all(endpoint["schemas"]["body"] == "BodyForbidden" for endpoint in get_endpoints))
         self.assertTrue(all(endpoint["schemas"]["body"] == "BodyForbidden" for endpoint in get_projection))
+
+    def test_get_query_and_body_rejections_have_canonical_400_codes(self):
+        get_endpoints = [
+            endpoint for endpoint in self.contract["endpoints"] if endpoint["method"] == "GET"
+        ]
+        expected_codes = {
+            "INVALID_PATH_PARAMETER",
+            "INVALID_QUERY_PARAMETER",
+            "REQUEST_BODY_NOT_ALLOWED",
+        }
+        for endpoint in get_endpoints:
+            with self.subTest(path=endpoint["path"]):
+                self.assertEqual("NoQuery", endpoint["schemas"]["query"])
+                self.assertEqual("BodyForbidden", endpoint["schemas"]["body"])
+                self.assertEqual(expected_codes, set(endpoint["errorMatrix"]["400"]))
+
+        conditions = {
+            condition["code"]: condition for condition in self.contract["problemConditions"]
+        }
+        self.assertEqual(
+            {
+                "condition": "GET contains any query parameter; NoQuery is closed",
+                "endpoints": ["GET_2"],
+            },
+            {
+                "condition": conditions["INVALID_QUERY_PARAMETER"]["condition"],
+                "endpoints": conditions["INVALID_QUERY_PARAMETER"]["endpoints"],
+            },
+        )
+        self.assertEqual(
+            {
+                "condition": "GET contains any request body, including empty object or null",
+                "endpoints": ["GET_2"],
+            },
+            {
+                "condition": conditions["REQUEST_BODY_NOT_ALLOWED"]["condition"],
+                "endpoints": conditions["REQUEST_BODY_NOT_ALLOWED"]["endpoints"],
+            },
+        )
+        self.assertTrue(
+            all(conditions[code]["status"] == 400 for code in expected_codes)
+        )
+
+        self.assert_mutation_rejected(
+            lambda contract: contract["endpoints"][1]["errorMatrix"]["400"].remove(
+                "INVALID_QUERY_PARAMETER"
+            )
+        )
+        self.assert_mutation_rejected(
+            lambda contract: next(
+                condition
+                for condition in contract["problemConditions"]
+                if condition["code"] == "REQUEST_BODY_NOT_ALLOWED"
+            ).update(endpoints=["CREATE_2"])
+        )
 
     def test_readback_and_endpoint_owner_bindings_are_exact_and_mutation_sensitive(self):
         self.assertEqual(

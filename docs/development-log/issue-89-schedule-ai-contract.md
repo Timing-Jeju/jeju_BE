@@ -103,3 +103,9 @@ REST 계약 readiness 검사 성공
 - #47/#180 최신 공개 계약에 맞춰 arrival/departure nullable slot, flight/ferry, terminal XOR, +09:00 scheduledAt과 transport metadata를 snapshot에 고정했다. `commandInputHash`와 실제 redacted MCP wire의 `mcpInputHash` 분리는 유지했다.
 - endpoint status/error와 apply first-match precedence는 변경하지 않았다. 운영 Java/DB schema도 변경하지 않았다.
 - 실제 Notion/Figma read/write/readback은 수행하지 않았으며 외부 evidence는 계속 `not-linked/not-ready`다. Docker/Testcontainers/full gate/PR/live Supabase는 이번 #89 범위에서 실행하지 않는다.
+
+### Reviewer 최종 Problem 계약 보완
+
+- Red: `IDEMPOTENCY_KEY_INVALID`의 condition/detail/fieldErrors/example과 header schema 정렬, GET `NoQuery`/`BodyForbidden` 위반의 canonical 400 code와 condition scope, endpoint matrix 양방향 mutation을 테스트로 먼저 추가했다. focused 2개에서 failures 3/errors 1을 확인했다. 기존 Problem은 canonical UUID를 요구했고 두 GET의 400 matrix에는 path 오류만 있었다.
+- Green: invalid key Problem을 #68의 1..128 printable ASCII로 통일했다. 정상 path라도 query가 존재하면 `INVALID_QUERY_PARAMETER`, `{}`나 `null`을 포함해 body가 존재하면 `REQUEST_BODY_NOT_ALLOWED`를 두 GET에서 반환하도록 exact condition/example과 `GET_2` scope를 추가했다.
+- Refactor: validator가 header policy와 invalid-key Problem을 직접 비교하고 GET 거부 code/status/condition/scope를 고정한다. 기존 condition-to-endpoint matrix 양방향 검사를 유지해 한쪽만 바뀌는 계약 drift를 거부한다.

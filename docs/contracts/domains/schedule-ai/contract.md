@@ -17,7 +17,7 @@ Spring Boot만 아래 여섯 endpoint를 공개한다.
 
 접수는 `queued`와 concrete `pollUrl`을 반환하고 동일 URL을 `Location`에, `2`를 `Retry-After`에 기록한다. 조회는 `queued/running`에서만 `Retry-After: 2`를 반환한다. running은 `startedPreDispatch`에서 `startedAt`만 반환하고, #52 MCP call log가 생긴 `postDispatch`부터 `mcpInputHash`도 반환한다. 상태는 `queued/running/succeeded/failed/cancelled`뿐이며 terminal은 불변이다. 후보 만료는 run status가 아니라 후보의 `expiresAt`이다. terminal 결과는 `completedAt`부터 7일, 후보는 성공 완료부터 24시간 보존한다. 경계 시각부터 조회는 `410 ASYNC_RESULT_EXPIRED`, 적용은 `410 CANDIDATE_EXPIRED`이다.
 
-GET의 query는 closed empty `NoQuery`지만 body는 empty object나 `null`도 허용하지 않는 `BodyForbidden` sentinel이다. generation/revision GET은 각각 #95/#105가 소유하며 저장 결과만 SELECT한다. 결과에는 `baseScheduleVersionId`, `factsAsOf`, `stale`, `resultSource`, 후보가 필수다. 모든 후보는 concrete `applyUrl`을 제공하고, revision 후보는 typed added/removed/moved/updated diff와 preserved field path 목록을 추가로 제공한다.
+GET의 query는 closed empty `NoQuery`지만 body는 empty object나 `null`도 허용하지 않는 `BodyForbidden` sentinel이다. query가 하나라도 있으면 `400 INVALID_QUERY_PARAMETER`, body가 존재하면 `{}`나 `null`도 `400 REQUEST_BODY_NOT_ALLOWED`다. generation/revision GET은 각각 #95/#105가 소유하며 저장 결과만 SELECT한다. 결과에는 `baseScheduleVersionId`, `factsAsOf`, `stale`, `resultSource`, 후보가 필수다. 모든 후보는 concrete `applyUrl`을 제공하고, revision 후보는 typed added/removed/moved/updated diff와 preserved field path 목록을 추가로 제공한다.
 
 FastAPI MCP는 private 계산기다. Spring이 JWT 검증, owner 판정, command snapshot, DB, worker lifecycle과 결과 적용을 소유한다. FastAPI는 공개 API, JWT, DB, provider credential을 소유하지 않는다.
 
