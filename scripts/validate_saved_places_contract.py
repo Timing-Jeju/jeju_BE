@@ -28,6 +28,7 @@ CONTRACT_FIELDS = {
     "inherits",
     "ownerIssue",
     "implementationIssue",
+    "implementationIssues",
     "schemas",
     "endpoints",
     "pagination",
@@ -39,7 +40,7 @@ CONTRACT_FIELDS = {
     "externalTraceability",
     "readiness",
 }
-CANONICAL_CONTRACT_SHA256 = "d328867e3e032566d6359719738c112f8aabb1d68d85849029e35cd1c7b0790f"
+CANONICAL_CONTRACT_SHA256 = "d662be0443654a9e41c2bc5827c70cbe7d63d35945571bd7ef6bda931dcaae99"
 CANONICAL_CATALOG_SHA256 = "1282a8a890aacb8f7738f65e5b1044b1ca4c49791bb5fe2faf07e3c649369147"
 EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/me/saved-places"),
@@ -231,7 +232,7 @@ def _validate_request_fixture(
     }:
         errors.append(f"{label} 최상위 구조가 정확하지 않습니다.")
         return
-    if fixture.get("contractVersion") != "1.0.0":
+    if fixture.get("contractVersion") != "1.1.0":
         errors.append(f"{label} contractVersion이 다릅니다.")
     expected = {
         "list": ("GET", "/api/v1/me/saved-places"),
@@ -365,6 +366,8 @@ def _validate_success_fixture(
         if set(response) != {"status", "headers", "body"}:
             errors.append(f"{label}.{name} HTTP envelope 필드가 정확하지 않습니다.")
         _validate_value(response.get("body"), schemas.get("SavedPlace"), schemas, f"{label}.{name}.body", errors)
+        if isinstance(response.get("body"), dict) and response["body"].get("etag") != response.get("headers", {}).get("ETag"):
+            errors.append(f"{label}.{name} body etag와 HTTP ETag가 다릅니다.")
     create = fixture.get("create", {})
     if create.get("status") != 201 or create.get("headers") != {
         "Content-Type": "application/json",
@@ -498,6 +501,15 @@ def _validate_value(
             errors.append(f"fixture {label}의 $ref {reference}를 찾을 수 없습니다.")
             return
         _validate_value(value, target, schemas, label, errors)
+        return
+    if "oneOf" in schema:
+        matches = 0
+        for branch in schema["oneOf"]:
+            branch_errors: list[str] = []
+            _validate_value(value, branch, schemas, label, branch_errors)
+            matches += not branch_errors
+        if matches != 1:
+            errors.append(f"{label}은 oneOf 응답 분기 정확히 하나와 일치해야 합니다.")
         return
     schema_type = schema.get("type")
     if schema_type == "object":

@@ -36,6 +36,15 @@ class SavedPlacesOpenApiIntegrationTest {
   }
 
   @Test
+  void 목록_ETag는_opaque_strong_형식을_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceResponse.properties.etag.pattern")
+                .value("^\"[A-Za-z0-9._:-]{1,128}\"$"));
+  }
+
+  @Test
   void saved_places는_success_status_headers와_endpoint_error_matrix를_문서화한다() throws Exception {
     String collection = "$.paths['/api/v1/me/saved-places']";
     String item = "$.paths['/api/v1/me/saved-places/{placeId}']";
@@ -70,6 +79,46 @@ class SavedPlacesOpenApiIntegrationTest {
         .andExpect(
             jsonPath("$.components.schemas.CreateSavedPlaceRequest.required")
                 .value(org.hamcrest.Matchers.hasItem("placeId")));
+  }
+
+  @Test
+  void 목록과_PATCH는_required_ETag를_제공하고_POST만_legacy_union을_허용한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/saved-places'].get.responses['200'].content['application/json'].example.items[0].etag")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/saved-places/{placeId}'].patch.responses['200'].content['application/json'].example.etag")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/saved-places'].post.responses['201'].content['application/json'].example.etag")
+                .exists())
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceResponse.required")
+                .value(org.hamcrest.Matchers.hasItem("etag")))
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceResponse.properties.etag.type")
+                .value("string"))
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceResponse.properties.memo.type")
+                .value(org.hamcrest.Matchers.containsInAnyOrder("string", "null")))
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceCreateResponse.oneOf")
+                .value(org.hamcrest.Matchers.hasSize(2)))
+        .andExpect(
+            jsonPath("$.components.schemas.SavedPlaceLegacyV1.properties.etag").doesNotExist())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/saved-places'].post.responses['201'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/SavedPlaceCreateResponse"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/me/saved-places/{placeId}'].patch.responses['200'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/SavedPlaceResponse"));
   }
 
   private static String randomKey() {
