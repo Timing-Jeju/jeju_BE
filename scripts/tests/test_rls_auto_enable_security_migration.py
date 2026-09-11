@@ -153,7 +153,7 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         )
         self.assertEqual(hashlib.sha256(MIGRATION.read_bytes()).hexdigest(), entry["sha256"])
 
-    def test_compose_and_smoke_replay_include_slot_060_after_059_before_seed(self) -> None:
+    def test_current_replay_includes_slot_060_but_historical_concurrency_stops_before_017(self) -> None:
         for relative_path in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             with self.subTest(relative_path=relative_path):
                 source = (ROOT / relative_path).read_text(encoding="utf-8")
@@ -168,11 +168,19 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
                 )
 
         smoke = (ROOT / "scripts/docker-smoke-test.sh").read_text(encoding="utf-8")
-        self.assertEqual(
-            1,
-            smoke.count(
-                "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql"
-            ),
+        canonical_replay = smoke.split("for canonical_sql in", 1)[1].split("done", 1)[0]
+        self.assertIn("compose.test.yml", canonical_replay)
+        self.assertIn("/docker-entrypoint-initdb.d/", canonical_replay)
+
+        historical_concurrency = smoke.split("for concurrency_sql in", 1)[1].split(
+            "\n do", 1
+        )[0]
+        for slot in ("055", "057", "058", "059", "060"):
+            with self.subTest(slot=slot):
+                self.assertNotIn(f"/docker-entrypoint-initdb.d/{slot}_", historical_concurrency)
+        self.assertIn(
+            "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql",
+            historical_concurrency,
         )
 
     @staticmethod

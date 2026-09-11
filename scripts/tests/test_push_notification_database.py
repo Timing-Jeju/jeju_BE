@@ -220,17 +220,21 @@ class PushNotificationDatabaseTest(unittest.TestCase):
 
         docker_smoke = DOCKER_SMOKE.read_text(encoding="utf-8")
         migration_targets = tuple(target for _, target in mounts[:-1])
+        current_only_targets = {
+            "/docker-entrypoint-initdb.d/055_location_cutover_group.sql",
+            "/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql",
+            "/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql",
+            "/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql",
+            "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql",
+        }
         for target in migration_targets:
+            if target in current_only_targets:
+                continue
             expected_count = (
                 3
                 if target.endswith("046_schedule_item_required_references_correction.sql")
                 else 1
-                if target.endswith(
-                    (
-                        "054_planned_route_reference_integrity.sql",
-                        "060_rls_auto_enable_execute_boundary.sql",
-                    )
-                )
+                if target.endswith("054_planned_route_reference_integrity.sql")
                 else 2
             )
             self.assertEqual(expected_count, docker_smoke.count(target), target)
@@ -243,7 +247,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 last_target = (
                     "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql"
                     if next_contract.endswith("legacy_v1_upgrade_contract.sql")
-                    else "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql"
+                    else "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql"
                 )
                 targets = migration_targets[:migration_targets.index(last_target) + 1]
                 exact_sequence = " \\\n  ".join((*targets, next_contract))

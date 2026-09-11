@@ -222,8 +222,11 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertLess(positions[-1], source.index(seed), compose_name)
 
         shell = (ROOT / "scripts/docker-smoke-test.sh").read_text(encoding="utf-8")
-        for _, target in expected_mounts:
-            self.assertIn(target, shell)
+        canonical_shell_replay = shell.split("for canonical_sql in", 1)[1].split(
+            "done", 1
+        )[0]
+        self.assertIn("compose.test.yml", canonical_shell_replay)
+        self.assertIn("/docker-entrypoint-initdb.d/", canonical_shell_replay)
         powershell = (ROOT / "scripts/docker-smoke-test.ps1").read_text(encoding="utf-8")
         self.assertIn("supabase/migrations/manifest.json", powershell)
         self.assertIn("immutablePrefix", powershell)

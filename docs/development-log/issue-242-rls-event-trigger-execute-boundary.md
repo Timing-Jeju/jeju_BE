@@ -156,3 +156,27 @@ Green에서는 이 Supabase cutover ledger 메서드만 #223 당시처럼 bootst
 017·018 ledger 동시 기록을 순서대로 검증한다. 정확한 ledger 메서드 PG16/17은 2분 21초,
 인접 revision rollback·timeout/disconnect/lock·정상 cutover 묶음은 4분 22초에 성공했다. Spotless와
 container/factory inventory 단위 테스트도 23초에 성공했고 focused container residue는 0이었다.
+
+## historical concurrency와 current canonical replay 경계 복원
+
+정확한 HEAD `eaa94f9ba42fa5ef3d2c80a3d970eb85924238a5`의 단독 quality gate는 Python,
+Spring, OpenAPI, architecture, coverage, bootJar를 모두 통과하고 Docker image와 health check도
+성공했지만 `database_concurrency_contract.sql`의 첫 schedule revision dblink에서
+`compute input lineage required`로 실패했다. 처음에는 concurrent session 각각에 최신 lineage를
+주입해 해당 지점을 통과시켰으나, 같은 historical fixture의 후반부가 이미 제거된 location lineage
+정리 function을 요구하며 다시 실패했다. `20260918000020_remove_user_location_runtime.sql`이 그
+function을 제거하므로 이는 fixture 누락이 아니라 서로 다른 시대의 schema를 섞은 실행 순서 오류였다.
+
+Docker smoke의 주석과 #223 canonical runner는 이 #109 historical concurrency fixture가 017 전에
+멈춰야 함을 명시한다. #242 재통합 때 055·057·058·059·060을 historical loop에 더한 변경이 이
+불변식을 깨뜨렸다. Red에서는 기존 Docker 실패와 함께 slot 060을 historical loop에도 요구하던 Python
+검사가 잘못된 결합을 고정하고 있음을 확인했다. Green에서는 임시 lineage 변경을 전부 되돌리고
+historical loop에서만 055·057·058·059·060을 제외했다. 세 compose와 manifest, compose mount를
+읽는 current canonical replay 및 current-schema 보안 검사는 그대로 최종 060까지 적용한다.
+
+수정된 양방향 계약은 historical loop가 054에서 끝나고 current compose/replay는 060을 포함함을
+각각 검증한다. 관련 Python 27건이 성공했고, 독립 PostgreSQL fixture에서 historical migration과
+`database_concurrency_contract.sql` 전체가 `PASS`했다. 같은 compose의 current fresh DB에서는
+060 이후 `rls_auto_enable` EXECUTE가 public/anon/authenticated에서 회수되고 event trigger가 활성화되며
+제거 대상 redaction function이 없음을 확인했고 `schema_contract PASS`를 얻었다. 검증용
+container/network/volume은 모두 정리되어 residue 0이었다.
