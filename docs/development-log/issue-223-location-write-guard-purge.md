@@ -392,3 +392,10 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - fixture 전용으로 정확한 `aaa_independent_hash_provenance` trigger만 잠시 disable하고, 부모와 대응 `compute_run_inputs`에 동일한 typed `compute_command_input_hash(...)`를 사용했다. owner/base/day 음성 fixture도 canonical hash를 계산하며 SQLSTATE `23503`뿐 아니라 각각의 FK constraint 이름을 고정해 다른 guard의 오탐 통과를 막았다.
 - deferred lineage 때문에 trigger 복원 전 `SET CONSTRAINTS ALL`을 시도하면 큰 smoke transaction의 unrelated compute lineage event까지 실행되는 실패를 확인했다. 최종 seam은 `revision_parent_input_lineage`만 immediate로 평가하고 trigger 복원 뒤 deferred로 되돌려 운영 guard나 다른 constraint를 완화하지 않는다.
 - disposable Postgres에서 정확한 negative-constraints query 전체가 `database_negative_constraints | PASS`와 `ROLLBACK`으로 끝났다. 관련 Python inventory/hardening 79건, local/Supabase atomic generator byte check와 `git diff --check`도 통과했다. 전체 quality gate와 전체 Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 schedule revision smoke SQL provenance 보정
+
+- 최종 Docker smoke의 `smoke_check.sql` 일정 보정 fixture가 `repeat('a', 64)` hash로 신규 provenance guard에서 실패했다. exact trigger seam, canonical parent/input 순서와 opaque hash 부재를 요구하는 Python 계약을 먼저 추가해 Red를 확인했다.
+- fixture transaction에서 정확한 `aaa_independent_hash_provenance` trigger만 잠시 disable한다. 부모와 `compute_run_inputs`는 같은 typed `compute_command_input_hash(...)`와 structured input을 공유하고, immutable hash update도 opaque 문자열 대신 다른 contract version의 typed canonical hash를 사용한다. 부모 삭제 뒤 input cascade까지 같은 block에서 확인한다.
+- 첫 정확한 SQL Green 시도는 deferred lineage event 때문에 trigger 복원 시 PostgreSQL 55006으로 실패했다. 전역 constraint flush 없이 `revision_parent_input_lineage`만 immediate로 평가하고 trigger를 복원한 뒤 deferred로 되돌리며, 실패 시 전체 seam이 rollback되는 명시적 transaction으로 닫았다.
+- disposable PostgreSQL 16에서 `/queries/smoke_check.sql` 전체가 schema·negative·fixture·PostGIS·compute input cleanup까지 PASS했다. 관련 Python inventory/hardening 80건과 local/Supabase generator byte check가 통과했다. 전체 quality gate와 전체 Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.

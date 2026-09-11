@@ -335,6 +335,41 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         for contents in (db_readme, architecture, schema_doc, dbml):
             self.assertIn("schedule_revision_runs", contents)
 
+    def test_smoke_revision_fixture_uses_canonical_hash_and_exact_guard_seam(self):
+        smoke = compact_sql(
+            (ROOT / "db/queries/smoke_check.sql").read_text(encoding="utf-8")
+        )
+        disable_marker = (
+            "alter table public.schedule_revision_runs disable trigger "
+            "aaa_independent_hash_provenance"
+        )
+        enable_marker = (
+            "alter table public.schedule_revision_runs enable trigger "
+            "aaa_independent_hash_provenance"
+        )
+        self.assertIn(disable_marker, smoke)
+        section = smoke.split(disable_marker, 1)[1]
+        section = section.split(enable_marker, 1)[0]
+
+        self.assertNotIn("repeat(", section)
+        parent = section.index("insert into public.schedule_revision_runs")
+        command_input = section.index("insert into public.compute_run_inputs")
+        immutable_update = section.index(
+            "update public.schedule_revision_runs set request_hash"
+        )
+        self.assertLess(parent, command_input)
+        self.assertLess(command_input, immutable_update)
+        self.assertEqual(2, section.count(HASH_CALL_NAME))
+        self.assertIn("schedule revision run cascade cleanup failed", section)
+        self.assertNotIn("set constraints all", section)
+        self.assertIn("set constraints revision_parent_input_lineage immediate", section)
+        self.assertIn("begin; " + disable_marker, smoke)
+        self.assertIn(
+            enable_marker
+            + "; set constraints revision_parent_input_lineage deferred; commit;",
+            smoke,
+        )
+
     def test_negative_and_two_session_contracts_cover_revision_run_invariants(self):
         negative = compact_sql(
             (ROOT / "db/queries/database_negative_constraints.sql").read_text(
