@@ -39,13 +39,37 @@ public record TransportEventMutationPayload(
 
   @Schema(name = "TransportEvent", additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
   public record TransportEventPayload(
-      String eventType,
-      String transportType,
-      @Schema(types = {"string", "null"}) UUID terminalPlaceId,
-      @Schema(types = {"string", "null"}) String customTerminalName,
-      OffsetDateTime scheduledAt,
-      @Schema(types = {"string", "null"}) String transportNumber,
-      @Schema(types = {"string", "null"}) String note) {
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              allowableValues = {"arrival", "departure"})
+          String eventType,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              allowableValues = {"flight", "ferry"})
+          String transportType,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              types = {"string", "null"})
+          UUID terminalPlaceId,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              types = {"string", "null"},
+              minLength = 1,
+              maxLength = 100)
+          String customTerminalName,
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED) OffsetDateTime scheduledAt,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              types = {"string", "null"},
+              minLength = 1,
+              maxLength = 30)
+          String transportNumber,
+      @Schema(
+              requiredMode = Schema.RequiredMode.REQUIRED,
+              types = {"string", "null"},
+              minLength = 1,
+              maxLength = 500)
+          String note) {
     public static TransportEventPayload from(TransportEvent event) {
       return new TransportEventPayload(
           event.eventType(),

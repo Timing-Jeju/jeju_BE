@@ -226,6 +226,37 @@ final class FrontendOpenApiCustomizer {
     documentComponentProblems(openApi);
     DOCUMENTS.forEach((key, document) -> applyOperation(openApi, key, document));
     projectCanonicalContracts(openApi);
+    alignNullableTripReferences(openApi);
+  }
+
+  private static void alignNullableTripReferences(OpenAPI openApi) {
+    if (openApi.getComponents() == null || openApi.getComponents().getSchemas() == null) {
+      return;
+    }
+    for (String name :
+        List.of(
+            "TripTransportEvents",
+            "TripDetail",
+            "TripDetailLegacyV11",
+            "TripDetailLegacyV1",
+            "TripSummary",
+            "TransportEventMutationResponse")) {
+      Schema<?> schema = openApi.getComponents().getSchemas().get(name);
+      if (schema == null || schema.getProperties() == null) continue;
+      for (Schema<?> property : schema.getProperties().values()) {
+        if (property.get$ref() != null
+            && (Boolean.TRUE.equals(property.getNullable())
+                || property.getTypes() != null && property.getTypes().contains("null"))) {
+          Schema<?> reference = new Schema<>().$ref(property.get$ref());
+          Schema<?> nullSchema = new Schema<>().types(Set.of("null"));
+          property.set$ref(null);
+          property.setType(null);
+          property.setTypes(null);
+          property.setNullable(null);
+          property.setAnyOf(List.of(reference, nullSchema));
+        }
+      }
+    }
   }
 
   private void projectCanonicalContracts(OpenAPI openApi) {
