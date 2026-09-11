@@ -153,14 +153,12 @@ class DatabaseHardeningTest(unittest.TestCase):
         """위치 원자 그룹과 후속 migration을 원래 순서로 seed 전에 적용한다."""
         migration_mounts = []
         for path in sorted(MIGRATIONS.glob("*.sql")):
-            migration_mounts.append(f"./supabase/migrations/{path.name}")
-        migration_mounts.extend(
-            [
-                "./db/local-postgres/20260918000017_location_cutover_group.sql",
-                "./supabase/atomic-migrations/20260918000019_planned_route_request_hash_policy.sql",
-                "./supabase/atomic-migrations/20260918000020_location_provenance_fail_closed.sql",
-            ]
-        )
+            if path.name == "20260918000018_revision_request_hash_audit.sql":
+                continue
+            if path.name == "20260918000017_user_location_write_guard_purge.sql":
+                migration_mounts.append("./db/local-postgres/20260918000017_location_cutover_group.sql")
+            else:
+                migration_mounts.append(f"./supabase/migrations/{path.name}")
         ordered_mounts = [
             "./db/local-postgres/auth_compat.sql",
             *migration_mounts,
@@ -989,10 +987,7 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("orphan provenance remained", concurrency_contract)
         self.assertIn("database_concurrency_contract", concurrency_contract)
 
-        for migration in (
-            *MIGRATIONS.glob("*.sql"),
-            *(ROOT / "supabase/atomic-migrations").glob("*.sql"),
-        ):
+        for migration in MIGRATIONS.glob("*.sql"):
             with self.subTest(migration=migration.name):
                 self.assertNotIn(
                     "dblink",
@@ -1030,6 +1025,7 @@ class DatabaseHardeningTest(unittest.TestCase):
         )
 
     def test_supabase_smoke_runs_postgres17_two_session_contract(self):
+        """역사 TTL 동시성은 현재 위치 비수집 DB와 분리된 PG17 DB에서 검증한다."""
         supabase_smoke = (
             ROOT / "scripts" / "supabase-smoke-test.sh"
         ).read_text(encoding="utf-8").lower()
@@ -1041,13 +1037,15 @@ class DatabaseHardeningTest(unittest.TestCase):
         self.assertIn("server_version_num", supabase_smoke)
         self.assertIn("database_concurrency_contract.sql", supabase_smoke)
         self.assertIn(
-            "--username supabase_admin --dbname postgres --file -",
+            '--username supabase_admin --dbname "$legacy_concurrency_db" --file -',
             supabase_smoke,
         )
         self.assertIn(
-            "postgresql 17 실제 2세션 동시성 계약 검사",
+            "역사 016 스키마의 별도 postgresql 17 db에서 2세션 동시성 검사",
             supabase_smoke,
         )
+        self.assertIn('historical_concurrency_migrations.py', supabase_smoke)
+        self.assertIn('legacy_concurrency_db_created=1', supabase_smoke)
 
     def test_import_run_state_machine_and_idempotency_are_database_constraints(self):
         migration = self.read_migration(INTEGRITY_MIGRATION)

@@ -11,16 +11,15 @@ DB_CONTAINER=supabase_db_timing-jeju
 SPRING_DIR="$ROOT/services/spring-api"
 LOCAL_AUTH_FIXTURE_HELPER="$ROOT/db/local-postgres/supabase_smoke_fixture_helper.sql"
 LOCAL_AUTH_FIXTURE_HELPER_INSTALLED=0
-
-# The CLI applies each file and records its ledger row sequentially. Since 017
-# and 018 are one privacy cutover, raw db reset/push is intentionally disabled.
-if grep -A4 '^\[db\.migrations\]$' supabase/config.toml | grep -q '^enabled = false$'; then
-  echo "검증된 017+018 단일 transaction runner 전에는 Supabase 순차 migration을 실행하지 않습니다." >&2
-  exit 64
-fi
+LEGACY_CONCURRENCY_DB=timing_jeju_historical_concurrency
+LEGACY_CONCURRENCY_DB_CREATED=0
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/timing-jeju-supabase-smoke.XXXXXX")
 
 cleanup() {
+  if [ "$LEGACY_CONCURRENCY_DB_CREATED" = "1" ]; then
+    "$DOCKER_BIN" exec "$DB_CONTAINER" dropdb --username supabase_admin "$LEGACY_CONCURRENCY_DB" \
+      >/dev/null 2>&1 || true
+  fi
   if [ "$LOCAL_AUTH_FIXTURE_HELPER_INSTALLED" = "1" ]; then
     "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc \
       --username postgres --dbname postgres \
@@ -191,11 +190,28 @@ echo "[Supabase] 음수 무결성 계약 검사"
   --username postgres --dbname postgres --file - \
   < "$ROOT/db/queries/database_negative_constraints.sql"
 
-echo "[Supabase] PostgreSQL 17 실제 2세션 동시성 계약 검사"
+echo "[Supabase] 역사 016 스키마의 별도 PostgreSQL 17 DB에서 2세션 동시성 검사"
+# TTL cleanup fixtures must never write legacy location data into the current DB.
+# Current v2 lineage/locking races are covered by the PG16/17 integration suite.
+python3 "$ROOT/scripts/historical_concurrency_migrations.py" > "$TEMP_DIR/historical-migrations.txt"
+"$DOCKER_BIN" exec "$DB_CONTAINER" createdb --username supabase_admin "$LEGACY_CONCURRENCY_DB"
+LEGACY_CONCURRENCY_DB_CREATED=1
 "$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
-  --username supabase_admin --dbname postgres --file - \
+  --username supabase_admin --dbname "$LEGACY_CONCURRENCY_DB" --file - \
+  < "$ROOT/db/local-postgres/auth_compat.sql"
+while IFS= read -r historical_migration; do
+  "$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+    psql --no-psqlrc --set ON_ERROR_STOP=1 \
+    --username supabase_admin --dbname "$LEGACY_CONCURRENCY_DB" --file - \
+    < "$historical_migration"
+done < "$TEMP_DIR/historical-migrations.txt"
+"$DOCKER_BIN" exec --interactive "$DB_CONTAINER" \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username supabase_admin --dbname "$LEGACY_CONCURRENCY_DB" --file - \
   < "$ROOT/db/queries/database_concurrency_contract.sql"
+"$DOCKER_BIN" exec "$DB_CONTAINER" dropdb --username supabase_admin "$LEGACY_CONCURRENCY_DB"
+LEGACY_CONCURRENCY_DB_CREATED=0
 
 "$DOCKER_BIN" exec "$DB_CONTAINER" psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username postgres --dbname postgres \

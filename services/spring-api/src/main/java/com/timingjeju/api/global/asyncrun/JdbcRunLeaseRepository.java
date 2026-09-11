@@ -43,13 +43,7 @@ public class JdbcRunLeaseRepository implements RunLeaseRepository {
             and input.contract_version = run.contract_version
             and input.algorithm_version = run.algorithm_version
             and input.command_input_hash = run.input_hash
-            and input.location_supplied = false
-            and input.coarse_location is null
-            and input.location_precision_meters is null
-            and input.location_policy_version is null
-            and input.location_observed_at is null
-            and input.location_expires_at is null
-            and input.location_redacted_at is null
+            and input.schema_version = 2
           where run.attempt_count < 5
             and (
               (run.status = 'queued'
@@ -188,13 +182,7 @@ public class JdbcRunLeaseRepository implements RunLeaseRepository {
               and input.contract_version = run.contract_version
               and input.algorithm_version = run.algorithm_version
               and input.command_input_hash = run.input_hash
-              and input.location_supplied = false
-              and input.coarse_location is null
-              and input.location_precision_meters is null
-              and input.location_policy_version is null
-              and input.location_observed_at is null
-              and input.location_expires_at is null
-              and input.location_redacted_at is null
+              and input.schema_version = 2
           )
         """,
         RETRY_EXHAUSTED);

@@ -95,8 +95,9 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
 - `20260918000006` `#78` 프로필 이미지 Storage migration은 `user_profiles` 상태, cleanup outbox와 public bucket의 immutable INSERT-only RLS를 additive하게 적용합니다.
 - `20260918000009`은 #38 시간표 provenance와 TAGO route reference scope를 additive하게 분리합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000020`까지 고유 timestamp와 Docker init `038`부터 `058`을 사용합니다. `20260918000019`/`057`은 #225 planned route hash 정책이고 `20260918000020`/`058`은 #223 후속 보정입니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000020`까지 고유 timestamp와 Docker init `038`부터 `058`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
 - `20260918000019`은 동결된 015/016을 수정하지 않고 planned route hash를 contract version → trip ID → schedule version ID → origin kind/ID → destination kind/ID의 7개 길이-prefix 필드로 교체합니다. owner/item/source ID, 좌표, mode/departure/provider/operation은 hash 입력이 아닙니다. 공개 좌표 일치 검사는 INSERT·봉인 guard에 별도로 유지합니다. exclusive lock과 단일 transaction에서 hash만 backfill하고 provenance guard를 복원합니다. 축소된 identity가 기존 UNIQUE 제약과 충돌하면 원문 hash를 노출하거나 행을 합치지 않고 전체 rollback하므로 적용 전 중복 identity 감사가 필요합니다.
+- `20260918000020`은 018 위치 감사와 worker drain을 확인하고 증명된 무위치 입력·부모 hash를 v2로 함께 변환합니다. deferred 계보 검증을 마친 뒤 위치 열·TTL 함수만 제거합니다. event 참조 함수는 검토한 signature·본문 지문을 요구하며 미분류 함수가 있으면 전체 전환을 중단합니다. 공개 장소와 계획 anchor는 보존합니다. 호환되는 v2 애플리케이션과 함께 검증해야 하며 구형 위치 수집 런타임으로 되돌리지 않습니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -134,11 +135,11 @@ Issue #220의 v2 발송 eligibility는 활성 device, `GRANTED` OS 권한과 서
 
 `schedule_revision_runs`는 generation/compute run과 discriminator 없이 분리된 일정 보정 identity/lifecycle 부모입니다. canonical 사용자·여행·base 일정·target Day를 실제 복합 FK로 고정하고 같은 사용자/여행의 idempotency identity와 active base/Day scope를 DB unique로 직렬화합니다. 이 foundation은 queued 생성, lease/fencing 호환 상태와 terminal 불변성만 소유하며 HTTP 접수, structured command input, MCP call log와 결과 후보는 후속 Issue가 소유합니다.
 
-`application.commandinput`은 HTTP나 JDBC를 모르는 immutable command snapshot과 canonical JSON/SHA-256 계약을 소유하고, `global.commandinput` JDBC adapter가 `compute_run_inputs`에 한 번 저장하고 parent별로 복원합니다. snapshot은 generic compute, itinerary generation, schedule revision parent 중 실제 FK 하나만 참조하며 owner·여행·base 일정·run type을 부모와 재검증합니다. structured input은 denylist가 아니라 run type/schema version별 exact field·type projection으로 닫아 unknown/alias/nested raw object를 Java와 DB에서 동일하게 거부합니다. `spare_time` window는 연도 0001~9999, 실제 Gregorian 날짜, 시·분·초 범위, optional 1~9자리 fraction, `Z` 또는 최대 `±18:00` offset만 허용하는 canonical RFC3339 부분집합입니다. 위치는 `GRID_100M`, `PLACE`, `STOP` closed union만 허용합니다. DB가 최초 `completed` 여행 전이에 `trip_plans.trip_ended_at`을 한 번 기록해 불변화하며, 실제 parent terminal과 이 canonical 여행 종료 anchor의 +24시간 중 earliest cutoff만 제한 DB 함수로 단조 단축합니다. `expires_at <= evaluated_at`은 due입니다. Issue #168 release gate 전에는 production 위치 접수를 default-off로 유지합니다. HTTP intake, MCP 호출 hash/log와 due payload redaction 실행은 각각 후속 Issue가 소유합니다.
+`application.commandinput`은 HTTP나 JDBC를 모르는 immutable command snapshot과 canonical JSON/SHA-256 계약을 소유하고, `global.commandinput` JDBC adapter가 `compute_run_inputs`에 한 번 저장하고 parent별로 복원합니다. snapshot은 generic compute, itinerary generation, schedule revision parent 중 실제 FK 하나만 참조하며 owner·여행·base 일정·run type을 부모와 재검증합니다. structured input은 denylist가 아니라 run type/schema version별 exact field·type projection으로 닫아 unknown/alias/nested raw object를 Java와 DB에서 동일하게 거부합니다. `spare_time` window는 연도 0001~9999, 실제 Gregorian 날짜, 시·분·초 범위, optional 1~9자리 fraction, `Z` 또는 최대 `±18:00` offset만 허용하는 canonical RFC3339 부분집합입니다. 현행 위치 비수집 정책은 현재 GPS와 파생 장소·정류장·격자·hash를 허용하지 않는다. 과거 snapshot v1의 위치 union 및 TTL은 역사 migration 계약이며 v2 런타임에서 해석하거나 수집하지 않는다. 계획한 공개 장소·숙소·터미널 anchor의 출처는 별도로 보존한다.
 
-기본 비활성 command 위치 cleanup scheduler는 5분 fixed delay, 500건 batch, cycle당 최대 10 batch·1분·3회 retry로 제한됩니다. `SECURITY DEFINER` `redact_due_compute_run_input_locations`가 `(location_expires_at,id)` 안정 순서와 `FOR UPDATE SKIP LOCKED`로 due row만 잠그고 위치 5필드 NULL과 `location_redacted_at`을 한 statement로 기록합니다.
+역사 migration010의 `redact_due_compute_run_input_locations`는 위치 TTL 정리를 구현했다. 해당 SQL과 역사 회귀는 보존하지만, #224에서 애플리케이션 cleanup bean·설정·resolver를 제거한다. 위치 저장을 다시 활성화하는 기능으로 사용하지 않는다.
 
-현재 production에는 MCP 계산 worker와 argument assembler가 없습니다. 후속 worker는 `McpCommandLocationResolver.resolveImmediatelyBeforeMcp`를 MCP argument 조립 직전에 반드시 호출해, 과거에 읽은 위치를 재사용하지 않고 그 시점의 DB admission 결과만 전달해야 합니다.
+#224 전환에서는 위치 admission을 호출하지 않는다. Java command snapshot은 schemaVersion=2만 읽고 위치 필드·digest를 hash에서 제거하며, worker는 동일 v2 lineage만 claim한다. MCP는 schema/ID 검증이 반환한 독립 snapshot의 위치 파생 필드를 hash 전에 다시 검사하고 실제 wire hash 검증도 유지한다. DB020과 MCP0.8 release 검증이 완료되기 전에는 intake/MCP 기능을 비활성으로 유지한다.
 
 ## FCM 다음 목적지 출발 알림 경계
 
@@ -236,4 +237,12 @@ endpoint 집합·인증·runtime status/Problem·예제 nullable 검증은 계�
 `20260918000017`과 `20260918000018`은 055 실행 슬롯의 단일 transaction으로 적용합니다. 056은 원문 manifest의 예약 슬롯이며 별도 Docker init을 실행하지 않습니다. `scripts/location_cutover_group.py --check`는 고정된 원문 checksum과 생성 SQL의 byte 일치를 확인합니다. 017의 이미 커밋한 SQL은 변경하지 않습니다. 기본 Docker와 Java canonical 초기화는 `db/local-postgres/20260918000017_location_cutover_group.sql`을 사용합니다. 017 단독 역사 회귀 테스트는 전체 cutover 성공 증거가 아닙니다.
 
 
-Supabase 공식 적용 진입점은 `scripts/supabase-release.sh`입니다. 기본 CLI가 읽는 `supabase/migrations`에는 안전한 bootstrap prefix인 016까지만 두고, immutable 017·018과 020 이후 atomic source는 sibling `supabase/atomic-migrations`에 둡니다. manifest가 두 디렉터리의 단일 canonical 순서와 원문 SHA를 소유합니다. 고정 CLI 2.116.0으로 bootstrap한 뒤 `db/local-postgres/location_cutover_supabase.sql`이 017 이후 canonical suffix를 ledger와 함께 한 transaction으로 적용합니다. `migration list`/`fetch` 뒤 017 이후 원문 byte와 manifest SHA까지 검증합니다. 원문 schema migration을 직접 `migration up`/`db push`하는 방식은 #223 원자성 완료 근거가 아닙니다. `createBefore(018)`처럼 그룹 내부를 canonical 초기화 경계로 선택하는 동작은 지원하지 않습니다. 017만 적용된 과거 DB는 별도 역사 fixture와 감사 경로로 다룹니다.
+Supabase ledger 적용용 별도 산출물은 `db/local-postgres/location_cutover_supabase.sql`입니다. 원문 schema migration 파일 두 개를 따로 `db push`하는 방식은 #223 원자성 완료 근거로 사용하지 않습니다. 이력/DDL을 함께 처리하는 SQL과 실제 CLI 호환·격리 staging 검증을 구분합니다. `createBefore(018)`처럼 그룹 내부를 canonical 초기화 경계로 선택하는 동작은 지원하지 않습니다. 017만 적용된 과거 DB는 별도 역사 fixture와 감사 경로로 다룹니다.
+
+원격 cutover는 `scripts/apply_location_cutover.py`만 사용합니다. 실행기는 reviewed SHA와 clean tree,
+reviewed SHA-256으로 고정한 psql, 0600 DB URL 파일, 생성 SQL byte 및 ledger 구조를 쓰기 전에 검사합니다.
+psql은 검증한 바이트의 비공개 복사본으로만 실행하고, 생성 SQL은 검증 뒤 보관한 바이트를 표준입력으로 전달합니다.
+psql 자식은 부모의 동적 loader·PG 환경을 상속하지 않고 필요한 연결값만 새 환경으로 받습니다.
+생성 SQL은 같은 transaction과 ledger 전용 잠금 안에서 정확한 선행 이력 및 server major별
+schema/RLS/ACL fingerprint를 017 본문보다 먼저 검증합니다. 실행 가능한 script/workflow의 raw
+`supabase db push`는 공통 품질 gate에서 거부합니다.

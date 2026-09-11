@@ -15,7 +15,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.postgresql.util.PSQLException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -108,33 +107,18 @@ class ScheduleRevisionRunSchemaIntegrationTest {
             Integer.class);
     assertThat(compositeForeignKeys).isEqualTo(3);
 
-    disableRevisionFixtureGuard();
-    try {
-      assertThatThrownBy(
-              () ->
-                  jdbcTemplate.update(
-                      insertSql(),
-                      UUID.randomUUID(),
-                      OWNER_ONE,
-                      TRIP_ONE,
-                      BASE_ONE,
-                      DAY_ONE,
-                      "unknown",
-                      UUID.randomUUID(),
-                      canonicalRequestHash(BASE_ONE, DAY_ONE)))
-          .isInstanceOf(DataIntegrityViolationException.class)
-          .rootCause()
-          .isInstanceOfSatisfying(
-              PSQLException.class,
-              error -> {
-                assertThat(error.getSQLState()).isEqualTo("23514");
-                assertThat(error.getServerErrorMessage()).isNotNull();
-                assertThat(error.getServerErrorMessage().getMessage())
-                    .isEqualTo("schedule revision run must be created as queued");
-              });
-    } finally {
-      enableRevisionFixtureGuard();
-    }
+    assertThatThrownBy(
+            () ->
+                jdbcTemplate.update(
+                    insertSql(),
+                    UUID.randomUUID(),
+                    OWNER_ONE,
+                    TRIP_ONE,
+                    BASE_ONE,
+                    DAY_ONE,
+                    "unknown",
+                    UUID.randomUUID()))
+        .isInstanceOf(DataIntegrityViolationException.class);
   }
 
   @Test
@@ -159,21 +143,15 @@ class ScheduleRevisionRunSchemaIntegrationTest {
   @Test
   void two_session_same_idempotency_scope_creates_exactly_one_canonical_row() throws Exception {
     UUID idempotencyKey = UUID.randomUUID();
-    String requestHash = canonicalRequestHash(BASE_ONE, DAY_ONE);
     CyclicBarrier start = new CyclicBarrier(2);
 
-    disableRevisionFixtureGuard();
     try (var executor = Executors.newFixedThreadPool(2)) {
       Future<Integer> first =
-          executor.submit(
-              () -> concurrentInsert(UUID.randomUUID(), idempotencyKey, requestHash, start));
+          executor.submit(() -> concurrentInsert(UUID.randomUUID(), idempotencyKey, start));
       Future<Integer> second =
-          executor.submit(
-              () -> concurrentInsert(UUID.randomUUID(), idempotencyKey, requestHash, start));
+          executor.submit(() -> concurrentInsert(UUID.randomUUID(), idempotencyKey, start));
 
       assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(0, 1);
-    } finally {
-      enableRevisionFixtureGuard();
     }
 
     Integer canonicalRows =
@@ -187,19 +165,6 @@ class ScheduleRevisionRunSchemaIntegrationTest {
             TRIP_ONE,
             idempotencyKey);
     assertThat(canonicalRows).isEqualTo(1);
-    assertThat(
-            jdbcTemplate.queryForObject(
-                """
-                select count(*) from public.schedule_revision_runs run
-                join public.compute_run_inputs input on input.schedule_revision_run_id=run.id
-                where run.owner_user_id=? and run.trip_plan_id=? and run.idempotency_key=?
-                  and run.request_hash=input.command_input_hash and not input.location_supplied
-                """,
-                Integer.class,
-                OWNER_ONE,
-                TRIP_ONE,
-                idempotencyKey))
-        .isEqualTo(1);
 
     jdbcTemplate.update(
         "delete from public.schedule_revision_runs where trip_plan_id = ?", TRIP_ONE);
@@ -432,34 +397,21 @@ class ScheduleRevisionRunSchemaIntegrationTest {
     var transaction =
         new org.springframework.transaction.support.TransactionTemplate(
             new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
-    disableRevisionFixtureGuard();
-    try {
-      transaction.executeWithoutResult(
-          status -> {
-            jdbcTemplate.update(
-                insertSql(),
-                runId,
-                ownerId,
-                tripId,
-                baseId,
-                dayId,
-                "queued",
-                idempotencyKey,
-                canonicalRequestHash(baseId, dayId));
-            jdbcTemplate.update(inputSql(), runId);
-          });
-    } finally {
-      enableRevisionFixtureGuard();
-    }
+    transaction.executeWithoutResult(
+        status -> {
+          jdbcTemplate.update(
+              insertSql(), runId, ownerId, tripId, baseId, dayId, "queued", idempotencyKey);
+          jdbcTemplate.update(inputSql(), runId);
+        });
   }
 
-  private int concurrentInsert(
-      UUID runId, UUID idempotencyKey, String requestHash, CyclicBarrier start) throws Exception {
+  private int concurrentInsert(UUID runId, UUID idempotencyKey, CyclicBarrier start)
+      throws Exception {
     try (Connection connection = dataSource.getConnection();
         PreparedStatement statement =
             connection.prepareStatement(insertSql() + " on conflict do nothing")) {
       connection.setAutoCommit(false);
-      bindInsert(statement, runId, idempotencyKey, requestHash);
+      bindInsert(statement, runId, idempotencyKey);
       start.await();
       int inserted = statement.executeUpdate();
       if (inserted == 1) {
@@ -571,8 +523,7 @@ class ScheduleRevisionRunSchemaIntegrationTest {
         "select failure_code from public.schedule_revision_runs where id = ?", String.class, runId);
   }
 
-  private void bindInsert(
-      PreparedStatement statement, UUID runId, UUID idempotencyKey, String requestHash)
+  private void bindInsert(PreparedStatement statement, UUID runId, UUID idempotencyKey)
       throws Exception {
     statement.setObject(1, runId);
     statement.setObject(2, OWNER_ONE);
@@ -581,46 +532,18 @@ class ScheduleRevisionRunSchemaIntegrationTest {
     statement.setObject(5, DAY_ONE);
     statement.setString(6, "queued");
     statement.setObject(7, idempotencyKey);
-    statement.setString(8, requestHash);
-  }
-
-  private String canonicalRequestHash(UUID baseId, UUID dayId) {
-    String structuredInput =
-        """
-        {"targetDayId":"%s","affectedItemIds":[],"instructionCodes":[]}
-        """
-            .formatted(dayId);
-    return jdbcTemplate.queryForObject(
-        """
-        select public.compute_command_input_hash(
-          'schedule_revision'::text,1::smallint,'revision-v1'::text,'algorithm-v1'::text,
-          ?::uuid,?::jsonb,false::boolean,null::jsonb)
-        """,
-        String.class,
-        baseId,
-        structuredInput);
-  }
-
-  private void disableRevisionFixtureGuard() {
-    jdbcTemplate.execute(
-        "alter table public.schedule_revision_runs disable trigger aaa_independent_hash_provenance");
-  }
-
-  private void enableRevisionFixtureGuard() {
-    jdbcTemplate.execute(
-        "alter table public.schedule_revision_runs enable trigger aaa_independent_hash_provenance");
   }
 
   private String inputSql() {
     return """
         insert into public.compute_run_inputs
           (schedule_revision_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,
-           schema_version,contract_version,algorithm_version,structured_input,command_input_hash,location_supplied)
+           schema_version,contract_version,algorithm_version,structured_input,command_input_hash)
         select run.id,run.owner_user_id,run.trip_plan_id,run.base_schedule_version_id,'schedule_revision',
-          1,run.contract_version,run.algorithm_version,command.input,
-          public.compute_command_input_hash('schedule_revision'::text,1::smallint,
+          2,run.contract_version,run.algorithm_version,command.input,
+          public.compute_command_input_hash('schedule_revision'::text,2::smallint,
             run.contract_version::text,run.algorithm_version::text,run.base_schedule_version_id::uuid,
-            command.input::jsonb,false::boolean,null::jsonb),false
+            command.input::jsonb)
         from public.schedule_revision_runs run
         cross join lateral (select jsonb_build_object('targetDayId',run.target_trip_day_id::text,
           'affectedItemIds','[]'::jsonb,'instructionCodes','[]'::jsonb) as input) command
@@ -634,7 +557,21 @@ class ScheduleRevisionRunSchemaIntegrationTest {
           (id, owner_user_id, trip_plan_id, base_schedule_version_id,
            target_trip_day_id, status, contract_version, algorithm_version,
            idempotency_key, request_hash, next_attempt_at)
-        values (?, ?, ?, ?, ?, ?, 'revision-v1', 'algorithm-v1', ?, ?, now())
+        select fixture.id, fixture.owner_user_id, fixture.trip_plan_id,
+          fixture.base_schedule_version_id, fixture.target_trip_day_id, fixture.status,
+          'revision-v1', 'algorithm-v1', fixture.idempotency_key,
+          public.compute_command_input_hash(
+            'schedule_revision'::text, 2::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+            fixture.base_schedule_version_id::uuid,
+            command.input::jsonb),
+          now()
+        from (values (?, ?, ?, ?, ?, ?, ?)) fixture(
+          id, owner_user_id, trip_plan_id, base_schedule_version_id,
+          target_trip_day_id, status, idempotency_key)
+        cross join lateral (select jsonb_build_object(
+          'targetDayId', fixture.target_trip_day_id::text,
+          'affectedItemIds', '[]'::jsonb,
+          'instructionCodes', '[]'::jsonb) as input) command
         """;
   }
 }

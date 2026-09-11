@@ -165,7 +165,7 @@ try {
   $cutoverCheck = @'
 do $$
 begin
-  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000020'
+  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000018'
      or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
                 where residue_count <> 0) then
     raise exception 'location cutover verification failed';
@@ -190,7 +190,7 @@ $$;
 
   Invoke-ComposePostgres @("createdb", "--username", "timing_jeju_test", $concurrencyDatabase)
   # Historical #109 cleanup uses the pre-cutover schema; current races run in PG16/17 integration.
-  Invoke-CanonicalManifest $concurrencyDatabase "supabase/atomic-migrations/20260918000017_user_location_write_guard_purge.sql"
+  Invoke-CanonicalManifest $concurrencyDatabase "supabase/migrations/20260918000017_user_location_write_guard_purge.sql"
   Invoke-SqlFile $concurrencyDatabase "/queries/database_concurrency_contract.sql"
   Write-Host "[Docker] canonical migration fresh/upgrade/fingerprint/concurrency 성공"
 } catch {

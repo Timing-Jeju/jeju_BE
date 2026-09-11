@@ -5,11 +5,8 @@ import com.timingjeju.api.application.commandinput.CommandInputParent;
 import com.timingjeju.api.application.commandinput.CommandInputSnapshot;
 import com.timingjeju.api.application.commandinput.CommandInputSnapshotRepository;
 import com.timingjeju.api.application.commandinput.CommandInputStorageException;
-import com.timingjeju.api.application.commandinput.CommandLocationSnapshot;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -26,10 +23,7 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
       compute_run_id, generation_run_id, schedule_revision_run_id,
       owner_user_id, trip_plan_id, base_schedule_version_id,
       run_type, schema_version, contract_version, algorithm_version,
-      structured_input::text as structured_input, command_input_hash,
-      location_supplied, coarse_location::text as coarse_location,
-      location_precision_meters, location_policy_version,
-      location_observed_at, location_expires_at
+      structured_input::text as structured_input, command_input_hash
       """;
 
   static final String INSERT_SQL =
@@ -38,26 +32,11 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
         compute_run_id, generation_run_id, schedule_revision_run_id,
         owner_user_id, trip_plan_id, base_schedule_version_id,
         run_type, schema_version, contract_version, algorithm_version,
-        structured_input, command_input_hash,
-        location_supplied, coarse_location, location_precision_meters,
-        location_policy_version, location_observed_at, location_expires_at
-      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?, ?, ?, ?)
+        structured_input, command_input_hash
+      ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
       returning
       """
           + PROJECTION;
-
-  static final String USABLE_LOCATION_SQL =
-      """
-      select coarse_location::text as coarse_location,
-             location_precision_meters, location_policy_version,
-             location_observed_at, location_expires_at
-      from public.compute_run_inputs
-      where %s = ?
-        and location_supplied
-        and location_redacted_at is null
-        and coarse_location is not null
-        and (location_expires_at is null or location_expires_at > ?)
-      """;
 
   private final JdbcTemplate jdbcTemplate;
   private final ObjectMapper objectMapper;
@@ -72,7 +51,6 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
   @Override
   public CommandInputSnapshot save(CommandInputSnapshot snapshot) {
     Objects.requireNonNull(snapshot, "snapshot은 필수입니다.");
-    CommandLocationSnapshot location = snapshot.nullableLocation();
     try {
       List<CommandInputSnapshot> rows =
           jdbcTemplate.query(
@@ -89,15 +67,7 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
               snapshot.contractVersion(),
               snapshot.algorithmVersion(),
               snapshot.canonicalStructuredInput(),
-              snapshot.commandInputHash(),
-              location != null,
-              location == null ? null : location.canonicalCoarseLocation(),
-              location == null ? null : location.precisionMeters(),
-              location == null ? null : location.policyVersion(),
-              location == null ? null : Timestamp.from(location.observedAt()),
-              location == null || location.expiresAt().isEmpty()
-                  ? null
-                  : Timestamp.from(location.expiresAt().orElseThrow()));
+              snapshot.commandInputHash());
       return rows.stream().findFirst().orElseThrow(() -> rejected("COMMAND_INPUT_STORAGE_FAILURE"));
     } catch (CommandInputStorageException failure) {
       throw failure;
@@ -123,35 +93,11 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
     }
   }
 
-  @Override
-  public Optional<CommandLocationSnapshot> findUsableLocation(
-      CommandInputParent parent, Instant evaluatedAt) {
-    Objects.requireNonNull(parent, "parent는 필수입니다.");
-    Objects.requireNonNull(evaluatedAt, "evaluatedAt은 필수입니다.");
-    String sql = USABLE_LOCATION_SQL.formatted(parent.databaseColumn());
-    try {
-      return jdbcTemplate
-          .query(
-              sql,
-              (resultSet, rowNumber) -> mapLocation(resultSet),
-              parent.id(),
-              Timestamp.from(evaluatedAt))
-          .stream()
-          .findFirst();
-    } catch (DataAccessException failure) {
-      throw rejected("COMMAND_INPUT_STORAGE_FAILURE");
-    }
-  }
-
   private CommandInputSnapshot map(ResultSet resultSet) throws SQLException {
     try {
       String structured =
           canonicalizer.canonicalJson(
               objectMapper.readTree(resultSet.getString("structured_input")));
-      boolean locationSupplied = resultSet.getBoolean("location_supplied");
-      String coarseLocation = resultSet.getString("coarse_location");
-      CommandLocationSnapshot location =
-          locationSupplied && coarseLocation != null ? mapLocation(resultSet) : null;
       return new CommandInputSnapshot(
           parent(resultSet),
           resultSet.getString("run_type"),
@@ -162,22 +108,7 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
           resultSet.getString("command_input_hash"),
           resultSet.getObject("owner_user_id", UUID.class),
           resultSet.getObject("trip_plan_id", UUID.class),
-          resultSet.getObject("base_schedule_version_id", UUID.class),
-          location);
-    } catch (RuntimeException failure) {
-      throw rejected("COMMAND_INPUT_STORAGE_FAILURE");
-    }
-  }
-
-  private CommandLocationSnapshot mapLocation(ResultSet resultSet) throws SQLException {
-    try {
-      return new CommandLocationSnapshot(
-          canonicalizer.canonicalJson(
-              objectMapper.readTree(resultSet.getString("coarse_location"))),
-          integer(resultSet, "location_precision_meters"),
-          resultSet.getString("location_policy_version"),
-          instant(resultSet.getTimestamp("location_observed_at")),
-          instant(resultSet.getTimestamp("location_expires_at")));
+          resultSet.getObject("base_schedule_version_id", UUID.class));
     } catch (RuntimeException failure) {
       throw rejected("COMMAND_INPUT_STORAGE_FAILURE");
     }
@@ -195,15 +126,6 @@ public class JdbcCommandInputSnapshotRepository implements CommandInputSnapshotR
 
   private static UUID parentId(CommandInputParent parent, Class<?> expectedType) {
     return expectedType.isInstance(parent) ? parent.id() : null;
-  }
-
-  private static Integer integer(ResultSet resultSet, String column) throws SQLException {
-    int value = resultSet.getInt(column);
-    return resultSet.wasNull() ? null : value;
-  }
-
-  private static Instant instant(Timestamp value) {
-    return value == null ? null : value.toInstant();
   }
 
   private static CommandInputStorageException rejected(String code) {

@@ -1352,7 +1352,6 @@ do $$
 declare
   parent_fk_count integer;
   parent_unique_count integer;
-  location_constraint_definition text;
 begin
   if to_regclass('public.compute_run_inputs') is null then
     raise exception 'compute_run_inputs table is missing';
@@ -1382,18 +1381,24 @@ begin
   if parent_unique_count <> 3 then
     raise exception 'compute_run_inputs per-parent unique count differs: %', parent_unique_count;
   end if;
-  select lower(pg_catalog.pg_get_constraintdef(oid)) into location_constraint_definition
-  from pg_catalog.pg_constraint
-  where conrelid = 'public.compute_run_inputs'::regclass
-    and conname = 'chk_compute_run_inputs_location';
-  if location_constraint_definition is null
-     or location_constraint_definition !~ 'location_redacted_at is not null.*coarse_location is null.*location_precision_meters is null.*location_policy_version is null.*location_observed_at is null.*location_expires_at is null' then
-    raise exception 'compute_run_inputs five-field redaction constraint is invalid';
+  if exists (select 1 from information_schema.columns where table_schema='public'
+      and ((table_name='compute_run_inputs' and column_name in
+        ('location_supplied','coarse_location','location_precision_meters','location_policy_version',
+         'location_observed_at','location_expires_at','location_redacted_at'))
+        or (table_name='trip_execution_events' and column_name='location')
+        or (table_name='live_state_snapshots' and column_name in ('current_location','current_place_id')))) then
+    raise exception 'removed user location columns are present';
   end if;
-  if to_regprocedure(
-       'public.redact_due_compute_run_input_locations(timestamptz,integer)'
-     ) is null then
-    raise exception 'compute_run_inputs due location cleanup function is missing';
+  if to_regprocedure('public.redact_due_compute_run_input_locations(timestamptz,integer)') is not null
+     or to_regprocedure('public.shorten_compute_run_input_location_expiry(uuid,timestamptz)') is not null
+     or to_regprocedure('public.compute_command_input_hash(text,smallint,text,text,uuid,jsonb,boolean,jsonb)') is not null
+     or to_regprocedure('public.compute_command_input_hash(text,smallint,text,text,uuid,jsonb)') is null then
+    raise exception 'no-location hash function boundary is invalid';
+  end if;
+  if timing_jeju_planner_private.user_location_schema_revision() is distinct from '20260918000020'
+     or exists (select 1 from public.compute_run_inputs where schema_version<>2)
+     or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts() where residue_count<>0) then
+    raise exception 'no-location schema revision or residue is invalid';
   end if;
   if not (select relrowsecurity from pg_catalog.pg_class
           where oid = 'public.compute_run_inputs'::regclass)
@@ -1412,14 +1417,9 @@ begin
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRUNCATE')
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'REFERENCES')
        or has_table_privilege('service_role', 'public.compute_run_inputs', 'TRIGGER')
-       or not has_function_privilege(
+       or has_function_privilege(
          'service_role',
-         'public.shorten_compute_run_input_location_expiry(uuid,timestamptz)',
-         'EXECUTE'
-       )
-       or not has_function_privilege(
-         'service_role',
-         'public.redact_due_compute_run_input_locations(timestamptz,integer)',
+         'public.compute_command_input_hash(text,smallint,text,text,uuid,jsonb)',
          'EXECUTE'
        )
      ) then

@@ -276,8 +276,9 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
   }
 
   private static java.nio.file.Path path(String migration) {
-    return PostgreSqlTestContainerFactory.canonicalMigrationPath(
-        PostgreSqlTestContainerFactory.locateRepositoryRoot(), migration);
+    return PostgreSqlTestContainerFactory.locateRepositoryRoot()
+        .resolve("supabase/migrations")
+        .resolve(migration);
   }
 
   private static JdbcTemplate jdbc(PostgreSQLContainer container) {

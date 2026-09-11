@@ -19,7 +19,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 @Tag("integration")
 class ComputeInputLineageConcurrencyIntegrationTest {
-  private static final String TARGET = "20260918000017_user_location_write_guard_purge.sql";
+  private static final String TARGET = "20260918000020_remove_user_location_runtime.sql";
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
@@ -29,8 +29,9 @@ class ComputeInputLineageConcurrencyIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(
           container,
-          PostgreSqlTestContainerFactory.canonicalMigrationPath(
-              PostgreSqlTestContainerFactory.locateRepositoryRoot(), TARGET));
+          PostgreSqlTestContainerFactory.locateRepositoryRoot()
+              .resolve("supabase/migrations")
+              .resolve(TARGET));
       var source =
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());
@@ -99,8 +100,9 @@ class ComputeInputLineageConcurrencyIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(
           container,
-          PostgreSqlTestContainerFactory.canonicalMigrationPath(
-              PostgreSqlTestContainerFactory.locateRepositoryRoot(), TARGET));
+          PostgreSqlTestContainerFactory.locateRepositoryRoot()
+              .resolve("supabase/migrations")
+              .resolve(TARGET));
       var source =
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());
@@ -168,8 +170,9 @@ class ComputeInputLineageConcurrencyIntegrationTest {
       container.start();
       PostgreSqlTestContainerFactory.executeScript(
           container,
-          PostgreSqlTestContainerFactory.canonicalMigrationPath(
-              PostgreSqlTestContainerFactory.locateRepositoryRoot(), TARGET));
+          PostgreSqlTestContainerFactory.locateRepositoryRoot()
+              .resolve("supabase/migrations")
+              .resolve(TARGET));
       var source =
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());
@@ -266,8 +269,8 @@ class ComputeInputLineageConcurrencyIntegrationTest {
     String hash =
         jdbc.queryForObject(
             """
-        select public.compute_command_input_hash(?::text,1::smallint,'fixture'::text,'fixture'::text,
-          ?::uuid,?::jsonb,false::boolean,null::jsonb)
+        select public.compute_command_input_hash(?::text,2::smallint,'fixture'::text,'fixture'::text,
+          ?::uuid,?::jsonb)
         """,
             String.class,
             runType,
@@ -297,21 +300,22 @@ class ComputeInputLineageConcurrencyIntegrationTest {
             insert into public.schedule_revision_runs
               (id,owner_user_id,trip_plan_id,base_schedule_version_id,target_trip_day_id,
                contract_version,algorithm_version,idempotency_key,request_hash)
-            values (?,?,?,?,?,'fixture','fixture',?,repeat('a',64))
+            values (?,?,?,?,?,'fixture','fixture',?,?)
             """,
                 run,
                 owner,
                 trip,
                 version,
                 day,
-                UUID.randomUUID());
+                UUID.randomUUID(),
+                hash);
           }
           jdbc.update(
               "insert into public.compute_run_inputs("
                   + column
                   + ",owner_user_id,trip_plan_id,base_schedule_version_id,run_type,"
-                  + "schema_version,contract_version,algorithm_version,structured_input,command_input_hash,location_supplied) "
-                  + "values (?,?,?,?,?,1,'fixture','fixture',?::jsonb,?,false)",
+                  + "schema_version,contract_version,algorithm_version,structured_input,command_input_hash) "
+                  + "values (?,?,?,?,?,2,'fixture','fixture',?::jsonb,?)",
               run,
               owner,
               trip,
@@ -344,8 +348,8 @@ class ComputeInputLineageConcurrencyIntegrationTest {
     String hash =
         jdbc.queryForObject(
             """
-        select public.compute_command_input_hash('feasibility'::text,1::smallint,'fixture'::text,'fixture'::text,?::uuid,
-          '{"refreshExternalFacts":false}'::jsonb,false::boolean,null::jsonb)
+        select public.compute_command_input_hash('feasibility'::text,2::smallint,'fixture'::text,'fixture'::text,?::uuid,
+          '{"refreshExternalFacts":false}'::jsonb)
         """,
             String.class,
             version);
@@ -361,8 +365,8 @@ class ComputeInputLineageConcurrencyIntegrationTest {
               hash);
           jdbc.update(
               "insert into public.compute_run_inputs(compute_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,"
-                  + "schema_version,contract_version,algorithm_version,structured_input,command_input_hash,location_supplied) "
-                  + "values (?,?,?,?,'feasibility',1,'fixture','fixture','{\"refreshExternalFacts\":false}'::jsonb,?,false)",
+                  + "schema_version,contract_version,algorithm_version,structured_input,command_input_hash) "
+                  + "values (?,?,?,?,'feasibility',2,'fixture','fixture','{\"refreshExternalFacts\":false}'::jsonb,?)",
               run,
               owner,
               trip,

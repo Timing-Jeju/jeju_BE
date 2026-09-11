@@ -26,7 +26,7 @@ class McpCallLogSchemaIntegrationTest {
   @Autowired private JdbcMcpCallAuditWriter auditWriter;
 
   @Test
-  void MCP_call_log는_payload없이_hash_count_status_latency만_보존한다() {
+  void MCP_call_log는_payload와_wire_hash없이_command_hash_count_status_latency만_보존한다() {
     List<String> columns =
         jdbcTemplate.queryForList(
             """
@@ -40,7 +40,6 @@ class McpCallLogSchemaIntegrationTest {
     assertThat(columns)
         .contains(
             "command_input_hash",
-            "mcp_input_hash",
             "schema_checksum",
             "request_fact_count",
             "response_fact_count",
@@ -52,6 +51,7 @@ class McpCallLogSchemaIntegrationTest {
             "trip_plan_id",
             "request_payload_redacted",
             "response_payload_redacted",
+            "mcp_input_hash",
             "provider",
             "model",
             "error_message");
@@ -79,7 +79,7 @@ class McpCallLogSchemaIntegrationTest {
   }
 
   @Test
-  void MCP_call_log_writer는_payload없이_두_hash와_stable_error만_기록한다() {
+  void MCP_call_log_writer는_payload와_wire_hash없이_command_hash와_stable_error만_기록한다() {
     UUID computeRunId = UUID.fromString("10000000-0000-0000-0000-000000000001");
     McpCallAudit audit =
         new McpCallAudit(
@@ -88,7 +88,6 @@ class McpCallLogSchemaIntegrationTest {
             "inspect_jeju_bus_stop",
             "0.7.0",
             "a".repeat(64),
-            "b".repeat(64),
             "c".repeat(64),
             1,
             2,
@@ -106,10 +105,9 @@ class McpCallLogSchemaIntegrationTest {
 
     assertThat(
             jdbcTemplate.queryForMap(
-                "select command_input_hash, mcp_input_hash, status, error_code from mcp_compute_call_logs where request_id = ?",
+                "select command_input_hash, status, error_code from mcp_compute_call_logs where request_id = ?",
                 audit.requestId()))
         .containsEntry("command_input_hash", "a".repeat(64))
-        .containsEntry("mcp_input_hash", "b".repeat(64))
         .containsEntry("status", "contract_invalid")
         .containsEntry("error_code", "MCP_CONTRACT_INVALID");
   }

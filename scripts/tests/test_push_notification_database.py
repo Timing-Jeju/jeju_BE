@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import json
 import unittest
 from pathlib import Path
 
@@ -71,13 +70,11 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000017_user_location_write_guard_purge.sql",
             "20260918000018_revision_request_hash_audit.sql",
             "20260918000019_planned_route_request_hash_policy.sql",
-            "20260918000020_location_provenance_fail_closed.sql",
+            "20260918000020_remove_user_location_runtime.sql",
         )
-        manifest = json.loads((ROOT / "supabase/migrations/manifest.json").read_text())
         migration_names = tuple(
-            Path(entry["path"]).name
-            for entry in manifest["immutablePrefix"] + manifest["canonicalSuffix"]
-            if Path(entry["path"]).name.startswith("202609")
+            path.name
+            for path in sorted((ROOT / "supabase/migrations").glob("202609*.sql"))
         )
         versions = tuple(name[:14] for name in migration_names)
 
@@ -188,12 +185,12 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/055_location_cutover_group.sql",
             ),
             (
-                "./supabase/atomic-migrations/20260918000019_planned_route_request_hash_policy.sql",
+                "./supabase/migrations/20260918000019_planned_route_request_hash_policy.sql",
                 "/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql",
             ),
             (
-                "./supabase/atomic-migrations/20260918000020_location_provenance_fail_closed.sql",
-                "/docker-entrypoint-initdb.d/058_location_provenance_fail_closed.sql",
+                "./supabase/migrations/20260918000020_remove_user_location_runtime.sql",
+                "/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",
@@ -218,7 +215,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 3
                 if target.endswith("046_schedule_item_required_references_correction.sql")
                 else 1
-                if target.endswith(("054_planned_route_reference_integrity.sql", "055_location_cutover_group.sql", "057_planned_route_request_hash_policy.sql", "058_location_provenance_fail_closed.sql"))
+                if target.endswith(("054_planned_route_reference_integrity.sql", "055_location_cutover_group.sql", "057_planned_route_request_hash_policy.sql", "058_remove_user_location_runtime.sql"))
                 else 2
             )
             self.assertEqual(expected_count, docker_smoke.count(target), target)
@@ -228,12 +225,12 @@ class PushNotificationDatabaseTest(unittest.TestCase):
         ):
             with self.subTest(next_contract=next_contract):
                 # The historical database must abort 053 in a separate audited transaction.
-                boundary = (
-                    "/docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql"
+                last_target = (
+                    "/docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql"
                     if next_contract.endswith("legacy_v1_upgrade_contract.sql")
-                    else "/docker-entrypoint-initdb.d/055_location_cutover_group.sql"
+                    else "/docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql"
                 )
-                targets = migration_targets[:migration_targets.index(boundary)]
+                targets = migration_targets[:migration_targets.index(last_target) + 1]
                 exact_sequence = " \\\n  ".join((*targets, next_contract))
                 self.assertEqual(
                     1,

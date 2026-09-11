@@ -38,6 +38,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
 
 @RestController
@@ -82,6 +84,7 @@ public class TripController implements TripApiDocs {
       @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
       @RequestBody byte[] body) {
     CurrentUser user = currentUsers.getRequired();
+    var command = parse(body);
     IdempotencyRequest request;
     try {
       request =
@@ -95,7 +98,7 @@ public class TripController implements TripApiDocs {
             request,
             () -> {
               replayed.set(false);
-              var created = trips.create(user, parse(body));
+              var created = trips.create(user, command);
               TripAggregateResponse response = TripAggregateResponse.from(created);
               String etag = TripEntityTag.strong(response.tripId(), created.revision());
               byte[] responseBody = serialize(response);
@@ -183,8 +186,21 @@ public class TripController implements TripApiDocs {
   }
 
   private com.timingjeju.api.application.trip.CreateTripCommand parse(byte[] body) {
+    if (body == null || body.length == 0 || body.length > IdempotencyRequest.MAX_BODY_BYTES) {
+      throw TripException.invalidRequest();
+    }
     try {
-      return objectMapper.readValue(body, CreateTripRequest.class).toCommand();
+      CreateTripRequest request =
+          objectMapper
+              .readerFor(CreateTripRequest.class)
+              .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+              .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+              .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+              .readValue(body);
+      if (request == null) {
+        throw TripException.invalidRequest();
+      }
+      return request.toCommand();
     } catch (JacksonException failure) {
       throw TripException.invalidRequest();
     }

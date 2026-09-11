@@ -399,3 +399,13 @@ TDD: 실행기 부재 RED4 → GREEN4. 독립 리뷰의 부모 선종료 잔류 
 - fixture transaction에서 정확한 `aaa_independent_hash_provenance` trigger만 잠시 disable한다. 부모와 `compute_run_inputs`는 같은 typed `compute_command_input_hash(...)`와 structured input을 공유하고, immutable hash update도 opaque 문자열 대신 다른 contract version의 typed canonical hash를 사용한다. 부모 삭제 뒤 input cascade까지 같은 block에서 확인한다.
 - 첫 정확한 SQL Green 시도는 deferred lineage event 때문에 trigger 복원 시 PostgreSQL 55006으로 실패했다. 전역 constraint flush 없이 `revision_parent_input_lineage`만 immediate로 평가하고 trigger를 복원한 뒤 deferred로 되돌리며, 실패 시 전체 seam이 rollback되는 명시적 transaction으로 닫았다.
 - disposable PostgreSQL 16에서 `/queries/smoke_check.sql` 전체가 schema·negative·fixture·PostGIS·compute input cleanup까지 PASS했다. 관련 Python inventory/hardening 80건과 local/Supabase generator byte check가 통과했다. 전체 quality gate와 전체 Docker smoke, push, PR과 live DB 적용은 수행하지 않았다.
+
+## 2026-09-11 #224 최신 develop 통합
+
+- `origin/develop` `93bcb754`를 정상 merge했다. 충돌은 #224의 최종 구조를 기준으로 해소해 017부터 020을 다시 `supabase/migrations`의 canonical 연속 이력으로 두고, 020은 위치 runtime/schema 제거와 6인자 hash v2 전환을 담당하게 했다. 과거 #223의 별도 atomic runner, 중복 020 provenance migration과 raw CLI 격리 설정은 복원하지 않았다.
+- RED: #224 구조에 기존 #223 SQL fixture를 그대로 합치면 smoke 계약은 삭제된 provenance trigger seam과 8인자 hash를, negative 계약은 opaque `repeat(...)` hash 네 건을 검출했다. 또한 과거 atomic mount를 기대한 database-hardening 계약 3건이 canonical compose 구성과 불일치했다.
+- smoke와 negative fixture는 schema version 2의 6인자 `compute_command_input_hash`와 일치하는 parent/input lineage를 사용한다. owner/base/day 음성 검증은 운영 guard를 끄지 않고 SQLSTATE `23503`과 정확한 FK constraint를 확인하며, cascade·immutable hash 검증도 유지한다.
+- 폐기된 atomic 경로만을 위한 테스트 helper/config 변경은 #224 canonical 버전으로 정렬했다. 관련 Python 계약 136건과 local/Supabase generator byte check가 통과했으며, Testcontainers 기반 focused 검증은 별도 #235 integration 세션 종료 뒤 순차 실행한다.
+- 첫 focused integration 255건 중 251건이 통과했고, 실패 4건은 과거 017-020 단일 ledger를 가정한 합성 fixture였다. #224의 실제 ledger 열 순서와 017·018 offline group 등록 계약으로 fixture를 정렬한 뒤 해당 PG16/17 ledger 2건은 통과했다.
+- 최종 020 경계로 옮긴 unknown/nested payload 검증은 PG16/17 모두 처음에는 예외 없이 통과해, 충돌 해소 과정에서 #223 closed allowlist가 누락된 실제 Red를 확인했다. 020에 surface별 exact non-location shape/type predicate, 기존 JSON write-trigger replacement와 v17 audit replacement를 이식하고, 최종 residue audit도 같은 predicate를 사용한다. 수정된 residue function의 자체 승인 fingerprint와 migration manifest checksum `9c03252865ff070580f81e513b1dbe181d4b043b6d96410123deeab0c2b4734a`를 함께 갱신했다.
+- 숫자 2원소·3원소·문자열·범위 밖 nested payload는 자동 삭제 없이 020 전체를 rollback하고, 정상 `pace`·`partySize`·`childAges` payload는 보존된다. 최종 PG16/17 두 사례는 1분35초에 Green이었고, 관련 Python 136건과 generator byte check도 다시 통과했다.

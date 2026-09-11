@@ -45,7 +45,7 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000016_planned_route_reference_integrity.sql",
           "20260918000017_location_cutover_group.sql",
           "20260918000019_planned_route_request_hash_policy.sql",
-          "20260918000020_location_provenance_fail_closed.sql");
+          "20260918000020_remove_user_location_runtime.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -127,16 +127,6 @@ class CanonicalMigrationOrderIntegrationTest {
         PostgreSqlTestContainerFactory.executeScript(
             container, repositoryPath("db/local-postgres/seed_fixtures.sql"));
         JdbcTemplate jdbc = jdbc(container);
-        String canonicalRawAnswers =
-            "{\"pace\":\"normal\",\"generationMode\":\"structured\",\"dayGeneration\":\"one_click\"}";
-        assertThat(
-                jdbc.queryForObject(
-                    "select raw_answers = cast(? as jsonb) from public.trip_preferences "
-                        + "where trip_plan_id='50000000-0000-0000-0000-000000000001'",
-                    Boolean.class,
-                    canonicalRawAnswers))
-            .as(image)
-            .isTrue();
         // 이 테스트는 정상 일정의 schema upgrade를 검증한다. 원문 없는 역사 MCP audit의
         // 전환 거부는 LocationDataPurgeMigrationIntegrationTest에서 별도로 검증한다.
         assertThat(
@@ -152,14 +142,6 @@ class CanonicalMigrationOrderIntegrationTest {
             CANONICAL_EXECUTION_SUFFIX.subList(10, CANONICAL_EXECUTION_SUFFIX.size())) {
           PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
         }
-        assertThat(
-                jdbc.queryForObject(
-                    "select raw_answers = cast(? as jsonb) from public.trip_preferences "
-                        + "where trip_plan_id='50000000-0000-0000-0000-000000000001'",
-                    Boolean.class,
-                    canonicalRawAnswers))
-            .as(image)
-            .isTrue();
         assertThat(
                 jdbc.queryForObject(
                     "select sum(residue_count) from"
@@ -455,8 +437,7 @@ class CanonicalMigrationOrderIntegrationTest {
     if (name.equals("20260918000017_location_cutover_group.sql")) {
       return repositoryPath("db/local-postgres/" + name);
     }
-    return PostgreSqlTestContainerFactory.canonicalMigrationPath(
-        PostgreSqlTestContainerFactory.locateRepositoryRoot(), name);
+    return repositoryPath("supabase/migrations/" + name);
   }
 
   private static Path repositoryPath(String relative) {

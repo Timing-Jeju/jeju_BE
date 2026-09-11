@@ -27,8 +27,7 @@ class LocationPurgeLockConcurrencyIntegrationTest {
     try {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
-      String migration =
-          Files.readString(PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+      String migration = Files.readString(root.resolve("supabase/migrations").resolve(TARGET));
       var lock =
           Pattern.compile("(?s)lock table\\s+.*?in access exclusive mode;").matcher(migration);
       assertThat(lock.find()).isTrue();

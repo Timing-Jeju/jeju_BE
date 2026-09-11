@@ -135,8 +135,7 @@ class ProfileProvisioningSupabaseSmokeContractTest(unittest.TestCase):
 
         production_migrations = "\n".join(
             migration.read_text(encoding="utf-8").lower()
-            for directory in ("supabase/migrations", "supabase/atomic-migrations")
-            for migration in (ROOT / directory).glob("*.sql")
+            for migration in (ROOT / "supabase/migrations").glob("*.sql")
         )
         self.assertNotIn("create_local_test_user", production_migrations)
         self.assertNotIn("insert into auth.users", production_migrations)

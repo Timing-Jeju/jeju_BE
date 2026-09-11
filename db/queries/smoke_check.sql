@@ -496,9 +496,6 @@ end $$;
 
 begin;
 
-alter table public.schedule_revision_runs
-  disable trigger aaa_independent_hash_provenance;
-
 do $$
 declare
   revision_run_id constant uuid := '51700000-0000-0000-0000-000000000001';
@@ -511,13 +508,11 @@ declare
 begin
   request_hash := public.compute_command_input_hash(
     'schedule_revision'::text,
-    1::smallint,
+    2::smallint,
     'revision-v1'::text,
     'fixture-algorithm-v1'::text,
     '60000000-0000-0000-0000-000000000001'::uuid,
-    structured_input::jsonb,
-    false::boolean,
-    null::jsonb
+    structured_input::jsonb
   );
 
   insert into public.schedule_revision_runs (
@@ -544,7 +539,7 @@ begin
     '09000000-0000-0000-0000-000000000001',
     '50000000-0000-0000-0000-000000000001',
     '60000000-0000-0000-0000-000000000001',
-    'schedule_revision', 1, 'revision-v1', 'fixture-algorithm-v1',
+    'schedule_revision', 2, 'revision-v1', 'fixture-algorithm-v1',
     structured_input, request_hash
   );
 
@@ -552,13 +547,11 @@ begin
     update public.schedule_revision_runs
     set request_hash = public.compute_command_input_hash(
       'schedule_revision'::text,
-      1::smallint,
+      2::smallint,
       'revision-v2'::text,
       'fixture-algorithm-v1'::text,
       '60000000-0000-0000-0000-000000000001'::uuid,
-      structured_input::jsonb,
-      false::boolean,
-      null::jsonb
+      structured_input::jsonb
     )
     where id = revision_run_id;
   exception
@@ -597,13 +590,6 @@ begin
     raise exception 'schedule revision run cascade cleanup failed';
   end if;
 end $$;
-
-set constraints revision_parent_input_lineage immediate;
-
-alter table public.schedule_revision_runs
-  enable trigger aaa_independent_hash_provenance;
-
-set constraints revision_parent_input_lineage deferred;
 
 commit;
 
@@ -681,17 +667,17 @@ select
   as result;
 
 select
-  'compute_run_input_location_cleanup' as check_name,
+  'compute_run_input_no_location_v2' as check_name,
   case
     when to_regprocedure(
       'public.redact_due_compute_run_input_locations(timestamptz,integer)'
-    ) is not null
+    ) is null
+    and timing_jeju_planner_private.user_location_schema_revision()='20260918000020'
     and not exists (
       select 1 from public.compute_run_inputs
-      where location_supplied
-        and location_redacted_at is null
-        and location_expires_at is not null
-        and location_expires_at <= statement_timestamp()
+      where schema_version<>2
+    ) and not exists (
+      select 1 from timing_jeju_planner_private.user_location_residue_counts() where residue_count<>0
     ) then 'PASS'
-    else 'MISSING_OR_DUE'
+    else 'INVALID_SCHEMA_OR_RESIDUE'
   end as result;

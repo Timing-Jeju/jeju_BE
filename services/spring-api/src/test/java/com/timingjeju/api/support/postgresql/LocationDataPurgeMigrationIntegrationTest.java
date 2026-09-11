@@ -31,7 +31,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   container.getJdbcUrl(), container.getUsername(), container.getPassword()));
       Fixture fixture = insertLegacyFixture(jdbc, false);
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       assertThat(
               jdbc.queryForObject(
                   "select count(*) from public.trip_execution_events where location is not null",
@@ -97,8 +97,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThatThrownBy(
               () ->
                   PostgreSqlTestContainerFactory.executeScript(
-                      container,
-                      PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                      container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("legacy non-location metadata requires audit")
           .hasMessageNotContaining("private-location-marker")
@@ -129,7 +128,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       Fixture fixture = insertLegacyFixture(jdbc, false);
       UUID run = insertTerminalLocationInput(jdbc, fixture, redacted);
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       assertThat(
               jdbc.queryForObject("select count(*) from public.compute_run_inputs", Integer.class))
           .isZero();
@@ -199,8 +198,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThatThrownBy(
               () ->
                   PostgreSqlTestContainerFactory.executeScript(
-                      container,
-                      PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                      container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("active location lineage requires audit")
           .hasMessageNotContaining(run.toString())
@@ -247,7 +245,7 @@ class LocationDataPurgeMigrationIntegrationTest {
           fixture.version(),
           proposed);
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       assertThat(jdbc.queryForObject("select count(*) from public.recovery_options", Integer.class))
           .isZero();
       assertThat(
@@ -338,8 +336,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThatThrownBy(
               () ->
                   PostgreSqlTestContainerFactory.executeScript(
-                      container,
-                      PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                      container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("legacy compute hash lineage requires audit")
           .hasMessageNotContaining(run.toString())
@@ -482,8 +479,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThatThrownBy(
               () ->
                   PostgreSqlTestContainerFactory.executeScript(
-                      container,
-                      PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                      container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("active location lineage requires audit")
           .hasMessageNotContaining(proposed.toString())
@@ -653,8 +649,7 @@ class LocationDataPurgeMigrationIntegrationTest {
         assertThatThrownBy(
                 () ->
                     PostgreSqlTestContainerFactory.executeScript(
-                        container,
-                        PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                        container, root.resolve("supabase/migrations").resolve(TARGET)))
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("location purge integrity requires audit")
             .hasMessageNotContaining("Failing row");
@@ -665,7 +660,7 @@ class LocationDataPurgeMigrationIntegrationTest {
         return;
       }
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       assertThat(routeReferenceConstraints(jdbc)).isEqualTo(originalRouteConstraints);
       assertThat(
               jdbc.queryForObject(
@@ -891,8 +886,7 @@ class LocationDataPurgeMigrationIntegrationTest {
         assertThatThrownBy(
                 () ->
                     PostgreSqlTestContainerFactory.executeScript(
-                        container,
-                        PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                        container, root.resolve("supabase/migrations").resolve(TARGET)))
             .as(status)
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("user location residue requires audit")
@@ -905,7 +899,7 @@ class LocationDataPurgeMigrationIntegrationTest {
         jdbc.update("delete from public.mcp_compute_call_logs where id=?", log);
       }
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       assertThat(
               jdbc.queryForObject(
                   "select count(*) from public.compute_run_inputs where compute_run_id=?",
@@ -988,8 +982,7 @@ class LocationDataPurgeMigrationIntegrationTest {
         assertThatThrownBy(
                 () ->
                     PostgreSqlTestContainerFactory.executeScript(
-                        container,
-                        PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                        container, root.resolve("supabase/migrations").resolve(TARGET)))
             .as(kind)
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("external location lineage requires audit")
@@ -1012,7 +1005,7 @@ class LocationDataPurgeMigrationIntegrationTest {
           conversation,
           run);
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       assertThat(jdbc.queryForObject("select count(*) from public.ai_messages", Integer.class))
           .isZero();
       assertThat(
@@ -1089,8 +1082,7 @@ class LocationDataPurgeMigrationIntegrationTest {
         assertThatThrownBy(
                 () ->
                     PostgreSqlTestContainerFactory.executeScript(
-                        container,
-                        PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                        container, root.resolve("supabase/migrations").resolve(TARGET)))
             .as(state)
             .isInstanceOf(IllegalStateException.class)
             .hasMessageContaining("user location residue requires audit")
@@ -1105,7 +1097,7 @@ class LocationDataPurgeMigrationIntegrationTest {
             key);
       }
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       assertThat(
               jdbc.queryForObject(
                   "select coalesce(sum(residue_count),0) from timing_jeju_planner_private.user_location_residue_counts()",
@@ -1175,8 +1167,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       assertThatThrownBy(
               () ->
                   PostgreSqlTestContainerFactory.executeScript(
-                      container,
-                      PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET)))
+                      container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("user location residue requires audit")
           .hasMessageNotContaining("private-derived-marker")
@@ -1196,7 +1187,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       PostgreSqlTestContainerFactory.executeScript(
-          container, PostgreSqlTestContainerFactory.canonicalMigrationPath(root, TARGET));
+          container, root.resolve("supabase/migrations").resolve(TARGET));
       PostgreSqlTestContainerFactory.executeScript(
           container, root.resolve("db/local-postgres/seed_fixtures.sql"));
       var jdbc =
@@ -1302,8 +1293,7 @@ class LocationDataPurgeMigrationIntegrationTest {
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
-  void 미분류_nested_payload는_017부터_020까지_전체_rollback하고_closed_allowlist는_보존한다(String image)
-      throws Exception {
+  void 미분류_nested_payload는_020을_rollback하고_closed_allowlist는_보존한다(String image) throws Exception {
     var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
     try {
       container.start();
@@ -1322,24 +1312,16 @@ class LocationDataPurgeMigrationIntegrationTest {
               + "(trip_plan_id,arrival_region_code,departure_region_code,raw_answers) "
               + "values (?,'JEJU','JEJU','{}'::jsonb)",
           fixture.trip());
-      jdbc.execute("create schema supabase_migrations");
-      jdbc.execute(
-          "create table supabase_migrations.schema_migrations(version text primary key, name text, statements text[])");
-      try (var files = Files.list(root.resolve("supabase/migrations"))) {
-        for (var file :
-            files
-                .filter(path -> path.getFileName().toString().matches("[0-9]{14}_.+[.]sql"))
-                .sorted()
-                .toList()) {
-          jdbc.update(
-              "insert into supabase_migrations.schema_migrations(version) values (?)",
-              file.getFileName().toString().substring(0, 14));
-        }
-      }
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
+      PostgreSqlTestContainerFactory.executeScript(
+          container,
+          root.resolve("supabase/migrations/20260918000019_planned_route_request_hash_policy.sql"));
       String fingerprint =
           Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql"));
       String before = jdbc.queryForObject(fingerprint, String.class);
-      var script = root.resolve("db/local-postgres/location_cutover_supabase.sql");
+      var script =
+          root.resolve("supabase/migrations/20260918000020_remove_user_location_runtime.sql");
 
       for (String unknownPayload :
           new String[] {
@@ -1368,18 +1350,13 @@ class LocationDataPurgeMigrationIntegrationTest {
             .isTrue();
         assertThat(
                 jdbc.queryForObject(
-                    "select count(*) from supabase_migrations.schema_migrations where version >= '20260918000017'",
-                    Integer.class))
-            .isZero();
-        assertThat(
-                jdbc.queryForObject(
-                    "select count(*) from public.trip_execution_events where id=? and location is not null",
+                    "select count(*) from public.trip_execution_events where id=? and location is null",
                     Integer.class,
                     fixture.event()))
             .isEqualTo(1);
         assertThat(
                 jdbc.queryForObject(
-                    "select to_regprocedure('timing_jeju_planner_private.user_location_guard_purge_revision()') is null",
+                    "select to_regprocedure('timing_jeju_planner_private.user_location_schema_revision()') is null",
                     Boolean.class))
             .isTrue();
       }
@@ -1400,10 +1377,9 @@ class LocationDataPurgeMigrationIntegrationTest {
           .isTrue();
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from supabase_migrations.schema_migrations "
-                      + "where version in ('20260918000017','20260918000018','20260918000019','20260918000020')",
-                  Integer.class))
-          .isEqualTo(4);
+                  "select timing_jeju_planner_private.user_location_schema_revision()",
+                  String.class))
+          .isEqualTo("20260918000020");
     } finally {
       container.stop();
     }
@@ -1411,7 +1387,7 @@ class LocationDataPurgeMigrationIntegrationTest {
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
-  void Supabase_이력은_감사_실패시_유지하고_성공시에만_네_버전을_같이_등록한다(String image) throws Exception {
+  void Supabase_이력은_감사_실패시_유지하고_성공시에만_두_버전을_같이_등록한다(String image) throws Exception {
     var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
     try {
       container.start();
@@ -1424,7 +1400,7 @@ class LocationDataPurgeMigrationIntegrationTest {
       UUID run = insertNormalRevisionInput(jdbc, source, fixture);
       jdbc.execute("create schema supabase_migrations");
       jdbc.execute(
-          "create table supabase_migrations.schema_migrations(version text primary key, name text, statements text[])");
+          "create table supabase_migrations.schema_migrations(version text primary key, statements text[], name text)");
       try (var files = Files.list(root.resolve("supabase/migrations"))) {
         for (var file :
             files
@@ -1500,21 +1476,14 @@ class LocationDataPurgeMigrationIntegrationTest {
       PostgreSqlTestContainerFactory.executeScript(container, script);
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from supabase_migrations.schema_migrations where version in ('20260918000017','20260918000018','20260918000019','20260918000020')",
+                  "select count(*) from supabase_migrations.schema_migrations where version in ('20260918000017','20260918000018')",
                   Integer.class))
-          .isEqualTo(4);
-      assertThat(
-              jdbc.queryForObject(
-                  "select count(*) from supabase_migrations.schema_migrations "
-                      + "where version in ('20260918000017','20260918000018','20260918000019','20260918000020') "
-                      + "and name is not null and statements is not null",
-                  Integer.class))
-          .isEqualTo(4);
+          .isEqualTo(2);
       assertThat(
               jdbc.queryForObject(
                   "select timing_jeju_planner_private.user_location_guard_purge_revision()",
                   String.class))
-          .isEqualTo("20260918000020");
+          .isEqualTo("20260918000018");
       assertThat(
               jdbc.queryForObject(
                   "select sum(residue_count) from timing_jeju_planner_private.user_location_residue_counts()",

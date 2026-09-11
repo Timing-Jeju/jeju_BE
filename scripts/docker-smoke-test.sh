@@ -208,16 +208,16 @@ fi
 
 echo "[Docker] Health Check 성공"
 
-# Fresh install includes /docker-entrypoint-initdb.d/055_location_cutover_group.sql
-# followed by /docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql
-# and /docker-entrypoint-initdb.d/058_location_provenance_fail_closed.sql.
+# Fresh install includes /docker-entrypoint-initdb.d/055_location_cutover_group.sql.
+# Fresh install then includes /docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql.
+# Fresh install then includes /docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql.
 # Verify the owner-only cutover marker and zero counts without logging user values.
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username timing_jeju_test --dbname timing_jeju_test <<'SQL'
 do $$
 begin
-  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000020'
+  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000018'
      or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
                 where residue_count <> 0) then
     raise exception 'location cutover verification failed';

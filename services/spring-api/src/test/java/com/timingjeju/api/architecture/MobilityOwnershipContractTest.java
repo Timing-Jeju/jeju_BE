@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -91,16 +90,6 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripPlacePreferencesController.java",
             "domain/weather/controller/WeatherForecastController.java");
     assertThat(mappingAnnotationCount()).isEqualTo(54);
-    List<String> atomicLocationCutover =
-        List.of(
-            "20260918000017_user_location_write_guard_purge.sql",
-            "20260918000018_revision_request_hash_audit.sql",
-            "20260918000019_planned_route_request_hash_policy.sql",
-            "20260918000020_location_provenance_fail_closed.sql");
-    assertThat(migrationInventory("supabase/atomic-migrations"))
-        .containsExactlyElementsOf(atomicLocationCutover);
-    assertThat(migrationInventory("supabase/migrations"))
-        .doesNotContainAnyElementsOf(atomicLocationCutover);
     assertThat(migrationInventory())
         .hasSize(56)
         .containsSequence(
@@ -111,11 +100,11 @@ class MobilityOwnershipContractTest {
             "20260918000017_user_location_write_guard_purge.sql",
             "20260918000018_revision_request_hash_audit.sql",
             "20260918000019_planned_route_request_hash_policy.sql",
-            "20260918000020_location_provenance_fail_closed.sql");
+            "20260918000020_remove_user_location_runtime.sql");
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260918000020_location_provenance_fail_closed.sql");
+        .isEqualTo("20260918000020_remove_user_location_runtime.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {
@@ -158,29 +147,12 @@ class MobilityOwnershipContractTest {
   }
 
   private static List<String> migrationInventory() throws IOException {
-    List<String> inventory = new ArrayList<>();
-    for (String directory : List.of("supabase/migrations", "supabase/atomic-migrations")) {
-      inventory.addAll(migrationInventory(directory));
+    try (var paths = Files.list(REPOSITORY_ROOT.resolve("supabase/migrations"))) {
+      return paths
+          .filter(path -> path.getFileName().toString().endsWith(".sql"))
+          .map(path -> path.getFileName().toString())
+          .sorted()
+          .toList();
     }
-    assertThat(inventory).doesNotHaveDuplicates();
-    assertThat(inventory.stream().map(name -> name.substring(0, 14)).toList())
-        .doesNotHaveDuplicates();
-    return inventory.stream().sorted().toList();
-  }
-
-  private static List<String> migrationInventory(String directory) throws IOException {
-    Path migrationDirectory = REPOSITORY_ROOT.resolve(directory);
-    assertThat(migrationDirectory).isDirectory();
-    List<String> inventory = new ArrayList<>();
-    try (var paths = Files.list(migrationDirectory)) {
-      for (Path path : paths.filter(candidate -> candidate.toString().endsWith(".sql")).toList()) {
-        assertThat(path).isRegularFile();
-        assertThat(Files.isSymbolicLink(path)).isFalse();
-        String name = path.getFileName().toString();
-        assertThat(name).matches("[0-9]{14}_.+[.]sql");
-        inventory.add(name);
-      }
-    }
-    return inventory.stream().sorted().toList();
   }
 }

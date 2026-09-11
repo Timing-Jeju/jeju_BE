@@ -8,8 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = ROOT / "supabase/migrations"
-ATOMIC_MIGRATIONS = ROOT / "supabase/atomic-migrations"
-TARGET = ATOMIC_MIGRATIONS / "20260918000019_planned_route_request_hash_policy.sql"
+TARGET = MIGRATIONS / "20260918000019_planned_route_request_hash_policy.sql"
 FIELDS = [
     "route.anchor_contract_version",
     "route.trip_plan_id::text",
@@ -27,16 +26,13 @@ class PlannedRouteHashPolicyTest(unittest.TestCase):
         manifest = json.loads((MIGRATIONS / "manifest.json").read_text())
         policy = next(entry for entry in manifest["canonicalSuffix"]
                       if entry["path"].endswith("_planned_route_request_hash_policy.sql"))
-        self.assertEqual("supabase/atomic-migrations/20260918000019_planned_route_request_hash_policy.sql", policy["path"])
+        self.assertEqual("supabase/migrations/20260918000019_planned_route_request_hash_policy.sql", policy["path"])
         self.assertEqual("057", policy["initSlot"])
         self.assertEqual(["20260918000018_revision_request_hash_audit.sql"], policy["dependencies"])
 
     def test_final_hash_uses_exactly_seven_public_identity_fields_without_coordinates(self):
         definitions = []
-        for path in sorted(
-            (*MIGRATIONS.glob("*.sql"), *ATOMIC_MIGRATIONS.glob("*.sql")),
-            key=lambda candidate: candidate.name,
-        ):
+        for path in sorted(MIGRATIONS.glob("*.sql")):
             definitions.extend(re.findall(
                 r"create(?: or replace)? function timing_jeju_planner_private\.planned_route_request_hash\(.*?as \$\$(.*?)\$\$;",
                 path.read_text(), re.S | re.I,

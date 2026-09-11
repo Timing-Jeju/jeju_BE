@@ -335,23 +335,15 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         for contents in (db_readme, architecture, schema_doc, dbml):
             self.assertIn("schedule_revision_runs", contents)
 
-    def test_smoke_revision_fixture_uses_canonical_hash_and_exact_guard_seam(self):
+    def test_smoke_revision_fixture_uses_v2_canonical_hash_without_removed_guard(self):
         smoke = compact_sql(
             (ROOT / "db/queries/smoke_check.sql").read_text(encoding="utf-8")
         )
-        disable_marker = (
-            "alter table public.schedule_revision_runs disable trigger "
-            "aaa_independent_hash_provenance"
-        )
-        enable_marker = (
-            "alter table public.schedule_revision_runs enable trigger "
-            "aaa_independent_hash_provenance"
-        )
-        self.assertIn(disable_marker, smoke)
-        section = smoke.split(disable_marker, 1)[1]
-        section = section.split(enable_marker, 1)[0]
+        section = smoke.split("revision_run_id constant uuid", 1)[1]
+        section = section.split("revision_default text", 1)[0]
 
         self.assertNotIn("repeat(", section)
+        self.assertNotIn("aaa_independent_hash_provenance", smoke)
         parent = section.index("insert into public.schedule_revision_runs")
         command_input = section.index("insert into public.compute_run_inputs")
         immutable_update = section.index(
@@ -360,15 +352,14 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         self.assertLess(parent, command_input)
         self.assertLess(command_input, immutable_update)
         self.assertEqual(2, section.count(HASH_CALL_NAME))
+        self.assertEqual(2, section.count("2::smallint"))
+        self.assertNotIn("false::boolean", section)
+        self.assertNotIn("null::jsonb", section)
         self.assertIn("schedule revision run cascade cleanup failed", section)
         self.assertNotIn("set constraints all", section)
-        self.assertIn("set constraints revision_parent_input_lineage immediate", section)
-        self.assertIn("begin; " + disable_marker, smoke)
-        self.assertIn(
-            enable_marker
-            + "; set constraints revision_parent_input_lineage deferred; commit;",
-            smoke,
-        )
+        self.assertNotIn("set constraints revision_parent_input_lineage", section)
+        self.assertIn("begin; do $$ declare revision_run_id", smoke)
+        self.assertIn("schedule revision run cascade cleanup failed'; end if; end $$; commit;", smoke)
 
     def test_negative_and_two_session_contracts_cover_revision_run_invariants(self):
         negative = compact_sql(
@@ -397,7 +388,7 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
             concurrency, r"dblink_send_query\(\s*'schedule_revision_b'"
         )
 
-    def test_revision_negative_fixture_uses_canonical_hash_inside_exact_guard_seam(self):
+    def test_revision_negative_fixture_uses_v2_canonical_hash_and_exact_constraints(self):
         negative = compact_sql(
             (ROOT / "db/queries/database_negative_constraints.sql").read_text(
                 encoding="utf-8"
@@ -407,38 +398,22 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         section = section.split("schedule revision identity is immutable", 1)[0]
 
         self.assertNotIn("repeat(", section)
-        disable = section.index(
-            "alter table public.schedule_revision_runs disable trigger "
-            "aaa_independent_hash_provenance"
-        )
+        self.assertNotIn("aaa_independent_hash_provenance", section)
         initial = section.index("insert into public.schedule_revision_runs")
         owner_negative = section.index("schedule revision owner lineage mismatch")
         base_negative = section.index("schedule revision base lineage mismatch")
         day_negative = section.index("schedule revision day lineage mismatch")
         self.assertNotIn("set constraints all", section)
-        constraints_immediate = section.index(
-            "set constraints revision_parent_input_lineage immediate"
-        )
-        enable = section.index(
-            "alter table public.schedule_revision_runs enable trigger "
-            "aaa_independent_hash_provenance"
-        )
-        constraints_deferred = section.index(
-            "set constraints revision_parent_input_lineage deferred"
-        )
         positions = [
-            disable,
             initial,
             owner_negative,
             base_negative,
             day_negative,
-            constraints_immediate,
-            enable,
-            constraints_deferred,
         ]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(len(positions), len(set(positions)))
-        self.assertEqual(5, section.count(HASH_CALL_NAME))
+        self.assertEqual(4, section.count(HASH_CALL_NAME))
+        self.assertEqual(4, section.count("2::smallint"))
 
     def test_revision_negative_fixtures_do_not_depend_on_demo_seed(self):
         negative = compact_sql(

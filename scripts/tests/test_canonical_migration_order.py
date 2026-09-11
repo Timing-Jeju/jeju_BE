@@ -36,7 +36,7 @@ CANONICAL_SUFFIX = (
     ("20260918000017_user_location_write_guard_purge.sql", "055", 223),
     ("20260918000018_revision_request_hash_audit.sql", "056", 223),
     ("20260918000019_planned_route_request_hash_policy.sql", "057", 225),
-    ("20260918000020_location_provenance_fail_closed.sql", "058", 223),
+    ("20260918000020_remove_user_location_runtime.sql", "058", 224),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -69,14 +69,10 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
         migration_dir = ROOT / "supabase/migrations"
-        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        actual = tuple(Path(entry["path"]).name for entry in manifest["canonicalSuffix"])
+        actual = tuple(path.name for path in sorted(migration_dir.glob("20260918*.sql")))
         expected = tuple(path for path, _, _ in CANONICAL_SUFFIX)
         self.assertEqual(expected, actual)
         self.assertEqual(len(expected), len({path[:14] for path in expected}))
-        self.assertFalse((migration_dir / expected[-3]).exists())
-        self.assertFalse((migration_dir / expected[-2]).exists())
-        self.assertFalse((migration_dir / expected[-1]).exists())
         for obsolete in OLD_SUFFIX_PATHS:
             self.assertFalse((migration_dir / obsolete).exists(), obsolete)
 
@@ -113,8 +109,6 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertIn("pullRequest", entry["owner"])
             self.assertTrue(entry["dependencies"])
             self.assertEqual(entry["sha256"], digest(ROOT / entry["path"]))
-        for entry in suffix[-3:]:
-            self.assertEqual("supabase/atomic-migrations", str(Path(entry["path"]).parent))
         ordered_names = [entry["path"].split("/")[-1] for entry in (*prefix, *suffix)]
         for entry in suffix:
             current_index = ordered_names.index(entry["path"].split("/")[-1])
@@ -201,15 +195,15 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             if slot == "056":
                 continue
             if slot == "055":
-                expected_mounts.append(
-                    ("./db/local-postgres/20260918000017_location_cutover_group.sql",
-                     "/docker-entrypoint-initdb.d/055_location_cutover_group.sql")
-                )
-                continue
-            source_dir = "supabase/atomic-migrations" if slot in {"057", "058"} else "supabase/migrations"
-            expected_mounts.append(
-                (f"./{source_dir}/{path}", f"/docker-entrypoint-initdb.d/{slot}_{path[15:]}")
-            )
+                expected_mounts.append((
+                    "./db/local-postgres/20260918000017_location_cutover_group.sql",
+                    "/docker-entrypoint-initdb.d/055_location_cutover_group.sql",
+                ))
+            else:
+                expected_mounts.append((
+                    f"./supabase/migrations/{path}",
+                    f"/docker-entrypoint-initdb.d/{slot}_{path[15:]}",
+                ))
         seed = "/docker-entrypoint-initdb.d/099_seed_fixtures.sql"
         for compose_name in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             source = (ROOT / compose_name).read_text(encoding="utf-8")
