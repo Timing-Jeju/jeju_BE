@@ -134,3 +134,25 @@ Red에서는 실제 HTTP 일정 mutation test가 fixture mutation보다 먼저 s
 read-only probe 전후 `trip_plans` row count 불변도 검사하며 예외를 삼키거나 mutation timeout을 늘리거나
 재시도하지 않는다. 보정 뒤 전체 HTTP focused class를 새 Testcontainers session에서 `--rerun-tasks`로
 두 번 실행해 각각 1분 40초, 1분 44초에 성공했고 매 실행 뒤 container/network/volume residue는 0이었다.
+
+## historical cutover predecessor fixture 순서 보정
+
+정확한 HEAD `dfa37218500edc3fdf4f50e2249ece6ef7cdb62c`의 단독 quality gate는
+Spring 통합 테스트에서 중단됐다. `LocationDataPurgeMigrationIntegrationTest`의 Supabase ledger
+원자성 case가 PG16/17 모두 residue audit 대신 `location cutover predecessor schema fingerprint
+mismatch`를 먼저 반환했다. 동일 메서드 단독 Red에서 현재 fixture fingerprint는 PG16
+`1378aaba79b7660894befa0dc10f352a`, PG17 `63e342639e89b2463b23d23f2314a3f2`였고,
+#223 exact `7473dd6f`의 동일 메서드는 2분 18초에 Green이었다.
+
+pre-017 migration과 fingerprint query는 #223 이후 바뀌지 않았다. 차이는 #242가 일반 PostgreSQL
+bootstrap에 추가한 `rls_auto_enable` function/event trigger가 historical #223 raw-PostGIS predecessor
+chain보다 먼저 실행돼 public table의 RLS catalog 상태를 바꾼 것이었다. 적용 후 trigger만 삭제해도
+이미 바뀐 RLS 상태 때문에 승인 fingerprint는 복구되지 않는다.
+
+Green에서는 이 Supabase cutover ledger 메서드만 #223 당시처럼 bootstrap marker 앞의 auth compatibility를
+사용하는 독립 컨테이너로 격리했다. 일반 #247 image/session pool, production `auth_compat.sql`, 최종
+000022 migration과 fingerprint allowlist는 변경하지 않았다. 테스트는 후대 trigger 부재, PG major별
+승인 predecessor fingerprint, 합성 data/ledger가 fingerprint를 바꾸지 않음, 감사 실패 rollback,
+017·018 ledger 동시 기록을 순서대로 검증한다. 정확한 ledger 메서드 PG16/17은 2분 21초,
+인접 revision rollback·timeout/disconnect/lock·정상 cutover 묶음은 4분 22초에 성공했다. Spotless와
+container/factory inventory 단위 테스트도 23초에 성공했고 focused container residue는 0이었다.

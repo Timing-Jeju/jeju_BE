@@ -47,25 +47,17 @@ final class PostgreSqlTestContainerFactory {
 
   static PostgreSQLContainer createBefore(String exclusiveMigration, String image) {
     List<Path> scripts = canonicalInitScripts(locateRepositoryRoot());
-    int targetIndex = -1;
-    for (int index = 0; index < scripts.size(); index++) {
-      if (exclusiveMigration.equals(scripts.get(index).getFileName().toString())
-          || (exclusiveMigration.equals("20260918000017_user_location_write_guard_purge.sql")
-              && scripts
-                  .get(index)
-                  .getFileName()
-                  .toString()
-                  .equals("20260918000017_location_cutover_group.sql"))) {
-        targetIndex = index;
-        break;
-      }
-    }
-    if (targetIndex < 0) {
-      throw new IllegalStateException("대상 Supabase migration이 없습니다: " + exclusiveMigration);
-    }
     return createWithScripts(
-        scripts.subList(0, targetIndex),
+        scripts.subList(0, targetIndex(scripts, exclusiveMigration)),
         DockerImageName.parse(image).asCompatibleSubstituteFor("postgres"));
+  }
+
+  static PostgreSQLContainer createHistoricalCutoverPredecessor(
+      String exclusiveMigration, String image) {
+    List<Path> scripts = canonicalInitScripts(locateRepositoryRoot());
+    return PostgreSqlLauncherSessionPool.historicalCutoverContainer(
+        DockerImageName.parse(image).asCompatibleSubstituteFor("postgres"),
+        scripts.subList(0, targetIndex(scripts, exclusiveMigration)));
   }
 
   static void executeScript(PostgreSQLContainer container, Path script) throws Exception {
@@ -116,6 +108,18 @@ final class PostgreSqlTestContainerFactory {
     requireDocker(() -> DockerClientFactory.instance().isDockerAvailable());
 
     return PostgreSqlLauncherSessionPool.container(image, initScripts);
+  }
+
+  private static int targetIndex(List<Path> scripts, String exclusiveMigration) {
+    for (int index = 0; index < scripts.size(); index++) {
+      String fileName = scripts.get(index).getFileName().toString();
+      if (exclusiveMigration.equals(fileName)
+          || (exclusiveMigration.equals("20260918000017_user_location_write_guard_purge.sql")
+              && fileName.equals("20260918000017_location_cutover_group.sql"))) {
+        return index;
+      }
+    }
+    throw new IllegalStateException("대상 Supabase migration이 없습니다: " + exclusiveMigration);
   }
 
   static void requireDocker(BooleanSupplier availability) {

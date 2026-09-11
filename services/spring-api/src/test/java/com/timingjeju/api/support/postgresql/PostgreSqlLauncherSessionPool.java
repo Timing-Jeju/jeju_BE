@@ -2,6 +2,8 @@ package com.timingjeju.api.support.postgresql;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -26,6 +28,45 @@ final class PostgreSqlLauncherSessionPool {
 
   static PostgreSQLContainer container(DockerImageName image, List<Path> initScripts) {
     return new PooledContainer(image, List.copyOf(initScripts));
+  }
+
+  static PostgreSQLContainer historicalCutoverContainer(
+      DockerImageName image, List<Path> initScripts) {
+    PostgreSQLContainer container =
+        new PostgreSQLContainer(image)
+            .withDatabaseName("timing_jeju_repository_test")
+            .withUsername("timing_jeju_repository_test")
+            .withPassword(UUID.randomUUID().toString())
+            .withLabel("timing-jeju.test-session", SESSION_ID)
+            .withLabel("timing-jeju.fixture", "historical-cutover-predecessor")
+            .withStartupTimeout(Duration.ofMinutes(3));
+    for (int index = 0; index < initScripts.size(); index++) {
+      Path script = initScripts.get(index);
+      String target =
+          "/docker-entrypoint-initdb.d/%03d_%s".formatted(index + 1, script.getFileName());
+      if (script.getFileName().toString().equals("auth_compat.sql")) {
+        container.withCopyToContainer(
+            Transferable.of(historicalAuthCompatibility(script), 0444), target);
+      } else {
+        container.withCopyFileToContainer(MountableFile.forHostPath(script), target);
+      }
+    }
+    return container;
+  }
+
+  private static byte[] historicalAuthCompatibility(Path source) {
+    try {
+      String sql = Files.readString(source);
+      String marker = "-- Supabase 프로젝트에 사전 설치된 public table RLS event-trigger 경계를";
+      int boundary = sql.indexOf(marker);
+      if (boundary < 0) {
+        throw new IllegalStateException("#242 RLS bootstrap boundary marker가 없습니다: " + source);
+      }
+      return sql.substring(0, boundary).getBytes(StandardCharsets.UTF_8);
+    } catch (IOException exception) {
+      throw new IllegalStateException(
+          "historical auth compatibility fixture를 읽을 수 없습니다", exception);
+    }
   }
 
   static int startedImageCount() {
