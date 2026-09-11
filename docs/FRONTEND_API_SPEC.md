@@ -1093,6 +1093,14 @@ GET Day에는 required nullable `activityStartTime`과 `activityEndTime`이 추�
 
 ### #239 생성 재시도의 과거 응답 계약
 
-`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH/Day PUT의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
+`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV11 | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH와 새 Day PUT 응답의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
 
 TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연장하지 않는다. 만료 경계에서는 기존 registry 규칙을 그대로 따른다. receipt 삭제·namespace 교체·body 재작성·최신 GET 응답으로 치환하는 데이터 변경은 없다. 이 호환 계약 때문에 DB migration을 추가하지 않는다.
+
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 현재 통합 브랜치는 새로 생성한 단일 37-operation artifact에서 active `--mode 33` 검사를 통과해야 Codegen READY다. historical `--mode 24`, `--mode 25`, `--mode 27`, `--mode 28`, `--mode 29`, `--mode 30`, `--mode 31`은 각 시점 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+
+### #246 여행 상세 재조회 복원
+
+`TripDetail.transportEvents`의 `arrival`·`departure`는 항상 존재하며 각각 기존 교통 저장 payload 또는 `null`이다. `TripDetail.accommodations`는 기존 숙소 저장 payload 배열이고 `sequenceNo`, `accommodationId` 순으로 정렬된다. GET 한 번의 ETag와 모든 값은 같은 revision snapshot이다. 앱 초기화·다른 기기 로그인에서는 이 값을 기준으로 상태를 새로 채우고 `null`/`[]`인 항목은 이전 여행 값이 남지 않게 비운다. 날짜별 활동 시간은 #239의 nullable Day 필드를 사용하며 미입력 값에 임의 시간을 만들지 않는다.
+
+#246에서도 과거 완료 receipt를 다시 쓰거나 만료시키지 않는다. POST는 활동 시간 도입 전 `TripDetailLegacyV1` 또는 숙소·교통 도입 전 `TripDetailLegacyV11`을 replay할 수 있다. Day PUT의 `TripDayActivityWindowsResponse`는 최신 TripDetail과 TripDetailLegacyV11의 닫힌 union이다. legacy 분기는 `Idempotency-Replayed: true`에서만 반환하며 과거 원본 status/ETag/body/기존Location을 유지한다. 새 mutation과 GET/PATCH는 최신 required child를 반환한다. FE는 replay 응답에 child가 없으면 빈 값으로 덮어쓰지 않고 canonical 여행 GET으로 복원한다.

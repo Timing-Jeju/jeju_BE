@@ -51,13 +51,37 @@ class TripOpenApiIntegrationTest
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips'].post.responses['201'].content['application/json'].schema.oneOf")
-                .value(hasSize(2)))
+                .value(hasSize(3)))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].schema.properties.days.items.required")
                 .value(
                     containsInAnyOrder(
                         "dayId", "dayNo", "date", "activityStartTime", "activityEndTime")));
+  }
+
+  @Test
+  void TripDetail은_숙소와_입출도_복원_필드를_required로_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.required")
+                .value(org.hamcrest.Matchers.hasItems("transportEvents", "accommodations")))
+        .andExpect(jsonPath("$.components.schemas.TripDetail.properties.transportEvents").exists())
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.accommodations.type")
+                .value("array"))
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}'].get.responses['200'].headers.ETag")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].example.transportEvents")
+                .isMap())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].example.accommodations")
+                .isArray());
   }
 
   @Test
@@ -210,6 +234,8 @@ class TripOpenApiIntegrationTest
                         "userPace",
                         "transportModes",
                         "days",
+                        "transportEvents",
+                        "accommodations",
                         "activeScheduleVersionId",
                         "totalScore",
                         "scoreProvenance",

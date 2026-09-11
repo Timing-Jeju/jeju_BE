@@ -1,0 +1,51 @@
+{
+  "tripId": "50000000-0000-0000-0000-000000000001",
+  "title": "제주 동쪽 2박 3일",
+  "status": "draft",
+  "startDate": "2026-08-03",
+  "endDate": "2026-08-05",
+  "timezone": "Asia/Seoul",
+  "userPace": "normal",
+  "transportModes": [
+    {
+      "mode": "public_transit",
+      "priority": 1,
+      "primary": true
+    },
+    {
+      "mode": "taxi",
+      "priority": 2,
+      "primary": false
+    }
+  ],
+  "days": [
+    {
+      "dayId": "51000000-0000-0000-0000-000000000001",
+      "dayNo": 1,
+      "date": "2026-08-03",
+      "activityStartTime": null,
+      "activityEndTime": null
+    },
+    {
+      "dayId": "51000000-0000-0000-0000-000000000002",
+      "dayNo": 2,
+      "date": "2026-08-04",
+      "activityStartTime": null,
+      "activityEndTime": null
+    },
+    {
+      "dayId": "51000000-0000-0000-0000-000000000003",
+      "dayNo": 3,
+      "date": "2026-08-05",
+      "activityStartTime": null,
+      "activityEndTime": null
+    }
+  ],
+  "activeScheduleVersionId": null,
+  "totalScore": null,
+  "scoreProvenance": null,
+  "scheduleEffect": "none",
+  "regenerationRequired": false,
+  "createdAt": "2026-08-03T09:05:00+09:00",
+  "updatedAt": "2026-08-03T09:05:00+09:00"
+}

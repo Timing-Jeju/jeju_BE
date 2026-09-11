@@ -47,7 +47,7 @@ public record AccommodationMutationPayload(
       @JsonFormat(pattern = "HH:mm") java.time.LocalTime checkInTime,
       @JsonFormat(pattern = "HH:mm") java.time.LocalTime checkOutTime,
       int sequenceNo) {
-    static AccommodationPayload from(Accommodation value) {
+    public static AccommodationPayload from(Accommodation value) {
       return new AccommodationPayload(
           value.accommodationId(),
           value.placeId(),

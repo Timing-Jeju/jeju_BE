@@ -46,7 +46,7 @@ public record TransportEventMutationPayload(
       OffsetDateTime scheduledAt,
       @Schema(types = {"string", "null"}) String transportNumber,
       @Schema(types = {"string", "null"}) String note) {
-    static TransportEventPayload from(TransportEvent event) {
+    public static TransportEventPayload from(TransportEvent event) {
       return new TransportEventPayload(
           event.eventType(),
           event.transportType(),

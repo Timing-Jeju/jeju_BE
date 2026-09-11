@@ -47,7 +47,7 @@ class TripReplayOpenApiIntegrationTest {
             jsonPath(
                     "$.paths['/api/v1/trips'].post.responses['201'].content['application/json'].schema.$ref")
                 .value("#/components/schemas/TripCreateResponse"))
-        .andExpect(jsonPath("$.components.schemas.TripCreateResponse.oneOf").value(hasSize(2)))
+        .andExpect(jsonPath("$.components.schemas.TripCreateResponse.oneOf").value(hasSize(3)))
         .andExpect(
             jsonPath("$.components.schemas.TripDetailLegacyV1.properties.days.items.$ref")
                 .value("#/components/schemas/TripDayLegacyV1"))
@@ -59,6 +59,24 @@ class TripReplayOpenApiIntegrationTest {
                 .value(
                     containsInAnyOrder(
                         "dayId", "dayNo", "date", "activityStartTime", "activityEndTime")));
+  }
+
+  @Test
+  void 기본_Day_PUT도_projection_이전_receipt_union을_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/day-activity-windows'].put.responses['200'].content['application/json'].schema.$ref")
+                .value("#/components/schemas/TripDayActivityWindowsResponse"))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDayActivityWindowsResponse.oneOf").value(hasSize(2)))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetailLegacyV11.properties.transportEvents")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetailLegacyV11.properties.accommodations")
+                .doesNotExist());
   }
 
   private static String randomKey() {
