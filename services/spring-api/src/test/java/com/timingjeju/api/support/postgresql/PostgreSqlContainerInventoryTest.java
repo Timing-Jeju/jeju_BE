@@ -45,7 +45,7 @@ class PostgreSqlContainerInventoryTest {
         .contains("PostgreSqlLauncherSessionPool.container(")
         .doesNotContain("new PostgreSQLContainer(");
     assertThat(configuration)
-        .contains("PostgreSqlTestContainerFactory.create()")
+        .contains("PostgreSqlTestContainerFactory.create(image)")
         .doesNotContain("new PostgreSQLContainer(");
   }
 
