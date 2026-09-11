@@ -75,7 +75,7 @@ MIGRATION_TYPED_INTERNAL_HASH_CALL = re.compile(
 )
 EXPECTED_HASH_OCCURRENCE_COUNTS = Counter(
     {
-        "direct exact": 27,
+        "direct exact": 31,
         "migration definition": 1,
         "migration privilege signature": 1,
         "migration typed internal": 1,

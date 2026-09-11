@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+HASH_CALL_NAME = "public.compute_" + "command_input_hash("
 MIGRATION_NAME = "20260830000000_schedule_revision_run_foundation.sql"
 MIGRATION = ROOT / "supabase" / "migrations" / MIGRATION_NAME
 
@@ -72,7 +73,8 @@ def assert_revision_negative_fixture_is_self_contained(section: str) -> None:
             "'f1610000-0000-0000-0000-000000000001', "
             "'f1630000-0000-0000-0000-000000000001', "
             "'f1620000-0000-0000-0000-000000000001', 'revision-v1', "
-            "'algorithm-v1', 'f1650000-0000-0000-0000-000000000001', repeat('a', 64) )"
+            "'algorithm-v1', 'f1650000-0000-0000-0000-000000000001', "
+            + HASH_CALL_NAME
         ),
         "owner-only-b": (
             "'schedule revision owner lineage mismatch', $statement$ insert into "
@@ -108,15 +110,17 @@ def assert_revision_negative_fixture_is_self_contained(section: str) -> None:
     for label, expected_tuple in expected_structural_tuples.items():
         if expected_tuple not in section:
             raise AssertionError(f"schedule revision 구조 tuple drift: {label}")
-    for mismatch_label in (
-        "schedule revision owner lineage mismatch",
-        "schedule revision base lineage mismatch",
-        "schedule revision day lineage mismatch",
-    ):
+    for mismatch_label, expected_constraint in {
+        "schedule revision owner lineage mismatch": "fk_schedule_revision_runs_owner_trip",
+        "schedule revision base lineage mismatch": "fk_schedule_revision_runs_base_schedule",
+        "schedule revision day lineage mismatch": "fk_schedule_revision_runs_target_day",
+    }.items():
         mismatch = section.split(mismatch_label, 1)[1]
         mismatch = mismatch.split("select pg_temp.expect_rejected", 1)[0]
-        if "array['23503']" not in mismatch:
-            raise AssertionError(f"schedule revision FK SQLSTATE drift: {mismatch_label}")
+        if f"'23503', '{expected_constraint}'" not in mismatch:
+            raise AssertionError(
+                f"schedule revision FK SQLSTATE/constraint drift: {mismatch_label}"
+            )
 
 
 def mutate_after(section: str, marker: str, old: str, new: str) -> str:
@@ -357,6 +361,49 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         self.assertRegex(
             concurrency, r"dblink_send_query\(\s*'schedule_revision_b'"
         )
+
+    def test_revision_negative_fixture_uses_canonical_hash_inside_exact_guard_seam(self):
+        negative = compact_sql(
+            (ROOT / "db/queries/database_negative_constraints.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        section = negative.split("select public.create_local_test_user(", 1)[1]
+        section = section.split("schedule revision identity is immutable", 1)[0]
+
+        self.assertNotIn("repeat(", section)
+        disable = section.index(
+            "alter table public.schedule_revision_runs disable trigger "
+            "aaa_independent_hash_provenance"
+        )
+        initial = section.index("insert into public.schedule_revision_runs")
+        owner_negative = section.index("schedule revision owner lineage mismatch")
+        base_negative = section.index("schedule revision base lineage mismatch")
+        day_negative = section.index("schedule revision day lineage mismatch")
+        self.assertNotIn("set constraints all", section)
+        constraints_immediate = section.index(
+            "set constraints revision_parent_input_lineage immediate"
+        )
+        enable = section.index(
+            "alter table public.schedule_revision_runs enable trigger "
+            "aaa_independent_hash_provenance"
+        )
+        constraints_deferred = section.index(
+            "set constraints revision_parent_input_lineage deferred"
+        )
+        positions = [
+            disable,
+            initial,
+            owner_negative,
+            base_negative,
+            day_negative,
+            constraints_immediate,
+            enable,
+            constraints_deferred,
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(len(positions), len(set(positions)))
+        self.assertEqual(5, section.count(HASH_CALL_NAME))
 
     def test_revision_negative_fixtures_do_not_depend_on_demo_seed(self):
         negative = compact_sql(
