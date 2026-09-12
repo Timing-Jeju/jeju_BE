@@ -1293,6 +1293,100 @@ class LocationDataPurgeMigrationIntegrationTest {
 
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
+  void 미분류_nested_payload는_020을_rollback하고_closed_allowlist는_보존한다(String image) throws Exception {
+    var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
+    try {
+      container.start();
+      var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
+      var jdbc =
+          new JdbcTemplate(
+              new DriverManagerDataSource(
+                  container.getJdbcUrl(), container.getUsername(), container.getPassword()));
+      Fixture fixture = insertLegacyFixture(jdbc, false);
+      jdbc.update(
+          "insert into public.trip_transport_modes"
+              + "(trip_plan_id,transport_mode,priority,is_primary) values (?,'public_transit',1,true)",
+          fixture.trip());
+      jdbc.update(
+          "insert into public.trip_preferences"
+              + "(trip_plan_id,arrival_region_code,departure_region_code,raw_answers) "
+              + "values (?,'JEJU','JEJU','{}'::jsonb)",
+          fixture.trip());
+      PostgreSqlTestContainerFactory.executeScript(
+          container, root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql"));
+      PostgreSqlTestContainerFactory.executeScript(
+          container,
+          root.resolve("supabase/migrations/20260918000019_planned_route_request_hash_policy.sql"));
+      String fingerprint =
+          Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql"));
+      String before = jdbc.queryForObject(fingerprint, String.class);
+      var script =
+          root.resolve("supabase/migrations/20260918000020_remove_user_location_runtime.sql");
+
+      for (String unknownPayload :
+          new String[] {
+            "{\"nested\":[[126.51,33.51]]}",
+            "{\"nested\":[[126.51,33.51,15]]}",
+            "{\"nested\":[[\"126.51\",\"33.51\"]]}",
+            "{\"nested\":[[200,95]]}"
+          }) {
+        jdbc.update(
+            "update public.trip_preferences set raw_answers=cast(? as jsonb) where trip_plan_id=?",
+            unknownPayload,
+            fixture.trip());
+        assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("user location residue requires audit")
+            .hasMessageNotContaining("126.51")
+            .hasMessageNotContaining("33.51");
+        assertThat(jdbc.queryForObject(fingerprint, String.class)).isEqualTo(before);
+        assertThat(
+                jdbc.queryForObject(
+                    "select raw_answers=cast(? as jsonb) from public.trip_preferences "
+                        + "where trip_plan_id=?",
+                    Boolean.class,
+                    unknownPayload,
+                    fixture.trip()))
+            .isTrue();
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from public.trip_execution_events where id=? and location is null",
+                    Integer.class,
+                    fixture.event()))
+            .isEqualTo(1);
+        assertThat(
+                jdbc.queryForObject(
+                    "select to_regprocedure('timing_jeju_planner_private.user_location_schema_revision()') is null",
+                    Boolean.class))
+            .isTrue();
+      }
+
+      jdbc.update(
+          "update public.trip_preferences set "
+              + "raw_answers='{\"pace\":\"normal\",\"partySize\":4,\"childAges\":[7,10]}'::jsonb "
+              + "where trip_plan_id=?",
+          fixture.trip());
+      PostgreSqlTestContainerFactory.executeScript(container, script);
+      assertThat(
+              jdbc.queryForObject(
+                  "select raw_answers = "
+                      + "'{\"pace\":\"normal\",\"partySize\":4,\"childAges\":[7,10]}'::jsonb "
+                      + "from public.trip_preferences where trip_plan_id=?",
+                  Boolean.class,
+                  fixture.trip()))
+          .isTrue();
+      assertThat(
+              jdbc.queryForObject(
+                  "select timing_jeju_planner_private.user_location_schema_revision()",
+                  String.class))
+          .isEqualTo("20260918000020");
+    } finally {
+      container.stop();
+    }
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void Supabase_이력은_감사_실패시_유지하고_성공시에만_두_버전을_같이_등록한다(String image) throws Exception {
     var container = PostgreSqlTestContainerFactory.createBefore(TARGET, image);
     try {
