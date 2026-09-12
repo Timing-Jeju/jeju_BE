@@ -61,10 +61,42 @@ class SavedPlacesWebContractIntegrationTest {
   private static final String SECRET = randomKey();
   private static final UUID USER = UUID.fromString("34300000-0000-0000-0000-000000000001");
   @Autowired private MockMvc mvc;
+  private static final java.util.concurrent.atomic.AtomicInteger DELETE_CALLS =
+      new java.util.concurrent.atomic.AtomicInteger();
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
     registry.add("app.security.jwt.secret", () -> SECRET);
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.NullSource
+  @org.junit.jupiter.params.provider.ValueSource(
+      strings = {"", "*", "W/\"v1\"", "\"v1\",\"v2\"", "\"\"", "\"공백\"", "\"v 1\""})
+  void DELETE는_단일_strong_IfMatch가_없으면_repository_호출전에_400으로_거부한다(String value) throws Exception {
+    DELETE_CALLS.set(0);
+    var request =
+        org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(
+                "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003")
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token());
+    if (value != null) request.header("If-Match", value);
+    mvc.perform(request)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    org.assertj.core.api.Assertions.assertThat(DELETE_CALLS.get()).isZero();
+  }
+
+  @Test
+  void DELETE는_중복_IfMatch_header를_repository_호출전에_거부한다() throws Exception {
+    DELETE_CALLS.set(0);
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(
+                    "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("If-Match", "\"v1\"", "\"v1\""))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    org.assertj.core.api.Assertions.assertThat(DELETE_CALLS.get()).isZero();
   }
 
   @Test
@@ -190,7 +222,8 @@ class SavedPlacesWebContractIntegrationTest {
         }
 
         @Override
-        public boolean delete(UUID owner, UUID placeId) {
+        public boolean delete(UUID owner, UUID placeId, String ifMatch) {
+          DELETE_CALLS.incrementAndGet();
           return false;
         }
       };

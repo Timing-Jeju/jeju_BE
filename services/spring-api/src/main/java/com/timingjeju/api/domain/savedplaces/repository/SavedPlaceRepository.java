@@ -19,5 +19,5 @@ public interface SavedPlaceRepository {
   SavedPlaceUpdateResult patch(
       UUID owner, UUID placeId, String ifMatch, SavedPlacePatchCommand command);
 
-  boolean delete(UUID owner, UUID placeId);
+  boolean delete(UUID owner, UUID placeId, String ifMatch);
 }

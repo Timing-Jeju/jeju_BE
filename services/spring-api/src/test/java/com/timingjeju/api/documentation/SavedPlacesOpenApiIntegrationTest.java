@@ -70,6 +70,11 @@ class SavedPlacesOpenApiIntegrationTest {
         .andExpect(jsonPath(item + ".patch.responses['422']").exists())
         .andExpect(jsonPath(item + ".delete.responses['400']").exists())
         .andExpect(jsonPath(item + ".delete.responses['404']").exists())
+        .andExpect(jsonPath(item + ".delete.responses['409']").exists())
+        .andExpect(
+            jsonPath(item + ".delete.parameters[?(@.name == 'If-Match')].required")
+                .value(org.hamcrest.Matchers.contains(true)))
+        .andExpect(jsonPath(item + ".delete.responses['204'].content").doesNotExist())
         .andExpect(
             jsonPath("$.components.schemas.CreateSavedPlaceRequest.properties.placeId.type")
                 .value("string"))
