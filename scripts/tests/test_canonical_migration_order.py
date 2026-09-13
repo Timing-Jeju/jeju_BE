@@ -38,6 +38,7 @@ CANONICAL_SUFFIX = (
     ("20260918000019_planned_route_request_hash_policy.sql", "057", 225),
     ("20260918000020_remove_user_location_runtime.sql", "058", 224),
     ("20260918000021_day_activity_window_pair.sql", "059", 239),
+    ("20260918000022_rls_auto_enable_execute_boundary.sql", "060", 242),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -65,7 +66,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `059`", architecture)
+        self.assertIn("Docker init `038`부터 `060`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
@@ -221,8 +222,11 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertLess(positions[-1], source.index(seed), compose_name)
 
         shell = (ROOT / "scripts/docker-smoke-test.sh").read_text(encoding="utf-8")
-        for _, target in expected_mounts:
-            self.assertIn(target, shell)
+        canonical_shell_replay = shell.split("for canonical_sql in", 1)[1].split(
+            "done", 1
+        )[0]
+        self.assertIn("compose.test.yml", canonical_shell_replay)
+        self.assertIn("/docker-entrypoint-initdb.d/", canonical_shell_replay)
         powershell = (ROOT / "scripts/docker-smoke-test.ps1").read_text(encoding="utf-8")
         self.assertIn("supabase/migrations/manifest.json", powershell)
         self.assertIn("immutablePrefix", powershell)

@@ -1421,18 +1421,46 @@ class LocationDataPurgeMigrationIntegrationTest {
   @ParameterizedTest(name = "{0}")
   @ValueSource(strings = {"postgis/postgis:16-3.4", "postgis/postgis:17-3.5"})
   void Supabase_이력은_감사_실패시_유지하고_성공시에만_두_버전을_같이_등록한다(String image) throws Exception {
-    var container = FIXTURES.open(image);
+    var container =
+        PostgreSqlTestContainerFactory.createHistoricalCutoverPredecessor(TARGET, image);
     try {
+      container.start();
       var root = PostgreSqlTestContainerFactory.locateRepositoryRoot();
       var source =
           new DriverManagerDataSource(
               container.getJdbcUrl(), container.getUsername(), container.getPassword());
       var jdbc = new JdbcTemplate(source);
+      assertThat(
+              jdbc.queryForObject(
+                  "select to_regprocedure('public.rls_auto_enable()') is null "
+                      + "and not exists (select 1 from pg_event_trigger where evtname='rls_auto_enable')",
+                  Boolean.class))
+          .as(
+              "historical raw-PostGIS cutover predecessor excludes the later #242 bootstrap boundary")
+          .isTrue();
+      String predecessorFingerprint =
+          jdbc.queryForObject(
+              Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql")),
+              String.class);
+      assertThat(predecessorFingerprint)
+          .as("%s canonical fixture must retain an approved cutover predecessor", image)
+          .isIn(
+              image.contains(":16-")
+                  ? new String[] {"19745c65ef17192f09bfbb7d3167a3d1"}
+                  : new String[] {
+                    "948a3dbda299b1b6621522b69c3167bb", "f653e443df2891370dcb07d2ce36260e"
+                  });
       Fixture fixture = insertLegacyFixture(jdbc, false);
       UUID run = insertNormalRevisionInput(jdbc, source, fixture);
       jdbc.execute("create schema supabase_migrations");
       jdbc.execute(
           "create table supabase_migrations.schema_migrations(version text primary key, statements text[], name text)");
+      assertThat(
+              jdbc.queryForObject(
+                  Files.readString(root.resolve("db/queries/canonical_migration_fingerprint.sql")),
+                  String.class))
+          .as("data and Supabase ledger fixture must not alter the approved predecessor")
+          .isEqualTo(predecessorFingerprint);
       try (var files = Files.list(root.resolve("supabase/migrations"))) {
         for (var file :
             files
@@ -1525,7 +1553,7 @@ class LocationDataPurgeMigrationIntegrationTest {
           .isInstanceOf(IllegalStateException.class)
           .hasMessageContaining("location cutover migration history mismatch");
     } finally {
-      container.close();
+      container.stop();
     }
   }
 

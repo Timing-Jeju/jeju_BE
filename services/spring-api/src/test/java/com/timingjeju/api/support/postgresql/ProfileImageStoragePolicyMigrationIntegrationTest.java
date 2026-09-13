@@ -23,6 +23,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class ProfileImageStoragePolicyMigrationIntegrationTest {
 
   private static final String TARGET = "20260918000006_profile_image_storage.sql";
+  private static final String LAST = "20260918000022_rls_auto_enable_execute_boundary.sql";
   private static final UUID OWNER = UUID.fromString("78000000-0000-4000-8000-000000000011");
   private static final UUID OTHER = UUID.fromString("78000000-0000-4000-8000-000000000012");
   private static final String GENERATION = "018f47a1-43d2-7b6e-9fa2-11a1cc32c675";
@@ -299,6 +300,7 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
   @Test
   void storage_DO는_PostgreSQL16과17에서_insertReturning_select와_불변정책을_보존한다() throws Exception {
     for (String image : POSTGIS_IMAGES) {
+      int expectedMajor = image.contains(":16-") ? 16 : 17;
       PostgreSQLContainer versionContainer =
           PostgreSqlTestContainerFactory.createBefore(TARGET, image);
       try {
@@ -310,8 +312,11 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
                 versionContainer.getPassword());
         JdbcTemplate versionJdbc = new JdbcTemplate(versionDataSource);
         createStorageCompatibility(versionJdbc);
-        PostgreSqlTestContainerFactory.executeScript(versionContainer, targetPath());
+        applyCanonicalThroughSecurityBoundary(versionContainer);
 
+        assertThat(versionJdbc.queryForObject("show server_version_num", Integer.class) / 10_000)
+            .as(image)
+            .isEqualTo(expectedMajor);
         assertThat(
                 versionJdbc.queryForObject(
                     "select public from storage.buckets where id='profile-images'", Boolean.class))
@@ -346,6 +351,37 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
                   .as(image)
                   .isZero();
             });
+
+        String wrongOwnerKey = OTHER + "/profile/" + GENERATION;
+        assertThatThrownBy(
+                () ->
+                    asRole(
+                        versionDataSource,
+                        "authenticated",
+                        OWNER,
+                        statement ->
+                            statement.executeUpdate(
+                                insertSqlWithoutUserMetadata(
+                                    "profile-images", wrongOwnerKey, OWNER, "{}"))))
+            .as(image)
+            .isInstanceOf(SQLException.class)
+            .extracting(failure -> ((SQLException) failure).getSQLState())
+            .isEqualTo("42501");
+        String invalidKey = OWNER + "/profile/" + GENERATION + "-suffix";
+        assertThatThrownBy(
+                () ->
+                    asRole(
+                        versionDataSource,
+                        "authenticated",
+                        OWNER,
+                        statement ->
+                            statement.executeUpdate(
+                                insertSqlWithoutUserMetadata(
+                                    "profile-images", invalidKey, OWNER, "{}"))))
+            .as(image)
+            .isInstanceOf(SQLException.class)
+            .extracting(failure -> ((SQLException) failure).getSQLState())
+            .isEqualTo("42501");
 
         String anonKey = OTHER + "/profile/118f47a1-43d2-7b6e-9fa2-11a1cc32c675";
         assertThatThrownBy(
@@ -504,6 +540,27 @@ class ProfileImageStoragePolicyMigrationIntegrationTest {
     return PostgreSqlTestContainerFactory.locateRepositoryRoot()
         .resolve("supabase/migrations")
         .resolve(TARGET);
+  }
+
+  private static void applyCanonicalThroughSecurityBoundary(PostgreSQLContainer targetContainer)
+      throws Exception {
+    boolean apply = false;
+    for (Path migration :
+        PostgreSqlTestContainerFactory.canonicalInitScripts(
+            PostgreSqlTestContainerFactory.locateRepositoryRoot())) {
+      String name = migration.getFileName().toString();
+      if (TARGET.equals(name)) {
+        apply = true;
+      }
+      if (!apply) {
+        continue;
+      }
+      PostgreSqlTestContainerFactory.executeScript(targetContainer, migration);
+      if (LAST.equals(name)) {
+        return;
+      }
+    }
+    throw new IllegalStateException("profile image canonical replay boundary가 없습니다: " + LAST);
   }
 
   private static void createStorageCompatibility(JdbcTemplate targetJdbc) {

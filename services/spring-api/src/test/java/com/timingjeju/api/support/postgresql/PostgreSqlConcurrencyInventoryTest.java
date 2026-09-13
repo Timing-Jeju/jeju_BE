@@ -100,6 +100,26 @@ class PostgreSqlConcurrencyInventoryTest {
     assertThat(unsafe).isEmpty();
   }
 
+  @Test
+  void 실제_HTTP_일정_mutation은_cold_server와_DB_readiness를_read_only로_먼저_확인한다() throws Exception {
+    String source =
+        Files.readString(
+            testSources()
+                .resolve(
+                    "com/timingjeju/api/domain/schedule/controller/"
+                        + "ScheduleMutationHttpPostgreSqlIntegrationTest.java"));
+    int readiness = source.indexOf("verifyColdReadiness();");
+    int fixtureMutation = source.indexOf("cleanUp();");
+
+    assertThat(readiness).isGreaterThanOrEqualTo(0).isLessThan(fixtureMutation);
+    assertThat(source)
+        .contains("/actuator/health")
+        .contains("select 1")
+        .contains("READINESS_TIMEOUT")
+        .contains("readOnlyScheduleProbe")
+        .doesNotContain("catch (Exception ignored)");
+  }
+
   private static Set<String> discoverConcurrencyTests() throws Exception {
     Path sources = testSources();
     Set<String> discovered = new LinkedHashSet<>();
