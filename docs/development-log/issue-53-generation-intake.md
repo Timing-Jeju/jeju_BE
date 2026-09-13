@@ -801,6 +801,8 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 
 ## 버스 초 단위 정밀도 후속 검증 (미완료)
 
+- 정규 전체 품질 게이트(11100496)는 공통 REST catalog의 장소 선호 PUT 선택적 멱등성 키를 validator가 거부해 종료됐다. 관련 readiness tests54개 중11개가 같은 원인으로 RED였다. 구현된 PUT place-preferences만 기존 transport PUT/DELETE allowlist에 추가했다. 다른 임의 GET/PUT/DELETE의 선택적 키 거부는 유지한다.
+
 - PR 준비 재개: 00031 migration의 manifest/Compose 반영에 맞춰 canonical inventory·architecture·smoke 참조를 갱신했다. 목록 회귀 First RED 2건 및 smoke 참조 누락 1건 확인 후 canonical tests14개 GREEN, push database tests7개 GREEN.
 - 현재 변경의 `spotlessApply test architectureTest` PASS(49초, OS 전용9개 skip), schedules 계약 검사 및 diff-check PASS. 전체 품질 게이트/정식 리뷰 승인은 아직 아니다.
 - 앞서 실행한 GenerationLegPrecisionMigrationIntegrationTest PASS(1분4초)는 validator 함수 검증이며 전체 후보 생성·조회·적용 round-trip 완료를 의미하지 않는다. 신규 migration 보안 검토와 실제 저장 경로의 후속 검증은 구분한다.
