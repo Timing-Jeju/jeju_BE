@@ -120,7 +120,8 @@ REQUIRED_RESPONSE_HEADERS = {
         "/api/v1/trips/{tripId}/accommodations/{accommodationId}",
         "200",
     ): {"ETag"},
-    ("PUT", "/api/v1/trips/{tripId}/transport-event", "200"): {"ETag"},
+    ("PUT", "/api/v1/trips/{tripId}/transport-event", "200"): {"ETag", "Idempotency-Replayed"},
+    ("PUT", "/api/v1/trips/{tripId}/transport-event", "409"): {"Retry-After"},
     ("DELETE", "/api/v1/trips/{tripId}/transport-event", "200"): {"ETag"},
     ("PUT", "/api/v1/trips/{tripId}/place-preferences", "200"): {"ETag"},
 }
@@ -1223,7 +1224,8 @@ class Validator:
                 self.error(parameter_location, "path parameter는 required여야 합니다")
             if parameter.get("in") == "header" and name in {"Idempotency-Key", "If-Match"}:
                 schema = self.resolve(parameter.get("schema") or {}, parameter_location)
-                if parameter.get("required") is not True:
+                optional_transport_key = name == "Idempotency-Key" and location == "PUT /api/v1/trips/{tripId}/transport-event"
+                if parameter.get("required") is not True and not optional_transport_key:
                     self.error(parameter_location, f"{name} header는 required여야 합니다")
                 if not parameter.get("description") or not self.parameter_examples(parameter):
                     self.error(parameter_location, f"{name} header의 description/example이 없습니다")

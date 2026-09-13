@@ -53,7 +53,8 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000025_sequential_schedule_coverage.sql",
           "20260918000026_generation_trip_snapshot.sql",
           "20260918000027_generation_schedule_boundaries.sql",
-          "20260918000028_generation_result_projection.sql");
+          "20260918000028_generation_result_projection.sql",
+          "20260918000029_trip_ferry_unresolved_terminal.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {

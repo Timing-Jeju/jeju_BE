@@ -288,6 +288,18 @@ class RestContractReadinessTest(unittest.TestCase):
         self.assertTrue(any("Idempotency-Key" in error for error in errors))
         self.assertTrue(any("tie-breaker" in error for error in errors))
 
+    def test_optional_receipt_is_limited_to_transport_put(self):
+        """선택적 멱등 키는 구현된 transport PUT에만 허용하고 다른 변경은 거부한다."""
+        self.assertEqual([], self.validate())
+        for method in ("GET", "PUT", "DELETE"):
+            with self.subTest(method=method):
+                def mutate(catalog):
+                    endpoint = self.endpoint(method, "/api/v1/resources/example")
+                    endpoint["idempotency"] = {"required": False, "header": "Idempotency-Key"}
+                    catalog["endpoints"] = [endpoint]
+
+                self.assertTrue(any("Idempotency-Key" in error for error in self.validate(mutate)))
+
     def test_optional_auth_allows_missing_token_but_rejects_invalid_token(self):
         def mutate(catalog):
             endpoint = self.endpoint()

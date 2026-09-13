@@ -40,6 +40,22 @@ public class JdbcTransportEventStore implements TransportEventStore {
   }
 
   @Override
+  public void requireOwned(UUID ownerId, UUID tripId) {
+    transportBoundary(
+        () -> {
+          if (jdbc.queryForList(
+                  "select id from public.trip_plans where id=? and user_id=?",
+                  UUID.class,
+                  tripId,
+                  ownerId)
+              .isEmpty()) {
+            throw TransportEventException.of("TRIP_NOT_FOUND");
+          }
+          return null;
+        });
+  }
+
+  @Override
   public TransportEventMutation upsert(TransportEventUpsertRecord record) {
     try {
       validateExpectedTrip(record.tripId(), record.expected().tripId());

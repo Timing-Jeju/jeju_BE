@@ -1470,7 +1470,7 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         .executeWithoutResult(
             ignored ->
                 jdbc.update(
-                    "update public.trip_transport_events set transport_type='ferry' where trip_plan_id=?",
+                    "update public.trip_transport_events set transport_type='ferry', terminal_place_id=null, terminal_name=null where trip_plan_id=?",
                     f.trip()));
     assertThatThrownBy(
             () ->

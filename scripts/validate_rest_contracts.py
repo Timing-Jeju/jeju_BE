@@ -524,6 +524,7 @@ def _validate_endpoints(
                 ("PUT", _canonical_path("/api/v1/trips/{tripId}/day-activity-windows")),
                 ("PUT", _canonical_path("/api/v1/trips/{tripId}/planner-conditions")),
             },
+            optional_receipt=identity == ("PUT", _canonical_path("/api/v1/trips/{tripId}/transport-event")),
         )
         _validate_endpoint_pagination(
             endpoint.get("pagination"), operation, label, errors
@@ -600,7 +601,8 @@ def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
 
 
 def _validate_endpoint_idempotency(
-    idempotency: Any, operation: Any, label: str, errors: list[str], *, required: bool = False
+    idempotency: Any, operation: Any, label: str, errors: list[str], *, required: bool = False,
+    optional_receipt: bool = False,
 ) -> None:
     idempotent_operation = required or _allowed_string(operation, IDEMPOTENT_OPERATIONS)
     allowed_fields = (
@@ -626,6 +628,8 @@ def _validate_endpoint_idempotency(
                 errors.append(f"{label}의 멱등성 {field}는 비어 있을 수 없습니다.")
         return
 
+    if optional_receipt and idempotency == {"required": False, "header": "Idempotency-Key"}:
+        return
     if idempotency != TEMPLATE_DEFAULTS["idempotency"]:
         errors.append(
             f"{label}의 비필수 Idempotency-Key 계약은 required=false, header=none이어야 합니다."

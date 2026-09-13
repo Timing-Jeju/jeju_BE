@@ -79,6 +79,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000026_generation_trip_snapshot.sql",
             "20260918000027_generation_schedule_boundaries.sql",
             "20260918000028_generation_result_projection.sql",
+            "20260918000029_trip_ferry_unresolved_terminal.sql",
         )
         migration_names = tuple(
             path.name

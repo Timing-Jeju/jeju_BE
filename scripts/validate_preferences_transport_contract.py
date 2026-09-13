@@ -34,7 +34,7 @@ EXPECTED_IMPLEMENTATION_OWNERS = {
 }
 EXPECTED_IMPLEMENTATION_ISSUES = [46, 47, 48]
 CANONICAL_WIRE_CONTRACT_SHA256 = (
-    "a3d084234d5bc222a4551ff3f3ed9523960fb56371e790c08e3fb5d94687e4a5"
+    "7789e14f05290d2a24b13c0351fdb723965c89ee967ac1b48bba1bbd313e20d6"
 )
 COMMON_RESPONSE_FIELDS = {
     "tripId", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId",
@@ -61,10 +61,10 @@ EXPECTED_ENDPOINT_ERROR_CODES = {
         "422": ["PLACE_PREFERENCE_CONSTRAINT_VIOLATION"],
     },
     ("PUT", "/api/v1/trips/{tripId}/transport-event"): {
-        "400": ["INVALID_REQUEST"],
+        "400": ["INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID"],
         "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
         "404": ["TRIP_NOT_FOUND", "PLACE_NOT_FOUND"],
-        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"],
+        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT", "IDEMPOTENCY_KEY_REUSED"],
         "422": ["TRANSPORT_EVENT_CONSTRAINT_VIOLATION"],
     },
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"): {
@@ -76,6 +76,8 @@ EXPECTED_ENDPOINT_ERROR_CODES = {
     },
 }
 EXPECTED_PROBLEMS = {
+    "IDEMPOTENCY_KEY_INVALID": (400, "https://api.timing-jeju.example/problems/idempotency-key-invalid", "멱등성 키가 유효하지 않습니다.", "UUID 형식의 Idempotency-Key를 입력해 주세요.", "400_idempotency_key_invalid"),
+    "IDEMPOTENCY_KEY_REUSED": (409, "https://api.timing-jeju.example/problems/idempotency-key-reused", "멱등성 키를 재사용할 수 없습니다.", "새 Idempotency-Key로 다시 요청해 주세요.", "409_idempotency_key_reused"),
     "INVALID_REQUEST": (400, "https://api.timing-jeju.com/problems/invalid-request", "요청 값이 올바르지 않습니다", "필수값, 형식과 If-Match를 확인해 주세요.", "400_invalid_request"),
     "AUTHENTICATION_REQUIRED": (401, "https://api.timing-jeju.com/problems/authentication-required", "인증이 필요합니다", "로그인 후 다시 요청해 주세요.", "401_authentication_required"),
     "INVALID_ACCESS_TOKEN": (401, "https://api.timing-jeju.com/problems/invalid-access-token", "인증 정보가 올바르지 않습니다", "유효한 인증 정보로 다시 요청해 주세요.", "401_invalid_access_token"),
@@ -245,7 +247,7 @@ def _validate_schema(contract: dict[str, Any], errors: list[str]) -> None:
         errors.append("schemas object가 필요합니다.")
         return
     required = {
-        "TripPath", "MutationHeaders", "TransportMode", "PreferencesRequest",
+        "TripPath", "MutationHeaders", "TransportMutationHeaders", "TransportMode", "PreferencesRequest",
         "PlacePreferenceItem", "PlacePreferencesRequest", "TransportEventRequest",
         "DeleteTransportEventQuery", "MutationResponse", "PreferencesResponse",
         "PlacePreferencesResponse", "TransportEventMutationResponse",
@@ -333,7 +335,8 @@ def _validate_endpoints(contract: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"{identity} auth가 #72와 다릅니다.")
         if endpoint.get("owner") != "canonical JWT sub; cross-owner 404":
             errors.append(f"{identity} owner가 canonical sub가 아닙니다.")
-        if endpoint.get("idempotency") != {"required": False, "header": "none"}:
+        expected_header = "Idempotency-Key" if identity == ("PUT", "/api/v1/trips/{tripId}/transport-event") else "none"
+        if endpoint.get("idempotency") != {"required": False, "header": expected_header}:
             errors.append(f"{identity} update/delete idempotency 상속이 다릅니다.")
         if endpoint.get("pagination") != {"type": "none"}:
             errors.append(f"{identity} pagination은 none이어야 합니다.")
@@ -433,9 +436,9 @@ def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
     if place.get("samePlaceConflict") != "reject 422; a place cannot appear as both must_visit and avoid" or place.get("targetDayNo") != "1..tripDayCount or null" or place.get("priorityTieBreak") != "priority DESC, placeId ASC":
         errors.append("place preference duplicate/day/tie 규칙이 다릅니다.")
     transport = contract.get("transportEventPolicy", {})
-    if transport.get("flightTerminalResolution") != "configured canonical 제주국제공항 from active succeeded TourAPI import; unavailable returns 404 PLACE_NOT_FOUND; response and stored event retain exact XOR":
+    if transport.get("flightTerminalResolution") != "configured canonical 제주국제공항 from active succeeded TourAPI import; unavailable returns 404 PLACE_NOT_FOUND; flight response and stored event retain exact XOR":
         errors.append("flight terminal resolution 승인 소스·실패·저장 XOR 규칙이 다릅니다.")
-    if transport.get("terminalXor") != "exactly one of terminalPlaceId/customTerminalName unless flight supplies both null; server resolves approved airport before persistence" or transport.get("timezone") != "Asia/Seoul" or transport.get("localDate") != "arrival=startDate; departure=endDate" or transport.get("deleteSelector") != "eventType query parameter required":
+    if transport.get("terminalXor") != "at most one of terminalPlaceId/customTerminalName; both null resolves approved flight airport or preserves unresolved ferry terminal" or transport.get("timezone") != "Asia/Seoul" or transport.get("localDate") != "arrival=startDate; departure=endDate" or transport.get("deleteSelector") != "eventType query parameter required":
         errors.append("transport event timezone/date/terminal XOR/delete 규칙이 다릅니다.")
     effect = contract.get("scheduleEffectPolicy", {})
     active = effect.get("changedWithActiveSchedule", {})

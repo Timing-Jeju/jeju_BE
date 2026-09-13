@@ -1165,7 +1165,7 @@
       "schemas": {
         "path": "TripPath",
         "query": "none",
-        "headers": "MutationHeaders",
+        "headers": "TransportMutationHeaders",
         "body": "TransportEventRequest"
       },
       "presence": "all body fields required as properties; terminalPlaceId/customTerminalName exact XOR except both null for server-resolved flight airport; transportNumber/note may be explicit null",
@@ -1194,7 +1194,7 @@
       "contractVersion": "1.0.0",
       "idempotency": {
         "required": false,
-        "header": "none"
+        "header": "Idempotency-Key"
       },
       "pagination": {
         "type": "none"

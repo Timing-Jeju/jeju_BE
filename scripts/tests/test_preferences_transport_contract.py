@@ -41,6 +41,15 @@ EXPECTED_IMPLEMENTATION_OWNERS = {
 
 
 class PreferencesTransportContractTest(unittest.TestCase):
+    def test_transport_put_exposes_optional_receipt_without_changing_legacy_mutations(self) -> None:
+        """항공 PUT만 선택적 멱등 키와 재생 오류를 공개하고 기존 변경 헤더를 유지한다."""
+        endpoint = next(item for item in self.contract["endpoints"] if item["method"] == "PUT" and item["path"].endswith("/transport-event"))
+        self.assertEqual({"required": False, "header": "Idempotency-Key"}, endpoint["idempotency"])
+        self.assertEqual("TransportMutationHeaders", endpoint["headersSchema"])
+        self.assertIn("IDEMPOTENCY_KEY_INVALID", endpoint["errorMatrix"]["400"])
+        self.assertIn("IDEMPOTENCY_KEY_REUSED", endpoint["errorMatrix"]["409"])
+        self.assertEqual(["If-Match"], self.contract["schemas"]["TransportMutationHeaders"]["required"])
+
     def test_flight_terminal_resolution_cannot_lose_approved_source_or_failure_policy(self) -> None:
         """항공 터미널 자동 확정의 승인 데이터·실패·저장 XOR 규약 누락을 거부한다."""
         changed = copy.deepcopy(self.contract)
@@ -101,7 +110,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual([46, 47, 48], ownership["implementationIssues"])
         self.assertEqual(64, len(ownership["projectionSha256"]))
         self.assertEqual(
-            "a3d084234d5bc222a4551ff3f3ed9523960fb56371e790c08e3fb5d94687e4a5",
+            "7789e14f05290d2a24b13c0351fdb723965c89ee967ac1b48bba1bbd313e20d6",
             ownership["wireContractSha256"],
         )
         self.assertEqual(
@@ -213,7 +222,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual("RFC3339 date-time with mandatory +09:00 offset", policy["scheduledAt"])
         self.assertEqual("Asia/Seoul", policy["timezone"])
         self.assertEqual("arrival=startDate; departure=endDate", policy["localDate"])
-        self.assertEqual("exactly one of terminalPlaceId/customTerminalName unless flight supplies both null; server resolves approved airport before persistence", policy["terminalXor"])
+        self.assertEqual("at most one of terminalPlaceId/customTerminalName; both null resolves approved flight airport or preserves unresolved ferry terminal", policy["terminalXor"])
         self.assertEqual("eventType query parameter required", policy["deleteSelector"])
 
     def test_schedule_effect_and_delete_signal_are_explicit(self) -> None:
@@ -342,7 +351,8 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 )
                 self.assertEqual("canonical JWT sub; cross-owner 404", endpoint["owner"])
                 self.assertEqual("1.0.0", endpoint["contractVersion"])
-                self.assertEqual({"required": False, "header": "none"}, endpoint["idempotency"])
+                header = "Idempotency-Key" if endpoint["method"] == "PUT" and endpoint["path"].endswith("/transport-event") else "none"
+                self.assertEqual({"required": False, "header": header}, endpoint["idempotency"])
                 self.assertEqual({"type": "none"}, endpoint["pagination"])
                 self.assertEqual({400, 401, 404, 409, 422}, set(endpoint["responses"]["errors"]))
                 self.assertEqual({"node", "action", "loading", "empty", "error"}, set(endpoint["figma"]))

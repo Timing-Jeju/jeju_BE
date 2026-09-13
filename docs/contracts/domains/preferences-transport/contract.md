@@ -17,9 +17,13 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 장소 선호는 `must_visit/preferred/avoid`를 허용하고 같은 place가 어느 type으로든 두 번 나타나면 `422`다. `targetDayNo`는 property 자체는 필수지만 전체 여행에 적용할 때 `null`, Day를 지정할 때 `1..tripDayCount`다. priority tie는 `priority DESC, placeId ASC`로 결정한다. #53 확장으로 선택적 `requestedStayMinutes`는 정수 1~1440 또는 `null`이며 생략은 `null`이다. 임의 기본 체류시간은 저장하지 않는다. 장소는 유효 canonical place ID로 지정하며 사용자 찜 여부와 독립적이다. 이 확장의 schema와 wire digest는 함께 갱신한다.
 
-교통 이벤트는 `eventType=arrival|departure`, `transportType=flight|ferry`다. `scheduledAt`은 RFC 3339 `+09:00`을 명시하고 제주 `Asia/Seoul`로 해석한다. arrival은 여행 `startDate`, departure는 `endDate`에 있어야 한다. `terminalPlaceId`와 `customTerminalName`은 정확히 하나만 존재해야 한다. 단, #53 항공 입력에서 두 필드를 모두 명시적 `null`로 보내면 서버가 설정된 canonical 제주국제공항과 현재 성공한 TourAPI import를 검증해 ID를 채운다. 검증할 수 없으면 `404 PLACE_NOT_FOUND`이며 이름·좌표를 추정하지 않는다. 선박은 이 예외를 지원하지 않는다. 저장 행과 응답의 터미널 XOR는 그대로 유지한다. PUT은 `(tripId,eventType)`을 upsert하고 DELETE는 query의 eventType 한 건만 제거한다.
+교통 이벤트는 `eventType=arrival|departure`, `transportType=flight|ferry`다. `scheduledAt`은 RFC 3339 `+09:00`을 명시하고 제주 `Asia/Seoul`로 해석한다. arrival은 여행 `startDate`, departure는 `endDate`에 있어야 한다. `terminalPlaceId`와 `customTerminalName`은 정확히 하나만 존재해야 한다. 단, #53 항공 입력에서 두 필드를 모두 명시적 `null`로 보내면 서버가 설정된 canonical 제주국제공항과 현재 성공한 TourAPI import를 검증해 ID를 채운다. 검증할 수 없으면 `404 PLACE_NOT_FOUND`이며 이름·좌표를 추정하지 않는다. 선박은 두 필드를 모두 null로 보내 항구 미확정 상태를 저장할 수 있다. 항구 이름·좌표를 추정하지 않으며 선박의 AI 생성은 별도로 거부한다. 항공 저장 행과 응답의 터미널 XOR는 유지하고, 두 터미널 필드 동시 지정은 항공·선박 모두 거부한다. PUT은 `(tripId,eventType)`을 upsert하고 DELETE는 query의 eventType 한 건만 제거한다.
 
 ## 일정 상태와 동시성
+
+교통 이벤트 PUT은 선택적 `Idempotency-Key`를 받는다. 헤더를 생략한 기존 클라이언트는 기존 ETag 기반 변경을 수행하며, 헤더를 보낸 클라이언트는 정규 소문자 UUID 한 개를 사용해야 한다. 빈 값·중복 헤더·잘못된 UUID는 `400 IDEMPOTENCY_KEY_INVALID`다. 같은 사용자·경로·키와 동일한 구조화 요청 본문은 최초 성공 응답의 본문과 ETag를 재생하고 `Idempotency-Replayed: true`를 반환한다. 따라서 응답 유실 후에는 기존 If-Match와 같은 키·본문으로 재시도한다. 다른 본문으로 키를 재사용하면 `409 IDEMPOTENCY_KEY_REUSED`다. 처리 중인 예약 충돌에는 조건부 `Retry-After`가 포함된다.
+
+receipt 조회 전에도 현재 여행 소유권을 확인하므로 삭제된 여행이나 다른 사용자의 여행은 재생하지 않는다. 실패한 저장은 receipt 예약과 함께 롤백한다. 키 없는 PUT과 DELETE에는 이 재생 보장을 적용하지 않으며, 선호 PUT의 멱등 계약도 이 변경으로 확장하지 않는다.
 
 모든 변경은 현재 여행의 강한 ETag를 `If-Match`로 받는다. stale writer는 `409 TRIP_VERSION_CONFLICT`다. canonical 값이 같으면 no-op이며 active 일정은 유지된다. 값이 바뀌고 active 일정이 없으면 `scheduleEffect=none`, `regenerationRequired=false`다. active 일정이 있으면 같은 transaction에서 active version을 `superseded`로 바꾸고 `activeScheduleVersionId`를 비우며 여행 상태를 `draft`로 돌린다. 이때 `scheduleEffect=invalidated`, `regenerationRequired=true`다. DELETE도 body 없는 `204`가 아니라 이 신호를 담은 `200`을 반환한다.
 

@@ -56,6 +56,15 @@ class TransportEventOpenApiIntegrationTest
         .andExpect(jsonPath(path + ".delete.operationId").value("tripTransportEventsDelete"))
         .andExpect(jsonPath(path + ".put.parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(
+            jsonPath(path + ".put.parameters[?(@.name=='Idempotency-Key')].required").value(false))
+        .andExpect(
+            jsonPath(path + ".put.responses['200'].headers['Idempotency-Replayed']").exists())
+        .andExpect(
+            jsonPath(
+                    path
+                        + ".put.responses['400'].content['application/problem+json'].examples.IDEMPOTENCY_KEY_INVALID.value.code")
+                .value("IDEMPOTENCY_KEY_INVALID"))
+        .andExpect(
             jsonPath(path + ".delete.parameters[?(@.name=='If-Match')].required").value(true))
         .andExpect(jsonPath(path + ".delete.parameters[?(@.name=='eventType')]").value(hasSize(1)))
         .andExpect(jsonPath(path + ".delete.requestBody").doesNotExist())
@@ -100,7 +109,11 @@ class TransportEventOpenApiIntegrationTest
                 .value(containsInAnyOrder("TRIP_NOT_FOUND", "PLACE_NOT_FOUND")))
         .andExpect(
             jsonPath(path + ".put.responses['409']['x-error-codes']")
-                .value(containsInAnyOrder("TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT")))
+                .value(
+                    containsInAnyOrder(
+                        "TRIP_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT",
+                        "IDEMPOTENCY_KEY_REUSED")))
         .andExpect(
             jsonPath(path + ".delete.responses['404']['x-error-codes']")
                 .value(containsInAnyOrder("TRIP_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND")))

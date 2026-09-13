@@ -721,6 +721,24 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - transport HTTP/DB 확장 회귀와 전체 unit/slice/architecture GREEN(3분43초, 기존 macOS 환경별 unit 9개 skip). Python 계약 정책 누락 RED→GREEN, 전체 scripts 947개 PASS/3skip(61.092초). wire SHA는 `a3d084234d5bc222a4551ff3f3ed9523960fb56371e790c08e3fb5d94687e4a5`로 catalog·ownership fixture·validator에 함께 반영했다.
 - 제한적 독립 검토의 신규 차단 finding은 없으나 공식 승인/recorder는 실행하지 않았다. 항공 PUT 멱등성 및 FE 항공·장소 선호 저장, 재시작 journal, 최종 전체 품질 게이트·Docker·PR은 아직 남아 있다. 최종 1시간 이상 예상 검증은 사용자 요청대로 백그라운드로 실행하고 handle/log를 남긴 뒤 중단한다. 현재 장시간 최종 게이트는 시작하지 않았다.
 
+## 2026-09-14 교통 이벤트 PUT 멱등 재시도 검증
+
+- 선택적 UUID Idempotency-Key를 transport-event PUT에 연결했다. 키 없는 기존 요청은 유지하고, 키를 사용한 요청은 원래 본문·ETag를 재생한다. 현재 소유권 확인은 receipt 조회보다 먼저 실행한다. DELETE와 다른 선호 PUT으로 보장을 확대하지 않았다.
+- 실제 HTTP First RED는 응답 유실 재시도에서 기존 ETag로 409가 반환된 실패였다. GREEN에는 동일 키·본문의 정확한 응답 재생, 본문 변경 409, 다른 사용자/삭제된 여행 404, 빈 값·비정규 UUID·중복 헤더 400, 실패한 저장의 예약 롤백 후 같은 키 재사용을 포함한다.
+- 최종 해당 범위 실행 `spotlessApply unitTest sliceTest architectureTest integrationTest --tests '*TransportEventHttpPostgreSqlIntegrationTest' --tests '*TransportEventControllerIntegrationTest'` PASS(1분 56초). integrationTest만 두 클래스 필터이며 전체 DB 통합 검사가 아니다. 환경별 단위 테스트 9개 SKIPPED.
+- canonical transport 계약·오류 fixture·OpenAPI runtime manifest·검증기를 함께 갱신했다. wire SHA는 `8026127e4bd249078aa5284e36ddc504741e2707d24302d4cc4f8c308f8fe15e`다. 선택적 헤더 예외는 transport PUT에만 한정한다. 관련 Python 54개와 mode43 readiness PASS는 해당 후속 HTTP 테스트 추가 전 확인했다.
+- FE PUT wrapper의 선택적 키 전달 테스트 포함 7개와 typecheck PASS. 아직 saveTrip 입도·출도 저장 순서에는 연결하지 않았으며, 재시작 journal·장소 입력 저장·최종 전체 품질 게이트·Docker·정식 리뷰·PR은 완료되지 않았다. 최종 장시간 검증은 시작하지 않았다.
+
+## 2026-09-14 선박 일반 저장과 1차 PR 범위
+
+- 사용자 지시에 따라 앱 재시작 후 입력·작업 journal 복원 보강은 후속으로 분리했다. 1차 PR의 앱 실행 중 실제 저장→생성→세 후보 검토→선택 적용, 서버 worker 복구와 원자적 적용 요구는 유지한다. UI 구조 변경은 없다.
+- 기존 화면에 선박 항구 입력이 없어 일반 저장까지 막히던 조건을 수정했다. 선박 두 터미널 null은 항구 미확정으로 보존한다. 항공은 여전히 승인된 공항 확정 후 터미널 하나를 저장하고, 양쪽 값 동시 지정은 양 수단 모두 거부한다. 선박은 생성 입력 검증에서 거부하며 임의 항구 이름·좌표를 만들지 않는다.
+- 서비스 RED(7개 중 1개, 4초) 후 수정, 실제 HTTP·DB RED(422, 1분 7초) 후 additive migration 029/067을 추가했다. CLI로 빈 파일을 생성하고 현행 canonical suffix 뒤로 순서를 정렬했다. 기존 migration, 기존 행, RLS·ACL은 변경하지 않는다. Docker 3개 구성·manifest·순서 테스트·smoke의 실제 constraint 확인도 연결했다.
+- GREEN: 해당 단위·아키텍처·HTTP/DB 회귀 1분 13초. 전체 unit/slice/architecture 및 두 transport integration 클래스·OpenAPI 재생성 2분 4초 PASS(환경별 unit 9개 skip). 직접 SQL로 항공 null 전환과 선박 양 터미널 지정 거부도 검증했다.
+- wire SHA는 `7789e14f05290d2a24b13c0351fdb723965c89ee967ac1b48bba1bbd313e20d6`로 갱신했다. 전체 Python 949개 중 공통 REST validator의 optional key 미등록으로 10개 실패한 원인을 확인하고 해당 PUT만 허용하는 정책·회귀를 추가했다. 관련 78개 및 OpenAPI43 readiness PASS; 전체 Python 재검사는 진행 중이다.
+- 제한적 독립 검토에서 신규 차단 finding 없음. 정식 승인/recorder는 아니다. FE 항공·장소 저장 orchestration, 삭제 재시도, 최신 계약 동기화 및 전체 품질/Docker/최종 PR은 계속 진행해야 한다.
+- 후속 GREEN: 전체 scripts 950개 검사 완료(3skip, 56.503초). 항구 미확정 null 선박의 실제 DB intake 거부·run 0건 테스트 PASS(1분9초). Supabase security advisors를 동일 격리 Testcontainers DB에 시도했으나 DB 종료와 겹쳐 연결이 끊겼다. 진단 완료로 계산하지 않고 최종 격리 DB 검증에서 재실행한다. 새 제약은 행·권한·함수를 추가하지 않지만 전체 보안 진단 통과를 이 사실로 대체하지 않는다.
+
 ## 공개 입력 복원 문서 후속
 
 - 재생성 OpenAPI에서 TripDetail plannerConditions/placePreferences 및 place-preferences requestedStayMinutes 예시 누락을 확인했다. 실제 `/v3/api-docs` slice RED(15초) 후 공통 customizer의 예시를 현재 DTO에 맞췄다. 사용자 지정 90분과 미지정 null을 구분한다.

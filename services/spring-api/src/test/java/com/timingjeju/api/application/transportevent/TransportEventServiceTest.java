@@ -29,7 +29,7 @@ class TransportEventServiceTest {
   }
 
   @Test
-  void 선박은_서버_공항_대체를_사용하지_않고_터미널을_요구한다() {
+  void 선박은_항구_미확정_상태로_저장하고_공항으로_대체하지_않는다() {
     var missing =
         new PutTransportEventCommand(
             "arrival",
@@ -39,11 +39,11 @@ class TransportEventServiceTest {
             OffsetDateTime.parse("2026-09-01T09:00:00+09:00"),
             null,
             null);
-    assertCode(
-        () ->
-            service(new CapturingStore())
-                .put(OWNER, TRIP, new TripExpectedRevision(TRIP, 1), missing),
-        "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
+    CapturingStore store = new CapturingStore();
+    service(store).put(OWNER, TRIP, new TripExpectedRevision(TRIP, 1), missing);
+    assertThat(store.upsert.command().transportType()).isEqualTo("ferry");
+    assertThat(store.upsert.command().terminalPlaceId()).isNull();
+    assertThat(store.upsert.command().customTerminalName()).isNull();
   }
 
   @Test
@@ -220,6 +220,9 @@ class TransportEventServiceTest {
   private static final class CapturingStore implements TransportEventStore {
     private TransportEventUpsertRecord upsert;
     private TransportEventDeleteRecord delete;
+
+    @Override
+    public void requireOwned(UUID ownerId, UUID tripId) {}
 
     @Override
     public TransportEventMutation upsert(TransportEventUpsertRecord record) {

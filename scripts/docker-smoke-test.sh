@@ -218,6 +218,7 @@ echo "[Docker] Health Check 성공"
 # Immutable generation trip inputs follow at /docker-entrypoint-initdb.d/064_generation_trip_snapshot.sql.
 # Zero-duration day boundaries follow at /docker-entrypoint-initdb.d/065_generation_schedule_boundaries.sql.
 # Exact generation scores follow at /docker-entrypoint-initdb.d/066_generation_result_projection.sql.
+# Unresolved ferry terminals follow at /docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql.
 # Planner place drafts follow at /docker-entrypoint-initdb.d/061_planner_place_preferences.sql.
 # Verify the owner-only cutover marker and zero counts without logging user values.
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -225,6 +226,14 @@ docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   --username timing_jeju_test --dbname timing_jeju_test <<'SQL'
 do $$
 begin
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.trip_transport_events'::regclass
+      and conname = 'ck_trip_transport_events_terminal_resolution'
+      and convalidated
+  ) then
+    raise exception 'transport terminal resolution constraint missing';
+  end if;
   if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000018'
      or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
                 where residue_count <> 0) then
