@@ -59,10 +59,13 @@ app:
     signing-key-descriptor-file: ${MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE:}
     token-lifetime: ${MCP_JWT_LIFETIME:2m}
     request-timeout: ${MCP_REQUEST_TIMEOUT:35s}
+    generation-request-timeout: ${MCP_GENERATION_REQUEST_TIMEOUT:165s}
     max-attempts: ${MCP_MAX_ATTEMPTS:3}
     retry-delay: ${MCP_RETRY_DELAY:200ms}
     circuit-failure-threshold: ${MCP_CIRCUIT_FAILURE_THRESHOLD:5}
     circuit-open-duration: ${MCP_CIRCUIT_OPEN_DURATION:30s}
+  schedule-generation:
+    enabled: ${SCHEDULE_GENERATION_ENABLED:false}
   push:
     fcm:
       enabled: ${FCM_ENABLED:false}

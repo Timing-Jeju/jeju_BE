@@ -54,3 +54,26 @@ UUID 전용 공통 registry의 계약을 무작정 변경하지 않는다.
 이 커밋은 HTTP API를 노출하지 않고 run/snapshot/idempotency row를 쓰지 않는다.
 따라서 queued 접수·ETag/owner 검사·원자 저장·worker 복구·결과 조회·원자적 적용,
 OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 변경은 없다.
+
+## 후속 작업: 생성 lifecycle과 전용 실행 경계
+
+- Supabase CLI 2.117.0의 `migration new generation_lifecycle`로 scaffold를 만들고,
+  기존 미래 timestamp suffix보다 뒤인 `20260918000022`/Docker `060`으로 정렬했다.
+- 기존 migration 수정 없이 생성 lease/fencing, 활성 Day uniqueness, 후보 전략/만료,
+  종료 metadata 7일 보존 필드를 추가했다. 기존 running 작업이 있으면 migration은
+  drain 요구로 중단하며 데이터를 삭제하거나 자동 보정하지 않는다.
+- 원문을 저장하는 필드는 추가하지 않았다. 생성 내부 테이블의 anon/authenticated
+  직접 권한은 제거하고 소유권 검증 API를 통한 접근만 준비한다.
+- 실제 PostgreSQL에서 필드 부재 RED 후 migration GREEN을 확인했다.
+- JdbcGenerationLeaseRepository 부재 RED 후 실제 PostgreSQL에서 최초 claim,
+  중복 claim 차단, 새 인스턴스의 만료 lease 회수, 이전 fence 차단,
+  중복 terminal 실패 차단 및 종료 시각 +7일 저장을 검증했다.
+- 일반 MCP SDK의 35초 설정은 유지한다. 생성 활성화 시 별도 SDK에 165초 이상을
+  적용한다. recommend와 generation parent의 평가 호출은 한 attempt에 단회다.
+  worker 예산 factory는 recommend 1 + evaluate 3 + 저장 여유 15초를 포함한다.
+- 독립 검토가 지적한 전역 timeout 회귀와 평가 retry 예산 불일치를 수정했다.
+- migration 순서/체크섬 검사 14건, MCP/생성 단위 검사 및 architectureTest 통과.
+
+아직 queued HTTP 접수, 전체 저장 조건 snapshot, 실제 worker scheduler/MCP 실행,
+성공 후보 원자 저장, 결과 조회, 후보 적용은 연결되지 않았다. lease adapter와
+전용 SDK가 존재한다는 사실을 전체 생성 worker 완료로 표시하지 않는다.

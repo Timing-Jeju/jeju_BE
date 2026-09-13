@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,6 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 @ConditionalOnProperty(prefix = "app.mcp", name = "enabled", havingValue = "true")
 public final class SpringAiJejuMcpClient implements McpToolClient {
   private final McpSyncClient client;
+  private final McpSyncClient generationClient;
   private final McpContractGuard contractGuard;
   private final ObjectMapper objectMapper;
   private final MeterRegistry meterRegistry;
@@ -32,11 +34,14 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
   @Autowired
   public SpringAiJejuMcpClient(
       @Qualifier("jejuPlannerMcpSyncClient") McpSyncClient client,
+      @Qualifier("jejuPlannerGenerationMcpSyncClient")
+          ObjectProvider<McpSyncClient> generationClient,
       ObjectMapper objectMapper,
       MeterRegistry meterRegistry,
       McpCallResilience resilience,
       McpCallAuditWriter auditWriter) {
     this.client = Objects.requireNonNull(client, "client는 필수입니다.");
+    this.generationClient = generationClient.getIfAvailable();
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.");
     this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry는 필수입니다.");
     this.resilience = Objects.requireNonNull(resilience, "resilience는 필수입니다.");
@@ -52,6 +57,7 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
       McpCallResilience resilience,
       McpCallAuditWriter auditWriter) {
     this.client = Objects.requireNonNull(client, "client는 필수입니다.");
+    this.generationClient = client;
     this.contractGuard = Objects.requireNonNull(contractGuard, "contractGuard는 필수입니다.");
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.");
     this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry는 필수입니다.");
@@ -78,6 +84,11 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
                           tool.outputSchema() == null ? Map.of() : tool.outputSchema()))
               .toList();
       contractGuard.verifyCatalog(tools);
+      if (generationClient != null
+          && generationClient != client
+          && !generationClient.isInitialized()) {
+        generationClient.initialize();
+      }
       ready.set(true);
     } catch (RuntimeException exception) {
       ready.set(false);
@@ -91,6 +102,12 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
   @Override
   public McpInvocationResult call(McpInvocation invocation) {
     if (!ready.get()) throw new McpRemoteCallException("MCP_NOT_READY");
+    boolean generationRun = invocation.parent().generationRunId() != null;
+    McpSyncClient selectedClient =
+        generationRun || "recommend_jeju_day_trips".equals(invocation.toolName())
+            ? generationClient
+            : client;
+    if (selectedClient == null) throw new McpRemoteCallException("MCP_GENERATION_DISABLED");
     Map<String, Object> preflightArguments = new LinkedHashMap<>(invocation.arguments());
     preflightArguments.put("requestId", invocation.requestId());
     // Schema validation needs the envelope field; this sentinel is never sent or persisted.
@@ -117,13 +134,15 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
     String status = "succeeded";
     try {
       McpResilientResult<McpSchema.CallToolResult> call =
-          resilience.execute(
+          resilience.executeForTool(
+              invocation.toolName(),
+              generationRun,
               () -> {
                 int attemptNo = attempt.incrementAndGet();
                 long startedAt = System.nanoTime();
                 try {
                   McpSchema.CallToolResult result =
-                      client.callTool(
+                      selectedClient.callTool(
                           new McpSchema.CallToolRequest(invocation.toolName(), arguments));
                   finalAttemptLatencyMs.set(elapsedMillis(startedAt));
                   if (Boolean.TRUE.equals(result.isError())) {
