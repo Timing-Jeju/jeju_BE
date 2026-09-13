@@ -44,6 +44,23 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
   @Autowired private JdbcTripStore trips;
 
   @Test
+  void 다음_Day의_장소초안_추가는_기존_Day1_활성일정을_유지한다() {
+    activateSchedule(true);
+    var result =
+        store.replaceOwned(
+            update(List.of(new TripPlacePreference(PLACE_B, "preferred", 2, 50, 90))));
+    assertThat(result.activeScheduleVersionId()).isEqualTo(ACTIVE);
+    assertThat(result.scheduleEffect()).isEqualTo("maintained");
+    assertThat(result.regenerationRequired()).isFalse();
+    assertThat(
+            jdbc.queryForObject(
+                "select status from public.trip_schedule_versions where id=?",
+                String.class,
+                ACTIVE))
+        .isEqualTo("active");
+  }
+
+  @Test
   void 순차_범위가_없는_버전은_여전히_모든_Day가_필수다() {
     assertThatThrownBy(() -> activateSchedule(true, null))
         .isInstanceOf(org.springframework.dao.DataAccessException.class);

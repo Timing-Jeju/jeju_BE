@@ -133,3 +133,17 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 미완료: planner PUT의 catalog/최종 OpenAPI 응답 계약, 순차 prefix를 user_edit/recovery clone에
 전파, 미래 Day 장소 선호 변경 시 active 보존, 전체 generation 입력 snapshot/접수/worker/
 후보 저장/조회/apply. partial 구현으로 전체 목표 완료나 PR 승인 상태를 기록하지 않는다.
+
+## 순차 일정 편집·미래 Day 초안 회귀 (검증 중)
+
+- 실제 PostgreSQL에서 미래 Day2 장소 선호 추가가 Day1 활성 버전을 null로 해제하는 RED를 확인했다.
+  변경 전후 선호의 차이가 전역 또는 적용된 Day에 해당할 때만 무효화하도록 수정했다.
+- `순차_일정의_추가와_수정도_Day범위를_복사한다`의 add/patch 두 경우 모두
+  INTERNAL_SERVER_ERROR로 실패하는 RED를 확인했다. 기존 clone이 nullable prefix를 잃어
+  legacy 전체 Day 봉인 검증을 받는 원인이었다.
+- 두 user_edit 버전 생성 SQL에서 잠긴 활성 버전의 coverage_through_day_no를 복사한다.
+  legacy NULL은 그대로 유지한다. recovery writer는 아직 구현되지 않았으므로 완료 범위에 넣지 않는다.
+- 관련 두 Repository 전체 통합 테스트가 2분 33초에 성공했다. 단위·아키텍처 검사와
+  spotlessApply도 통과했다(플랫폼 전용 기존 테스트 9개 skip). git diff --check 통과.
+- 독립 읽기 전용 부분 리뷰에서 신규 차단 finding 0건을 확인했다. 전체 품질 게이트,
+  전체 reviewer 승인 및 PR 생성은 여전히 미완료이며 이번 통과와 구분한다.

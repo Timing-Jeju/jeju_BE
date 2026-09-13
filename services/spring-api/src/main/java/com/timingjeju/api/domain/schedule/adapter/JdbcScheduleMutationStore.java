@@ -84,8 +84,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           """
           insert into public.trip_schedule_versions
             (id, trip_plan_id, version_no, base_schedule_version_id, status, source_type,
-             summary, resulting_score, created_by_user_id, created_at)
-          values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?)
+             summary, resulting_score, created_by_user_id, created_at, coverage_through_day_no)
+          values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?,
+            (select coverage_through_day_no from public.trip_schedule_versions
+             where id = ? and trip_plan_id = ?))
           """,
           newVersionId,
           record.tripId(),
@@ -93,7 +95,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           activeVersionId,
           "사용자 일정 항목 추가",
           record.ownerId(),
-          Timestamp.from(committedAt));
+          Timestamp.from(committedAt),
+          activeVersionId,
+          record.tripId());
 
       List<SourceItem> sourceItems = loadSourceItems(record.tripId(), activeVersionId);
       List<NewItem> newItems = new ArrayList<>(sourceItems.size() + 1);
@@ -499,8 +503,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         """
         insert into public.trip_schedule_versions
           (id, trip_plan_id, version_no, base_schedule_version_id, status, source_type,
-           summary, resulting_score, created_by_user_id, created_at)
-        values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?)
+           summary, resulting_score, created_by_user_id, created_at, coverage_through_day_no)
+        values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?,
+          (select coverage_through_day_no from public.trip_schedule_versions
+           where id = ? and trip_plan_id = ?))
         """,
         versionId,
         record.tripId(),
@@ -508,7 +514,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         activeVersionId,
         summary,
         record.ownerId(),
-        Timestamp.from(committedAt));
+        Timestamp.from(committedAt),
+        activeVersionId,
+        record.tripId());
   }
 
   private void assertRequiredReferences(UUID tripId, UUID versionId) {

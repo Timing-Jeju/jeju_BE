@@ -68,14 +68,23 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
                           loadRootUpdatedAt(update.ownerId(), update.tripId())));
                 }
 
+                boolean invalidates =
+                    state.activeScheduleVersionId() != null
+                        && affectsActive(
+                            update.tripId(),
+                            state.activeScheduleVersionId(),
+                            current,
+                            update.preferences());
                 var payload =
                     new PreferenceCommitPayload(
                         update.preferences(),
-                        state.activeScheduleVersionId() == null ? "none" : "invalidated",
+                        state.activeScheduleVersionId() == null
+                            ? "none"
+                            : invalidates ? "invalidated" : "maintained",
                         committedAt);
                 TripAggregateMutationEffect effect =
                     () -> replacePreferences(update.tripId(), update.preferences(), committedAt);
-                return state.activeScheduleVersionId() == null
+                return !invalidates
                     ? TripAggregateMutationPlan.maintain(TripRootPatch.unchanged(), effect, payload)
                     : TripAggregateMutationPlan.invalidate(
                         TripRootPatch.unchanged(), effect, payload);
@@ -97,6 +106,27 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
       }
       throw failure;
     }
+  }
+
+  private boolean affectsActive(
+      UUID tripId,
+      UUID activeId,
+      List<TripPlacePreference> before,
+      List<TripPlacePreference> after) {
+    var appliedDays =
+        jdbc.queryForList(
+            """
+        select distinct d.day_no from public.trip_days d join public.trip_items i
+          on i.trip_day_id=d.id and i.trip_plan_id=d.trip_plan_id
+        where d.trip_plan_id=? and i.schedule_version_id=?
+        """,
+            Integer.class,
+            tripId,
+            activeId);
+    return java.util.stream.Stream.concat(
+            before.stream().filter(item -> !after.contains(item)),
+            after.stream().filter(item -> !before.contains(item)))
+        .anyMatch(item -> item.targetDayNo() == null || appliedDays.contains(item.targetDayNo()));
   }
 
   private static void validateTargetDays(

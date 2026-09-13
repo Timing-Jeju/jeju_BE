@@ -33,4 +33,6 @@ Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, con
 
 ## 발견한 schema 후속 범위
 
+순차 AI 일정의 장소 선호 변경에는 예외가 있다. 변경 전후 항목의 차이가 아직 적용되지 않은 미래 Day에만 한정되면 `scheduleEffect=maintained`, `regenerationRequired=false`로 현재 활성 버전을 유지한다. 전역 선호(`targetDayNo=null`) 또는 이미 적용된 Day의 선호 추가·삭제·이동·체류시간 변경은 위 무효화 규칙을 따른다. 여행 ETag는 실제 선호 변경 시 증가한다.
+
 현재 #46 preferences, #47 transport-event, #48 place-preferences는 각 owner 범위의 CHECK·uniqueness·active 일정 무효화 transaction을 append-only migration과 API 테스트로 구현한다. #48은 `20260918000004_trip_place_preference_contract.sql`과 Docker init `042`를 소유하며 이미 검증된 #46/#47 migration을 수정하지 않는다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.
