@@ -6,6 +6,7 @@ import java.util.UUID;
 public record AccountDeletionRecord(
     String id,
     UUID userProfileId,
+    byte[] authSubjectFingerprint,
     byte[] idempotencyHash,
     byte[] requestHash,
     byte[] statusTokenHash,
@@ -21,9 +22,18 @@ public record AccountDeletionRecord(
     Instant completedAt) {
 
   public AccountDeletionRecord {
+    if (authSubjectFingerprint != null && authSubjectFingerprint.length != 32) {
+      throw new IllegalArgumentException("auth subject fingerprint는 32-byte여야 합니다.");
+    }
+    authSubjectFingerprint = authSubjectFingerprint == null ? null : authSubjectFingerprint.clone();
     idempotencyHash = idempotencyHash.clone();
     requestHash = requestHash.clone();
     statusTokenHash = statusTokenHash.clone();
+  }
+
+  @Override
+  public byte[] authSubjectFingerprint() {
+    return authSubjectFingerprint == null ? null : authSubjectFingerprint.clone();
   }
 
   @Override
@@ -45,6 +55,7 @@ public record AccountDeletionRecord(
     return new AccountDeletionRecord(
         id,
         userProfileId,
+        authSubjectFingerprint,
         idempotencyHash,
         requestHash,
         statusTokenHash,
@@ -64,6 +75,7 @@ public record AccountDeletionRecord(
     return new AccountDeletionRecord(
         id,
         userProfileId,
+        authSubjectFingerprint,
         idempotencyHash,
         requestHash,
         statusTokenHash,
@@ -83,7 +95,7 @@ public record AccountDeletionRecord(
   public String toString() {
     return "AccountDeletionRecord[id="
         + id
-        + ", userProfileId=<redacted>, idempotencyHash=<redacted>, requestHash=<redacted>, statusTokenHash=<redacted>, statusTokenCiphertext=<redacted>, statusTokenKeyVersion="
+        + ", userProfileId=<redacted>, authSubjectFingerprint=<redacted>, idempotencyHash=<redacted>, requestHash=<redacted>, statusTokenHash=<redacted>, statusTokenCiphertext=<redacted>, statusTokenKeyVersion="
         + statusTokenKeyVersion
         + ", statusTokenExpiresAt="
         + statusTokenExpiresAt

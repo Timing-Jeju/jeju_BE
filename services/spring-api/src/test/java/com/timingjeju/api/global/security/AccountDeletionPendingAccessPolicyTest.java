@@ -8,9 +8,13 @@ import com.timingjeju.api.application.security.CurrentUser;
 import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 @Tag("unit")
+@ExtendWith(OutputCaptureExtension.class)
 class AccountDeletionPendingAccessPolicyTest {
   private static final UUID USER_ID = UUID.fromString("46d9a0ca-3472-4f7e-b1b8-b751da5a7f40");
 
@@ -32,7 +36,7 @@ class AccountDeletionPendingAccessPolicyTest {
   }
 
   @Test
-  void pending조회_실패도_fail_closed하고_일반계정은_통과한다() {
+  void pending조회_실패도_fail_closed하고_로그에_sub_token_credential_cause를_남기지_않는다(CapturedOutput output) {
     var authentication =
         new CurrentUserAuthentication(
             new CurrentUser(USER_ID, AuthenticatedRole.AUTHENTICATED, null));
@@ -43,10 +47,14 @@ class AccountDeletionPendingAccessPolicyTest {
     assertThat(
             new AccountDeletionPendingAccessPolicy(
                     userId -> {
-                      throw new IllegalStateException();
+                      throw new IllegalStateException(
+                          "sub=61000000 token=fake-token credential=fake-credential");
                     })
                 .mayAccess(authentication, request("POST", "/api/v1/trips")))
         .isFalse();
+    assertThat(output.getAll())
+        .contains("security_event=account_deletion_pending_lookup_failed action=deny")
+        .doesNotContain("61000000", "fake-token", "fake-credential", "IllegalStateException");
   }
 
   private static MockHttpServletRequest request(String method, String path) {

@@ -25,7 +25,7 @@ public final class AccountDeletionPendingAccessPolicy {
     try {
       return !pendingAccess.isPending(current.getPrincipal().userId());
     } catch (RuntimeException failure) {
-      log.warn("Account deletion pending lookup failed; denying protected API access", failure);
+      log.warn("security_event=account_deletion_pending_lookup_failed action=deny");
       return false;
     }
   }

@@ -1,6 +1,9 @@
 package com.timingjeju.api.global.security;
 
 import com.timingjeju.api.application.security.AccountDeletionPendingAccess;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -20,12 +23,26 @@ public final class JdbcAccountDeletionPendingAccess implements AccountDeletionPe
             select exists (
               select 1
               from public.account_deletion_requests
-              where user_profile_id = :userId
-                and status in ('queued', 'running')
+              where (auth_subject_fingerprint = :subjectFingerprint
+                    or auth_subject_fingerprint is null)
+                and status <> 'cancelled'
             )
             """,
-            Map.of("userId", userId),
+            Map.of("subjectFingerprint", fingerprint(userId)),
             Boolean.class);
     return Boolean.TRUE.equals(pending);
+  }
+
+  private static byte[] fingerprint(UUID userId) {
+    try {
+      return MessageDigest.getInstance("SHA-256")
+          .digest(
+              userId
+                  .toString()
+                  .toLowerCase(java.util.Locale.ROOT)
+                  .getBytes(StandardCharsets.US_ASCII));
+    } catch (NoSuchAlgorithmException impossible) {
+      throw new IllegalStateException("SHA-256 unavailable", impossible);
+    }
   }
 }

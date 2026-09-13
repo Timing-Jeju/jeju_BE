@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.timingjeju.api.domain.accountdeletion.model.AccountDeletionRecord;
 import com.timingjeju.api.domain.accountdeletion.model.AccountDeletionStatus;
 import java.sql.ResultSet;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -61,16 +62,42 @@ class JdbcAccountDeletionRepositoryTest {
     verify(jdbc).update(anyString(), parameters.capture());
     assertThat(parameters.getValue().getValue("profileId")).isEqualTo(USER);
     assertThat(parameters.getValue().getValue("subjectCiphertext")).isEqualTo("subject-ciphertext");
+    assertThat(parameters.getValue().getValue("subjectFingerprint")).isEqualTo(new byte[32]);
+    assertThat(parameters.getValue().getValue("requestedAt"))
+        .isEqualTo(NOW.atOffset(ZoneOffset.UTC));
     assertThat(parameters.getValue().getValue("status")).isEqualTo("queued");
     assertThatThrownBy(() -> repository.insert(record))
         .isInstanceOf(IllegalStateException.class)
         .hasMessage("account deletion request insert failed");
   }
 
+  @Test
+  void cleanup은_만료와_terminal_retention_경계에서_key_reference를_제한된_batch로_해제한다() {
+    NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+    when(jdbc.update(anyString(), any(SqlParameterSource.class))).thenReturn(2, 0);
+    var repository = new JdbcAccountDeletionRepository(jdbc);
+
+    assertThat(repository.clearExpiredSecrets(NOW, Duration.ofHours(24), 50)).isEqualTo(2);
+    assertThat(repository.clearExpiredSecrets(NOW, Duration.ofHours(24), 50)).isZero();
+
+    ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+    ArgumentCaptor<SqlParameterSource> parameters =
+        ArgumentCaptor.forClass(SqlParameterSource.class);
+    verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), parameters.capture());
+    assertThat(sql.getValue())
+        .contains("status_token_ciphertext = null", "status_token_key_version = null")
+        .contains(
+            "status_token_expires_at <= :now",
+            "completed_at + (:terminalRetentionSeconds * interval '1 second') <= :now")
+        .contains("limit :batchSize");
+    assertThat(parameters.getValue().getValue("now")).isEqualTo(NOW.atOffset(ZoneOffset.UTC));
+  }
+
   private static ResultSet row() throws Exception {
     ResultSet row = mock(ResultSet.class);
     when(row.getString("id")).thenReturn("01ARZ3NDEKTSV4RRFFQ69G5FAV");
     when(row.getObject("user_profile_id", UUID.class)).thenReturn(USER);
+    when(row.getBytes("auth_subject_fingerprint")).thenReturn(new byte[32]);
     when(row.getBytes("idempotency_hash")).thenReturn(new byte[] {1});
     when(row.getBytes("request_hash")).thenReturn(new byte[] {2});
     when(row.getBytes("status_token_hash")).thenReturn(new byte[] {3});
@@ -94,6 +121,7 @@ class JdbcAccountDeletionRepositoryTest {
     return new AccountDeletionRecord(
         "01ARZ3NDEKTSV4RRFFQ69G5FAV",
         USER,
+        new byte[32],
         new byte[] {1},
         new byte[] {2},
         new byte[] {3},

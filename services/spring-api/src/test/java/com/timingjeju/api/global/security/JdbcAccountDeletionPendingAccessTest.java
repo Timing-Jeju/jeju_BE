@@ -15,10 +15,9 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 @Tag("unit")
 class JdbcAccountDeletionPendingAccessTest {
   @Test
-  void queued_running만_공통_gate의_pending으로_조회한다() {
+  void cancelled만_해제하고_profile과_Auth삭제후에도_fingerprint로_차단한다() {
     NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
-    when(jdbc.queryForObject(
-            contains("status in ('queued', 'running')"), anyMap(), eq(Boolean.class)))
+    when(jdbc.queryForObject(contains("status <> 'cancelled'"), anyMap(), eq(Boolean.class)))
         .thenReturn(true);
 
     boolean pending =
