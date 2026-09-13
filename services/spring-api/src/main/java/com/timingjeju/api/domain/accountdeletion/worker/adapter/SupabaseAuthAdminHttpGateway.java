@@ -18,6 +18,11 @@ public final class SupabaseAuthAdminHttpGateway implements SupabaseAuthAdminGate
 
   @Override
   public ExternalDeletionResult deleteUser(AuthSubject subject) {
+    return deleteUser(subject, () -> {});
+  }
+
+  @Override
+  public ExternalDeletionResult deleteUser(AuthSubject subject, Runnable leaseCheckpoint) {
     String userId = canonicalSubject(subject);
     HttpRequest request =
         authorized("/auth/v1/admin/users/" + userId)
@@ -25,7 +30,7 @@ public final class SupabaseAuthAdminHttpGateway implements SupabaseAuthAdminGate
             .timeout(settings.readTimeout())
             .build();
     SupabaseAdminHttpResponse response =
-        transport.exchange(request, new byte[0], MAXIMUM_BODY_BYTES);
+        transport.exchange(request, new byte[0], MAXIMUM_BODY_BYTES, leaseCheckpoint);
     if (response.status() >= 200 && response.status() < 300) {
       return ExternalDeletionResult.DELETED;
     }

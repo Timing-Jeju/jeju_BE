@@ -103,7 +103,7 @@ public final class AccountDeletionWorker implements AccountDeletionWorkerCommand
 
       heartbeatOrLose(lease);
       startStepOrLose(lease, DeletionStep.AUTH_USER_DELETED);
-      authAdminDeletion.deleteUser(subject);
+      authAdminDeletion.deleteUser(subject, () -> checkpointOrLose(lease, deadline));
       if (!repository.completeAuthDeletionAndClearSubject(lease, clock.instant())) {
         throw LeaseLost.INSTANCE;
       }

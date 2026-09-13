@@ -35,7 +35,7 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
     for (int from = 0; from < objects.size(); from += 1000) {
       checkpoint.run();
       int to = Math.min(from + 1000, objects.size());
-      deleteBatch(objects.subList(from, to));
+      deleteBatch(objects.subList(from, to), checkpoint);
     }
     return objects.isEmpty()
         ? ExternalDeletionResult.ALREADY_ABSENT
@@ -64,7 +64,7 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
         if (++pages > settings.storageMaximumPages()) {
           throw DeletionOperationException.terminal("STORAGE_PAGINATION_LIMIT_EXCEEDED");
         }
-        List<Map<?, ?>> rows = list(directory, offset);
+        List<Map<?, ?>> rows = list(directory, offset, checkpoint);
         for (Map<?, ?> row : rows) {
           String name = safeName(row.get("name"));
           String key = directory + "/" + name;
@@ -87,7 +87,7 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
   }
 
   @SuppressWarnings("unchecked")
-  private List<Map<?, ?>> list(String prefix, int offset) {
+  private List<Map<?, ?>> list(String prefix, int offset, Runnable checkpoint) {
     byte[] body =
         encode(
             Map.of(
@@ -100,7 +100,7 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
                 "sortBy",
                 Map.of("column", "name", "order", "asc")));
     SupabaseAdminHttpResponse response =
-        exchange("POST", "/storage/v1/object/list/profile-images", body);
+        exchange("POST", "/storage/v1/object/list/profile-images", body, checkpoint);
     if (response.status() == 404) {
       return List.of();
     }
@@ -123,18 +123,20 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
     }
   }
 
-  private void deleteBatch(List<String> keys) {
+  private void deleteBatch(List<String> keys, Runnable checkpoint) {
     SupabaseAdminHttpResponse response =
         exchange(
             "DELETE",
             "/storage/v1/object/profile-images",
-            encode(Map.of("prefixes", List.copyOf(keys))));
+            encode(Map.of("prefixes", List.copyOf(keys))),
+            checkpoint);
     if (response.status() != 404) {
       classify(response.status(), "STORAGE_DELETE");
     }
   }
 
-  private SupabaseAdminHttpResponse exchange(String method, String path, byte[] body) {
+  private SupabaseAdminHttpResponse exchange(
+      String method, String path, byte[] body, Runnable checkpoint) {
     HttpRequest request =
         HttpRequest.newBuilder(settings.baseUrl().resolve(path))
             .header("Authorization", "Bearer " + settings.serviceRoleKey())
@@ -144,7 +146,7 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
             .timeout(settings.readTimeout())
             .method(method, BodyPublishers.ofByteArray(body))
             .build();
-    return transport.exchange(request, body, MAXIMUM_BODY_BYTES);
+    return transport.exchange(request, body, MAXIMUM_BODY_BYTES, checkpoint);
   }
 
   private static void classify(int status, String operation) {

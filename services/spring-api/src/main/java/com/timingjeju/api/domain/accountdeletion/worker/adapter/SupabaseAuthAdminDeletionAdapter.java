@@ -15,7 +15,12 @@ public final class SupabaseAuthAdminDeletionAdapter implements SupabaseAuthAdmin
 
   @Override
   public void deleteUser(AuthSubject subject) {
-    ExternalDeletionResult result = gateway.deleteUser(subject);
+    deleteUser(subject, () -> {});
+  }
+
+  @Override
+  public void deleteUser(AuthSubject subject, Runnable leaseCheckpoint) {
+    ExternalDeletionResult result = gateway.deleteUser(subject, leaseCheckpoint);
     if (result == null) {
       throw DeletionOperationException.retryable("AUTH_ADMIN_DELETE_UNAVAILABLE");
     }

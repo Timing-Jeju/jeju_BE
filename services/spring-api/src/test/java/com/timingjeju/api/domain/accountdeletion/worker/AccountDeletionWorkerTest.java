@@ -56,6 +56,7 @@ class AccountDeletionWorkerTest {
             "complete:APP_DATA_ERASED",
             "heartbeat",
             "start:AUTH_USER_DELETED",
+            "heartbeat",
             "delete-auth-user",
             "complete-auth-and-clear-subject",
             "succeed");
@@ -215,6 +216,19 @@ class AccountDeletionWorkerTest {
 
     assertThat(fixture.repository.heartbeatCalls).isEqualTo(6);
     assertThat(fixture.events).doesNotContain("delete-storage:profile-images/auth-subject-106");
+    assertThat(fixture.repository.hasTerminalWrite()).isFalse();
+  }
+
+  @Test
+  void Auth_HTTP_진입후_lease_checkpoint_상실은_delete와_terminal_write를_중단한다() {
+    Fixture fixture = fixture(work(false, Set.of()), LEASE);
+    fixture.repository.rejectHeartbeatAfter = 7;
+
+    fixture.worker.pollOnce();
+
+    assertThat(fixture.events)
+        .containsSubsequence("start:AUTH_USER_DELETED", "heartbeat")
+        .doesNotContain("delete-auth-user", "complete-auth-and-clear-subject", "succeed");
     assertThat(fixture.repository.hasTerminalWrite()).isFalse();
   }
 

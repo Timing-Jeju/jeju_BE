@@ -6,4 +6,9 @@ import com.timingjeju.api.domain.accountdeletion.worker.AuthSubject;
 public interface SupabaseAuthAdminGateway {
 
   ExternalDeletionResult deleteUser(AuthSubject subject);
+
+  default ExternalDeletionResult deleteUser(AuthSubject subject, Runnable leaseCheckpoint) {
+    leaseCheckpoint.run();
+    return deleteUser(subject);
+  }
 }

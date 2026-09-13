@@ -7,10 +7,11 @@ import com.timingjeju.api.domain.accountdeletion.worker.DeletionLease;
 import com.timingjeju.api.domain.accountdeletion.worker.DeletionStep;
 import com.timingjeju.api.domain.accountdeletion.worker.adapter.JdbcAccountDeletionWorkRepository;
 import com.timingjeju.api.domain.accountdeletion.worker.adapter.JdbcAppOwnedDataErasure;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -30,57 +31,24 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 class AccountDeletionWorkerPostgreSqlIntegrationTest {
   private static final List<String> IMAGES =
       List.of("postgis/postgis:16-3.4", "postgis/postgis:17-3.5");
-  private static final Instant NOW = Instant.parse("2026-09-14T03:00:00Z");
 
   @Test
   void PostgreSQL16과17에서_reclaim은_stale_complete_retry_authClear를_모두_rollback한다() {
     forEachDatabase(
         database -> {
           database.jdbc.execute("set time zone 'Asia/Seoul'");
-          String id = "01K4V106000000000000000101";
-          UUID user = UUID.fromString("46d9a0ca-3472-4f7e-b1b8-b751da5a7101");
-          database.insertRequest(id, user);
-          DeletionLease stale =
-              database
-                  .repository
-                  .claimAvailable("old-worker", NOW, Duration.ofSeconds(30), 1)
-                  .getFirst();
-          assertThat(database.repository.startStep(stale, DeletionStep.SESSIONS_REVOKED, NOW))
-              .isTrue();
-          database.jdbc.update(
-              "update public.account_deletion_requests set lease_expires_at=clock_timestamp()-interval '1 ms' where id=?",
-              id);
-          DeletionLease current =
-              database
-                  .repository
-                  .claimAvailable("new-worker", NOW.plusSeconds(31), Duration.ofSeconds(30), 1)
-                  .getFirst();
-
-          assertThat(database.repository.completeStep(stale, DeletionStep.SESSIONS_REVOKED, NOW))
-              .isFalse();
-          assertThat(database.repository.retry(stale, "STALE", NOW.plusSeconds(1), NOW)).isFalse();
-          assertThat(database.repository.completeAuthDeletionAndClearSubject(stale, NOW)).isFalse();
-          assertThat(current.fencingToken()).isEqualTo(stale.fencingToken() + 1);
-          assertThat(
-                  database.jdbc.queryForObject(
-                      "select completed_at is null from public.account_deletion_steps where request_id=? and attempt=1",
-                      Boolean.class,
-                      id))
-              .isTrue();
-
-          Instant currentAt = Instant.now();
-          assertThat(
-                  database.repository.startStep(current, DeletionStep.AUTH_USER_DELETED, currentAt))
-              .isTrue();
-          assertThat(database.repository.completeAuthDeletionAndClearSubject(current, currentAt))
-              .isTrue();
-          assertThat(database.repository.succeed(current, currentAt)).isTrue();
-          assertThat(
-                  database.jdbc.queryForObject(
-                      "select auth_subject_ciphertext is null and status='succeeded' from public.account_deletion_requests where id=?",
-                      Boolean.class,
-                      id))
-              .isTrue();
+          database.assertReclaimWins(
+              "01K4V106000000000000000111",
+              UUID.fromString("46d9a0ca-3472-4f7e-b1b8-b751da5a7111"),
+              Mutation.COMPLETE);
+          database.assertReclaimWins(
+              "01K4V106000000000000000112",
+              UUID.fromString("46d9a0ca-3472-4f7e-b1b8-b751da5a7112"),
+              Mutation.RETRY);
+          database.assertReclaimWins(
+              "01K4V106000000000000000113",
+              UUID.fromString("46d9a0ca-3472-4f7e-b1b8-b751da5a7113"),
+              Mutation.AUTH_CLEAR);
         });
   }
 
@@ -94,7 +62,7 @@ class AccountDeletionWorkerPostgreSqlIntegrationTest {
           DeletionLease lease =
               database
                   .repository
-                  .claimAvailable("race-worker", Instant.now(), Duration.ofSeconds(30), 1)
+                  .claimAvailable("race-worker", database.now(), Duration.ofSeconds(30), 1)
                   .getFirst();
           CountDownLatch start = new CountDownLatch(1);
           try (var pool = Executors.newFixedThreadPool(2)) {
@@ -103,7 +71,7 @@ class AccountDeletionWorkerPostgreSqlIntegrationTest {
                     () -> {
                       start.await(5, TimeUnit.SECONDS);
                       return database.repository.startStep(
-                          lease, DeletionStep.PROFILE_IMAGES_DELETED, Instant.now());
+                          lease, DeletionStep.PROFILE_IMAGES_DELETED, database.now());
                     });
             var cancel =
                 pool.submit(
@@ -156,7 +124,7 @@ class AccountDeletionWorkerPostgreSqlIntegrationTest {
           DeletionLease lease =
               database
                   .repository
-                  .claimAvailable("erase-worker", Instant.now(), Duration.ofSeconds(30), 1)
+                  .claimAvailable("erase-worker", database.now(), Duration.ofSeconds(30), 1)
                   .getFirst();
 
           database.erasure.deleteAndAnonymize(lease, AuthSubject.of(user.toString()));
@@ -192,7 +160,7 @@ class AccountDeletionWorkerPostgreSqlIntegrationTest {
     }
   }
 
-  private static boolean await(Future<Boolean> result) {
+  private static <T> T await(Future<T> result) {
     try {
       return result.get(10, TimeUnit.SECONDS);
     } catch (Exception failure) {
@@ -201,17 +169,37 @@ class AccountDeletionWorkerPostgreSqlIntegrationTest {
   }
 
   private static final class Database {
+    private final DriverManagerDataSource dataSource;
     private final JdbcTemplate jdbc;
     private final JdbcAccountDeletionWorkRepository repository;
     private final JdbcAppOwnedDataErasure erasure;
 
     private Database(DriverManagerDataSource dataSource) {
+      this.dataSource = dataSource;
       jdbc = new JdbcTemplate(dataSource);
       NamedParameterJdbcTemplate named = new NamedParameterJdbcTemplate(dataSource);
       TransactionTemplate transaction =
           new TransactionTemplate(new DataSourceTransactionManager(dataSource));
       repository = new JdbcAccountDeletionWorkRepository(named, transaction);
       erasure = new JdbcAppOwnedDataErasure(named, transaction);
+      jdbc.execute(
+          """
+          create or replace function public.test_pause_account_deletion_reclaim()
+          returns trigger language plpgsql as $$
+          begin
+            if old.lease_owner like 'old-%' and new.lease_owner like 'current-%' then
+              perform pg_advisory_xact_lock(106065);
+            end if;
+            return new;
+          end
+          $$
+          """);
+      jdbc.execute(
+          """
+          create trigger test_pause_account_deletion_reclaim
+          before update on public.account_deletion_requests
+          for each row execute function public.test_pause_account_deletion_reclaim()
+          """);
     }
 
     private void insertRequest(String id, UUID user) {
@@ -225,15 +213,170 @@ class AccountDeletionWorkerPostgreSqlIntegrationTest {
             auth_subject_fingerprint,
             status_token_ciphertext,status_token_key_version,status_token_expires_at,
             auth_subject_ciphertext,auth_subject_key_version,status,requested_at)
-          values (?, ?, decode(repeat('11',32),'hex'), decode(repeat('22',32),'hex'),
-            decode(repeat('33',32),'hex'), decode(repeat('44',32),'hex'),
+          values (?, ?, digest(? || '-idem','sha256'), digest(? || '-request','sha256'),
+            digest(? || '-status','sha256'), digest(? || '-subject','sha256'),
             'token-cipher', 'key-v1',
-            ?::timestamptz, 'subject-cipher', 'key-v1', 'queued', ?::timestamptz)
+            clock_timestamp()+interval '1 hour', 'subject-cipher', 'key-v1',
+            'queued', clock_timestamp())
           """,
           id,
           user,
-          OffsetDateTime.ofInstant(NOW.plusSeconds(3600), ZoneOffset.UTC),
-          OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC));
+          id,
+          id,
+          id,
+          id);
     }
+
+    private Instant now() {
+      return jdbc.queryForObject("select clock_timestamp()", OffsetDateTime.class).toInstant();
+    }
+
+    private void assertReclaimWins(String id, UUID user, Mutation mutation) {
+      insertRequest(id, user);
+      Instant claimedAt = now();
+      DeletionLease stale =
+          repository
+              .claimAvailable("old-" + mutation, claimedAt, Duration.ofSeconds(30), 1)
+              .getFirst();
+      DeletionStep step =
+          mutation == Mutation.AUTH_CLEAR
+              ? DeletionStep.AUTH_USER_DELETED
+              : DeletionStep.SESSIONS_REVOKED;
+      assertThat(repository.startStep(stale, step, now())).isTrue();
+      Instant explicitExpiry =
+          jdbc.queryForObject(
+                  "update public.account_deletion_requests set lease_expires_at=clock_timestamp()+interval '30 seconds' where id=? returning lease_expires_at",
+                  OffsetDateTime.class,
+                  id)
+              .toInstant();
+
+      try (Connection blocker = dataSource.getConnection();
+          PreparedStatement lock = blocker.prepareStatement("select pg_advisory_lock(106065)");
+          var pool = Executors.newFixedThreadPool(2)) {
+        lock.executeQuery().close();
+        CountDownLatch reclaimEntered = new CountDownLatch(1);
+        Future<DeletionLease> reclaim =
+            pool.submit(
+                () -> {
+                  reclaimEntered.countDown();
+                  return repository
+                      .claimAvailable(
+                          "current-" + mutation,
+                          explicitExpiry.plusMillis(1),
+                          Duration.ofSeconds(30),
+                          1)
+                      .getFirst();
+                });
+        assertThat(reclaimEntered.await(2, TimeUnit.SECONDS)).isTrue();
+        boolean reclaimWaiting = awaitLockWaiters(1);
+        CountDownLatch staleEntered = new CountDownLatch(1);
+        Future<Boolean> staleMutation =
+            pool.submit(
+                () -> {
+                  staleEntered.countDown();
+                  Instant at = now();
+                  return switch (mutation) {
+                    case COMPLETE -> repository.completeStep(stale, step, at);
+                    case RETRY -> repository.retry(stale, "STALE_RETRY", at.plusSeconds(1), at);
+                    case AUTH_CLEAR -> repository.completeAuthDeletionAndClearSubject(stale, at);
+                  };
+                });
+        assertThat(staleEntered.await(2, TimeUnit.SECONDS)).isTrue();
+        boolean staleWaitingBehindReclaim = awaitLockWaiters(2);
+
+        try (PreparedStatement unlock =
+            blocker.prepareStatement("select pg_advisory_unlock(106065)")) {
+          unlock.executeQuery().close();
+        }
+        assertThat(reclaimWaiting).isTrue();
+        assertThat(staleWaitingBehindReclaim).isTrue();
+        DeletionLease current = await(reclaim);
+        assertThat(await(staleMutation)).isFalse();
+        assertThat(current.fencingToken()).isEqualTo(stale.fencingToken() + 1);
+        assertThat(
+                jdbc.queryForObject(
+                    "select fencing_token=? and lease_owner=? from public.account_deletion_requests where id=?",
+                    Boolean.class,
+                    current.fencingToken(),
+                    current.owner(),
+                    id))
+            .isTrue();
+        assertThat(
+                jdbc.queryForObject(
+                    "select completed_at is null and failure_code is null from public.account_deletion_steps where request_id=? and step=? and attempt=?",
+                    Boolean.class,
+                    id,
+                    step.name(),
+                    stale.attempt()))
+            .isTrue();
+
+        assertThat(repository.startStep(current, step, now())).isTrue();
+        Instant currentAt = now();
+        switch (mutation) {
+          case COMPLETE -> {
+            assertThat(repository.completeStep(current, step, currentAt)).isTrue();
+            assertThat(stepCompleted(id, step, current.attempt())).isTrue();
+          }
+          case RETRY -> {
+            assertThat(
+                    repository.retry(current, "CURRENT_RETRY", currentAt.plusSeconds(1), currentAt))
+                .isTrue();
+            assertThat(
+                    jdbc.queryForObject(
+                        "select failure_code='CURRENT_RETRY' from public.account_deletion_steps where request_id=? and step=? and attempt=?",
+                        Boolean.class,
+                        id,
+                        step.name(),
+                        current.attempt()))
+                .isTrue();
+            jdbc.update(
+                "update public.account_deletion_requests set status='failed', completed_at=clock_timestamp(), next_retry_at=null where id=?",
+                id);
+          }
+          case AUTH_CLEAR -> {
+            assertThat(repository.completeAuthDeletionAndClearSubject(current, currentAt)).isTrue();
+            assertThat(stepCompleted(id, step, current.attempt())).isTrue();
+            assertThat(
+                    jdbc.queryForObject(
+                        "select auth_subject_ciphertext is null and auth_subject_key_version is null from public.account_deletion_requests where id=?",
+                        Boolean.class,
+                        id))
+                .isTrue();
+          }
+        }
+      } catch (Exception failure) {
+        throw new AssertionError("two-session reclaim race failed for " + mutation, failure);
+      }
+    }
+
+    private boolean awaitLockWaiters(int expected) throws InterruptedException {
+      for (int attempt = 0; attempt < 200; attempt++) {
+        Integer waiting =
+            jdbc.queryForObject(
+                "select count(*) from pg_stat_activity where datname=current_database() and wait_event_type='Lock'",
+                Integer.class);
+        if (waiting != null && waiting >= expected) {
+          return true;
+        }
+        Thread.sleep(10);
+      }
+      return false;
+    }
+
+    private boolean stepCompleted(String id, DeletionStep step, int attempt) {
+      return Boolean.TRUE.equals(
+          jdbc.queryForObject(
+              "select completed_at is not null from public.account_deletion_steps where request_id=? and step=? and attempt=?",
+              Boolean.class,
+              id,
+              step.name(),
+              attempt));
+    }
+  }
+
+  private enum Mutation {
+    COMPLETE,
+    RETRY,
+    AUTH_CLEAR
   }
 }
