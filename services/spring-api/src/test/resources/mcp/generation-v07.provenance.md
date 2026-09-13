@@ -6,6 +6,8 @@
   실제 BE MCP manifest의 recommend output hash와 비교한다. 별도 수작업 Schema가 아니다.
 - `generation-v07.synthetic-output.json`: 생성된
   `docs/examples/v0.7/synthetic/recommend.output.json`의 합성 예제다. 실제 사용자·TMAP 원본이 아니다.
+  예제는 AI 6efe58ee78c0c5b203a4106e4b7184348afc289d로 갱신했다(버스40분·대기15분).
+  위 input/output Schema는 변경되지 않았고 기존 생성 출처와 hash를 유지한다.
   테스트에서 ID 필드에 한정해 hotel/required/a/b/meal/rest를 합성 TourAPI fact ID로 매핑한다.
   실제 장소 content ID라는 주장이 아니며 외부 데이터 소스를 호출하지 않는다.
 - `generation-v07.input-schema.json`: 같은 AI commit의 `create_server().list_tools()`에서 생성한

@@ -24,6 +24,28 @@ import tools.jackson.databind.node.ObjectNode;
 @Tag("unit")
 class JejuGenerationCandidateProjectionTest {
   @Test
+  void 버스_시간표와_접근도보_산술이_틀리면_부분후보를_노출하지_않는다() throws Exception {
+    for (var field : List.of("planned_minutes", "to_id", "wait", "arrival", "egress")) {
+      var result = response();
+      var transfer =
+          (ObjectNode) result.get("recommendations").get(2).get("timeline").get(0).get("transfer");
+      switch (field) {
+        case "planned_minutes" -> ((ObjectNode) transfer.get("access_walk")).put(field, 6);
+        case "to_id" -> ((ObjectNode) transfer.get("access_walk")).put(field, "wrong-stop");
+        case "wait" -> ((ObjectNode) transfer.get("mode_decision")).put("bus_wait_minutes", 8);
+        case "egress" -> transfer.remove("egress_walk");
+        case "arrival" ->
+            ((ObjectNode) transfer.get("bus_rides").get(0))
+                .put("scheduled_arrival_at", "2026-08-15T09:36:00+09:00");
+        default -> throw new AssertionError();
+      }
+      var projection = project(result);
+      assertThat(projection.outcome()).as(field).isEqualTo("insufficient_feasible_routes");
+      assertThat(projection.candidates()).isEmpty();
+    }
+  }
+
+  @Test
   void 저장용_합계는_검증된_거리와_비용범위_및_근거만_보존한다() throws Exception {
     var totals = project(response()).candidates().getFirst().totals();
     assertThat(totals.totalMinutes()).isEqualTo(450);

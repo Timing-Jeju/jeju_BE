@@ -73,6 +73,7 @@ public record GenerationCandidateProjection(
       GenerationTimeline timeline;
       try {
         timeline = GenerationTimeline.from(candidate, scope, bindings);
+        GenerationTransferTiming.validate(candidate);
       } catch (GenerationException failure) {
         if (!failure.code().equals("MCP_CONTRACT_INVALID")) throw failure;
         return insufficient();

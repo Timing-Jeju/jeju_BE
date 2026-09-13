@@ -492,3 +492,21 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - null 수정 후 전체 spotlessApply/test/architectureTest도 성공했다(52초, 입구 검증 4개 통과).
 - 실제 leg에서 require 호출, 대표좌표 endpoint·버스 fixture 정합성, JDBC 후보 writer,
   조회/apply/previous_days/FE 및 최종 BE PR은 미완료다. UI와 운영 flag는 변경하지 않았다.
+
+## 실제 후보의 도보·버스 시간 연결 검사
+
+- AI 6efe58e의 합성 예제와 provenance를 동기화했다. 원격 CI34763456146 성공을 확인했으며
+  input/output Schema는 기존 Pydantic 생성본과 동일하다.
+- 버스 access planned_minutes를6으로 변조해도 success인 RED를 재현했다.
+  GenerationTransferTiming을 실제 CandidateProjection 호출에 연결해 도보 산술·버스 정류장
+  연결·환승·승차 여유·첫 대기·전체 이동시간을 검사한다. 실패 후보 하나면 insufficient0이다.
+- 조합8개/architecture16초 및 최초 전체 unit/architecture50초 성공이다.
+  독립 부분 리뷰의 egress 누락 NPE를 RED로 재현하고 역참조 전 walk 검증으로 수정했다.
+- 초단위 출발에 대해 AI runtime 전체 이동분의 ceil 변환과 비교해야 함을 추가 RED로 확인했다.
+  정확한 시간표를 그대로 사용하되 이벤트 종료는 출발+올림된 전체분으로 검사한다.
+- AI _select_route의 ModeDecision 대기는 양수 초 차이의 floor이며 admission 한도 검사 ceil과
+  다르다. 초단위 대기14분 정상 회귀 RED 후 같은 floor로 수정했다. 불필요한 시간 추정은 하지 않는다.
+- 이 변경은 시간·정류장 연결 검사다. 장소↔입구 require 호출, 거리·운임 상세 검사와
+  실제 JDBC 후보 writer/조회/원자 적용/previous_days/FE·최종 PR은 여전히 후속이다.
+- 최종 spotlessApply/test/architectureTest49초 성공(기존 macOS9skip), 시간검사4개·조합8개 통과.
+  독립 재검토에서 이전 finding 해소·신규 차단0이다. 전체 승인/recorder는 아니다.
