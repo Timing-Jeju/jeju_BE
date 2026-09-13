@@ -47,6 +47,9 @@ public record DeletionWorkerPolicy(
       uncappedMillis = Long.MAX_VALUE;
     }
     long cappedMillis = Math.min(uncappedMillis, maxRetryDelay.toMillis());
+    if (sample == 1.0d) {
+      return Duration.ofMillis(cappedMillis);
+    }
     return Duration.ofMillis((long) (cappedMillis * sample));
   }
 }

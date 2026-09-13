@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -105,6 +106,78 @@ class SupabaseDeletionGatewaysTest {
   }
 
   @Test
+  void storage는_404를_absent로_정규화하고_HTTP오류를_retryable과_terminal로_분류한다() {
+    assertThat(
+            new SupabaseProfileImageDeletionHttpGateway(
+                    settings(10), new ObjectMapper(), new RecordingTransport(response(404, "")))
+                .deletePrefix("profile-images/" + SUBJECT))
+        .isEqualTo(ExternalDeletionResult.ALREADY_ABSENT);
+
+    assertStorageFailure(429, true);
+    assertStorageFailure(503, true);
+    assertStorageFailure(401, false);
+
+    RecordingTransport deleteAbsent =
+        new RecordingTransport(
+            response(200, "[{\"id\":\"object-1\",\"name\":\"avatar.png\"}]"), response(404, ""));
+    assertThat(
+            new SupabaseProfileImageDeletionHttpGateway(
+                    settings(10), new ObjectMapper(), deleteAbsent)
+                .deletePrefix("profile-images/" + SUBJECT))
+        .isEqualTo(ExternalDeletionResult.DELETED);
+  }
+
+  @Test
+  void storage는_1001개_object를_1000개와_1개_batch로_제한한다() throws Exception {
+    ObjectMapper mapper = new ObjectMapper();
+    List<Map<String, String>> firstPage =
+        java.util.stream.IntStream.range(0, 1000)
+            .mapToObj(index -> Map.of("id", "id-" + index, "name", "image-" + index))
+            .toList();
+    RecordingTransport transport =
+        new RecordingTransport(
+            response(200, new String(mapper.writeValueAsBytes(firstPage), StandardCharsets.UTF_8)),
+            response(200, "[{\"id\":\"id-1000\",\"name\":\"image-1000\"}]"),
+            response(200, "{}"),
+            response(200, "{}"));
+
+    assertThat(
+            new SupabaseProfileImageDeletionHttpGateway(settings(10), mapper, transport)
+                .deletePrefix("profile-images/" + SUBJECT))
+        .isEqualTo(ExternalDeletionResult.DELETED);
+
+    assertThat(transport.requests).hasSize(4);
+    assertThat(transport.bodies.get(2)).contains("image-999").doesNotContain("image-1000\"");
+    assertThat(transport.bodies.get(3)).contains("image-1000");
+  }
+
+  @Test
+  void storage는_빈_prefix와_비정상_list_payload를_외부호출_또는_delete전에_거부한다() {
+    for (String prefix : List.of("", "profile-images/", "profile-images/" + SUBJECT + "/x")) {
+      RecordingTransport unused = new RecordingTransport();
+      assertThatThrownBy(
+              () ->
+                  new SupabaseProfileImageDeletionHttpGateway(
+                          settings(10), new ObjectMapper(), unused)
+                      .deletePrefix(prefix))
+          .isInstanceOf(DeletionOperationException.class)
+          .hasMessage("INVALID_AUTH_SUBJECT");
+      assertThat(unused.requests).isEmpty();
+    }
+    for (String body : List.of("{}", "[null]", "[{\"id\":\"object\",\"name\":\"../secret\"}]")) {
+      RecordingTransport invalid = new RecordingTransport(response(200, body));
+      assertThatThrownBy(
+              () ->
+                  new SupabaseProfileImageDeletionHttpGateway(
+                          settings(10), new ObjectMapper(), invalid)
+                      .deletePrefix("profile-images/" + SUBJECT))
+          .isInstanceOf(DeletionOperationException.class)
+          .hasMessage("STORAGE_RESPONSE_INVALID");
+      assertThat(invalid.requests).hasSize(1);
+    }
+  }
+
+  @Test
   void settings와_failure는_service_role_secret을_노출하지_않는다() {
     SupabaseAdminSettings settings = settings(10);
     assertThat(settings.toString()).doesNotContain(CREDENTIAL).contains("<redacted>");
@@ -145,6 +218,17 @@ class SupabaseDeletionGatewaysTest {
 
   private static void assertFailure(SupabaseAuthAdminHttpGateway gateway, boolean retryable) {
     assertThatThrownBy(() -> gateway.deleteUser(AuthSubject.of(SUBJECT)))
+        .isInstanceOfSatisfying(
+            DeletionOperationException.class,
+            failure -> assertThat(failure.isRetryable()).isEqualTo(retryable))
+        .hasNoCause();
+  }
+
+  private static void assertStorageFailure(int status, boolean retryable) {
+    var gateway =
+        new SupabaseProfileImageDeletionHttpGateway(
+            settings(10), new ObjectMapper(), new RecordingTransport(response(status, "")));
+    assertThatThrownBy(() -> gateway.deletePrefix("profile-images/" + SUBJECT))
         .isInstanceOfSatisfying(
             DeletionOperationException.class,
             failure -> assertThat(failure.isRetryable()).isEqualTo(retryable))

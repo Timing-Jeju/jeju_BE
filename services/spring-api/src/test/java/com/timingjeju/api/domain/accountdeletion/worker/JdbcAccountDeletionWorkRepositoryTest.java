@@ -99,6 +99,22 @@ class JdbcAccountDeletionWorkRepositoryTest {
         .contains("account_deletion_steps");
   }
 
+  @Test
+  void fenced_CAS가_0row이면_모든_상태변경은_false로_닫힌다() {
+    NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+    when(jdbc.update(anyString(), any(SqlParameterSource.class))).thenReturn(0);
+    JdbcAccountDeletionWorkRepository repository = new JdbcAccountDeletionWorkRepository(jdbc);
+
+    assertThat(repository.startStep(LEASE, DeletionStep.SESSIONS_REVOKED, NOW)).isFalse();
+    assertThat(repository.completeStep(LEASE, DeletionStep.SESSIONS_REVOKED, NOW)).isFalse();
+    assertThat(repository.completeAuthDeletionAndClearSubject(LEASE, NOW)).isFalse();
+    assertThat(repository.heartbeat(LEASE, NOW, Duration.ofSeconds(30))).isFalse();
+    assertThat(repository.retry(LEASE, "TEMPORARY", NOW.plusSeconds(1), NOW)).isFalse();
+    assertThat(repository.fail(LEASE, "TERMINAL", NOW)).isFalse();
+    assertThat(repository.succeed(LEASE, NOW)).isFalse();
+    assertThat(repository.confirmCancelled(LEASE, NOW)).isFalse();
+  }
+
   private static java.sql.ResultSet row(String step) throws Exception {
     java.sql.ResultSet resultSet = mock(java.sql.ResultSet.class);
     when(resultSet.getString("id")).thenReturn(LEASE.requestId());

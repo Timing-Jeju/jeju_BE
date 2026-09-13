@@ -10,11 +10,15 @@ public final class JdkSupabaseAdminHttpTransport implements SupabaseAdminHttpTra
   private final HttpClient client;
 
   public JdkSupabaseAdminHttpTransport(SupabaseAdminSettings settings) {
-    client =
+    this(
         HttpClient.newBuilder()
             .connectTimeout(settings.connectTimeout())
             .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
+            .build());
+  }
+
+  JdkSupabaseAdminHttpTransport(HttpClient client) {
+    this.client = java.util.Objects.requireNonNull(client);
   }
 
   @Override
