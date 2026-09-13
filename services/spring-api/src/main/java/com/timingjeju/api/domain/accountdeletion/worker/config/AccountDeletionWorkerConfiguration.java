@@ -42,10 +42,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
-@ConditionalOnProperty(
-    prefix = "app.account-deletion.worker",
-    name = "enabled",
-    havingValue = "true")
+@ConditionalOnProperty(prefix = "app.account-deletion", name = "enabled", havingValue = "true")
 public class AccountDeletionWorkerConfiguration {
 
   @Bean

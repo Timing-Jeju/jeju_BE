@@ -24,7 +24,9 @@ import com.timingjeju.api.global.security.SupabaseJwtDecoderFactory;
 import com.timingjeju.api.global.security.SupabaseJwtProperties;
 import java.util.List;
 import java.util.Set;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -86,11 +88,13 @@ public class SecurityConfig {
   }
 
   @Bean
+  @ConditionalOnProperty(prefix = "app.account-deletion", name = "enabled", havingValue = "true")
   AccountDeletionPendingAccess accountDeletionPendingAccess(NamedParameterJdbcTemplate jdbc) {
     return new JdbcAccountDeletionPendingAccess(jdbc);
   }
 
   @Bean
+  @ConditionalOnProperty(prefix = "app.account-deletion", name = "enabled", havingValue = "true")
   AccountDeletionPendingAccessPolicy accountDeletionPendingAccessPolicy(
       AccountDeletionPendingAccess pendingAccess) {
     return new AccountDeletionPendingAccessPolicy(pendingAccess);
@@ -130,7 +134,8 @@ public class SecurityConfig {
       ProblemCorsProcessor corsProcessor,
       AuthenticationProblemWriter authenticationProblemWriter,
       ProblemResponseWriter responseWriter,
-      AccountDeletionPendingAccessPolicy accountDeletionAccessPolicy,
+      ObjectProvider<AccountDeletionPendingAccessPolicy> accountDeletionAccessPolicies,
+      @Value("${app.account-deletion.enabled:false}") boolean accountDeletionEnabled,
       @Value("${springdoc.api-docs.enabled:true}") boolean apiDocsEnabled,
       @Value("${springdoc.swagger-ui.enabled:true}") boolean swaggerUiEnabled)
       throws Exception {
@@ -175,17 +180,23 @@ public class SecurityConfig {
                   "/api/v1/weather/forecast",
                   "/api/v1/legal-documents")
               .permitAll();
-          requests
-              .requestMatchers(HttpMethod.GET, "/api/v1/account-deletion-requests/*")
-              .permitAll();
-          requests.requestMatchers(HttpMethod.DELETE, "/api/v1/me").authenticated();
-          requests
-              .requestMatchers("/api/v1/**")
-              .access(
-                  (authentication, context) ->
-                      new AuthorizationDecision(
-                          accountDeletionAccessPolicy.mayAccess(
-                              authentication.get(), context.getRequest())));
+          if (accountDeletionEnabled) {
+            AccountDeletionPendingAccessPolicy accountDeletionAccessPolicy =
+                accountDeletionAccessPolicies.getObject();
+            requests
+                .requestMatchers(HttpMethod.GET, "/api/v1/account-deletion-requests/*")
+                .permitAll();
+            requests.requestMatchers(HttpMethod.DELETE, "/api/v1/me").authenticated();
+            requests
+                .requestMatchers("/api/v1/**")
+                .access(
+                    (authentication, context) ->
+                        new AuthorizationDecision(
+                            accountDeletionAccessPolicy.mayAccess(
+                                authentication.get(), context.getRequest())));
+          } else {
+            requests.requestMatchers("/api/v1/**").authenticated();
+          }
           requests.anyRequest().denyAll();
         });
     http.oauth2ResourceServer(

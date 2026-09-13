@@ -39,6 +39,7 @@ logging:
 
 app:
   account-deletion:
+    enabled: ${APP_ACCOUNT_DELETION_ENABLED:false}
     recent-auth-max-age: ${APP_ACCOUNT_DELETION_RECENT_AUTH_MAX_AGE:PT15M}
     status-token-ttl: ${APP_ACCOUNT_DELETION_STATUS_TOKEN_TTL:PT24H}
     encryption:
@@ -46,7 +47,6 @@ app:
       local-active-version: ${APP_ACCOUNT_DELETION_LOCAL_KEY_VERSION:}
       local-active-key: ${APP_ACCOUNT_DELETION_LOCAL_ACTIVE_KEY:}
     worker:
-      enabled: ${APP_ACCOUNT_DELETION_WORKER_ENABLED:false}
       id: ${APP_ACCOUNT_DELETION_WORKER_ID:}
       fixed-delay: ${APP_ACCOUNT_DELETION_WORKER_FIXED_DELAY:PT5S}
       initial-delay: ${APP_ACCOUNT_DELETION_WORKER_INITIAL_DELAY:PT10S}

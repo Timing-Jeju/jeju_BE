@@ -54,7 +54,12 @@ import org.springframework.test.web.servlet.MockMvc;
       "app.security.jwt.audience=authenticated",
       "app.security.jwt.jwks-url=",
       "app.security.cors.allowed-origins=http://localhost:3000",
-      "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
+      "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes",
+      "app.account-deletion.enabled=true",
+      "app.account-deletion.worker.id=saved-places-test-worker",
+      "app.account-deletion.worker.initial-delay=PT24H",
+      "app.account-deletion.worker.supabase-url=https://project.supabase.invalid",
+      "app.account-deletion.worker.service-role-key=placeholder-service-role"
     })
 @AutoConfigureMockMvc
 @Import(SavedPlacesWebContractIntegrationTest.Fakes.class)

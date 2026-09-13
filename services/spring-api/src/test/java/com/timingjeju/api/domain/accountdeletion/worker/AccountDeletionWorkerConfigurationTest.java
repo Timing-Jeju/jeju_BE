@@ -39,7 +39,7 @@ class AccountDeletionWorkerConfigurationTest {
   void enabled는_명시적_worker_id와_Supabase_production_gateway로만_구성된다() {
     runner
         .withPropertyValues(
-            "app.account-deletion.worker.enabled=true",
+            "app.account-deletion.enabled=true",
             "app.account-deletion.worker.id=worker-106",
             "app.account-deletion.worker.supabase-url=https://project.supabase.co",
             "app.account-deletion.worker.service-role-key=placeholder-service-role")
@@ -57,7 +57,7 @@ class AccountDeletionWorkerConfigurationTest {
   void enabled인데_worker_id가_없으면_fail_fast한다() {
     runner
         .withPropertyValues(
-            "app.account-deletion.worker.enabled=true",
+            "app.account-deletion.enabled=true",
             "app.account-deletion.worker.supabase-url=https://project.supabase.co",
             "app.account-deletion.worker.service-role-key=placeholder-service-role")
         .run(context -> assertThat(context).hasFailed());
@@ -67,7 +67,7 @@ class AccountDeletionWorkerConfigurationTest {
   void enabled인데_Supabase_secret이_없으면_fail_fast한다() {
     runner
         .withPropertyValues(
-            "app.account-deletion.worker.enabled=true",
+            "app.account-deletion.enabled=true",
             "app.account-deletion.worker.id=worker-106",
             "app.account-deletion.worker.supabase-url=https://project.supabase.co")
         .run(context -> assertThat(context).hasFailed());

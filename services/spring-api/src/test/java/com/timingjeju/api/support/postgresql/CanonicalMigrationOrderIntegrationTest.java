@@ -47,7 +47,10 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000019_planned_route_request_hash_policy.sql",
           "20260918000020_remove_user_location_runtime.sql",
           "20260918000021_day_activity_window_pair.sql",
-          "20260918000022_rls_auto_enable_execute_boundary.sql");
+          "20260918000022_rls_auto_enable_execute_boundary.sql",
+          "20260919000000_account_deletion_requests.sql",
+          "20260919010000_account_deletion_worker_runtime.sql",
+          "20260919020000_account_deletion_retention_contract.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -403,7 +406,9 @@ class CanonicalMigrationOrderIntegrationTest {
     PostgreSQLContainer container = PostgreSqlTestContainerFactory.create();
     try {
       container.start();
-      return schemaAndAclFingerprint(jdbc(container));
+      JdbcTemplate jdbc = jdbc(container);
+      assertAccountDeletionContract(jdbc);
+      return schemaAndAclFingerprint(jdbc);
     } finally {
       container.stop();
     }
@@ -414,7 +419,9 @@ class CanonicalMigrationOrderIntegrationTest {
     try {
       container.start();
       applyCanonicalSuffix(container);
-      return schemaAndAclFingerprint(jdbc(container));
+      JdbcTemplate jdbc = jdbc(container);
+      assertAccountDeletionContract(jdbc);
+      return schemaAndAclFingerprint(jdbc);
     } finally {
       container.stop();
     }
@@ -436,7 +443,9 @@ class CanonicalMigrationOrderIntegrationTest {
           CANONICAL_EXECUTION_SUFFIX.subList(9, CANONICAL_EXECUTION_SUFFIX.size())) {
         PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
       }
-      return schemaAndAclFingerprint(jdbc(container));
+      JdbcTemplate jdbc = jdbc(container);
+      assertAccountDeletionContract(jdbc);
+      return schemaAndAclFingerprint(jdbc);
     } finally {
       container.stop();
     }
@@ -446,6 +455,42 @@ class CanonicalMigrationOrderIntegrationTest {
     return jdbc.queryForObject(
         Files.readString(repositoryPath("db/queries/canonical_migration_fingerprint.sql")),
         String.class);
+  }
+
+  private static void assertAccountDeletionContract(JdbcTemplate jdbc) {
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from information_schema.columns where table_schema='public' "
+                    + "and table_name='account_deletion_requests' and column_name in "
+                    + "('lease_owner','lease_expires_at','fencing_token','next_retry_at')",
+                Integer.class))
+        .isEqualTo(4);
+    assertThat(
+            jdbc.queryForObject(
+                "select relrowsecurity and relforcerowsecurity from pg_class "
+                    + "where oid='public.account_deletion_requests'::regclass",
+                Boolean.class))
+        .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "select has_table_privilege('anon','public.account_deletion_requests','SELECT') "
+                    + "or has_table_privilege('authenticated','public.account_deletion_requests','SELECT') "
+                    + "or has_table_privilege('anon','public.account_deletion_steps','SELECT') "
+                    + "or has_table_privilege('authenticated','public.account_deletion_steps','SELECT')",
+                Boolean.class))
+        .isFalse();
+    assertThat(
+            jdbc.queryForObject(
+                "select is_nullable='YES' from information_schema.columns "
+                    + "where table_schema='public' and table_name='user_consents' and column_name='user_id'",
+                Boolean.class))
+        .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "select confdeltype='n' from pg_constraint where conname="
+                    + "'account_deletion_requests_user_profile_id_fkey'",
+                Boolean.class))
+        .isTrue();
   }
 
   private static PostgreSQLContainer legacyUpgradeBeforeTimetable(String image) throws Exception {

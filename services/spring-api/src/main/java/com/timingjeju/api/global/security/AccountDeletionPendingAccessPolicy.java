@@ -2,9 +2,13 @@ package com.timingjeju.api.global.security;
 
 import com.timingjeju.api.application.security.AccountDeletionPendingAccess;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 
 public final class AccountDeletionPendingAccessPolicy {
+  private static final Logger log =
+      LoggerFactory.getLogger(AccountDeletionPendingAccessPolicy.class);
   private final AccountDeletionPendingAccess pendingAccess;
 
   public AccountDeletionPendingAccessPolicy(AccountDeletionPendingAccess pendingAccess) {
@@ -21,6 +25,7 @@ public final class AccountDeletionPendingAccessPolicy {
     try {
       return !pendingAccess.isPending(current.getPrincipal().userId());
     } catch (RuntimeException failure) {
+      log.warn("Account deletion pending lookup failed; denying protected API access", failure);
       return false;
     }
   }
