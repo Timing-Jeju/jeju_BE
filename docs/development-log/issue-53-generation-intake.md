@@ -161,3 +161,18 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 단위·아키텍처 통과, 최종 catalog 상태에서 Python 계약 92건 및 실제 slice OpenAPI 검사와
   openApiDocs 생성 통과(36초). 추가 독립 부분 리뷰의 신규 차단 finding은 0건이다.
   전체 생성 입력 snapshot/접수/worker/조회/apply와 전체 PR 품질 게이트는 아직 미완료다.
+
+## 접수용 Day 경계 검증 (작업 중)
+
+- GenerationDayBoundary 부재로 compileTestJava RED를 먼저 확인했다. 저장 Day 목록·숙소
+  anchor·항공 입출도와 서버에서 승인된 공항 ID만 사용해 출발/도착 장소 및 활동 창을 결정한다.
+- 첫날/중간날/마지막날/당일 경계와 직전 숙소 연결을 검증한다. 앞 Day 건너뛰기, 6일 이상,
+  선박, 누락된 숙박/활동시간, 외부 Day anchor, 중복 ID 및 불연속 날짜는 접수 조건 오류다.
+- UTC 항공 시각은 같은 instant의 KST로 변환하고 활동시간과 교집합이 없으면 거부한다.
+  시간·거리·비용을 만들어 넣지 않으며 대기/이동 buffer 검증은 후속 AI evidence 경계의 책임이다.
+- 최초 4개 테스트와 architecture GREEN 이후 UTC/시간 교집합/Day 계보 회귀를 추가해
+  전체 unit/architecture 통과했다. 모델은 아직 intake adapter에 연결되지 않았다.
+- 독립 리뷰가 발견한 사용자 지정 터미널의 승인 공항 조용한 치환은 추가 실제 RED
+  (`Expecting code to raise a throwable`)로 확인했다. customTerminalName이 있으면
+  canonical resolver의 승인 없이 해석하지 않고 거부하도록 수정했다. 전체 unit/architecture
+  재검증 통과(53초) 및 리뷰 재확인으로 해당 finding 해결을 확인했다.
