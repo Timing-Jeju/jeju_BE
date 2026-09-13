@@ -9,12 +9,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class FrontendApiClientGenerationTest(unittest.TestCase):
-    def test_generator는_검증된_33_operation과_고정_codegen_version만_사용한다(self):
+    def test_generator는_검증된_38_operation과_고정_codegen_version만_사용한다(self):
+        """클라이언트 생성과 산출물 검증 계약을 확인한다."""
         script = (ROOT / "scripts/generate_frontend_api_client.sh").read_text(encoding="utf-8")
         verifier = (ROOT / "scripts/verify_frontend_api_client_artifact.py").read_text(encoding="utf-8")
         generated_contract = script + verifier
 
-        self.assertIn('validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 33', script)
+        self.assertIn('validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 38', script)
         self.assertIn("typescript@6.0.3", script)
         self.assertIn("@hey-api/openapi-ts@0.99.0", script)
         self.assertIn('verify_frontend_api_client_artifact.py', script)
@@ -31,6 +32,7 @@ class FrontendApiClientGenerationTest(unittest.TestCase):
         self.assertIn('"profileImageUpdate"', generated_contract)
 
     def test_network_free_verifier는_33_operation_artifact와_index를_검증한다(self):
+        """클라이언트 생성과 산출물 검증 계약을 확인한다."""
         verifier = ROOT / "scripts/verify_frontend_api_client_artifact.py"
         operations = [f"operation{index}Read" for index in range(22)] + [
             "tripScheduleRead",
@@ -73,6 +75,7 @@ class FrontendApiClientGenerationTest(unittest.TestCase):
         self.assertIn("33 operations", result.stdout)
 
     def test_handoff는_FE_무수정과_release_artifact_경계를_명시한다(self):
+        """클라이언트 생성과 산출물 검증 계약을 확인한다."""
         handoff = (ROOT / "docs/ACCOMMODATION_API.md").read_text(encoding="utf-8")
 
         self.assertIn("FE 소스 변경: 없음", handoff)

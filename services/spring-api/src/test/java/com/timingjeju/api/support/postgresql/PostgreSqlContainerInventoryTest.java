@@ -21,7 +21,9 @@ class PostgreSqlContainerInventoryTest {
     try (var files = Files.walk(sources)) {
       for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
         if (!file.getFileName().toString().equals("PostgreSqlContainerInventoryTest.java")
-            && Files.readString(file).contains("new PostgreSQL" + "Container(")) {
+            && !file.getFileName().toString().endsWith("Test.java")
+            && (Files.readString(file).contains("new PostgreSQL" + "Container(")
+                || Files.readString(file).contains("new PostgreSqlArchive" + "Container("))) {
           constructors.add(sources.relativize(file).toString());
         }
       }
@@ -40,12 +42,16 @@ class PostgreSqlContainerInventoryTest {
     String factory = Files.readString(support.resolve("PostgreSqlTestContainerFactory.java"));
     String configuration =
         Files.readString(support.resolve("PostgreSqlTestcontainersConfiguration.java"));
+    String pool = Files.readString(support.resolve("PostgreSqlLauncherSessionPool.java"));
 
     assertThat(factory)
         .contains("PostgreSqlLauncherSessionPool.container(")
         .doesNotContain("new PostgreSQLContainer(");
     assertThat(configuration)
-        .contains("PostgreSqlTestContainerFactory.create()")
+        .contains("PostgreSqlTestContainerFactory.create(")
+        .doesNotContain("new PostgreSQLContainer(");
+    assertThat(pool)
+        .contains("new PostgreSqlArchiveContainer(")
         .doesNotContain("new PostgreSQLContainer(");
   }
 

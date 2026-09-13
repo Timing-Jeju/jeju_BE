@@ -518,7 +518,10 @@ def _validate_endpoints(
         _validate_endpoint_schemas(endpoint.get("schemas"), label, errors)
         _validate_endpoint_responses(endpoint.get("responses"), label, errors)
         _validate_endpoint_figma(endpoint.get("figma"), label, errors)
-        _validate_endpoint_idempotency(endpoint.get("idempotency"), operation, label, errors)
+        _validate_endpoint_idempotency(
+            endpoint.get("idempotency"), operation, label, errors,
+            required=identity == ("PUT", _canonical_path("/api/v1/trips/{tripId}/day-activity-windows")),
+        )
         _validate_endpoint_pagination(
             endpoint.get("pagination"), operation, label, errors
         )
@@ -594,9 +597,9 @@ def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
 
 
 def _validate_endpoint_idempotency(
-    idempotency: Any, operation: Any, label: str, errors: list[str]
+    idempotency: Any, operation: Any, label: str, errors: list[str], *, required: bool = False
 ) -> None:
-    idempotent_operation = _allowed_string(operation, IDEMPOTENT_OPERATIONS)
+    idempotent_operation = required or _allowed_string(operation, IDEMPOTENT_OPERATIONS)
     allowed_fields = (
         REQUIRED_IDEMPOTENCY_FIELDS
         if idempotent_operation

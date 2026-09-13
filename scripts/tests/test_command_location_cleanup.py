@@ -114,7 +114,7 @@ class CommandLocationCleanupMigrationContractTest(unittest.TestCase):
         integration = (
             ROOT
             / "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql"
-            / "CommandInputSnapshotRepositoryIntegrationTest.java"
+            / "CommandLocationCleanupMigrationIntegrationTest.java"
         ).read_text(encoding="utf-8")
         self.assertIn("lpad((502 - series)::text, 12, '0')", integration)
         self.assertIn("order by location_expires_at, id", integration)
@@ -131,22 +131,6 @@ class CommandLocationCleanupMigrationContractTest(unittest.TestCase):
             concurrency,
             (ROOT / "scripts/supabase-smoke-test.sh").read_text(encoding="utf-8"),
         )
-
-    def test_future_mcp_worker_handoff_requires_immediate_location_admission(self):
-        required = (
-            "현재 production에는 MCP 계산 worker와 argument assembler가 없습니다",
-            "McpCommandLocationResolver.resolveImmediatelyBeforeMcp",
-            "MCP argument 조립 직전에 반드시 호출",
-        )
-        for contract_path in (
-            ROOT / "docs/ARCHITECTURE.md",
-            ROOT / "docs/designs/timing-jeju-db-schema-v0.md",
-        ):
-            contents = contract_path.read_text(encoding="utf-8")
-            with self.subTest(contract=contract_path.name):
-                for fragment in required:
-                    self.assertIn(fragment, contents)
-
 
 if __name__ == "__main__":
     unittest.main()

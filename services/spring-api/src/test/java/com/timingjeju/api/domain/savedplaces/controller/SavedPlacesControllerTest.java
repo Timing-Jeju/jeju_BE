@@ -129,11 +129,13 @@ class SavedPlacesControllerTest {
   }
 
   @Test
-  void DELETE는_owner와_placeId만_전달하고_204_body없음을_반환한다() throws Exception {
+  void DELETE는_owner와_placeId와_ETag를_전달하고_204_body없음을_반환한다() throws Exception {
     SavedPlaceService service = mock(SavedPlaceService.class);
 
     mvc(service)
-        .perform(delete("/api/v1/me/saved-places/{placeId}", PLACE_ID))
+        .perform(
+            delete("/api/v1/me/saved-places/{placeId}", PLACE_ID)
+                .header("If-Match", "\"saved-place-v1\""))
         .andExpect(status().isNoContent())
         .andExpect(jsonPath("$").doesNotExist());
   }
@@ -227,13 +229,16 @@ class SavedPlacesControllerTest {
         () ->
             mvc(service)
                 .perform(
-                    delete("/api/v1/me/saved-places/{placeId}", PLACE_ID).queryParam("x", "1")),
+                    delete("/api/v1/me/saved-places/{placeId}", PLACE_ID)
+                        .header("If-Match", "\"saved-place-v1\"")
+                        .queryParam("x", "1")),
         "INVALID_REQUEST");
     assertProblem(
         () ->
             mvc(service)
                 .perform(
                     delete("/api/v1/me/saved-places/{placeId}", PLACE_ID)
+                        .header("If-Match", "\"saved-place-v1\"")
                         .header("Transfer-Encoding", "chunked")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}")),
@@ -241,7 +246,9 @@ class SavedPlacesControllerTest {
     assertProblem(
         () ->
             mvc(service)
-                .perform(delete("/api/v1/me/saved-places/20000000-0000-0000-0000-00000000000A")),
+                .perform(
+                    delete("/api/v1/me/saved-places/20000000-0000-0000-0000-00000000000A")
+                        .header("If-Match", "\"saved-place-v1\"")),
         "INVALID_REQUEST");
   }
 

@@ -538,12 +538,12 @@ class ScheduleRevisionRunSchemaIntegrationTest {
     return """
         insert into public.compute_run_inputs
           (schedule_revision_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,
-           schema_version,contract_version,algorithm_version,structured_input,command_input_hash,location_supplied)
+           schema_version,contract_version,algorithm_version,structured_input,command_input_hash)
         select run.id,run.owner_user_id,run.trip_plan_id,run.base_schedule_version_id,'schedule_revision',
-          1,run.contract_version,run.algorithm_version,command.input,
-          public.compute_command_input_hash('schedule_revision'::text,1::smallint,
+          2,run.contract_version,run.algorithm_version,command.input,
+          public.compute_command_input_hash('schedule_revision'::text,2::smallint,
             run.contract_version::text,run.algorithm_version::text,run.base_schedule_version_id::uuid,
-            command.input::jsonb,false::boolean,null::jsonb),false
+            command.input::jsonb)
         from public.schedule_revision_runs run
         cross join lateral (select jsonb_build_object('targetDayId',run.target_trip_day_id::text,
           'affectedItemIds','[]'::jsonb,'instructionCodes','[]'::jsonb) as input) command
@@ -557,8 +557,21 @@ class ScheduleRevisionRunSchemaIntegrationTest {
           (id, owner_user_id, trip_plan_id, base_schedule_version_id,
            target_trip_day_id, status, contract_version, algorithm_version,
            idempotency_key, request_hash, next_attempt_at)
-        values (?, ?, ?, ?, ?, ?, 'revision-v1', 'algorithm-v1', ?,
-                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', now())
+        select fixture.id, fixture.owner_user_id, fixture.trip_plan_id,
+          fixture.base_schedule_version_id, fixture.target_trip_day_id, fixture.status,
+          'revision-v1', 'algorithm-v1', fixture.idempotency_key,
+          public.compute_command_input_hash(
+            'schedule_revision'::text, 2::smallint, 'revision-v1'::text, 'algorithm-v1'::text,
+            fixture.base_schedule_version_id::uuid,
+            command.input::jsonb),
+          now()
+        from (values (?, ?, ?, ?, ?, ?, ?)) fixture(
+          id, owner_user_id, trip_plan_id, base_schedule_version_id,
+          target_trip_day_id, status, idempotency_key)
+        cross join lateral (select jsonb_build_object(
+          'targetDayId', fixture.target_trip_day_id::text,
+          'affectedItemIds', '[]'::jsonb,
+          'instructionCodes', '[]'::jsonb) as input) command
         """;
   }
 }

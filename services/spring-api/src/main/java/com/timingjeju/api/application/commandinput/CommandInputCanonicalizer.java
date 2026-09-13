@@ -3,10 +3,7 @@ package com.timingjeju.api.application.commandinput;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
@@ -20,7 +17,6 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Component
 public final class CommandInputCanonicalizer {
-  private static final Duration LOCATION_TTL = Duration.ofHours(24);
   private static final Pattern CANONICAL_RFC3339 =
       Pattern.compile(
           "([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\\.([0-9]{1,9}))?(Z|([+-])([0-9]{2}):([0-9]{2}))");
@@ -33,17 +29,16 @@ public final class CommandInputCanonicalizer {
   public CommandInputSnapshot canonicalize(CommandInputRequest request) {
     Objects.requireNonNull(request, "request는 필수입니다.");
     validateParentType(request.parent(), request.runType());
-    if (request.schemaVersion() != 1) {
+    if (request.schemaVersion() != 2) {
       throw new IllegalArgumentException("지원하지 않는 schema version입니다.");
     }
-    if (!request.structuredInput().isObject()) {
+    JsonNode input = request.structuredInput().deepCopy();
+    if (!input.isObject()) {
       throw new IllegalArgumentException("structured input은 JSON object여야 합니다.");
     }
-    validateClosedProjection(request.runType(), request.structuredInput());
+    validateClosedProjection(request.runType(), input);
 
-    String structuredInput = canonicalJson(request.structuredInput());
-    CommandLocationSnapshot location = canonicalLocation(request.location());
-    String locationDigest = location == null ? null : sha256(location.canonicalCoarseLocation());
+    String structuredInput = canonicalJson(input);
 
     ObjectNode hashDocument = objectMapper.createObjectNode();
     hashDocument.put("algorithmVersion", request.algorithmVersion());
@@ -53,12 +48,6 @@ public final class CommandInputCanonicalizer {
       hashDocument.put("baseScheduleVersionId", request.baseScheduleVersionId().toString());
     }
     hashDocument.put("contractVersion", request.contractVersion());
-    if (locationDigest == null) {
-      hashDocument.putNull("locationDigest");
-    } else {
-      hashDocument.put("locationDigest", locationDigest);
-    }
-    hashDocument.put("locationSupplied", location != null);
     hashDocument.put("runType", request.runType());
     hashDocument.put("schemaVersion", request.schemaVersion());
     try {
@@ -77,8 +66,7 @@ public final class CommandInputCanonicalizer {
         sha256(canonicalJson(hashDocument)),
         request.ownerUserId(),
         request.tripPlanId(),
-        request.baseScheduleVersionId(),
-        location);
+        request.baseScheduleVersionId());
   }
 
   public String canonicalJson(JsonNode node) {
@@ -112,35 +100,6 @@ public final class CommandInputCanonicalizer {
       return node.decimalValue().toPlainString();
     }
     throw new IllegalArgumentException("지원하지 않는 JSON 값입니다.");
-  }
-
-  private CommandLocationSnapshot canonicalLocation(CommandLocation location) {
-    if (location == null) return null;
-    ObjectNode coarse = objectMapper.createObjectNode();
-    coarse.put("type", location.coarseLocation().type());
-    switch (location.coarseLocation()) {
-      case CoarseLocation.Grid100m grid -> {
-        coarse.put("gridX", grid.gridX());
-        coarse.put("gridY", grid.gridY());
-      }
-      case CoarseLocation.Place place -> coarse.put("placeId", place.placeId().toString());
-      case CoarseLocation.Stop stop -> coarse.put("stopId", stop.stopId().toString());
-    }
-    return new CommandLocationSnapshot(
-        canonicalJson(coarse),
-        location.coarseLocation().precisionMeters(),
-        location.policyVersion(),
-        location.observedAt(),
-        earliestArrivedCutoff(location));
-  }
-
-  private static Instant earliestArrivedCutoff(CommandLocation location) {
-    return java.util.stream.Stream.of(location.terminalAt(), location.tripEndedAt())
-        .filter(Objects::nonNull)
-        .filter(anchor -> !anchor.isAfter(location.evaluatedAt()))
-        .map(anchor -> anchor.plus(LOCATION_TTL))
-        .min(Comparator.naturalOrder())
-        .orElse(null);
   }
 
   private static void validateClosedProjection(String runType, JsonNode input) {

@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.trip.dto.response;
 
+import com.timingjeju.api.application.accommodation.AccommodationMutationPayload.AccommodationPayload;
 import com.timingjeju.api.application.trip.TripAggregate;
 import com.timingjeju.api.application.trip.TripMutationResult;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
@@ -46,6 +47,12 @@ public record TripAggregateResponse(
             arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
             schema = @Schema(implementation = TripDayResponse.class))
         List<TripDayResponse> days,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
+        TripTransportEventsResponse transportEvents,
+    @ArraySchema(
+            arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
+            schema = @Schema(implementation = AccommodationPayload.class))
+        List<AccommodationPayload> accommodations,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
             nullable = true,
@@ -92,6 +99,8 @@ public record TripAggregateResponse(
         trip.userPace(),
         trip.transportModes().stream().map(TripTransportModeResponse::from).toList(),
         trip.days().stream().map(TripDayResponse::from).toList(),
+        TripTransportEventsResponse.from(trip.transportEvents()),
+        trip.accommodations().stream().map(AccommodationPayload::from).toList(),
         trip.activeScheduleVersionId(),
         trip.totalScore(),
         TripScoreProvenanceResponse.from(trip.scoreProvenance()),

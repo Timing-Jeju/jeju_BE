@@ -41,6 +41,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.ObjectReader;
@@ -91,7 +92,9 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
     this.createReader =
         objectMapper
             .readerFor(CreateScheduleItemRequest.class)
-            .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION);
+            .with(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     this.patchReader = strict(PatchScheduleItemRequest.class);
     this.reorderReader = strict(ReorderScheduleRequest.class);
     this.moveReader = strict(MoveScheduleItemRequest.class);
@@ -113,6 +116,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
     var expectedTrip = TripEntityTag.parse(ifMatch);
     CurrentUser user = currentUsers.getRequired();
     validateBodySize(body);
+    var parsed = parseRequest(body);
     IdempotencyRequest request =
         ScheduleIdempotencyKey.createRequest(
             user.userId(),
@@ -127,8 +131,7 @@ public final class ScheduleMutationController implements ScheduleMutationApiDocs
             () -> {
               replayed.set(false);
               var mutation =
-                  schedules.addItem(
-                      user, canonicalTripId, expectedTrip, parseRequest(body).toCommand());
+                  schedules.addItem(user, canonicalTripId, expectedTrip, parsed.toCommand());
               ScheduleMutationResponse response = ScheduleMutationResponse.from(mutation);
               return new IdempotencyResponse(
                   201,

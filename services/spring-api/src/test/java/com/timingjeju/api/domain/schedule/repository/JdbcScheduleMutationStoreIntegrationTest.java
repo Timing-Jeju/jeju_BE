@@ -16,9 +16,12 @@ import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripExpectedRevision;
 import com.timingjeju.api.domain.schedule.adapter.JdbcScheduleMutationStore;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -549,7 +552,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   }
 
   @Test
-  void route_snapshot은_계획_버전과_양끝_공개_anchor로_좌표와_hash를_고정한다() {
+  void route_snapshot은_계획_버전과_양끝_공개_anchor로_좌표와_hash를_고정한다() throws Exception {
     UUID routeId = UUID.randomUUID();
     jdbc.update(
         """
@@ -586,7 +589,27 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         .containsEntry("destination_source_place_id", SECOND_PLACE)
         .containsEntry("origin_matches", true)
         .containsEntry("destination_matches", true);
-    assertThat((String) route.get("request_hash")).matches("^[0-9a-f]{64}$");
+    var hashInput = new StringBuilder();
+    for (String component :
+        List.of(
+            "planned-anchor.v1",
+            TRIP.toString(),
+            ACTIVE.toString(),
+            "place",
+            FIRST_PLACE.toString(),
+            "place",
+            SECOND_PLACE.toString())) {
+      hashInput
+          .append(component.getBytes(StandardCharsets.UTF_8).length)
+          .append(':')
+          .append(component);
+    }
+    String expectedHash =
+        HexFormat.of()
+            .formatHex(
+                MessageDigest.getInstance("SHA-256")
+                    .digest(hashInput.toString().getBytes(StandardCharsets.UTF_8)));
+    assertThat(route.get("request_hash")).isEqualTo(expectedHash);
   }
 
   @ParameterizedTest

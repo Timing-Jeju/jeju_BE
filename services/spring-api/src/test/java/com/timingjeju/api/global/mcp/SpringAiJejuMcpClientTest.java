@@ -117,7 +117,6 @@ class SpringAiJejuMcpClientTest {
     assertThat(audit.getAllValues().getFirst().errorCode()).isEqualTo("MCP_TIMEOUT");
     assertThat(audit.getAllValues().getLast().requestId()).isEqualTo("request-0001");
     assertThat(audit.getAllValues().getLast().commandInputHash()).isEqualTo("a".repeat(64));
-    assertThat(audit.getAllValues().getLast().mcpInputHash()).isEqualTo(result.mcpInputHash());
   }
 
   @Test

@@ -295,7 +295,7 @@ class JdbcRunLeaseRepositoryIntegrationTest {
     String hash =
         jdbcTemplate.queryForObject(
             """
-        select public.compute_command_input_hash('feasibility'::text,1::smallint,'contract-v1'::text,?::text,?::uuid,'{"refreshExternalFacts":false}'::jsonb,false::boolean,null::jsonb)
+        select public.compute_command_input_hash('feasibility'::text,2::smallint,'contract-v1'::text,?::text,?::uuid,'{"refreshExternalFacts":false}'::jsonb)
         """,
             String.class,
             algorithm,
@@ -323,9 +323,8 @@ class JdbcRunLeaseRepositoryIntegrationTest {
                   """
               insert into public.compute_run_inputs
                 (compute_run_id,owner_user_id,trip_plan_id,base_schedule_version_id,run_type,
-                 schema_version,contract_version,algorithm_version,structured_input,command_input_hash,
-                 location_supplied)
-              values (?,?,?,?,'feasibility',1,'contract-v1',?,'{"refreshExternalFacts":false}'::jsonb,?,false)
+                 schema_version,contract_version,algorithm_version,structured_input,command_input_hash)
+              values (?,?,?,?,'feasibility',2,'contract-v1',?,'{"refreshExternalFacts":false}'::jsonb,?)
               """,
                   runId,
                   OWNER_ID,

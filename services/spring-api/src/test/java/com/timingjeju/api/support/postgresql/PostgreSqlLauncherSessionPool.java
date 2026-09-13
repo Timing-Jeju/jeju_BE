@@ -66,7 +66,7 @@ final class PostgreSqlLauncherSessionPool {
         PostgreSqlTestContainerFactory.locateRepositoryRoot()
             .resolve("db/local-postgres/auth_compat.sql");
     PostgreSQLContainer container =
-        new PostgreSQLContainer(
+        new PostgreSqlArchiveContainer(
                 DockerImageName.parse(canonicalImage).asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("timing_jeju_launcher_base")
             .withUsername("timing_jeju_repository_test")

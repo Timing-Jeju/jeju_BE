@@ -202,6 +202,7 @@ def valid_document():
 
 class OpenApiFrontendReadinessTest(unittest.TestCase):
     def test_mutually_exclusive_reference_example은_선택한_한개만_요구한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         schema = {
             "type": "object",
             "additionalProperties": False,
@@ -247,15 +248,18 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertIn(message, result.stderr)
 
     def test_clean_checkout에서_artifact가_없으면_skip하지_않고_실패한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         result = self.run_validator(path=ROOT / "missing-openapi-artifact.json")
         self.assertNotEqual(0, result.returncode)
         self.assertIn("OpenAPI artifact가 없습니다", result.stderr)
 
     def test_frontend_ready_openapi는_통과한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         validator = Validator(valid_document(), 9, ROOT)
         self.assertEqual([], validator.validate(include_authority=False))
 
     def test_openapi_31_ref_sibling_nullable을_보존한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         document = valid_document()
         document["components"]["schemas"]["NullableName"] = {"type": "string"}
         document["components"]["schemas"]["WidgetResponse"]["properties"]["name"] = {
@@ -269,6 +273,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual([], validator.validate(include_authority=False))
 
     def test_operation_request_response_header_media_example_mutation을_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         mutations = [
             (lambda d: d["paths"]["/api/v1/me"]["patch"].pop("operationId"), "operationId"),
             (lambda d: d["paths"]["/api/v1/me"]["patch"].update(operationId="create_1"), "operationId"),
@@ -296,12 +301,14 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 self.assert_rejected(mutate, message)
 
     def test_권위_source의_operation_inventory_누락을_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         self.assert_rejected(
             lambda d: d["paths"].pop("/api/v1/weather/forecast"),
             "권위 source의 공개 operation이 없습니다",
         )
 
     def test_operation_security와_403_pipeline_drift를_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         mutations = [
             (
                 lambda d: d["paths"]["/api/v1/legal-documents"]["get"].update(
@@ -331,11 +338,13 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 self.assert_rejected(mutate, message)
 
     def test_16_operation완료_mode는_future_group_전체_삭제도_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         result = self.run_validator(valid_document(), None, "--mode", "16")
         self.assertNotEqual(0, result.returncode, result.stdout)
         self.assertIn("16-operation", result.stderr)
 
     def test_mode16은_push_endpoint를_historical_inventory_밖으로_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         document = valid_document()
         document["paths"]["/api/v1/me/push-devices/{deviceId}"] = {
             "put": copy.deepcopy(document["paths"]["/api/v1/me"]["patch"])
@@ -350,6 +359,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertTrue(any("inventory allowlist" in error for error in errors), errors)
 
     def test_mode20은_push_4개_삭제와_allowlist밖_extra를_모두_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         result = self.run_validator(valid_document(), None, "--mode", "20")
         self.assertNotEqual(0, result.returncode, result.stdout)
         self.assertIn("20-operation", result.stderr)
@@ -394,6 +404,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_mode20_provenance는_push_clean_HEAD까지_exact하다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         validator = Validator(valid_document(), 20, ROOT)
 
         self.assertEqual(
@@ -406,6 +417,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_mode20은_push_contract_4개를_canonical_schema로_projection한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         validator = Validator(valid_document(), 20, ROOT)
         with mock.patch.object(validator, "validate_contract_endpoint") as projection:
             validator.validate_contract_authority()
@@ -529,6 +541,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         self.assertEqual("CreateItemRequest", create.args[1]["schemas"]["body"])
 
     def test_mode28은_mode24에_schedule_edit_네개만_추가한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         historical = operations_for_mode(24)
         expected = operations_for_mode(28)
 
@@ -540,6 +553,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_mode29는_독립_literal_29개_historical_inventory를_exact검사한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         expected = {
             ("GET", "/api/v1/auth/social/providers"): "authSocialProvidersList",
             ("GET", "/api/v1/auth/social/naver/userinfo"): "authNaverUserInfoRead",
@@ -651,6 +665,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_mode30은_preferences_accommodations_transport를_exact검사한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         operation_maps = (
             CURRENT_OPERATIONS,
             SAVED_PLACE_OPERATIONS,
@@ -698,6 +713,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_mode31은_mode30에_place_preferences_하나만_추가해_exact검사한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         historical = operations_for_mode(30)
         expected = operations_for_mode(31)
 
@@ -728,6 +744,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_active_mode33은_historical_mode31에_schedule_edit과_profile_image를_합성한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         historical = operations_for_mode(31)
         expected = operations_for_mode(33)
 
@@ -766,20 +783,22 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             place_runtime["problems"]["503"],
         )
         self.assertEqual(
-            {f"{method} {path}" for method, path in expected},
+            {f"{method} {path}" for method, path in expected} | {"PUT /api/v1/trips/{tripId}/day-activity-windows"},
             set(manifest),
         )
 
     def test_frontend_인계문서는_최신_exact37과_historical_mode를_분리한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         self.assertIn(
-            "#51 일정 편집 4개까지 합친 exact 37개 operation의 프론트엔드 인계본",
+            "#51 일정 편집 4개와 #239 Day 활동창 PUT까지 합친 exact 38개 operation의 프론트엔드 인계본",
             document,
         )
-        self.assertIn("active `--mode 33`", document)
+        self.assertIn("active `--mode 38`", document)
         self.assertIn("mode24는 create만, mode28은 create와 edit 4개", document)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         validator = Validator(valid_document(), 16, ROOT)
         with mock.patch(
             "scripts.validate_openapi_frontend_readiness.subprocess.run",
@@ -807,6 +826,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_schema와_example의_양방향_drift를_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         mutations = [
             (lambda d: d["components"]["schemas"]["WidgetRequest"]["properties"].pop("priority"), "additional property"),
             (lambda d: d["components"]["schemas"]["WidgetRequest"].update(additionalProperties=True), "closed object"),
@@ -820,6 +840,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 self.assert_rejected(mutate, message)
 
     def test_canonical_projection은_schema_constraint_완화와_변조를_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         canonical = {
             "Canonical": {
                 "type": "object",
@@ -884,6 +905,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 self.assertTrue(validator.errors)
 
     def test_canonical_request_header는_누락과_추가를_양방향_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         catalog = {"schemas": {"headers": "CreateHeaders"}}
         schemas = {
             "CreateHeaders": {
@@ -928,6 +950,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
                 )
 
     def test_canonical_projection은_status와_problem_code_삭제_추가_변조를_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         key = ("GET", "/api/v1/me/saved-places")
         catalog = {
             "schemas": {"path": "none", "query": "none", "headers": "CommonHeaders", "body": "none"},
@@ -1036,6 +1059,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_mode9도_current_domain_authority_7개를_전부_projection한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         validator = Validator(valid_document(), 9, ROOT)
         with mock.patch.object(validator, "validate_contract_endpoint") as projection:
             validator.validate_contract_authority()
@@ -1054,6 +1078,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_7개_operation의_대표_problem_code는_endpoint_status별_exact_mapping이다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         expected = {
             ("GET", "/api/v1/me/saved-places", 400): "INVALID_QUERY_PARAMETER",
             ("POST", "/api/v1/me/saved-places", 409): "IDEMPOTENCY_PAYLOAD_CONFLICT",
@@ -1084,6 +1109,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         )
 
     def test_secret_like_example과_internal_endpoint를_거부한다(self):
+        """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         self.assert_rejected(
             lambda d: d["components"]["headers"]["TraceId"].update(example="sk_live_51ABCDEF0123456789"),
             "secret-like",

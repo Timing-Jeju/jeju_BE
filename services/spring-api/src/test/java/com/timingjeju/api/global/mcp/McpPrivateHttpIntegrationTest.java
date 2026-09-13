@@ -83,7 +83,7 @@ class McpPrivateHttpIntegrationTest {
         jdbcTemplate.queryForMap(
             """
             select compute_run_id, tool_name, status, error_code,
-                   command_input_hash, mcp_input_hash, schema_checksum
+                   command_input_hash, schema_checksum
             from public.mcp_compute_call_logs
             where request_id = ?
             """,
@@ -94,7 +94,6 @@ class McpPrivateHttpIntegrationTest {
         .containsEntry("status", "succeeded")
         .containsEntry("error_code", null)
         .containsEntry("command_input_hash", commandInputHash);
-    assertThat(audit.get("mcp_input_hash")).asString().matches("[0-9a-f]{64}");
     assertThat(audit.get("schema_checksum")).asString().matches("[0-9a-f]{64}");
   }
 

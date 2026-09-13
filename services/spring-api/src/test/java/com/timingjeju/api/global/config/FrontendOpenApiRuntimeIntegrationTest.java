@@ -40,6 +40,66 @@ class FrontendOpenApiRuntimeIntegrationTest {
   @Autowired private MockMvc mvc;
 
   @Test
+  void 입출도_객체는_필수_필드와_enum을_보존하고_삭제_응답은_null을_허용한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEvent.required")
+                .value(
+                    org.hamcrest.Matchers.containsInAnyOrder(
+                        "eventType",
+                        "transportType",
+                        "terminalPlaceId",
+                        "customTerminalName",
+                        "scheduledAt",
+                        "transportNumber",
+                        "note")))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEvent.properties.eventType.enum")
+                .value(org.hamcrest.Matchers.containsInAnyOrder("arrival", "departure")))
+        .andExpect(
+            jsonPath("$.components.schemas.TransportEvent.properties.transportType.enum")
+                .value(org.hamcrest.Matchers.containsInAnyOrder("flight", "ferry")))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.TransportEventMutationResponse.properties.event.anyOf[1].type")
+                .value("null"));
+  }
+
+  @Test
+  void 여행_참조_객체의_null과_숙소_필수필드는_생성_계약에_보존된다() throws Exception {
+    var result = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk());
+    for (String field : java.util.List.of("arrival", "departure")) {
+      String path = "$.components.schemas.TripTransportEvents.properties." + field;
+      result
+          .andExpect(
+              jsonPath(path + ".anyOf[0]['$ref']").value("#/components/schemas/TransportEvent"))
+          .andExpect(jsonPath(path + ".anyOf[1].type").value("null"))
+          .andExpect(jsonPath(path + "['$ref']").doesNotExist());
+    }
+    for (String name :
+        java.util.List.of(
+            "TripDetail", "TripDetailLegacyV11", "TripDetailLegacyV1", "TripSummary")) {
+      result.andExpect(
+          jsonPath("$.components.schemas." + name + ".properties.scoreProvenance.anyOf[1].type")
+              .value("null"));
+    }
+    result.andExpect(
+        jsonPath("$.components.schemas.AccommodationPayload.required")
+            .value(
+                org.hamcrest.Matchers.containsInAnyOrder(
+                    "accommodationId",
+                    "placeId",
+                    "customName",
+                    "name",
+                    "checkInDate",
+                    "checkOutDate",
+                    "checkInTime",
+                    "checkOutTime",
+                    "sequenceNo")));
+  }
+
+  @Test
   void 실제_catalog의_OpenAPI는_현재_입력과_nullable_응답을_문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())

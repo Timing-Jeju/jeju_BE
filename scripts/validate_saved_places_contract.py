@@ -28,6 +28,7 @@ CONTRACT_FIELDS = {
     "inherits",
     "ownerIssue",
     "implementationIssue",
+    "implementationIssues",
     "schemas",
     "endpoints",
     "pagination",
@@ -39,8 +40,8 @@ CONTRACT_FIELDS = {
     "externalTraceability",
     "readiness",
 }
-CANONICAL_CONTRACT_SHA256 = "d328867e3e032566d6359719738c112f8aabb1d68d85849029e35cd1c7b0790f"
-CANONICAL_CATALOG_SHA256 = "1282a8a890aacb8f7738f65e5b1044b1ca4c49791bb5fe2faf07e3c649369147"
+CANONICAL_CONTRACT_SHA256 = "8c7a8bc0aa9b9922b48deae3de053eb1e080ff05c81b25cf044d4db30178f2b8"
+CANONICAL_CATALOG_SHA256 = "65b2e3367b37e77c36f2230777f5e2d540af121c7e6ace9fb32fb71e8d751e89"
 EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/me/saved-places"),
     ("POST", "/api/v1/me/saved-places"),
@@ -231,7 +232,7 @@ def _validate_request_fixture(
     }:
         errors.append(f"{label} 최상위 구조가 정확하지 않습니다.")
         return
-    if fixture.get("contractVersion") != "1.0.0":
+    if fixture.get("contractVersion") != "1.2.0":
         errors.append(f"{label} contractVersion이 다릅니다.")
     expected = {
         "list": ("GET", "/api/v1/me/saved-places"),
@@ -311,10 +312,17 @@ def _validate_request_fixture(
     _validate_concrete_path_request(delete, schemas, f"{label}.delete", errors)
     if "body" in delete:
         errors.append(f"{label}.delete는 body를 가질 수 없습니다.")
-    if isinstance(delete.get("headers"), dict) and set(delete["headers"]) != {
-        "Authorization"
-    }:
-        errors.append(f"{label}.delete headers는 Authorization만 가져야 합니다.")
+    delete_headers = delete.get("headers")
+    if not isinstance(delete_headers, dict) or set(delete_headers) != {"Authorization", "If-Match"}:
+        errors.append(f"{label}.delete headers는 Authorization과 If-Match만 가져야 합니다.")
+    else:
+        _validate_value(
+            {"If-Match": delete_headers["If-Match"]},
+            schemas.get("DeleteSavedPlaceHeaders"),
+            schemas,
+            f"{label}.delete.headers",
+            errors,
+        )
 
 
 def _validate_concrete_path_request(
@@ -365,6 +373,8 @@ def _validate_success_fixture(
         if set(response) != {"status", "headers", "body"}:
             errors.append(f"{label}.{name} HTTP envelope 필드가 정확하지 않습니다.")
         _validate_value(response.get("body"), schemas.get("SavedPlace"), schemas, f"{label}.{name}.body", errors)
+        if isinstance(response.get("body"), dict) and response["body"].get("etag") != response.get("headers", {}).get("ETag"):
+            errors.append(f"{label}.{name} body etag와 HTTP ETag가 다릅니다.")
     create = fixture.get("create", {})
     if create.get("status") != 201 or create.get("headers") != {
         "Content-Type": "application/json",
@@ -498,6 +508,15 @@ def _validate_value(
             errors.append(f"fixture {label}의 $ref {reference}를 찾을 수 없습니다.")
             return
         _validate_value(value, target, schemas, label, errors)
+        return
+    if "oneOf" in schema:
+        matches = 0
+        for branch in schema["oneOf"]:
+            branch_errors: list[str] = []
+            _validate_value(value, branch, schemas, label, branch_errors)
+            matches += not branch_errors
+        if matches != 1:
+            errors.append(f"{label}은 oneOf 응답 분기 정확히 하나와 일치해야 합니다.")
         return
     schema_type = schema.get("type")
     if schema_type == "object":
