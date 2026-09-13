@@ -176,3 +176,22 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   (`Expecting code to raise a throwable`)로 확인했다. customTerminalName이 있으면
   canonical resolver의 승인 없이 해석하지 않고 거부하도록 수정했다. 전체 unit/architecture
   재검증 통과(53초) 및 리뷰 재확인으로 해당 finding 해결을 확인했다.
+
+## 저장 여행 조건의 내부 입력 projection (작업 중)
+
+- GenerationTripInput 부재 RED 후 TripAggregate에서 revision/base, 검증된 DayBoundary,
+  Day 활동 창, canonical 숙소/선호 ID만 복사하는 내부 projection을 구현했다.
+  이 모델은 MCP 공개 계약의 원본이 아니며 Pydantic 생성 계약을 대체하지 않는다.
+- 실제 직렬화 검사는 여행 제목·항공 메모·편명이 제외됨을 확인한다. UI 전용 trendy/local도
+  AI 스타일 입력에 넣지 않는다. public_transit→bus, taxi→taxi, walk→walk만 지원한다.
+  rental_car를 다른 수단으로 임의 변환하지 않는다. 일반 여행 저장의 enum은 변경하지 않았다.
+- 명시 체류시간을 우선하고 없으면 추천 정책 출처·버전·시행 시각을 함께 고정한다.
+  추천 부재 또는 provenance 부재는 입력 오류이며 60분 기본값을 사용하지 않는다.
+- 초기 테스트 및 architecture GREEN 후 제외 장소, 미지원/중복 모드, 잘못된 체류시간,
+  중복 장소와 필수 장소 10개 한도를 추가해 전체 unit/architecture 통과했다(50초).
+  독립 부분 리뷰 신규 차단 finding 0건.
+- 후속 previous_days 연결에서는 이전에 방문한 전역 must_visit을 다시 필수로 전달하지 않도록
+  적용 history와 함께 필터링해야 한다. DB 불변 저장·접수 트랜잭션·history 연결은 아직 미완료다.
+- 별도 #89 worktree의 오래 실행된 품질 게이트가 정상 종료했다. 상태 파일은
+  ee19f7d5b82b392673a11f29d362f1f49df5bad5에 대해서만 check/coverage/OpenAPI/Docker SUCCESS다.
+  현재 generation 브랜치의 품질 게이트 근거로 사용하지 않는다.
