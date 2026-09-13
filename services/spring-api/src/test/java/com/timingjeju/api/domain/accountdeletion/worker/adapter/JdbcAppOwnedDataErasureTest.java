@@ -31,8 +31,9 @@ class JdbcAppOwnedDataErasureTest {
   void 짧은_fenced_transaction에서_앱데이터를_삭제하고_보존데이터와_profile을_비식별화한다() {
     NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     when(jdbc.queryForObject(
-            org.mockito.ArgumentMatchers.contains("for update"), anyMap(), eq(UUID.class)))
-        .thenReturn(USER_ID);
+            org.mockito.ArgumentMatchers.contains("for update"), anyMap(), eq(String.class)))
+        .thenReturn(LEASE.requestId());
+    when(jdbc.update(org.mockito.ArgumentMatchers.anyString(), anyMap())).thenReturn(1);
     var adapter = new JdbcAppOwnedDataErasure(jdbc, directTransaction());
 
     adapter.deleteAndAnonymize(LEASE, AuthSubject.of(USER_ID.toString()));
@@ -41,13 +42,27 @@ class JdbcAppOwnedDataErasureTest {
     order
         .verify(jdbc)
         .queryForObject(
-            org.mockito.ArgumentMatchers.contains("for update"), anyMap(), eq(UUID.class));
+            org.mockito.ArgumentMatchers.contains("for update"), anyMap(), eq(String.class));
+    order
+        .verify(jdbc)
+        .update(org.mockito.ArgumentMatchers.contains("set current_step = current_step"), anyMap());
     order
         .verify(jdbc)
         .update(org.mockito.ArgumentMatchers.contains("delete from public.trip_plans"), anyMap());
     order
         .verify(jdbc)
         .update(org.mockito.ArgumentMatchers.contains("delete from public.app_sessions"), anyMap());
+    order
+        .verify(jdbc)
+        .update(
+            org.mockito.ArgumentMatchers.contains("delete from public.api_idempotency_records"),
+            anyMap());
+    order
+        .verify(jdbc)
+        .update(
+            org.mockito.ArgumentMatchers.contains(
+                "delete from public.profile_image_cleanup_outbox"),
+            anyMap());
     order
         .verify(jdbc)
         .update(org.mockito.ArgumentMatchers.contains("update public.user_consents"), anyMap());
@@ -60,7 +75,7 @@ class JdbcAppOwnedDataErasureTest {
   void owner와_fence가_맞지_않으면_어떤_개인정보도_변경하지_않는다() {
     NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     when(jdbc.queryForObject(
-            org.mockito.ArgumentMatchers.contains("for update"), anyMap(), eq(UUID.class)))
+            org.mockito.ArgumentMatchers.contains("for update"), anyMap(), eq(String.class)))
         .thenReturn(null);
     var adapter = new JdbcAppOwnedDataErasure(jdbc, directTransaction());
 
@@ -68,6 +83,28 @@ class JdbcAppOwnedDataErasureTest {
         .isInstanceOf(DeletionOperationException.class)
         .hasMessage("ACCOUNT_DELETION_LEASE_LOST");
     verify(jdbc, never()).update(org.mockito.ArgumentMatchers.anyString(), anyMap());
+  }
+
+  @Test
+  void profile_FK가_이미_NULL이어도_request_bound_subject로_잔류데이터를_멱등_정리한다() {
+    NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+    when(jdbc.queryForObject(
+            org.mockito.ArgumentMatchers.contains("for update"), anyMap(), eq(String.class)))
+        .thenReturn(LEASE.requestId());
+    when(jdbc.update(org.mockito.ArgumentMatchers.anyString(), anyMap())).thenReturn(1);
+    var adapter = new JdbcAppOwnedDataErasure(jdbc, directTransaction());
+
+    adapter.deleteAndAnonymize(LEASE, AuthSubject.of(USER_ID.toString()));
+
+    verify(jdbc)
+        .update(
+            org.mockito.ArgumentMatchers.contains("delete from public.api_idempotency_records"),
+            anyMap());
+    verify(jdbc)
+        .update(
+            org.mockito.ArgumentMatchers.contains(
+                "delete from public.profile_image_cleanup_outbox"),
+            anyMap());
   }
 
   private static TransactionOperations directTransaction() {

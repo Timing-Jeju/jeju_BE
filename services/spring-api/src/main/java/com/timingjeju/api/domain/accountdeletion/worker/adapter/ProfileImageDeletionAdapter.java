@@ -14,7 +14,12 @@ public final class ProfileImageDeletionAdapter implements ProfileImageDeletion {
 
   @Override
   public void deletePrefix(String objectPrefix) {
-    ExternalDeletionResult result = gateway.deletePrefix(objectPrefix);
+    deletePrefix(objectPrefix, () -> {});
+  }
+
+  @Override
+  public void deletePrefix(String objectPrefix, Runnable leaseCheckpoint) {
+    ExternalDeletionResult result = gateway.deletePrefix(objectPrefix, leaseCheckpoint);
     if (result == null) {
       throw DeletionOperationException.retryable("PROFILE_IMAGE_DELETE_UNAVAILABLE");
     }

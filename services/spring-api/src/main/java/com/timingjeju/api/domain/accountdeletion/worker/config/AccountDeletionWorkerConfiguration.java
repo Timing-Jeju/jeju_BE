@@ -47,8 +47,9 @@ public class AccountDeletionWorkerConfiguration {
 
   @Bean
   @ConditionalOnMissingBean(AccountDeletionWorkRepository.class)
-  AccountDeletionWorkRepository accountDeletionWorkRepository(NamedParameterJdbcTemplate jdbc) {
-    return new JdbcAccountDeletionWorkRepository(jdbc);
+  AccountDeletionWorkRepository accountDeletionWorkRepository(
+      NamedParameterJdbcTemplate jdbc, TransactionOperations transaction) {
+    return new JdbcAccountDeletionWorkRepository(jdbc, transaction);
   }
 
   @Bean

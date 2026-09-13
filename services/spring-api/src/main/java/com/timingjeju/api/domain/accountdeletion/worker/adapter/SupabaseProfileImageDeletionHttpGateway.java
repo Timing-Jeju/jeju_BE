@@ -28,11 +28,12 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
     this.transport = java.util.Objects.requireNonNull(transport);
   }
 
-  @Override
-  public ExternalDeletionResult deletePrefix(String prefix) {
+  public ExternalDeletionResult deletePrefix(String prefix, Runnable leaseCheckpoint) {
     String subject = subjectFrom(prefix);
-    List<String> objects = listRecursively(subject);
+    Runnable checkpoint = java.util.Objects.requireNonNull(leaseCheckpoint);
+    List<String> objects = listRecursively(subject, checkpoint);
     for (int from = 0; from < objects.size(); from += 1000) {
+      checkpoint.run();
       int to = Math.min(from + 1000, objects.size());
       deleteBatch(objects.subList(from, to));
     }
@@ -41,7 +42,12 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
         : ExternalDeletionResult.DELETED;
   }
 
-  private List<String> listRecursively(String root) {
+  @Override
+  public ExternalDeletionResult deletePrefix(String prefix) {
+    return deletePrefix(prefix, () -> {});
+  }
+
+  private List<String> listRecursively(String root, Runnable checkpoint) {
     ArrayDeque<String> directories = new ArrayDeque<>();
     Set<String> visited = new LinkedHashSet<>();
     List<String> objects = new ArrayList<>();
@@ -54,6 +60,7 @@ public final class SupabaseProfileImageDeletionHttpGateway implements ProfileIma
       }
       int offset = 0;
       while (true) {
+        checkpoint.run();
         if (++pages > settings.storageMaximumPages()) {
           throw DeletionOperationException.terminal("STORAGE_PAGINATION_LIMIT_EXCEEDED");
         }

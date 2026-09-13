@@ -28,7 +28,11 @@ public record DeletionWorkerPolicy(
 
   public static DeletionWorkerPolicy defaults() {
     return new DeletionWorkerPolicy(
-        Duration.ofSeconds(30), 50, 5, Duration.ofSeconds(1), Duration.ofSeconds(60));
+        Duration.ofSeconds(30), 1, 5, Duration.ofSeconds(1), Duration.ofSeconds(60));
+  }
+
+  public Duration executionDeadline() {
+    return Duration.ofMinutes(5);
   }
 
   public Duration retryDelay(int attempt, DoubleSupplier jitter) {

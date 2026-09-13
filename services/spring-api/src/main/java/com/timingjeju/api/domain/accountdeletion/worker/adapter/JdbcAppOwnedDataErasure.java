@@ -16,13 +16,14 @@ import org.springframework.transaction.support.TransactionOperations;
 public final class JdbcAppOwnedDataErasure implements AppOwnedDataErasure {
   private static final String LOCK_FENCED_REQUEST =
       """
-      select user_profile_id
+      select id
       from public.account_deletion_requests
       where id = :requestId
         and status = 'running'
         and lease_owner = :owner
         and fencing_token = :fence
-        and lease_expires_at > now()
+        and lease_expires_at > clock_timestamp()
+        and (user_profile_id is null or user_profile_id = :userId)
       for update
       """;
 
@@ -46,13 +47,32 @@ public final class JdbcAppOwnedDataErasure implements AppOwnedDataErasure {
                   "owner", lease.owner(),
                   "fence", lease.fencingToken(),
                   "userId", subjectId);
-          UUID profileId = lockProfileId(params);
-          if (!subjectId.equals(profileId)) {
+          String requestId = lockRequest(params);
+          if (!lease.requestId().equals(requestId)
+              || jdbc.update(
+                      """
+                      update public.account_deletion_requests
+                      set current_step = current_step
+                      where id = :requestId and status = 'running'
+                        and lease_owner = :owner and fencing_token = :fence
+                        and lease_expires_at > clock_timestamp()
+                      """,
+                      params)
+                  != 1) {
             throw DeletionOperationException.terminal("ACCOUNT_DELETION_LEASE_LOST");
           }
           // Plans must precede sessions because trip_plans requires either user_id or session_id.
           jdbc.update("delete from public.trip_plans where user_id = :userId", params);
           jdbc.update("delete from public.app_sessions where user_id = :userId", params);
+          jdbc.update(
+              "delete from public.api_idempotency_records where owner_sub = :userId", params);
+          jdbc.update(
+              "delete from public.saved_place_idempotency where owner_sub = :userId", params);
+          jdbc.update(
+              "delete from public.accommodation_idempotency where owner_sub = :userId", params);
+          jdbc.update(
+              "delete from public.profile_image_cleanup_outbox where owner_user_id = :userId",
+              params);
           jdbc.update("delete from public.social_accounts where user_id = :userId", params);
           jdbc.update("delete from public.saved_places where user_id = :userId", params);
           jdbc.update(
@@ -60,9 +80,7 @@ public final class JdbcAppOwnedDataErasure implements AppOwnedDataErasure {
           jdbc.update("delete from public.ai_conversations where user_id = :userId", params);
           jdbc.update(
               "update public.user_consents set user_id = null where user_id = :userId", params);
-          jdbc.update(
-              "update public.mcp_compute_call_logs set user_id = null where user_id = :userId",
-              params);
+          anonymizeLegacyMcpUser(params);
           jdbc.update(
               """
               update public.user_profiles
@@ -81,11 +99,29 @@ public final class JdbcAppOwnedDataErasure implements AppOwnedDataErasure {
         });
   }
 
-  private UUID lockProfileId(Map<String, Object> params) {
+  private String lockRequest(Map<String, Object> params) {
     try {
-      return jdbc.queryForObject(LOCK_FENCED_REQUEST, params, UUID.class);
+      return jdbc.queryForObject(LOCK_FENCED_REQUEST, params, String.class);
     } catch (EmptyResultDataAccessException ignored) {
       return null;
+    }
+  }
+
+  private void anonymizeLegacyMcpUser(Map<String, Object> params) {
+    Boolean legacyUserColumn =
+        jdbc.queryForObject(
+            """
+            select exists (
+              select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'mcp_compute_call_logs'
+                and column_name = 'user_id'
+            )
+            """,
+            Map.of(),
+            Boolean.class);
+    if (Boolean.TRUE.equals(legacyUserColumn)) {
+      jdbc.update(
+          "update public.mcp_compute_call_logs set user_id = null where user_id = :userId", params);
     }
   }
 

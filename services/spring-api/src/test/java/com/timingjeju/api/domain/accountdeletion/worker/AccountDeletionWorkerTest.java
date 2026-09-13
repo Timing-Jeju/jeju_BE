@@ -47,6 +47,7 @@ class AccountDeletionWorkerTest {
             "complete:ACCOUNT_REQUESTS_DENIED",
             "heartbeat",
             "start:PROFILE_IMAGES_DELETED",
+            "heartbeat",
             "delete-storage:profile-images/auth-subject-106",
             "complete:PROFILE_IMAGES_DELETED",
             "heartbeat",
@@ -62,7 +63,7 @@ class AccountDeletionWorkerTest {
     assertThat(fixture.repository.succeeded).isTrue();
     assertThat(fixture.repository.claimOwner).isEqualTo("worker-106");
     assertThat(fixture.repository.claimLeaseDuration).isEqualTo(Duration.ofSeconds(30));
-    assertThat(fixture.repository.claimLimit).isEqualTo(50);
+    assertThat(fixture.repository.claimLimit).isOne();
   }
 
   @Test
@@ -73,6 +74,38 @@ class AccountDeletionWorkerTest {
 
     assertThat(fixture.events).containsExactly("claim", "load", "cancel");
     assertThat(fixture.repository.cancelled).isTrue();
+  }
+
+  @Test
+  void deny_확인만_완료된_요청은_아직_cancel할_수_있다() {
+    Fixture fixture =
+        fixture(
+            work(
+                true,
+                EnumSet.of(DeletionStep.SESSIONS_REVOKED, DeletionStep.ACCOUNT_REQUESTS_DENIED)),
+            LEASE);
+
+    fixture.worker.pollOnce();
+
+    assertThat(fixture.events).containsExactly("claim", "load", "cancel");
+  }
+
+  @Test
+  void 첫_Storage_start_marker_뒤에는_cancel대신_삭제를_resume한다() {
+    DeletionWork marked =
+        new DeletionWork(
+            REQUEST_ID,
+            true,
+            true,
+            EnumSet.of(DeletionStep.SESSIONS_REVOKED, DeletionStep.ACCOUNT_REQUESTS_DENIED),
+            ENCRYPTED_SUBJECT);
+    Fixture fixture = fixture(marked, LEASE);
+
+    fixture.worker.pollOnce();
+
+    assertThat(fixture.events)
+        .doesNotContain("cancel")
+        .contains("delete-storage:profile-images/auth-subject-106");
   }
 
   @Test
@@ -169,6 +202,19 @@ class AccountDeletionWorkerTest {
     fixture.worker.pollOnce();
 
     assertThat(fixture.events).containsExactly("claim", "load", "heartbeat");
+    assertThat(fixture.repository.hasTerminalWrite()).isFalse();
+  }
+
+  @Test
+  void 삼십초를_넘는_Storage_pagination은_주기_checkpoint하고_lease상실_즉시_추가호출을_멈춘다() {
+    Fixture fixture = fixture(work(false, Set.of()), LEASE);
+    fixture.operations.storageCheckpoints = 3;
+    fixture.repository.rejectHeartbeatAfter = 5;
+
+    fixture.worker.pollOnce();
+
+    assertThat(fixture.repository.heartbeatCalls).isEqualTo(6);
+    assertThat(fixture.events).doesNotContain("delete-storage:profile-images/auth-subject-106");
     assertThat(fixture.repository.hasTerminalWrite()).isFalse();
   }
 
@@ -318,6 +364,7 @@ class AccountDeletionWorkerTest {
     private boolean observedRepositoryMutation;
     private String failureAt;
     private DeletionOperationException failure;
+    private int storageCheckpoints = 1;
 
     private RecordingOperations(List<String> events, RecordingRepository repository) {
       this.events = events;
@@ -343,6 +390,14 @@ class AccountDeletionWorkerTest {
     @Override
     public void deletePrefix(String objectPrefix) {
       external("delete-storage", "delete-storage:" + objectPrefix);
+    }
+
+    @Override
+    public void deletePrefix(String objectPrefix, Runnable leaseCheckpoint) {
+      for (int index = 0; index < storageCheckpoints; index++) {
+        leaseCheckpoint.run();
+      }
+      deletePrefix(objectPrefix);
     }
 
     @Override
@@ -383,6 +438,8 @@ class AccountDeletionWorkerTest {
     private String retryCode;
     private String failureCode;
     private Instant nextRetryAt;
+    private int heartbeatCalls;
+    private int rejectHeartbeatAfter = Integer.MAX_VALUE;
 
     private RecordingRepository(List<String> events, DeletionWork work, DeletionLease lease) {
       this.events = events;
@@ -406,7 +463,8 @@ class AccountDeletionWorkerTest {
 
     @Override
     public boolean heartbeat(DeletionLease lease, Instant now, Duration leaseDuration) {
-      return mutation("heartbeat", heartbeatAccepted);
+      heartbeatCalls++;
+      return mutation("heartbeat", heartbeatAccepted && heartbeatCalls <= rejectHeartbeatAfter);
     }
 
     @Override

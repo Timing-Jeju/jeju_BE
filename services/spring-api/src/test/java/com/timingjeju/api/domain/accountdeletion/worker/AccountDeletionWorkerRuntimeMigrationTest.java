@@ -48,4 +48,19 @@ class AccountDeletionWorkerRuntimeMigrationTest {
         .contains("account_deletion_requests_user_profile_id_fkey")
         .doesNotContain("delete from storage.objects", "auth.users");
   }
+
+  @Test
+  void worker_fencing_migration은_첫_파괴_marker와_cancel을_상호배타로_고정한다() throws Exception {
+    String sql =
+        Files.readString(
+                Path.of(
+                    "../../supabase/migrations/20260919040000_account_deletion_worker_fencing.sql"))
+            .toLowerCase();
+
+    assertThat(sql)
+        .contains("destructive_started_at timestamptz")
+        .contains("destructive_started_at is null or cancellation_requested = false")
+        .contains("guard_account_deletion_irreversible_state")
+        .contains("old.cancellation_requested and not new.cancellation_requested");
+  }
 }

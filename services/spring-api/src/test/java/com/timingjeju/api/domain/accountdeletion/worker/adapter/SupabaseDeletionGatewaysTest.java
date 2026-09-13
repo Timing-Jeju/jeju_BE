@@ -152,6 +152,30 @@ class SupabaseDeletionGatewaysTest {
   }
 
   @Test
+  void storage는_각_page와_batch전에_lease_checkpoint하고_상실즉시_추가호출을_중단한다() {
+    RecordingTransport transport =
+        new RecordingTransport(
+            response(200, "[{\"id\":\"one\",\"name\":\"avatar\"}]"), response(200, "{}"));
+    var gateway =
+        new SupabaseProfileImageDeletionHttpGateway(settings(10), new ObjectMapper(), transport);
+    java.util.concurrent.atomic.AtomicInteger checkpoints =
+        new java.util.concurrent.atomic.AtomicInteger();
+
+    assertThatThrownBy(
+            () ->
+                gateway.deletePrefix(
+                    "profile-images/" + SUBJECT,
+                    () -> {
+                      if (checkpoints.incrementAndGet() == 2) {
+                        throw DeletionOperationException.retryable("ACCOUNT_DELETION_LEASE_LOST");
+                      }
+                    }))
+        .isInstanceOf(DeletionOperationException.class)
+        .hasMessage("ACCOUNT_DELETION_LEASE_LOST");
+    assertThat(transport.requests).hasSize(1);
+  }
+
+  @Test
   void storage는_빈_prefix와_비정상_list_payload를_외부호출_또는_delete전에_거부한다() {
     for (String prefix : List.of("", "profile-images/", "profile-images/" + SUBJECT + "/x")) {
       RecordingTransport unused = new RecordingTransport();

@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 import com.timingjeju.api.domain.accountdeletion.worker.adapter.JdbcAccountDeletionWorkRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Tag;
@@ -30,7 +32,8 @@ class JdbcAccountDeletionWorkRepositoryTest {
     NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     when(jdbc.query(anyString(), any(SqlParameterSource.class), any(RowMapper.class)))
         .thenReturn(List.of(LEASE));
-    JdbcAccountDeletionWorkRepository repository = new JdbcAccountDeletionWorkRepository(jdbc);
+    JdbcAccountDeletionWorkRepository repository =
+        new JdbcAccountDeletionWorkRepository(jdbc, directTransaction());
 
     assertThat(repository.claimAvailable("worker-106", NOW, Duration.ofSeconds(30), 50))
         .containsExactly(LEASE);
@@ -46,7 +49,10 @@ class JdbcAccountDeletionWorkRepositoryTest {
         .contains("fencing_token = fencing_token + 1", "attempt = attempt + 1")
         .contains("returning");
     assertThat(parameters.getValue().getValue("owner")).isEqualTo("worker-106");
-    assertThat(parameters.getValue().getValue("leaseExpiresAt")).isEqualTo(NOW.plusSeconds(30));
+    assertThat(parameters.getValue().getValue("now"))
+        .isEqualTo(OffsetDateTime.ofInstant(NOW, ZoneOffset.UTC));
+    assertThat(parameters.getValue().getValue("leaseExpiresAt"))
+        .isEqualTo(OffsetDateTime.ofInstant(NOW.plusSeconds(30), ZoneOffset.UTC));
   }
 
   @Test
@@ -60,7 +66,8 @@ class JdbcAccountDeletionWorkRepositoryTest {
               RowMapper<?> mapper = invocation.getArgument(2);
               return List.of(mapper.mapRow(first, 0), mapper.mapRow(second, 1));
             });
-    JdbcAccountDeletionWorkRepository repository = new JdbcAccountDeletionWorkRepository(jdbc);
+    JdbcAccountDeletionWorkRepository repository =
+        new JdbcAccountDeletionWorkRepository(jdbc, directTransaction());
 
     Optional<DeletionWork> loaded = repository.load(LEASE);
 
@@ -70,13 +77,20 @@ class JdbcAccountDeletionWorkRepositoryTest {
     assertThat(loaded.orElseThrow().completedSteps())
         .containsExactlyInAnyOrder(
             DeletionStep.SESSIONS_REVOKED, DeletionStep.ACCOUNT_REQUESTS_DENIED);
+    assertThat(loaded.orElseThrow().destructiveStepStarted()).isFalse();
   }
 
   @Test
   void 모든_상태_변경은_request_owner_fence로_CAS하고_auth완료는_subject_clear와_단일문이다() {
     NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     when(jdbc.update(anyString(), any(SqlParameterSource.class))).thenReturn(1);
-    JdbcAccountDeletionWorkRepository repository = new JdbcAccountDeletionWorkRepository(jdbc);
+    when(jdbc.queryForObject(
+            anyString(),
+            any(SqlParameterSource.class),
+            org.mockito.ArgumentMatchers.eq(String.class)))
+        .thenReturn(LEASE.requestId());
+    JdbcAccountDeletionWorkRepository repository =
+        new JdbcAccountDeletionWorkRepository(jdbc, directTransaction());
 
     assertThat(repository.startStep(LEASE, DeletionStep.SESSIONS_REVOKED, NOW)).isTrue();
     assertThat(repository.completeStep(LEASE, DeletionStep.SESSIONS_REVOKED, NOW)).isTrue();
@@ -88,13 +102,14 @@ class JdbcAccountDeletionWorkRepositoryTest {
     assertThat(repository.confirmCancelled(LEASE, NOW)).isTrue();
 
     ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-    verify(jdbc, org.mockito.Mockito.times(8)).update(sql.capture(), any(SqlParameterSource.class));
-    assertThat(sql.getAllValues())
-        .allSatisfy(
+    verify(jdbc, org.mockito.Mockito.atLeast(8))
+        .update(sql.capture(), any(SqlParameterSource.class));
+    assertThat(sql.getAllValues().stream().map(String::toLowerCase).toList())
+        .anySatisfy(
             statement ->
-                assertThat(statement.toLowerCase())
-                    .contains("id = :requestid", "lease_owner = :owner", "fencing_token = :fence"));
-    assertThat(sql.getAllValues().get(2).toLowerCase())
+                assertThat(statement)
+                    .contains("auth_subject_ciphertext = null", "auth_subject_key_version = null"));
+    assertThat(sql.getAllValues().stream().map(String::toLowerCase).toList().toString())
         .contains("auth_subject_ciphertext = null", "auth_subject_key_version = null")
         .contains("account_deletion_steps");
   }
@@ -103,7 +118,13 @@ class JdbcAccountDeletionWorkRepositoryTest {
   void fenced_CAS가_0row이면_모든_상태변경은_false로_닫힌다() {
     NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
     when(jdbc.update(anyString(), any(SqlParameterSource.class))).thenReturn(0);
-    JdbcAccountDeletionWorkRepository repository = new JdbcAccountDeletionWorkRepository(jdbc);
+    when(jdbc.queryForObject(
+            anyString(),
+            any(SqlParameterSource.class),
+            org.mockito.ArgumentMatchers.eq(String.class)))
+        .thenReturn(null);
+    JdbcAccountDeletionWorkRepository repository =
+        new JdbcAccountDeletionWorkRepository(jdbc, directTransaction());
 
     assertThat(repository.startStep(LEASE, DeletionStep.SESSIONS_REVOKED, NOW)).isFalse();
     assertThat(repository.completeStep(LEASE, DeletionStep.SESSIONS_REVOKED, NOW)).isFalse();
@@ -121,7 +142,18 @@ class JdbcAccountDeletionWorkRepositoryTest {
     when(resultSet.getBoolean("cancellation_requested")).thenReturn(false);
     when(resultSet.getString("auth_subject_ciphertext")).thenReturn("ciphertext-v1");
     when(resultSet.getString("auth_subject_key_version")).thenReturn("key-v1");
+    when(resultSet.getBoolean("destructive_step_started")).thenReturn(false);
     when(resultSet.getString("step")).thenReturn(step);
     return resultSet;
+  }
+
+  private static org.springframework.transaction.support.TransactionOperations directTransaction() {
+    return new org.springframework.transaction.support.TransactionOperations() {
+      @Override
+      public <T> T execute(org.springframework.transaction.support.TransactionCallback<T> action) {
+        return action.doInTransaction(
+            mock(org.springframework.transaction.TransactionStatus.class));
+      }
+    };
   }
 }

@@ -9,18 +9,25 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.transaction.support.TransactionOperations;
 
 public final class JdbcAccountDeletionWorkRepository implements AccountDeletionWorkRepository {
 
   private final NamedParameterJdbcTemplate jdbc;
+  private final TransactionOperations transaction;
 
-  public JdbcAccountDeletionWorkRepository(NamedParameterJdbcTemplate jdbc) {
+  public JdbcAccountDeletionWorkRepository(
+      NamedParameterJdbcTemplate jdbc, TransactionOperations transaction) {
     this.jdbc = jdbc;
+    this.transaction = transaction;
   }
 
   @Override
@@ -53,8 +60,8 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
         """,
         new MapSqlParameterSource()
             .addValue("owner", owner)
-            .addValue("now", now)
-            .addValue("leaseExpiresAt", now.plus(leaseDuration))
+            .addValue("now", utc(now))
+            .addValue("leaseExpiresAt", utc(now.plus(leaseDuration)))
             .addValue("limit", limit),
         (rs, rowNumber) ->
             new DeletionLease(
@@ -70,6 +77,7 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
         jdbc.query(
             """
             select request.id, request.cancellation_requested,
+                   request.destructive_started_at is not null as destructive_step_started,
                    request.auth_subject_ciphertext,
                    request.auth_subject_key_version, step.step
             from public.account_deletion_requests request
@@ -95,7 +103,12 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
             ? null
             : new EncryptedAuthSubject(first.ciphertext(), first.keyVersion());
     return Optional.of(
-        new DeletionWork(first.requestId(), first.cancellationRequested(), completed, encrypted));
+        new DeletionWork(
+            first.requestId(),
+            first.cancellationRequested(),
+            first.destructiveStepStarted(),
+            completed,
+            encrypted));
   }
 
   @Override
@@ -108,74 +121,92 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
           and status = 'running' and lease_expires_at > :now
         """,
         leaseParameters(lease)
-            .addValue("now", now)
-            .addValue("leaseExpiresAt", now.plus(leaseDuration)));
+            .addValue("now", utc(now))
+            .addValue("leaseExpiresAt", utc(now.plus(leaseDuration))));
   }
 
   @Override
   public boolean startStep(DeletionLease lease, DeletionStep step, Instant startedAt) {
-    return update(
-        """
-        with fenced as (
-          update public.account_deletion_requests
-          set current_step = :step
-          where id = :requestId and lease_owner = :owner and fencing_token = :fence
-            and status = 'running' and lease_expires_at > :startedAt
-          returning id
-        )
-        insert into public.account_deletion_steps(
-          request_id, step, attempt, idempotency_key, started_at)
-        select id, :step, :attempt, id || ':' || :step || ':' || :attempt, :startedAt
-        from fenced
-        on conflict (request_id, step, attempt) do update
-          set started_at = public.account_deletion_steps.started_at
-        """,
-        stepParameters(lease, step).addValue("startedAt", startedAt));
+    return fenced(
+        lease,
+        startedAt,
+        step == DeletionStep.PROFILE_IMAGES_DELETED,
+        parameters -> {
+          int parent =
+              jdbc.update(
+                  """
+                  update public.account_deletion_requests
+                  set current_step = :step,
+                      destructive_started_at = case when :destructive
+                        then coalesce(destructive_started_at, :startedAt)
+                        else destructive_started_at end
+                  where id = :requestId and lease_owner = :owner and fencing_token = :fence
+                    and status = 'running' and lease_expires_at > clock_timestamp()
+                    and (not :destructive or cancellation_requested = false)
+                  """,
+                  parameters
+                      .addValue("step", step.name())
+                      .addValue("attempt", lease.attempt())
+                      .addValue("destructive", step == DeletionStep.PROFILE_IMAGES_DELETED));
+          requireOne(parent);
+          return jdbc.update(
+                  """
+                  insert into public.account_deletion_steps(
+                    request_id, step, attempt, idempotency_key, started_at)
+                  values (:requestId, :step, :attempt,
+                          :requestId || ':' || :step || ':' || :attempt, :startedAt)
+                  on conflict (request_id, step, attempt) do update
+                    set started_at = public.account_deletion_steps.started_at
+                  """,
+                  parameters)
+              == 1;
+        });
   }
 
   @Override
   public boolean completeStep(DeletionLease lease, DeletionStep step, Instant completedAt) {
-    return update(
-        """
-        update public.account_deletion_steps step_record
-        set completed_at = coalesce(step_record.completed_at, :completedAt), failure_code = null
-        where step_record.request_id = :requestId and step_record.step = :step
-          and step_record.attempt = :attempt
-          and exists (
-            select 1 from public.account_deletion_requests request
-            where request.id = :requestId and request.lease_owner = :owner
-              and request.fencing_token = :fence and request.status = 'running'
-              and request.lease_expires_at > :completedAt)
-        """,
-        stepParameters(lease, step).addValue("completedAt", completedAt));
+    return fenced(
+        lease,
+        completedAt,
+        false,
+        parameters ->
+            jdbc.update(
+                    """
+                    update public.account_deletion_steps
+                    set completed_at = coalesce(completed_at, :completedAt), failure_code = null
+                    where request_id = :requestId and step = :step and attempt = :attempt
+                    """,
+                    parameters.addValue("step", step.name()).addValue("attempt", lease.attempt()))
+                == 1);
   }
 
   @Override
   public boolean completeAuthDeletionAndClearSubject(DeletionLease lease, Instant completedAt) {
-    return update(
-        """
-        with completed_step as (
-        update public.account_deletion_steps step_record
-          set completed_at = coalesce(step_record.completed_at, :completedAt), failure_code = null
-          where step_record.request_id = :requestId
-            and step_record.step = 'AUTH_USER_DELETED' and step_record.attempt = :attempt
-            and exists (
-              select 1 from public.account_deletion_requests request
-              where request.id = :requestId and request.lease_owner = :owner
-                and request.fencing_token = :fence and request.status = 'running'
-                and request.lease_expires_at > :completedAt)
-          returning request_id
-        )
-        update public.account_deletion_requests request
-        set auth_subject_ciphertext = null, auth_subject_key_version = null,
-            current_step = 'AUTH_USER_DELETED'
-        where request.id = :requestId and request.lease_owner = :owner
-          and request.fencing_token = :fence and request.status = 'running'
-          and request.id in (select request_id from completed_step)
-        """,
-        leaseParameters(lease)
-            .addValue("attempt", lease.attempt())
-            .addValue("completedAt", completedAt));
+    return fenced(
+        lease,
+        completedAt,
+        false,
+        parameters -> {
+          requireOne(
+              jdbc.update(
+                  """
+                  update public.account_deletion_steps
+                  set completed_at = coalesce(completed_at, :completedAt), failure_code = null
+                  where request_id = :requestId and step = 'AUTH_USER_DELETED'
+                    and attempt = :attempt
+                  """,
+                  parameters.addValue("attempt", lease.attempt())));
+          return jdbc.update(
+                  """
+                  update public.account_deletion_requests
+                  set auth_subject_ciphertext = null, auth_subject_key_version = null,
+                      current_step = 'AUTH_USER_DELETED'
+                  where id = :requestId and lease_owner = :owner and fencing_token = :fence
+                    and status = 'running' and lease_expires_at > clock_timestamp()
+                  """,
+                  parameters)
+              == 1;
+        });
   }
 
   @Override
@@ -185,35 +216,49 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
 
   @Override
   public boolean confirmCancelled(DeletionLease lease, Instant completedAt) {
-    return terminal(lease, "cancelled", null, completedAt);
+    return fenced(
+        lease,
+        completedAt,
+        false,
+        parameters ->
+            jdbc.update(
+                    """
+                    update public.account_deletion_requests
+                    set status = 'cancelled', failure_code = null, completed_at = :completedAt,
+                        next_retry_at = null, lease_owner = null, lease_expires_at = null
+                    where id = :requestId and lease_owner = :owner and fencing_token = :fence
+                      and status = 'running' and lease_expires_at > clock_timestamp()
+                      and cancellation_requested and destructive_started_at is null
+                    """,
+                    parameters)
+                == 1);
   }
 
   @Override
   public boolean retry(
       DeletionLease lease, String failureCode, Instant nextRetryAt, Instant failedAt) {
-    return update(
-        """
-        with fenced as (
-          select id from public.account_deletion_requests
-          where id = :requestId and lease_owner = :owner and fencing_token = :fence
-            and status = 'running'
-        ), step_failure as (
-          update public.account_deletion_steps step_record
-          set failure_code = :failureCode
-          from fenced
-          where step_record.request_id = fenced.id and step_record.attempt = :attempt
-            and step_record.completed_at is null
-        )
-        update public.account_deletion_requests request
-        set next_retry_at = :nextRetryAt, failure_code = :failureCode,
-            lease_owner = null, lease_expires_at = null
-        where request.id in (select id from fenced)
-        """,
-        leaseParameters(lease)
-            .addValue("attempt", lease.attempt())
-            .addValue("failureCode", failureCode)
-            .addValue("nextRetryAt", nextRetryAt)
-            .addValue("failedAt", failedAt));
+    return fenced(
+        lease,
+        failedAt,
+        false,
+        parameters -> {
+          jdbc.update(
+              """
+              update public.account_deletion_steps set failure_code = :failureCode
+              where request_id = :requestId and attempt = :attempt and completed_at is null
+              """,
+              parameters.addValue("attempt", lease.attempt()).addValue("failureCode", failureCode));
+          return jdbc.update(
+                  """
+                  update public.account_deletion_requests
+                  set next_retry_at = :nextRetryAt, failure_code = :failureCode,
+                      lease_owner = null, lease_expires_at = null
+                  where id = :requestId and lease_owner = :owner and fencing_token = :fence
+                    and status = 'running' and lease_expires_at > clock_timestamp()
+                  """,
+                  parameters.addValue("nextRetryAt", utc(nextRetryAt)))
+              == 1;
+        });
   }
 
   @Override
@@ -223,18 +268,57 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
 
   private boolean terminal(
       DeletionLease lease, String status, String failureCode, Instant completedAt) {
-    return update(
-        """
-        update public.account_deletion_requests
-        set status = :status, failure_code = :failureCode, completed_at = :completedAt,
-            next_retry_at = null, lease_owner = null, lease_expires_at = null
-        where id = :requestId and lease_owner = :owner and fencing_token = :fence
-          and status = 'running'
-        """,
-        leaseParameters(lease)
-            .addValue("status", status)
-            .addValue("failureCode", failureCode)
-            .addValue("completedAt", completedAt));
+    return fenced(
+        lease,
+        completedAt,
+        false,
+        parameters ->
+            jdbc.update(
+                    """
+                    update public.account_deletion_requests
+                    set status = :status, failure_code = :failureCode, completed_at = :completedAt,
+                        next_retry_at = null, lease_owner = null, lease_expires_at = null
+                    where id = :requestId and lease_owner = :owner and fencing_token = :fence
+                      and status = 'running' and lease_expires_at > clock_timestamp()
+                    """,
+                    parameters.addValue("status", status).addValue("failureCode", failureCode))
+                == 1);
+  }
+
+  private boolean fenced(
+      DeletionLease lease, Instant at, boolean rejectCancellation, FencedMutation mutation) {
+    try {
+      return Boolean.TRUE.equals(
+          transaction.execute(
+              ignored -> {
+                MapSqlParameterSource parameters =
+                    leaseParameters(lease)
+                        .addValue("at", utc(at))
+                        .addValue("startedAt", utc(at))
+                        .addValue("completedAt", utc(at))
+                        .addValue("failedAt", utc(at));
+                String lockSql =
+                    """
+                    select id from public.account_deletion_requests
+                    where id = :requestId and lease_owner = :owner and fencing_token = :fence
+                      and status = 'running' and lease_expires_at > clock_timestamp()
+                    """
+                        + (rejectCancellation ? " and cancellation_requested = false\n" : "")
+                        + " for update";
+                String locked;
+                try {
+                  locked = jdbc.queryForObject(lockSql, parameters, String.class);
+                } catch (EmptyResultDataAccessException ignoredMissing) {
+                  locked = null;
+                }
+                if (locked == null || !mutation.apply(parameters)) {
+                  throw StaleLease.INSTANCE;
+                }
+                return true;
+              }));
+    } catch (StaleLease ignored) {
+      return false;
+    }
   }
 
   private boolean update(String sql, MapSqlParameterSource parameters) {
@@ -254,11 +338,22 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
         .addValue("attempt", lease.attempt());
   }
 
+  private static OffsetDateTime utc(Instant value) {
+    return OffsetDateTime.ofInstant(value, ZoneOffset.UTC);
+  }
+
+  private static void requireOne(int count) {
+    if (count != 1) {
+      throw StaleLease.INSTANCE;
+    }
+  }
+
   private WorkRow mapWorkRow(ResultSet resultSet, int rowNumber) throws SQLException {
     String rawStep = resultSet.getString("step");
     return new WorkRow(
         resultSet.getString("id"),
         resultSet.getBoolean("cancellation_requested"),
+        resultSet.getBoolean("destructive_step_started"),
         resultSet.getString("auth_subject_ciphertext"),
         resultSet.getString("auth_subject_key_version"),
         rawStep == null ? null : DeletionStep.valueOf(rawStep));
@@ -267,7 +362,21 @@ public final class JdbcAccountDeletionWorkRepository implements AccountDeletionW
   private record WorkRow(
       String requestId,
       boolean cancellationRequested,
+      boolean destructiveStepStarted,
       String ciphertext,
       String keyVersion,
       DeletionStep step) {}
+
+  @FunctionalInterface
+  private interface FencedMutation {
+    boolean apply(MapSqlParameterSource parameters);
+  }
+
+  private static final class StaleLease extends RuntimeException {
+    private static final StaleLease INSTANCE = new StaleLease();
+
+    private StaleLease() {
+      super(null, null, false, false);
+    }
+  }
 }

@@ -7,6 +7,7 @@ import java.util.Set;
 public record DeletionWork(
     String requestId,
     boolean cancellationRequested,
+    boolean destructiveStepStarted,
     Set<DeletionStep> completedSteps,
     EncryptedAuthSubject encryptedSubject) {
 
@@ -21,12 +22,22 @@ public record DeletionWork(
     }
   }
 
-  public boolean isCompleted(DeletionStep step) {
-    return completedSteps.contains(step);
+  public DeletionWork(
+      String requestId,
+      boolean cancellationRequested,
+      Set<DeletionStep> completedSteps,
+      EncryptedAuthSubject encryptedSubject) {
+    this(
+        requestId,
+        cancellationRequested,
+        completedSteps.stream()
+            .anyMatch(step -> step.ordinal() >= DeletionStep.PROFILE_IMAGES_DELETED.ordinal()),
+        completedSteps,
+        encryptedSubject);
   }
 
-  public boolean destructiveStepStarted() {
-    return !completedSteps.isEmpty();
+  public boolean isCompleted(DeletionStep step) {
+    return completedSteps.contains(step);
   }
 
   public EnumSet<DeletionStep> mutableCompletedSteps() {

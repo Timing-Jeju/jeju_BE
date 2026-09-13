@@ -64,6 +64,7 @@ public final class AccountDeletionWorker implements AccountDeletionWorkerCommand
   }
 
   private void execute(DeletionLease lease) {
+    Instant deadline = clock.instant().plus(policy.executionDeadline());
     try {
       Optional<DeletionWork> loaded = repository.load(lease);
       if (loaded.isEmpty()) {
@@ -91,7 +92,9 @@ public final class AccountDeletionWorker implements AccountDeletionWorkerCommand
           lease,
           work,
           DeletionStep.PROFILE_IMAGES_DELETED,
-          () -> profileImageDeletion.deletePrefix(subject.profileImagePrefix()));
+          () ->
+              profileImageDeletion.deletePrefix(
+                  subject.profileImagePrefix(), () -> checkpointOrLose(lease, deadline)));
       runStep(
           lease,
           work,
@@ -131,6 +134,13 @@ public final class AccountDeletionWorker implements AccountDeletionWorkerCommand
     if (!repository.heartbeat(lease, clock.instant(), policy.leaseDuration())) {
       throw LeaseLost.INSTANCE;
     }
+  }
+
+  private void checkpointOrLose(DeletionLease lease, Instant deadline) {
+    if (!clock.instant().isBefore(deadline)) {
+      throw DeletionOperationException.retryable("ACCOUNT_DELETION_DEADLINE_EXCEEDED");
+    }
+    heartbeatOrLose(lease);
   }
 
   private void startStepOrLose(DeletionLease lease, DeletionStep step) {
