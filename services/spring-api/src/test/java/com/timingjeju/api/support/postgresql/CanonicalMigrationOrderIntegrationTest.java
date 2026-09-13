@@ -51,7 +51,8 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260919000000_account_deletion_requests.sql",
           "20260919010000_account_deletion_worker_runtime.sql",
           "20260919020000_account_deletion_retention_contract.sql",
-          "20260919030000_account_deletion_security_correction.sql");
+          "20260919030000_account_deletion_security_correction.sql",
+          "20260919040000_account_deletion_worker_fencing.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {

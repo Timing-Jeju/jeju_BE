@@ -71,6 +71,7 @@ services:
       - ./supabase/migrations/20260919010000_account_deletion_worker_runtime.sql:/docker-entrypoint-initdb.d/062_account_deletion_worker_runtime.sql:ro
       - ./supabase/migrations/20260919020000_account_deletion_retention_contract.sql:/docker-entrypoint-initdb.d/063_account_deletion_retention_contract.sql:ro
       - ./supabase/migrations/20260919030000_account_deletion_security_correction.sql:/docker-entrypoint-initdb.d/064_account_deletion_security_correction.sql:ro
+      - ./supabase/migrations/20260919040000_account_deletion_worker_fencing.sql:/docker-entrypoint-initdb.d/065_account_deletion_worker_fencing.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
