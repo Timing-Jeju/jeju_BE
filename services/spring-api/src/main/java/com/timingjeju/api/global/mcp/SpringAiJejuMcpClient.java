@@ -101,6 +101,39 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
 
   @Override
   public McpInvocationResult call(McpInvocation invocation) {
+    var result =
+        invoke(
+            invocation,
+            content ->
+                contractGuard.validateStructuredContent(
+                    invocation.toolName(), content, invocation.inboundIdAllowlist()));
+    return new McpInvocationResult(
+        result.projection(), result.mcpInputHash(), result.attemptCount());
+  }
+
+  @Override
+  public <T> McpProjectedResult<T> callGeneration(
+      McpInvocation invocation, McpGenerationProjector<T> projector) {
+    if (projector == null
+        || invocation.parent().generationRunId() == null
+        || !invocation.toolName().equals("recommend_jeju_day_trips")
+        || !invocation.inboundIdAllowlist().isEmpty())
+      throw new McpContractException("MCP_CONTRACT_INVALID");
+    return invoke(
+        invocation,
+        content -> {
+          var checked = contractGuard.validateOutputSchema(invocation.toolName(), content);
+          try {
+            return Objects.requireNonNull(projector.validateAndProject(checked));
+          } catch (RuntimeException failure) {
+            // Provider/DB/validation exception의 원문과 cause는 audit/worker로 전파하지 않는다.
+            throw new McpContractException("MCP_CONTRACT_INVALID");
+          }
+        });
+  }
+
+  private <T> McpProjectedResult<T> invoke(
+      McpInvocation invocation, java.util.function.Function<Object, T> validator) {
     if (!ready.get()) throw new McpRemoteCallException("MCP_NOT_READY");
     boolean generationRun = invocation.parent().generationRunId() != null;
     McpSyncClient selectedClient =
@@ -178,13 +211,9 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
                   throw classified;
                 }
               });
-      Map<String, Object> structuredContent;
+      T projection;
       try {
-        structuredContent =
-            contractGuard.validateStructuredContent(
-                invocation.toolName(),
-                call.value().structuredContent(),
-                invocation.inboundIdAllowlist());
+        projection = validator.apply(call.value().structuredContent());
       } catch (McpContractException exception) {
         recordFailureAudit(
             invocation,
@@ -203,12 +232,12 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
           mcpInputHash,
           schemaChecksum,
           requestFactCount,
-          McpFactCounter.count(structuredContent, objectMapper),
+          McpFactCounter.count(call.value().structuredContent(), objectMapper),
           call.attemptCount(),
           "succeeded",
           Math.toIntExact(finalAttemptLatencyMs.get()),
           null);
-      return new McpInvocationResult(structuredContent, mcpInputHash, call.attemptCount());
+      return new McpProjectedResult<>(projection, mcpInputHash, call.attemptCount());
     } catch (McpContractException exception) {
       status = "contract_invalid";
       throw exception;

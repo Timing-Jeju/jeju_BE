@@ -361,3 +361,19 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   후속 응답 상관 검증은 되돌아온 구조화 request와 저장 입력의 일치를 확인해야 한다.
 - 최종 spotlessApply/test/architectureTest와 GenerationIntakeIntegrationTest 실제 DB 9개가
   모두 성공했다(1분 57초). 역매핑 코드를 추가했지만 전체 생성·적용 통합 완료는 아니다.
+
+## 생성 전용 MCP 검증·projection 호출 경계
+
+- callGeneration 부재 compile RED 후 실제 SpringAiJejuMcpClient SDK 실행 경로에
+  generation parent/recommend tool/빈 static inbound/non-null projector 전용 진입점을 추가했다.
+  Schema/hash 검증 후 도메인 검증·정규화 projector가 반환한 값만 호출자에게 전달한다.
+  기존 call은 동일한 static ID allowlist 검증을 유지한다. 전송·감사·재시도는 공통 invoke를 공유한다.
+- Schema 실패는 projector를 호출하지 않고, projector 실패/null 결과는 원문·cause 없는
+  MCP_CONTRACT_INVALID로 감사한다. generation 호출은 기존의 단일 SDK 시도를 유지한다.
+- 정상 failure:null을 Map.copyOf가 거부하는 문제를 생성/기존 호출 두 테스트의
+  MCP_INTERNAL_ERROR RED로 재현했다. Schema 변환과 McpInvocationResult 양쪽에서
+  새 Map의 unmodifiable wrapper로 null을 보존하도록 수정했다.
+- 전체 spotlessApply/test/architectureTest 성공(50초), 신규 호출 경계 테스트 6개 통과.
+  독립 부분 리뷰와 null 수정 재검토 모두 신규 차단 0건이며 전체 승인/recorder는 아니다.
+- 실제 도메인 projector의 요청·근거·canonical 장소·시간·최소 저장 검증 구현과 worker 연결은
+  아직 후속 작업이다. generic projector가 존재한다는 사실을 그 검증의 완료로 간주하지 않는다.

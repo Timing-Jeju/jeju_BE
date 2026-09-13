@@ -121,6 +121,13 @@ public final class McpContractGuard {
 
   public Map<String, Object> validateStructuredContent(
       String toolName, Object structuredContent, Map<String, Set<String>> inboundIdAllowlist) {
+    Map<String, Object> result = validateOutputSchema(toolName, structuredContent);
+    validateIds(objectMapper.valueToTree(result), inboundIdAllowlist, outputIdFields.get(toolName));
+    return result;
+  }
+
+  /** 생성 응답의 동적 ID 검증은 전용 projector가 맡으며 이 메서드는 외부에 공개하지 않는다. */
+  Map<String, Object> validateOutputSchema(String toolName, Object structuredContent) {
     Schema schema = outputSchemas.get(toolName);
     if (schema == null) throw invalidContract();
     JsonNode content = objectMapper.valueToTree(structuredContent);
@@ -128,8 +135,7 @@ public final class McpContractGuard {
       throw new McpContractException("MCP_CONTRACT_INVALID: structuredContent must be object");
     }
     if (!schema.validate(content).isEmpty()) throw invalidContract();
-    validateIds(content, inboundIdAllowlist, outputIdFields.get(toolName));
-    return Map.copyOf(objectMapper.convertValue(content, MAP_TYPE));
+    return java.util.Collections.unmodifiableMap(objectMapper.convertValue(content, MAP_TYPE));
   }
 
   private static Schema compileSchema(ObjectMapper objectMapper, Map<String, Object> outputSchema) {
