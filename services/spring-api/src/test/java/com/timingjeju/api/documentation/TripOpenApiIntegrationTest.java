@@ -302,6 +302,7 @@ class TripOpenApiIntegrationTest
                         "transportEvents",
                         "accommodations",
                         "placePreferences",
+                        "plannerConditions",
                         "activeScheduleVersionId",
                         "totalScore",
                         "scoreProvenance",

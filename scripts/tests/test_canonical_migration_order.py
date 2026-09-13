@@ -40,6 +40,8 @@ CANONICAL_SUFFIX = (
     ("20260918000021_day_activity_window_pair.sql", "059", 239),
     ("20260918000022_generation_lifecycle.sql", "060", 53),
     ("20260918000023_planner_place_preferences.sql", "061", 53),
+    ("20260918000024_planner_conditions.sql", "062", 53),
+    ("20260918000025_sequential_schedule_coverage.sql", "063", 53),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -67,7 +69,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `061`", architecture)
+        self.assertIn("Docker init `038`부터 `063`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:

@@ -100,7 +100,15 @@ TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연�
 
 root owner 조회가 성공한 뒤 `trip_plan_id` 조건으로 교통·숙소·장소 선호를 각각 한 번 조회한다. 숙소 이름은 기존 저장 계약의 `coalesce(tour_places.name, trip_accommodations.custom_name)`을 따른다. root·이동 수단·Day·교통·숙소·장소 선호의 query 수는 행 수와 무관하게 여섯 번이며, 비소유/없는 root는 첫 조회 후 기존 `404 TRIP_NOT_FOUND`로 종료한다. #239의 repeatable-read 상세 조회 transaction을 사용해 revision/strong ETag와 하위 값은 같은 snapshot에 속한다. mutation 응답은 기존 owner root lock이 적용된 transaction 안에서 같은 projection을 읽는다.
 
-#53에서 최신 `TripDetail.placePreferences`를 필수 배열로 추가한다. 미입력은 `[]`이고 기존 장소 선호 저장 계약의 `placeId/type/targetDayNo/priority/requestedStayMinutes`를 그대로 복원하며 정렬은 `priority DESC, placeId ASC`다. 도입 전 완료 receipt는 장소 선호만 없는 닫힌 `TripDetailLegacyV12`로 POST와 Day PUT replay에만 허용한다. 이전 receipt를 재작성하지 않으며 최신 값은 여행 GET으로 조회한다.
+#53에서 최신 `TripDetail.placePreferences`를 필수 배열로 추가한다. 미입력은 `[]`이고 기존 장소 선호 저장 계약의 `placeId/type/targetDayNo/priority/requestedStayMinutes`를 그대로 복원하며 정렬은 `priority DESC, placeId ASC`다. `plannerConditions`는 `{dayAnchors,styleCodes}` 필수 객체이고 미입력은 두 빈 배열이다. 추가 구조화 조건의 두 query도 같은 repeatable-read 안에서 수행한다. 도입 전 완료 receipt는 장소 선호·planner 조건이 없는 닫힌 `TripDetailLegacyV12`로 POST와 Day PUT replay에만 허용한다. 이전 receipt를 재작성하지 않으며 최신 값은 여행 GET으로 조회한다.
+
+### Planner 조건 저장 (#53, 연결 검증 중)
+
+`PUT /api/v1/trips/{tripId}/planner-conditions`는 Authorization, 강한 `If-Match`, UUID `Idempotency-Key`를 요구한다. body는 정확히 `dayAnchors: [{dayId,lodgingPlaceId}]`와 `styleCodes: string[]`다. canonical UUID 외의 이름·좌표·원문 필드를 허용하지 않는다. **전체 교체이므로 FE는 유지할 Day까지 전부 보내야 하며, 누락한 숙소 기준점은 삭제된다.** 최대 30일 저장과 AI 최대 5일 검증은 별개다.
+
+스타일 코드는 `restaurant`(맛집투어), `cafe`(카페투어), `leisure`(액티비티), `cultural_facility`(예술/전시), `relaxed`(힐링/휴식), `trendy`(핫플/트렌디), `local`(로컬/현지)이다. `trendy/local`은 UI 복원만 지원하며 AI 입력으로 변환하지 않는다. 같은 Day·스타일의 중복, 미등록 스타일, 여행 밖 Day는 422다. 사용할 수 없는 canonical 장소는 404다.
+
+200은 `tripId`, `plannerConditions`, `scheduleEffect`, `regenerationRequired`, nullable `activeScheduleVersionId`와 ETag를 반환한다. canonical 동일 입력은 revision을 올리지 않는다. 멱등 재전송은 원본 응답을 보존하고 `Idempotency-Replayed`를 표시한다. 공개 catalog 및 최종 OpenAPI 응답 매핑 검증 전이므로 배포 readiness를 승격하지 않는다.
 
 교통·숙소 조회 실패나 정규화되지 않은 숙소 표시값은 cause 없는 `503 TRIP_DATA_UNAVAILABLE`로 전체 요청을 실패시킨다. 일부 하위 값만 성공 응답으로 반환하지 않는다. 외부 provider를 호출하지 않고 사용자 GPS·현재·간접 위치, 예약 정보 등 새 필드를 추가하지 않는다.
 

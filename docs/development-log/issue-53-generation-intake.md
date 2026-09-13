@@ -109,3 +109,27 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   TripDetailLegacyV12로 보존하는 RED/GREEN 및 계약 55건 통과. 실제 slice OpenAPI 검사와
   openApiDocs JSON 생성 통과. 추가 독립 부분 리뷰도 차단 finding 0건이며 union 설명 누락을 수정했다.
   generation 접수/전체 snapshot/성공 writer/조회/적용 미연결 상태는 아직 그대로다.
+
+## Planner 조건 API 및 순차 버전 범위 (작업 중)
+
+- TripPlannerConditions 모델/codec 부재 RED 후 canonical 숙소 ID 및 7개 닫힌 스타일 코드,
+  중복 Day/스타일·원문 필드 거부를 구현했다. 일반 저장 30일과 AI 생성 5일은 분리한다.
+- migration24 칼럼 부재 실제 PostgreSQL RED(기대2/실제0) 후 trip_days.lodging_place_id,
+  trip_plans.planner_style_codes를 추가했다. 마이그레이션은 CLI로 생성하고 canonical suffix로 정렬했다.
+- root lock/ETag/멱등 PUT /planner-conditions와 TripDetail 복원을 연결했다.
+  Controller 서비스 경계와 기존 Problem advice 적용 누락을 검사 실패 후 수정했다.
+  HTTP 입력 실패 매핑·전체 unit/architecture·저장/복원/IDOR/no-op DB 검사를 통과했다.
+- 독립 리뷰가 지적한 미래 Day/UI 전용 스타일 변경의 전체 무효화를 affectsActive로 수정했다.
+  해당 숙소가 적용된 해당 Day 또는 다음 Day에 영향을 줄 때만 일정 무효화한다.
+- Day1 전용 적용 DB 회귀 테스트는 기존 assert_schedule_day_coverage의 모든 Day 필수 제약으로
+  먼저 실패했다. migration25는 coverage_through_day_no의 nullable legacy/all-day와 명시적
+  1~5일 prefix를 분리한다. 연속 prefix 누락·범위 밖 항목·봉인 후 범위 변경을 거부한다.
+- migration25 초기 함수 종료 구문 오류는 컨테이너 exit3 로그로 확인해 수정했다.
+  해당 실행이 실제 FAILED로 종료된 후에만 재검증을 시작했다. 이 실패를 성공으로 집계하지 않는다.
+- 추가 독립 부분 리뷰에서 affectsActive와 migration25의 새 차단 finding 0건.
+  prefix DB 회귀(미생성 Day2/UI스타일 수정 시 Day1 유지, legacy 전체coverage, prefix 누락/범위밖항목,
+  봉인후변경 거부)와 planner 저장/복원, 전체 unit/architecture 재검증 통과했다.
+
+미완료: planner PUT의 catalog/최종 OpenAPI 응답 계약, 순차 prefix를 user_edit/recovery clone에
+전파, 미래 Day 장소 선호 변경 시 active 보존, 전체 generation 입력 snapshot/접수/worker/
+후보 저장/조회/apply. partial 구현으로 전체 목표 완료나 PR 승인 상태를 기록하지 않는다.

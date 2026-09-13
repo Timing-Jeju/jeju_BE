@@ -44,6 +44,7 @@ class TripsContractTest(unittest.TestCase):
         schemas = json.loads(CONTRACT.read_text())["schemas"]
         previous = json.loads((FIXTURES / "success.json").read_text())["detail"]["body"]
         previous.pop("placePreferences")
+        previous.pop("plannerConditions")
         errors = []
         _validate_value(previous, schemas["TripDetailLegacyV12"], schemas, "legacy", errors)
         self.assertEqual([], errors)

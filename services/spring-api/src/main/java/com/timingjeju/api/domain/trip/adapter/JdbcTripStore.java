@@ -303,13 +303,24 @@ public class JdbcTripStore implements TripStore {
                             rs.getInt("priority"),
                             rs.getObject("requested_stay_minutes", Integer.class)),
                     tripId));
+    var plannerConditions =
+        runTripJdbcStage(
+            diagnostic,
+            TripJdbcStage.PLANNER_CONDITIONS_QUERY,
+            () -> JdbcTripPlannerConditionsStore.read(jdbc, tripId));
     return Optional.of(
         runTripJdbcStage(
             diagnostic,
             TripJdbcStage.SCORE_RESOLUTION,
             () ->
                 root.aggregate(
-                    modes, days, responseTime, transportEvents, accommodations, placePreferences)));
+                    modes,
+                    days,
+                    responseTime,
+                    transportEvents,
+                    accommodations,
+                    placePreferences,
+                    plannerConditions)));
   }
 
   private TripTransportEvents loadTransportEvents(UUID tripId) {
@@ -411,6 +422,7 @@ public class JdbcTripStore implements TripStore {
     TRANSPORT_EVENTS_QUERY,
     ACCOMMODATIONS_QUERY,
     PLACE_PREFERENCES_QUERY,
+    PLANNER_CONDITIONS_QUERY,
     SCORE_RESOLUTION
   }
 
@@ -1172,7 +1184,8 @@ public class JdbcTripStore implements TripStore {
         Instant responseTime,
         TripTransportEvents transportEvents,
         List<Accommodation> accommodations,
-        List<com.timingjeju.api.application.trip.TripPlacePreference> placePreferences) {
+        List<com.timingjeju.api.application.trip.TripPlacePreference> placePreferences,
+        com.timingjeju.api.application.trip.TripPlannerConditions plannerConditions) {
       TripScore score = score(responseTime);
       return new TripAggregate(
           tripId,
@@ -1192,7 +1205,8 @@ public class JdbcTripStore implements TripStore {
           updatedAt,
           transportEvents,
           accommodations,
-          placePreferences);
+          placePreferences,
+          plannerConditions);
     }
   }
 }

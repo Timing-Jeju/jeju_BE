@@ -24,7 +24,8 @@ public record TripAggregate(
     Instant updatedAt,
     TripTransportEvents transportEvents,
     List<Accommodation> accommodations,
-    List<TripPlacePreference> placePreferences) {
+    List<TripPlacePreference> placePreferences,
+    TripPlannerConditions plannerConditions) {
   public TripAggregate {
     if (revision < 1) {
       throw new IllegalArgumentException("revision은 양수여야 합니다.");
@@ -34,6 +35,7 @@ public record TripAggregate(
     java.util.Objects.requireNonNull(transportEvents);
     accommodations = List.copyOf(accommodations);
     placePreferences = List.copyOf(placePreferences);
+    java.util.Objects.requireNonNull(plannerConditions);
   }
 
   public TripAggregate(
@@ -72,7 +74,8 @@ public record TripAggregate(
         updatedAt,
         transportEvents,
         accommodations,
-        List.of());
+        List.of(),
+        TripPlannerConditions.empty());
   }
 
   public TripAggregate(

@@ -48,7 +48,9 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000020_remove_user_location_runtime.sql",
           "20260918000021_day_activity_window_pair.sql",
           "20260918000022_generation_lifecycle.sql",
-          "20260918000023_planner_place_preferences.sql");
+          "20260918000023_planner_place_preferences.sql",
+          "20260918000024_planner_conditions.sql",
+          "20260918000025_sequential_schedule_coverage.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
