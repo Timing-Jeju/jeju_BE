@@ -8,6 +8,8 @@ import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.service.TripPlannerConditionsService;
 import com.timingjeju.api.domain.trip.controller.docs.TripPlannerConditionsApiDocs;
+import com.timingjeju.api.domain.trip.dto.response.PlannerConditionsMutationResponse;
+import com.timingjeju.api.domain.trip.dto.response.TripPlannerConditionsResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.UUID;
@@ -72,13 +74,13 @@ public class TripPlannerConditionsController implements TripPlannerConditionsApi
             () -> {
               replayed.set(false);
               var saved = store.replace(user, id, revision, conditions);
-              var body = mapper.createObjectNode();
-              body.put("tripId", id.toString());
-              body.set("plannerConditions", mapper.valueToTree(saved.payload()));
-              body.put("scheduleEffect", saved.scheduleEffect());
-              body.put("regenerationRequired", saved.regenerationRequired());
-              if (saved.activeScheduleVersionId() == null) body.putNull("activeScheduleVersionId");
-              else body.put("activeScheduleVersionId", saved.activeScheduleVersionId().toString());
+              var body =
+                  new PlannerConditionsMutationResponse(
+                      id,
+                      TripPlannerConditionsResponse.from(saved.payload()),
+                      saved.scheduleEffect(),
+                      saved.regenerationRequired(),
+                      saved.activeScheduleVersionId());
               return new IdempotencyResponse(
                   200,
                   List.of(

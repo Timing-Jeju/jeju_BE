@@ -38,6 +38,30 @@ SMOKE_CHECK = ROOT / "db" / "queries" / "smoke_check.sql"
 
 
 class TripsContractTest(unittest.TestCase):
+    def test_planner_conditions_catalog_matches_closed_nullable_response(self) -> None:
+        """숙소 조건 PUT의 멱등 계약과 최초 여행의 null 활성 응답을 함께 검증한다."""
+        from scripts.validate_trips_contract import _validate_value
+        contract = self._load(CONTRACT)
+        identity = ("PUT", "/api/v1/trips/{tripId}/planner-conditions")
+        endpoint = next(item for item in contract["endpoints"]
+                        if (item["method"], item["path"]) == identity)
+        catalog = next(item for item in self._load(CATALOG)["endpoints"]
+                       if (item["method"], item["path"]) == identity)
+        self.assertEqual(endpoint["idempotency"], catalog["idempotency"])
+        self.assertTrue(endpoint["idempotency"]["required"])
+        self.assertEqual("PlannerConditions", catalog["schemas"]["body"])
+        schemas = contract["schemas"]
+        body = {"tripId": "53000000-0000-0000-0000-000000000001",
+                "plannerConditions": {"dayAnchors": [], "styleCodes": []},
+                "scheduleEffect": "none", "regenerationRequired": False,
+                "activeScheduleVersionId": None}
+        errors = []
+        _validate_value(body, schemas[endpoint["successSchema"]], schemas, "planner", errors)
+        self.assertEqual([], errors)
+        body["rawPrompt"] = "저장하지 않는 원문"
+        _validate_value(body, schemas[endpoint["successSchema"]], schemas, "planner", errors)
+        self.assertTrue(errors)
+
     def test_place_preference_extension_preserves_previous_receipt_shape(self) -> None:
         """장소 선호 도입 전 완료 receipt를 닫힌 legacy 응답으로 보존한다."""
         from scripts.validate_trips_contract import _validate_value
@@ -154,6 +178,7 @@ class TripsContractTest(unittest.TestCase):
                 ("PATCH", "/api/v1/trips/{tripId}"),
                 ("DELETE", "/api/v1/trips/{tripId}"),
                 ("PUT", "/api/v1/trips/{tripId}/day-activity-windows"),
+                ("PUT", "/api/v1/trips/{tripId}/planner-conditions"),
             ],
             [(item["method"], item["path"]) for item in contract["endpoints"]],
         )

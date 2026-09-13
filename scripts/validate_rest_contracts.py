@@ -520,7 +520,10 @@ def _validate_endpoints(
         _validate_endpoint_figma(endpoint.get("figma"), label, errors)
         _validate_endpoint_idempotency(
             endpoint.get("idempotency"), operation, label, errors,
-            required=identity == ("PUT", _canonical_path("/api/v1/trips/{tripId}/day-activity-windows")),
+            required=identity in {
+                ("PUT", _canonical_path("/api/v1/trips/{tripId}/day-activity-windows")),
+                ("PUT", _canonical_path("/api/v1/trips/{tripId}/planner-conditions")),
+            },
         )
         _validate_endpoint_pagination(
             endpoint.get("pagination"), operation, label, errors

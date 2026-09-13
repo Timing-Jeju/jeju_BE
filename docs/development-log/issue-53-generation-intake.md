@@ -147,3 +147,17 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   spotlessApply도 통과했다(플랫폼 전용 기존 테스트 9개 skip). git diff --check 통과.
 - 독립 읽기 전용 부분 리뷰에서 신규 차단 finding 0건을 확인했다. 전체 품질 게이트,
   전체 reviewer 승인 및 PR 생성은 여전히 미완료이며 이번 통과와 구분한다.
+
+## Planner PUT 공개 계약 정합성 (검증 중)
+
+- 실제 /v3/api-docs에서 planner PUT의 JSON 응답 schema 참조 누락 RED를 확인했다.
+  Controller가 반환하는 다섯 필드를 닫힌 DTO로 직렬화하고 문서 인터페이스가 같은 DTO를 사용한다.
+  If-Match/Idempotency-Key와 ETag/Idempotency-Replayed 및 오류 상태를 문서화했다.
+- trips canonical 및 REST catalog에 기존 UI용 PUT을 등록했다. 변경 API 멱등성 검증의
+  예외 범위에는 정확한 해당 PUT 경로만 추가했다. readiness를 임의로 ready로 승격하지 않았다.
+- 초기 catalog 삽입 순서와 version 불일치 검사 실패를 수정하고 기존 endpoint 순서를 유지했다.
+  예전 receipt union 개수에 고정된 테스트도 현재 보존 중인 V12를 포함하도록 정정했다.
+  이전 receipt의 허용 여부 자체와 최신 GET의 거부 검증은 유지한다.
+- 단위·아키텍처 통과, 최종 catalog 상태에서 Python 계약 92건 및 실제 slice OpenAPI 검사와
+  openApiDocs 생성 통과(36초). 추가 독립 부분 리뷰의 신규 차단 finding은 0건이다.
+  전체 생성 입력 snapshot/접수/worker/조회/apply와 전체 PR 품질 게이트는 아직 미완료다.
