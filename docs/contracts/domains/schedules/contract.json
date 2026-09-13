@@ -596,7 +596,9 @@
         "bufferMinutes",
         "distanceMeters",
         "estimatedFareKrw",
-        "riskScore"
+        "riskScore",
+        "riskLevel",
+        "riskReasonCodes"
       ],
       "properties": {
         "legId": {
@@ -686,6 +688,15 @@
           "minimum": 0,
           "maximum": 100,
           "nullable": true
+        },
+        "riskLevel": {
+          "type": "string",
+          "nullable": true,
+          "enum": ["low", "medium", "high", "critical", "unknown"]
+        },
+        "riskReasonCodes": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },

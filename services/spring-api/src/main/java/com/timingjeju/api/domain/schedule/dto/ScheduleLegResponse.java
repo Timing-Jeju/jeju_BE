@@ -48,7 +48,14 @@ public record ScheduleLegResponse(
             types = {"integer", "null"},
             minimum = "0",
             maximum = "100")
-        Integer riskScore) {
+        Integer riskScore,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            nullable = true,
+            types = {"string", "null"},
+            allowableValues = {"low", "medium", "high", "critical", "unknown"})
+        String riskLevel,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) java.util.List<String> riskReasonCodes) {
   private static final ZoneId JEJU = ZoneId.of("Asia/Seoul");
 
   static ScheduleLegResponse from(ScheduleLegSnapshot leg) {
@@ -68,6 +75,8 @@ public record ScheduleLegResponse(
         leg.bufferMinutes(),
         leg.distanceMeters(),
         leg.estimatedFareKrw(),
-        leg.riskScore());
+        leg.riskScore(),
+        leg.riskLevel(),
+        leg.riskReasonCodes());
   }
 }

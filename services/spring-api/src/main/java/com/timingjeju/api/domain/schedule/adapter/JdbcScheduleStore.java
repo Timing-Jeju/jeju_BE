@@ -186,7 +186,7 @@ public class JdbcScheduleStore implements ScheduleStore {
                l.transport_mode, l.planned_departure_at, l.planned_arrival_at,
                l.walk_minutes, l.wait_minutes, l.ride_minutes, l.transfer_minutes,
                l.duration_minutes, l.buffer_minutes, l.distance_meters,
-               l.estimated_fare, l.risk_score
+               l.estimated_fare, l.risk_score, l.facts
         from public.trip_legs l
         join public.trip_days d
           on d.id = l.trip_day_id and d.trip_plan_id = l.trip_plan_id
@@ -340,6 +340,7 @@ public class JdbcScheduleStore implements ScheduleStore {
         || (row.riskScore() != null && (row.riskScore() < 0 || row.riskScore() > 100))) {
       throw invalidData();
     }
+    var risk = ScheduleLegRiskProjection.from(row.facts());
     return new ScheduleLegSnapshot(
         row.id(),
         row.sequenceNo(),
@@ -356,7 +357,9 @@ public class JdbcScheduleStore implements ScheduleStore {
         row.bufferMinutes(),
         row.distanceMeters(),
         row.estimatedFare(),
-        row.riskScore());
+        row.riskScore(),
+        risk.level(),
+        risk.reasonCodes());
   }
 
   private static void validateAdjacency(
@@ -477,7 +480,8 @@ public class JdbcScheduleStore implements ScheduleStore {
         nullableInteger(rs, "buffer_minutes"),
         nullableInteger(rs, "distance_meters"),
         nullableInteger(rs, "estimated_fare"),
-        nullableInteger(rs, "risk_score"));
+        nullableInteger(rs, "risk_score"),
+        rs.getString("facts"));
   }
 
   private static Integer nullableInteger(ResultSet rs, String column) throws SQLException {
@@ -588,7 +592,8 @@ public class JdbcScheduleStore implements ScheduleStore {
       Integer bufferMinutes,
       Integer distanceMeters,
       Integer estimatedFare,
-      Integer riskScore) {}
+      Integer riskScore,
+      String facts) {}
 
   private static final class DayAssembly {
     private final DayRow day;

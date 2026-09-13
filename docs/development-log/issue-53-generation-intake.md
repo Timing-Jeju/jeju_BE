@@ -766,3 +766,13 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 조회 SQL과 내부 snapshot에 `boundary_role`을 연결했다. 일반 항목은 최소 1분을 유지하며, 0분 기준점은 명시된 역할·canonical 장소·동일 시작/종료·0분 버퍼를 모두 요구한다.
 - 동일 DB 통합 테스트 GREEN(1분 27초), `JdbcScheduleStoreTest` 기존 4개와 잘못된 기준점 7개 사례 GREEN(15초, spotlessApply 포함).
 - 내부 역할 보존 assertion을 추가했다. 공개 DTO/OpenAPI 및 복사·편집 보호, 동일 장소 0분 이동 연결은 아직 진행 전이다. 최종 PR 준비 완료로 간주하지 않는다.
+# 2026-09-14 저장된 구간 위험의 공개 조회 연결 (진행 중)
+
+- GenerationTimeline의 저장된 등급/사유를 trip_legs.facts.generation.risks에서 제한적으로 읽는 ScheduleLegRiskProjection을 추가했다. 일반 일정은 riskLevel=null, 빈 생성 risk는 unknown이며 점수로 새 등급을 계산하지 않는다. 자유문 형태의 reason은 거부하고 예외 원문은 노출하지 않는다.
+- JdbcScheduleStore → ScheduleLegSnapshot → ScheduleLegResponse의 riskLevel/riskReasonCodes를 연결하고 canonical schedules 계약에 필드를 추가했다. 새로운 DB 저장/외부 호출은 없다.
+- First RED: 새 projection 미구현 컴파일 실패. GREEN: spotlessApply 및 projection unit3개 통과(5초).
+- 실제 JdbcScheduleStoreIntegrationTest 7개 중5개 통과,2개 실패(1분10초). 활성 일정의 DB 위험정보 조회 assertion은 통과했지만 후보 조회2개가 CANDIDATE_EVIDENCE_UNAVAILABLE로 실패했다. 전체 통합 검증 성공이 아니며 후보fixture/조회 계약 원인을 추가 점검해야 한다.
+- validate_schedules_contract.py와 diff-check 통과. OpenAPI 생성/검증·FE 재인계·UI risk mapping·전체 qualitygate·정식 reviewer·최종 PR은 아직 남아 있다. 현 변경은 미커밋이다.
+- 후속 OpenAPI slice/생성 및 projection unit PASS(21초). 조회 fixture의 AI 버전에 생성 후보 보존 row가 없어 거부되는 것이 현행 TTL 계약임을 확인했다. 해당 테스트는 보존 근거 누락 거부·child 조회 전2query를 검증하도록 바로잡았다. JdbcScheduleStoreIntegrationTest 전체7개 PASS(1분4초), 운영 조회 허용 조건은 완화하지 않았다. 유효 후보 긍정 조회는 실제 GenerationIntakeIntegrationTest 생성 파이프라인으로 별도 확인한다.
+- 독립 부분 reviewer 신규 차단 없음(정식 승인/recorder 아님). 전체 완료 및 PR 준비를 의미하지 않는다.
+- 실제 GenerationIntakeIntegrationTest의 최초 성공완료 normal/rollback/concurrent_apply 3개 시나리오 PASS(1분27초). 생성된 후보3개·만료 전 긍정 조회·만료 거부·소유권·롤백·동시 적용 경로를 포함한다. 전체 integrationTest/qualitygate 성공 증거와 구분한다.
