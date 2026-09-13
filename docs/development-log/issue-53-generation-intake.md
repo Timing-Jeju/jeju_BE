@@ -296,3 +296,22 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   최종 spotlessApply/test/architectureTest 및 실제 DB 통합 8개 성공(1분 53초).
   추가 접수 연결의 독립 부분 리뷰 차단 0건이다. worker 시점 publication 재검증은 여전히 필요하다.
   #79 댓글에도 RED/GREEN 진행 근거를 기록했다. 실제 MCP 실행·후보 저장·조회·apply·최종 PR은 미완료다.
+
+## 저장 조건 → MCP 하루 조건 변환
+
+- GenerationMcpDayConditions 부재 compile RED 후 시간·장소·체류시간·선택/회피·이동 우선순위·
+  지원 스타일을 변환했다. 내부 UUID/사용자 원문/좌표는 제외한다. 첫날/마지막날 숙소 경계를
+  보존하며 당일 공항→공항도 표현한다. previous_days/envelope는 orchestrator가 별도로 결합해야 한다.
+- OffsetDateTime.toString의 초 생략을 RFC3339 기대 테스트로 RED 재현하고 ISO formatter로 수정했다.
+  synthetic fixture와 실제 Java 출력의 전체 JSON tree 일치를 검사하고 AI Pydantic 수용도 확인했다.
+- 독립 리뷰에서 서버 추천 시간을 사용자 고정 시간으로 오인하는 의미 충돌을 발견했다.
+  BE 출처 기대 테스트 RED와 AI extra_forbidden RED 후 AI #19에서 Pydantic 단일 원본을 확장했다.
+  user_requested는 기존 입력과 호환하며 서버 source/policy_version/policy_effective_at은 필수다.
+  BE는 저장된 정책 출처를 그대로 전달하고 숫자를 새로 만들지 않는다.
+- AI worktree /Users/gwongwangjae/jeju_AI_generation_contract, 커밋 45f585a.
+  모델·schema·MCP manifest·합성 산출물·checksum을 정규 생성했으며 한글 검사/Ruff/Pyright와
+  pytest 595 passed, 9 skipped를 확인했다. 아직 AI #19 PR/배포는 완료하지 않았다.
+- BE manifest는 AI 생성본과 byte 일치한다. 최종 spotlessApply/test/architectureTest 성공(52초).
+  독립 재검토에서 의미 충돌 finding 해소 및 추가 차단 0건이다. 이는 전체 승인/recorder가 아니다.
+- AI #19가 배포되고 BE manifest가 함께 적용되기 전 연결을 활성화하지 않는다.
+  실제 worker·후보 저장·조회·apply·FE 실연결 및 최종 품질/Docker/PR은 계속 미완료다.

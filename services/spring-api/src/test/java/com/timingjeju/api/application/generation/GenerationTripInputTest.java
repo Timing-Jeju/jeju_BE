@@ -20,6 +20,185 @@ class GenerationTripInputTest {
   private static final LocalDate DATE = LocalDate.of(2026, 10, 1);
 
   @Test
+  void 서버_추천_체류시간은_사용자_입력으로_위장하지_않고_정책_출처를_전달한다() {
+    var input =
+        GenerationTripInput.capture(
+            trip(null),
+            DAY,
+            0,
+            AIRPORT,
+            Map.of(
+                PLACE,
+                new RecommendedStay(
+                    75,
+                    RecommendedStaySource.CATEGORY_DEFAULT,
+                    "stay-v1",
+                    Instant.EPOCH,
+                    Instant.EPOCH)));
+    var bindings =
+        new GenerationPlaceBindings(
+            List.of(
+                new GenerationPlaceBindings.Place(AIRPORT, "1", "공항"),
+                new GenerationPlaceBindings.Place(PLACE, "2", "공식 장소")));
+    assertThat(GenerationMcpDayConditions.from(input, bindings))
+        .containsEntry(
+            "place_duration_preferences",
+            List.of(
+                Map.of(
+                    "place_id",
+                    "tourapi.place:2",
+                    "requested_stay_minutes",
+                    75,
+                    "source",
+                    "category_default",
+                    "policy_version",
+                    "stay-v1",
+                    "policy_effective_at",
+                    "1970-01-01T00:00:00Z")));
+  }
+
+  @Test
+  void 선택과_회피를_분리하고_택시만_허용하면_다른_수단을_추가하지_않는다() {
+    var avoid = new UUID(53, 5);
+    var input =
+        GenerationTripInput.capture(
+            trip(
+                List.of(
+                    new TripPlacePreference(PLACE, "preferred", 1, 50, 30),
+                    new TripPlacePreference(avoid, "avoid", 1, 0, null)),
+                List.of(new TripTransportMode("taxi", 1, true))),
+            DAY,
+            0,
+            AIRPORT,
+            Map.of());
+    var bindings =
+        new GenerationPlaceBindings(
+            List.of(
+                new GenerationPlaceBindings.Place(AIRPORT, "1", "공항"),
+                new GenerationPlaceBindings.Place(PLACE, "2", "선택 장소"),
+                new GenerationPlaceBindings.Place(avoid, "3", "제외 장소")));
+    var request = GenerationMcpDayConditions.from(input, bindings);
+    assertThat(request)
+        .containsEntry("required_places", List.of())
+        .containsEntry("preferred_places", List.of(Map.of("place_id", "tourapi.place:2")))
+        .containsEntry("excluded_places", List.of(Map.of("place_id", "tourapi.place:3")))
+        .containsEntry(
+            "transport",
+            Map.of(
+                "allowed_modes",
+                List.of("taxi"),
+                "preferred_mode",
+                "taxi",
+                "fallback_order",
+                List.of()))
+        .containsEntry(
+            "place_duration_preferences",
+            List.of(Map.of("place_id", "tourapi.place:2", "requested_stay_minutes", 30)));
+    assertThatThrownBy(
+            () -> GenerationMcpDayConditions.from(input, new GenerationPlaceBindings(List.of())))
+        .hasMessage("GENERATION_INPUT_UNAVAILABLE");
+  }
+
+  @Test
+  void 첫날과_마지막날은_공항을_숙소로_오인하지_않고_명시된_Day_경계를_보존한다() {
+    var day2 = new UUID(53, 6);
+    var lodging = new UUID(53, 7);
+    var days =
+        List.of(
+            new TripDay(DAY, 1, DATE, LocalTime.of(9, 0), LocalTime.of(21, 0)),
+            new TripDay(day2, 2, DATE.plusDays(1), LocalTime.of(9, 0), LocalTime.of(21, 0)));
+    var bindings =
+        new GenerationPlaceBindings(
+            List.of(
+                new GenerationPlaceBindings.Place(AIRPORT, "1", "공항"),
+                new GenerationPlaceBindings.Place(PLACE, "2", "방문 장소"),
+                new GenerationPlaceBindings.Place(lodging, "3", "공식 숙소")));
+    for (int n : List.of(1, 2)) {
+      var start = DATE.plusDays(n - 1).atTime(10, 0).atOffset(ZoneOffset.ofHours(9));
+      var input =
+          new GenerationTripInput(
+              TRIP,
+              7,
+              n == 1 ? null : new UUID(53, 8),
+              new GenerationDayBoundary(
+                  n == 1 ? DAY : day2,
+                  n,
+                  n == 1 ? AIRPORT : lodging,
+                  n == 1 ? lodging : AIRPORT,
+                  start,
+                  start.plusHours(8)),
+              AIRPORT,
+              days,
+              List.of(new TripPlannerConditions.DayAnchor(DAY, lodging)),
+              List.of(new TripPlacePreference(PLACE, "must_visit", null, 100, 90)),
+              List.of("walk"),
+              List.of(),
+              false,
+              List.of(
+                  new GenerationTripInput.PlaceInput(
+                      PLACE, "must_visit", 100, 90, "user_requested", null, null)));
+      var request = GenerationMcpDayConditions.from(input, bindings);
+      assertThat(request)
+          .containsEntry("accommodation", Map.of("place_id", "tourapi.place:3", "name", "공식 숙소"))
+          .doesNotContainKey("rest");
+      assertThat(request.get("day_boundary"))
+          .isEqualTo(
+              Map.of(
+                  "start_place", bindings.reference(input.boundary().startPlaceId()),
+                  "end_place", bindings.reference(input.boundary().endPlaceId())));
+    }
+  }
+
+  @Test
+  void MCP_조건은_저장된_시간과_체류시간을_유지하고_공개_fact_ID만_전달한다() throws Exception {
+    var input = GenerationTripInput.capture(trip(90), DAY, 0, AIRPORT, Map.of());
+    var bindings =
+        new GenerationPlaceBindings(
+            List.of(
+                new GenerationPlaceBindings.Place(AIRPORT, "126471", "제주국제공항"),
+                new GenerationPlaceBindings.Place(PLACE, "126472", "공식 방문 장소")));
+    var request = GenerationMcpDayConditions.from(input, bindings);
+    assertThat(request)
+        .containsEntry("schema_version", "0.7.0")
+        .containsEntry("trip_date", "2026-10-01")
+        .containsEntry("required_places", List.of(Map.of("place_id", "tourapi.place:126472")))
+        .containsEntry(
+            "place_duration_preferences",
+            List.of(Map.of("place_id", "tourapi.place:126472", "requested_stay_minutes", 90)))
+        .containsEntry(
+            "transport",
+            Map.of(
+                "allowed_modes",
+                List.of("bus", "taxi", "walk"),
+                "preferred_mode",
+                "bus",
+                "fallback_order",
+                List.of("taxi", "walk")))
+        .containsEntry("rest", Map.of("pace", "relaxed"));
+    var json = JsonMapper.builder().build().writeValueAsString(request);
+    try (var fixture =
+        getClass().getResourceAsStream("/mcp/generation-day-conditions-v07.input.json")) {
+      assertThat(fixture).isNotNull();
+      var mapper = JsonMapper.builder().build();
+      assertThat(mapper.readTree(json)).isEqualTo(mapper.readTree(fixture));
+    }
+    assertThat(json)
+        .doesNotContain(
+            TRIP.toString(),
+            DAY.toString(),
+            PLACE.toString(),
+            AIRPORT.toString(),
+            "비공개",
+            "original_text",
+            "coordinates",
+            "trendy",
+            "local");
+    assertThat(request.get("activity_window"))
+        .isEqualTo(
+            Map.of("start_at", "2026-10-01T10:00:00+09:00", "end_at", "2026-10-01T18:00:00+09:00"));
+  }
+
+  @Test
   void 저장_조건은_원문_없이_경계와_검증된_체류시간으로_고정한다() {
     var input =
         GenerationTripInput.capture(

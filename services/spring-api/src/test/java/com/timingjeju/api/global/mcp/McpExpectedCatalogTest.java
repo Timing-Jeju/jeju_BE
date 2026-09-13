@@ -11,14 +11,14 @@ import tools.jackson.databind.ObjectMapper;
 class McpExpectedCatalogTest {
 
   @Test
-  void 최소_이전_Day_이력과_후보_만료를_지원하는_AI_PR18_계약을_사용한다() {
+  void 이전_Day_이력과_서버_체류시간_출처를_지원하는_AI_계약을_사용한다() {
     var recommend =
         McpExpectedCatalog.load(new ObjectMapper()).tools().get("recommend_jeju_day_trips");
 
     assertThat(recommend.inputSchemaSha256())
-        .isEqualTo("bdee203887eb769eb28906f5aae68378ecc7ffc855f38e8d1abd474f13353852");
+        .isEqualTo("4defe7054c75658dc88b450faff0b4addceac503e4d37c1a3c1f991f1ccf24c7");
     assertThat(recommend.outputSchemaSha256())
-        .isEqualTo("2f3a382869601455f97184135e2ab8dbf0ec5127bd43998a0ea12fa83994409e");
+        .isEqualTo("b2b6509948001492b90b21aab03f99d1573f16e9adf548a0897d481c19b52b45");
   }
 
   @Test
