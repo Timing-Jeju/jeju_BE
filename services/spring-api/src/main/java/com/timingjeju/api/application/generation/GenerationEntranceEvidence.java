@@ -10,15 +10,24 @@ import tools.jackson.databind.JsonNode;
 public final class GenerationEntranceEvidence {
   private static final String SOURCE = "travel.place-entrance-map";
   private final Map<String, Binding> bindings;
+  private final Set<String> representativePlaces;
 
-  private GenerationEntranceEvidence(Map<String, Binding> bindings) {
+  private GenerationEntranceEvidence(
+      Map<String, Binding> bindings, Set<String> representativePlaces) {
     this.bindings = Map.copyOf(bindings);
+    this.representativePlaces = Set.copyOf(representativePlaces);
   }
 
   public static GenerationEntranceEvidence from(JsonNode response, Set<String> approvedSources) {
     var evidence = GenerationEvidence.from(response, approvedSources);
     var bindings = new HashMap<String, Binding>();
+    var representativePlaces = new HashSet<String>();
     for (var fact : response.get("evidence_facts")) {
+      var id = text(fact.get("fact_id"));
+      if (id.matches("tourapi\\.place:[0-9]{1,32}")
+          && "source".equals(fact.path("derivation").path("kind").asText())
+          && evidence.facts().get(id).sourceIds().equals(Set.of("tourapi.place")))
+        representativePlaces.add(id);
       if (!"place_entrance".equals(fact.path("category").asText())) continue;
       var factId = text(fact.get("fact_id"));
       if (!"source".equals(fact.path("derivation").path("kind").asText())
@@ -35,7 +44,16 @@ public final class GenerationEntranceEvidence {
       facts.add(factId);
       bindings.put(entranceId, new Binding(placeId, Set.copyOf(facts)));
     }
-    return new GenerationEntranceEvidence(bindings);
+    return new GenerationEntranceEvidence(bindings, representativePlaces);
+  }
+
+  boolean requireEndpoint(String endpointId, String placeId, Set<String> factIds) {
+    if (("place-point:" + placeId).equals(endpointId)) {
+      if (!representativePlaces.contains(placeId) || !factIds.contains(placeId)) throw invalid();
+      return true;
+    }
+    require(endpointId, placeId, factIds);
+    return false;
   }
 
   public void require(String entranceId, String expectedPlaceId, Set<String> walkFactIds) {

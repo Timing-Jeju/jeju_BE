@@ -10,6 +10,9 @@
   위 input/output Schema는 변경되지 않았고 기존 생성 출처와 hash를 유지한다.
   테스트에서 ID 필드에 한정해 hotel/required/a/b/meal/rest를 합성 TourAPI fact ID로 매핑한다.
   실제 장소 content ID라는 주장이 아니며 외부 데이터 소스를 호출하지 않는다.
+  장소 연속성 테스트에서는 메모리 안에서만 명시적인 합성 입구 source fact 6개와
+  `travel.place-entrance-map` metadata를 추가하고 각 walk의 endpoint/fact 참조를 연결한다.
+  이는 테스트 관계이며 승인된 운영 입구 데이터가 있다는 주장이 아니다. 원본 예제는 유지한다.
 - `generation-v07.input-schema.json`: 같은 AI commit의 `create_server().list_tools()`에서 생성한
   recommend 도구의 실제 envelope 입력 Schema다. 테스트에서 현재 BE manifest hash와 대조한다.
 - 공식 SDK는 mock transport로 구동한다. 실행기가 저장 입력 port에서 스냅샷을 받아 요청을

@@ -23,6 +23,75 @@ import tools.jackson.databind.node.ObjectNode;
 
 @Tag("unit")
 class JejuGenerationCandidateProjectionTest {
+  private static final Set<String> SOURCES = Set.of("travel.place-entrance-map", "tourapi.place");
+
+  @Test
+  void 대표좌표는_승인장소_근거와_잠정표시를_모두_요구한다() throws Exception {
+    var result = response();
+    var sources = (tools.jackson.databind.node.ArrayNode) result.get("data_sources");
+    var source = (ObjectNode) sources.get(0).deepCopy();
+    source.put("source_id", "tourapi.place");
+    sources.add(source);
+    var facts = (tools.jackson.databind.node.ArrayNode) result.get("evidence_facts");
+    var fact = (ObjectNode) facts.get(facts.size() - 1).deepCopy();
+    fact.put("fact_id", "tourapi.place:1");
+    fact.put("category", "place");
+    fact.set("source_refs", mapper.valueToTree(List.of(Map.of("source_id", "tourapi.place"))));
+    facts.add(fact);
+    var walk =
+        (ObjectNode)
+            result
+                .get("recommendations")
+                .get(0)
+                .get("timeline")
+                .get(0)
+                .get("transfer")
+                .get("direct_walk");
+    walk.put("from_id", "place-point:tourapi.place:1");
+    walk.put("entrance_verification", "PROVISIONAL_PLACE_POINT");
+    ((tools.jackson.databind.node.ArrayNode) walk.get("evidence_fact_ids")).add("tourapi.place:1");
+    assertThat(project(result).outcome()).isEqualTo("success");
+    walk.put("entrance_verification", "VERIFIED");
+    assertThat(project(result).outcome()).isEqualTo("insufficient_feasible_routes");
+    walk.put("entrance_verification", "PROVISIONAL_PLACE_POINT");
+    ((ObjectNode) fact.get("derivation")).put("kind", "policy");
+    assertThat(project(result).outcome()).isEqualTo("insufficient_feasible_routes");
+  }
+
+  @Test
+  void 입구근거가_없는_이동과_다른_도착장소는_거부한다() throws Exception {
+    for (var field : List.of("to_id", "evidence_fact_ids")) {
+      var result = response();
+      var walk =
+          (ObjectNode)
+              result
+                  .get("recommendations")
+                  .get(0)
+                  .get("timeline")
+                  .get(0)
+                  .get("transfer")
+                  .get("direct_walk");
+      if (field.equals("to_id")) walk.put(field, "test-entrance:tourapi.place:3");
+      else walk.set(field, mapper.valueToTree(List.of("fact-route-hotel-required")));
+      assertThat(project(result).outcome()).as(field).isEqualTo("insufficient_feasible_routes");
+    }
+  }
+
+  @Test
+  void 이동의_출발입구가_이전_장소와_다르면_후보를_모두_거부한다() throws Exception {
+    var result = response();
+    ((ObjectNode)
+            result
+                .get("recommendations")
+                .get(0)
+                .get("timeline")
+                .get(0)
+                .get("transfer")
+                .get("direct_walk"))
+        .put("from_id", "unrelated-entrance");
+    assertThat(project(result).outcome()).isEqualTo("insufficient_feasible_routes");
+  }
+
   @Test
   void 버스_시간표와_접근도보_산술이_틀리면_부분후보를_노출하지_않는다() throws Exception {
     for (var field : List.of("planned_minutes", "to_id", "wait", "arrival", "egress")) {
@@ -72,15 +141,15 @@ class JejuGenerationCandidateProjectionTest {
   @Test
   void 저장된_체류시간과_회피_선호를_실제_결과_검증에_적용한다() throws Exception {
     assertThat(
-            GenerationCandidateProjection.from(response(), input(30, false), bindings(), Set.of())
+            GenerationCandidateProjection.from(response(), input(30, false), bindings(), SOURCES)
                 .outcome())
         .isEqualTo("insufficient_feasible_routes");
     assertThat(
-            GenerationCandidateProjection.from(response(), input(60, true), bindings(), Set.of())
+            GenerationCandidateProjection.from(response(), input(60, true), bindings(), SOURCES)
                 .outcome())
         .isEqualTo("insufficient_feasible_routes");
     assertThat(
-            GenerationCandidateProjection.from(response(), input(60, false), bindings(), Set.of())
+            GenerationCandidateProjection.from(response(), input(60, false), bindings(), SOURCES)
                 .outcome())
         .isEqualTo("success");
   }
@@ -183,7 +252,7 @@ class JejuGenerationCandidateProjectionTest {
         java.time.Clock.fixed(
             java.time.Instant.parse("2026-08-14T00:00:00Z"), java.time.ZoneOffset.UTC);
     var executor =
-        new McpGenerationExecutor(snapshots, commands, places, client, mapper, clock, Set.of());
+        new McpGenerationExecutor(snapshots, commands, places, client, mapper, clock, SOURCES);
     var result = executor.execute(runId, clock.instant().plusSeconds(180));
     assertThat(result.outcome()).isEqualTo("success");
     assertThat(result.candidates())
@@ -286,7 +355,7 @@ class JejuGenerationCandidateProjectionTest {
   }
 
   private GenerationCandidateProjection project(ObjectNode response) {
-    return GenerationCandidateProjection.from(response, input(60, false), bindings(), Set.of());
+    return GenerationCandidateProjection.from(response, input(60, false), bindings(), SOURCES);
   }
 
   private GenerationPlaceBindings bindings() {
@@ -338,7 +407,55 @@ class JejuGenerationCandidateProjectionTest {
   private ObjectNode response() throws Exception {
     var response = (ObjectNode) mapper.readTree(resource("generation-v07.synthetic-output.json"));
     canonicalizeIds(response);
+    addSyntheticEntranceBindings(response);
     return response;
+  }
+
+  private void addSyntheticEntranceBindings(ObjectNode response) {
+    var source = mapper.createObjectNode();
+    source.put("source_id", "travel.place-entrance-map");
+    source.put("provider", "synthetic-test");
+    source.putNull("dataset_version");
+    source.putNull("data_as_of");
+    source.put("retrieved_at", "2026-08-11T12:00:00+09:00");
+    source.put("status", "ACTIVE");
+    source.put("attribution_text", "합성 입구 연결 테스트");
+    ((tools.jackson.databind.node.ArrayNode) response.get("data_sources")).add(source);
+    var facts = (tools.jackson.databind.node.ArrayNode) response.get("evidence_facts");
+    for (int index = 1; index <= 6; index++) {
+      String place = "tourapi.place:" + index;
+      var fact = (ObjectNode) facts.get(0).deepCopy();
+      fact.put("fact_id", "test-entrance-fact:" + index);
+      fact.put("category", "place_entrance");
+      fact.set(
+          "value",
+          mapper.valueToTree(Map.of("entrance_id", "test-entrance:" + place, "place_id", place)));
+      fact.set(
+          "source_refs",
+          mapper.valueToTree(List.of(Map.of("source_id", "travel.place-entrance-map"))));
+      fact.set(
+          "derivation", mapper.valueToTree(Map.of("kind", "source", "input_fact_ids", List.of())));
+      facts.add(fact);
+    }
+    bindWalks(response.get("recommendations"));
+  }
+
+  private void bindWalks(tools.jackson.databind.JsonNode node) {
+    if (node.isObject()) {
+      if (node.has("from_id") && node.has("to_id") && node.has("entrance_verification")) {
+        var object = (ObjectNode) node;
+        for (var field : List.of("from_id", "to_id")) {
+          String id = node.get(field).asText();
+          if (id.startsWith("entrance-")) id = canonicalId(id.substring("entrance-".length()));
+          if (id.startsWith("tourapi.place:")) {
+            object.put(field, "test-entrance:" + id);
+            ((tools.jackson.databind.node.ArrayNode) node.get("evidence_fact_ids"))
+                .add("test-entrance-fact:" + id.substring("tourapi.place:".length()));
+          }
+        }
+      }
+      for (var property : node.properties()) bindWalks(property.getValue());
+    } else if (node.isArray()) node.forEach(this::bindWalks);
   }
 
   private void canonicalizeIds(tools.jackson.databind.JsonNode node) {

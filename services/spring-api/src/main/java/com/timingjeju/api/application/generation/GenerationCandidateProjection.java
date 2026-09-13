@@ -56,6 +56,7 @@ public record GenerationCandidateProjection(
       Set<String> approvedSources,
       GenerationPlaceBindings bindings) {
     var evidence = GenerationEvidence.from(response, approvedSources);
+    var entrances = GenerationEntranceEvidence.from(response, approvedSources);
     if (!GenerationCandidateSelection.accepts(response, required, avoided)) return insufficient();
     var scope =
         new GenerationTimeline.Scope(
@@ -74,6 +75,7 @@ public record GenerationCandidateProjection(
       try {
         timeline = GenerationTimeline.from(candidate, scope, bindings);
         GenerationTransferTiming.validate(candidate);
+        GenerationPlaceContinuity.validate(candidate, entrances);
       } catch (GenerationException failure) {
         if (!failure.code().equals("MCP_CONTRACT_INVALID")) throw failure;
         return insufficient();

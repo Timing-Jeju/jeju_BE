@@ -510,3 +510,17 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   실제 JDBC 후보 writer/조회/원자 적용/previous_days/FE·최종 PR은 여전히 후속이다.
 - 최종 spotlessApply/test/architectureTest49초 성공(기존 macOS9skip), 시간검사4개·조합8개 통과.
   독립 재검토에서 이전 finding 해소·신규 차단0이다. 전체 승인/recorder는 아니다.
+
+## 실제 이동의 장소·입구 연속성 연결
+
+- unrelated-entrance 출발이 성공하는 회귀 RED 후 GenerationPlaceContinuity를 실제 후보
+  projection에 연결했다. 도보와 버스 접근/하차 endpoint가 이전/다음 canonical 장소의
+  승인 입구이며 해당 이동이 연결 fact를 참조하는지 검사한다.
+- 대표좌표는 exact place-point:{canonical ID}, 승인 tourapi.place source fact, 해당 이동의
+  장소 fact 참조와 PROVISIONAL_PLACE_POINT 표시를 모두 요구한다. policy fact를 공식
+  대표좌표 근거로 승격하지 않는다. 중간 비이동 장소와 마지막 도착 경계도 확인한다.
+- 기존 AI 합성 원본은 변경하지 않았다. SDK 조합 테스트에서만 합성 입구6개/source metadata와
+  walk 참조를 명시적으로 추가했고 fixture provenance에 운영 근거가 아님을 기록했다.
+- 최초 조합/입구/architecture18초 성공, 독립 부분 리뷰 신규 차단0이다.
+  택시 endpoint·거리/운임 상세·JDBC 후보 writer·조회/apply/previous_days/FE와 최종 PR은 후속이다.
+- 최종 spotlessApply/test/architectureTest53초 성공(조합11개, 기존 macOS9skip)이다.
