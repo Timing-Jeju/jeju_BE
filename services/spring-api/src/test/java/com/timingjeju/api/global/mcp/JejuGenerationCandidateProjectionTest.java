@@ -24,6 +24,22 @@ import tools.jackson.databind.node.ObjectNode;
 @Tag("unit")
 class JejuGenerationCandidateProjectionTest {
   @Test
+  void 저장된_체류시간과_회피_선호를_실제_결과_검증에_적용한다() throws Exception {
+    assertThat(
+            GenerationCandidateProjection.from(response(), input(30, false), bindings(), Set.of())
+                .outcome())
+        .isEqualTo("insufficient_feasible_routes");
+    assertThat(
+            GenerationCandidateProjection.from(response(), input(60, true), bindings(), Set.of())
+                .outcome())
+        .isEqualTo("insufficient_feasible_routes");
+    assertThat(
+            GenerationCandidateProjection.from(response(), input(60, false), bindings(), Set.of())
+                .outcome())
+        .isEqualTo("success");
+  }
+
+  @Test
   void 점수_합계와_가중치_합이_다르면_계약오류로_거부한다() throws Exception {
     var response = response();
     ((ObjectNode) response.get("recommendations").get(0).get("score")).put("total", 1.01);
@@ -127,26 +143,53 @@ class JejuGenerationCandidateProjectionTest {
   }
 
   private GenerationCandidateProjection project(ObjectNode response) {
+    return GenerationCandidateProjection.from(response, input(60, false), bindings(), Set.of());
+  }
+
+  private GenerationPlaceBindings bindings() {
     var places = new ArrayList<GenerationPlaceBindings.Place>();
     for (int n = 1; n <= 6; n++)
       places.add(
           new GenerationPlaceBindings.Place(new UUID(79, n), Integer.toString(n), "합성 공식 장소"));
-    var scope =
-        new GenerationTimeline.Scope(
-            OffsetDateTime.parse("2026-08-15T09:00:00+09:00"),
-            OffsetDateTime.parse("2026-08-15T20:00:00+09:00"),
-            "tourapi.place:1",
-            "tourapi.place:1",
-            Set.of("walk", "bus", "taxi"),
-            Map.of(),
-            Set.of());
-    return GenerationCandidateProjection.from(
-        response,
-        scope,
-        Set.of("tourapi.place:2"),
-        Set.of(),
-        Set.of(),
-        new GenerationPlaceBindings(places));
+    return new GenerationPlaceBindings(places);
+  }
+
+  private GenerationTripInput input(int minutes, boolean avoid) {
+    var dayId = new UUID(79, 101);
+    var airportId = new UUID(79, 1);
+    var requiredId = new UUID(79, 2);
+    var start = OffsetDateTime.parse("2026-08-15T09:00:00+09:00");
+    var end = OffsetDateTime.parse("2026-08-15T20:00:00+09:00");
+    var preferences = new ArrayList<com.timingjeju.api.application.trip.TripPlacePreference>();
+    var places = new ArrayList<GenerationTripInput.PlaceInput>();
+    preferences.add(
+        new com.timingjeju.api.application.trip.TripPlacePreference(
+            requiredId, "must_visit", 1, 50, minutes));
+    places.add(
+        new GenerationTripInput.PlaceInput(
+            requiredId, "must_visit", 50, minutes, "user_requested", null, null));
+    if (avoid) {
+      preferences.add(
+          new com.timingjeju.api.application.trip.TripPlacePreference(
+              new UUID(79, 3), "avoid", 1, 0, null));
+      places.add(
+          new GenerationTripInput.PlaceInput(new UUID(79, 3), "avoid", 0, null, null, null, null));
+    }
+    return new GenerationTripInput(
+        new UUID(79, 100),
+        1,
+        null,
+        new GenerationDayBoundary(dayId, 1, airportId, airportId, start, end),
+        airportId,
+        List.of(
+            new com.timingjeju.api.application.trip.TripDay(
+                dayId, 1, start.toLocalDate(), start.toLocalTime(), end.toLocalTime())),
+        List.of(),
+        preferences,
+        List.of("walk", "bus", "taxi"),
+        List.of(),
+        false,
+        places);
   }
 
   private ObjectNode response() throws Exception {

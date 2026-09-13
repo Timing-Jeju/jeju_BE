@@ -409,3 +409,15 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   독립 부분 리뷰 신규 차단 0건이며 전체 승인/recorder는 아니다.
 - 입력 Schema는 이 SDK 조합 테스트 전용이다. 저장 입력 기반 Scope, request echo, 모든 비용/
   버스 상세 검사와 실제 worker/DB 후보 저장·조회·apply·FE 연결/최종 PR은 여전히 후속 범위다.
+
+## 저장 입력 기반 후보 검증 기준 연결
+
+- 공개 projection 진입점을 GenerationTripInput 기반으로 변경했다. 임의 Scope/필수/회피
+  목록을 받던 진입점은 private으로 제한하고 저장된 boundary·transportModes·places와
+  고정 stayMinutes에서 기준을 파생한다. 모든 대상/경계 ID는 canonical bindings로 확인한다.
+- 변경된 메서드 부재 compile RED 후 기존 SDK/실제 출력 Schema 조합 테스트도 새 진입점으로
+  연결했다. 같은 합성 응답에 저장 stay30이면 insuff, stay60이면 성공, 회피 추가면 insuff를 검증했다.
+- 전체 spotlessApply/test/architectureTest 성공(51초), 조합 테스트 5개 통과.
+  독립 부분 리뷰 신규 차단 0건이다. 전체 승인/recorder는 아니다.
+- 저장 입력에서 기준을 파생하는 연결은 완료했지만 repository에서 worker가 snapshot을 읽고
+  MCP 호출/요청 echo/비용·버스 상세/DB 후보 저장·조회·apply까지 수행하는 전체 흐름은 미완료다.

@@ -21,6 +21,35 @@ public record GenerationCandidateProjection(
 
   public static GenerationCandidateProjection from(
       JsonNode response,
+      GenerationTripInput input,
+      GenerationPlaceBindings bindings,
+      Set<String> approvedSources) {
+    var required = new java.util.HashSet<String>();
+    var avoided = new java.util.HashSet<String>();
+    var stays = new java.util.HashMap<String, Integer>();
+    for (var place : input.places()) {
+      var factId = bindings.factId(place.placeId());
+      if (place.type().equals("avoid")) avoided.add(factId);
+      else {
+        stays.put(factId, place.stayMinutes());
+        if (place.type().equals("must_visit")) required.add(factId);
+      }
+    }
+    var boundary = input.boundary();
+    var constraints =
+        new GenerationTimeline.Scope(
+            boundary.startAt(),
+            boundary.endAt(),
+            bindings.factId(boundary.startPlaceId()),
+            bindings.factId(boundary.endPlaceId()),
+            Set.copyOf(input.transportModes()),
+            stays,
+            Set.of());
+    return from(response, constraints, required, avoided, approvedSources, bindings);
+  }
+
+  private static GenerationCandidateProjection from(
+      JsonNode response,
       GenerationTimeline.Scope constraints,
       Set<String> required,
       Set<String> avoided,
