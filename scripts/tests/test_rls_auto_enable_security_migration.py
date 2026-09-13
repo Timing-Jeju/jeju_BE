@@ -142,7 +142,11 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         manifest = json.loads(
             (ROOT / "supabase/migrations/manifest.json").read_text(encoding="utf-8")
         )
-        entry = manifest["canonicalSuffix"][-1]
+        entry = next(
+            item
+            for item in manifest["canonicalSuffix"]
+            if item["path"].endswith(MIGRATION_NAME)
+        )
 
         self.assertEqual(f"supabase/migrations/{MIGRATION_NAME}", entry["path"])
         self.assertEqual("060", entry["initSlot"])

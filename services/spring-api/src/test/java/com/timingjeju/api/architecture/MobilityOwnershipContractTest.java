@@ -75,6 +75,7 @@ class MobilityOwnershipContractTest {
     assertThat(controllerInventory())
         .containsExactly(
             "domain/accommodation/controller/AccommodationController.java",
+            "domain/accountdeletion/controller/AccountDeletionController.java",
             "domain/auth/controller/SocialLoginController.java",
             "domain/demo/controller/DemoImportController.java",
             "domain/legal/controller/LegalProfileController.java",
@@ -89,9 +90,9 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripController.java",
             "domain/trip/controller/TripPlacePreferencesController.java",
             "domain/weather/controller/WeatherForecastController.java");
-    assertThat(mappingAnnotationCount()).isEqualTo(55);
+    assertThat(mappingAnnotationCount()).isEqualTo(57);
     assertThat(migrationInventory())
-        .hasSize(58)
+        .hasSize(59)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -102,11 +103,12 @@ class MobilityOwnershipContractTest {
             "20260918000019_planned_route_request_hash_policy.sql",
             "20260918000020_remove_user_location_runtime.sql",
             "20260918000021_day_activity_window_pair.sql",
-            "20260918000022_rls_auto_enable_execute_boundary.sql");
+            "20260918000022_rls_auto_enable_execute_boundary.sql",
+            "20260919000000_account_deletion_requests.sql");
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260918000022_rls_auto_enable_execute_boundary.sql");
+        .isEqualTo("20260919000000_account_deletion_requests.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {

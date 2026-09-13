@@ -38,6 +38,13 @@ logging:
     org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: INFO
 
 app:
+  account-deletion:
+    recent-auth-max-age: ${APP_ACCOUNT_DELETION_RECENT_AUTH_MAX_AGE:PT15M}
+    status-token-ttl: ${APP_ACCOUNT_DELETION_STATUS_TOKEN_TTL:PT24H}
+    encryption:
+      key-descriptor-file: ${APP_ACCOUNT_DELETION_STATUS_TOKEN_ENCRYPTION_KEY:}
+      local-active-version: ${APP_ACCOUNT_DELETION_LOCAL_KEY_VERSION:}
+      local-active-key: ${APP_ACCOUNT_DELETION_LOCAL_ACTIVE_KEY:}
   profile-image:
     supabase-url: ${SUPABASE_URL:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}

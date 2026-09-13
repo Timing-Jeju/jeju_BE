@@ -97,3 +97,9 @@ cd ../..
 ## 소셜 로그인
 
 Google과 Kakao는 Supabase Auth의 built-in OAuth provider를 사용하고, Naver는 Supabase Auth Dashboard의 `custom:naver` provider와 Spring의 UserInfo adapter를 함께 사용합니다. Spring은 OAuth authorization endpoint, code exchange, refresh token 저장소나 provider client secret을 소유하지 않습니다. 전체 설정 순서와 프론트엔드 계약은 [소셜 로그인 설정](SOCIAL_LOGIN.md)을 따릅니다.
+
+## 회원 탈퇴 재인증과 상태 capability
+
+`DELETE /api/v1/me`는 JWT `iat`를 재인증 증거로 사용하지 않습니다. 검증된 JWT의 `session_id`와 현재 사용자 ID를 서버 전용 `account_deletion_session_is_recent` helper로 대조하고, `APP_ACCOUNT_DELETION_RECENT_AUTH_MAX_AGE` 안에 생성된 session만 허용합니다. helper는 `auth.sessions` SELECT만 캡슐화하며 `anon`과 `authenticated`는 실행할 수 없습니다.
+
+Auth 사용자 삭제 뒤의 `GET /api/v1/account-deletion-requests/{deletionRequestId}`는 JWT가 아니라 43자 `X-Deletion-Status-Token`만 사용합니다. 서버는 token hash를 먼저 조회하고 존재하지 않는 경우에도 dummy hash를 constant-time 비교합니다. 검증 전에는 요청 ID 존재 여부를 공개하지 않으며, 검증된 token의 ULID scope가 path와 다르면 403입니다. token과 Auth subject 원문은 로그·metric·trace·DB 평문에 남기지 않습니다.
