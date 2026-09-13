@@ -39,6 +39,7 @@ CANONICAL_SUFFIX = (
     ("20260918000020_remove_user_location_runtime.sql", "058", 224),
     ("20260918000021_day_activity_window_pair.sql", "059", 239),
     ("20260918000022_rls_auto_enable_execute_boundary.sql", "060", 242),
+    ("20260919000000_account_deletion_requests.sql", "061", 61),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -66,13 +67,17 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `060`", architecture)
+        self.assertIn("Docker init `038`부터 `061`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
         """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         migration_dir = ROOT / "supabase/migrations"
-        actual = tuple(path.name for path in sorted(migration_dir.glob("20260918*.sql")))
+        actual = tuple(
+            path.name
+            for pattern in ("20260918*.sql", "20260919*.sql")
+            for path in sorted(migration_dir.glob(pattern))
+        )
         expected = tuple(path for path, _, _ in CANONICAL_SUFFIX)
         self.assertEqual(expected, actual)
         self.assertEqual(len(expected), len({path[:14] for path in expected}))

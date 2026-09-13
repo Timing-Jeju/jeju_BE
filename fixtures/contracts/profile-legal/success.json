@@ -42,6 +42,7 @@
       "status": 202,
       "body": {
         "deletionRequestId": "01JZQ3CM4C9N6N5S7XJ9W1FB08",
+        "status": "queued",
         "statusToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "statusTokenExpiresAt": "2026-08-25T10:00:00+09:00",
         "pollUrl": "/api/v1/account-deletion-requests/01JZQ3CM4C9N6N5S7XJ9W1FB08",

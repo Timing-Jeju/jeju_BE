@@ -42,6 +42,14 @@ create table if not exists auth.identities (
   unique (user_id, provider)
 );
 
+-- 회원 탈퇴 recent-auth port가 읽는 Supabase Auth session 최소 projection입니다.
+-- 애플리케이션 migration은 이 호환 테이블에 DML 권한을 부여하지 않습니다.
+create table if not exists auth.sessions (
+  id uuid primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 create or replace function public.create_local_test_user(target_user_id uuid, target_email text)
 returns void
 language sql

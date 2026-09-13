@@ -158,6 +158,9 @@ public class SecurityConfig {
                   "/api/v1/weather/forecast",
                   "/api/v1/legal-documents")
               .permitAll();
+          requests
+              .requestMatchers(HttpMethod.GET, "/api/v1/account-deletion-requests/*")
+              .permitAll();
           requests.requestMatchers("/api/v1/**").authenticated();
           requests.anyRequest().denyAll();
         });

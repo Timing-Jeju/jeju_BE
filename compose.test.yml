@@ -66,6 +66,7 @@ services:
       - ./supabase/migrations/20260918000020_remove_user_location_runtime.sql:/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql:ro
       - ./supabase/migrations/20260918000021_day_activity_window_pair.sql:/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql:ro
       - ./supabase/migrations/20260918000022_rls_auto_enable_execute_boundary.sql:/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql:ro
+      - ./supabase/migrations/20260919000000_account_deletion_requests.sql:/docker-entrypoint-initdb.d/061_account_deletion_requests.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
@@ -91,6 +92,8 @@ services:
       APP_CORS_ALLOWED_ORIGINS: http://localhost:3000
       APP_SOCIAL_LOGIN_PROVIDER_IDS: google,kakao,custom:naver
       PUSH_TOKEN_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      APP_ACCOUNT_DELETION_LOCAL_KEY_VERSION: test-v1
+      APP_ACCOUNT_DELETION_LOCAL_ACTIVE_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       FCM_ENABLED: "false"
       SAVED_PLACE_RETENTION_ENABLED: "true"
       SAVED_PLACE_RETENTION_INITIAL_DELAY: PT24H

@@ -30,8 +30,8 @@ IDENTITIES = [
     ("GET", "/api/v1/me/profile-image", "extension"),
     ("PUT", "/api/v1/me/profile-image", "extension"),
 ]
-CANONICAL_CONTRACT_SHA256 = "98f3c1cfcc04fd02d22e38bc5318a58ebbf6cc6a08ed916babf1aa445171aa0d"
-CANONICAL_CATALOG_SHA256 = "0314e9e3d7db062d5232ba261b7d8d761c350a77cd70c07da7abf25f44391fd0"
+CANONICAL_CONTRACT_SHA256 = "cfbc2a7ae90ee32adb15989699432148f4c05ab9a40da0b49db4a85ee37f8f8a"
+CANONICAL_CATALOG_SHA256 = "0f7c80601e1ce978e2f316481efd5c643aeb6f544c81216350ac06642088cff2"
 PROBLEM_FIELDS = {"type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors"}
 CANONICAL_PROBLEM_TRACE_ID = "0123456789abcdef0123456789abcdef"
 CANONICAL_PROBLEM_INSTANCE = f"urn:timing-jeju:problem:{CANONICAL_PROBLEM_TRACE_ID}"

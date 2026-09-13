@@ -265,8 +265,10 @@
         },
         "Idempotency-Key": {
           "type": "string",
-          "format": "uuid",
-          "nullable": false
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[\\x20-\\x7E]+$"
         }
       }
     },
@@ -275,6 +277,7 @@
       "additionalProperties": false,
       "required": [
         "deletionRequestId",
+        "status",
         "statusToken",
         "statusTokenExpiresAt",
         "pollUrl",
@@ -285,6 +288,13 @@
           "type": "string",
           "nullable": false,
           "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "status": {
+          "type": "string",
+          "nullable": false,
+          "enum": [
+            "queued"
+          ]
         },
         "statusToken": {
           "type": "string",
@@ -756,7 +766,7 @@
         "headers": "DeleteAccountHeaders",
         "body": "DeleteAccountRequest"
       },
-      "presence": "confirmation and Idempotency-Key required; 202 returns deletionRequestId/statusToken/statusTokenExpiresAt/pollUrl",
+      "presence": "confirmation and Idempotency-Key required; 202 returns deletionRequestId/status=queued/statusToken/statusTokenExpiresAt/pollUrl",
       "responses": {
         "success": [
           202
