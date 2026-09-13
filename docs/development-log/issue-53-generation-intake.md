@@ -478,3 +478,17 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   이벤트 end09:45가 다르므로 실제 이동 상세 검사에 사용하기 전 fixture 정합성 보완이 필요하다.
 - 이번 변경은 하루 합계 보존이며 이동 상세/DB 후보 writer·조회/apply/FE와 최종 PR은 미완료다.
 - 최종 spotlessApply/test/architectureTest 성공(47초, 기존 macOS 제한 9 skip).
+
+## 승인된 입구와 canonical 장소 연결 검증
+
+- AI #21에서 승인 입구 fact에 canonical place_id를 포함했다. 기존 PR #20의
+  68cf870에 반영됐으며 원격 CI 34762945268의 offline 및 격리 PostGIS/MinIO 검사가 성공했다.
+  Pydantic EvidenceFact.value 내부 보완이므로 schema hash는 같지만 런타임 버전 의존성은 남는다.
+- BE GenerationEntranceEvidence 부재 compile RED 후 승인 source·source kind·canonical 장소
+  형식·동일 입구의 상충 관계를 검증하고 MCP 결과 callback에 연결했다. 이동별 require는
+  실제 입구 fact ID가 해당 이동 근거에 포함돼야 통과한다. 원문/좌표를 저장 결과에 복사하지 않는다.
+- 최초 전체 spotlessApply/test/architectureTest 성공(50초, 기존 macOS 9 skip), 독립 부분
+  리뷰 신규 차단 0건이다. 추가 null endpoint 회귀는 NPE RED를 확인해 안정적인 계약 오류로 수정했다.
+- null 수정 후 전체 spotlessApply/test/architectureTest도 성공했다(52초, 입구 검증 4개 통과).
+- 실제 leg에서 require 호출, 대표좌표 endpoint·버스 fixture 정합성, JDBC 후보 writer,
+  조회/apply/previous_days/FE 및 최종 BE PR은 미완료다. UI와 운영 flag는 변경하지 않았다.

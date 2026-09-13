@@ -88,7 +88,7 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
                 Map.of()),
             content -> {
               var response = mapper.valueToTree(content);
-              GenerationEvidence.from(response, approvedSources);
+              GenerationEntranceEvidence.from(response, approvedSources);
               var recommendations = response.get("recommendations");
               if (recommendations.size() != 3)
                 return GenerationCandidateProjection.from(
