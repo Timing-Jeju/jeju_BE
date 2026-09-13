@@ -73,6 +73,9 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000020_remove_user_location_runtime.sql",
             "20260918000021_day_activity_window_pair.sql",
             "20260918000022_rls_auto_enable_execute_boundary.sql",
+            "20260919000000_account_deletion_requests.sql",
+            "20260919010000_account_deletion_worker_runtime.sql",
+            "20260919020000_account_deletion_retention_contract.sql",
         )
         migration_names = tuple(
             path.name
