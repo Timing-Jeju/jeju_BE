@@ -21,6 +21,10 @@ public final class GenerationException extends RuntimeException {
     return new GenerationException("GENERATION_INPUT_UNAVAILABLE");
   }
 
+  public static GenerationException invalidResult() {
+    return new GenerationException("MCP_CONTRACT_INVALID");
+  }
+
   public static GenerationException intakeUnavailable() {
     return new GenerationException("ASYNC_INTAKE_UNAVAILABLE");
   }

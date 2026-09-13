@@ -315,3 +315,21 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   독립 재검토에서 의미 충돌 finding 해소 및 추가 차단 0건이다. 이는 전체 승인/recorder가 아니다.
 - AI #19가 배포되고 BE manifest가 함께 적용되기 전 연결을 활성화하지 않는다.
   실제 worker·후보 저장·조회·apply·FE 실연결 및 최종 품질/Docker/PR은 계속 미완료다.
+
+## AI 계약 PR와 응답 근거 계보 검증
+
+- AI 선행 계약을 PR https://github.com/Timing-Jeju/jeju_AI/pull/20 으로 open했다.
+  HEAD 45f585ae68ca1d5b997b6645d1ed97dadfeb48fa, CI run 34758389481의 Offline quality gates 및
+  격리 PostGIS/MinIO integration 모두 SUCCESS를 확인했다. OPEN이며 최종 BE 통합 PR은 아니다.
+- 생성 응답에는 실행 후 새 fact ID가 생기므로 기존 고정 inboundIdAllowlist만으로는 연결할 수 없다.
+  응답에서 모든 ID를 긁어 허용하는 우회 대신 GenerationEvidence의 최소 계보 검증을 추가했다.
+- 클래스 부재 compile RED 후 source 승인/선언, fact 중복, derivation 입력과 timeline/결정 참조의
+  폐쇄성을 검증했다. 별도 자기참조 RED 후 비재귀 Kahn 검사로 순환을 거부한다.
+- fact value·formula·geometry·사용자 원문은 반환 projection에 복사하지 않는다.
+  request.previous_days의 독립 ledger는 현재 Day 참조와 섞지 않는다. 이는 AI Pydantic의
+  recommendations/place_decisions 검증 범위를 따른다. 빈 실패 ledger·정책 fact도 허용한다.
+- 아직 MCP client/worker가 이 검증기를 호출하는 연결, canonical 결과 장소 검증, 후보 저장,
+  조회·apply는 미완료다. 이 검증기나 AI PR의 CI를 전체 BE 기능 완료 근거로 사용하지 않는다.
+- 최종 spotlessApply/test/architectureTest 성공(49초), 기존 macOS 파일시스템 9개 skip.
+  독립 부분 리뷰 신규 차단 finding 0건이다. JSON Schema 선행 검증과 승인 source 집합 주입이
+  사용 전제이며 전체 승인/recorder 실행은 아니다.
