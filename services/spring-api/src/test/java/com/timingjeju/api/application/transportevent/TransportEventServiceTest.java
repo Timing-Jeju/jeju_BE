@@ -21,6 +21,32 @@ class TransportEventServiceTest {
   private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
 
   @Test
+  void 항공_터미널_미지정은_서버_공항_확정을_위해_store에_전달한다() {
+    CapturingStore store = new CapturingStore();
+    service(store).put(OWNER, TRIP, new TripExpectedRevision(TRIP, 1), command((UUID) null, null));
+    assertThat(store.upsert.command().terminalPlaceId()).isNull();
+    assertThat(store.upsert.command().customTerminalName()).isNull();
+  }
+
+  @Test
+  void 선박은_서버_공항_대체를_사용하지_않고_터미널을_요구한다() {
+    var missing =
+        new PutTransportEventCommand(
+            "arrival",
+            "ferry",
+            null,
+            null,
+            OffsetDateTime.parse("2026-09-01T09:00:00+09:00"),
+            null,
+            null);
+    assertCode(
+        () ->
+            service(new CapturingStore())
+                .put(OWNER, TRIP, new TripExpectedRevision(TRIP, 1), missing),
+        "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
+  }
+
+  @Test
   void PUT은_사용자문자열을_ASCII_trim_NFC하고_expected_revision을_전달한다() {
     CapturingStore store = new CapturingStore();
 
@@ -55,9 +81,6 @@ class TransportEventServiceTest {
 
     assertCode(
         () -> service.put(OWNER, TRIP, expected, command(PLACE, "제주항")),
-        "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
-    assertCode(
-        () -> service.put(OWNER, TRIP, expected, command((UUID) null, null)),
         "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
     assertCode(
         () -> service.put(OWNER, TRIP, expected, command("invalid", "flight")),

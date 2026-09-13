@@ -203,8 +203,7 @@ class TransportEventHttpPostgreSqlIntegrationTest {
         "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
     assertProblem(
         put(token(OWNER), 1, arrival(PLACE, "제주공항")), 422, "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
-    assertProblem(
-        put(token(OWNER), 1, arrival(null, null)), 422, "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
+    assertProblem(put(token(OWNER), 1, arrival(null, null)), 404, "PLACE_NOT_FOUND");
     assertProblem(
         put(token(OWNER), 1, arrival(null, "가".repeat(101))),
         422,

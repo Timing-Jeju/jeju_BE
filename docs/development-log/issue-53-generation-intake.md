@@ -713,6 +713,14 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 추가 GREEN: 양수/0분 DB 시나리오와 잘못된 0분 leg 10개 거부, OpenAPI 재생성까지 통과했다(1분 19초). 이후 전체 unitTest/architectureTest 및 기존 JdbcScheduleMutationStoreIntegrationTest 회귀를 시작했다.
 - Supabase changelog의 Breaking Change 항목과 공식 DB function 문서를 확인했다. 이번 변경은 기존 invoker 함수의 결정론적 검사이며 auth/realtime/extension/API 노출 설정 변경은 없다. 운영 DB 변경이나 원본·geometry 로그/저장은 수행하지 않았다.
 
+## 2026-09-14 FE 저장 순서와 서버 공항 확정 후속
+
+- FE 별도 worktree의 root→활동 시간→planner PUT→최종 GET 저장과 멱등 재시도 journal, canonical 숙소·스타일 복원을 연결했다. 관련 41개 및 전체 45 suites/324 tests, typecheck/lint/api:check/ui:check PASS. 화면·컴포넌트 파일 변경은 없으며 기존 58개 StyleSheet 일치만 검증했다.
+- 항공 이벤트의 터미널 두 필드가 명시적 null일 때 기존 서비스 XOR가 거부하는 단위 RED(7개 중1개,5초) 및 실제 DB RED(1분4초)를 확인했다. 생성과 항공 저장이 동일 `TripAirportResolver`를 공유하고, owner/CAS 잠금 후 설정된 canonical ID의 제주국제공항·성공 TourAPI import·live 상태를 확인한다. 외부 조회나 FE UUID 하드코딩은 없다.
+- 항공 요청만 null 예외를 허용하며 저장 행/응답의 XOR는 유지한다. 선박·두 필드 동시 지정은 계속 거부한다. 승인 공항이 없으면 PLACE_NOT_FOUND이며 어떤 장소도 추정하지 않는다. 실제 저장→생성 intake GREEN(1분12초 실행에 unit/architecture 포함).
+- transport HTTP/DB 확장 회귀와 전체 unit/slice/architecture GREEN(3분43초, 기존 macOS 환경별 unit 9개 skip). Python 계약 정책 누락 RED→GREEN, 전체 scripts 947개 PASS/3skip(61.092초). wire SHA는 `a3d084234d5bc222a4551ff3f3ed9523960fb56371e790c08e3fb5d94687e4a5`로 catalog·ownership fixture·validator에 함께 반영했다.
+- 제한적 독립 검토의 신규 차단 finding은 없으나 공식 승인/recorder는 실행하지 않았다. 항공 PUT 멱등성 및 FE 항공·장소 선호 저장, 재시작 journal, 최종 전체 품질 게이트·Docker·PR은 아직 남아 있다. 최종 1시간 이상 예상 검증은 사용자 요청대로 백그라운드로 실행하고 handle/log를 남긴 뒤 중단한다. 현재 장시간 최종 게이트는 시작하지 않았다.
+
 ## 공개 입력 복원 문서 후속
 
 - 재생성 OpenAPI에서 TripDetail plannerConditions/placePreferences 및 place-preferences requestedStayMinutes 예시 누락을 확인했다. 실제 `/v3/api-docs` slice RED(15초) 후 공통 customizer의 예시를 현재 DTO에 맞췄다. 사용자 지정 90분과 미지정 null을 구분한다.

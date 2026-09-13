@@ -34,5 +34,5 @@
     "implementation": {"status": "not-ready", "evidence": null}
   },
   "projectionSha256": "67e392355fb00ccff3298905887c5bf1f079a5acfefaa629dc5ccaf6e2251f10",
-  "wireContractSha256": "e592544c0d57c233adcddd2a2334ba8956d2377831b08480ddbb137a0bef787a"
+  "wireContractSha256": "a3d084234d5bc222a4551ff3f3ed9523960fb56371e790c08e3fb5d94687e4a5"
 }

@@ -41,6 +41,13 @@ EXPECTED_IMPLEMENTATION_OWNERS = {
 
 
 class PreferencesTransportContractTest(unittest.TestCase):
+    def test_flight_terminal_resolution_cannot_lose_approved_source_or_failure_policy(self) -> None:
+        """항공 터미널 자동 확정의 승인 데이터·실패·저장 XOR 규약 누락을 거부한다."""
+        changed = copy.deepcopy(self.contract)
+        changed["transportEventPolicy"].pop("flightTerminalResolution")
+        errors = VALIDATOR_MODULE.validate(changed, skip_catalog_fixtures=True)
+        self.assertTrue(any("flight terminal resolution" in error for error in errors))
+
     def setUp(self) -> None:
         self.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
 
@@ -94,7 +101,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual([46, 47, 48], ownership["implementationIssues"])
         self.assertEqual(64, len(ownership["projectionSha256"]))
         self.assertEqual(
-            "e592544c0d57c233adcddd2a2334ba8956d2377831b08480ddbb137a0bef787a",
+            "a3d084234d5bc222a4551ff3f3ed9523960fb56371e790c08e3fb5d94687e4a5",
             ownership["wireContractSha256"],
         )
         self.assertEqual(
@@ -206,7 +213,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual("RFC3339 date-time with mandatory +09:00 offset", policy["scheduledAt"])
         self.assertEqual("Asia/Seoul", policy["timezone"])
         self.assertEqual("arrival=startDate; departure=endDate", policy["localDate"])
-        self.assertEqual("exactly one of terminalPlaceId/customTerminalName", policy["terminalXor"])
+        self.assertEqual("exactly one of terminalPlaceId/customTerminalName unless flight supplies both null; server resolves approved airport before persistence", policy["terminalXor"])
         self.assertEqual("eventType query parameter required", policy["deleteSelector"])
 
     def test_schedule_effect_and_delete_signal_are_explicit(self) -> None:

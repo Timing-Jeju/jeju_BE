@@ -1168,7 +1168,7 @@
         "headers": "MutationHeaders",
         "body": "TransportEventRequest"
       },
-      "presence": "all body fields required as properties; terminalPlaceId/customTerminalName exact XOR; transportNumber/note may be explicit null",
+      "presence": "all body fields required as properties; terminalPlaceId/customTerminalName exact XOR except both null for server-resolved flight airport; transportNumber/note may be explicit null",
       "responses": {
         "success": [
           200

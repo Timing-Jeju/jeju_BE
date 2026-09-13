@@ -77,7 +77,10 @@ public final class TransportEventService {
   private static void validate(PutTransportEventCommand command) {
     if (!EVENT_TYPES.contains(command.eventType())
         || !TRANSPORT_TYPES.contains(command.transportType())
-        || (command.terminalPlaceId() == null) == (command.customTerminalName() == null)
+        || (command.terminalPlaceId() != null && command.customTerminalName() != null)
+        || (command.terminalPlaceId() == null
+            && command.customTerminalName() == null
+            && !"flight".equals(command.transportType()))
         || command.scheduledAt() == null
         || !command.scheduledAt().getOffset().equals(KST_OFFSET)
         || !validText(command.customTerminalName(), 100)

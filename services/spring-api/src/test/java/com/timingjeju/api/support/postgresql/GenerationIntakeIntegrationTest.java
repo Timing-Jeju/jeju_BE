@@ -24,10 +24,48 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   @Autowired private GenerationApplyStore applications;
 
   @Autowired
+  private com.timingjeju.api.application.transportevent.service.TransportEventService
+      transportEvents;
+
+  @Autowired
   private com.timingjeju.api.application.trip.TripAggregateMutationCoordinator tripCoordinator;
 
   @Autowired private com.timingjeju.api.application.schedule.ScheduleStore schedules;
   @Autowired private com.timingjeju.api.domain.schedule.adapter.JdbcScheduleMutationStore mutations;
+
+  @Test
+  void 항공_터미널은_FE_ID_없이_승인된_공항으로_저장하고_생성에_연결한다() {
+    var f = seed();
+    var original =
+        jdbc.queryForObject(
+            "select scheduled_at from public.trip_transport_events where trip_plan_id=? and event_type='arrival'",
+            java.sql.Timestamp.class,
+            f.trip());
+    jdbc.update(
+        "delete from public.trip_transport_events where trip_plan_id=? and event_type='arrival'",
+        f.trip());
+    var result =
+        transportEvents.put(
+            f.owner(),
+            f.trip(),
+            new com.timingjeju.api.application.trip.TripExpectedRevision(f.trip(), 1),
+            new com.timingjeju.api.application.transportevent.PutTransportEventCommand(
+                "arrival",
+                "flight",
+                null,
+                null,
+                original.toInstant().atOffset(java.time.ZoneOffset.ofHours(9)),
+                null,
+                null));
+    assertThat(result.event().terminalPlaceId())
+        .isEqualTo(UUID.fromString("53000000-0000-0000-0000-000000000099"));
+    assertThat(result.event().customTerminalName()).isNull();
+    var accepted =
+        intake.accept(
+            f.owner(), f.trip(), 2, new CreateGenerationCommand(f.day(), null, 3), Instant.now());
+    assertThat(inputs.find(accepted.runId()).orElseThrow().input().airportPlaceId())
+        .isEqualTo(result.event().terminalPlaceId());
+  }
 
   @Test
   void 저장된_도보_우선순위는_생성_snapshot에서_다른_수단으로_대체하지_않는다() {

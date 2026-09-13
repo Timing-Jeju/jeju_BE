@@ -17,7 +17,7 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 장소 선호는 `must_visit/preferred/avoid`를 허용하고 같은 place가 어느 type으로든 두 번 나타나면 `422`다. `targetDayNo`는 property 자체는 필수지만 전체 여행에 적용할 때 `null`, Day를 지정할 때 `1..tripDayCount`다. priority tie는 `priority DESC, placeId ASC`로 결정한다. #53 확장으로 선택적 `requestedStayMinutes`는 정수 1~1440 또는 `null`이며 생략은 `null`이다. 임의 기본 체류시간은 저장하지 않는다. 장소는 유효 canonical place ID로 지정하며 사용자 찜 여부와 독립적이다. 이 확장의 schema와 wire digest는 함께 갱신한다.
 
-교통 이벤트는 `eventType=arrival|departure`, `transportType=flight|ferry`다. `scheduledAt`은 RFC 3339 `+09:00`을 명시하고 제주 `Asia/Seoul`로 해석한다. arrival은 여행 `startDate`, departure는 `endDate`에 있어야 한다. `terminalPlaceId`와 `customTerminalName`은 정확히 하나만 존재해야 한다. PUT은 `(tripId,eventType)`을 upsert하고 DELETE는 query의 eventType 한 건만 제거한다.
+교통 이벤트는 `eventType=arrival|departure`, `transportType=flight|ferry`다. `scheduledAt`은 RFC 3339 `+09:00`을 명시하고 제주 `Asia/Seoul`로 해석한다. arrival은 여행 `startDate`, departure는 `endDate`에 있어야 한다. `terminalPlaceId`와 `customTerminalName`은 정확히 하나만 존재해야 한다. 단, #53 항공 입력에서 두 필드를 모두 명시적 `null`로 보내면 서버가 설정된 canonical 제주국제공항과 현재 성공한 TourAPI import를 검증해 ID를 채운다. 검증할 수 없으면 `404 PLACE_NOT_FOUND`이며 이름·좌표를 추정하지 않는다. 선박은 이 예외를 지원하지 않는다. 저장 행과 응답의 터미널 XOR는 그대로 유지한다. PUT은 `(tripId,eventType)`을 upsert하고 DELETE는 query의 eventType 한 건만 제거한다.
 
 ## 일정 상태와 동시성
 

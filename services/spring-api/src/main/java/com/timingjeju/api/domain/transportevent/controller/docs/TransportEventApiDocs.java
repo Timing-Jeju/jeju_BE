@@ -22,7 +22,8 @@ public interface TransportEventApiDocs {
   @Operation(
       operationId = "putTripTransportEvent",
       summary = "여행 항공·선박 이벤트 저장",
-      description = "도착 또는 출발 이벤트 한 건을 완전 교체하고 일정 stale 정책을 원자 적용합니다.")
+      description =
+          "도착 또는 출발 이벤트 한 건을 완전 교체하고 일정 stale 정책을 원자 적용합니다. 항공의 두 터미널 필드가 null이면 서버가 승인된 제주공항 ID를 확정하며, 불가하면 PLACE_NOT_FOUND를 반환합니다. 선박은 터미널 입력이 필수입니다.")
   @RequestBody(
       required = true,
       content = @Content(schema = @Schema(implementation = PutTransportEventRequest.class)))

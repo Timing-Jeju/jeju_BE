@@ -34,7 +34,7 @@ EXPECTED_IMPLEMENTATION_OWNERS = {
 }
 EXPECTED_IMPLEMENTATION_ISSUES = [46, 47, 48]
 CANONICAL_WIRE_CONTRACT_SHA256 = (
-    "e592544c0d57c233adcddd2a2334ba8956d2377831b08480ddbb137a0bef787a"
+    "a3d084234d5bc222a4551ff3f3ed9523960fb56371e790c08e3fb5d94687e4a5"
 )
 COMMON_RESPONSE_FIELDS = {
     "tripId", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId",
@@ -433,7 +433,9 @@ def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
     if place.get("samePlaceConflict") != "reject 422; a place cannot appear as both must_visit and avoid" or place.get("targetDayNo") != "1..tripDayCount or null" or place.get("priorityTieBreak") != "priority DESC, placeId ASC":
         errors.append("place preference duplicate/day/tie 규칙이 다릅니다.")
     transport = contract.get("transportEventPolicy", {})
-    if transport.get("terminalXor") != "exactly one of terminalPlaceId/customTerminalName" or transport.get("timezone") != "Asia/Seoul" or transport.get("localDate") != "arrival=startDate; departure=endDate" or transport.get("deleteSelector") != "eventType query parameter required":
+    if transport.get("flightTerminalResolution") != "configured canonical 제주국제공항 from active succeeded TourAPI import; unavailable returns 404 PLACE_NOT_FOUND; response and stored event retain exact XOR":
+        errors.append("flight terminal resolution 승인 소스·실패·저장 XOR 규칙이 다릅니다.")
+    if transport.get("terminalXor") != "exactly one of terminalPlaceId/customTerminalName unless flight supplies both null; server resolves approved airport before persistence" or transport.get("timezone") != "Asia/Seoul" or transport.get("localDate") != "arrival=startDate; departure=endDate" or transport.get("deleteSelector") != "eventType query parameter required":
         errors.append("transport event timezone/date/terminal XOR/delete 규칙이 다릅니다.")
     effect = contract.get("scheduleEffectPolicy", {})
     active = effect.get("changedWithActiveSchedule", {})

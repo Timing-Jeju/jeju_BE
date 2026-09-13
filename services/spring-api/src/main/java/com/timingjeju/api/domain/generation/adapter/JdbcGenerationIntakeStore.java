@@ -26,7 +26,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
   private final GenerationPlaceResolver places;
   private final ObjectMapper mapper;
   private final boolean enabled;
-  private final String airportId;
+  private final TripAirportResolver airports;
 
   public JdbcGenerationIntakeStore(
       JdbcTemplate jdbc,
@@ -38,7 +38,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
       GenerationPlaceResolver places,
       ObjectMapper mapper,
       @Value("${app.schedule-generation.enabled:false}") boolean enabled,
-      @Value("${app.schedule-generation.approved-airport-place-id:}") String airportId) {
+      TripAirportResolver airports) {
     this.jdbc = jdbc;
     this.trips = trips;
     this.stays = stays;
@@ -48,7 +48,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
     this.places = places;
     this.mapper = mapper;
     this.enabled = enabled;
-    this.airportId = airportId;
+    this.airports = airports;
   }
 
   @Override
@@ -185,25 +185,6 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
   }
 
   private UUID resolveAirport() {
-    UUID id;
-    try {
-      id = UUID.fromString(airportId);
-    } catch (IllegalArgumentException failure) {
-      throw GenerationException.intakeUnavailable();
-    }
-    var found =
-        jdbc.queryForList(
-            """
-        select id from public.tour_places where id=? and name='제주국제공항'
-          and content_id is not null and not stale
-          and exists(select 1 from public.data_import_runs r where r.id=tour_places.import_run_id
-            and r.source_kind='tour_api' and r.status='succeeded')
-          and (stale_at is null or stale_at>statement_timestamp())
-          and tombstoned_at is null and source_deleted_at is null for share
-        """,
-            UUID.class,
-            id);
-    if (found.isEmpty()) throw GenerationException.intakeUnavailable();
-    return id;
+    return airports.findApproved().orElseThrow(GenerationException::intakeUnavailable);
   }
 }
