@@ -90,3 +90,22 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 의도된 semantic checksum을 함께 갱신했다. 계약 validator 및 계약/연결 테스트 51건 통과.
 새 digest: `2d9a6c4cf8f0352baa086c35f22dcf5a103e09e998f0acea4e777fff2a19636b`.
 외부 문서 readiness와 runtime implementation readiness는 아직 승격하지 않았다.
+
+## 장소 초안 저장·복원 확장
+
+- `preferred`, nullable `requestedStayMinutes`(1~1440), 찜과 독립된 유효 canonical
+  장소 선택을 추가했다. 원본/좌표 필드는 추가하지 않고 source는 user_input으로 기록한다.
+- 서비스/DTO 부재 RED 및 실제 DB PLACE_NOT_FOUND RED 후 저장 통합 테스트를 통과했다.
+  기존 owner/ETag 잠금, stale/tombstone 거부와 atomic replace는 유지한다.
+- preferences 공개 계약·OpenAPI·wire digest를 함께 확장했다. 단위·아키텍처,
+  generation lifecycle 실제 DB 검사 통과. 계약·마이그레이션 순서 36건 통과.
+  OpenAPI 클래스는 slice 태그이므로 integrationTest 필터로는 실행되지 않은 점을 확인했고,
+  sliceTest로 정정하여 실제 실행한다. 앞선 명령을 OpenAPI 통과 근거로 사용하지 않는다.
+- 독립 부분 리뷰 결과 차단 finding 0건. 전체 생성 파이프라인 승인이나 PR 승인은 아니다.
+- TripDetail의 placePreferences 누락 RED 후 같은 읽기 snapshot에서 날짜별 선호와
+  체류시간을 반환하도록 연결했다. 빈 목록도 필드를 유지하고 legacy 생성 receipt DTO는
+  변경하지 않는다. TripDetail canonical 계약·fixture·digest 검사 및 관련 계약 54건 통과.
+- TripDetail 실제 DB 재조회/IDOR 및 관련 단위 테스트 통과. 완료 receipt의 기존 형태를
+  TripDetailLegacyV12로 보존하는 RED/GREEN 및 계약 55건 통과. 실제 slice OpenAPI 검사와
+  openApiDocs JSON 생성 통과. 추가 독립 부분 리뷰도 차단 finding 0건이며 union 설명 누락을 수정했다.
+  generation 접수/전체 snapshot/성공 writer/조회/적용 미연결 상태는 아직 그대로다.

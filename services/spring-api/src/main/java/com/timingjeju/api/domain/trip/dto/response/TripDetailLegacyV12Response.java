@@ -1,8 +1,6 @@
 package com.timingjeju.api.domain.trip.dto.response;
 
 import com.timingjeju.api.application.accommodation.AccommodationMutationPayload.AccommodationPayload;
-import com.timingjeju.api.application.trip.TripAggregate;
-import com.timingjeju.api.application.trip.TripMutationResult;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
@@ -10,8 +8,8 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-@Schema(name = "TripDetail", additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
-public record TripAggregateResponse(
+@Schema(name = "TripDetailLegacyV12", additionalProperties = Schema.AdditionalPropertiesValue.FALSE)
+public record TripDetailLegacyV12Response(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uuid") UUID tripId,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minLength = 1, maxLength = 100)
         String title,
@@ -53,10 +51,6 @@ public record TripAggregateResponse(
             arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
             schema = @Schema(implementation = AccommodationPayload.class))
         List<AccommodationPayload> accommodations,
-    @ArraySchema(
-            arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
-            schema = @Schema(implementation = TripPlacePreferenceResponse.class))
-        List<TripPlacePreferenceResponse> placePreferences,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
             nullable = true,
@@ -82,36 +76,4 @@ public record TripAggregateResponse(
         String scheduleEffect,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean regenerationRequired,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant createdAt,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant updatedAt) {
-  public static TripAggregateResponse from(TripAggregate trip) {
-    return from(trip, "none", false);
-  }
-
-  public static TripAggregateResponse from(TripMutationResult result) {
-    return from(result.trip(), result.scheduleEffect(), result.regenerationRequired());
-  }
-
-  private static TripAggregateResponse from(
-      TripAggregate trip, String scheduleEffect, boolean regenerationRequired) {
-    return new TripAggregateResponse(
-        trip.tripId(),
-        trip.title(),
-        trip.status(),
-        trip.startDate(),
-        trip.endDate(),
-        trip.timezone(),
-        trip.userPace(),
-        trip.transportModes().stream().map(TripTransportModeResponse::from).toList(),
-        trip.days().stream().map(TripDayResponse::from).toList(),
-        TripTransportEventsResponse.from(trip.transportEvents()),
-        trip.accommodations().stream().map(AccommodationPayload::from).toList(),
-        trip.placePreferences().stream().map(TripPlacePreferenceResponse::from).toList(),
-        trip.activeScheduleVersionId(),
-        trip.totalScore(),
-        TripScoreProvenanceResponse.from(trip.scoreProvenance()),
-        scheduleEffect,
-        regenerationRequired,
-        trip.createdAt(),
-        trip.updatedAt());
-  }
-}
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time") Instant updatedAt) {}

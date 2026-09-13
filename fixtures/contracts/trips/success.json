@@ -60,6 +60,7 @@
       "timezone": "Asia/Seoul",
       "transportEvents": {"arrival": null, "departure": null},
       "accommodations": [],
+      "placePreferences": [],
       "userPace": "normal",
       "transportModes": [
         {"mode": "public_transit", "priority": 1, "primary": true},
@@ -102,6 +103,7 @@
       "timezone": "Asia/Seoul",
       "transportEvents": {"arrival": null, "departure": null},
       "accommodations": [],
+      "placePreferences": [],
       "userPace": "normal",
       "transportModes": [
         {"mode": "public_transit", "priority": 1, "primary": true},
@@ -142,6 +144,7 @@
       "timezone": "Asia/Seoul",
       "transportEvents": {"arrival": null, "departure": null},
       "accommodations": [],
+      "placePreferences": [],
       "userPace": "normal",
       "transportModes": [
         {"mode": "public_transit", "priority": 1, "primary": true},
@@ -181,6 +184,7 @@
       "timezone": "Asia/Seoul",
       "transportEvents": {"arrival": null, "departure": null},
       "accommodations": [],
+      "placePreferences": [],
       "userPace": "slow",
       "transportModes": [{"mode": "rental_car", "priority": 1, "primary": true}],
       "days": [
@@ -209,6 +213,7 @@
       "timezone": "Asia/Seoul",
       "transportEvents": {"arrival": null, "departure": null},
       "accommodations": [],
+      "placePreferences": [],
       "userPace": "normal",
       "transportModes": [{"mode": "public_transit", "priority": 1, "primary": true}],
       "days": [

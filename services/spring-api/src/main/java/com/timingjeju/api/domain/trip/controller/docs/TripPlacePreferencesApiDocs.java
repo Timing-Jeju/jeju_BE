@@ -20,7 +20,7 @@ public interface TripPlacePreferencesApiDocs {
   @Operation(
       operationId = "tripPlacePreferencesUpdate",
       summary = "여행 희망·회피 장소 전체 교체",
-      description = "현재 사용자가 저장한 유효 장소만 사용해 희망·회피 목록을 원자적으로 전체 교체합니다.")
+      description = "찜 여부와 무관한 유효 canonical 장소로 필수·선택·회피 목록과 날짜별 체류시간을 원자적으로 전체 교체합니다.")
   @RequestBody(
       required = true,
       content =

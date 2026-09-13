@@ -27,6 +27,51 @@ class TripPlacePreferencesServiceTest {
   private static final String ETAG = "\"trip-" + TRIP + "-r1\"";
 
   @Test
+  void 선택방문과_명시한_체류시간을_그대로_저장에_전달한다() {
+    CapturingStore store = new CapturingStore();
+    service(store)
+        .replace(
+            USER,
+            TRIP,
+            ETAG,
+            new UpdateTripPlacePreferencesCommand(
+                List.of(new TripPlacePreference(PLACE_A, "preferred", 1, 50, 90))));
+    assertThat(store.updates.getFirst().preferences().getFirst().requestedStayMinutes())
+        .isEqualTo(90);
+  }
+
+  @Test
+  void 체류시간_미지정은_60분으로_만들지_않는다() {
+    CapturingStore store = new CapturingStore();
+    service(store)
+        .replace(
+            USER,
+            TRIP,
+            ETAG,
+            new UpdateTripPlacePreferencesCommand(
+                List.of(new TripPlacePreference(PLACE_A, "preferred", 1, 50, null))));
+    assertThat(store.updates.getFirst().preferences().getFirst().requestedStayMinutes()).isNull();
+  }
+
+  @Test
+  void 체류시간은_1분부터_하루_이내만_허용한다() {
+    CapturingStore store = new CapturingStore();
+    for (int invalid : new int[] {0, -1, 1441}) {
+      assertCode(
+          () ->
+              service(store)
+                  .replace(
+                      USER,
+                      TRIP,
+                      ETAG,
+                      new UpdateTripPlacePreferencesCommand(
+                          List.of(new TripPlacePreference(PLACE_A, "preferred", 1, 50, invalid)))),
+          "PLACE_PREFERENCE_CONSTRAINT_VIOLATION");
+    }
+    assertThat(store.updates).isEmpty();
+  }
+
+  @Test
   void replace는_희망과_회피를_priority와_placeId의_canonical_순서로_전달한다() {
     CapturingStore store = new CapturingStore();
     TripPlacePreferencesService service = service(store);
@@ -106,7 +151,7 @@ class TripPlacePreferencesServiceTest {
     TripPlacePreferencesService service = service(store);
     for (List<TripPlacePreference> items :
         List.of(
-            List.of(new TripPlacePreference(PLACE_A, "preferred", null, 50)),
+            List.of(new TripPlacePreference(PLACE_A, "unknown", null, 50)),
             List.of(new TripPlacePreference(PLACE_A, "must_visit", 0, 50)),
             List.of(new TripPlacePreference(PLACE_A, "must_visit", 31, 50)),
             List.of(new TripPlacePreference(PLACE_A, "must_visit", null, -1)),

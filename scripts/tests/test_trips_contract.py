@@ -38,6 +38,18 @@ SMOKE_CHECK = ROOT / "db" / "queries" / "smoke_check.sql"
 
 
 class TripsContractTest(unittest.TestCase):
+    def test_place_preference_extension_preserves_previous_receipt_shape(self) -> None:
+        """장소 선호 도입 전 완료 receipt를 닫힌 legacy 응답으로 보존한다."""
+        from scripts.validate_trips_contract import _validate_value
+        schemas = json.loads(CONTRACT.read_text())["schemas"]
+        previous = json.loads((FIXTURES / "success.json").read_text())["detail"]["body"]
+        previous.pop("placePreferences")
+        errors = []
+        _validate_value(previous, schemas["TripDetailLegacyV12"], schemas, "legacy", errors)
+        self.assertEqual([], errors)
+        for name in ("TripCreateResponse", "TripDayActivityWindowsResponse"):
+            self.assertIn("TripDetailLegacyV12", [item["$ref"] for item in schemas[name]["oneOf"]])
+
     @contextmanager
     def _temporary_repository(self) -> Iterator[Path]:
         with tempfile.TemporaryDirectory() as directory:

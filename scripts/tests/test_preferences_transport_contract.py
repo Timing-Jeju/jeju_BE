@@ -93,7 +93,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual([46, 47, 48], ownership["implementationIssues"])
         self.assertEqual(64, len(ownership["projectionSha256"]))
         self.assertEqual(
-            "6955a6f977a7dfe482b991c619e8a90a622d4c10026dbe44d620b3bd01b6bd55",
+            "a880c513bfbd598872e63a64431ff14acd4560aeaa2a32e414702a7018510364",
             ownership["wireContractSha256"],
         )
         self.assertEqual(
@@ -185,9 +185,12 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual("exactly one; primary priority=1", policy["transportModes"]["primary"])
 
     def test_place_preferences_fix_duplicates_day_bounds_and_priority_ties(self) -> None:
+        """날짜별 선택 방문과 명시적 체류시간의 공개 계약을 검증한다."""
         policy = self.contract["placePreferencePolicy"]
         self.assertEqual("full-replace", policy["writeMode"])
-        self.assertEqual(["must_visit", "avoid"], policy["typeEnum"])
+        self.assertEqual(["must_visit", "preferred", "avoid"], policy["typeEnum"])
+        stay = self.contract["schemas"]["PlacePreferenceItem"]["properties"]["requestedStayMinutes"]
+        self.assertEqual({"type": "integer", "nullable": True, "minimum": 1, "maximum": 1440}, stay)
         self.assertEqual("reject 422; a place cannot appear as both must_visit and avoid", policy["samePlaceConflict"])
         self.assertEqual("1..tripDayCount or null", policy["targetDayNo"])
         self.assertEqual("priority DESC, placeId ASC", policy["priorityTieBreak"])

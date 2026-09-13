@@ -98,7 +98,9 @@ TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연�
 
 여행 상세·새 생성·PATCH·새 Day 활동 시간 저장이 반환하는 `TripDetail`은 `transportEvents`와 `accommodations`를 항상 포함한다. `transportEvents`는 닫힌 `{arrival, departure}` 객체이며 각 슬롯의 미입력 값은 `null`이다. 숙소 미입력은 `[]`다. 교통은 기존 `TransportEventRequest`와 동일한 필드·enum·nullability이고, 숙소는 기존 `Accommodation` 저장 응답과 동일한 값이다. 숙소의 순서는 `sequenceNo ASC, accommodationId ASC`로 고정한다. 별도 조회 endpoint나 pagination은 추가하지 않는다.
 
-root owner 조회가 성공한 뒤 `trip_plan_id` 조건으로 교통 한 번과 숙소 한 번을 조회한다. 숙소 이름은 기존 저장 계약의 `coalesce(tour_places.name, trip_accommodations.custom_name)`을 따른다. root·이동 수단·Day·교통·숙소의 query 수는 행 수와 무관하게 다섯 번이며, 비소유/없는 root는 첫 조회 후 기존 `404 TRIP_NOT_FOUND`로 종료한다. #239의 repeatable-read 상세 조회 transaction을 사용해 revision/strong ETag와 하위 값은 같은 snapshot에 속한다. mutation 응답은 기존 owner root lock이 적용된 transaction 안에서 같은 projection을 읽는다.
+root owner 조회가 성공한 뒤 `trip_plan_id` 조건으로 교통·숙소·장소 선호를 각각 한 번 조회한다. 숙소 이름은 기존 저장 계약의 `coalesce(tour_places.name, trip_accommodations.custom_name)`을 따른다. root·이동 수단·Day·교통·숙소·장소 선호의 query 수는 행 수와 무관하게 여섯 번이며, 비소유/없는 root는 첫 조회 후 기존 `404 TRIP_NOT_FOUND`로 종료한다. #239의 repeatable-read 상세 조회 transaction을 사용해 revision/strong ETag와 하위 값은 같은 snapshot에 속한다. mutation 응답은 기존 owner root lock이 적용된 transaction 안에서 같은 projection을 읽는다.
+
+#53에서 최신 `TripDetail.placePreferences`를 필수 배열로 추가한다. 미입력은 `[]`이고 기존 장소 선호 저장 계약의 `placeId/type/targetDayNo/priority/requestedStayMinutes`를 그대로 복원하며 정렬은 `priority DESC, placeId ASC`다. 도입 전 완료 receipt는 장소 선호만 없는 닫힌 `TripDetailLegacyV12`로 POST와 Day PUT replay에만 허용한다. 이전 receipt를 재작성하지 않으며 최신 값은 여행 GET으로 조회한다.
 
 교통·숙소 조회 실패나 정규화되지 않은 숙소 표시값은 cause 없는 `503 TRIP_DATA_UNAVAILABLE`로 전체 요청을 실패시킨다. 일부 하위 값만 성공 응답으로 반환하지 않는다. 외부 provider를 호출하지 않고 사용자 GPS·현재·간접 위치, 예약 정보 등 새 필드를 추가하지 않는다.
 

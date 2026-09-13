@@ -237,6 +237,7 @@ final class FrontendOpenApiCustomizer {
         List.of(
             "TripTransportEvents",
             "TripDetail",
+            "TripDetailLegacyV12",
             "TripDetailLegacyV11",
             "TripDetailLegacyV1",
             "TripSummary",

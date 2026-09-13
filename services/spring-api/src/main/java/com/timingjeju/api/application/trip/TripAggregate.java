@@ -23,7 +23,8 @@ public record TripAggregate(
     Instant createdAt,
     Instant updatedAt,
     TripTransportEvents transportEvents,
-    List<Accommodation> accommodations) {
+    List<Accommodation> accommodations,
+    List<TripPlacePreference> placePreferences) {
   public TripAggregate {
     if (revision < 1) {
       throw new IllegalArgumentException("revision은 양수여야 합니다.");
@@ -32,6 +33,46 @@ public record TripAggregate(
     days = List.copyOf(days);
     java.util.Objects.requireNonNull(transportEvents);
     accommodations = List.copyOf(accommodations);
+    placePreferences = List.copyOf(placePreferences);
+  }
+
+  public TripAggregate(
+      UUID tripId,
+      long revision,
+      String title,
+      String status,
+      LocalDate startDate,
+      LocalDate endDate,
+      String timezone,
+      String userPace,
+      List<TripTransportMode> transportModes,
+      List<TripDay> days,
+      UUID activeScheduleVersionId,
+      Integer totalScore,
+      TripScoreProvenance scoreProvenance,
+      Instant createdAt,
+      Instant updatedAt,
+      TripTransportEvents transportEvents,
+      List<Accommodation> accommodations) {
+    this(
+        tripId,
+        revision,
+        title,
+        status,
+        startDate,
+        endDate,
+        timezone,
+        userPace,
+        transportModes,
+        days,
+        activeScheduleVersionId,
+        totalScore,
+        scoreProvenance,
+        createdAt,
+        updatedAt,
+        transportEvents,
+        accommodations,
+        List.of());
   }
 
   public TripAggregate(

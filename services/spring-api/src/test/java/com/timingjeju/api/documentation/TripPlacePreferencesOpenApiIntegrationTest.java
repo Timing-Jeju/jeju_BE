@@ -111,7 +111,15 @@ class TripPlacePreferencesOpenApiIntegrationTest
                 .value(containsInAnyOrder("placeId", "type", "targetDayNo", "priority")))
         .andExpect(
             jsonPath("$.components.schemas.PlacePreferenceItem.properties.type.enum")
-                .value(containsInAnyOrder("must_visit", "avoid")))
+                .value(containsInAnyOrder("must_visit", "preferred", "avoid")))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.PlacePreferenceItem.properties.requestedStayMinutes.minimum")
+                .value(1))
+        .andExpect(
+            jsonPath(
+                    "$.components.schemas.PlacePreferenceItem.properties.requestedStayMinutes.maximum")
+                .value(1440))
         .andExpect(
             jsonPath("$.components.schemas.PlacePreferenceItem.properties.targetDayNo.minimum")
                 .value(1))

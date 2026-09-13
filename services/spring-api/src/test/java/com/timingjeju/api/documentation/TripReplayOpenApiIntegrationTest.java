@@ -47,7 +47,12 @@ class TripReplayOpenApiIntegrationTest {
             jsonPath(
                     "$.paths['/api/v1/trips'].post.responses['201'].content['application/json'].schema.$ref")
                 .value("#/components/schemas/TripCreateResponse"))
-        .andExpect(jsonPath("$.components.schemas.TripCreateResponse.oneOf").value(hasSize(3)))
+        .andExpect(jsonPath("$.components.schemas.TripCreateResponse.oneOf").value(hasSize(4)))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetailLegacyV12.properties.placePreferences")
+                .doesNotExist())
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetailLegacyV12.properties.accommodations").exists())
         .andExpect(
             jsonPath("$.components.schemas.TripDetailLegacyV1.properties.days.items.$ref")
                 .value("#/components/schemas/TripDayLegacyV1"))
@@ -70,7 +75,7 @@ class TripReplayOpenApiIntegrationTest {
                     "$.paths['/api/v1/trips/{tripId}/day-activity-windows'].put.responses['200'].content['application/json'].schema.$ref")
                 .value("#/components/schemas/TripDayActivityWindowsResponse"))
         .andExpect(
-            jsonPath("$.components.schemas.TripDayActivityWindowsResponse.oneOf").value(hasSize(2)))
+            jsonPath("$.components.schemas.TripDayActivityWindowsResponse.oneOf").value(hasSize(3)))
         .andExpect(
             jsonPath("$.components.schemas.TripDetailLegacyV11.properties.transportEvents")
                 .doesNotExist())

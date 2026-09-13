@@ -41,6 +41,32 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
 
   @Autowired private TripPlacePreferencesStore store;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private JdbcTripStore trips;
+
+  @Test
+  void 찜하지_않은_canonical_장소의_선택방문과_체류시간을_저장한다() {
+    var result =
+        store.replaceOwned(
+            update(List.of(new TripPlacePreference(PLACE_B, "preferred", 1, 50, 90))));
+    assertThat(result.preferences().getFirst().requestedStayMinutes()).isEqualTo(90);
+    var restored = trips.findOwned(OWNER, TRIP, UPDATE_AT).orElseThrow();
+    var json =
+        new tools.jackson.databind.ObjectMapper()
+            .valueToTree(
+                com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse.from(restored));
+    assertThat(json.path("placePreferences").path(0).path("placeId").asString())
+        .isEqualTo(PLACE_B.toString());
+    assertThat(json.path("placePreferences").path(0).path("requestedStayMinutes").asInt())
+        .isEqualTo(90);
+    assertThat(trips.findOwned(OTHER, TRIP, UPDATE_AT)).isEmpty();
+    assertThat(
+            jdbc.queryForObject(
+                "select requested_stay_minutes from public.trip_place_preferences where trip_plan_id=? and place_id=?",
+                Integer.class,
+                TRIP,
+                PLACE_B))
+        .isEqualTo(90);
+  }
 
   @BeforeEach
   void setUp() {
@@ -123,7 +149,7 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
                 String.class,
                 TRIP))
         .containsExactly(
-            PLACE_A + ":must_visit:2:100:saved_place", PLACE_B + ":avoid:all:10:saved_place");
+            PLACE_A + ":must_visit:2:100:user_input", PLACE_B + ":avoid:all:10:user_input");
   }
 
   @Test
@@ -163,10 +189,11 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
   }
 
   @Test
-  void replaceOwned는_타인에게만_저장됐거나_stale인_장소를_같은_404로_숨긴다() {
+  void replaceOwned는_존재하지_않거나_stale인_장소를_같은_404로_숨긴다() {
     store.replaceOwned(update(List.of(new TripPlacePreference(PLACE_A, "must_visit", null, 50))));
 
-    for (UUID invalid : List.of(PLACE_B, PLACE_STALE)) {
+    for (UUID invalid :
+        List.of(UUID.fromString("48000000-0000-0000-0000-000000009999"), PLACE_STALE)) {
       assertCode(
           () ->
               store.replaceOwned(

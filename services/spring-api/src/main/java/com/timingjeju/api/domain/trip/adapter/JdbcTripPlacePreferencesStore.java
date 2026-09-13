@@ -58,7 +58,7 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
               update.updatedAt(),
               (state, committedAt) -> {
                 validateTargetDays(state.startDate(), state.endDate(), update.preferences());
-                lockOwnedSavedPlaces(update.ownerId(), update.preferences());
+                lockCanonicalPlaces(update.preferences());
                 List<TripPlacePreference> current = loadPreferences(update.tripId());
                 if (current.equals(update.preferences())) {
                   return TripAggregateMutationPlan.noChange(
@@ -110,7 +110,7 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
     }
   }
 
-  private void lockOwnedSavedPlaces(UUID ownerId, List<TripPlacePreference> preferences) {
+  private void lockCanonicalPlaces(List<TripPlacePreference> preferences) {
     Set<UUID> requested = new LinkedHashSet<>();
     preferences.forEach(item -> requested.add(item.placeId()));
     if (requested.isEmpty()) {
@@ -119,17 +119,15 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
     List<UUID> found =
         namedJdbc.queryForList(
             """
-            select s.place_id
-            from public.saved_places s
-            join public.tour_places p on p.id=s.place_id
-            where s.user_id=:ownerId and s.place_id in (:placeIds)
+            select p.id
+            from public.tour_places p
+            where p.id in (:placeIds)
               and p.stale=false and (p.stale_at is null or p.stale_at > now())
               and p.tombstoned_at is null and p.source_deleted_at is null
-            for share of s,p
+            order by p.id
+            for share of p
             """,
-            new MapSqlParameterSource()
-                .addValue("ownerId", ownerId, Types.OTHER)
-                .addValue("placeIds", requested),
+            new MapSqlParameterSource().addValue("placeIds", requested),
             UUID.class);
     if (found.size() != requested.size()) {
       throw TripException.placeNotFound();
@@ -139,7 +137,7 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
   private List<TripPlacePreference> loadPreferences(UUID tripId) {
     return jdbc.query(
         """
-        select place_id,preference_type,target_day_no,priority
+        select place_id,preference_type,target_day_no,priority,requested_stay_minutes
         from public.trip_place_preferences
         where trip_plan_id=?
         order by priority desc,place_id
@@ -149,7 +147,8 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
                 rs.getObject("place_id", UUID.class),
                 rs.getString("preference_type"),
                 rs.getObject("target_day_no", Integer.class),
-                rs.getInt("priority")),
+                rs.getInt("priority"),
+                rs.getObject("requested_stay_minutes", Integer.class)),
         tripId);
   }
 
@@ -179,14 +178,16 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
                         .addValue("type", item.type())
                         .addValue("targetDayNo", item.targetDayNo())
                         .addValue("priority", item.priority())
+                        .addValue(
+                            "requestedStayMinutes", item.requestedStayMinutes(), Types.INTEGER)
                         .addValue("createdAt", Timestamp.from(effectiveAt)))
             .toArray(SqlParameterSource[]::new);
     namedJdbc.batchUpdate(
         """
         insert into public.trip_place_preferences (
-          trip_plan_id,place_id,preference_type,target_day_no,priority,source,created_at
+          trip_plan_id,place_id,preference_type,target_day_no,priority,source,created_at,requested_stay_minutes
         ) values (
-          :tripId,:placeId,:type,:targetDayNo,:priority,'saved_place',:createdAt
+          :tripId,:placeId,:type,:targetDayNo,:priority,'user_input',:createdAt,:requestedStayMinutes
         )
         """,
         rows);

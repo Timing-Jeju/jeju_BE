@@ -111,7 +111,7 @@ class TripOpenApiIntegrationTest
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips'].post.responses['201'].content['application/json'].schema.oneOf")
-                .value(hasSize(3)))
+                .value(hasSize(4)))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].schema.properties.days.items.required")
@@ -126,7 +126,12 @@ class TripOpenApiIntegrationTest
         .andExpect(status().isOk())
         .andExpect(
             jsonPath("$.components.schemas.TripDetail.required")
-                .value(org.hamcrest.Matchers.hasItems("transportEvents", "accommodations")))
+                .value(
+                    org.hamcrest.Matchers.hasItems(
+                        "transportEvents", "accommodations", "placePreferences")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.placePreferences.type")
+                .value("array"))
         .andExpect(jsonPath("$.components.schemas.TripDetail.properties.transportEvents").exists())
         .andExpect(
             jsonPath("$.components.schemas.TripDetail.properties.accommodations.type")
@@ -296,6 +301,7 @@ class TripOpenApiIntegrationTest
                         "days",
                         "transportEvents",
                         "accommodations",
+                        "placePreferences",
                         "activeScheduleVersionId",
                         "totalScore",
                         "scoreProvenance",
