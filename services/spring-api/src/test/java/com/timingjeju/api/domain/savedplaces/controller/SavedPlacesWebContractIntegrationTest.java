@@ -69,6 +69,19 @@ class SavedPlacesWebContractIntegrationTest {
     registry.add("app.security.jwt.secret", () -> SECRET);
   }
 
+  @Test
+  void DELETE는_유효한_단일_strong_IfMatch일_때_repository를_한번_호출한다() throws Exception {
+    DELETE_CALLS.set(0);
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(
+                    "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("If-Match", "\"v1\""))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("SAVED_PLACE_NOT_FOUND"));
+    org.assertj.core.api.Assertions.assertThat(DELETE_CALLS.get()).isEqualTo(1);
+  }
+
   @org.junit.jupiter.params.ParameterizedTest
   @org.junit.jupiter.params.provider.NullSource
   @org.junit.jupiter.params.provider.ValueSource(
