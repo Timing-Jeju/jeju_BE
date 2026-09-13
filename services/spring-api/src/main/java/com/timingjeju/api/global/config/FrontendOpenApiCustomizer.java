@@ -965,7 +965,8 @@ final class FrontendOpenApiCustomizer {
                   "^\\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\\"$"),
           "\"trip-47000000-0000-4000-8000-000000000047-r1\"");
     }
-    if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")) {
+    if (key.equals("PATCH /api/v1/me/saved-places/{placeId}")
+        || key.equals("DELETE /api/v1/me/saved-places/{placeId}")) {
       mergeRequiredHeader(
           operation,
           "If-Match",
@@ -1511,7 +1512,7 @@ final class FrontendOpenApiCustomizer {
             "관심 장소",
             null,
             """
-            {"items":[{"placeId":"34000000-0000-4000-8000-000000000034","name":"새별오름","category":"content-type:12","regionLabel":"제주시","thumbnailUrl":"https://example.invalid/place.jpg","recommendedStayMinutes":90,"memo":"노을 시간 방문","tags":["노을","오름"],"priority":5,"targetDay":2,"savedAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}],"page":{"size":20,"hasNext":false,"nextCursor":null}}
+            {"items":[{"placeId":"34000000-0000-4000-8000-000000000034","name":"새별오름","category":"content-type:12","regionLabel":"제주시","thumbnailUrl":"https://example.invalid/place.jpg","recommendedStayMinutes":90,"memo":"노을 시간 방문","tags":["노을","오름"],"priority":5,"targetDay":2,"savedAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z","etag":"\\"sp-5a6b5687c6f0fa18088464770cf9aead\\""}],"page":{"size":20,"hasNext":false,"nextCursor":null}}
             """,
             Map.of("400", "INVALID_QUERY_PARAMETER", "401", "AUTHENTICATION_REQUIRED")));
     result.put(
@@ -1523,7 +1524,7 @@ final class FrontendOpenApiCustomizer {
             {"placeId":"34000000-0000-4000-8000-000000000034","memo":"노을 시간 방문","tags":["오름","노을"],"priority":5,"targetDay":2}
             """,
             """
-            {"placeId":"34000000-0000-4000-8000-000000000034","name":"새별오름","category":"content-type:12","regionLabel":"제주시","thumbnailUrl":"https://example.invalid/place.jpg","recommendedStayMinutes":90,"memo":"노을 시간 방문","tags":["노을","오름"],"priority":5,"targetDay":2,"savedAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z"}
+            {"placeId":"34000000-0000-4000-8000-000000000034","name":"새별오름","category":"content-type:12","regionLabel":"제주시","thumbnailUrl":"https://example.invalid/place.jpg","recommendedStayMinutes":90,"memo":"노을 시간 방문","tags":["노을","오름"],"priority":5,"targetDay":2,"savedAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:00:00Z","etag":"\\"sp-5a6b5687c6f0fa18088464770cf9aead\\""}
             """,
             Map.of(
                 "400", "INVALID_REQUEST",
@@ -1540,7 +1541,7 @@ final class FrontendOpenApiCustomizer {
             {"memo":"노을 시간 방문","tags":["오름"],"priority":3,"targetDay":2}
             """,
             """
-            {"placeId":"34000000-0000-4000-8000-000000000034","name":"새별오름","category":"content-type:12","regionLabel":"제주시","thumbnailUrl":"https://example.invalid/place.jpg","recommendedStayMinutes":90,"memo":"노을 시간 방문","tags":["오름"],"priority":3,"targetDay":2,"savedAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:05:00Z"}
+            {"placeId":"34000000-0000-4000-8000-000000000034","name":"새별오름","category":"content-type:12","regionLabel":"제주시","thumbnailUrl":"https://example.invalid/place.jpg","recommendedStayMinutes":90,"memo":"노을 시간 방문","tags":["오름"],"priority":3,"targetDay":2,"savedAt":"2026-08-25T00:00:00Z","updatedAt":"2026-08-25T00:05:00Z","etag":"\\"sp-9123311fc43731365bcf3dc3e9569c22\\""}
             """,
             Map.of(
                 "400", "INVALID_REQUEST",
@@ -1558,7 +1559,8 @@ final class FrontendOpenApiCustomizer {
             Map.of(
                 "400", "INVALID_REQUEST",
                 "401", "AUTHENTICATION_REQUIRED",
-                "404", "SAVED_PLACE_NOT_FOUND")));
+                "404", "SAVED_PLACE_NOT_FOUND",
+                "409", "SAVED_PLACE_VERSION_CONFLICT")));
     result.put(
         "PUT /api/v1/me/push-devices/{deviceId}",
         doc(

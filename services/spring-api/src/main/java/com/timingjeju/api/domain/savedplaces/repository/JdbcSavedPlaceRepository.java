@@ -206,12 +206,33 @@ public class JdbcSavedPlaceRepository implements SavedPlaceRepository {
   }
 
   @Override
-  public boolean delete(UUID owner, UUID placeId) {
-    return jdbc.update(
-            "delete from public.saved_places where user_id=:owner and place_id=:placeId",
-            base(owner).addValue("placeId", placeId, Types.OTHER))
-        == 1;
+  @org.springframework.transaction.annotation.Transactional
+  public boolean delete(UUID owner, UUID placeId, String ifMatch) {
+    var parameters = base(owner).addValue("placeId", placeId, Types.OTHER);
+    List<DeleteVersionRepository> rows =
+        jdbc.query(
+            """
+        select updated_at, version from public.saved_places
+        where user_id=:owner and place_id=:placeId
+        for update
+        """,
+            parameters,
+            (rs, row) ->
+                new DeleteVersionRepository(
+                    rs.getTimestamp("updated_at").toInstant(), rs.getLong("version")));
+    if (rows.isEmpty()) return false;
+    var current = rows.getFirst();
+    if (!SavedPlaceEtag.strong(placeId, current.updatedAt()).equals(ifMatch))
+      throw SavedPlaceException.of("SAVED_PLACE_VERSION_CONFLICT");
+    int deleted =
+        jdbc.update(
+            "delete from public.saved_places where user_id=:owner and place_id=:placeId and version=:version",
+            parameters.addValue("version", current.version()));
+    if (deleted != 1) throw SavedPlaceException.of("SAVED_PLACE_VERSION_CONFLICT");
+    return true;
   }
+
+  private record DeleteVersionRepository(Instant updatedAt, long version) {}
 
   private RowRepository find(UUID owner, UUID placeId) {
     RowRepository row = findOrNull(owner, placeId);

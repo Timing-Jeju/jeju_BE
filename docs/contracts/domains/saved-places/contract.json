@@ -1,6 +1,6 @@
 {
   "schemaVersion": "timing-jeju-saved-places-contract/v1",
-  "contractVersion": "1.0.0",
+  "contractVersion": "1.2.0",
   "sourceSpecVersion": "v1.1",
   "inherits": "timing-jeju-rest-contract/v1",
   "ownerIssue": 84,
@@ -208,7 +208,8 @@
         "priority",
         "targetDay",
         "savedAt",
-        "updatedAt"
+        "updatedAt",
+        "etag"
       ],
       "properties": {
         "placeId": {
@@ -274,6 +275,14 @@
           "type": "string",
           "nullable": false,
           "format": "date-time"
+        },
+        "etag": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 3,
+          "maxLength": 130,
+          "pattern": "^\"[A-Za-z0-9._:-]{1,128}\"$",
+          "description": "서버 row의 opaque strong ETag. If-Match에 그대로 전달한다."
         }
       }
     },
@@ -410,6 +419,116 @@
           }
         }
       }
+    },
+    "SavedPlaceLegacyV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placeId",
+        "name",
+        "category",
+        "regionLabel",
+        "thumbnailUrl",
+        "recommendedStayMinutes",
+        "memo",
+        "tags",
+        "priority",
+        "targetDay",
+        "savedAt",
+        "updatedAt"
+      ],
+      "properties": {
+        "placeId": {
+          "$ref": "PlaceId",
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "nullable": false,
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "category": {
+          "$ref": "Category",
+          "nullable": false
+        },
+        "regionLabel": {
+          "type": "string",
+          "nullable": true,
+          "maxLength": 100
+        },
+        "thumbnailUrl": {
+          "type": "string",
+          "nullable": true,
+          "format": "uri"
+        },
+        "recommendedStayMinutes": {
+          "type": "integer",
+          "nullable": true,
+          "minimum": 0
+        },
+        "memo": {
+          "$ref": "Memo",
+          "nullable": true
+        },
+        "tags": {
+          "type": "array",
+          "nullable": false,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "canonicalOrder": "unicode-codepoint-asc",
+          "items": {
+            "$ref": "Tag",
+            "nullable": false
+          }
+        },
+        "priority": {
+          "type": "integer",
+          "nullable": false,
+          "minimum": 0,
+          "maximum": 5
+        },
+        "targetDay": {
+          "$ref": "TargetDay",
+          "nullable": true
+        },
+        "savedAt": {
+          "type": "string",
+          "nullable": false,
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "nullable": false,
+          "format": "date-time"
+        }
+      }
+    },
+    "SavedPlaceCreateResponse": {
+      "nullable": false,
+      "description": "새응답은SavedPlace이며 배포 전 완료receipt의24시간 TTL내 replay만 SavedPlaceLegacyV1 원본이다. 최신ETag는목록GET으로복원한다.",
+      "oneOf": [
+        {
+          "$ref": "SavedPlace"
+        },
+        {
+          "$ref": "SavedPlaceLegacyV1"
+        }
+      ]
+    },
+    "DeleteSavedPlaceHeaders": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "If-Match"
+      ],
+      "properties": {
+        "If-Match": {
+          "type": "string",
+          "nullable": false,
+          "pattern": "^\"[A-Za-z0-9._:-]{1,128}\"$"
+        }
+      }
     }
   },
   "endpoints": [
@@ -525,7 +644,7 @@
       "operation": "create",
       "requestSchema": "CreateSavedPlaceRequest",
       "headersSchema": "CreateSavedPlaceHeaders",
-      "successSchema": "SavedPlace",
+      "successSchema": "SavedPlaceCreateResponse",
       "auth": {
         "mode": "required",
         "principal": "canonical JWT sub",
@@ -736,7 +855,7 @@
       "path": "/api/v1/me/saved-places/{placeId}",
       "operation": "delete",
       "requestSchema": "SavedPlacePath",
-      "headersSchema": "CommonHeaders",
+      "headersSchema": "DeleteSavedPlaceHeaders",
       "successSchema": "none",
       "auth": {
         "mode": "required",
@@ -771,7 +890,7 @@
       "responseHeaders": {},
       "problems": [
         {
-          "condition": "placeId is not canonical UUID",
+          "condition": "placeId is not canonical UUID, If-Match missing/malformed/multiple, or forbidden body/query",
           "status": 400,
           "code": "INVALID_REQUEST",
           "type": "https://api.timing-jeju.com/problems/invalid-request"
@@ -793,6 +912,12 @@
           "status": 404,
           "code": "SAVED_PLACE_NOT_FOUND",
           "type": "https://api.timing-jeju.com/problems/saved-place-not-found"
+        },
+        {
+          "condition": "current owner row strong ETag differs from If-Match",
+          "status": 409,
+          "code": "SAVED_PLACE_VERSION_CONFLICT",
+          "type": "https://api.timing-jeju.com/problems/saved-place-version-conflict"
         }
       ]
     }
@@ -883,7 +1008,10 @@
     "first": "204",
     "repeat": "404",
     "crossOwner": "404",
-    "responseBody": "none"
+    "responseBody": "none",
+    "precondition": "single strong If-Match required",
+    "stale": "409 SAVED_PLACE_VERSION_CONFLICT",
+    "atomicity": "owner row SELECT FOR UPDATE, compare ETag and version-qualified delete in one transaction"
   },
   "ownership": {
     "principal": "canonical JWT sub",
@@ -975,5 +1103,10 @@
     "example": "not-ready",
     "implementation": "not-ready",
     "reason": "Notion canonical section은 정렬됐지만 Issue #34 구현/example이 없고 Figma contract version/state evidence가 없음"
-  }
+  },
+  "implementationIssues": [
+    34,
+    238,
+    248
+  ]
 }

@@ -6,23 +6,24 @@
     },
     "body": {
       "items": [
-      {
-        "placeId": "20000000-0000-0000-0000-000000000003",
-        "name": "성산일출봉",
-        "category": "VE",
-        "recommendedStayMinutes": 60,
-        "regionLabel": "성산",
-        "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
-        "memo": "오전에 방문",
-        "tags": [
-          "동쪽",
-          "필수"
-        ],
-        "priority": 5,
-        "targetDay": 1,
-        "savedAt": "2026-08-03T08:40:00+09:00",
-        "updatedAt": "2026-08-03T08:40:00+09:00"
-      }
+        {
+          "placeId": "20000000-0000-0000-0000-000000000003",
+          "name": "성산일출봉",
+          "category": "VE",
+          "recommendedStayMinutes": 60,
+          "regionLabel": "성산",
+          "thumbnailUrl": "https://example.com/fixtures/seongsan-thumb.jpg",
+          "memo": "오전에 방문",
+          "tags": [
+            "동쪽",
+            "필수"
+          ],
+          "priority": 5,
+          "targetDay": 1,
+          "savedAt": "2026-08-03T08:40:00+09:00",
+          "updatedAt": "2026-08-03T08:40:00+09:00",
+          "etag": "\"saved-place-fixture-v1\""
+        }
       ],
       "page": {
         "size": 20,
@@ -54,7 +55,8 @@
       "priority": 5,
       "targetDay": 1,
       "savedAt": "2026-08-03T09:05:00+09:00",
-      "updatedAt": "2026-08-03T09:05:00+09:00"
+      "updatedAt": "2026-08-03T09:05:00+09:00",
+      "etag": "\"saved-place-fixture-v1\""
     }
   },
   "createReplay": {
@@ -97,7 +99,8 @@
       "priority": 0,
       "targetDay": 2,
       "savedAt": "2026-08-03T09:05:00+09:00",
-      "updatedAt": "2026-08-03T09:06:00+09:00"
+      "updatedAt": "2026-08-03T09:06:00+09:00",
+      "etag": "\"saved-place-fixture-v2\""
     }
   },
   "delete": {
