@@ -41,6 +41,20 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
 
   @Override
   public GenerationCandidateProjection execute(UUID runId, Instant deadline) {
+    try {
+      return executeSaved(runId, deadline);
+    } catch (McpContractException failure) {
+      throw GenerationException.invalidResult();
+    } catch (McpRemoteCallException failure) {
+      var sanitized = GenerationException.mcpFailure(failure.stableCode());
+      if (failure.retryable()
+          && Set.of("MCP_TIMEOUT", "MCP_TRANSPORT_UNAVAILABLE").contains(sanitized.code()))
+        throw new RetryableRunException(sanitized.code());
+      throw sanitized;
+    }
+  }
+
+  private GenerationCandidateProjection executeSaved(UUID runId, Instant deadline) {
     checkDeadline(deadline);
     var snapshot = snapshots.find(runId).orElseThrow(GenerationException::inputUnavailable);
     var command =

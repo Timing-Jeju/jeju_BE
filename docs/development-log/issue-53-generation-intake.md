@@ -436,3 +436,26 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 최종 spotlessApply/test/architectureTest 성공(50초), 기존 macOS 제한 테스트 9개 skip이다.
 - 실행기 bean/승인 source 설정, 실제 worker claim·heartbeat·fence·원자 후보 저장, previous_days,
   request echo·비용/버스 상세 검사와 조회/apply/FE 실제 연결은 후속이다. 최종 BE PR은 아직 없다.
+
+## 생성 워커 오케스트레이션과 재시도
+
+- GenerationWorker/GenerationCompletionStore 및 lease retry 메서드 부재 compile RED 후 구현했다.
+  워커는 단일 claim, 시작 heartbeat, 실행 전후 deadline, planner→원자 완료 저장 port를 연결한다.
+  이 port가 후보 전체와 run 성공을 함께 commit하며 워커는 별도 성공 UPDATE를 하지 않는다.
+- DB retry는 running·현재 fence·유효 lease·attempt<3을 요구한다. 지연은 0~60초,
+  정형 오류 코드만 저장하고 lease 필드는 비운다. 지연 전 재claim·stale/expired/terminal retry를
+  거부하며 다음 claim에서 attempt/fence를 증가시킨다. 테이블/권한/migration 변경은 없다.
+- 독립 리뷰에서 supervisor future 종료가 실제 스레드 종료보다 빨라 추가 claim을 허용하는
+  문제와 MCP retryable 오류 미변환을 발견했다. latch 회귀의 claim 2회 RED, 실제 SDK
+  MCP_TIMEOUT 타입 불일치 RED를 각각 확인한 뒤 수정했다.
+- ActiveRun은 실제 실행과 완료 처리가 모두 끝나야 admission을 해제한다. 늦게 시작된 실행과
+  terminal 뒤 반환된 planner 결과를 거부한다. MCP adapter는 닫힌 코드만 application 예외로
+  변환하며 retryable timeout/transport만 재시도한다. 원문/cause는 전달하지 않는다.
+- 독립 재검토에서 이전 finding 해소·신규 차단 0건이다. 전체 승인/recorder는 아니다.
+- 중간 전체 test/architecture 성공(50초), 실제 DB retry/재시작 통합 2개 성공(2분 16초).
+  추가한 중단·반환객체 전달·expired retry까지 최종 spotlessApply/test/architectureTest 및
+  GenerationLeaseRepositoryIntegrationTest 성공(2분 41초). 워커 12개·DB 2개 통과,
+  기존 macOS 제한 9개 skip이며 종료 후 이번 Testcontainers 자원 정리를 확인했다.
+- 실제 CompletionStore JDBC 후보 writer와 bean/scheduler 등록은 아직 미완료다.
+  저장 전 request echo·이동 상세/비용·인접 구간 검증, previous_days, 조회/apply/FE·최종 PR을
+  계속 구현해야 한다. 현재 워커 port를 DB 후보 저장의 완료 근거로 사용하지 않는다.

@@ -25,6 +25,20 @@ public final class GenerationException extends RuntimeException {
     return new GenerationException("MCP_CONTRACT_INVALID");
   }
 
+  public static GenerationException mcpFailure(String code) {
+    return new GenerationException(
+        switch (code == null ? "" : code) {
+          case "MCP_TIMEOUT",
+              "MCP_TRANSPORT_UNAVAILABLE",
+              "MCP_AUTHENTICATION_FAILED",
+              "MCP_PROTOCOL_INVALID",
+              "MCP_NOT_READY",
+              "MCP_GENERATION_DISABLED" ->
+              code;
+          default -> "MCP_INTERNAL_ERROR";
+        });
+  }
+
   public static GenerationException intakeUnavailable() {
     return new GenerationException("ASYNC_INTAKE_UNAVAILABLE");
   }

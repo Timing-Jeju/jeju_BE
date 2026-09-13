@@ -20,6 +20,41 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("integration")
 class GenerationLeaseRepositoryIntegrationTest {
   @Test
+  void 재시도는_유효한_fence만_허용하며_세번째_시도를_넘지_않는다() {
+    try (var container = PostgreSqlTestContainerFactory.create()) {
+      container.start();
+      var dataSource =
+          new DriverManagerDataSource(
+              container.getJdbcUrl(), container.getUsername(), container.getPassword());
+      var jdbc = new JdbcTemplate(dataSource);
+      var transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
+      var runId = seed(jdbc, transaction);
+      var store = new JdbcGenerationLeaseRepository(jdbc);
+      var first = store.claimAvailable("retry-1", Duration.ofSeconds(180), 1).getFirst();
+      assertThat(store.retry(first, Duration.ofSeconds(60), "MCP_TIMEOUT")).isTrue();
+      assertThat(store.retry(first, Duration.ZERO, "MCP_TIMEOUT")).isFalse();
+      assertThat(store.claimAvailable("retry-2", Duration.ofSeconds(180), 1)).isEmpty();
+      assertThat(
+              jdbc.queryForObject(
+                  "select status='queued' and lease_owner is null and lease_expires_at is null and heartbeat_at is null and completed_at is null and retained_until is null and error_code='MCP_TIMEOUT' and error_message is null from public.itinerary_generation_runs where id=?",
+                  Boolean.class,
+                  runId))
+          .isTrue();
+      jdbc.update(
+          "update public.itinerary_generation_runs set next_attempt_at=statement_timestamp()-interval '1 second' where id=?",
+          runId);
+      var second = store.claimAvailable("retry-2", Duration.ofSeconds(180), 1).getFirst();
+      assertThat(second.attempt()).isEqualTo(2);
+      assertThat(store.retry(first, Duration.ZERO, "MCP_TIMEOUT")).isFalse();
+      assertThat(store.retry(second, Duration.ZERO, "MCP_TIMEOUT")).isTrue();
+      var third = store.claimAvailable("retry-3", Duration.ofSeconds(180), 1).getFirst();
+      assertThat(third.attempt()).isEqualTo(3);
+      assertThat(store.retry(third, Duration.ZERO, "MCP_TIMEOUT")).isFalse();
+      assertThat(store.fail(third, "MCP_TIMEOUT")).isTrue();
+    }
+  }
+
+  @Test
   void 재시작_후_만료lease를_회수하고_이전fence의_완료를_거부한다() {
     try (var container = PostgreSqlTestContainerFactory.create()) {
       container.start();
@@ -39,6 +74,7 @@ class GenerationLeaseRepositoryIntegrationTest {
           "update public.itinerary_generation_runs set lease_expires_at=statement_timestamp()-interval '1 second' where id=?",
           runId);
       var restarted = new JdbcGenerationLeaseRepository(jdbc);
+      assertThat(firstStore.retry(first, Duration.ZERO, "MCP_TIMEOUT")).isFalse();
       var second = restarted.claimAvailable("worker-2", Duration.ofSeconds(180), 1).getFirst();
       assertThat(second.fencingToken()).isGreaterThan(first.fencingToken());
       assertThat(second.attempt()).isEqualTo(2);

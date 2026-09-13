@@ -196,6 +196,19 @@ class JejuGenerationCandidateProjectionTest {
     assertThatThrownBy(() -> executor.execute(runId, clock.instant()))
         .isInstanceOf(com.timingjeju.api.application.asyncrun.RetryableRunException.class);
     verify(sdk, times(1)).callTool(any());
+    when(snapshots.find(runId)).thenReturn(java.util.Optional.of(snapshot));
+    when(commands.find(parent)).thenReturn(java.util.Optional.of(command));
+    doThrow(new McpRemoteCallException("MCP_TIMEOUT", true)).when(sdk).callTool(any());
+    assertThatThrownBy(() -> executor.execute(runId, clock.instant().plusSeconds(180)))
+        .isInstanceOfSatisfying(
+            com.timingjeju.api.application.asyncrun.RetryableRunException.class,
+            failure -> assertThat(failure.stableErrorCode()).isEqualTo("MCP_TIMEOUT"));
+    doThrow(new McpRemoteCallException("MCP_AUTHENTICATION_FAILED", false))
+        .when(sdk)
+        .callTool(any());
+    assertThatThrownBy(() -> executor.execute(runId, clock.instant().plusSeconds(180)))
+        .isInstanceOf(GenerationException.class)
+        .hasMessage("MCP_AUTHENTICATION_FAILED");
   }
 
   @Test

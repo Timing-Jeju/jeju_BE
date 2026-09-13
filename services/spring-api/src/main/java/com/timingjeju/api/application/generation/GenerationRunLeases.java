@@ -11,4 +11,6 @@ public interface GenerationRunLeases {
   boolean heartbeat(RunLease lease, Duration leaseDuration);
 
   boolean fail(RunLease lease, String stableErrorCode);
+
+  boolean retry(RunLease lease, Duration delay, String stableErrorCode);
 }

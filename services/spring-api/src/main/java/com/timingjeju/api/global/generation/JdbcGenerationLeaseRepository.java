@@ -114,4 +114,27 @@ public class JdbcGenerationLeaseRepository implements GenerationRunLeases {
     }
     return duration.toMillis();
   }
+
+  @Override
+  public boolean retry(RunLease lease, Duration delay, String stableErrorCode) {
+    Objects.requireNonNull(lease);
+    if (delay == null || delay.isNegative() || delay.compareTo(Duration.ofSeconds(60)) > 0)
+      throw new IllegalArgumentException("생성 재시도 지연은 0~60초여야 합니다.");
+    if (stableErrorCode == null || !stableErrorCode.matches("[A-Z][A-Z0-9_]{0,99}"))
+      throw new IllegalArgumentException("정형 오류 코드만 저장할 수 있습니다.");
+    return jdbc.update(
+            """
+        update public.itinerary_generation_runs
+        set status='queued',next_attempt_at=statement_timestamp()+(? * interval '1 millisecond'),
+            lease_owner=null,lease_expires_at=null,heartbeat_at=null,
+            error_code=?,error_message=null
+        where id=? and status='running' and fencing_token=? and attempt_count<3
+          and lease_expires_at>statement_timestamp()
+        """,
+            delay.toMillis(),
+            stableErrorCode,
+            lease.runId(),
+            lease.fencingToken())
+        == 1;
+  }
 }
