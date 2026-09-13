@@ -25,6 +25,7 @@ public final class KeyRingEncryptedSubjectResolver implements EncryptedSubjectRe
     try {
       plaintext =
           keyRing.decrypt(
+              requestId,
               SecretPurpose.AUTH_SUBJECT,
               new EncryptedSecret(encryptedSubject.ciphertext(), encryptedSubject.keyVersion()));
       return AuthSubject.of(new String(plaintext, StandardCharsets.US_ASCII));

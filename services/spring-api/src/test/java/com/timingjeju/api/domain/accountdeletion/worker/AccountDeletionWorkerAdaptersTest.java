@@ -50,6 +50,22 @@ class AccountDeletionWorkerAdaptersTest {
   }
 
   @Test
+  void keyring_resolver는_request_AAD를_전달해_cross_request_ciphertext를_거부한다() {
+    String boundRequest = "01K4V106000000000000000001";
+    VersionedAeadKeyRing requestBound = keyRingReturning("subject-106");
+    KeyRingEncryptedSubjectResolver resolver = new KeyRingEncryptedSubjectResolver(requestBound);
+
+    assertThat(resolver.resolve(boundRequest, new EncryptedAuthSubject("cipher", "v1")).value())
+        .isEqualTo("subject-106");
+    assertThatThrownBy(
+            () ->
+                resolver.resolve(
+                    "01K4V106000000000000000002", new EncryptedAuthSubject("cipher", "v1")))
+        .isInstanceOf(DeletionOperationException.class)
+        .hasMessage("SUBJECT_DECRYPTION_FAILED");
+  }
+
+  @Test
   void storage와_auth의_already_absent는_멱등_성공으로_정규화한다() {
     var storage = new ProfileImageDeletionAdapter(prefix -> ExternalDeletionResult.ALREADY_ABSENT);
     var auth =
@@ -95,7 +111,10 @@ class AccountDeletionWorkerAdaptersTest {
       }
 
       @Override
-      public byte[] decrypt(SecretPurpose purpose, EncryptedSecret secret) {
+      public byte[] decrypt(String requestId, SecretPurpose purpose, EncryptedSecret secret) {
+        if (!"01K4V106000000000000000001".equals(requestId)) {
+          throw new IllegalArgumentException("cross-request ciphertext");
+        }
         assertThat(purpose).isEqualTo(SecretPurpose.AUTH_SUBJECT);
         assertThat(secret).isEqualTo(new EncryptedSecret("cipher", "v1"));
         return subject.getBytes(StandardCharsets.US_ASCII);

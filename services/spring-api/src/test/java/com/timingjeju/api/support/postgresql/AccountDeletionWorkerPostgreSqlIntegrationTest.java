@@ -222,10 +222,12 @@ class AccountDeletionWorkerPostgreSqlIntegrationTest {
           """
           insert into public.account_deletion_requests(
             id,user_profile_id,idempotency_hash,request_hash,status_token_hash,
+            auth_subject_fingerprint,
             status_token_ciphertext,status_token_key_version,status_token_expires_at,
             auth_subject_ciphertext,auth_subject_key_version,status,requested_at)
           values (?, ?, decode(repeat('11',32),'hex'), decode(repeat('22',32),'hex'),
-            decode(repeat('33',32),'hex'), 'token-cipher', 'key-v1',
+            decode(repeat('33',32),'hex'), decode(repeat('44',32),'hex'),
+            'token-cipher', 'key-v1',
             ?::timestamptz, 'subject-cipher', 'key-v1', 'queued', ?::timestamptz)
           """,
           id,
