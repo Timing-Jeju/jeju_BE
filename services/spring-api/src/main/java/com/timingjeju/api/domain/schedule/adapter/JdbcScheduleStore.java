@@ -339,8 +339,8 @@ public class JdbcScheduleStore implements ScheduleStore {
         || !day.equals(row.plannedDepartureAt().atZone(JEJU).toLocalDate())
         || !day.equals(row.plannedArrivalAt().atZone(JEJU).toLocalDate())
         || invalidNonNegative(row.walkMinutes())
-        || invalidNonNegative(row.waitMinutes())
-        || invalidNonNegative(row.rideMinutes())
+        || invalidNullableNonNegative(row.waitMinutes())
+        || invalidNullableNonNegative(row.rideMinutes())
         || invalidNonNegative(row.transferMinutes())
         || row.durationMinutes() == null
         || row.durationMinutes() < 0
@@ -350,6 +350,14 @@ public class JdbcScheduleStore implements ScheduleStore {
         || (row.riskScore() != null && (row.riskScore() < 0 || row.riskScore() > 100))) {
       throw invalidData();
     }
+    ScheduleLegPrecisionProjection.validate(
+        row.facts(),
+        row.transportMode(),
+        row.walkMinutes(),
+        row.waitMinutes(),
+        row.rideMinutes(),
+        row.transferMinutes(),
+        row.durationMinutes());
     var risk = ScheduleLegRiskProjection.from(row.facts());
     return new ScheduleLegSnapshot(
         row.id(),
@@ -393,8 +401,8 @@ public class JdbcScheduleStore implements ScheduleStore {
             || !leg.plannedDepartureAt().equals(from.plannedEndAt())
             || leg.plannedArrivalAt().isAfter(to.plannedStartAt())
             || leg.walkMinutes() != 0
-            || leg.waitMinutes() != 0
-            || leg.rideMinutes() != 0
+            || !Integer.valueOf(0).equals(leg.waitMinutes())
+            || !Integer.valueOf(0).equals(leg.rideMinutes())
             || leg.transferMinutes() != 0
             || leg.bufferMinutes() != 0
             || !Integer.valueOf(0).equals(leg.distanceMeters())

@@ -63,6 +63,16 @@ class GenerationTransferTimingTest {
   }
 
   @Test
+  void 검증된_버스_승차시간은_초단위_시간표도_허용한다() throws Exception {
+    var candidate = candidate(2);
+    var ride =
+        (ObjectNode) candidate.get("timeline").get(0).get("transfer").get("bus_rides").get(0);
+    var departure = java.time.OffsetDateTime.parse(ride.get("scheduled_departure_at").asText());
+    ride.put("scheduled_departure_at", departure.plusSeconds(30).toString());
+    assertThatCode(() -> GenerationTransferTiming.validate(candidate)).doesNotThrowAnyException();
+  }
+
+  @Test
   void 환승도보는_앞차의_하차와_뒷차의_승차를_시간과_정류장으로_연결한다() throws Exception {
     var candidate = twoRides();
     GenerationTransferTiming.validate(candidate);

@@ -2,7 +2,6 @@ package com.timingjeju.api.domain.generation.adapter;
 
 import com.timingjeju.api.application.generation.*;
 import java.sql.Timestamp;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -102,7 +101,9 @@ final class JdbcGenerationCandidateWriter {
       var transferEvent =
           connection.events().stream().filter(event -> event.type().equals("transfer")).findFirst();
       String mode = "walk";
-      int walk = 0, wait = 0, ride = 0, interchange = 0, duration = 0, distance = 0, buffer = 0;
+      int walk = 0, interchange = 0, duration = 0, distance = 0, buffer = 0;
+      Integer wait = 0, ride = 0;
+      GenerationLegPrecision precision = null;
       Integer fare = 0;
       var departure = from.endAt();
       var arrival = departure;
@@ -123,17 +124,15 @@ final class JdbcGenerationCandidateWriter {
             interchange = Math.addExact(interchange, segment.plannedMinutes());
           else walk = Math.addExact(walk, segment.plannedMinutes());
         }
-        if (mode.equals("taxi")) ride = duration;
-        else
-          for (var segment : transfer.rides()) {
-            var riding = Duration.between(segment.departureAt(), segment.arrivalAt());
-            // 분 단위 DB 필드로 무단 반올림하지 않는다. 초 단위 보존은 별도 계약 확장 대상이다.
-            if (!riding.minusMinutes(riding.toMinutes()).isZero())
-              throw GenerationException.invalidResult();
-            ride = Math.addExact(ride, Math.toIntExact(riding.toMinutes()));
-          }
-        wait = duration - walk - ride - interchange;
-        if (wait < 0) throw GenerationException.invalidResult();
+        if (mode.equals("public_transit")) {
+          precision = GenerationLegPrecision.from(event, transfer);
+          ride = precision.rideMinutes();
+          wait = precision.waitMinutes();
+        } else {
+          if (mode.equals("taxi")) ride = duration;
+          wait = duration - walk - ride - interchange;
+          if (wait < 0) throw GenerationException.invalidResult();
+        }
         var range = transfer.fare();
         fare = range != null && range.minKrw() == range.maxKrw() ? range.minKrw() : null;
         for (var eventBuffer : connection.events())
@@ -167,7 +166,7 @@ final class JdbcGenerationCandidateWriter {
           buffer,
           distance,
           fare,
-          connectionFacts(candidate, connection));
+          connectionFacts(candidate, connection, precision));
     }
     if (!candidate.history().dayId().equals(day.dayId())
         || !evidence.facts().keySet().containsAll(candidate.history().evidenceFactIds()))
@@ -202,16 +201,16 @@ final class JdbcGenerationCandidateWriter {
 
   private String connectionFacts(
       GenerationCandidateProjection.Candidate candidate,
-      GenerationScheduleDay.Connection connection) {
+      GenerationScheduleDay.Connection connection,
+      GenerationLegPrecision precision) {
     var eventIds =
         connection.events().stream()
             .map(GenerationTimeline.Event::eventId)
             .collect(java.util.stream.Collectors.toSet());
     // 0분 위치 연속성의 buffer_minutes는 0으로 유지하고 실제 계획 버퍼는 별도 보존한다.
     // 입력은 이미 검증된 닫힌 record뿐이며 외부 JSON/원문/좌표는 받지 않는다.
-    return mapper.writeValueAsString(
-        java.util.Map.of(
-            "generation",
+    var generation =
+        new java.util.HashMap<String, Object>(
             java.util.Map.of(
                 "schemaVersion", 1,
                 "events", connection.events(),
@@ -222,7 +221,9 @@ final class JdbcGenerationCandidateWriter {
                 "risks",
                     candidate.timeline().risks().stream()
                         .filter(value -> eventIds.contains(value.eventId()))
-                        .toList())));
+                        .toList()));
+    if (precision != null) generation.put("precision", precision);
+    return mapper.writeValueAsString(java.util.Map.of("generation", generation));
   }
 
   private void copyOtherDays(GenerationTripInput input, UUID version) {

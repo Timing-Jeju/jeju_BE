@@ -651,12 +651,12 @@
         "waitMinutes": {
           "type": "integer",
           "minimum": 0,
-          "nullable": false
+          "nullable": true
         },
         "rideMinutes": {
           "type": "integer",
           "minimum": 0,
-          "nullable": false
+          "nullable": true
         },
         "transferMinutes": {
           "type": "integer",

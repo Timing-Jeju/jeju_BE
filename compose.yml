@@ -75,6 +75,7 @@ services:
       - ./supabase/migrations/20260918000028_generation_result_projection.sql:/docker-entrypoint-initdb.d/066_generation_result_projection.sql:ro
       - ./supabase/migrations/20260918000029_trip_ferry_unresolved_terminal.sql:/docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql:ro
       - ./supabase/migrations/20260918000030_generation_existing_base_input.sql:/docker-entrypoint-initdb.d/068_generation_existing_base_input.sql:ro
+      - ./supabase/migrations/20260918000031_generation_leg_precision.sql:/docker-entrypoint-initdb.d/069_generation_leg_precision.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

@@ -21,8 +21,18 @@ public record ScheduleLegResponse(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time")
         OffsetDateTime plannedArrivalAt,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int walkMinutes,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int waitMinutes,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int rideMinutes,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            nullable = true,
+            description = "정수 분으로 정확히 표현할 수 없는 초 단위 대기는 null입니다.")
+        Integer waitMinutes,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            nullable = true,
+            description = "정수 분으로 정확히 표현할 수 없는 초 단위 승차는 null입니다.")
+        Integer rideMinutes,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int transferMinutes,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,

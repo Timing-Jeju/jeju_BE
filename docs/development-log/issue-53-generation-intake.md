@@ -799,6 +799,25 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 내부 역할 보존 assertion을 추가했다. 공개 DTO/OpenAPI 및 복사·편집 보호, 동일 장소 0분 이동 연결은 아직 진행 전이다. 최종 PR 준비 완료로 간주하지 않는다.
 # 2026-09-14 저장된 구간 위험의 공개 조회 연결 (진행 중)
 
+## 버스 초 단위 정밀도 후속 검증 (미완료)
+
+- PR 준비 재개: 00031 migration의 manifest/Compose 반영에 맞춰 canonical inventory·architecture·smoke 참조를 갱신했다. 목록 회귀 First RED 2건 및 smoke 참조 누락 1건 확인 후 canonical tests14개 GREEN, push database tests7개 GREEN.
+- 현재 변경의 `spotlessApply test architectureTest` PASS(49초, OS 전용9개 skip), schedules 계약 검사 및 diff-check PASS. 전체 품질 게이트/정식 리뷰 승인은 아직 아니다.
+- 앞서 실행한 GenerationLegPrecisionMigrationIntegrationTest PASS(1분4초)는 validator 함수 검증이며 전체 후보 생성·조회·적용 round-trip 완료를 의미하지 않는다. 신규 migration 보안 검토와 실제 저장 경로의 후속 검증은 구분한다.
+
+- GenerationLegPrecision의 합산 overflow 테스트가 GenerationException 대신 ArithmeticException으로 실패함을 확인했다 (First RED, 4초).
+- 합산 전 각 구간의 하루 최대 범위를 검증하도록 수정했다. `./gradlew test --tests '*GenerationLegPrecisionTest' --tests '*GenerationTransferTimingTest'` PASS(4초).
+- 정밀도 계산은 아직 candidate writer 및 DB 공개 조회에 연결하지 않았다. 저장 회귀 테스트, 실제 DB round-trip, 전체 품질 게이트, Docker, 정식 독립 리뷰는 미완료다. PR은 생성하지 않았다.
+- 후속 복수 승차 테스트에서 13분45초 승차, 4분45초 실제 대기, 1분 환승 도보, 5분 출입 도보, 30초 올림 여유를 개별 검증했다. spotlessApply 및 정밀도/transfer timing 테스트 PASS(5초).
+- 연결 영향 확인: trip_legs의 wait/ride 정수 NOT NULL, sealing의 정수 합계 검증, ScheduleLegSnapshot/Response의 primitive int, JdbcScheduleMutationStore의 getInt/SourceLeg를 함께 변경해야 한다. NULL을 0으로 읽거나 올림 여유를 실제 대기에 넣는 변경은 하지 않았다.
+- writer 연결 First RED: 10분30초 승차 fixture가 JDBC 구간 insert 이전 MCP_CONTRACT_INVALID로 거절됨(5초). 실제 출입 도보와 종료 ceil 조건을 갖춘 fixture로 확인했다.
+- writer가 버스 구간의 정확한 분해를 사용하고, 분으로 표현 불가능한 값만 NULL로 전달하며 닫힌 facts.generation.precision에 정확한 5항목을 직렬화하도록 연결했다. 회귀 테스트는 JDBC 인수의 승차 NULL, 대기5분, 총16분, 승차630초·올림30초를 확인한다. spotlessApply 및 3개 테스트 클래스 PASS(7초).
+- 이는 JDBC projection 단위 검증이며 실제 DB 저장 성공이 아니다. 현재 DB NOT NULL/sealing 제약의 후속 migration과 nullable 조회·복사 변경 전에는 배포 불가이며 미커밋 상태로 유지한다.
+- 조회 validator First RED: ScheduleLegPrecisionProjection 미구현으로 컴파일 실패(1초). 신규 validator는 닫힌 5항목 정밀도, 정확한 총합, 정수 분/NULL 일치를 검사한다. 신규 3개 테스트 GREEN(4초).
+- JdbcScheduleStore에 validator를 연결하고 ScheduleLegSnapshot/Response의 wait/ride를 nullable Integer로 변경했다. 0분 인접 구간은 null-safe 비교를 사용한다. spotlessApply, projection 및 JdbcScheduleStoreTest PASS(6초). 공개 nullable 계약의 OpenAPI 산출물/정규 계약/FE 재인계 및 실제 nullable DB round-trip은 아직 미검증이다.
+- 복사 경로 First RED: SourceLeg 매핑 테스트가 null 대신 JDBC getInt 기본값0을 반환하여 실패(5초). wait/ride를 getObject(Integer.class) 및 nullable record로 변경했다. facts 문자열은 그대로 보존한다. 복사 매핑·조회 정밀도·후보 writer 3개 클래스 PASS(7초), diff-check PASS. reflection 기반 매핑 회귀 테스트이며 실제 복사 트랜잭션 성공 증거로 간주하지 않는다.
+
+
 - GenerationTimeline의 저장된 등급/사유를 trip_legs.facts.generation.risks에서 제한적으로 읽는 ScheduleLegRiskProjection을 추가했다. 일반 일정은 riskLevel=null, 빈 생성 risk는 unknown이며 점수로 새 등급을 계산하지 않는다. 자유문 형태의 reason은 거부하고 예외 원문은 노출하지 않는다.
 - JdbcScheduleStore → ScheduleLegSnapshot → ScheduleLegResponse의 riskLevel/riskReasonCodes를 연결하고 canonical schedules 계약에 필드를 추가했다. 새로운 DB 저장/외부 호출은 없다.
 - First RED: 새 projection 미구현 컴파일 실패. GREEN: spotlessApply 및 projection unit3개 통과(5초).
