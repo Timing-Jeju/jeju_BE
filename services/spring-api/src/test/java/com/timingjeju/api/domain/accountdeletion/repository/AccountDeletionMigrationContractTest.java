@@ -37,4 +37,22 @@ class AccountDeletionMigrationContractTest {
         .contains("create table if not exists auth.sessions")
         .doesNotContain("grant insert on auth.sessions");
   }
+
+  @Test
+  void security_correction은_subject_fingerprint와_cleanup_index를_additive하게_고정한다() throws Exception {
+    String sql =
+        Files.readString(
+                Path.of(
+                    "../../supabase/migrations/20260919030000_account_deletion_security_correction.sql"))
+            .toLowerCase();
+
+    assertThat(sql)
+        .contains("auth_subject_fingerprint bytea")
+        .contains("octet_length(auth_subject_fingerprint) = 32")
+        .contains("status <> 'cancelled'")
+        .contains("status_token_expires_at")
+        .doesNotContain("grant insert")
+        .doesNotContain("grant delete")
+        .doesNotContain("auth.users");
+  }
 }

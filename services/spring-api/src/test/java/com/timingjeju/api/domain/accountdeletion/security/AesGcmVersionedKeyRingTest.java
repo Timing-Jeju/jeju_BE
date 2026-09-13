@@ -20,18 +20,37 @@ class AesGcmVersionedKeyRingTest {
     var ring =
         new AesGcmVersionedKeyRing("v2", Map.of("v1", old, "v2", active), new SecureRandom());
 
-    EncryptedSecret protectedToken = ring.encrypt(SecretPurpose.STATUS_TOKEN, "opaque".getBytes());
+    String requestId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    EncryptedSecret protectedToken =
+        ring.encrypt(requestId, SecretPurpose.STATUS_TOKEN, "opaque".getBytes());
 
     assertThat(protectedToken.keyVersion()).isEqualTo("v2");
-    assertThat(ring.decrypt(SecretPurpose.STATUS_TOKEN, protectedToken))
+    assertThat(ring.decrypt(requestId, SecretPurpose.STATUS_TOKEN, protectedToken))
         .isEqualTo("opaque".getBytes());
-    assertThatThrownBy(() -> ring.decrypt(SecretPurpose.AUTH_SUBJECT, protectedToken))
+    assertThatThrownBy(() -> ring.decrypt(requestId, SecretPurpose.AUTH_SUBJECT, protectedToken))
         .isInstanceOf(SecretDecryptionException.class);
     assertThatThrownBy(
             () ->
                 ring.decrypt(
+                    "01ARZ3NDEKTSV4RRFFQ69G5FAW", SecretPurpose.STATUS_TOKEN, protectedToken))
+        .isInstanceOf(SecretDecryptionException.class);
+    assertThatThrownBy(
+            () ->
+                ring.decrypt(
+                    requestId,
                     SecretPurpose.STATUS_TOKEN,
                     new EncryptedSecret(protectedToken.ciphertext(), "missing")))
+        .isInstanceOf(SecretDecryptionException.class);
+
+    String tampered =
+        (protectedToken.ciphertext().startsWith("A") ? "B" : "A")
+            + protectedToken.ciphertext().substring(1);
+    assertThatThrownBy(
+            () ->
+                ring.decrypt(
+                    requestId,
+                    SecretPurpose.STATUS_TOKEN,
+                    new EncryptedSecret(tampered, protectedToken.keyVersion())))
         .isInstanceOf(SecretDecryptionException.class);
   }
 

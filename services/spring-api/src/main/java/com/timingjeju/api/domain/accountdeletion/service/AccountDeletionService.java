@@ -72,17 +72,21 @@ public class AccountDeletionService {
     if (previous.isPresent()) return replay(previous.get(), requestHash, now);
     if (!CONFIRMATION.equals(confirmation)) throw problem("INVALID_PROFILE_LEGAL_REQUEST");
 
+    String requestId = ids.generate();
     String token = tokens.generate();
     byte[] tokenBytes = token.getBytes(StandardCharsets.UTF_8);
-    EncryptedSecret protectedToken = keyRing.encrypt(SecretPurpose.STATUS_TOKEN, tokenBytes);
+    EncryptedSecret protectedToken =
+        keyRing.encrypt(requestId, SecretPurpose.STATUS_TOKEN, tokenBytes);
     EncryptedSecret protectedSubject =
         keyRing.encrypt(
+            requestId,
             SecretPurpose.AUTH_SUBJECT,
             user.userId().toString().getBytes(StandardCharsets.US_ASCII));
     AccountDeletionRecord created =
         new AccountDeletionRecord(
-            ids.generate(),
+            requestId,
             user.userId(),
+            hash(user.userId().toString().toLowerCase(java.util.Locale.ROOT)),
             idempotencyHash,
             requestHash,
             hash(tokenBytes),
@@ -141,13 +145,13 @@ public class AccountDeletionService {
     if (!now.isBefore(record.statusTokenExpiresAt())) {
       throw problem("DELETION_STATUS_TOKEN_EXPIRED");
     }
-    if (record.status().isTerminal()) throw problem("ACCOUNT_DELETION_ALREADY_TERMINAL");
     if (record.statusTokenCiphertext() == null || record.statusTokenKeyVersion() == null) {
       throw problem("ACCOUNT_DELETION_SECRET_UNAVAILABLE");
     }
     try {
       byte[] plaintext =
           keyRing.decrypt(
+              record.id(),
               SecretPurpose.STATUS_TOKEN,
               new EncryptedSecret(record.statusTokenCiphertext(), record.statusTokenKeyVersion()));
       return receipt(record, new String(plaintext, StandardCharsets.UTF_8));
@@ -159,7 +163,7 @@ public class AccountDeletionService {
   private static AccountDeletionReceipt receipt(AccountDeletionRecord record, String token) {
     return new AccountDeletionReceipt(
         record.id(),
-        record.status(),
+        AccountDeletionStatus.QUEUED,
         token,
         record.requestedAt(),
         record.statusTokenExpiresAt(),

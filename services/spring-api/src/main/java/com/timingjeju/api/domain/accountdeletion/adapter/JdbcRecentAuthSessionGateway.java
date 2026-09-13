@@ -1,7 +1,9 @@
 package com.timingjeju.api.domain.accountdeletion.adapter;
 
 import com.timingjeju.api.domain.accountdeletion.port.RecentAuthSessionGateway;
+import java.sql.Types;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -23,7 +25,8 @@ public final class JdbcRecentAuthSessionGateway implements RecentAuthSessionGate
             new MapSqlParameterSource()
                 .addValue("sessionId", sessionId)
                 .addValue("userId", userId)
-                .addValue("notBefore", notBefore),
+                .addValue(
+                    "notBefore", notBefore.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE),
             Boolean.class);
     return Boolean.TRUE.equals(result);
   }

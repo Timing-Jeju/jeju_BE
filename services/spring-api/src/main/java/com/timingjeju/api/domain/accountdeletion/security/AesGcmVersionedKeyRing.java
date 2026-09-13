@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.accountdeletion.security;
 
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Base64;
@@ -31,14 +32,14 @@ public final class AesGcmVersionedKeyRing implements VersionedAeadKeyRing {
   }
 
   @Override
-  public EncryptedSecret encrypt(SecretPurpose purpose, byte[] plaintext) {
+  public EncryptedSecret encrypt(String requestId, SecretPurpose purpose, byte[] plaintext) {
     byte[] nonce = new byte[NONCE_BYTES];
     random.nextBytes(nonce);
     try {
       Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
       cipher.init(
           Cipher.ENCRYPT_MODE, keys.get(activeVersion), new GCMParameterSpec(TAG_BITS, nonce));
-      cipher.updateAAD(purpose.aad());
+      cipher.updateAAD(aad(requestId, purpose, activeVersion));
       byte[] encrypted = cipher.doFinal(plaintext);
       byte[] envelope = new byte[nonce.length + encrypted.length];
       System.arraycopy(nonce, 0, envelope, 0, nonce.length);
@@ -51,7 +52,7 @@ public final class AesGcmVersionedKeyRing implements VersionedAeadKeyRing {
   }
 
   @Override
-  public byte[] decrypt(SecretPurpose purpose, EncryptedSecret secret) {
+  public byte[] decrypt(String requestId, SecretPurpose purpose, EncryptedSecret secret) {
     SecretKey key = keys.get(secret.keyVersion());
     if (key == null) throw new SecretDecryptionException();
     try {
@@ -61,10 +62,23 @@ public final class AesGcmVersionedKeyRing implements VersionedAeadKeyRing {
       byte[] ciphertext = java.util.Arrays.copyOfRange(envelope, NONCE_BYTES, envelope.length);
       Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
       cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, nonce));
-      cipher.updateAAD(purpose.aad());
+      cipher.updateAAD(aad(requestId, purpose, secret.keyVersion()));
       return cipher.doFinal(ciphertext);
     } catch (IllegalArgumentException | GeneralSecurityException exception) {
       throw new SecretDecryptionException();
     }
+  }
+
+  private static byte[] aad(String requestId, SecretPurpose purpose, String keyVersion) {
+    if (requestId == null || !requestId.matches("^[0-9A-HJKMNP-TV-Z]{26}$")) {
+      throw new IllegalArgumentException("requestId는 canonical ULID여야 합니다.");
+    }
+    return ("timing-jeju:account-deletion:v2\u0000"
+            + requestId
+            + "\u0000"
+            + purpose.name()
+            + "\u0000"
+            + keyVersion)
+        .getBytes(StandardCharsets.US_ASCII);
   }
 }

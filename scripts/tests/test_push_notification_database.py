@@ -76,6 +76,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260919000000_account_deletion_requests.sql",
             "20260919010000_account_deletion_worker_runtime.sql",
             "20260919020000_account_deletion_retention_contract.sql",
+            "20260919030000_account_deletion_security_correction.sql",
         )
         migration_names = tuple(
             path.name

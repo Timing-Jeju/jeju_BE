@@ -60,6 +60,18 @@ class AccountDeletionServiceTest {
   }
 
   @Test
+  void DELETE_replay는_DB가_진행되거나_완료되어도_최초_queued_receipt를_그대로_반환한다() {
+    Fixture fixture = new Fixture(true);
+    var first = fixture.service.request(user(SESSION), "delete-replay", "DELETE_MY_ACCOUNT");
+
+    fixture.repository.saved = fixture.repository.saved.withStatus(AccountDeletionStatus.SUCCEEDED);
+    var replay = fixture.service.request(user(SESSION), "delete-replay", "DELETE_MY_ACCOUNT");
+
+    assertThat(replay).isEqualTo(first);
+    assertThat(replay.status()).isEqualTo(AccountDeletionStatus.QUEUED);
+  }
+
+  @Test
   void 같은_key의_payload_conflict와_만료_replay는_새_token없이_거부한다() {
     Fixture fixture = new Fixture(true);
     fixture.service.request(user(SESSION), "delete-1", "DELETE_MY_ACCOUNT");
@@ -201,6 +213,11 @@ class AccountDeletionServiceTest {
           ? Optional.of(saved)
           : Optional.empty();
     }
+
+    @Override
+    public int clearExpiredSecrets(Instant now, Duration terminalRetention, int batchSize) {
+      return 0;
+    }
   }
 
   private static final class FakeKeyRing implements VersionedAeadKeyRing {
@@ -208,15 +225,15 @@ class AccountDeletionServiceTest {
     private int sequence;
 
     @Override
-    public EncryptedSecret encrypt(SecretPurpose purpose, byte[] plaintext) {
+    public EncryptedSecret encrypt(String requestId, SecretPurpose purpose, byte[] plaintext) {
       String ciphertext = "ciphertext-" + (++sequence);
-      values.put(purpose + ":" + ciphertext, plaintext.clone());
+      values.put(requestId + ":" + purpose + ":" + ciphertext, plaintext.clone());
       return new EncryptedSecret(ciphertext, "v1");
     }
 
     @Override
-    public byte[] decrypt(SecretPurpose purpose, EncryptedSecret secret) {
-      byte[] value = values.get(purpose + ":" + secret.ciphertext());
+    public byte[] decrypt(String requestId, SecretPurpose purpose, EncryptedSecret secret) {
+      byte[] value = values.get(requestId + ":" + purpose + ":" + secret.ciphertext());
       if (value == null) throw new IllegalStateException("ciphertext unavailable");
       return value.clone();
     }

@@ -92,7 +92,7 @@ class MobilityOwnershipContractTest {
             "domain/weather/controller/WeatherForecastController.java");
     assertThat(mappingAnnotationCount()).isEqualTo(57);
     assertThat(migrationInventory())
-        .hasSize(61)
+        .hasSize(62)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -106,11 +106,12 @@ class MobilityOwnershipContractTest {
             "20260918000022_rls_auto_enable_execute_boundary.sql",
             "20260919000000_account_deletion_requests.sql",
             "20260919010000_account_deletion_worker_runtime.sql",
-            "20260919020000_account_deletion_retention_contract.sql");
+            "20260919020000_account_deletion_retention_contract.sql",
+            "20260919030000_account_deletion_security_correction.sql");
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260919020000_account_deletion_retention_contract.sql");
+        .isEqualTo("20260919030000_account_deletion_security_correction.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {
