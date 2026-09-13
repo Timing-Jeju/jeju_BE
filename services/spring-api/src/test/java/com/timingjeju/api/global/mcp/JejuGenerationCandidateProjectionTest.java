@@ -64,7 +64,14 @@ class JejuGenerationCandidateProjectionTest {
                 .get("recommend_jeju_day_trips")
                 .outputSchemaSha256());
     var sdk = mock(McpSyncClient.class);
-    Map<String, Object> inputSchema = Map.of("type", "object");
+    Map<String, Object> inputSchema =
+        mapper.readValue(resource("generation-v07.input-schema.json"), maps);
+    assertThat(McpSchemaFingerprint.sha256(inputSchema, mapper))
+        .isEqualTo(
+            McpExpectedCatalog.load(mapper)
+                .tools()
+                .get("recommend_jeju_day_trips")
+                .inputSchemaSha256());
     when(sdk.isInitialized()).thenReturn(true);
     when(sdk.listTools())
         .thenReturn(
@@ -93,25 +100,102 @@ class JejuGenerationCandidateProjectionTest {
             McpCallResilience.defaults(),
             mock(McpCallAuditWriter.class));
     client.verifyServerContract();
-    var result =
-        client.callGeneration(
-            new McpInvocation(
-                "recommend_jeju_day_trips",
-                "generation-79",
-                Map.of(),
-                "a".repeat(64),
-                McpCallParent.forGenerationRun(UUID.randomUUID()),
-                Map.of(),
-                Map.of()),
-            content -> project((ObjectNode) mapper.valueToTree(content)));
-    assertThat(result.projection().outcome()).isEqualTo("success");
-    assertThat(result.projection().candidates())
+    var runId = UUID.randomUUID();
+    var snapshot =
+        GenerationTripSnapshot.create(runId, UUID.randomUUID(), input(60, false), mapper);
+    var snapshots = mock(GenerationTripInputRepository.class);
+    when(snapshots.find(runId)).thenReturn(java.util.Optional.of(snapshot));
+    var commands =
+        mock(com.timingjeju.api.application.commandinput.CommandInputSnapshotRepository.class);
+    var parent =
+        new com.timingjeju.api.application.commandinput.CommandInputParent.Generation(runId);
+    var command =
+        new com.timingjeju.api.application.commandinput.CommandInputCanonicalizer(mapper)
+            .canonicalize(
+                new com.timingjeju.api.application.commandinput.CommandInputRequest(
+                    parent,
+                    "itinerary_generation",
+                    2,
+                    "0.7.0",
+                    "generation-v1",
+                    mapper.valueToTree(
+                        Map.of(
+                            "targetDayId",
+                            snapshot.input().boundary().dayId().toString(),
+                            "candidateCount",
+                            3,
+                            "refreshExternalFacts",
+                            false)),
+                    snapshot.ownerId(),
+                    snapshot.input().tripId(),
+                    null));
+    when(commands.find(parent)).thenReturn(java.util.Optional.of(command));
+    var places = mock(GenerationPlaceResolver.class);
+    when(places.resolve(anySet(), any())).thenReturn(bindings());
+    when(places.resolveFactIds(anySet(), any())).thenReturn(bindings());
+    var clock =
+        java.time.Clock.fixed(
+            java.time.Instant.parse("2026-08-14T00:00:00Z"), java.time.ZoneOffset.UTC);
+    var executor =
+        new McpGenerationExecutor(snapshots, commands, places, client, mapper, clock, Set.of());
+    var result = executor.execute(runId, clock.instant().plusSeconds(180));
+    assertThat(result.outcome()).isEqualTo("success");
+    assertThat(result.candidates())
         .hasSize(3)
         .extracting(GenerationCandidateProjection.Candidate::rank)
         .containsExactly(1, 2, 3);
-    assertThat(mapper.writeValueAsString(result.projection()))
+    assertThat(mapper.writeValueAsString(result))
         .doesNotContain("geometry", "title", "source_refs", "formula", "coordinates");
-    verify(sdk).callTool(any());
+    var wire = org.mockito.ArgumentCaptor.forClass(McpSchema.CallToolRequest.class);
+    verify(sdk).callTool(wire.capture());
+    assertThat(wire.getValue().arguments()).containsKey("request").containsKey("inputHash");
+    assertThat(mapper.writeValueAsString(wire.getValue().arguments()))
+        .contains("tourapi.place:2", "requested_stay_minutes")
+        .doesNotContain(
+            snapshot.ownerId().toString(),
+            snapshot.input().tripId().toString(),
+            "original_text",
+            "coordinates");
+    for (var field :
+        List.of(
+            "owner",
+            "trip",
+            "base",
+            "parent",
+            "hash",
+            "day",
+            "count",
+            "runType",
+            "contract",
+            "algorithm")) {
+      var body = command.restoreStructuredInput(mapper).deepCopy();
+      if (field.equals("day")) ((ObjectNode) body).put("targetDayId", UUID.randomUUID().toString());
+      if (field.equals("count")) ((ObjectNode) body).put("candidateCount", 2);
+      var invalid =
+          new com.timingjeju.api.application.commandinput.CommandInputSnapshot(
+              field.equals("parent")
+                  ? new com.timingjeju.api.application.commandinput.CommandInputParent.Generation(
+                      UUID.randomUUID())
+                  : parent,
+              field.equals("runType") ? null : command.runType(),
+              command.schemaVersion(),
+              field.equals("contract") ? null : command.contractVersion(),
+              field.equals("algorithm") ? null : command.algorithmVersion(),
+              mapper.writeValueAsString(body),
+              field.equals("hash") ? "0".repeat(64) : command.commandInputHash(),
+              field.equals("owner") ? UUID.randomUUID() : command.ownerUserId(),
+              field.equals("trip") ? UUID.randomUUID() : command.tripPlanId(),
+              field.equals("base") ? UUID.randomUUID() : null);
+      when(commands.find(parent)).thenReturn(java.util.Optional.of(invalid));
+      assertThatThrownBy(() -> executor.execute(runId, clock.instant().plusSeconds(180)))
+          .hasMessage("GENERATION_INPUT_UNAVAILABLE");
+    }
+    when(snapshots.find(runId)).thenReturn(java.util.Optional.empty());
+    assertThatThrownBy(() -> executor.execute(runId, clock.instant().plusSeconds(180)))
+        .hasMessage("GENERATION_INPUT_UNAVAILABLE");
+    assertThatThrownBy(() -> executor.execute(runId, clock.instant()))
+        .isInstanceOf(com.timingjeju.api.application.asyncrun.RetryableRunException.class);
+    verify(sdk, times(1)).callTool(any());
   }
 
   @Test

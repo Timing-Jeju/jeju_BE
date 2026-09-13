@@ -421,3 +421,18 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   독립 부분 리뷰 신규 차단 0건이다. 전체 승인/recorder는 아니다.
 - 저장 입력에서 기준을 파생하는 연결은 완료했지만 repository에서 worker가 snapshot을 읽고
   MCP 호출/요청 echo/비용·버스 상세/DB 후보 저장·조회·apply까지 수행하는 전체 흐름은 미완료다.
+
+## 저장 스냅샷에서 실제 MCP 실행기 연결
+
+- GenerationPlanExecutor/McpGenerationExecutor 부재 compile RED 후 저장 trip/command snapshot을
+  읽고 run·owner·trip·nullable base·계약/알고리즘·command hash·Day·후보 수를 검증했다.
+  canonical 정방향 매핑→공식 SDK 단일 recommend→근거 검증→추가 장소 역매핑→최소 후보 추출을 연결했다.
+- 실제 AI 45f585a FastMCP list_tools의 inputSchema도 복사해 입출력 Schema hash를 BE manifest와
+  검증했다. 테스트 transport/repository는 mock이며 실제 외부 호출이나 DB 후보 쓰기를 주장하지 않는다.
+- 호출 전후 deadline을 확인하고 원문/좌표/내부 owner·trip UUID를 wire에 넣지 않는지 검사했다.
+  변조된 계보·hash·Day·count와 누락 snapshot은 MCP 호출 전 거부한다.
+- 재확인 중 runType/contractVersion/algorithmVersion null의 NPE RED(5개 중 1개 실패)를 재현하고
+  상수 equals로 GENERATION_INPUT_UNAVAILABLE만 반환하도록 수정했다.
+- 최종 spotlessApply/test/architectureTest 성공(50초), 기존 macOS 제한 테스트 9개 skip이다.
+- 실행기 bean/승인 source 설정, 실제 worker claim·heartbeat·fence·원자 후보 저장, previous_days,
+  request echo·비용/버스 상세 검사와 조회/apply/FE 실제 연결은 후속이다. 최종 BE PR은 아직 없다.
