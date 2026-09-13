@@ -195,3 +195,38 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 별도 #89 worktree의 오래 실행된 품질 게이트가 정상 종료했다. 상태 파일은
   ee19f7d5b82b392673a11f29d362f1f49df5bad5에 대해서만 check/coverage/OpenAPI/Docker SUCCESS다.
   현재 generation 브랜치의 품질 게이트 근거로 사용하지 않는다.
+
+## 불변 여행 입력 저장과 worker claim 연결
+
+- 실제 PostgreSQL 테이블 부재 RED(기대1/실제0) 후 CLI로 migration을 생성했다.
+  기존 future timestamp 순서를 유지해 새 migration26/064로 배치하고 manifest·Docker·inventory를 갱신했다.
+- generation_trip_inputs는 비공개 스키마, RLS, service_role SELECT/INSERT만 허용한다.
+  UPDATE는 관리자 연결에서도 trigger로 거부하고 부모 run/여행 삭제 시 cascade된다.
+  원문·geometry·좌표가 들어갈 수 없는 닫힌 내부 projection과 작업/소유자/여행/Day/base/revision 계보를 검사한다.
+- Java/DB는 schemaVersion+runId+ownerId+tripInput canonical envelope의 SHA-256을 공유한다.
+  복원 첫 GREEN 실패는 Jackson의 KST→UTC 자동 변환이었다. 라이브러리 소스로 확인 후
+  해당 reader에서만 시간대 자동 변환을 끄고 전역 설정은 유지했다.
+- JDBC adapter 부재 RED 후 새 인스턴스에서 동일 입력/해시 복원, UPDATE 거부, 틀린 해시와
+  중첩 원문/좌표 거부의 실제 DB GREEN을 확인했다.
+- 리뷰 finding: queued 검사와 run 상태 변경 race, capture 의미검증의 restore 누락.
+  Trip→run 잠금 순서를 명시하고 Java 생성자·SQL에 연속 Day/활동창/숙소/공항/장소 선호의
+  대응 검증을 적용했다. airportPlaceId를 별도로 고정했다. Java 예외 미발생과 DB true 오반환
+  RED 후 Day 불일치 GREEN을 확인했고, 추가 부분 리뷰에서 코드 보강을 확인했다.
+- command-only run이 실제 claim되는 RED를 확인한 뒤 lease query에 여행 snapshot 계보 join을
+  추가했다. 완전한 snapshot이 없는 작업은 실행하지 않는다. 기존 lease 복구 fixture도 이를 저장한다.
+- 전체 unit/architecture는 통과했다. 2세션 테스트의 정리 단계에서 Day 외래키 cascade 누락을
+  실제로 발견했다. 기존 run과 같은 ON DELETE CASCADE로 정렬한 뒤 snapshot/lease 통합 10개가
+  통과했다(2분 3초). cleanup 실패로 잔류하던 run의 다음 테스트 간섭도 함께 해소됐다.
+  해당 lease join/cascade 보완에 대한 독립 부분 리뷰 신규 차단 finding은 0건이다.
+  service_role 실제 INSERT/SELECT 추가 검증에서 GENERATION_INPUT_UNAVAILABLE RED를 확인했다.
+  로컬 DB의 has_function_privilege 결과 canonicalize_command_jsonb EXECUTE=false였으므로
+  이 순수 변환 함수에만 service_role 실행 권한을 명시했다. security invoker는 유지한다.
+  같은 role의 canonical 함수 호출 및 실제 INSERT/SELECT 복원이 통과했다.
+  최종 spotlessApply/test/architectureTest와 snapshot/lease 통합 11개가 성공했다(2분 43초).
+  migration inventory Python 14개도 통과했으며 최소 EXECUTE 보완의 독립 부분 리뷰 차단 0건이다.
+- Supabase CLI 2.117.0 advisors를 별도 테스트 전용 compose DB에서 실행했다.
+  새 snapshot 객체 관련 finding은 없으며 기존 public.spatial_ref_sys RLS ERROR 1건과
+  public 확장(pgcrypto/postgis/btree_gist/fuzzystrmatch) WARN 4건을 보고했다.
+  전체 보안 무결점으로 표시하지 않는다. 기존 공간 확장 이동은 이 생성 입력 변경에 섞지 않는다.
+  검사 전용 tmpfs DB 컨테이너와 빈 전용 네트워크는 검증 후 삭제했다. 사용자 데이터는 없다.
+  생성 접수 HTTP/원자 queue transaction, previous_days, 성공 결과 writer/조회/apply는 아직 미완료다.

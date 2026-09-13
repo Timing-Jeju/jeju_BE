@@ -105,6 +105,38 @@ class GenerationLeaseRepositoryIntegrationTest {
               owner,
               snapshot.canonicalStructuredInput());
           new JdbcCommandInputSnapshotRepository(jdbc, mapper).save(snapshot);
+          var date = java.time.LocalDate.of(2026, 9, 1);
+          var start = date.atTime(10, 0).atOffset(java.time.ZoneOffset.ofHours(9));
+          var place = UUID.randomUUID();
+          var tripInput =
+              new com.timingjeju.api.application.generation.GenerationTripInput(
+                  trip,
+                  1,
+                  null,
+                  new com.timingjeju.api.application.generation.GenerationDayBoundary(
+                      day, 1, place, place, start, start.plusHours(8)),
+                  place,
+                  java.util.List.of(
+                      new com.timingjeju.api.application.trip.TripDay(
+                          day,
+                          1,
+                          date,
+                          java.time.LocalTime.of(9, 0),
+                          java.time.LocalTime.of(21, 0))),
+                  java.util.List.of(),
+                  java.util.List.of(
+                      new com.timingjeju.api.application.trip.TripPlacePreference(
+                          place, "must_visit", 1, 100, 90)),
+                  java.util.List.of("bus"),
+                  java.util.List.of(),
+                  false,
+                  java.util.List.of(
+                      new com.timingjeju.api.application.generation.GenerationTripInput.PlaceInput(
+                          place, "must_visit", 100, 90, "user_requested", null, null)));
+          new com.timingjeju.api.global.generation.JdbcGenerationTripInputRepository(jdbc, mapper)
+              .save(
+                  com.timingjeju.api.application.generation.GenerationTripSnapshot.create(
+                      run, owner, tripInput, mapper));
         });
     return run;
   }

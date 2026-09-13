@@ -12,6 +12,7 @@ public record GenerationTripInput(
     long tripRevision,
     UUID baseScheduleVersionId,
     GenerationDayBoundary boundary,
+    UUID airportPlaceId,
     List<TripDay> days,
     List<TripPlannerConditions.DayAnchor> dayAnchors,
     List<TripPlacePreference> savedPreferences,
@@ -32,6 +33,117 @@ public record GenerationTripInput(
     transportModes = List.copyOf(transportModes);
     preferredCategories = List.copyOf(preferredCategories);
     places = List.copyOf(places);
+    validateDays(boundary, baseScheduleVersionId, airportPlaceId, days, dayAnchors);
+    if (transportModes.isEmpty()
+        || transportModes.size() > 3
+        || new HashSet<>(transportModes).size() != transportModes.size()
+        || !Set.of("bus", "taxi", "walk").containsAll(transportModes)
+        || new HashSet<>(preferredCategories).size() != preferredCategories.size()
+        || !CATEGORIES.containsAll(preferredCategories)) throw invalid();
+    validatePlaces(boundary.dayNo(), days.size(), savedPreferences, places);
+  }
+
+  private static void validateDays(
+      GenerationDayBoundary boundary,
+      UUID base,
+      UUID airport,
+      List<TripDay> days,
+      List<TripPlannerConditions.DayAnchor> anchors) {
+    if (airport == null
+        || days.isEmpty()
+        || days.size() > 5
+        || boundary.dayNo() < 1
+        || boundary.dayNo() > days.size()
+        || ((boundary.dayNo() == 1) != (base == null))) throw invalid();
+    var ids = new HashSet<UUID>();
+    for (int n = 0; n < days.size(); n++) {
+      var day = days.get(n);
+      if (day.dayId() == null
+          || !ids.add(day.dayId())
+          || day.dayNo() != n + 1
+          || day.date() == null
+          || day.activityStartTime() == null
+          || day.activityEndTime() == null
+          || !day.activityStartTime().isBefore(day.activityEndTime())
+          || (n > 0 && !day.date().equals(days.getFirst().date().plusDays(n)))) throw invalid();
+    }
+    var target = days.get(boundary.dayNo() - 1);
+    var kst = java.time.ZoneOffset.ofHours(9);
+    if (!target.dayId().equals(boundary.dayId())
+        || boundary.startAt() == null
+        || boundary.endAt() == null
+        || !boundary.startAt().getOffset().equals(kst)
+        || !boundary.endAt().getOffset().equals(kst)
+        || !boundary.startAt().toLocalDate().equals(target.date())
+        || !boundary.endAt().toLocalDate().equals(target.date())
+        || !boundary.startAt().isBefore(boundary.endAt())
+        || boundary.startAt().toLocalTime().isBefore(target.activityStartTime())
+        || boundary.endAt().toLocalTime().isAfter(target.activityEndTime())) throw invalid();
+    var lodging = new HashMap<UUID, UUID>();
+    for (var anchor : anchors) {
+      if (!ids.contains(anchor.dayId())
+          || lodging.put(anchor.dayId(), anchor.lodgingPlaceId()) != null) throw invalid();
+    }
+    for (int n = 0; n < days.size() - 1; n++)
+      if (!lodging.containsKey(days.get(n).dayId())) throw invalid();
+    UUID start =
+        boundary.dayNo() == 1 ? airport : lodging.get(days.get(boundary.dayNo() - 2).dayId());
+    UUID end = boundary.dayNo() == days.size() ? airport : lodging.get(boundary.dayId());
+    if (!Objects.equals(start, boundary.startPlaceId())
+        || !Objects.equals(end, boundary.endPlaceId())) throw invalid();
+  }
+
+  private static void validatePlaces(
+      int dayNo, int dayCount, List<TripPlacePreference> preferences, List<PlaceInput> places) {
+    var allIds = new HashSet<UUID>();
+    var expected = new HashMap<UUID, TripPlacePreference>();
+    for (var preference : preferences) {
+      if (preference.placeId() == null
+          || !allIds.add(preference.placeId())
+          || preference.type() == null
+          || !Set.of("must_visit", "preferred", "avoid").contains(preference.type())
+          || preference.priority() < 0
+          || preference.priority() > 100
+          || (preference.targetDayNo() != null
+              && (preference.targetDayNo() < 1 || preference.targetDayNo() > dayCount))
+          || (preference.requestedStayMinutes() != null
+              && (preference.requestedStayMinutes() < 1
+                  || preference.requestedStayMinutes() > 1440))) throw invalid();
+      if (preference.targetDayNo() == null || preference.targetDayNo() == dayNo)
+        expected.put(preference.placeId(), preference);
+    }
+    if (places.size() != expected.size()) throw invalid();
+    var seen = new HashSet<UUID>();
+    int required = 0, preferred = 0;
+    for (var place : places) {
+      var original = expected.get(place.placeId());
+      if (original == null
+          || !seen.add(place.placeId())
+          || !original.type().equals(place.type())
+          || original.priority() != place.priority()) throw invalid();
+      if ("avoid".equals(place.type())) {
+        if (place.stayMinutes() != null
+            || place.staySource() != null
+            || place.stayPolicyVersion() != null
+            || place.stayPolicyEffectiveAt() != null) throw invalid();
+        continue;
+      }
+      if ("must_visit".equals(place.type())) required++;
+      else preferred++;
+      if (place.stayMinutes() == null || place.stayMinutes() < 1 || place.stayMinutes() > 1440)
+        throw invalid();
+      if (original.requestedStayMinutes() != null) {
+        if (!original.requestedStayMinutes().equals(place.stayMinutes())
+            || !"user_requested".equals(place.staySource())
+            || place.stayPolicyVersion() != null
+            || place.stayPolicyEffectiveAt() != null) throw invalid();
+      } else if (place.staySource() == null
+          || !Set.of("place_override", "category_default").contains(place.staySource())
+          || place.stayPolicyVersion() == null
+          || !place.stayPolicyVersion().matches("[a-z0-9][a-z0-9._-]{0,63}")
+          || place.stayPolicyEffectiveAt() == null) throw invalid();
+    }
+    if (required > 10 || preferred > 30 || required + preferred == 0) throw invalid();
   }
 
   public static GenerationTripInput capture(
@@ -136,6 +248,7 @@ public record GenerationTripInput(
         trip.revision(),
         trip.activeScheduleVersionId(),
         boundary,
+        approvedAirportId,
         days,
         trip.plannerConditions().dayAnchors(),
         preferences,

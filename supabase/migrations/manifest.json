@@ -68,7 +68,8 @@
     {"path":"supabase/migrations/20260918000022_generation_lifecycle.sql","initSlot":"060","owner":{"issue":53,"pullRequest":null},"sha256":"0777259ded6b8d24ecf9f9f5b32cd093d64d40eb61743c7c3d527f0a3cc90e90","dependencies":["20260918000021_day_activity_window_pair.sql"]},
     {"path":"supabase/migrations/20260918000023_planner_place_preferences.sql","initSlot":"061","owner":{"issue":53,"pullRequest":null},"sha256":"a680640df616b533da96bb087a9978b111483733fd0934da6130d13f5d6a91d8","dependencies":["20260918000022_generation_lifecycle.sql"]},
     {"path":"supabase/migrations/20260918000024_planner_conditions.sql","initSlot":"062","owner":{"issue":53,"pullRequest":null},"sha256":"429ce96aa31f442040c8297b5aabb1c55fe14e199dde2cbd8a9489d6ddc22aef","dependencies":["20260918000023_planner_place_preferences.sql"]},
-    {"path":"supabase/migrations/20260918000025_sequential_schedule_coverage.sql","initSlot":"063","owner":{"issue":53,"pullRequest":null},"sha256":"19c9172073de8ce848144215928dc46cd0922d2e8347b0a9e68aeee5c8f328c2","dependencies":["20260918000024_planner_conditions.sql"]}
+    {"path":"supabase/migrations/20260918000025_sequential_schedule_coverage.sql","initSlot":"063","owner":{"issue":53,"pullRequest":null},"sha256":"19c9172073de8ce848144215928dc46cd0922d2e8347b0a9e68aeee5c8f328c2","dependencies":["20260918000024_planner_conditions.sql"]},
+    {"path":"supabase/migrations/20260918000026_generation_trip_snapshot.sql","initSlot":"064","owner":{"issue":53,"pullRequest":null},"sha256":"0ba77fa6bda15fc75322ecafe95b8a10e65bb1077a3e817fa4ecbbf0795c343b","dependencies":["20260918000025_sequential_schedule_coverage.sql"]}
   ],
   "seedInitSlot": "099"
 }

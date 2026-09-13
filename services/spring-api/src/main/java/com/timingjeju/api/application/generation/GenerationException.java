@@ -16,4 +16,8 @@ public final class GenerationException extends RuntimeException {
   public String code() {
     return getMessage();
   }
+
+  public static GenerationException inputUnavailable() {
+    return new GenerationException("GENERATION_INPUT_UNAVAILABLE");
+  }
 }

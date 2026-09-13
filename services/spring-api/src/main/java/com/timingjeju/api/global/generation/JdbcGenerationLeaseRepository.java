@@ -45,6 +45,10 @@ public class JdbcGenerationLeaseRepository implements GenerationRunLeases {
             and input.run_type='itinerary_generation' and input.schema_version=2
             and input.contract_version=run.contract_version and input.algorithm_version=run.algorithm_version
             and input.structured_input=run.structured_input
+          join timing_jeju_planner_private.generation_trip_inputs trip_input on trip_input.run_id=run.id
+            and trip_input.trip_plan_id=run.trip_plan_id and trip_input.owner_user_id=plan.user_id
+            and trip_input.target_day_id=run.trip_day_id and trip_input.schema_version=1
+            and trip_input.base_schedule_version_id is not distinct from run.base_schedule_version_id
           where run.attempt_count<3 and (
             (run.status='queued' and coalesce(run.next_attempt_at,run.created_at)<=statement_timestamp())
             or (run.status='running' and run.lease_expires_at<=statement_timestamp()))

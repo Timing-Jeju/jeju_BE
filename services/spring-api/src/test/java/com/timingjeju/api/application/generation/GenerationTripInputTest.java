@@ -32,14 +32,14 @@ class GenerationTripInputTest {
                 new RecommendedStay(
                     75,
                     RecommendedStaySource.CATEGORY_DEFAULT,
-                    "stay/v1",
+                    "stay-v1",
                     Instant.EPOCH,
                     Instant.EPOCH)));
     assertThat(input.tripRevision()).isEqualTo(7);
     assertThat(input.baseScheduleVersionId()).isNull();
     assertThat(input.boundary().startPlaceId()).isEqualTo(AIRPORT);
     assertThat(input.places().getFirst().stayMinutes()).isEqualTo(75);
-    assertThat(input.places().getFirst().stayPolicyVersion()).isEqualTo("stay/v1");
+    assertThat(input.places().getFirst().stayPolicyVersion()).isEqualTo("stay-v1");
     assertThat(input.transportModes()).containsExactly("bus", "taxi", "walk");
     assertThat(input.preferredCategories()).containsExactly("cafe", "restaurant");
     assertThat(input.relaxedPace()).isTrue();
@@ -77,6 +77,76 @@ class GenerationTripInputTest {
             new TripTransportMode("walk", 3, false),
             new TripTransportMode("public_transit", 1, true),
             new TripTransportMode("taxi", 2, false)));
+  }
+
+  @Test
+  void 복원용_생성자도_Day와_경계_불일치를_거부한다() {
+    var input = GenerationTripInput.capture(trip(90), DAY, 0, AIRPORT, Map.of());
+    var old = input.boundary();
+    var wrong =
+        new GenerationDayBoundary(
+            old.dayId(), 2, old.startPlaceId(), old.endPlaceId(), old.startAt(), old.endAt());
+    assertThatThrownBy(
+            () ->
+                new GenerationTripInput(
+                    input.tripId(),
+                    input.tripRevision(),
+                    null,
+                    wrong,
+                    input.airportPlaceId(),
+                    input.days(),
+                    input.dayAnchors(),
+                    input.savedPreferences(),
+                    input.transportModes(),
+                    input.preferredCategories(),
+                    input.relaxedPace(),
+                    input.places()))
+        .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
+  }
+
+  @Test
+  void 불변_snapshot은_작업과_소유자를_hash에_묶고_복원시_검증한다() {
+    var mapper = JsonMapper.builder().build();
+    var input = GenerationTripInput.capture(trip(90), DAY, 0, AIRPORT, Map.of());
+    var run = new UUID(53, 10);
+    var owner = new UUID(53, 11);
+    var snapshot = GenerationTripSnapshot.create(run, owner, input, mapper);
+    assertThat(snapshot.inputHash()).matches("[0-9a-f]{64}");
+    assertThat(
+            GenerationTripSnapshot.restore(
+                    run, owner, snapshot.canonicalInput(), snapshot.inputHash(), mapper)
+                .input())
+        .isEqualTo(input);
+    assertThatThrownBy(
+            () ->
+                GenerationTripSnapshot.restore(
+                    new UUID(53, 12),
+                    owner,
+                    snapshot.canonicalInput(),
+                    snapshot.inputHash(),
+                    mapper))
+        .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
+    assertThatThrownBy(
+            () ->
+                GenerationTripSnapshot.restore(
+                    run,
+                    owner,
+                    snapshot.canonicalInput().replace("90", "91"),
+                    snapshot.inputHash(),
+                    mapper))
+        .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
+    assertThatThrownBy(
+            () ->
+                GenerationTripSnapshot.restore(
+                    run,
+                    owner,
+                    snapshot
+                        .canonicalInput()
+                        .replace(
+                            "\"tripRevision\":7", "\"tripRevision\":7,\"originalText\":\"원문\""),
+                    snapshot.inputHash(),
+                    mapper))
+        .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
   }
 
   @Test
