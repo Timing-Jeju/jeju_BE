@@ -13,6 +13,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.timingjeju.api.application.pagination.CursorContextMismatchException;
 import com.timingjeju.api.application.pagination.CursorInvalidException;
+import com.timingjeju.api.application.security.AccountDeletionPendingAccess;
 import com.timingjeju.api.domain.savedplaces.dto.SavedPlaceException;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceCommand;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceCreateResult;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +65,13 @@ class SavedPlacesWebContractIntegrationTest {
   @Autowired private MockMvc mvc;
   private static final java.util.concurrent.atomic.AtomicInteger DELETE_CALLS =
       new java.util.concurrent.atomic.AtomicInteger();
+  private static final java.util.concurrent.atomic.AtomicBoolean DELETION_PENDING =
+      new java.util.concurrent.atomic.AtomicBoolean();
+
+  @BeforeEach
+  void 일반_계정으로_초기화한다() {
+    DELETION_PENDING.set(false);
+  }
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -80,6 +89,19 @@ class SavedPlacesWebContractIntegrationTest {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("SAVED_PLACE_NOT_FOUND"));
     org.assertj.core.api.Assertions.assertThat(DELETE_CALLS.get()).isEqualTo(1);
+  }
+
+  @Test
+  void production_JWT의_pending계정은_controller_validation전에_403으로_차단한다() throws Exception {
+    DELETION_PENDING.set(true);
+
+    mvc.perform(
+            post("/api/v1/me/saved-places")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("Idempotency-Key", "pending-account")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isForbidden());
   }
 
   @org.junit.jupiter.params.ParameterizedTest
@@ -203,6 +225,12 @@ class SavedPlacesWebContractIntegrationTest {
 
   @TestConfiguration(proxyBeanMethods = false)
   static class Fakes {
+    @Bean
+    @Primary
+    AccountDeletionPendingAccess fakeAccountDeletionPendingAccess() {
+      return userId -> USER.equals(userId) && DELETION_PENDING.get();
+    }
+
     @Bean
     @Primary
     SavedPlaceIdempotencyRetentionRepository fakeSavedPlaceRetention() {
