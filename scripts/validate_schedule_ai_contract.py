@@ -15,7 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/schedule-ai/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
-CANONICAL_DIGEST = "2d9a6c4cf8f0352baa086c35f22dcf5a103e09e998f0acea4e777fff2a19636b"
+CANONICAL_DIGEST = "96c5671aaba303fdaafaa9a5c32932c48dfe6bbfad9841d52ff8a901165a67d6"
 IDENTITIES = [
     ("POST", "/api/v1/trips/{tripId}/schedule-generations", "compute", [202], [400, 401, 404, 409, 422, 429, 503]),
     ("GET", "/api/v1/trips/{tripId}/schedule-generations/{runId}", "read", [200], [400, 401, 404, 410, 429, 503]),
@@ -426,7 +426,7 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
         "condition": "Idempotency-Key is outside 1..128 printable ASCII characters",
         "detail": "1~128자 printable ASCII Idempotency-Key를 입력해 주세요.",
         "fieldErrors": [
-            {"field": "Idempotency-Key", "reason": "1~128자 printable ASCII여야 합니다."}
+            {"field": "Idempotency-Key", "detail": "1~128자 printable ASCII여야 합니다."}
         ],
         "endpoints": ["CREATE_2", "APPLY_2"],
     }

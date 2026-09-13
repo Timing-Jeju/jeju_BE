@@ -230,3 +230,32 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   전체 보안 무결점으로 표시하지 않는다. 기존 공간 확장 이동은 이 생성 입력 변경에 섞지 않는다.
   검사 전용 tmpfs DB 컨테이너와 빈 전용 네트워크는 검증 후 삭제했다. 사용자 데이터는 없다.
   생성 접수 HTTP/원자 queue transaction, previous_days, 성공 결과 writer/조회/apply는 아직 미완료다.
+
+## 생성 접수 API와 원자 저장 연결
+
+- #53의 오래된 generation-runs 경로 대신 최신 #89의 schedule-generations 계약을 따른다.
+  Store 부재 compile RED 후 잠긴 저장 Trip→명시된 추천 체류시간→두 snapshot+queued 원자 저장을 연결했다.
+- 공항 ID는 서버 환경설정으로만 받으며 승인 TourAPI import가 succeeded이고 살아 있는
+  제주국제공항 canonical 장소인지 검사한다. FE에 UUID/좌표를 넣지 않는다.
+  테스트 fixture도 실제 import/snapshot 계보가 필요함을 DB RED로 확인해 계보를 함께 구성했다.
+- 최초 접수/owner/ETag DB 2개 GREEN(1분 7초). 접수는 active나 candidate version을 만들지 않으며
+  외부 호출 의존성이 없다. 요청 body는 3개 닫힌 필드와 16KiB 상한을 유지한다.
+- Controller 부재 RED 후 202/Location/Retry-After/멱등 replay 경계를 구현했다.
+  printable key 전체 SHA-256을 namespace에 포함해 기존 UUID registry와 충돌 없이 연결하고
+  사용자 key 원문은 run에 저장하지 않는다. 완료 replay는 최신 ETag 비교보다 먼저 처리한다.
+- 아키텍처 RED로 service 경계 누락을 확인해 application service를 경유하도록 수정했다.
+  실제 controller class/POST mapping 추가를 inventory에 반영했다. 단위/아키텍처 재검증 통과.
+- DB 검증을 실제 commit/rollback 경계로 확장해 동일 key 재생/다른 body 충돌,
+  snapshot 실패 후 run+command 롤백, active run 중복과 선박 거부 6개가 통과했다.
+  전체 unit/architecture도 통과했다(합계 2분 12초).
+  별도 부분 리뷰 신규 차단 0건이지만 전체 승인은 아니다.
+- 이전 Day history, worker 성공 writer, 조회와 원자 apply는 후속 구현 대상이다.
+  #89 fieldErrors.reason과 기존 공통 writer의 fieldErrors.detail 불일치를 Python/MVC RED로
+  재현하고 공통 field/detail에 정렬했다. 공통 writer는 변경하지 않고 #89 계약·검증기·세부 안내를
+  맞췄다. 새 계약 digest는 96c5671aaba303fdaafaa9a5c32932c48dfe6bbfad9841d52ff8a901165a67d6다.
+- 실제 OpenAPI 출력에서 오류의 byte schema와 정수 후보 수의 문자열 enum을 발견해 새 검사로 RED를
+  확인했다. Problem schema와 정수 minimum/maximum=3으로 교정하고 nullable base·필수 헤더를 검증했다.
+  최종 spotlessApply/test/architectureTest, 실제 DB 6개, openApiDocsTest/openApiDocs가 모두 통과했다
+  (2분 12초). 계약 Python 48개 및 두 Compose config 검증도 통과했다.
+- 독립 부분 리뷰에서 마지막 service·field/detail·OpenAPI 차분의 신규 차단 finding 0건을 확인했다.
+  전체 worker/조회/apply와 최종 동일 SHA 품질·Docker·PR 승인은 아직 완료가 아니다.

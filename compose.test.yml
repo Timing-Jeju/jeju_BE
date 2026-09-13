@@ -86,6 +86,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/timing_jeju_test
       SPRING_DATASOURCE_USERNAME: timing_jeju_test
       SPRING_DATASOURCE_PASSWORD: test-only-password
+      SCHEDULE_GENERATION_ENABLED: "false"
+      SCHEDULE_GENERATION_APPROVED_AIRPORT_PLACE_ID: ""
       SUPABASE_JWT_ISSUER: https://test.supabase.invalid/auth/v1
       SUPABASE_JWT_AUDIENCE: authenticated
       SUPABASE_JWKS_URL: https://test.supabase.invalid/auth/v1/.well-known/jwks.json

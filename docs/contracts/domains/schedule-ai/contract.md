@@ -51,6 +51,9 @@ generation은 `itinerary_generation_runs`/`itinerary_generation_candidates`와 d
 
 오류는 공통 8필드 `application/problem+json`만 사용한다. machine contract의 exact condition matrix는 400/401/404/409/410/422/429/503과 한국어 `detail`, Spring 생성 `traceId`를 고정한다. failed/cancelled 조회의 `failure`는 `code/detail/retryable`만 공개하며 raw exception, prompt, MCP payload, token과 PII를 금지한다.
 
+필드 오류는 기존 Spring 공통 `FieldErrorDetail`과 동일한 `field/detail`을 사용한다.
+접수 구현 검증에서 발견한 과거 #89 초안의 `field/reason` 표기를 바로잡았으며 공통 응답은 변경하지 않는다.
+
 필수 인증 없음은 공통 계약과 동일한 `AUTHENTICATION_REQUIRED`, token 형식·서명·만료 오류는 `INVALID_ACCESS_TOKEN`이다. machine contract는 24개 code 각각에 발생 조건, type, title, 한국어 detail, fieldErrors, 적용 endpoint와 8필드 example을 둔다. 6개 endpoint는 path/query/header/body를 각각 closed typed schema로 참조하며 generation/revision candidate·result, 5개 상태 presence, apply response를 별도 DTO로 고정한다.
 
 각 endpoint는 자신이 반환할 status별 code matrix를 별도로 가지며, 모든 condition의 endpoint group은 위 여섯 method/path의 부분집합이다. validator는 endpoint matrix와 condition scope를 양방향 비교하므로 공통 code가 과다·과소 노출될 수 없다.

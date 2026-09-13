@@ -66,6 +66,7 @@ app:
     circuit-open-duration: ${MCP_CIRCUIT_OPEN_DURATION:30s}
   schedule-generation:
     enabled: ${SCHEDULE_GENERATION_ENABLED:false}
+    approved-airport-place-id: ${SCHEDULE_GENERATION_APPROVED_AIRPORT_PLACE_ID:}
   push:
     fcm:
       enabled: ${FCM_ENABLED:false}

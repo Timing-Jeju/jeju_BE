@@ -77,6 +77,7 @@ class MobilityOwnershipContractTest {
             "domain/accommodation/controller/AccommodationController.java",
             "domain/auth/controller/SocialLoginController.java",
             "domain/demo/controller/DemoImportController.java",
+            "domain/generation/controller/GenerationController.java",
             "domain/legal/controller/LegalProfileController.java",
             "domain/notification/controller/PushNotificationController.java",
             "domain/places/controller/PlacesController.java",
@@ -90,7 +91,8 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripPlacePreferencesController.java",
             "domain/trip/controller/TripPlannerConditionsController.java",
             "domain/weather/controller/WeatherForecastController.java");
-    assertThat(mappingAnnotationCount()).isEqualTo(57);
+    // 새 생성 controller의 class RequestMapping과 POST mapping을 모두 센다.
+    assertThat(mappingAnnotationCount()).isEqualTo(59);
     assertThat(migrationInventory())
         .hasSize(62)
         .containsSequence(

@@ -29,6 +29,13 @@ REQUIRED_SCHEMAS = {
 
 
 class ScheduleAiContractTest(unittest.TestCase):
+    def test_field_errors_match_existing_spring_common_response(self):
+        """생성 오류의 필드 안내는 기존 Spring 공통 응답의 field와 detail 계약을 사용한다."""
+        contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+        for condition in contract["problemConditions"]:
+            for error in condition["fieldErrors"]:
+                self.assertEqual({"field", "detail"}, set(error))
+
     def test_generation_preconditions_and_retention_do_not_conflict(self):
         """최초 적용·접수 ETag와 원문 제외·기존 근거 만료 정책이 함께 성립해야 한다."""
         import re
@@ -150,7 +157,7 @@ class ScheduleAiContractTest(unittest.TestCase):
             invalid["detail"],
         )
         self.assertEqual(
-            [{"field": "Idempotency-Key", "reason": "1~128자 printable ASCII여야 합니다."}],
+            [{"field": "Idempotency-Key", "detail": "1~128자 printable ASCII여야 합니다."}],
             invalid["fieldErrors"],
         )
         self.assertEqual(invalid["detail"], invalid["example"]["detail"])
