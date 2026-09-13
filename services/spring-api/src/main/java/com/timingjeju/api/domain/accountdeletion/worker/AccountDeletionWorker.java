@@ -98,6 +98,7 @@ public final class AccountDeletionWorker {
           () -> appDataErasure.deleteAndAnonymize(subject));
 
       heartbeatOrLose(lease);
+      startStepOrLose(lease, DeletionStep.AUTH_USER_DELETED);
       authAdminDeletion.deleteUser(subject);
       if (!repository.completeAuthDeletionAndClearSubject(lease, clock.instant())) {
         throw LeaseLost.INSTANCE;
@@ -118,6 +119,7 @@ public final class AccountDeletionWorker {
       return;
     }
     heartbeatOrLose(lease);
+    startStepOrLose(lease, step);
     operation.run();
     if (!repository.completeStep(lease, step, clock.instant())) {
       throw LeaseLost.INSTANCE;
@@ -126,6 +128,12 @@ public final class AccountDeletionWorker {
 
   private void heartbeatOrLose(DeletionLease lease) {
     if (!repository.heartbeat(lease, clock.instant(), policy.leaseDuration())) {
+      throw LeaseLost.INSTANCE;
+    }
+  }
+
+  private void startStepOrLose(DeletionLease lease, DeletionStep step) {
+    if (!repository.startStep(lease, step, clock.instant())) {
       throw LeaseLost.INSTANCE;
     }
   }

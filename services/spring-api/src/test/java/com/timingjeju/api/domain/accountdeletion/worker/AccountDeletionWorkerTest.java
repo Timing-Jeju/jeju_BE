@@ -39,18 +39,23 @@ class AccountDeletionWorkerTest {
             "heartbeat",
             "resolve:key-v2",
             "heartbeat",
+            "start:SESSIONS_REVOKED",
             "revoke-sessions",
             "complete:SESSIONS_REVOKED",
             "heartbeat",
+            "start:ACCOUNT_REQUESTS_DENIED",
             "deny-account-requests",
             "complete:ACCOUNT_REQUESTS_DENIED",
             "heartbeat",
+            "start:PROFILE_IMAGES_DELETED",
             "delete-storage:profile-images/auth-subject-106",
             "complete:PROFILE_IMAGES_DELETED",
             "heartbeat",
+            "start:APP_DATA_ERASED",
             "delete-and-anonymize-app-data",
             "complete:APP_DATA_ERASED",
             "heartbeat",
+            "start:AUTH_USER_DELETED",
             "delete-auth-user",
             "complete-auth-and-clear-subject",
             "succeed");
@@ -85,6 +90,7 @@ class AccountDeletionWorkerTest {
     assertThat(fixture.events)
         .containsSubsequence(
             "resolve:key-v2",
+            "start:APP_DATA_ERASED",
             "delete-and-anonymize-app-data",
             "complete:APP_DATA_ERASED",
             "delete-auth-user",
@@ -181,6 +187,7 @@ class AccountDeletionWorkerTest {
             "heartbeat",
             "resolve:key-v2",
             "heartbeat",
+            "start:SESSIONS_REVOKED",
             "revoke-sessions",
             "complete:SESSIONS_REVOKED");
     assertThat(fixture.repository.hasTerminalWrite()).isFalse();
@@ -196,6 +203,19 @@ class AccountDeletionWorkerTest {
     assertThat(fixture.events).contains("delete-auth-user", "complete-auth-and-clear-subject");
     assertThat(fixture.repository.subjectCleared).isFalse();
     assertThat(fixture.repository.succeeded).isFalse();
+  }
+
+  @Test
+  void step_시작_기록이_stale_fence로_거부되면_외부_동작을_호출하지_않는다() {
+    Fixture fixture = fixture(work(false, Set.of()), LEASE);
+    fixture.repository.rejectedStartStep = DeletionStep.SESSIONS_REVOKED;
+
+    fixture.worker.pollOnce();
+
+    assertThat(fixture.events)
+        .containsExactly(
+            "claim", "load", "heartbeat", "resolve:key-v2", "heartbeat", "start:SESSIONS_REVOKED");
+    assertThat(fixture.events).doesNotContain("revoke-sessions");
   }
 
   @Test
@@ -356,6 +376,7 @@ class AccountDeletionWorkerTest {
     private boolean heartbeatAccepted = true;
     private boolean authCompletionAccepted = true;
     private DeletionStep rejectedStep;
+    private DeletionStep rejectedStartStep;
     private boolean subjectCleared;
     private boolean succeeded;
     private boolean failed;
@@ -392,6 +413,11 @@ class AccountDeletionWorkerTest {
     @Override
     public boolean completeStep(DeletionLease lease, DeletionStep step, Instant completedAt) {
       return mutation("complete:" + step, step != rejectedStep);
+    }
+
+    @Override
+    public boolean startStep(DeletionLease lease, DeletionStep step, Instant startedAt) {
+      return mutation("start:" + step, step != rejectedStartStep);
     }
 
     @Override

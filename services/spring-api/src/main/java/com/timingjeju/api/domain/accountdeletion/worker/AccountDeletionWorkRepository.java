@@ -13,6 +13,8 @@ public interface AccountDeletionWorkRepository {
 
   boolean heartbeat(DeletionLease lease, Instant now, Duration leaseDuration);
 
+  boolean startStep(DeletionLease lease, DeletionStep step, Instant startedAt);
+
   boolean completeStep(DeletionLease lease, DeletionStep step, Instant completedAt);
 
   boolean completeAuthDeletionAndClearSubject(DeletionLease lease, Instant completedAt);
