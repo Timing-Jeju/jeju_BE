@@ -181,21 +181,10 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
   }
 
   @Test
-  void expiry_정각과_malformed_freshness는_stale_true로_fail_closed한다() {
+  void expiry_정각은_stale_true로_fail_closed한다() {
     ScheduleSnapshot atExpiry =
         store.readOwned(OWNER, TRIP, null, Instant.parse("2026-09-01T03:05:00Z")).schedule();
     assertThat(atExpiry.scheduleVersion().feasibilityStale()).isTrue();
-
-    jdbc.update(
-        """
-        update public.compute_runs
-        set result_summary = '{"observedAt":"bad","expiresAt":"2026-09-01T03:10:00Z"}'::jsonb
-        where schedule_version_id = ? and run_type = 'feasibility'
-        """,
-        ACTIVE);
-    ScheduleSnapshot malformed = store.readOwned(OWNER, TRIP, null, RESPONSE).schedule();
-    assertThat(malformed.scheduleVersion().score()).isEqualTo(81);
-    assertThat(malformed.scheduleVersion().feasibilityStale()).isTrue();
   }
 
   @Test

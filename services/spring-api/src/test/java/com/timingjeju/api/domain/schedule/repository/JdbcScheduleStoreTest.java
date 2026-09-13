@@ -75,6 +75,31 @@ class JdbcScheduleStoreTest {
   }
 
   @Test
+  void malformed_freshness는_신규_DB_write없이_legacy_read_boundary에서_stale이다() throws Exception {
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    NamedParameterJdbcTemplate named = mock(NamedParameterJdbcTemplate.class);
+    ResultSet root = rootResultSet();
+    when(root.getObject("resulting_score")).thenReturn(81);
+    when(root.getTimestamp("freshness_calculated_at")).thenReturn(Timestamp.from(NOW));
+    when(root.getTimestamp("freshness_facts_observed_at"))
+        .thenReturn(Timestamp.from(NOW.minusSeconds(60)));
+    when(root.getBoolean("freshness_observed_present")).thenReturn(true);
+    when(root.getString("freshness_observed_type")).thenReturn("string");
+    when(root.getString("freshness_observed_value")).thenReturn("bad");
+    when(root.getString("freshness_expires_type")).thenReturn("string");
+    when(root.getString("freshness_expires_value")).thenReturn(NOW.plusSeconds(60).toString());
+    when(named.query(anyString(), any(MapSqlParameterSource.class), any(RowMapper.class)))
+        .thenAnswer(invocation -> List.of(invocation.<RowMapper<?>>getArgument(2).mapRow(root, 0)));
+    when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+    var schedule =
+        new JdbcScheduleStore(jdbc, named).readOwned(OWNER, TRIP, VERSION, NOW).schedule();
+
+    assertThat(schedule.scheduleVersion().score()).isEqualTo(81);
+    assertThat(schedule.scheduleVersion().feasibilityStale()).isTrue();
+  }
+
+  @Test
   void JDBC_failure는_SQL과_credential을_버린_cause없는_internal_server_error이다() {
     JdbcTemplate jdbc = mock(JdbcTemplate.class);
     NamedParameterJdbcTemplate named = mock(NamedParameterJdbcTemplate.class);

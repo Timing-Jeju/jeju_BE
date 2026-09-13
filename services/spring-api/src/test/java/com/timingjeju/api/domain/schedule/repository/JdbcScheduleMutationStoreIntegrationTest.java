@@ -104,7 +104,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
            ride_minutes, transfer_minutes, duration_minutes, buffer_minutes, distance_meters,
            estimated_fare, facts)
         values (?, ?, ?, 1, ?, ?, 'walk', ?, ?, 10, 0, 0, 0, 10, 0, 500, 0,
-                '{"derivation":"fixture"}'::jsonb)
+                '{"derivation":"conservative_walk_v1"}'::jsonb)
         """,
         TRIP,
         DAY,
@@ -1769,7 +1769,7 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
            ride_minutes, transfer_minutes, duration_minutes, buffer_minutes, distance_meters,
            estimated_fare, facts)
         values (?, ?, ?, ?, ?, ?, 'walk', ?, ?, 10, 0, 0, 0, 10, 0, 500, 0,
-                '{"derivation":"fixture"}'::jsonb)
+                '{"derivation":"conservative_walk_v1"}'::jsonb)
         """,
         TRIP,
         DAY,

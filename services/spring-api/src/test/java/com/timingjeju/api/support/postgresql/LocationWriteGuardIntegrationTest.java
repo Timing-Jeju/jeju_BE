@@ -251,7 +251,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
             jdbc.update(
                 """
                 insert into public.trip_preferences(trip_plan_id,start_place_id,end_place_id,arrival_region_code,departure_region_code,raw_answers)
-                values (?,?,?,'JEJU','JEJU','{"pace":"relaxed","partySize":2}'::jsonb)
+                values (?,?,?,'JEJU','JEJU','{"pace":"normal","partySize":2}'::jsonb)
                 """,
                 trip,
                 place,
@@ -262,7 +262,7 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
                 "select raw_answers->>'pace' from public.trip_preferences where trip_plan_id=?",
                 String.class,
                 trip))
-        .isEqualTo("relaxed");
+        .isEqualTo("normal");
     jdbc.execute("set constraints all immediate");
     assertThat(
             jdbc.queryForObject(
