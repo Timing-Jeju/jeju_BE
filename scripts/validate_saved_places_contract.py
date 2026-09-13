@@ -40,8 +40,8 @@ CONTRACT_FIELDS = {
     "externalTraceability",
     "readiness",
 }
-CANONICAL_CONTRACT_SHA256 = "d662be0443654a9e41c2bc5827c70cbe7d63d35945571bd7ef6bda931dcaae99"
-CANONICAL_CATALOG_SHA256 = "1282a8a890aacb8f7738f65e5b1044b1ca4c49791bb5fe2faf07e3c649369147"
+CANONICAL_CONTRACT_SHA256 = "8c7a8bc0aa9b9922b48deae3de053eb1e080ff05c81b25cf044d4db30178f2b8"
+CANONICAL_CATALOG_SHA256 = "65b2e3367b37e77c36f2230777f5e2d540af121c7e6ace9fb32fb71e8d751e89"
 EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/me/saved-places"),
     ("POST", "/api/v1/me/saved-places"),
@@ -232,7 +232,7 @@ def _validate_request_fixture(
     }:
         errors.append(f"{label} 최상위 구조가 정확하지 않습니다.")
         return
-    if fixture.get("contractVersion") != "1.1.0":
+    if fixture.get("contractVersion") != "1.2.0":
         errors.append(f"{label} contractVersion이 다릅니다.")
     expected = {
         "list": ("GET", "/api/v1/me/saved-places"),
@@ -312,10 +312,17 @@ def _validate_request_fixture(
     _validate_concrete_path_request(delete, schemas, f"{label}.delete", errors)
     if "body" in delete:
         errors.append(f"{label}.delete는 body를 가질 수 없습니다.")
-    if isinstance(delete.get("headers"), dict) and set(delete["headers"]) != {
-        "Authorization"
-    }:
-        errors.append(f"{label}.delete headers는 Authorization만 가져야 합니다.")
+    delete_headers = delete.get("headers")
+    if not isinstance(delete_headers, dict) or set(delete_headers) != {"Authorization", "If-Match"}:
+        errors.append(f"{label}.delete headers는 Authorization과 If-Match만 가져야 합니다.")
+    else:
+        _validate_value(
+            {"If-Match": delete_headers["If-Match"]},
+            schemas.get("DeleteSavedPlaceHeaders"),
+            schemas,
+            f"{label}.delete.headers",
+            errors,
+        )
 
 
 def _validate_concrete_path_request(

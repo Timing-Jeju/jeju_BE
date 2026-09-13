@@ -13,15 +13,21 @@ import org.junit.jupiter.api.Test;
 class PostgreSqlContainerInventoryTest {
 
   @Test
-  void 모든_PostgreSQLContainer_생성은_launcher_session_pool_한곳으로_제한한다() throws Exception {
+  void 모든_PostgreSQL_물리_container_생성은_안전한_launcher_session_pool_한곳으로_제한한다() throws Exception {
     Path sources =
         PostgreSqlTestContainerFactory.locateRepositoryRoot()
             .resolve("services/spring-api/src/test/java");
     List<String> constructors = new ArrayList<>();
     try (var files = Files.walk(sources)) {
       for (Path file : files.filter(path -> path.toString().endsWith(".java")).toList()) {
-        if (!file.getFileName().toString().equals("PostgreSqlContainerInventoryTest.java")
-            && Files.readString(file).contains("new PostgreSQL" + "Container(")) {
+        String fileName = file.getFileName().toString();
+        String source = Files.readString(file);
+        boolean physicalContainer =
+            source.contains("new PostgreSQL" + "Container(")
+                || source.contains("new PostgreSqlArchive" + "Container(");
+        if (!fileName.equals("PostgreSqlContainerInventoryTest.java")
+            && !fileName.equals("PostgreSqlArchiveContainerTest.java")
+            && physicalContainer) {
           constructors.add(sources.relativize(file).toString());
         }
       }

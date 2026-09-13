@@ -33,7 +33,7 @@ final class PostgreSqlLauncherSessionPool {
   static PostgreSQLContainer historicalCutoverContainer(
       DockerImageName image, List<Path> initScripts) {
     PostgreSQLContainer container =
-        new PostgreSQLContainer(image)
+        new PostgreSqlArchiveContainer(image)
             .withDatabaseName("timing_jeju_repository_test")
             .withUsername("timing_jeju_repository_test")
             .withPassword(UUID.randomUUID().toString())
@@ -107,7 +107,7 @@ final class PostgreSqlLauncherSessionPool {
         PostgreSqlTestContainerFactory.locateRepositoryRoot()
             .resolve("db/local-postgres/auth_compat.sql");
     PostgreSQLContainer container =
-        new PostgreSQLContainer(
+        new PostgreSqlArchiveContainer(
                 DockerImageName.parse(canonicalImage).asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("timing_jeju_launcher_base")
             .withUsername("timing_jeju_repository_test")

@@ -1,5 +1,5 @@
 {
-  "contractVersion": "1.1.0",
+  "contractVersion": "1.2.0",
   "list": {
     "method": "GET",
     "path": "/api/v1/me/saved-places",
@@ -58,7 +58,8 @@
       "placeId": "20000000-0000-0000-0000-000000000003"
     },
     "headers": {
-      "Authorization": "Bearer <fixture-access-token>"
+      "Authorization": "Bearer <fixture-access-token>",
+      "If-Match": "\"saved-place-fixture-v2\""
     }
   }
 }
