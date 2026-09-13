@@ -34,7 +34,7 @@ EXPECTED_IMPLEMENTATION_OWNERS = {
 }
 EXPECTED_IMPLEMENTATION_ISSUES = [46, 47, 48]
 CANONICAL_WIRE_CONTRACT_SHA256 = (
-    "7789e14f05290d2a24b13c0351fdb723965c89ee967ac1b48bba1bbd313e20d6"
+    "9a91c53218c360d94d1492a166ad63c9d38fc3f2bab64c03b5e3e84908738cf1"
 )
 COMMON_RESPONSE_FIELDS = {
     "tripId", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId",
@@ -68,10 +68,10 @@ EXPECTED_ENDPOINT_ERROR_CODES = {
         "422": ["TRANSPORT_EVENT_CONSTRAINT_VIOLATION"],
     },
     ("DELETE", "/api/v1/trips/{tripId}/transport-event"): {
-        "400": ["INVALID_REQUEST"],
+        "400": ["INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID"],
         "401": ["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"],
         "404": ["TRIP_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND"],
-        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"],
+        "409": ["TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT", "IDEMPOTENCY_KEY_REUSED"],
         "422": ["TRANSPORT_EVENT_CONSTRAINT_VIOLATION"],
     },
 }
@@ -335,7 +335,7 @@ def _validate_endpoints(contract: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"{identity} auth가 #72와 다릅니다.")
         if endpoint.get("owner") != "canonical JWT sub; cross-owner 404":
             errors.append(f"{identity} owner가 canonical sub가 아닙니다.")
-        expected_header = "Idempotency-Key" if identity == ("PUT", "/api/v1/trips/{tripId}/transport-event") else "none"
+        expected_header = "Idempotency-Key" if identity in {("PUT", "/api/v1/trips/{tripId}/transport-event"), ("DELETE", "/api/v1/trips/{tripId}/transport-event")} else "none"
         if endpoint.get("idempotency") != {"required": False, "header": expected_header}:
             errors.append(f"{identity} update/delete idempotency 상속이 다릅니다.")
         if endpoint.get("pagination") != {"type": "none"}:

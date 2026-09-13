@@ -1153,9 +1153,7 @@ final class FrontendOpenApiCustomizer {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
     } else if (key.endsWith("/api/v1/trips/{tripId}/transport-event")) {
       addResponseHeaderReferences(
-          operation,
-          List.of("200"),
-          key.startsWith("PUT ") ? List.of("ETag", "Idempotency-Replayed") : List.of("ETag"));
+          operation, List.of("200"), List.of("ETag", "Idempotency-Replayed"));
     }
   }
 
@@ -1247,7 +1245,8 @@ final class FrontendOpenApiCustomizer {
         isScheduleMutation(operationKey)
             ? scheduleProblems(operationKey, String.valueOf(status))
             : null;
-    if ("PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)) {
+    if ("PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)
+        || "DELETE /api/v1/trips/{tripId}/transport-event".equals(operationKey)) {
       codes =
           switch (status) {
             case 400 -> List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID");
@@ -1275,7 +1274,8 @@ final class FrontendOpenApiCustomizer {
             .addMediaType(
                 org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, media));
     if ((isScheduleMutation(operationKey)
-            || "PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey))
+            || "PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)
+            || "DELETE /api/v1/trips/{tripId}/transport-event".equals(operationKey))
         && status == 409) {
       response.addHeaderObject(
           "Retry-After",

@@ -524,7 +524,7 @@ def _validate_endpoints(
                 ("PUT", _canonical_path("/api/v1/trips/{tripId}/day-activity-windows")),
                 ("PUT", _canonical_path("/api/v1/trips/{tripId}/planner-conditions")),
             },
-            optional_receipt=identity == ("PUT", _canonical_path("/api/v1/trips/{tripId}/transport-event")),
+            optional_receipt=identity in {(method, _canonical_path("/api/v1/trips/{tripId}/transport-event")) for method in ("PUT", "DELETE")},
         )
         _validate_endpoint_pagination(
             endpoint.get("pagination"), operation, label, errors

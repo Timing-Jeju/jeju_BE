@@ -201,13 +201,14 @@ def valid_document():
 
 
 class OpenApiFrontendReadinessTest(unittest.TestCase):
-    def test_only_transport_put_allows_optional_idempotency_header(self):
-        """기존 교통 PUT 호환 키만 선택적으로 허용하고 생성·다른 변경의 필수 키는 유지한다."""
+    def test_only_transport_mutations_allow_optional_idempotency_header(self):
+        """기존 교통 PUT·DELETE 호환 키만 선택적으로 허용하고 생성의 필수 키는 유지한다."""
         parameter = {"name": "Idempotency-Key", "in": "header", "required": False,
                      "description": "기존 교통 저장 호환 키", "schema": {"type": "string", "format": "uuid"},
                      "example": "53000000-0000-4000-8000-000000000001"}
         validator = Validator(valid_document(), 43, ROOT)
         validator.validate_parameters([parameter], "PUT /api/v1/trips/{tripId}/transport-event")
+        validator.validate_parameters([parameter], "DELETE /api/v1/trips/{tripId}/transport-event")
         self.assertEqual([], validator.errors)
         validator.validate_parameters([parameter], "POST /api/v1/trips/{tripId}/schedule-generations")
         self.assertTrue(any("required" in error for error in validator.errors))

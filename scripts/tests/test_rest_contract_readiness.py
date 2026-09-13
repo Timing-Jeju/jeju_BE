@@ -288,8 +288,8 @@ class RestContractReadinessTest(unittest.TestCase):
         self.assertTrue(any("Idempotency-Key" in error for error in errors))
         self.assertTrue(any("tie-breaker" in error for error in errors))
 
-    def test_optional_receipt_is_limited_to_transport_put(self):
-        """선택적 멱등 키는 구현된 transport PUT에만 허용하고 다른 변경은 거부한다."""
+    def test_optional_receipt_is_limited_to_transport_mutations(self):
+        """선택적 멱등 키는 구현된 transport PUT·DELETE만 허용하고 다른 경로는 거부한다."""
         self.assertEqual([], self.validate())
         for method in ("GET", "PUT", "DELETE"):
             with self.subTest(method=method):

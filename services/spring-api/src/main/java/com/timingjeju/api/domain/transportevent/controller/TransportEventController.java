@@ -60,9 +60,27 @@ public class TransportEventController implements TransportEventApiDocs {
     var owner = currentUsers.getRequired().userId();
     var revision = expected(ifMatch);
     var command = parse(TransportEventRequestBoundary.readRequiredJson(request)).toCommand();
+    return mutate(
+        request,
+        owner,
+        canonicalTripId,
+        revision,
+        "PUT",
+        command,
+        () -> events.put(owner, canonicalTripId, revision, command));
+  }
+
+  private ResponseEntity<byte[]> mutate(
+      HttpServletRequest request,
+      UUID owner,
+      UUID canonicalTripId,
+      TripExpectedRevision revision,
+      String method,
+      Object canonicalInput,
+      java.util.function.Supplier<TransportEventMutationPayload> mutation) {
     var headers = request.getHeaders("Idempotency-Key");
     if (headers == null || !headers.hasMoreElements()) {
-      var payload = events.put(owner, canonicalTripId, revision, command);
+      var payload = mutation.get();
       return ResponseEntity.ok().eTag(payload.etag()).body(objectMapper.writeValueAsBytes(payload));
     }
     String key = headers.nextElement();
@@ -73,10 +91,10 @@ public class TransportEventController implements TransportEventApiDocs {
     var input =
         IdempotencyRequest.create(
             owner,
-            "PUT",
+            method,
             "/api/v1/trips/" + canonicalTripId + "/transport-event",
             key,
-            objectMapper.writeValueAsBytes(command));
+            objectMapper.writeValueAsBytes(canonicalInput));
     // 과거 receipt도 현재 owner 확인을 통과한 요청에만 반환한다.
     events.requireOwned(owner, canonicalTripId);
     var replayed = new java.util.concurrent.atomic.AtomicBoolean(true);
@@ -85,7 +103,7 @@ public class TransportEventController implements TransportEventApiDocs {
             input,
             () -> {
               replayed.set(false);
-              var payload = events.put(owner, canonicalTripId, revision, command);
+              var payload = mutation.get();
               return new IdempotencyResponse(
                   200,
                   java.util.List.of(
@@ -103,7 +121,7 @@ public class TransportEventController implements TransportEventApiDocs {
 
   @Override
   @DeleteMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-  public ResponseEntity<TransportEventMutationPayload> delete(
+  public ResponseEntity<byte[]> delete(
       @PathVariable String tripId,
       @RequestParam(name = "eventType", required = false) String eventType,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
@@ -111,10 +129,17 @@ public class TransportEventController implements TransportEventApiDocs {
     validateDeleteRequest(request);
     TransportEventRequestBoundary.requireEmptyDelete(request);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
-    TransportEventMutationPayload payload =
-        events.delete(
-            currentUsers.getRequired().userId(), canonicalTripId, eventType, expected(ifMatch));
-    return ResponseEntity.ok().eTag(payload.etag()).body(payload);
+    var owner = currentUsers.getRequired().userId();
+    var revision = expected(ifMatch);
+    // selector도 요청 identity에 포함한다. raw query와 DELETE 본문은 보존하지 않는다.
+    return mutate(
+        request,
+        owner,
+        canonicalTripId,
+        revision,
+        "DELETE",
+        java.util.Map.of("eventType", eventType),
+        () -> events.delete(owner, canonicalTripId, eventType, revision));
   }
 
   private PutTransportEventRequest parse(byte[] body) {

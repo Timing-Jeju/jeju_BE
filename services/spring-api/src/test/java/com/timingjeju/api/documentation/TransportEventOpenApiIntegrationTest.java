@@ -66,6 +66,16 @@ class TransportEventOpenApiIntegrationTest
                 .value("IDEMPOTENCY_KEY_INVALID"))
         .andExpect(
             jsonPath(path + ".delete.parameters[?(@.name=='If-Match')].required").value(true))
+        .andExpect(
+            jsonPath(path + ".delete.parameters[?(@.name=='Idempotency-Key')].required")
+                .value(false))
+        .andExpect(
+            jsonPath(path + ".delete.responses['200'].headers['Idempotency-Replayed']").exists())
+        .andExpect(
+            jsonPath(
+                    path
+                        + ".delete.responses['409'].content['application/problem+json'].examples.IDEMPOTENCY_KEY_REUSED.value.code")
+                .value("IDEMPOTENCY_KEY_REUSED"))
         .andExpect(jsonPath(path + ".delete.parameters[?(@.name=='eventType')]").value(hasSize(1)))
         .andExpect(jsonPath(path + ".delete.requestBody").doesNotExist())
         .andExpect(jsonPath(putSchema + ".additionalProperties").value(false))

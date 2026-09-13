@@ -85,6 +85,15 @@ public interface TransportEventApiDocs {
 
   @Operation(
       operationId = "deleteTripTransportEvent",
+      parameters =
+          @Parameter(
+              name = "Idempotency-Key",
+              in = ParameterIn.HEADER,
+              required = false,
+              description =
+                  "같은 키·eventType 재시도는 최초 삭제 응답과 ETag를 재생합니다. 다른 eventType에 키를 재사용하면 409입니다.",
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN),
+              example = "53000000-0000-4000-8000-000000000002"),
       summary = "여행 항공·선박 이벤트 삭제",
       description = "query로 선택한 도착 또는 출발 이벤트만 삭제하고 일정 stale 정책을 반환합니다.")
   @ApiResponses({
@@ -123,7 +132,7 @@ public interface TransportEventApiDocs {
                 mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
-  ResponseEntity<TransportEventMutationPayload> delete(
+  ResponseEntity<byte[]> delete(
       @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String tripId,
       @Parameter(

@@ -403,8 +403,32 @@ class TransportEventHttpPostgreSqlIntegrationTest {
     return http.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
   }
 
+  @Test
+  void 삭제_응답_유실은_같은_키와_selector로_재생하고_다른_selector는_거부한다() throws Exception {
+    success(put(token(OWNER), 1, arrival(PLACE, null)), 2);
+    String key = UUID.randomUUID().toString();
+    var first = delete(token(OWNER), 2, "eventType=arrival", null, key);
+    success(first, 3);
+    String before = fingerprint();
+    var replay = delete(token(OWNER), 2, "eventType=arrival", null, key);
+    success(replay, 3);
+    assertThat(replay.body()).containsExactly(first.body());
+    assertThat(replay.headers().firstValue("Idempotency-Replayed")).contains("true");
+    assertProblem(
+        delete(token(OWNER), 3, "eventType=departure", null, key), 409, "IDEMPOTENCY_KEY_REUSED");
+    assertProblem(delete(token(OTHER), 2, "eventType=arrival", null, key), 404, "TRIP_NOT_FOUND");
+    assertProblem(
+        delete(token(OWNER), 3, "eventType=arrival", null, ""), 400, "IDEMPOTENCY_KEY_INVALID");
+    assertThat(fingerprint()).isEqualTo(before);
+  }
+
   private HttpResponse<byte[]> delete(String bearer, int revision, String query, String body)
       throws Exception {
+    return delete(bearer, revision, query, body, null);
+  }
+
+  private HttpResponse<byte[]> delete(
+      String bearer, int revision, String query, String body, String key) throws Exception {
     String suffix = query.isEmpty() ? "" : "?" + query;
     HttpRequest.Builder request =
         HttpRequest.newBuilder(endpoint("/api/v1/trips/" + TRIP + "/transport-event" + suffix))
@@ -417,6 +441,7 @@ class TransportEventHttpPostgreSqlIntegrationTest {
             ? HttpRequest.BodyPublishers.noBody()
             : HttpRequest.BodyPublishers.ofString(body));
     if (body != null) request.header("Content-Type", "application/json");
+    if (key != null) request.header("Idempotency-Key", key);
     return http.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
   }
 

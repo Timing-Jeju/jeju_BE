@@ -1213,7 +1213,7 @@
       "schemas": {
         "path": "TripPath",
         "query": "DeleteTransportEventQuery",
-        "headers": "MutationHeaders",
+        "headers": "TransportMutationHeaders",
         "body": "none"
       },
       "presence": "eventType query parameter required and non-null; request body forbidden",
@@ -1242,7 +1242,7 @@
       "contractVersion": "1.0.0",
       "idempotency": {
         "required": false,
-        "header": "none"
+        "header": "Idempotency-Key"
       },
       "pagination": {
         "type": "none"

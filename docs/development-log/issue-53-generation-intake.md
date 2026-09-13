@@ -739,6 +739,13 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 제한적 독립 검토에서 신규 차단 finding 없음. 정식 승인/recorder는 아니다. FE 항공·장소 저장 orchestration, 삭제 재시도, 최신 계약 동기화 및 전체 품질/Docker/최종 PR은 계속 진행해야 한다.
 - 후속 GREEN: 전체 scripts 950개 검사 완료(3skip, 56.503초). 항구 미확정 null 선박의 실제 DB intake 거부·run 0건 테스트 PASS(1분9초). Supabase security advisors를 동일 격리 Testcontainers DB에 시도했으나 DB 종료와 겹쳐 연결이 끊겼다. 진단 완료로 계산하지 않고 최종 격리 DB 검증에서 재실행한다. 새 제약은 행·권한·함수를 추가하지 않지만 전체 보안 진단 통과를 이 사실로 대체하지 않는다.
 
+## 2026-09-14 교통 DELETE receipt와 FE 입출도 orchestration
+
+- DELETE 응답 유실 후 같은 키·ETag 재시도가409인 실제 HTTP RED(1분4초)를 확인했다. PUT·DELETE의 공통 mutate에서 선택적 UUID 키, 현재 owner 선검사, 같은 트랜잭션 receipt를 사용한다. DELETE의 검증된 eventType만 해시에 포함하며 raw query와 request body는 저장하지 않는다. 다른 selector409·타 사용자404·빈 키400·동일 본문/ETag 재생 및 DB 무변경 GREEN(1분7초).
+- OpenAPI slice/재생성 PASS(18초), 관련 Python108개 PASS(5.944초), OpenAPI43 readiness PASS. 전체 unit/slice/architecture와 두 교통 integration 클래스 PASS(1분54초, 환경별 unit9skip). 전체 scripts950개 검사 완료(3skip,51.802초). wire SHA `9a91c53218c360d94d1492a166ad63c9d38fc3f2bab64c03b5e3e84908738cf1`로 정렬했다.
+- FE saveTrip에 실제 입도·출도 PUT/삭제 단계를 넣었다. 최초 조건 snapshot, 단계별 키/ETag/body, 남은 단계만 재시도, 최종 GET 유실 시 조회만 재시도, 입력 변경/최종 ETag 불일치의 완료 오표시 방지를 검증했다. 부분 reviewer의 기존 상세 유실 finding은 RED2개로 재현 후 동일 수단 상세 보존·수단 변경 시 터미널/편명만 초기화·메모 보존으로 수정했다. 재검토 신규 차단0이며 정식 승인/recorder는 아니다.
+- 날짜별 장소 선호 저장, 최신 FE 계약 인계, 실제 생성·검토·적용 최종 연결 검증과 전체 품질 게이트/Docker/정식 리뷰/PR은 남아 있다. 앱 재시작 journal 보강만 사용자 요청으로 후속이며 서버 worker 복구와 적용 정합성은 유예하지 않는다.
+
 ## 공개 입력 복원 문서 후속
 
 - 재생성 OpenAPI에서 TripDetail plannerConditions/placePreferences 및 place-preferences requestedStayMinutes 예시 누락을 확인했다. 실제 `/v3/api-docs` slice RED(15초) 후 공통 customizer의 예시를 현재 DTO에 맞췄다. 사용자 지정 90분과 미지정 null을 구분한다.
