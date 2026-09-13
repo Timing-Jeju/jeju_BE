@@ -79,6 +79,10 @@ public record GenerationTimeline(List<Event> events, List<Risk> risks) {
       String mode = hasTransfer ? text(transfer.get("mode")) : null;
       Integer distance = hasTransfer ? integer(transfer.get("distance_meters")) : null;
       if (hasTransfer && (!scope.allowedModes().contains(mode) || distance < 0)) throw invalid();
+      var eventFacts =
+          new java.util.LinkedHashSet<>(references(value.get("evidence_fact_ids"), scope));
+      if (STAYS.contains(type))
+        eventFacts.addAll(references(value.get(type).get("evidence_fact_ids"), scope));
       events.add(
           new Event(
               id,
@@ -91,7 +95,7 @@ public record GenerationTimeline(List<Event> events, List<Risk> risks) {
               factPlaceId,
               mode,
               distance,
-              references(value.get("evidence_fact_ids"), scope)));
+              List.copyOf(eventFacts)));
       totals.merge(type, duration, Math::addExact);
     }
     if (!visited.equals(strings(candidate.get("place_ids")))

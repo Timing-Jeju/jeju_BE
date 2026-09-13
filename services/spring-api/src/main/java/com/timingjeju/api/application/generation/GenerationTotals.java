@@ -90,6 +90,33 @@ public record GenerationTotals(
     }
   }
 
+  public java.util.Map<String, Object> toMcp() {
+    var result = new java.util.LinkedHashMap<String, Object>();
+    result.put("total_minutes", totalMinutes);
+    result.put("visit_minutes", visitMinutes);
+    result.put("transfer_minutes", transferMinutes);
+    result.put("rest_minutes", restMinutes);
+    result.put("meal_minutes", mealMinutes);
+    result.put("buffer_minutes", bufferMinutes);
+    result.put("walking_minutes", walkingMinutes);
+    result.put("walking_distance_meters", walkingDistanceMeters);
+    result.put("taxi_pickup_buffer_minutes", taxiPickupBufferMinutes);
+    result.put("bus_wait_minutes", busWaitMinutes);
+    result.put("bus_distance_meters", busDistanceMeters);
+    result.put("taxi_distance_meters", taxiDistanceMeters);
+    result.put("total_distance_meters", totalDistanceMeters);
+    result.put("estimated_cost", wireCost(estimatedCost));
+    result.put("bus_cost", wireCost(busCost));
+    result.put("taxi_cost", wireCost(taxiCost));
+    result.put("derivation_evidence_fact_ids", evidenceFactIds);
+    return java.util.Map.copyOf(result);
+  }
+
+  private static java.util.Map<String, Object> wireCost(CostRange cost) {
+    return java.util.Map.of(
+        "min_krw", cost.minKrw(), "max_krw", cost.maxKrw(), "is_estimated", cost.isEstimated());
+  }
+
   private static CostRange cost(JsonNode value) {
     if (value == null || !value.isObject()) throw invalid();
     var estimated = value.get("is_estimated");

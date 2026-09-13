@@ -21,12 +21,26 @@ final class GenerationTransferTiming {
           if (!start.plusMinutes(walk(walk, "direct_walk")).equals(end)) throw invalid();
         }
         case "bus" -> bus(transfer, start, end);
-        case "taxi" -> {
-          /* 후속 택시 운임/주행 근거 검증이 필요하다. 이 검사는 도보/버스 시간만 담당한다. */
-        }
+        case "taxi" -> taxi(transfer, start, end);
         default -> throw invalid();
       }
     }
+  }
+
+  private static void taxi(JsonNode transfer, OffsetDateTime start, OffsetDateTime end) {
+    var taxi = transfer.get("taxi_alternative");
+    if (taxi == null || !taxi.isObject()) throw invalid();
+    int minutes = number(taxi.get("duration_minutes"));
+    int distance = number(taxi.get("distance_meters"));
+    var estimated = taxi.get("is_estimated");
+    if (minutes == 0
+        || distance == 0
+        || !start.plusMinutes(minutes).equals(end)
+        || distance != number(transfer.get("distance_meters"))
+        || number(taxi.get("fare_min_krw")) > number(taxi.get("fare_max_krw"))
+        || estimated == null
+        || !estimated.isBoolean()
+        || !estimated.booleanValue()) throw invalid();
   }
 
   private static void bus(JsonNode transfer, OffsetDateTime start, OffsetDateTime end) {

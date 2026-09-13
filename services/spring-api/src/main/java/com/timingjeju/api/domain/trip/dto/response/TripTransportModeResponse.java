@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public record TripTransportModeResponse(
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
-            allowableValues = {"public_transit", "rental_car", "taxi"})
+            allowableValues = {"public_transit", "rental_car", "taxi", "walk"})
         String mode,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "3") int priority,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED) boolean primary) {

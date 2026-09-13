@@ -22,7 +22,10 @@ class GenerationWorkerTest {
   private final Supervisor supervisor = new Supervisor();
   private final GenerationCandidateProjection insufficient =
       new GenerationCandidateProjection(
-          "insufficient_feasible_routes", List.of(), new GenerationEvidence(Map.of(), Set.of()));
+          now,
+          "insufficient_feasible_routes",
+          List.of(),
+          new GenerationEvidence(Map.of(), Set.of()));
   private final RunExecutionPolicy policy =
       GenerationExecutionPolicy.forRequestTimeout(Duration.ofSeconds(165));
 

@@ -524,3 +524,212 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 최초 조합/입구/architecture18초 성공, 독립 부분 리뷰 신규 차단0이다.
   택시 endpoint·거리/운임 상세·JDBC 후보 writer·조회/apply/previous_days/FE와 최종 PR은 후속이다.
 - 최종 spotlessApply/test/architectureTest53초 성공(조합11개, 기존 macOS9skip)이다.
+
+## 2026-09-14: 후보 저장의 0분 경계점 봉인 계약 (진행 중)
+
+- 실제 DB trip_legs가 양쪽 trip_items를 필수 참조하며, 기존 core seal은 모든 item/leg의
+  시간을 양수로 요구함을 확인했다. AI 시작/종료 경계에 임의1분을 넣지 않기 위해 명시적인
+  nullable boundary_role(day_start/day_end)와 체류0분 계약의 DB 회귀를 먼저 추가했다.
+- 최초 격리 PostgreSQL 테스트는 boundary_role 컬럼 부재로 RED(1분42초)였다.
+  Supabase CLI는 PATH에 없어 npm의 공식2.117.0을 확인해 npx help/new로 생성한 뒤 저장소의
+  append-only canonical 순서027/065로 이동했다. 기존 SQL 파일은 수정하지 않았다.
+- 신규 migration은 기존 facts={}를 유지하고 경계의 canonical 장소/0분exact/custom을 검사한다.
+  채워진 Day별 시작·중간항목·종료 및 파생 버전의 부모 경계 보존을 검사한다.
+  기존 legacy 일정에 경계 쌍을 새로 강제하지 않는다.
+- manifest/세 Compose/Java·Python inventory/아키텍처/smoke 슬롯을 동기화했다.
+  등록 누락 RED 후 canonical migration 순서 검사14개 성공이다.
+- 두번째 DB 실행은 테스트 자료의 필수 source 누락으로 실패했다. ai_generated를 명시했고
+  같은 회귀를 다시 실행 중이다. 마이그레이션 전체 승인 또는 완료로 표시하지 않는다.
+- 독립 설계 검토는 Day별 검사·부모 보존·서버 편집제한·clone marker 보존·같은 장소의0분 이동
+  지원을 요구했다. 조회/clone/mutation과0분 동일장소 leg, 부정/권한/동시성/upgrade 검증이
+  아직 남아 있다. 후보 writer/조회/apply/previous_days/FE 및 최종 PR도 계속 미완료다.
+- source 수정 후 같은 PostgreSQL 봉인 회귀1개 성공(1분22초). 현재 마이그레이션은 작업 중이며
+  새 경계가 있는 일정의 일반 조회·편집까지 검증하기 전에는 커밋/배포하지 않는다.
+# 2026-09-14: 0분 기준점 일정 조회 연결 (진행 중)
+
+## 기존 편집 회귀와 택시 검증 후속
+
+- 전체 unitTest/architectureTest GREEN(27초, 기존 환경별9개 skip) 후 첫 storage fixture 점수를80.25로 변경했다. `intValueExact`의 `Rounding necessary`로 정상/중간실패2개 모두 RED(1분10초)를 확인했다.
+- Supabase 공식 Tables/Data 문서를 확인하고 CLI `migration new --help` 뒤 실제 CLI로 빈 migration을 생성했다. 저장소 canonical 순서에 맞춰028(`generation_result_projection`,init066)으로 배치하고 후보 score를 scale 제한 없는 numeric으로 변경했다. 기존0~100 CHECK/NULL 의미는 유지하며 Java는 BigDecimal을 그대로 전달한다. 숫자·계약을 임의 반올림하지 않는다.
+- 028 SHA256=a9a6b10fed8703cbead4b845d51eff01751b247aff19fda6a40e3c2874442700. manifest, Compose3개, Docker 순서, Java/Python canonical inventory를 갱신했다. Python14개 GREEN. 후속 architecture/DB8개 실행 중이며 migration commit/advisors/전체 upgrade 검증은 아직 하지 않았다.
+- 소수 점수 보존 후 architecture/DB8개 GREEN(1분21초): DB에서 80.25를 세 후보 모두 그대로 읽었고 중간실패 전체rollback 및 기존 lease 검사를 유지했다. 명시적인 buffer-only leg의 duration0/buffer0 assertion도 이번 실행에 포함됐다. 전체 근거 ledger, 초 단위 bus 및 다일/실행/조회/적용 연결은 미완료다.
+- CLI advisors help로 `--db-url`/`--local` 지원을 확인했다. 운영/linked project에는 연결하지 않았고 이번 변경은 기존 후보 score 형식만 바꾸며 공개 권한을 늘리지 않는다. 전체 근거 ledger 저장은 계속 후속이다.
+
+- 완료 후 lease 검사 수정의 architecture/DB6개 GREEN(1분19초). 최초 성공3 저장 테스트는 insuff 전용 adapter가 `MCP_CONTRACT_INVALID`를 반환해 RED(1분8초)였다. 성공 경로를 `JdbcGenerationCandidateWriter`로 연결하여 같은 transaction에서 draft→항목/구간→candidate3→run success를 작성한다. null base는 빈 활성 버전 없이 시작하고 base가 있으면 대상 Day 외 항목/구간을 복사하는 SQL을 추가했다. 두 번째 후보 INSERT의 인위적 실패 시 첫 후보 포함 전체 rollback을 검증하는 parameterized 회귀도 추가했다.
+- 첫 writer DB 실행은 custom 경계 항목의 필수 title 누락으로 RED(7개 중1개,1분16초). 사용자/AI 자유문 대신 경계는 고정 제목, 일반 장소는 서버 canonical 이름을 사용하도록 수정했다. 후속 architecture/DB8개 실행 중이며 성공3 writer의 GREEN은 아직 확정하지 않는다.
+- 제목 보완 후 architecture/DB8개 GREEN(1분19초): first base=null의 채워진 candidate 버전3개·24h·조회, 두 번째 후보 INSERT 실패 시 첫 후보/전체 버전/항목 rollback, insuff/lease 경계를 확인했다. 이는 storage fixture 검증으로 MCP 후보 다양성은 별도 실제 MCP 회귀에서 검사한다.
+- 독립 검토에서 buffer-only 동일장소 연결의 버퍼가 유실됨을 확인했다. first storage fixture에 15분 buffer-only 연결을 추가해 DB 보존3건 대신0건 RED(2개 중1개,1분10초)를 재현했다. `trip_legs.facts.generation`의 schemaVersion1 닫힌 구조에 connection events/selected transfers/segment risks를 기록하도록 변경했다. 같은 장소0분 leg의 duration/buffer0은 유지하며 실제 계획 버퍼는 별도 events로 보존한다. raw JsonNode/좌표/geometry/원문은 이 record에 없다. 후속 architecture/DB8개 실행 중이다.
+- buffer-only 보존 후 architecture/DB8개 GREEN(1분18초). 테스트 실행 중 추가한 명시적 duration_minutes=0/buffer_minutes=0 SQL assertion은 다음 회귀 실행에서 재확인해야 한다(기존 DB 봉인 제약은 이미 검사됐다). 전체 ledger/다일/실행 연결 완료와는 구분한다.
+- 남은 저장 계약: 소수 score, 초 단위 버스 시간, 전체 정규화 evidence ledger/요금범위/risk/버퍼 이력 보존과 다일 copy DB 검증. 현재 score 소수·버스 승차 구간의 분 미만 시간은 임의 반올림하지 않고 거부한다. 이 제한은 최종 요구 충족이 아니며 production bean 미등록을 유지하고 후속 구현한다. 원본·geometry 저장은 추가하지 않았다.
+
+- 실제 완료 저장 TDD를 시작했다. 첫 테스트는 intake 메서드 이름 오타와 누락 adapter로 컴파일 실패했고 오타 수정 후 `JdbcGenerationCompletionStore` 부재만으로 RED(6초)를 확인했다. REQUIRES_NEW transaction에서 Trip owner/revision/nullable active base를 잠그고 run identity/day/base/fence/attempt/lease/DB deadline을 확인하여 insuff0 terminal을 저장했다. 중복 완료 거부, 후보/버전 0개, 활성 pointer/revision 무변경, 정확히 7일 보존 DB GREEN(1분14초).
+- 현재 adapter는 성공 후보 writer 미연결을 명시적으로 거부하며 Spring bean으로 등록하지 않았다. 이 부분 성공을 전체 pipeline 완료로 보고하지 않는다. 만료 deadline/fence/revision/lease 및 UPDATE 후 lease 만료 rollback 회귀를 추가 실행 중이다. 마지막 경우는 사후 lease 재검사 누락 RED를 예상한다.
+- 후속 DB RED 확인: 6개 중 UPDATE 이후 lease 만료 시나리오만 false 대신 true를 반환했다(1분15초). 테스트가 실제 UPDATE 후 DB pg_sleep(4)로 3초 lease를 넘긴다. Trip 다음 run을 잠그고 기존 lease 만료시각을 보존한 뒤, terminal UPDATE 후 DB clock으로 deadline과 lease를 모두 재확인하여 만료 시 transaction rollback하도록 수정했다. 후속 architecture/DB 6개 검사 실행 중이다.
+- 독립 부분 검토도 현재 완료 저장에서 위 사후 lease 검사 누락 외 신규 차단 finding을 찾지 못했다. 이전 taxi 상세 NPE 지적은 선행 GenerationTransferTiming 검사를 최신 코드에서 확인한 뒤 철회됐다. 정식 승인/recorder는 아니다.
+
+- 하루 일정 조립 후속: `GenerationScheduleDay` 부재 컴파일 RED(7초) 후 시작/종료 0분 기준점, 실제 활동 항목, 인접 항목 사이 transfer/buffer 이벤트를 손실 없이 분할했다. 기준점 시각은 후보의 실제 첫 시작/마지막 종료를 사용하며 서버 활동창 안인지 검사한다. 버퍼를 방문 체류로 합치거나 시간 수치를 추가하지 않는다.
+- 별도 utility로 남기지 않고 `Candidate.scheduleDay` 연결 부재 RED(6초)를 확인한 뒤 실제 candidate factory에 포함했다. 이동 없이 다른 canonical 장소로 바뀌거나 인접 활동 사이 이동이 둘 이상이면 전체 생성 불가로 처리한다. 관련 projection/architecture GREEN(18초), 연결 후 전체 unitTest/architectureTest GREEN(29초, 기존 환경별 9개 skip).
+- 실제 후보 DB writer와 worker bean 실행, 조회/apply/FE는 계속 미완료다. 이번 GREEN은 후보 조립 경로의 검증이며 DB 트랜잭션이나 배포 준비 완료를 증명하지 않는다.
+
+- 선택 이동 저장 projection 후속: `Candidate.transfers` 누락으로 컴파일 RED(7초)를 확인한 뒤 `GenerationTransfer`를 연결했다. 선택된 도보의 계획 시간/거리, 버스 승하차 canonical ID/예정 시각/승차 버퍼, 택시 요금 범위와 근거 ID만 복사한다. 원본 JSON 노드, 좌표, geometry, 정류장 이름 및 미선택 대안은 보존하지 않는다. 버스 구간 비용이 없으면 null을 유지하며 일별 합계로 배분하지 않는다.
+- 후보 projection·worker·MCP 실행 관련 GREEN(15초). 선택 요금의 ModeDecision 근거 누락 회귀는 잘못된 fixture fact ID로 계약 오류가 먼저 발생했고, 기존 known fact로 수정 후 실제 ID 누락 RED(14개 중 1개, 11초)를 확인했다. decision 근거 합집합을 추가하고 전체 unitTest/architectureTest GREEN(31초, 기존 환경별 9개 skip).
+- 독립 부분 검토에서 AI TimelineEvent의 빈 evidence 배열을 허용해야 한다는 지적을 확인했다. 상세 도보 근거가 있는 정상 후보를 거부하는 RED(15개 중 1개, 11초) 후 상위 이벤트만 빈 배열을 허용했다. 상세 Walk/Ride/Taxi/ModeDecision의 필수 근거와 known fact 폐쇄성은 유지한다. 후속 targeted/architecture GREEN(16초), git diff --check 통과이며 정식 리뷰 승인이나 후보 DB 저장 완료는 아니다.
+
+- 전체 unitTest는 통과했으나 architectureTest의 migration 목록 크기만 62로 남아 RED였다(실제 63개, 48개 중 1개 실패). 027까지의 명시적 목록은 유지하고 총 개수를 63으로 고쳤다.
+- architectureTest 및 기존 JdbcScheduleMutationStoreIntegrationTest 87개 GREEN(1분 37초). 앞선 실패 실행에서는 DB 편집 테스트가 실행되지 않았으므로 이 후속 결과로 구분한다.
+- GenerationTransferTiming의 taxi 분기가 비어 있어, 주행시간 불일치가 통과하는 RED를 확인했다(5개 중 1개 실패, 9초). taxi_alternative의 양수 시간/거리, 타임라인 시간·전체 거리 일치, 예상요금 범위 및 is_estimated=true를 검증하도록 연결했다.
+- 택시 부분 검증과 후보 projection 회귀 GREEN(12초). 잘못된 택시 구간 하나가 있으면 candidate list를 비우고 insufficient_feasible_routes를 반환한다. 이는 택시 fact endpoint/provenance 전체 검증이나 실제 후보 writer 구현 완료를 의미하지 않는다.
+- 실제 AI runtime_routing.py의 Transfer 생성이 taxi_alternative와 같은 route.distance_meters를 노출함을 확인했다. MCP Schema는 수정하지 않았다.
+- 진행도 재확인: 후속 전체 unitTest/architectureTest GREEN(26초). macOS에서 실행 대상이 아닌 기존 Linux 파일 핸들 관련 테스트 등 9개는 SKIPPED이며 실행 성공으로 계산하지 않는다. 실제 GenerationCompletionStore는 아직 인터페이스만 있으므로 후보 영속 저장·워커 실행 연결·결과 조회·원자적 적용 및 FE 실연동 완료로 보고하지 않는다.
+
+## 2026-09-14 선택 이력 복원 검증 후속
+
+- 도보 입력 연결 RED: TripService/TripPreferencePolicy 2개 거부(11초), 실제 DB check constraint 거부(1분 11초), FE 저장·복원 2개 실패(0.658초). 여행 enum과 미배포028의 check constraint에 walk를 추가하고 기존 1~3개·연속 우선순위·단일 primary 규칙을 보존했다. MCP Pydantic은 이미 walk를 지원하므로 수정하지 않았다.
+- 도보 GREEN: 관련 BE 단위+실제 DB 저장→generation snapshot+OpenAPI 생성(1분 24초), 전체 unit/slice/architecture(53초, Linux 전용 9개 skip). 전체 scripts 945개 중 942개 통과·3개 skip(56.675초). FE 저장/복원 32개 통과(0.617초); pinned OpenAPI Trip enum이 구버전이라 FE typecheck는 아직 RED이며 실제 BE 커밋 기반 인계 재생성이 필요하다.
+- 이번 수정 파일의 기존 Python 테스트 68개에도 개별 한글 목적 docstring을 보충했다. 관련 계약 96개 GREEN(8.197초).
+- Supabase CLI 2.117.0 advisors를 격리된 PostGIS 16 DB에 실행했다. 027/028 전후 모두 spatial_ref_sys RLS ERROR 1개 및 public 확장 WARN 4개(postgis/pgcrypto/btree_gist/fuzzystrmatch)가 동일하다. fuzzystrmatch는 Docker 이미지 기본 DB 초기화가 설치하므로 기준 DB에도 같은 확장을 맞춰 비교했다. 신규 앱 객체 finding은 없으나 전체 advisor 무경고를 주장하지 않는다. 운영 DB/확장 ACL은 수정하지 않았다.
+- 실제 FE 인계 검사에서 runtime manifest가 39개로 생성·조건 경로 4개를 누락한 RED를 확인했다. 활성 manifest를 43개로 닫고 생성 세 경로와 planner-conditions를 authority 검사에 연결했다. GET/apply의 미구현 429는 명시적 omission, 접수의 공통 429는 runtime-only로 구분하며 quota 구현 완료로 표시하지 않는다.
+
+- 전체 Spring slice RED: 80개 중 planner-conditions ready canonical 투영 1개 실패(47초). ready fixture에서는 응답을 의도적으로 inline canonical schema로 투영하므로 `$ref` 문자열이 아니라 object/추가 필드 금지/정확한 필수 필드를 검증하도록 회귀를 정렬했다. 실제 미승격 런타임 OpenAPI와 별개의 테스트 조건이며 readiness 자체는 변경하지 않았다.
+- GREEN: spotlessApply + 전체 unitTest/sliceTest/architectureTest(52초). Linux 전용 단위 테스트 9개는 macOS에서 skip. #89 계약 검사와 전체 파일 비밀정보 검사도 통과했다. 전체 DB 통합·커버리지·Docker·동일 SHA 품질 기록·정식 리뷰·최종 PR은 아직 후속이다.
+
+- 전체 scripts 자동화 RED: 945개 중 6개 실패, 3개 skip(51.915초). 원인은 canonical endpoint/마이그레이션 고정 목록과 활성 OpenAPI 모드의 갱신 누락이었다. Windows gate도 38에 남아 있어 43 기대 회귀 RED 후 실행 모드를 정렬했다. 역사 모드 검증과 정확한 목록 검사는 유지했다.
+- GREEN: 관련 33개(0.205초), 전체 scripts 945개 실행 중 942개 통과·3개 skip(55.252초). Windows 실행 자체를 macOS에서 검증했다는 뜻은 아니며 양 플랫폼 명령의 계약 정합성 검사다.
+
+- #88 후보 버전 조회의 canonical 누락을 계약 테스트 RED로 확인했다. 읽기 경로를 7번째 endpoint로 등록하고 두 GET의 후보 만료/metadata 부재 410, UUID 경로 schema, REST 카탈로그와 fixture를 정렬했다. 기존 다섯 mutation의 동시성 조건은 유지했다.
+- GREEN: 관련 Python 계약·OpenAPI·클라이언트 회귀 60개(3.653초), Spring Schedule/Frontend OpenAPI slice 및 문서 생성(26초), 실제 OpenAPI readiness와 TypeScript 생성 client 각 43 operations. git diff --check 통과.
+- 독립 reviewer의 이번 계약 확장 부분 검토에서 신규 차단 finding 없음. 정식 승인·recorder가 아니며 전체 품질/Docker/최종 PR은 아직 완료하지 않았다.
+
+- 조회 경로/TTL 최종 산출물: `generate_frontend_api_client.sh`에서 실제 OpenAPI43 readiness PASS, TypeScript client43 검증 PASS, build/distributions tgz 생성 PASS. FE로 자동 복사하지 않았다. #88 canonical은 아직6 endpoint/기존 read410 부재 상태이므로 다음 계약 정렬에서 별도7번째 read path와 두 만료 code/fixture, catalog를 맞춰야 한다. 현재 runtime/OpenAPI43 성공을 canonical 전체 정렬 완료로 과장하지 않는다.
+
+- 동시 적용 검증을 실제 두 DB 트랜잭션으로 추가했다. 서로 다른 후보에 같은 revision을 전달하면 성공1/`TRIP_VERSION_CONFLICT`1, active1/selected1/revision2를 확인했다. GenerationIntakeIntegrationTest GREEN1분42초.
+- 실제 후보 scheduleUrl/적용 Location이 `/schedule-versions/{versionId}`를 가리키지만 Controller가 없어 404인 문제를 MVC RED14초로 재현했다. 기존 ScheduleQueryService·소유권 검증을 재사용하는 명시 버전 경로를 추가했고 unknown query/body와 미인증을 거부한다. unit/architecture/ScheduleControllerIntegrationTest GREEN37초. inventory는 historical42를 보존하고 실제43으로 확장했다.
+- 미적용 후보 만료 조회 누락은 실제DB RED1분25초로 재현했다. 조회 전후 응답시각/DB clock을 검사하고 만료410, metadata부재410을 반환한다. 독립 리뷰의 rejected 상태 TTL우회 finding은 5상태 단위에서 candidate외4상태 RED11초로 확인했다. `applied_at`이 있는 active/superseded AI버전만 TTL예외로 제한한 뒤 finding 해소 답변을 받았다(정식 승인 아님).
+- 기존 metadata없는 경계봉인 fixture는 미적용 공개조회410을 검증하고, fixture 적용시각 설정 후 경계 projection을 검증하도록 정렬했다. 전체unit/architecture + GenerationIntake/ScheduleController DB·MVC + Schedule/FrontendOpenAPI slice + openApiDocs GREEN2분25초. 기존 Linux전용9개는 SKIPPED. 관련 Python123개 GREEN11.363초. runtime manifest의 원본 schedule GET410과 신규43 인계 문서를 반영했다. #88 canonical read 확장 정렬은 아직 별도 후속이다.
+- FE `fix/10-generation-contract-alignment`에서 23h50 client clock 상한이 BE24h 후보를 거부하는 RED를 확인하고 상한만 제거했다. 44suite313tests GREEN4.39초, typecheck/lint/UI58 StyleSheet 일치. UI 소스·동선은 변경하지 않았다. FE에 미커밋 API검증/테스트/일지 변경이 있으며 최종 PR·원격 CI는 아직 미완료다.
+
+- 최종 상태별 예제에서 Swagger의 `setExample(null)`이 literal null 예제를 내보내는 오류를 실제 validator RED로 발견했다. example 없는 새 MediaType에 명명 예제만 넣어 수정했고 `openApiDocs` 14초 GREEN, 실제 생성 명세의 frontend readiness42 GREEN이다. 고정 codegen으로 TypeScript client42 검증과 tgz 생성도 GREEN이며 FE 저장소에는 자동 복사하거나 UI를 수정하지 않았다. `git diff --check` GREEN.
+
+- HTTP 후보 적용 endpoint를 실제 멱등성 경계와 연결했다. nullable 최초 적용·ETag/Location·동일 응답 재생·소유권 선검사·후보 오류 MVC 테스트와 unit/architecture/runtime OpenAPI 검증은 43초 GREEN이다.
+- 실제 PostgreSQL `GenerationIntakeIntegrationTest`는 1분 34초 GREEN이다. 새 Controller 인스턴스에서 실제 DB 영수증을 재생하고, 이미 선택·만료된 후보도 같은 키는 최초 body/ETag/Location을 반환하며 다른 body는 `IDEMPOTENCY_KEY_REUSED`로 거부한다. 이는 JVM 전체 재시작 검증을 대신하지 않는다.
+- frontend readiness mode42를 추가했다. 기존 38개 inventory를 보존하고 planner conditions·생성 POST·조회 GET·적용 POST만 추가한다. 최초 테스트는 42 대신 9개 및 필수 헤더 누락으로 RED, 관련 Python 36개는 GREEN(2.1초)이다. 품질 게이트/client 생성 명령은 mode42로 전환했다.
+- 생성 오류 정의를 HTTP handler와 문서가 공유하도록 분리하고, 상태별 생략 필드·후보 소수 점수·nullable 이전 버전 예제를 보강했다. unit/architecture/runtime OpenAPI 및 문서 생성은 42초 GREEN이다. macOS에서 기존 Linux 전용 단위 테스트 9개는 SKIPPED이며 Linux 전체 검증 완료로 주장하지 않는다.
+- 독립 reviewer의 이번 부분 검토에는 필수 finding이 없었다. 테스트·정식 승인·recorder는 실행하지 않았다는 답변이며 최종 PR 승인으로 사용하지 않는다. 전체 품질/Docker/FE 실제 연결 검증과 최종 PR은 아직 남아 있다.
+
+- 적용 만료 fence 최종 GREEN: `spotlessApply unitTest architectureTest integrationTest --tests '*GenerationIntakeIntegrationTest'` 1분54초 통과(기존 플랫폼 제외 9건 SKIPPED). 마지막 selected_at 쓰기까지 실제 실행됐음을 wrote=true로 확인하고, 만료 후 Trip active/revision·candidate version 상태·selected_at이 모두 이전 값으로 rollback됐음을 검증했다. 복구된 후보를 실제로 적용한 다음 Day2 생성 이력 회귀도 통과했다. FE applyCandidate는 nullable expectedActiveScheduleVersionId 및 If-Match/Idempotency-Key를 이미 전송하는 것을 재확인했다. HTTP 적용 endpoint/멱등성 replay·동시 적용 경쟁은 후속이다.
+
+- 적용 만료 fence RED 재현: 5초 만료 후보에 selected_at UPDATE 뒤 6초 지연을 주입하자 예외 없이 commit하는 실패를 실제 DB에서 확인했다(1분24초). coordinator의 모든 쓰기 뒤 같은 TX에서 clock_timestamp()<expiresAt을 재확인하도록 수정했고, 만료면 Trip 포인터/revision·version 상태·selected_at 전체 rollback 회귀를 실행 중이다. 독립 부분 재검토에서 finding 해소, 정식 승인 아님.
+- 최초 적용 응답 계약의 previousScheduleVersionId는 required이면서 nullable=true로 정렬했다. 신규 한글 목적 Python 회귀 RED(false)→계약51개 GREEN6.187초. 최신 canonical digest 494538f3784a88b799185bc08e370dff0c3fa9eb2cde7ab83934d8fd0bcf86d0.
+
+- 원자 적용 저장소 연결: GenerationApplyStore/JdbcGenerationApplyStore를 추가해 Trip→run→candidate/version 잠금과 기존 TripAggregateMutationCoordinator의 revision 증가를 재사용한다. 최초 nullable base/current 검증, owner 은닉, 중복 선택·만료·근거 유무·snapshot revision/base/lineage 검사, 이전 active superseded/후보 active/Trip 포인터/selected_at을 한 TX로 연결했다. Day1 수동 SQL fixture를 실제 apply로 대체한 Day2 생성 이력 회귀까지 GREEN1분48초(unit/architecture/관련DB). 최초 RED는 저장소 port 누락 compile6초다.
+- 부분 리뷰의 만료 최종 fence finding은 수정 진행 중: selected_at UPDATE 뒤 지연을 넣으면 만료 후 commit될 수 있어 모든 쓰기 뒤 DB 시각 재검사와 rollback 회귀를 추가하고 RED 확인 중이다. HTTP·멱등성 wrapper·동시 적용 검증은 아직 후속이며 적용 기능 전체 완료가 아니다.
+
+- GET 문서 최종 후속: 새 schema 이름/상태 enum 누락 RED15초를 확인하고 DTO에 canonical schema 이름·필수 필드·enum·범위를 반영했다. 전체unit/architecture/OpenAPI slice GREEN36초, 추가 nullable 최초 base 검사와 `openApiDocs` 생성 GREEN21초. 생성 산출물과 runtime HTTP 문서를 확인했다. score finding은 독립 재검토에서 해소됐다. 아직 전체 frontend-readiness endpoint 모드와 원자 적용 연결/최종 PR 게이트는 남아 있다.
+
+- 공개 GET 연결: GenerationQueryController→GenerationQueryService→owner 단일SELECT를 연결했다. NoQuery/BodyForbidden/canonical UUID, queued/running Retry-After2, no-store, 상태별 결과/실패 생략, nullable 최초 base, decimal score·KST시각·concrete URLs를 DTO로 제공한다. DTO compile RED6초→GREEN15초, HTTP compile RED6초→MVC5개GREEN. architecture 새controller목록 및 mapping59→61 차이를 명시적으로 갱신했고 전체unit/architecture/기존OpenAPI slice GREEN36초. 신규 GET OpenAPI schema 상세회귀는 추가 실행 중이다.
+- 독립 부분 리뷰가 발견한 score integer 계약 불일치를 number로 수정했다. 신규 목적 docstring Python 회귀 RED→계약50개GREEN6.135초. semantic digest 3d5f125dd6121ea78a757d500ace69a32e066baad4a419fd1e9830a8f8e0d549. 최종 endpoint inventory/readiness 및 원자 적용은 후속이며 최종 PR 승인 아님.
+
+- 기준 시각 durable 연결: 미배포·미커밋 028 결과 projection에 facts_as_of timestamptz를 추가했다. legacy null은 현재 시각으로 backfill하지 않는다. 성공 전이에서 후보와 함께 fenced UPDATE로 저장하며 rollback 시 null을 유지한다. reader/service는 실제 시각을 복원하고 성공 null 또는 completedAt 이후 시각을 노출하지 않는다. manifest SHA-256을 3b49259ad9ec216b37dfca64e8c0018a3f87cad2304db4b878308bf90c41d549로 갱신했다.
+- TDD DB 시각: missing column RED(1분 9초) → `spotlessApply unitTest architectureTest integrationTest --tests '*GenerationIntakeIntegrationTest'` GREEN(1분 47초). migration 순서 Python 14개 GREEN. 독립 부분 리뷰 신규 차단 0건, 정식 승인 아님. Supabase 공식 changelog/tables 문서를 확인했고 운영 DB 변경 없이 canonical 격리 DB로 검증했다. advisors와 최종 품질 게이트는 아직 남았다.
+
+- 결과 기준 시각: GenerationCandidateProjection에 필수 factsAsOf를 추가하고 MCP planning_context.planned_at에서만 복사한다. +09 offset 및 planned_at<=generated_at을 검증하며 서버 현재 시각으로 대체하지 않는다. 후보 집합 부족·타임라인 거부·이전 방문 중복으로 insufficient 전환해도 원래 시각을 보존한다. 계약 문서에 계획 평가 시각이며 개별 fact 최신성 보증이 아님을 명시했다.
+- TDD 시각 회귀: factsAsOf 미구현 compile RED(6초) → synthetic insufficient fixture의 failure 객체 누락으로 RED(14초) → fixture 계약 수정 후 전체 unit/architecture GREEN(29초), 기존 플랫폼 제외 9건 SKIPPED. DB factsAsOf 저장 및 공개 응답 연결은 아직 후속이며 완성으로 보고하지 않는다.
+
+- 최종 후속 확인: `spotlessApply unitTest architectureTest` GREEN(28초). 기존 macOS 플랫폼 제외 9건은 SKIPPED이며 통과로 집계하지 않았다. 후보 조회 변경의 실제 DB GREEN과 함께 확인했으나 HTTP GET, factsAsOf 저장·응답, nullable 원자 적용 및 최종 PR 품질 게이트는 잔여 작업이다.
+
+- 후보 JDBC 조회 후속 GREEN: `spotlessApply integrationTest --tests '*GenerationIntakeIntegrationTest'` 1분 27초 통과. 실제 최초 생성 성공 run에서 전략 순서·소수 점수(80.25)·정확한 24시간 expiry·타인 404를 검증했다. 25시간 후에도 후보 메타데이터 조회가 7일 보존 내에서 유지되는 단위 경계를 추가하고 전체 unit/architecture 재검증을 시작했다.
+
+- 후보 조회 연결: 소유권 범위 run과 candidate를 단일 SELECT snapshot으로 읽고, 성공은 서로 다른 ID·버전·rank·세 전략 및 점수·설명·24시간 TTL을 재검증한다. 불완전한 성공/insufficient 후보 혼입은 전체 조회 오류이며 부분 반환하지 않는다. 후보 적용 만료와 7일 작업 조회 보존은 분리한다.
+- TDD: `GenerationQueryServiceTest` SavedCandidate 미구현 compile RED(6초) → 조회 record/JDBC/service 연결 후 단위·아키텍처 GREEN(16초). 독립 부분 리뷰 신규 차단 0건이며 정식 승인 기록은 아니다. 실제 DB 회귀 진행 중; 공개 HTTP DTO/GET 및 원자적 적용은 아직 완료하지 않았다.
+- 앞선 실패 안내 연결은 기존 실행 handle 종료 뒤 XML을 재확인하여 GenerationIntakeIntegrationTest 20개, GenerationFailureTest 3개, GenerationQueryServiceTest 3개 모두 failures/errors=0을 확인했다.
+
+- #95 실패 projection: GenerationFailure 미구현 compile RED6초→단위GREEN10초. known error_code만 고정 한국어 detail/retryable로 변환하고 unknown 내용은GENERATION_EXECUTION_FAILED로숨긴다. cancelled는취소코드, queued/running/succeeded는과거failure없음. reader.failure 미구현RED6초 후 실제SELECT에error_code만추가하고error_message는조회하지않는다. DB타임아웃복원+7일보존/전체unit/architecture회귀실행중. 공개GET/성공후보result는아직후속이다.
+
+- 후보 explanation 저장 후 전체 unit/architecture/GenerationIntakeIntegrationTest GREEN(1분49초, 기존macOS제외9skip). 후보3개 설명저장, 후보2실패전체rollback, Day이력복사/조회까지회귀통과. 결과기준시각/failure projection/공개GET/apply/FE실연동/최종PR은미완료다.
+
+- 후보 설명 실제DB RED 확인: 설명이[null,null,null]로 저장되어20개 중1개 실패(1분30초). writer의 동일 후보 INSERT에 검증된 Candidate.explanation()을 바인딩했다. 중간 후보 실패 rollback 경계는 변경하지 않는다. 독립 부분 설명 생성 리뷰 신규차단0(정식승인아님), 전체unit/architecture/접수DB 회귀재실행중.
+
+- 후보 explanation 보완 착수: AI DurableCandidate에는 자유문 설명이 없으므로 AI recommendation_reasons.text를 영속 복사하지 않는다. 검증된 strategy 및 Totals 방문/이동/식사/휴식/버퍼 수치의 결정론적 표시 문자열을 Candidate.explanation으로 구성했다. 메서드 미구현 compile RED(6초), fixture rank1=experience_max임을 확인해 rank와strategy를 혼동한 테스트를 수정했다. 세 전략 표시 및 AI자유문 비복사 단위는 GREEN이며 실제 DB explanation 저장 누락 RED 확인 중이다.
+
+- 추가 공유계약 회귀: validate_rest_contracts.py GREEN, test_rest_contract_readiness 53개 GREEN(2.6초), git diff --check GREEN. 이번 계약 정합화의 합산120개 테스트는 통과했으나 전체 Spring/배포 품질 게이트나 최종 PR 증거는 아니다.
+
+- DB020과 #89 wirehash 조회 불일치 정합화: 공개 GenerationRunStatus/RevisionRunStatus에서 mcpInputHash 제거, 모든 상태 omitted, 내부 호출 기록 분류를 provenanceCases로 명시했다. 동일 응답 모양을 oneOf로 판별하지 않는다. MCP 메모리 내 hash교환과 commandInputHash는 유지하고 alias/영속저장 복원은 하지 않았다. 신규 회귀 First RED(hash property 노출)→계약49개 GREEN→위치무수집 포함67개 GREEN(5.5초). canonical digest는334311ffea283be421268a564e824d6c8c956fbe959a1841757a1f8ac2413548이다.
+- 독립 부분 리뷰 신규차단0(정식승인아님). FE services/api/generations.ts가 mcpInputHash를 요구하지 않는 것을 직접 확인해 FE/UI 변경은 하지 않았다. 별개로 기존 FE 후보 expiry 검증에85,800,000ms 상한이 남아 있어24h 계약 연결 때 수정해야 한다. 공개GET/후보 metadata/apply/FE 전체연결/최종PR은 미완료다.
+
+- 조회 service 단위3개·architecture·실제 PostgreSQL 소유권/반복 무변경 조회1개 GREEN(1분20초). 독립 부분 service 리뷰 신규차단0(정식 승인 아님). 공개GET/성공후보 요약/실패code projection 및 wirehash 계약 정합화는 미완료이며 이 결과를 전체 #95 완료로 계산하지 않는다.
+
+- #95 조회 착수 중 계약 불일치 발견: DB020은 wire mcp_input_hash의 opaque durable 저장을 제거했으나 #89 계약은 postDispatch 조회 필수로 남아 있다. hash를 재생성/command hash로 대체하거나 DB 저장을 되살리지 않는다. 공개 DTO 연결 전에 최신 비저장 규칙으로 계약·validator·FE 타입을 함께 정합화해야 한다(아직 미완료).
+- SELECT-only GenerationRunReader First RED(미구현,6초) 후 owner/trip/run/command v2/immutable trip snapshot lineage를 한 SELECT에서 확인하는 저장소를 추가했다. 첫 실제 DB 실행에서 final @Repository의 CGLIB proxy 생성 실패(1분13초)를 확인해 final을 제거했다. 독립 부분 SELECT 리뷰 신규차단0(정식 승인 아님).
+- GenerationQueryService First RED(미구현,6초) 후 owner 은닉→terminal 7일 기한/등호 만료 판정을 추가했다. queued/running은 후보 만료로 종료하지 않으며 terminal retention 누락/불일치는 결과불가로 처리한다. 관련 단위/architecture/실제DB 반복읽기 무변경 회귀 실행 중. 아직 공개 GET이나 후보 summary 구현 완료가 아니다.
+
+- Runtime 조립 후 전체 unitTest/architectureTest/GenerationIntakeIntegrationTest GREEN(1분 42초, architecture는 동일 코드 UP-TO-DATE), diff 검사 GREEN. 기존 macOS 제외9건 skip. 실행/저장 빈 연결은 완료했지만 실제 생성 성공→조회→apply 전체 시나리오, 후보 메타데이터 보완, FE 연결 및 최종 품질/PR 완료를 뜻하지 않는다.
+
+- Runtime 조립 독립 부분 리뷰: 신규 차단 0건, 실제 AI TOML의 SHA/승인18 ID 일치 확인(정식 승인 아님). 후속 #95를 다시 조회했고 설명의 legacy /generation-runs 경로와 최신 #89 catalog의 /schedule-generations/{runId} 차이를 확인했다. 구현은 이미 접수 pollUrl과 FE 계약에 사용되는 최신 경로를 유지한다.
+
+- 실제 실행/저장 빈 조립을 GenerationRuntimeConfiguration에 추가했다. 설정 클래스 미구현 compile RED(6초) 후 McpGenerationExecutor+JdbcGenerationCompletionStore를 기능ON/workerON에서 연결했다. AI 6efe58의 승인 출처 18개를 원본 TOML SHA와 함께 고정했으며 호출 승인과 원본 저장 허가는 구분했다. OFF/접수전용 미등록, MCP client 누락 startupfail, 실제 worker→executor→snapshot 누락 실패코드 기록을 검증했다. 최초 테스트의 JdbcTemplate.afterPropertiesSet을 SQL 호출로 오인한 assertion을 수정했고 설정 단위+architecture GREEN(17초). 전체 unit/접수 DB 회귀는 실행 중이다.
+
+- 워커 설정 후 생성 접수 DB 회귀 GREEN(1분 51초), 로그 경계 수정 후 전체 unitTest/architectureTest GREEN(28초), diff whitespace 검사 GREEN. 기존 macOS 제외 9건은 skip이다. 독립 재리뷰에서 로그 finding 해소·신규 차단 0건 확인(정식 승인 아님). 실제 adapter 빈 조립·결과 조회·apply·FE·최종 PR은 계속 미완료다.
+
+- 워커 lifecycle 설정 First RED(설정 클래스 없음, 6초) 후 feature OFF 미등록·ON 주기 claim·180초 lease/10초 heartbeat·종료 후 새 claim 금지를 연결했다. 부분 테스트 GREEN(11초). 접수 전용 DB 테스트는 worker.enabled=false를 명시했다. 실제 MCP/Completion adapter 빈 조립은 별도 미완료이므로 전체 production 연결 완료가 아니다.
+- 독립 부분 리뷰에서 scheduler 기본 로거로 claim 예외 상세가 흘러가는 finding을 받았다. 민감 문구를 넣은 합성 예외의 경계 이탈 RED(5개 중 1개, 14초) 후 polling에서 RuntimeException을 잡고 message/cause 없이 GENERATION_POLL_FAILED만 기록하도록 수정했다. 전체 회귀와 수정 후 GREEN 확인은 진행 중이다. 정식 승인 기록은 생성하지 않았다.
+
+- 최신 전체 unitTest/architectureTest/GenerationIntakeIntegrationTest GREEN(1분 49초). previous_days 실제 SDK 전달, 사전 필수 재방문 거부(run 0건), 결과 재방문 insufficient0, 이력 복원/복사/변조/상한을 포함한다. 독립 부분 리뷰에서 이번 연결의 신규 차단 finding 0건이며 formal 승인 아님. 최종 PR 전 전체 quality-gate/Docker/coverage는 여전히 필요하다.
+
+- 활동 이력 누락(실제 방문+휴식 중 방문만 저장) RED(1분 13초) 후 양방향 canonical 장소/역할 집합 검사를 추가했다. Day2 후보별 ledger가 [1,1,1]인 RED(1분 15초) 후 이전 Day 이력/evidence를 같은 candidate transaction에서 복사하도록 연결했다.
+- 전체 생성 접수/architecture GREEN(1분 28초): 후보별 Day1+Day2 이력 보존, Day 직접 삭제 거부와 기존 ledger 보존을 확인했다. 028 해시는 eed4f2b5443b5ccd8aa17730b54fce5a4ca41383cac0228cfaf251b79b42896e이다. fixture 날짜 변경은 기존 보호 규칙을 우회하지 않고 최초 seed에서 2일 캘린더·항공 이벤트를 원자 생성하도록 수정했다.
+- JdbcGenerationDayHistoryRepository 미구현 compile RED(6초) 후 baseScheduleVersionId에 고정된 봉인 이력 복원을 추가했다. 접수 시 prefix 누락을 거부하고, DB shape/계보 및 KST를 복원 후 재검증한다. 기존 026 snapshot이 해시한 불변 버전 참조를 사용하며 과거 원문이나 전체 타임라인을 복제하지 않는다.
+- 전체 unitTest/architectureTest/GenerationIntakeIntegrationTest GREEN(1분 46초): 독립 mapper 이력 복원, 복사된 history/evidence 동일성, fact/edge 상한 사례도 포함한다. macOS 전용 제외 9개는 skip이다.
+- McpGenerationExecutor 생성자 연결 compile RED(7초) 후 previous_days와 과거 fact/place ID allowlist를 실제 SDK 요청에 연결했다. Pydantic 생성 input/output Schema를 사용하는 SDK 회귀 GREEN(12초).
+- 이전 방문 장소 재추천을 success로 수용하는 RED(11초) 후 후보 전체를 insufficient0으로 폐기하도록 했다. Pydantic 실제 required∩previous visit 입력 validator에 맞춰 필수 재방문 충돌은 외부 호출 전에 입력 오류로 거부한다. SDK 후보 projection 회귀 GREEN(12초). 접수 단계의 필수 재방문 충돌 시 run 0건과 이후 preferred 입력의 복사 DB 검증을 추가하여 전체 회귀 실행 중이다.
+- 미완료: 수동 편집 후 이력 재구성, worker production 조립, 결과 조회·만료, 원자적 apply, FE 실연동, 최종 품질/Docker/정식 review/PR. 부분 GREEN으로 전체 연결 완료를 선언하지 않는다.
+
+- INSERT lineage guard RED(봉인 후보에 대한 INSERT가 PK 충돌만 발생, 1분 13초) 후, Trip→version 잠금 순서·draft 상태·Day 날짜·기준점 시작/종료·canonical 장소와 역할 일치를 검사했다. 중첩 invalid 값은 행 전체를 오류 detail로 노출하기 전 generic 오류로 거부한다.
+- 전체 GenerationIntakeIntegrationTest 및 architectureTest GREEN(1분 26초), canonical migration 14개 GREEN. 028 현재 해시 03609a4dd20d96e60012d66ce39499cb8b9d61c06e0eacbcca4e2592d3e9644b.
+- 독립 리뷰의 Day 1 이력 복사 누락을 재현하기 위해 Day 1 활성 fixture→Day 2 실제 접수/snapshot/lease/completion→후보별 이력 2개 DB 시나리오를 추가하고 RED 실행 중이다. 이 fixture의 활성화는 적용 API의 검증 증거가 아니며 MCP 전략/반복 방문 검증도 별도다.
+
+- Day ledger 중첩 검증 함수 미구현 RED(1분 10초) 후, JSON 연산자 우선순위와 PL/pgSQL 변수/alias 충돌을 실제 DB 실패로 확인하여 수정했다. nested 원본/geometry, NULL 역할, 미지 근거/출처, 순환 참조를 거부하고 UPDATE를 불변 guard로 막는다.
+- 독립 부분 리뷰의 반복 전체 fact 탐색 성능 finding을 반영했다. 정수 index·indegree 배열·역방향 연결·대기열의 Kahn 검사로 변경하고 4096 facts/16384 edges/1MiB 운영 상한을 둔다. 공개 MCP Schema 변경은 아니다.
+- 실제 DB GREEN(1분 13초): 후보 3개 저장, 중첩 변조 9개, 4096개 긴 체인 허용/4097개 거부, UPDATE 거부, 두 번째 후보 실패 시 이력까지 전체 롤백. canonical migration 검사 14개 GREEN. 추가한 봉인 후보 INSERT lineage 거부 테스트는 다음 RED 실행 중이다.
+- 독립 부분 리뷰에서 수정된 순환 검사와 NULL/연산자 처리에 신규 차단 finding 0건. 정식 전체 승인 아님. 이전 Day 이력 복사 및 수동 편집 후 이력 재검증/무효화 정책은 아직 미연결이다.
+- 사용자 요청: 최종 PR 단계에서 1시간 이상인 검증은 백그라운드로 넘기고 실행 위치·상태·후속 확인을 남긴 뒤 멈춘다. 결과 미확인 검증을 통과로 표시하지 않는다. 그 전 구현과 짧은 검증은 계속한다.
+
+- 미커밋 028에 private generation_day_results를 추가하고 completion writer에 history/evidence 저장을 연결했다. 일정 버전/Day 복합 FK로 Run 7일 보존과 분리하며 RLS, service_role SELECT/INSERT만 허용한다. top-level JSON 필드는 닫혀 있으나 중첩 DB shape 검증과 불변 guard는 후속이다.
+- 후보 3개 이력 저장 및 두 번째 후보 실패 롤백 통합 시나리오 GREEN(1분 20초), canonical migration 검사 14개 GREEN. 실행 중 추가한 ledger 잔존 0개 assertion은 다음 전체 생성 접수 통합 회귀에서 재검증한다. 이전 Day 이력 복사와 snapshot 복원 연결은 아직 미완료다.
+
+- 선택 Day projection은 역할별 canonical 장소와 합계·근거 ID만 MCP previous_days 형태로 변환한다. 활동 상세 근거를 포함하며 Pydantic 생성 SelectedDayHistory Schema로 검증한다. 전체 타임라인과 원본 값은 이력 wire에 포함하지 않는다.
+- 저장 계보를 직접 복원하는 생성자가 미지 부모·미지 출처·순환을 허용하는 회귀 RED를 확인했다(GenerationEvidenceTest 5개 중 1개 실패, 13초). 계보 폐쇄성과 순환 검사를 공통 생성자로 옮겨 최초 응답과 복원 경로에 동일하게 적용했다.
+- spotlessApply 및 전체 unitTest/architectureTest GREEN(33초). 기존 macOS 실행 제외 9개는 SKIPPED이며 통과로 계산하지 않는다.
+- Day ledger DB 회귀는 JDBC JSON 연산자 파라미터 혼동 수정 후 재실행했다. 2개 중 1개 RED(1분 17초), 실제 원인은 generation_day_results 테이블 미구현이다. 테이블·저장 연결·다음 Day snapshot 입력은 아직 완료하지 않았다.
+- 최종 BE PR은 아직 없으며 전체 품질 게이트, Docker, 독립 정식 리뷰는 후속이다.
+
+## 동일 장소 0분 이동 연결
+
+- 기존 양수 이동/동일 장소 0분 이동을 parameterized DB 테스트로 분리했다. 0분 사례가 core sealing 함수의 양수 제한으로 RED(2개 중 1개 실패, 1분 40초)였다.
+- 미커밋 027의 core validator에서 동일 non-null canonical 장소·walk·동일 출도착·출발=직전 항목 종료·모든 시간 구성/거리/요금/버퍼 0일 때만 0분 이동을 허용했다. 기존 권한은 유지하며 신규 공개 grant는 없다. migration manifest SHA256을 ef8fb0539056b7a965e733ae96d64a805e2b75a20cff80b92889ea20a135348d로 갱신했다.
+- JdbcScheduleStore는 0분 이동의 동일 장소/시각/0원·0m 조건을 재검증한다. DTO와 REST durationMinutes 최소값은 0이며, 일반 경로를 임의로 0분 처리하지 않는다.
+- 후속 DB RED는 `SCHEDULE_LEG_INCOMPLETE`(1분 13초): 일정 복사에서 기존 conservative fallback이 1분을 만들었다. live anchor 거리가 0이고 canonical 장소가 같으면 `same_place_continuity_v1` 위치 연속성으로 기록하도록 수정했다. 다른 장소의 기존 fallback과 외부 호출 정책은 바꾸지 않았다.
+- GREEN: 조회 단위 테스트 19개 및 양수/0분 저장→조회→편집·복사 DB 시나리오 2개 통과(1분 18초). canonical migration 및 일정 계약 테스트 35개 통과(1.694초). 독립 부분 reviewer 신규 차단 finding 0건, 정식 승인/recorder 아님.
+- DB에서 거리 null/양수, 요금/버퍼/각 시간 구성 양수, taxi, 30초 불일치 등 10개 변조를 savepoint별로 거부하는 추가 회귀를 실행 중이다. 전체 품질/Docker/upgrade 및 최종 generation completion writer는 여전히 후속이다.
+- 추가 GREEN: 양수/0분 DB 시나리오와 잘못된 0분 leg 10개 거부, OpenAPI 재생성까지 통과했다(1분 19초). 이후 전체 unitTest/architectureTest 및 기존 JdbcScheduleMutationStoreIntegrationTest 회귀를 시작했다.
+- Supabase changelog의 Breaking Change 항목과 공식 DB function 문서를 확인했다. 이번 변경은 기존 invoker 함수의 결정론적 검사이며 auth/realtime/extension/API 노출 설정 변경은 없다. 운영 DB 변경이나 원본·geometry 로그/저장은 수행하지 않았다.
+
+## 공개 입력 복원 문서 후속
+
+- 재생성 OpenAPI에서 TripDetail plannerConditions/placePreferences 및 place-preferences requestedStayMinutes 예시 누락을 확인했다. 실제 `/v3/api-docs` slice RED(15초) 후 공통 customizer의 예시를 현재 DTO에 맞췄다. 사용자 지정 90분과 미지정 null을 구분한다.
+- planner-conditions가 Controller 태그와 불완전한 예시를 노출하는 slice RED(18초)를 확인했다. 공통 operation document 및 조건부 헤더 경로에 등록하여 여행 태그, 필수 If-Match/Idempotency-Key, ETag/replay 응답, 저장 결과와 Problem 예시를 문서화했다.
+- `FrontendOpenApiRuntimeIntegrationTest` 5개 GREEN(최종 15초), 전체 OpenAPI 생성 GREEN(25초 실행에 포함). 일정 GET의 별도 inline 예시에도 boundaryRole=null을 추가했다.
+- 필수 헤더 manifest의 planner-conditions 누락에 대한 한글 목적 Python 테스트 RED→GREEN. 관련 OpenAPI 검사 테스트 31개 GREEN(2.308초). 검증을 느슨하게 하지 않고 실제 헤더를 필수로 등록했다.
+- 기존 mode38 operation 목록은 역사적 계약이므로 변경하지 않았다. 생성 접수의 공통 문서화 및 신규 operation을 포함하는 후속 활성 모드/권위 manifest 연결은 아직 필요하다. 전체 FE readiness 통과나 최종 PR 준비 완료를 선언하지 않는다.
+
+- 후속 복사 RED: 활성 후보의 일반 방문 메모 수정이 `SCHEDULE_ITEM_INVALID`로 실패(1분 27초). 공통 source mapper/복사 INSERT/position clone에 boundary role을 전달한 뒤 동일 DB 시나리오 GREEN(1분 19초).
+- 기준점 자체의 동일 위치 move가 허용되는 RED(예외 미발생, 1분 11초)를 확인했다. patch/delete/move는 명시적 `ensureEditable` 검사로 거부하도록 수정하고 거부 후 버전 수 유지 assertion을 추가했다.
+- 공개 DTO는 boundaryRole이 없어서 일반/시작/종료 3개 직렬화 테스트 RED(10초). nullable boundaryRole과 기준점에 한정된 stayMinutes=0 설명을 DTO 및 REST canonical 계약에 연결했다. 공개 OpenAPI 생성 검증은 후속 실행이 필요하다.
+- 독립 reviewer의 저장/조회/clone 부분 검토 결과 신규 차단 finding 0건. 알려진 공개 계약·편집 보호·0분 leg 후속 범위를 제외한 부분 검토이며 정식 승인 또는 recorder 증거가 아니다.
+- 후속 GREEN: `spotlessApply unitTest integrationTest` 실행(마지막 integrationTest만 시나리오 필터 적용)에서 전체 단위 테스트와 기준점 저장→조회→일반 방문 수정·복사→기준점 patch/delete/move 거부 및 버전 수 보존이 통과했다(1분 29초). 공개 DTO 직렬화 3개도 포함한다. Linux 전용 단위 테스트 9개는 macOS 조건으로 skip됐다.
+- `openApiDocs` 생성 GREEN(13초). REST 일정 validator의 기존 필드 목록 및 success fixture 누락을 갱신했고, generation boundary 계약 변조 4개 subcase RED→GREEN 및 일정 계약 테스트 21개 GREEN을 확인했다.
+- 전체 `validate_openapi_frontend_readiness.py --mode 38`는 아직 FAIL이다. 생성 접수/planner-conditions의 공개 inventory·domain tag·parameter/응답 예시와 header 계약, place-preferences의 requestedStayMinutes 예시, TripDetail의 plannerConditions/placePreferences 예시가 미등록이다. boundaryRole fixture 갱신 전 생성된 산출물도 재생성이 필요하다. 이 검사를 통과했다고 주장하지 않으며 최종 PR 전 필수 후속 범위에 포함한다.
+
+- 실제 DB에 봉인된 기준점 포함 후보를 `ScheduleStore.readOwned`로 조회하는 테스트가 `INTERNAL_SERVER_ERROR`로 실패했다(RED, 1분 24초).
+- 조회 SQL과 내부 snapshot에 `boundary_role`을 연결했다. 일반 항목은 최소 1분을 유지하며, 0분 기준점은 명시된 역할·canonical 장소·동일 시작/종료·0분 버퍼를 모두 요구한다.
+- 동일 DB 통합 테스트 GREEN(1분 27초), `JdbcScheduleStoreTest` 기존 4개와 잘못된 기준점 7개 사례 GREEN(15초, spotlessApply 포함).
+- 내부 역할 보존 assertion을 추가했다. 공개 DTO/OpenAPI 및 복사·편집 보호, 동일 장소 0분 이동 연결은 아직 진행 전이다. 최종 PR 준비 완료로 간주하지 않는다.

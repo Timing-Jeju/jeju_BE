@@ -73,7 +73,7 @@ class Issue68Mode27ContractTest(unittest.TestCase):
         self.assertIn("30", result.stdout)
         for path in ("scripts/quality-gate.sh", "scripts/quality-gate.ps1"):
             gate = (ROOT / path).read_text(encoding="utf-8")
-            self.assertIn("--mode 38", gate, path)
+            self.assertIn("--mode 43", gate, path)
 
 
 if __name__ == "__main__":

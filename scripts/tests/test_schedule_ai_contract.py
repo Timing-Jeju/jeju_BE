@@ -29,6 +29,19 @@ REQUIRED_SCHEMAS = {
 
 
 class ScheduleAiContractTest(unittest.TestCase):
+    def test_polling_never_requires_or_exposes_ephemeral_wire_hash(self):
+        """DB020에서 제거한 wire hash는 어떤 공개 조회 상태에서도 요구하거나 노출하지 않는다."""
+        for name in ["GenerationRunStatus", "RevisionRunStatus"]:
+            self.assertNotIn("mcpInputHash", self.contract["schemas"][name]["properties"])
+        for state in self.contract["stateResponses"].values():
+            self.assertNotIn("mcpInputHash", state["required"])
+            self.assertIn("mcpInputHash", state["omitted"])
+        for name in ["runningStateVariants", "terminalStateVariants"]:
+            self.assertNotIn("oneOf", self.contract[name])
+            for case in self.contract[name]["provenanceCases"].values():
+                self.assertNotIn("mcpInputHash", case["required"])
+                self.assertIn("mcpInputHash", case["omitted"])
+
     def test_field_errors_match_existing_spring_common_response(self):
         """생성 오류의 필드 안내는 기존 Spring 공통 응답의 field와 detail 계약을 사용한다."""
         contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
@@ -84,35 +97,57 @@ class ScheduleAiContractTest(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
     def test_canonical_contract_passes(self):
+        """저장소의 정식 일정 생성 계약이 검증기를 통과하는지 확인한다."""
         result = self.validate(self.contract)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_generation_score_preserves_validated_decimal_values(self):
+        """검증된 후보 소수 점수를 정수 반올림 없이 공개 계약에 보존한다."""
+        score = self.contract["schemas"]["GenerationCandidate"]["properties"]["score"]
+        self.assertEqual("number", score["type"])
+        self.assertEqual(0, score["minimum"])
+        self.assertEqual(100, score["maximum"])
+        self.assert_mutation_rejected(lambda contract: contract["schemas"]["GenerationCandidate"]["properties"]["score"].update(type="integer"))
+
+    def test_first_application_response_preserves_null_previous_version(self):
+        """첫 일정 적용 응답은 존재하지 않았던 이전 활성 버전을 null로 보존한다."""
+        response = self.contract["schemas"]["ApplyCandidateResponse"]
+        self.assertIn("previousScheduleVersionId", response["required"])
+        self.assertTrue(response["properties"]["previousScheduleVersionId"]["nullable"])
+        self.assert_mutation_rejected(lambda contract: contract["schemas"]["ApplyCandidateResponse"]["properties"]["previousScheduleVersionId"].update(nullable=False))
+
     def test_six_endpoint_identities_are_exact(self):
+        """생성과 보정의 여섯 경로 식별자가 정확한지 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["endpoints"][0].update(path="/api/v1/trips/{tripId}/generation-run")
         )
 
     def test_lifecycle_and_candidate_expiry_are_exact(self):
+        """작업 생명주기와 후보 유효기간이 계약값을 유지하는지 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["lifecyclePolicy"]["runStatuses"].append("expired")
         )
 
     def test_acceptance_and_poll_headers_are_exact(self):
+        """접수와 조회의 필수 응답 헤더를 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["headerPolicy"].update(retryAfterSeconds=3)
         )
 
     def test_problem_matrix_is_exact(self):
+        """생성 계약의 오류 행렬이 고정된 상태와 코드를 유지하는지 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["problemMatrix"]["409"].pop()
         )
 
     def test_owner_and_cross_owner_hiding_are_exact(self):
+        """여행 소유권을 검증하고 다른 사용자 식별자를 은닉하는지 확인한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["securityPolicy"].update(crossOwner="403")
         )
 
     def test_db_discriminator_and_foreign_keys_are_exact(self):
+        """작업 종류 구분과 부모 외래키 소속 규칙을 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["databasePolicy"]["runDiscriminator"].update(
                 itineraryGeneration="generation"
@@ -120,16 +155,19 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_poll_url_and_retention_are_exact(self):
+        """구체적인 조회 URL과 작업 보존기간을 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["retentionPolicy"].update(runResult="P6D")
         )
 
     def test_idempotency_and_concurrency_are_exact(self):
+        """멱등 재생과 동시성 충돌 조건을 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["idempotencyPolicy"].update(ttl="PT12H")
         )
 
     def test_idempotency_key_is_printable_ascii_not_uuid(self):
+        """멱등 키를 UUID로 제한하지 않고 printable ASCII 계약을 지키는지 검증한다."""
         expected = {
             "type": "string",
             "minLength": 1,
@@ -164,6 +202,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         self.assertEqual(invalid["fieldErrors"], invalid["example"]["fieldErrors"])
 
     def test_location_input_is_closed_to_direct_user_selections(self):
+        """위치 입력은 직접 선택한 허용 참조만 받을 수 있는지 검증한다."""
         policy = self.contract["locationInputPolicy"]
         self.assertEqual(
             ["regionCode", "placeId", "tripItemId"],
@@ -182,6 +221,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_generation_snapshot_preserves_saved_day_window_without_invented_default(self):
+        """생성 snapshot이 임의 기본시간 없이 저장된 활동창을 유지하는지 검증한다."""
         snapshot = self.contract["generationSnapshotPolicy"]
         self.assertEqual(
             {
@@ -194,6 +234,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_transport_event_snapshot_matches_current_public_contract(self):
+        """입출도 snapshot이 현재 공개 계약의 필드를 보존하는지 검증한다."""
         self.assertEqual(
             {
                 "source": "trip_transport_events",
@@ -212,6 +253,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_apply_endpoints_share_exact_ordered_first_match_precedence(self):
+        """적용 경로가 동일한 순서의 오류 우선순위를 공유하는지 검증한다."""
         expected = [
             "AUTHENTICATION_REQUIRED",
             "INVALID_ACCESS_TOKEN",
@@ -247,6 +289,7 @@ class ScheduleAiContractTest(unittest.TestCase):
                 self.assertEqual(expected, endpoint["firstMatchPrecedence"])
 
     def test_apply_overlap_resolves_to_one_deterministic_outcome(self):
+        """적용 오류 조건이 겹쳐도 하나의 결정적 결과로 판정하는지 검증한다."""
         from scripts.validate_schedule_ai_contract import resolve_apply_overlap
 
         base = {
@@ -357,21 +400,25 @@ class ScheduleAiContractTest(unittest.TestCase):
                 self.assertEqual(expected, outcome)
 
     def test_apply_precedence_mutation_is_rejected(self):
+        """적용 오류 우선순위 변조를 계약 검사에서 거부하는지 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["endpoints"][2]["firstMatchPrecedence"].reverse()
         )
 
     def test_command_and_mcp_hashes_cannot_collapse(self):
+        """명령 입력 해시와 MCP 입력 해시를 혼동하지 않는지 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["hashPolicy"].update(mcpInputHash="commandInputHash")
         )
 
     def test_local_readiness_cannot_claim_unobserved_external_evidence(self):
+        """로컬 준비 상태가 관측하지 않은 외부 근거를 주장하지 않는지 검증한다."""
         self.assert_mutation_rejected(
             lambda contract: contract["externalTraceability"]["notion"].update(status="ready")
         )
 
     def test_external_contract_versions_and_readiness_are_fail_closed(self):
+        """외부 계약 버전과 준비 상태가 불명확하면 검사를 실패시키는지 검증한다."""
         for system in ("notion", "figma"):
             with self.subTest(system=system):
                 self.assertEqual(
@@ -400,6 +447,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_required_auth_codes_match_common_contract_both_directions(self):
+        """인증 오류 코드가 공통 계약과 양방향으로 일치하는지 검증한다."""
         self.assertEqual(["AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"], self.contract["problemMatrix"]["401"])
         self.assertEqual(
             {"missingTokenCode": "AUTHENTICATION_REQUIRED", "invalidTokenCode": "INVALID_ACCESS_TOKEN"},
@@ -407,6 +455,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_every_endpoint_has_closed_typed_path_query_header_body_schemas(self):
+        """모든 경로의 path와 query 및 header와 body 스키마가 닫혀 있는지 검증한다."""
         self.assertEqual(REQUIRED_SCHEMAS, set(self.contract["schemas"]))
         for endpoint in self.contract["endpoints"]:
             self.assertEqual({"path", "query", "headers", "body"}, set(endpoint["schemas"]))
@@ -422,16 +471,18 @@ class ScheduleAiContractTest(unittest.TestCase):
             self.assertIsInstance(schema["properties"], dict)
 
     def test_run_results_candidates_apply_and_states_are_explicit(self):
+        """상태 응답과 내부 이력 분류를 분리하고 후보·적용 결과의 필수 필드를 보존한다."""
         for name in ["GenerationCandidate", "RevisionCandidate", "GenerationResult", "RevisionResult", "ApplyCandidateResponse"]:
             self.assertTrue(self.contract["schemas"][name]["required"])
         self.assertEqual(["queued", "running", "succeeded", "failed", "cancelled"], list(self.contract["stateResponses"]))
         for name, state in self.contract["stateResponses"].items():
             expected = {"required", "nullable", "omitted", "retryAfter"}
             if name in {"running", "failed", "cancelled"}:
-                expected.add("oneOf")
+                expected.add("provenanceCases")
             self.assertEqual(expected, set(state))
 
     def test_readback_dtos_include_exact_provenance_and_apply_links(self):
+        """결과 조회 DTO가 근거 정보와 후보 적용 링크를 정확히 포함하는지 검증한다."""
         generation = self.contract["schemas"]["GenerationResult"]
         revision = self.contract["schemas"]["RevisionResult"]
         self.assertEqual(
@@ -458,16 +509,17 @@ class ScheduleAiContractTest(unittest.TestCase):
         self.assertIn("preservedFields", revision_candidate["required"])
         self.assertEqual({"$ref"}, set(revision_candidate["properties"]["diff"]))
 
-    def test_failed_and_cancelled_are_closed_pre_mcp_or_post_start_oneof(self):
+    def test_failed_and_cancelled_keep_internal_provenance_cases(self):
+        """호출 이력 단계는 유지하되 공개 응답에서 비저장 wire hash를 제외한다."""
         variants = self.contract["terminalStateVariants"]
-        self.assertEqual({"discriminator", "oneOf"}, set(variants))
-        self.assertEqual("DB provenance + startedAt/mcpInputHash presence", variants["discriminator"])
-        self.assertEqual(["preStart", "startedPreDispatch", "postDispatch"], list(variants["oneOf"]))
-        self.assertEqual(["startedAt", "mcpInputHash"], variants["oneOf"]["preStart"]["omitted"])
-        self.assertEqual(["startedAt"], variants["oneOf"]["startedPreDispatch"]["required"])
-        self.assertEqual(["mcpInputHash"], variants["oneOf"]["startedPreDispatch"]["omitted"])
-        self.assertEqual(["startedAt", "mcpInputHash"], variants["oneOf"]["postDispatch"]["required"])
-        for variant in variants["oneOf"].values():
+        self.assertEqual({"discriminator", "provenanceCases"}, set(variants))
+        self.assertEqual("internal DB provenance; wire hash is never public", variants["discriminator"])
+        self.assertEqual(["preStart", "startedPreDispatch", "postDispatch"], list(variants["provenanceCases"]))
+        self.assertEqual(["startedAt", "mcpInputHash"], variants["provenanceCases"]["preStart"]["omitted"])
+        self.assertEqual(["startedAt"], variants["provenanceCases"]["startedPreDispatch"]["required"])
+        self.assertEqual(["mcpInputHash"], variants["provenanceCases"]["startedPreDispatch"]["omitted"])
+        self.assertEqual(["startedAt"], variants["provenanceCases"]["postDispatch"]["required"])
+        for variant in variants["provenanceCases"].values():
             self.assertEqual([], variant["nullable"])
         pre_example = self.contract["examples"]["failedPreStart"]
         middle_example = self.contract["examples"]["cancelledStartedPreDispatch"]
@@ -477,9 +529,10 @@ class ScheduleAiContractTest(unittest.TestCase):
         self.assertIn("startedAt", middle_example)
         self.assertNotIn("mcpInputHash", middle_example)
         self.assertIn("startedAt", post_example)
-        self.assertIn("mcpInputHash", post_example)
+        self.assertNotIn("mcpInputHash", post_example)
 
-    def test_terminal_payload_validator_allows_started_only_but_rejects_post_dispatch_hash_loss(self):
+    def test_terminal_payload_validator_rejects_post_dispatch_hash_exposure(self):
+        """호출 이력 단계는 유지하되 공개 응답에서 비저장 wire hash를 제외한다."""
         from scripts.validate_schedule_ai_contract import validate_terminal_payload
 
         base = {
@@ -489,24 +542,25 @@ class ScheduleAiContractTest(unittest.TestCase):
         }
         started_only = {**base, "startedAt": "2026-08-26T12:00:02+09:00"}
         self.assertEqual([], validate_terminal_payload(started_only, "startedPreDispatch"))
-        self.assertNotEqual([], validate_terminal_payload(started_only, "postDispatch"))
+        self.assertEqual([], validate_terminal_payload(started_only, "postDispatch"))
         post_dispatch = {**started_only, "mcpInputHash": "b" * 64}
-        self.assertEqual([], validate_terminal_payload(post_dispatch, "postDispatch"))
+        self.assertNotEqual([], validate_terminal_payload(post_dispatch, "postDispatch"))
         self.assert_mutation_rejected(
             lambda contract: contract["examples"]["cancelledStartedPreDispatch"].update(
                 mcpInputHash="b" * 64
             )
         )
         self.assert_mutation_rejected(
-            lambda contract: contract["examples"]["failedPostDispatch"].pop("mcpInputHash")
+            lambda contract: contract["examples"]["failedPostDispatch"].update(mcpInputHash="b" * 64)
         )
 
     def test_terminal_db_provenance_mapping_is_exact(self):
+        """호출 이력 단계는 유지하되 공개 응답에서 비저장 wire hash를 제외한다."""
         self.assertEqual(
             {
                 "preStart": "run.started_at IS NULL and no matching MCP call log",
                 "startedPreDispatch": "run.started_at IS NOT NULL and no matching MCP call log",
-                "postDispatch": "run.started_at IS NOT NULL and matching #52 MCP call log owns validated mcpInputHash",
+                "postDispatch": "run.started_at IS NOT NULL and matching MCP call record exists; no wire hash",
             },
             self.contract["databasePolicy"]["terminalProvenance"],
         )
@@ -516,25 +570,27 @@ class ScheduleAiContractTest(unittest.TestCase):
             )
         )
 
-    def test_running_is_closed_started_pre_dispatch_or_post_dispatch_oneof(self):
+    def test_running_keeps_internal_pre_dispatch_and_post_dispatch_cases(self):
+        """호출 이력 단계는 유지하되 공개 응답에서 비저장 wire hash를 제외한다."""
         variants = self.contract["runningStateVariants"]
         self.assertEqual(
-            "DB provenance + startedAt/mcpInputHash presence",
+            "internal DB provenance; wire hash is never public",
             variants["discriminator"],
         )
-        self.assertEqual(["startedPreDispatch", "postDispatch"], list(variants["oneOf"]))
-        self.assertEqual(["startedAt"], variants["oneOf"]["startedPreDispatch"]["required"])
-        self.assertEqual(["mcpInputHash"], variants["oneOf"]["startedPreDispatch"]["omitted"])
+        self.assertEqual(["startedPreDispatch", "postDispatch"], list(variants["provenanceCases"]))
+        self.assertEqual(["startedAt"], variants["provenanceCases"]["startedPreDispatch"]["required"])
+        self.assertEqual(["mcpInputHash"], variants["provenanceCases"]["startedPreDispatch"]["omitted"])
         self.assertEqual(
-            ["startedAt", "mcpInputHash"],
-            variants["oneOf"]["postDispatch"]["required"],
+            ["startedAt"],
+            variants["provenanceCases"]["postDispatch"]["required"],
         )
         self.assertEqual(
             ["startedPreDispatch", "postDispatch"],
-            self.contract["stateResponses"]["running"]["oneOf"],
+            self.contract["stateResponses"]["running"]["provenanceCases"],
         )
 
     def test_running_started_only_and_polling_to_terminal_transitions_preserve_provenance(self):
+        """호출 이력 단계는 유지하되 공개 응답에서 비저장 wire hash를 제외한다."""
         from scripts.validate_schedule_ai_contract import (
             validate_running_payload,
             validate_terminal_payload,
@@ -545,7 +601,7 @@ class ScheduleAiContractTest(unittest.TestCase):
             "startedAt": "2026-08-26T12:00:02+09:00",
         }
         self.assertEqual([], validate_running_payload(running, "startedPreDispatch"))
-        self.assertNotEqual([], validate_running_payload(running, "postDispatch"))
+        self.assertEqual([], validate_running_payload(running, "postDispatch"))
 
         for terminal_status in ["failed", "cancelled"]:
             terminal = {
@@ -557,19 +613,20 @@ class ScheduleAiContractTest(unittest.TestCase):
             self.assertEqual([], validate_terminal_payload(terminal, "startedPreDispatch"))
 
             dispatched_running = {**running, "mcpInputHash": "b" * 64}
-            self.assertEqual([], validate_running_payload(dispatched_running, "postDispatch"))
+            self.assertNotEqual([], validate_running_payload(dispatched_running, "postDispatch"))
             dispatched_terminal = {**terminal, "mcpInputHash": "b" * 64}
-            self.assertEqual([], validate_terminal_payload(dispatched_terminal, "postDispatch"))
-            dispatched_terminal.pop("mcpInputHash")
             self.assertNotEqual([], validate_terminal_payload(dispatched_terminal, "postDispatch"))
+            dispatched_terminal.pop("mcpInputHash")
+            self.assertEqual([], validate_terminal_payload(dispatched_terminal, "postDispatch"))
 
         self.assert_mutation_rejected(
             lambda contract: contract["stateResponses"]["running"].update(
-                oneOf=["postDispatch"]
+                provenanceCases=["postDispatch"]
             )
         )
 
     def test_create_503_is_intake_only_and_worker_unavailability_still_accepts(self):
+        """접수 불가와 워커 장애를 구분해 워커 장애만으로 접수를 거부하지 않는지 검증한다."""
         condition = next(item for item in self.contract["problemConditions"] if item["code"] == "ASYNC_INTAKE_UNAVAILABLE")
         self.assertIn("persistence", condition["condition"])
         self.assertIn("queue admission", condition["condition"])
@@ -581,6 +638,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         self.assertNotIn("ASYNC_COMPUTE_UNAVAILABLE", self.contract["problemMatrix"]["503"])
 
     def test_get_body_uses_forbidden_sentinel_and_rejects_empty_object_or_null(self):
+        """조회 요청은 빈 객체와 null을 포함한 모든 body를 거부하는지 검증한다."""
         sentinel = self.contract["schemas"]["BodyForbidden"]
         self.assertEqual({"kind": "forbidden", "accepts": []}, sentinel)
         get_endpoints = [endpoint for endpoint in self.contract["endpoints"] if endpoint["method"] == "GET"]
@@ -590,6 +648,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         self.assertTrue(all(endpoint["schemas"]["body"] == "BodyForbidden" for endpoint in get_projection))
 
     def test_get_query_and_body_rejections_have_canonical_400_codes(self):
+        """금지된 조회 query와 body가 정식 400 코드를 사용하는지 검증한다."""
         get_endpoints = [
             endpoint for endpoint in self.contract["endpoints"] if endpoint["method"] == "GET"
         ]
@@ -645,6 +704,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_readback_and_endpoint_owner_bindings_are_exact_and_mutation_sensitive(self):
+        """조회 응답과 구현 담당 연결의 누락 및 변조를 검출하는지 검증한다."""
         self.assertEqual(
             {"generationResult":"generationResultRead","revisionResult":"revisionResultRead"},
             self.contract["ownerBindings"]["readback"],
@@ -655,6 +715,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_every_problem_code_has_condition_and_exact_example(self):
+        """모든 오류 코드에 발생 조건과 정확한 예제가 연결되는지 검증한다."""
         expected_codes = {code for codes in self.contract["problemMatrix"].values() for code in codes}
         conditions = {condition["code"]: condition for condition in self.contract["problemConditions"]}
         self.assertEqual(expected_codes, set(conditions))
@@ -670,6 +731,7 @@ class ScheduleAiContractTest(unittest.TestCase):
             )
 
     def test_each_endpoint_has_exact_problem_code_matrix_and_resolvable_condition_scope(self):
+        """각 경로의 오류 코드 행렬과 조건 적용 범위를 검증한다."""
         endpoint_ids = {f"{method} {path}" for method, path in IDENTITIES}
         groups = self.contract["endpointGroups"]
         for members in groups.values():
@@ -687,6 +749,7 @@ class ScheduleAiContractTest(unittest.TestCase):
             self.assertEqual({str(status) for status in endpoint["errors"]}, set(endpoint["errorMatrix"]))
 
     def test_eight_implementation_owners_are_exact(self):
+        """여덟 구현 담당 이슈가 정식 계약에 정확히 연결되는지 검증한다."""
         owner_keys = {key for key in self.contract["implementationOwners"] if key not in {"commandSnapshotMigration", "workerLifecycle"}}
         self.assertEqual(
             {"generationIntake", "generationResultRead", "generationWorkerAndCandidate", "generationApply", "revisionIntake", "revisionResultRead", "revisionWorkerAndCandidate", "revisionApply"},
@@ -694,6 +757,7 @@ class ScheduleAiContractTest(unittest.TestCase):
         )
 
     def test_catalog_projection_rejects_each_field_mutation(self):
+        """카탈로그에 투영된 각 필드의 변조를 거부하는지 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         for identity in IDENTITIES:
             selected = next(item for item in catalog["endpoints"] if (item["method"], item["path"]) == identity)
@@ -706,11 +770,13 @@ class ScheduleAiContractTest(unittest.TestCase):
                     self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_catalog_projection_is_exact_for_all_six_rows(self):
+        """생성과 보정 여섯 경로의 카탈로그 투영이 일치하는지 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         selected = [item for item in catalog["endpoints"] if (item["method"], item["path"]) in IDENTITIES]
         self.assertEqual(self.contract["catalogProjection"], selected)
 
     def test_unrelated_catalog_endpoint_does_not_affect_schedule_ai_projection(self):
+        """다른 도메인의 경로가 일정 생성 계약 투영에 영향을 주지 않는지 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         unrelated = next(item for item in catalog["endpoints"] if (item["method"], item["path"]) not in IDENTITIES)
         unrelated["owner"] = "unrelated mutation outside Issue #89"

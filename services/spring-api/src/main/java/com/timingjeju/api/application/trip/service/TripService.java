@@ -253,7 +253,7 @@ public final class TripService {
       var mode = transportModes.get(index);
       if (mode == null
           || mode.mode() == null
-          || !Set.of("public_transit", "rental_car", "taxi").contains(mode.mode())
+          || !Set.of("public_transit", "rental_car", "taxi", "walk").contains(mode.mode())
           || mode.priority() != index + 1
           || !names.add(mode.mode())) {
         throw TripException.constraintViolation();

@@ -15,7 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONTRACT = ROOT / "docs/contracts/domains/schedule-ai/contract.json"
 CATALOG = ROOT / "docs/contracts/rest/catalog.json"
-CANONICAL_DIGEST = "96c5671aaba303fdaafaa9a5c32932c48dfe6bbfad9841d52ff8a901165a67d6"
+CANONICAL_DIGEST = "494538f3784a88b799185bc08e370dff0c3fa9eb2cde7ab83934d8fd0bcf86d0"
 IDENTITIES = [
     ("POST", "/api/v1/trips/{tripId}/schedule-generations", "compute", [202], [400, 401, 404, 409, 422, 429, 503]),
     ("GET", "/api/v1/trips/{tripId}/schedule-generations/{runId}", "read", [200], [400, 401, 404, 410, 429, 503]),
@@ -87,9 +87,9 @@ def validate_terminal_payload(payload: dict[str, Any], phase: str) -> list[str]:
     """Validate the closed terminal provenance phase at the MCP call-log boundary."""
     errors: list[str] = []
     phase_fields = {
-        "preStart": (False, False),
-        "startedPreDispatch": (True, False),
-        "postDispatch": (True, True),
+        "preStart": False,
+        "startedPreDispatch": True,
+        "postDispatch": True,
     }
     if phase not in phase_fields:
         return [f"알 수 없는 terminal provenance phase입니다: {phase}"]
@@ -99,27 +99,22 @@ def validate_terminal_payload(payload: dict[str, Any], phase: str) -> list[str]:
         if field not in payload or payload[field] is None:
             errors.append(f"terminal payload에 non-null {field}가 필요합니다.")
 
-    started_required, hash_required = phase_fields[phase]
-    for field, required in [("startedAt", started_required), ("mcpInputHash", hash_required)]:
+    for field, required in [("startedAt", phase_fields[phase])]:
         present = field in payload
         if present != required:
             policy = "필수" if required else "omitted"
             errors.append(f"{phase}에서 {field}는 {policy}여야 합니다.")
         elif present and payload[field] is None:
             errors.append(f"{phase}에서 {field}는 null일 수 없습니다.")
-    if hash_required and not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("mcpInputHash", ""))):
-        errors.append("postDispatch mcpInputHash는 lowercase 64-hex여야 합니다.")
+    if "mcpInputHash" in payload:
+        errors.append("DB020 비저장 wire hash는 조회 응답에서 omitted여야 합니다.")
     return errors
 
 
 def validate_running_payload(payload: dict[str, Any], phase: str) -> list[str]:
     """Validate an observable running projection before or after MCP dispatch."""
     errors: list[str] = []
-    hash_required_by_phase = {
-        "startedPreDispatch": False,
-        "postDispatch": True,
-    }
-    if phase not in hash_required_by_phase:
+    if phase not in {"startedPreDispatch", "postDispatch"}:
         return [f"알 수 없는 running provenance phase입니다: {phase}"]
     if payload.get("status") != "running":
         errors.append("running provenance payload status는 running이어야 합니다.")
@@ -129,15 +124,8 @@ def validate_running_payload(payload: dict[str, Any], phase: str) -> list[str]:
         if field in payload:
             errors.append(f"running payload에서 {field}는 omitted여야 합니다.")
 
-    hash_required = hash_required_by_phase[phase]
-    hash_present = "mcpInputHash" in payload
-    if hash_present != hash_required:
-        policy = "필수" if hash_required else "omitted"
-        errors.append(f"{phase}에서 mcpInputHash는 {policy}여야 합니다.")
-    elif hash_present and payload["mcpInputHash"] is None:
-        errors.append(f"{phase}에서 mcpInputHash는 null일 수 없습니다.")
-    if hash_required and not re.fullmatch(r"[0-9a-f]{64}", str(payload.get("mcpInputHash", ""))):
-        errors.append("postDispatch mcpInputHash는 lowercase 64-hex여야 합니다.")
+    if "mcpInputHash" in payload:
+        errors.append("DB020 비저장 wire hash는 조회 응답에서 omitted여야 합니다.")
     return errors
 
 
@@ -501,8 +489,8 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
         errors.append("#95/#105 readback과 #79/#104 candidate owner binding이 정확하지 않습니다.")
 
     expected_running = {
-        "discriminator": "DB provenance + startedAt/mcpInputHash presence",
-        "oneOf": {
+        "discriminator": "internal DB provenance; wire hash is never public",
+        "provenanceCases": {
             "startedPreDispatch": {
                 "required": ["startedAt"],
                 "nullable": [],
@@ -510,29 +498,29 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
                 "provenance": "worker started but no matching #52 MCP call log exists before dispatch",
             },
             "postDispatch": {
-                "required": ["startedAt", "mcpInputHash"],
+                "required": ["startedAt"],
                 "nullable": [],
-                "omitted": [],
-                "provenance": "matching #52 MCP call log owns the validated exact wire mcpInputHash",
+                "omitted": ["mcpInputHash"],
+                "provenance": "matching MCP call record exists; wire hash is not retained",
             },
         },
     }
     if contract.get("runningStateVariants") != expected_running:
-        errors.append("running startedPreDispatch/postDispatch oneOf가 정확하지 않습니다.")
+        errors.append("running 내부 provenanceCases가 정확하지 않습니다.")
     running_response = contract.get("stateResponses", {}).get("running", {})
     if running_response != {
         "required": ["contractVersion", "runId", "status", "pollUrl", "commandInputHash", "createdAt", "startedAt"],
         "nullable": [],
-        "omitted": ["completedAt", "result", "failure"],
+        "omitted": ["completedAt", "result", "failure", "mcpInputHash"],
         "retryAfter": "2",
-        "oneOf": ["startedPreDispatch", "postDispatch"],
+        "provenanceCases": ["startedPreDispatch", "postDispatch"],
     }:
-        errors.append("running response projection이 conditional provenance oneOf와 다릅니다.")
+        errors.append("running response projection이 내부 provenanceCases와 다릅니다.")
 
     terminal = contract.get("terminalStateVariants")
     expected_terminal = {
-        "discriminator": "DB provenance + startedAt/mcpInputHash presence",
-        "oneOf": {
+        "discriminator": "internal DB provenance; wire hash is never public",
+        "provenanceCases": {
             "preStart": {
                 "required": ["completedAt", "failure"],
                 "nullable": [],
@@ -546,15 +534,15 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
                 "provenance": "worker started but no matching #52 MCP call log exists before dispatch",
             },
             "postDispatch": {
-                "required": ["startedAt", "mcpInputHash"],
+                "required": ["startedAt"],
                 "nullable": [],
-                "omitted": [],
-                "provenance": "matching #52 MCP call log owns the validated exact wire mcpInputHash",
+                "omitted": ["mcpInputHash"],
+                "provenance": "matching MCP call record exists; wire hash is not retained",
             },
         },
     }
     if terminal != expected_terminal:
-        errors.append("failed/cancelled terminal oneOf discriminator가 정확하지 않습니다.")
+        errors.append("failed/cancelled 내부 provenanceCases가 정확하지 않습니다.")
     else:
         examples = contract.get("examples", {})
         for example_name, phase in [
@@ -565,15 +553,22 @@ def validate(contract_path: Path, catalog_path: Path = CATALOG) -> list[str]:
             for error in validate_terminal_payload(examples.get(example_name, {}), phase):
                 errors.append(f"terminal example {example_name}: {error}")
     for state_name in ["failed", "cancelled"]:
-        if contract.get("stateResponses", {}).get(state_name, {}).get("oneOf") != ["preStart", "startedPreDispatch", "postDispatch"]:
-            errors.append(f"{state_name} response가 terminal oneOf를 참조하지 않습니다.")
+        if contract.get("stateResponses", {}).get(state_name, {}).get("provenanceCases") != ["preStart", "startedPreDispatch", "postDispatch"]:
+            errors.append(f"{state_name} response가 terminal provenanceCases를 참조하지 않습니다.")
     expected_terminal_provenance = {
         "preStart": "run.started_at IS NULL and no matching MCP call log",
         "startedPreDispatch": "run.started_at IS NOT NULL and no matching MCP call log",
-        "postDispatch": "run.started_at IS NOT NULL and matching #52 MCP call log owns validated mcpInputHash",
+        "postDispatch": "run.started_at IS NOT NULL and matching MCP call record exists; no wire hash",
     }
     if contract.get("databasePolicy", {}).get("terminalProvenance") != expected_terminal_provenance:
-        errors.append("DB terminal provenance와 3-way discriminator가 exact 정렬되지 않았습니다.")
+        errors.append("DB terminal provenance와 내부 case가 exact 정렬되지 않았습니다.")
+
+    for name in ["GenerationRunStatus", "RevisionRunStatus"]:
+        if "mcpInputHash" in schemas.get(name, {}).get("properties", {}):
+            errors.append(f"{name}은 비저장 wire hash를 노출할 수 없습니다.")
+    for name, state in contract.get("stateResponses", {}).items():
+        if "mcpInputHash" in state.get("required", []) or "mcpInputHash" not in state.get("omitted", []):
+            errors.append(f"{name}은 wire hash를 항상 omitted해야 합니다.")
 
     intake = contract.get("intakeIsolationPolicy")
     intake_condition = condition_by_code.get("ASYNC_INTAKE_UNAVAILABLE", {})

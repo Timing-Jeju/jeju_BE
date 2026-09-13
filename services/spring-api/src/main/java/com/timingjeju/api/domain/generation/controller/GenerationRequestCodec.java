@@ -61,6 +61,29 @@ final class GenerationRequestCodec {
         .getBytes(StandardCharsets.UTF_8);
   }
 
+  UUID decodeApply(byte[] body) {
+    if (body == null || body.length == 0 || body.length > MAX_BODY_BYTES)
+      throw GenerationException.invalidRequest();
+    try {
+      JsonNode root = reader.readValue(body);
+      if (root == null
+          || !root.isObject()
+          || !root.propertyNames().equals(Set.of("expectedActiveScheduleVersionId")))
+        throw GenerationException.invalidRequest();
+      var active = root.get("expectedActiveScheduleVersionId");
+      return active.isNull() ? null : uuid(active);
+    } catch (JacksonException failure) {
+      throw GenerationException.invalidRequest();
+    }
+  }
+
+  byte[] canonicalApplyBody(UUID active) {
+    return ("{\"expectedActiveScheduleVersionId\":"
+            + (active == null ? "null" : "\"" + active + "\"")
+            + "}")
+        .getBytes(StandardCharsets.UTF_8);
+  }
+
   private static UUID uuid(JsonNode value) {
     if (!value.isString()) throw GenerationException.invalidRequest();
     try {

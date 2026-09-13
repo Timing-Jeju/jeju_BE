@@ -43,6 +43,46 @@ public final class GenerationException extends RuntimeException {
     return new GenerationException("ASYNC_INTAKE_UNAVAILABLE");
   }
 
+  public static GenerationException resultUnavailable() {
+    return new GenerationException("ASYNC_RESULT_TEMPORARILY_UNAVAILABLE");
+  }
+
+  public static GenerationException runNotFound() {
+    return new GenerationException("ASYNC_RUN_NOT_FOUND");
+  }
+
+  public static GenerationException resultExpired() {
+    return new GenerationException("ASYNC_RESULT_EXPIRED");
+  }
+
+  public static GenerationException candidateNotFound() {
+    return new GenerationException("CANDIDATE_NOT_FOUND");
+  }
+
+  public static GenerationException candidateAlreadyApplied() {
+    return new GenerationException("CANDIDATE_ALREADY_APPLIED");
+  }
+
+  public static GenerationException candidateNotApplicable() {
+    return new GenerationException("CANDIDATE_NOT_APPLICABLE");
+  }
+
+  public static GenerationException candidateExpired() {
+    return new GenerationException("CANDIDATE_EXPIRED");
+  }
+
+  public static GenerationException candidateEvidenceUnavailable() {
+    return new GenerationException("CANDIDATE_EVIDENCE_UNAVAILABLE");
+  }
+
+  public static GenerationException candidateStale() {
+    return new GenerationException("CANDIDATE_STALE");
+  }
+
+  public static GenerationException activeVersionConflict() {
+    return new GenerationException("ACTIVE_SCHEDULE_VERSION_CONFLICT");
+  }
+
   public static GenerationException quotaExceeded() {
     return new GenerationException("ASYNC_RUN_QUOTA_EXCEEDED");
   }
@@ -53,6 +93,14 @@ public final class GenerationException extends RuntimeException {
 
   public static GenerationException invalidPath() {
     return new GenerationException("INVALID_PATH_PARAMETER");
+  }
+
+  public static GenerationException invalidQuery() {
+    return new GenerationException("INVALID_QUERY_PARAMETER");
+  }
+
+  public static GenerationException bodyForbidden() {
+    return new GenerationException("REQUEST_BODY_NOT_ALLOWED");
   }
 
   public static GenerationException ifMatchRequired() {

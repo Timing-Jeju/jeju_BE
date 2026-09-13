@@ -45,6 +45,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
 
     def test_identity_and_common_contract_are_exact(self) -> None:
+        """계약 식별자와 공통 상속 규칙이 고정된 값과 일치하는지 검증한다."""
         self.assertEqual("timing-jeju-preferences-transport-contract/v1", self.contract["schemaVersion"])
         self.assertEqual("1.0.0", self.contract["contractVersion"])
         self.assertEqual("timing-jeju-rest-contract/v1", self.contract["inherits"])
@@ -93,7 +94,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual([46, 47, 48], ownership["implementationIssues"])
         self.assertEqual(64, len(ownership["projectionSha256"]))
         self.assertEqual(
-            "a880c513bfbd598872e63a64431ff14acd4560aeaa2a32e414702a7018510364",
+            "e592544c0d57c233adcddd2a2334ba8956d2377831b08480ddbb137a0bef787a",
             ownership["wireContractSha256"],
         )
         self.assertEqual(
@@ -142,6 +143,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
             self.assertIn("wire contract digest", result.stdout + result.stderr)
 
     def test_trim_nfc_uses_only_the_six_ascii_whitespace_characters(self) -> None:
+        """정규화는 지정한 여섯 ASCII 공백만 제거하고 NFC를 적용하는지 검증한다."""
         trim = " \t\n\r\f\v"
         preserved = "\x01jeju-si\x08"
 
@@ -174,12 +176,13 @@ class PreferencesTransportContractTest(unittest.TestCase):
             self.assertTrue(any("normalization" in error for error in errors), whitespace)
 
     def test_preferences_is_full_replace_with_closed_enums_and_primary_rule(self) -> None:
+        """선호 전체 교체와 허용 enum 및 대표 이동수단 규칙을 검증한다."""
         policy = self.contract["preferencePolicy"]
         self.assertEqual("full-replace", policy["writeMode"])
         self.assertEqual("reject", policy["omittedRequiredField"])
         self.assertEqual("reject", policy["explicitNull"])
         self.assertEqual("reject-422", policy["duplicateCategoryOrRegion"])
-        self.assertEqual(["public_transit", "rental_car", "taxi"], policy["transportModes"]["enum"])
+        self.assertEqual(["public_transit", "rental_car", "taxi", "walk"], policy["transportModes"]["enum"])
         self.assertEqual("unique", policy["transportModes"]["mode"])
         self.assertEqual("contiguous 1..N and unique", policy["transportModes"]["priority"])
         self.assertEqual("exactly one; primary priority=1", policy["transportModes"]["primary"])
@@ -196,6 +199,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual("priority DESC, placeId ASC", policy["priorityTieBreak"])
 
     def test_transport_event_fixes_timezone_xor_and_date_rules(self) -> None:
+        """입출도 시간대와 터미널 상호배타 선택 및 날짜 범위를 검증한다."""
         policy = self.contract["transportEventPolicy"]
         self.assertEqual(["arrival", "departure"], policy["eventTypeEnum"])
         self.assertEqual(["flight", "ferry"], policy["transportTypeEnum"])
@@ -206,6 +210,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual("eventType query parameter required", policy["deleteSelector"])
 
     def test_schedule_effect_and_delete_signal_are_explicit(self) -> None:
+        """일정 영향과 삭제 결과를 명시적으로 반환하는지 검증한다."""
         effect = self.contract["scheduleEffectPolicy"]
         self.assertEqual("superseded", effect["activeVersionTransition"])
         self.assertEqual("clear", effect["activeScheduleVersionId"])
@@ -219,6 +224,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual("TransportEventMutationResponse", delete_endpoint["successSchema"])
 
     def test_success_responses_use_ref_composition_and_closed_world(self) -> None:
+        """성공 응답의 참조 합성이 허용 필드만 포함하는지 검증한다."""
         expected_child_required = {
             "PreferencesResponse": {"preferences"},
             "PlacePreferencesResponse": {"items"},
@@ -233,6 +239,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 self.assertEqual(child_required, set(schema["allOf"][1]["required"]))
 
     def test_mutation_if_match는_trip_revision_strong_etag를_요구한다(self) -> None:
+        """변경 요청은 여행 revision 기반 강한 ETag를 요구하는지 검증한다."""
         schema = self.contract["schemas"]["MutationHeaders"]["properties"]["If-Match"]
         self.assertEqual(
             '^\\"trip-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-r[1-9][0-9]*\\"$',
@@ -240,6 +247,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         )
 
     def test_validator_rejects_response_composition_required_mutations(self) -> None:
+        """응답 합성의 필수 필드를 변조하면 계약 검사가 실패하는지 검증한다."""
         mutations = (
             ("allOf", lambda c: c["schemas"]["PreferencesResponse"].pop("allOf")),
             ("$ref", lambda c: c["schemas"]["PlacePreferencesResponse"]["allOf"][0].pop("$ref")),
@@ -261,6 +269,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 self.assertIn(expected, result.stdout + result.stderr)
 
     def test_success_fixtures_match_effective_response_schema_exactly(self) -> None:
+        """성공 예제가 합성된 최종 응답 스키마와 일치하는지 검증한다."""
         self.assertEqual([], self._fixture_errors())
         mutations = (
             ("추가 response field", lambda f: f["examples"]["preferences"]["body"].update(unexpected=True)),
@@ -275,6 +284,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 )
 
     def test_success_fixture_recursive_schema_rejects_scalar_format_enum_nullable_and_nested_mutations(self) -> None:
+        """중첩 성공 예제의 타입과 형식 및 nullable 변조를 거부하는지 검증한다."""
         mutations = (
             ("schema type", lambda f: f["examples"]["preferences"]["body"].update(tripId=86)),
             ("schema UUID format", lambda f: f["examples"]["preferences"]["body"].update(tripId="not-a-uuid")),
@@ -294,6 +304,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 )
 
     def test_success_fixture_put_delete_event_and_deleted_semantics_are_exact(self) -> None:
+        """입출도 저장과 삭제 예제가 event와 deleted 의미를 보존하는지 검증한다."""
         mutations = (
             ("PUT event non-null", lambda f: f["examples"]["putTransportEvent"]["body"].update(event=None)),
             ("PUT deleted=false", lambda f: f["examples"]["putTransportEvent"]["body"].update(deleted=True)),
@@ -308,6 +319,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 )
 
     def test_endpoint_contract_has_auth_presence_errors_owner_figma_and_version(self) -> None:
+        """각 경로의 인증과 입력 존재성 및 오류와 소유권 메타데이터를 검증한다."""
         required = {
             "method", "path", "operation", "requestSchema", "headersSchema",
             "successSchema", "auth", "owner", "presence", "responses", "errorMatrix",
@@ -329,6 +341,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 self.assertEqual({"node", "action", "loading", "empty", "error"}, set(endpoint["figma"]))
 
     def test_error_matrix_covers_every_declared_status_and_condition(self) -> None:
+        """선언한 모든 오류 상태와 발생 조건이 오류 행렬에 연결되는지 검증한다."""
         required_codes = {
             "INVALID_REQUEST", "AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN",
             "TRIP_NOT_FOUND", "PLACE_NOT_FOUND", "TRANSPORT_EVENT_NOT_FOUND",
@@ -359,6 +372,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         )
 
     def test_validator_rejects_error_condition_fixture_link_mutations(self) -> None:
+        """오류 조건과 예제 연결의 변조를 거부하는지 검증한다."""
         contract_mutations = (
             ("PLACE_NOT_FOUND", lambda c: c["errorConditions"].remove(next(e for e in c["errorConditions"] if e["code"] == "PLACE_NOT_FOUND"))),
             ("TRANSPORT_EVENT_NOT_FOUND", lambda c: c["endpoints"][3]["errorMatrix"]["404"].remove("TRANSPORT_EVENT_NOT_FOUND")),
@@ -390,6 +404,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 )
 
     def test_notion_rows_and_figma_observations_are_exact_without_false_readiness(self) -> None:
+        """외부 문서 관측 근거 없이 준비 완료를 주장하지 않는지 검증한다."""
         notion = self.contract["externalTraceability"]["notion"]
         self.assertEqual("1.0.0", notion["contractVersion"])
         self.assertEqual("Implementation Ready", notion["specStatus"])
@@ -402,6 +417,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual("not-ready", self.contract["readiness"]["metadata"]["status"])
 
     def test_fixtures_are_versioned_synthetic_and_complete(self) -> None:
+        """예제가 합성 데이터임을 명시하고 계약 버전과 필수 항목을 갖추는지 검증한다."""
         request = json.loads(REQUEST.read_text(encoding="utf-8"))
         success = json.loads(SUCCESS.read_text(encoding="utf-8"))
         problem = json.loads(PROBLEM.read_text(encoding="utf-8"))
@@ -413,6 +429,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertTrue(all("traceId" in value for value in problem["examples"].values()))
 
     def test_validator_rejects_required_null_duplicate_and_external_drift(self) -> None:
+        """필수값과 null 및 중복과 외부 계약 변조를 거부하는지 검증한다."""
         mutations = (
             ("required", lambda c: c["schemas"]["PreferencesRequest"]["required"].remove("transportModes")),
             ("null/omitted", lambda c: c["schemas"]["PlacePreferenceItem"]["properties"]["targetDayNo"].update(nullable=False)),

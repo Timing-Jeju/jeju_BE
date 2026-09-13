@@ -40,6 +40,155 @@ class FrontendOpenApiRuntimeIntegrationTest {
   @Autowired private MockMvc mvc;
 
   @Test
+  void 생성적용은_인증과_ETag_멱등키를_요구하고_최초기준_null을_양방향_문서화한다() throws Exception {
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/api/v1/trips/53000000-0000-0000-0000-000000000001/schedule-generations/53000000-0000-0000-0000-000000000002/candidates/53000000-0000-0000-0000-000000000003/apply"))
+        .andExpect(status().isUnauthorized());
+    String path =
+        "$.paths['/api/v1/trips/{tripId}/schedule-generations/{runId}/candidates/{candidateId}/apply'].post";
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath(path + ".operationId").value("applyScheduleGenerationCandidate"))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name == 'If-Match')].required")
+                .value(org.hamcrest.Matchers.contains(true)))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name == 'Idempotency-Key')].required")
+                .value(org.hamcrest.Matchers.contains(true)))
+        .andExpect(jsonPath(path + ".responses['200'].headers.ETag").exists())
+        .andExpect(jsonPath(path + ".responses['200'].headers.Location").exists())
+        .andExpect(
+            jsonPath(
+                "$.components.schemas.ApplyCandidateRequest.properties.expectedActiveScheduleVersionId.type",
+                org.hamcrest.Matchers.hasItem("null")))
+        .andExpect(
+            jsonPath(
+                "$.components.schemas.ApplyCandidateResponse.properties.previousScheduleVersionId.type",
+                org.hamcrest.Matchers.hasItem("null")))
+        .andExpect(
+            jsonPath("$.components.schemas.ApplyCandidateRequest.required")
+                .value(org.hamcrest.Matchers.hasItem("expectedActiveScheduleVersionId")))
+        .andExpect(
+            jsonPath("$.components.schemas.ApplyCandidateResponse.required")
+                .value(org.hamcrest.Matchers.hasItem("previousScheduleVersionId")));
+  }
+
+  @Test
+  void 생성조회는_인증필수이고_실제_DTO의_상태와_nullable_최초기준을_문서화한다() throws Exception {
+    mvc.perform(
+            get(
+                "/api/v1/trips/53000000-0000-0000-0000-000000000001/schedule-generations/53000000-0000-0000-0000-000000000002"))
+        .andExpect(status().isUnauthorized());
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/schedule-generations/{runId}'].get.operationId")
+                .value("getScheduleGeneration"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/schedule-generations/{runId}'].get.requestBody")
+                .doesNotExist())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/schedule-generations/{runId}'].get.responses['200'].headers['Retry-After']")
+                .exists())
+        .andExpect(
+            jsonPath("$.components.schemas.GenerationRunStatus.properties.status.enum")
+                .value(
+                    org.hamcrest.Matchers.containsInAnyOrder(
+                        "queued", "running", "succeeded", "failed", "cancelled")))
+        .andExpect(
+            jsonPath("$.components.schemas.GenerationRunStatus.required")
+                .value(
+                    org.hamcrest.Matchers.containsInAnyOrder(
+                        "contractVersion",
+                        "runId",
+                        "status",
+                        "pollUrl",
+                        "commandInputHash",
+                        "createdAt")))
+        .andExpect(
+            jsonPath(
+                "$.components.schemas.GenerationResult.properties.baseScheduleVersionId.type",
+                org.hamcrest.Matchers.hasItem("null")))
+        .andExpect(
+            jsonPath("$.components.schemas.GenerationResult.required")
+                .value(org.hamcrest.Matchers.hasItem("baseScheduleVersionId")))
+        .andExpect(
+            jsonPath("$.components.schemas.GenerationCandidate.properties.score.type")
+                .value("number"));
+  }
+
+  @Test
+  void 플래너조건_저장은_필수헤더와_실제_저장응답_예시를_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.parameters[?(@.name == 'If-Match')].required")
+                .value(org.hamcrest.Matchers.contains(true)))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.parameters[?(@.name == 'Idempotency-Key')].required")
+                .value(org.hamcrest.Matchers.contains(true)))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.responses['200'].headers.ETag")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.responses['200'].headers['Idempotency-Replayed']")
+                .exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.tags[0]")
+                .value("여행"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.requestBody.content['application/json'].example.dayAnchors[0].lodgingPlaceId")
+                .isString())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.responses['200'].content['application/json'].example.plannerConditions.styleCodes[0]")
+                .value("relaxed"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put.responses['422'].content['application/problem+json'].example.code")
+                .value("TRIP_CONSTRAINT_VIOLATION"));
+  }
+
+  @Test
+  void 여행입력_복원과_장소체류시간의_공개예시는_현재_저장계약을_보여준다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].example.plannerConditions.dayAnchors")
+                .isArray())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].example.plannerConditions.styleCodes")
+                .isArray())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}'].patch.responses['200'].content['application/json'].example.placePreferences")
+                .isArray())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/place-preferences'].put.requestBody.content['application/json'].example.items[0].requestedStayMinutes")
+                .value(90))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/place-preferences'].put.responses['200'].content['application/json'].example.items[0].requestedStayMinutes")
+                .value(90))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/place-preferences'].put.requestBody.content['application/json'].example.items[1]")
+                .value(org.hamcrest.Matchers.hasKey("requestedStayMinutes")));
+  }
+
+  @Test
   void 입출도_객체는_필수_필드와_enum을_보존하고_삭제_응답은_null을_허용한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())

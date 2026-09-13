@@ -216,6 +216,8 @@ echo "[Docker] Health Check 성공"
 # Planner conditions follow at /docker-entrypoint-initdb.d/062_planner_conditions.sql.
 # Sequential coverage follows at /docker-entrypoint-initdb.d/063_sequential_schedule_coverage.sql.
 # Immutable generation trip inputs follow at /docker-entrypoint-initdb.d/064_generation_trip_snapshot.sql.
+# Zero-duration day boundaries follow at /docker-entrypoint-initdb.d/065_generation_schedule_boundaries.sql.
+# Exact generation scores follow at /docker-entrypoint-initdb.d/066_generation_result_projection.sql.
 # Planner place drafts follow at /docker-entrypoint-initdb.d/061_planner_place_preferences.sql.
 # Verify the owner-only cutover marker and zero counts without logging user values.
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

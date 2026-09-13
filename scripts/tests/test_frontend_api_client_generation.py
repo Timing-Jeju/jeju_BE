@@ -9,13 +9,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class FrontendApiClientGenerationTest(unittest.TestCase):
-    def test_generator는_검증된_38_operation과_고정_codegen_version만_사용한다(self):
+    def test_generator는_검증된_43_operation과_고정_codegen_version만_사용한다(self):
         """클라이언트 생성과 산출물 검증 계약을 확인한다."""
         script = (ROOT / "scripts/generate_frontend_api_client.sh").read_text(encoding="utf-8")
         verifier = (ROOT / "scripts/verify_frontend_api_client_artifact.py").read_text(encoding="utf-8")
         generated_contract = script + verifier
 
-        self.assertIn('validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 38', script)
+        self.assertIn('validate_openapi_frontend_readiness.py" "${OPENAPI_PATH}" --mode 43', script)
         self.assertIn("typescript@6.0.3", script)
         self.assertIn("@hey-api/openapi-ts@0.99.0", script)
         self.assertIn('verify_frontend_api_client_artifact.py', script)

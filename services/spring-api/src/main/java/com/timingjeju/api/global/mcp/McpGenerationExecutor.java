@@ -21,6 +21,7 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
   private final ObjectMapper mapper;
   private final Clock clock;
   private final Set<String> approvedSources;
+  private final GenerationDayHistoryRepository history;
 
   public McpGenerationExecutor(
       GenerationTripInputRepository snapshots,
@@ -29,7 +30,8 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
       McpToolClient client,
       ObjectMapper mapper,
       Clock clock,
-      Set<String> approvedSources) {
+      Set<String> approvedSources,
+      GenerationDayHistoryRepository history) {
     this.snapshots = Objects.requireNonNull(snapshots);
     this.commands = Objects.requireNonNull(commands);
     this.places = Objects.requireNonNull(places);
@@ -37,6 +39,7 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
     this.mapper = Objects.requireNonNull(mapper);
     this.clock = Objects.requireNonNull(clock);
     this.approvedSources = Set.copyOf(approvedSources);
+    this.history = Objects.requireNonNull(history);
   }
 
   @Override
@@ -63,12 +66,21 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
             .orElseThrow(GenerationException::inputUnavailable);
     validateSnapshots(runId, snapshot, command);
     var input = snapshot.input();
+    var previousDays = history.findPrevious(input);
+    var visited = input.validatePreviousDays(previousDays);
     var requested = new HashSet<UUID>();
     requested.add(input.boundary().startPlaceId());
     requested.add(input.boundary().endPlaceId());
     input.places().forEach(place -> requested.add(place.placeId()));
     var bindings = places.resolve(requested, clock.instant());
-    var request = GenerationMcpDayConditions.from(input, bindings);
+    var request = new java.util.LinkedHashMap<>(GenerationMcpDayConditions.from(input, bindings));
+    request.put("previous_days", previousDays.stream().map(GenerationSelectedDay::toMcp).toList());
+    var allowedPlaceIds = new HashSet<>(bindings.factIds());
+    var previousFactIds = new HashSet<String>();
+    for (var day : previousDays) {
+      day.selectedPlaces().forEach(place -> allowedPlaceIds.add(place.placeFactId()));
+      previousFactIds.addAll(day.evidenceFactIds());
+    }
     checkDeadline(deadline);
     var result =
         client.callGeneration(
@@ -80,11 +92,11 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
                 McpCallParent.forGenerationRun(runId),
                 Map.of(
                     "place_id",
-                    bindings.factIds(),
+                    allowedPlaceIds,
                     "evidence_fact_ids",
-                    Set.of(),
+                    previousFactIds,
                     "derivation_evidence_fact_ids",
-                    Set.of()),
+                    previousFactIds),
                 Map.of()),
             content -> {
               var response = mapper.valueToTree(content);
@@ -101,7 +113,18 @@ public final class McpGenerationExecutor implements GenerationPlanExecutor {
                   response, input, resultBindings, approvedSources);
             });
     checkDeadline(deadline);
-    return result.projection();
+    var projection = result.projection();
+    if (projection.candidates().stream()
+        .anyMatch(
+            candidate ->
+                candidate.history().selectedPlaces().stream()
+                    .anyMatch(place -> visited.contains(place.canonicalPlaceId()))))
+      return new GenerationCandidateProjection(
+          projection.factsAsOf(),
+          "insufficient_feasible_routes",
+          java.util.List.of(),
+          new GenerationEvidence(Map.of(), Set.of()));
+    return projection;
   }
 
   private void validateSnapshots(

@@ -10,6 +10,17 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("unit")
 class GenerationEvidenceTest {
   @Test
+  void 저장된_최소_계보를_복원해도_미지_근거와_출처_및_순환은_거부한다() {
+    var unknownParent = new GenerationEvidence.Fact(Set.of(), Set.of("missing"));
+    var unknownSource = new GenerationEvidence.Fact(Set.of("missing"), Set.of());
+    var selfCycle = new GenerationEvidence.Fact(Set.of(), Set.of("fact"));
+    for (var fact : java.util.List.of(unknownParent, unknownSource, selfCycle)) {
+      assertThatThrownBy(() -> new GenerationEvidence(java.util.Map.of("fact", fact), Set.of()))
+          .hasMessage("MCP_CONTRACT_INVALID");
+    }
+  }
+
+  @Test
   void 생성불가의_빈_ledger와_출처가_필요없는_정책_fact는_허용한다() {
     var mapper = JsonMapper.builder().build();
     var empty =

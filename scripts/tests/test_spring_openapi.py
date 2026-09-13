@@ -26,7 +26,7 @@ class SpringOpenApiTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('run_bounded_spring_gradle "openApiDocs"', quality_gate)
-        self.assertIn("--mode 38", quality_gate)
+        self.assertIn("--mode 43", quality_gate)
 
     def test_quality_gate_validates_generated_artifact_after_generation(self):
         """현재 품질 게이트와 역사 계약의 호환성을 검증한다."""
@@ -51,7 +51,7 @@ class SpringOpenApiTest(unittest.TestCase):
             windows_gate,
         )
         self.assertIn("--contracts-root ../..", windows_gate)
-        self.assertIn("--mode 38", windows_gate)
+        self.assertIn("--mode 43", windows_gate)
         self.assert_windows_gate_fail_closed(windows_gate)
         unwrapped = windows_gate.replace(
             'Invoke-BoundedSpringGradle "openApiDocs" 900 "TIMING_JEJU_TEST_ROOT_COMPLETE task=:openApiDocsTest" @("openApiDocs")',

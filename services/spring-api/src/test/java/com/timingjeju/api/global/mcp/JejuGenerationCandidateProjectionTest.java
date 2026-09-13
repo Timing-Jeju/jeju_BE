@@ -26,6 +26,166 @@ class JejuGenerationCandidateProjectionTest {
   private static final Set<String> SOURCES = Set.of("travel.place-entrance-map", "tourapi.place");
 
   @Test
+  void 결과_기준시각은_계획시각을_보존하며_후보가_부족해도_현재시각으로_바꾸지_않는다() throws Exception {
+    var response = response();
+    var planned = OffsetDateTime.parse(response.get("planning_context").get("planned_at").asText());
+    assertThat(project(response).factsAsOf()).isEqualTo(planned.toInstant());
+    ((ObjectNode) response).put("status", "insufficient_feasible_routes");
+    ((ObjectNode) response).set("recommendations", mapper.createArrayNode());
+    response.set(
+        "failure",
+        mapper
+            .createObjectNode()
+            .put("code", "insufficient_feasible_routes")
+            .put("message", "합성 후보 부족"));
+    var insufficient = project(response);
+    assertThat(insufficient.outcome()).isEqualTo("insufficient_feasible_routes");
+    assertThat(insufficient.factsAsOf()).isEqualTo(planned.toInstant());
+    for (String invalid :
+        List.of(
+            "not-a-date",
+            "2026-08-01T09:00:00",
+            "2026-08-01T00:00:00Z",
+            "9999-12-31T23:59:59+09:00")) {
+      ((ObjectNode) response.get("planning_context")).put("planned_at", invalid);
+      assertThatThrownBy(() -> project(response)).hasMessage("MCP_CONTRACT_INVALID");
+    }
+  }
+
+  @Test
+  void 후보_설명은_검증된_전략과_합계로_만들고_AI_자유문을_복사하지_않는다() throws Exception {
+    var response = response();
+    var value =
+        (ObjectNode) response.get("recommendations").get(0).get("recommendation_reasons").get(0);
+    value.put("text", "저장하지 않을 AI 자유문");
+    var labels = Map.of("balanced", "균형형", "relaxed", "여유형", "experience_max", "경험 최대형");
+    for (var candidate : project(response).candidates()) {
+      assertThat(candidate.explanation())
+          .isEqualTo(
+              labels.get(candidate.strategy())
+                  + " 일정 · 방문 "
+                  + candidate.totals().visitMinutes()
+                  + "분 · 이동 "
+                  + candidate.totals().transferMinutes()
+                  + "분 · 식사 "
+                  + candidate.totals().mealMinutes()
+                  + "분 · 휴식 "
+                  + candidate.totals().restMinutes()
+                  + "분 · 계획 버퍼 "
+                  + candidate.totals().bufferMinutes()
+                  + "분")
+          .doesNotContain("저장하지 않을 AI 자유문");
+    }
+  }
+
+  @Test
+  void 이전날_이력은_상세_활동근거와_합계만_남기고_전체타임라인을_보내지_않는다() throws Exception {
+    var response = response();
+    ((ObjectNode) response.get("recommendations").get(0).get("timeline").get(1))
+        .set("evidence_fact_ids", mapper.createArrayNode());
+    var history = project(response).candidates().getFirst().history();
+    assertThat(history.selectedPlaces()).hasSize(5);
+    assertThat(history.selectedPlaces().getFirst().evidenceFactIds()).contains("fact-required");
+    assertThat(history.evidenceFactIds()).containsAll(history.totals().evidenceFactIds());
+    var wire = mapper.valueToTree(history.toMcp());
+    assertThat(wire.properties())
+        .extracting(java.util.Map.Entry::getKey)
+        .containsExactlyInAnyOrder(
+            "trip_date",
+            "activity_window",
+            "day_start_at",
+            "day_end_at",
+            "selected_places",
+            "totals",
+            "evidence_fact_ids");
+    assertThat(wire.get("totals").has("derivation_evidence_fact_ids")).isTrue();
+    var contract = mapper.readTree(resource("generation-v07.input-schema.json"));
+    var historySchema = (ObjectNode) contract.get("$defs").get("SelectedDayHistory").deepCopy();
+    historySchema.set("$defs", contract.get("$defs"));
+    assertThat(
+            com.networknt.schema.SchemaRegistry.withDefaultDialect(
+                    com.networknt.schema.SpecificationVersion.DRAFT_2020_12)
+                .getSchema(historySchema)
+                .validate(wire))
+        .isEmpty();
+    assertThat(wire.get("day_start_at").asText()).isEqualTo("2026-08-15T09:00:00+09:00");
+    assertThat(mapper.writeValueAsString(wire))
+        .doesNotContain(
+            "timeline", "geometry", "coordinates", "title", "original_text", "canonicalPlaceId");
+  }
+
+  @Test
+  void 저장할_하루는_체류없는_양끝_기준점과_모든_활동_및_사이_버퍼를_보존한다() throws Exception {
+    var candidate = project(response()).candidates().getFirst();
+    var day = candidate.scheduleDay();
+    assertThat(day.items()).hasSize(7);
+    assertThat(day.items().getFirst().boundaryRole()).isEqualTo("day_start");
+    assertThat(day.items().getLast().boundaryRole()).isEqualTo("day_end");
+    assertThat(day.items().getFirst().startAt()).isEqualTo(day.items().getFirst().endAt());
+    assertThat(day.items().getLast().startAt()).isEqualTo(day.items().getLast().endAt());
+    assertThat(day.connections()).hasSize(6);
+    assertThat(day.connections().get(1).events())
+        .extracting(GenerationTimeline.Event::type)
+        .containsExactly("transfer", "buffer");
+    assertThat(day.connections().get(1).events().getLast().durationMinutes()).isEqualTo(60);
+    assertThat(day.items().getLast().endAt())
+        .isEqualTo(candidate.timeline().events().getLast().endAt());
+  }
+
+  @Test
+  void 상위_이벤트근거가_비어도_필수_상세도보근거를_보존한다() throws Exception {
+    var value = response();
+    ((ObjectNode) value.get("recommendations").get(0).get("timeline").get(0))
+        .set("evidence_fact_ids", mapper.createArrayNode());
+    var result = project(value);
+    assertThat(result.outcome()).isEqualTo("success");
+    assertThat(result.candidates().getFirst().transfers().getFirst().evidenceFactIds())
+        .contains("fact-route-hotel-required");
+  }
+
+  @Test
+  void 버스_구간요금은_선택근거와_함께_범위로_보존한다() throws Exception {
+    var value = response();
+    var transfer = value.get("recommendations").get(2).get("timeline").get(0).get("transfer");
+    var decision = (ObjectNode) transfer.get("mode_decision");
+    decision.set(
+        "bus_cost", mapper.readTree("{\"min_krw\":1200,\"max_krw\":1500,\"is_estimated\":true}"));
+    var ids = mapper.createArrayNode().add("fact-route-hotel-port");
+    decision.set("evidence_fact_ids", ids);
+    var result = project(value).candidates().get(2).transfers().getFirst();
+    assertThat(result.fare()).isEqualTo(new GenerationTotals.CostRange(1200, 1500, true));
+    assertThat(result.evidenceFactIds()).contains("fact-route-hotel-port");
+  }
+
+  @Test
+  void 후보의_이동은_선택된_구간의_수치와_근거만_보존하고_미지_버스요금을_만들지_않는다() throws Exception {
+    var candidates = project(response()).candidates();
+    var walk = candidates.getFirst().transfers().getFirst();
+    assertThat(walk.mode()).isEqualTo("walk");
+    assertThat(walk.walks()).hasSize(1);
+    assertThat(walk.walks().getFirst().plannedMinutes()).isEqualTo(15);
+    assertThat(walk.fare().minKrw()).isZero();
+    var bus = candidates.get(2).transfers().getFirst();
+    assertThat(bus.mode()).isEqualTo("bus");
+    assertThat(bus.walks())
+        .extracting(GenerationTransfer.Walk::kind)
+        .containsExactly("access_walk", "egress_walk");
+    assertThat(bus.rides()).hasSize(1);
+    assertThat(bus.rides().getFirst().arrivalAt()).isAfter(bus.rides().getFirst().departureAt());
+    assertThat(bus.fare()).isNull();
+    assertThat(bus.evidenceFactIds()).isNotEmpty();
+    assertThat(mapper.writeValueAsString(candidates))
+        .doesNotContain(
+            "geometry",
+            "coordinates",
+            "position",
+            "original_text",
+            "boarding_stop_name",
+            "alternatives",
+            "source_refs");
+  }
+
+  @Test
   void 대표좌표는_승인장소_근거와_잠정표시를_모두_요구한다() throws Exception {
     var result = response();
     var sources = (tools.jackson.databind.node.ArrayNode) result.get("data_sources");
@@ -170,7 +330,29 @@ class JejuGenerationCandidateProjectionTest {
   private final TypeReference<Map<String, Object>> maps = new TypeReference<>() {};
 
   @Test
-  void 실제_AI_생성_Schema와_합성응답을_SDK에서_세_후보로_추출한다() throws Exception {
+  void 택시_주행수치가_타임라인과_다르면_세_후보를_모두_거부한다() throws Exception {
+    var result = response();
+    var transfer =
+        (ObjectNode) result.get("recommendations").get(0).get("timeline").get(0).get("transfer");
+    transfer.put("mode", "taxi");
+    transfer.putNull("direct_walk");
+    transfer
+        .putObject("taxi_alternative")
+        .put("duration_minutes", 16)
+        .put("distance_meters", 500)
+        .put("fare_min_krw", 7000)
+        .put("fare_max_krw", 9000)
+        .put("is_estimated", true)
+        .putArray("evidence_fact_ids")
+        .add("fact-route-hotel-required");
+    var projection = project(result);
+    assertThat(projection.outcome()).isEqualTo("insufficient_feasible_routes");
+    assertThat(projection.candidates()).isEmpty();
+  }
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+  void 실제_AI_생성_Schema와_합성응답을_SDK에서_세_후보로_추출한다(boolean withPreviousDay) throws Exception {
     var outputSchema = mapper.readValue(resource("generation-v07.output-schema.json"), maps);
     assertThat(McpSchemaFingerprint.sha256(outputSchema, mapper))
         .isEqualTo(
@@ -216,8 +398,12 @@ class JejuGenerationCandidateProjectionTest {
             mock(McpCallAuditWriter.class));
     client.verifyServerContract();
     var runId = UUID.randomUUID();
-    var snapshot =
-        GenerationTripSnapshot.create(runId, UUID.randomUUID(), input(60, false), mapper);
+    var dayInput = withPreviousDay ? nextDayInput() : input(60, false);
+    var previousDays =
+        withPreviousDay ? List.of(previousHistory()) : List.<GenerationSelectedDay>of();
+    var history = mock(GenerationDayHistoryRepository.class);
+    when(history.findPrevious(dayInput)).thenReturn(previousDays);
+    var snapshot = GenerationTripSnapshot.create(runId, UUID.randomUUID(), dayInput, mapper);
     var snapshots = mock(GenerationTripInputRepository.class);
     when(snapshots.find(runId)).thenReturn(java.util.Optional.of(snapshot));
     var commands =
@@ -243,7 +429,7 @@ class JejuGenerationCandidateProjectionTest {
                             false)),
                     snapshot.ownerId(),
                     snapshot.input().tripId(),
-                    null));
+                    snapshot.input().baseScheduleVersionId()));
     when(commands.find(parent)).thenReturn(java.util.Optional.of(command));
     var places = mock(GenerationPlaceResolver.class);
     when(places.resolve(anySet(), any())).thenReturn(bindings());
@@ -252,7 +438,8 @@ class JejuGenerationCandidateProjectionTest {
         java.time.Clock.fixed(
             java.time.Instant.parse("2026-08-14T00:00:00Z"), java.time.ZoneOffset.UTC);
     var executor =
-        new McpGenerationExecutor(snapshots, commands, places, client, mapper, clock, SOURCES);
+        new McpGenerationExecutor(
+            snapshots, commands, places, client, mapper, clock, SOURCES, history);
     var result = executor.execute(runId, clock.instant().plusSeconds(180));
     assertThat(result.outcome()).isEqualTo("success");
     assertThat(result.candidates())
@@ -263,6 +450,9 @@ class JejuGenerationCandidateProjectionTest {
         .doesNotContain("geometry", "title", "source_refs", "formula", "coordinates");
     var wire = org.mockito.ArgumentCaptor.forClass(McpSchema.CallToolRequest.class);
     verify(sdk).callTool(wire.capture());
+    assertThat(mapper.valueToTree(wire.getValue().arguments()).at("/request/previous_days"))
+        .isEqualTo(
+            mapper.valueToTree(previousDays.stream().map(GenerationSelectedDay::toMcp).toList()));
     assertThat(wire.getValue().arguments()).containsKey("request").containsKey("inputHash");
     assertThat(mapper.writeValueAsString(wire.getValue().arguments()))
         .contains("tourapi.place:2", "requested_stay_minutes")
@@ -271,6 +461,49 @@ class JejuGenerationCandidateProjectionTest {
             snapshot.input().tripId().toString(),
             "original_text",
             "coordinates");
+    int successfulCalls = 1;
+    if (withPreviousDay) {
+      var old = previousDays.getFirst();
+      var repeated =
+          new GenerationSelectedDay(
+              old.dayId(),
+              old.tripDate(),
+              old.windowStartAt(),
+              old.windowEndAt(),
+              old.dayStartAt(),
+              old.dayEndAt(),
+              List.of(
+                  new GenerationSelectedDay.SelectedPlace(
+                      new UUID(79, 3), "tourapi.place:3", "visit", List.of("previous-place"))),
+              old.totals(),
+              old.evidenceFactIds());
+      when(history.findPrevious(dayInput)).thenReturn(List.of(repeated));
+      var rejected = executor.execute(runId, clock.instant().plusSeconds(180));
+      assertThat(rejected.outcome()).isEqualTo("insufficient_feasible_routes");
+      assertThat(rejected.candidates()).isEmpty();
+      successfulCalls++;
+      var requiredConflict =
+          new GenerationSelectedDay(
+              old.dayId(),
+              old.tripDate(),
+              old.windowStartAt(),
+              old.windowEndAt(),
+              old.dayStartAt(),
+              old.dayEndAt(),
+              List.of(
+                  new GenerationSelectedDay.SelectedPlace(
+                      new UUID(79, 2), "tourapi.place:2", "visit", List.of("previous-place"))),
+              old.totals(),
+              old.evidenceFactIds());
+      when(history.findPrevious(dayInput)).thenReturn(List.of(requiredConflict));
+      assertThatThrownBy(() -> executor.execute(runId, clock.instant().plusSeconds(180)))
+          .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
+      when(history.findPrevious(dayInput))
+          .thenThrow(GenerationException.inputConstraintViolation());
+      assertThatThrownBy(() -> executor.execute(runId, clock.instant().plusSeconds(180)))
+          .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
+      doReturn(previousDays).when(history).findPrevious(dayInput);
+    }
     for (var field :
         List.of(
             "owner",
@@ -300,7 +533,7 @@ class JejuGenerationCandidateProjectionTest {
               field.equals("hash") ? "0".repeat(64) : command.commandInputHash(),
               field.equals("owner") ? UUID.randomUUID() : command.ownerUserId(),
               field.equals("trip") ? UUID.randomUUID() : command.tripPlanId(),
-              field.equals("base") ? UUID.randomUUID() : null);
+              field.equals("base") ? UUID.randomUUID() : command.baseScheduleVersionId());
       when(commands.find(parent)).thenReturn(java.util.Optional.of(invalid));
       assertThatThrownBy(() -> executor.execute(runId, clock.instant().plusSeconds(180)))
           .hasMessage("GENERATION_INPUT_UNAVAILABLE");
@@ -310,7 +543,7 @@ class JejuGenerationCandidateProjectionTest {
         .hasMessage("GENERATION_INPUT_UNAVAILABLE");
     assertThatThrownBy(() -> executor.execute(runId, clock.instant()))
         .isInstanceOf(com.timingjeju.api.application.asyncrun.RetryableRunException.class);
-    verify(sdk, times(1)).callTool(any());
+    verify(sdk, times(successfulCalls)).callTool(any());
     when(snapshots.find(runId)).thenReturn(java.util.Optional.of(snapshot));
     when(commands.find(parent)).thenReturn(java.util.Optional.of(command));
     doThrow(new McpRemoteCallException("MCP_TIMEOUT", true)).when(sdk).callTool(any());
@@ -402,6 +635,66 @@ class JejuGenerationCandidateProjectionTest {
         List.of(),
         false,
         places);
+  }
+
+  private GenerationTripInput nextDayInput() {
+    var current = input(60, false);
+    var day = current.days().getFirst();
+    var previousDayId = new UUID(79, 102);
+    return new GenerationTripInput(
+        current.tripId(),
+        1,
+        new UUID(79, 99),
+        new GenerationDayBoundary(
+            day.dayId(),
+            2,
+            current.airportPlaceId(),
+            current.airportPlaceId(),
+            current.boundary().startAt(),
+            current.boundary().endAt()),
+        current.airportPlaceId(),
+        List.of(
+            new com.timingjeju.api.application.trip.TripDay(
+                previousDayId,
+                1,
+                day.date().minusDays(1),
+                day.activityStartTime(),
+                day.activityEndTime()),
+            new com.timingjeju.api.application.trip.TripDay(
+                day.dayId(), 2, day.date(), day.activityStartTime(), day.activityEndTime())),
+        List.of(
+            new com.timingjeju.api.application.trip.TripPlannerConditions.DayAnchor(
+                previousDayId, current.airportPlaceId())),
+        current.savedPreferences().stream()
+            .map(
+                p ->
+                    new com.timingjeju.api.application.trip.TripPlacePreference(
+                        p.placeId(), p.type(), 2, p.priority(), p.requestedStayMinutes()))
+            .toList(),
+        current.transportModes(),
+        current.preferredCategories(),
+        current.relaxedPace(),
+        current.places());
+  }
+
+  private GenerationSelectedDay previousHistory() {
+    var start = OffsetDateTime.parse("2026-08-14T09:00:00+09:00");
+    var zero = new GenerationTotals.CostRange(0, 0, false);
+    var totals =
+        new GenerationTotals(
+            60, 60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, zero, zero, zero, List.of("previous-total"));
+    return new GenerationSelectedDay(
+        new UUID(79, 102),
+        start.toLocalDate(),
+        start,
+        start.plusHours(11),
+        start,
+        start.plusHours(1),
+        List.of(
+            new GenerationSelectedDay.SelectedPlace(
+                new UUID(79, 999), "tourapi.place:previous", "visit", List.of("previous-place"))),
+        totals,
+        List.of("previous-place", "previous-total"));
   }
 
   private ObjectNode response() throws Exception {

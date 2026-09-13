@@ -15,9 +15,11 @@ Spring Boot만 아래 여섯 endpoint를 공개한다.
 | GET | `/api/v1/trips/{tripId}/schedule-revision-runs/{runId}` | 200 | `Authorization` |
 | POST | `/api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply` | 200 | `Authorization`, `Idempotency-Key`, strong `If-Match` |
 
-접수는 `queued`와 concrete `pollUrl`을 반환하고 동일 URL을 `Location`에, `2`를 `Retry-After`에 기록한다. 조회는 `queued/running`에서만 `Retry-After: 2`를 반환한다. running은 `startedPreDispatch`에서 `startedAt`만 반환하고, #52 MCP call log가 생긴 `postDispatch`부터 `mcpInputHash`도 반환한다. 상태는 `queued/running/succeeded/failed/cancelled`뿐이며 terminal은 불변이다. 후보 만료는 run status가 아니라 후보의 `expiresAt`이다. 비민감 terminal metadata는 `completedAt`부터 7일, 승인된 정규화 후보는 `createdAt`부터 24시간 보존한다. 경계 시각부터 적용은 `410 CANDIDATE_EXPIRED`이다. 프로세스 재시작 시 검증된 durable projection을 복원하고, DB projection도 없거나 손상되었으면 `410 CANDIDATE_EVIDENCE_UNAVAILABLE`이다.
+접수는 `queued`와 concrete `pollUrl`을 반환하고 동일 URL을 `Location`에, `2`를 `Retry-After`에 기록한다. 조회는 `queued/running`에서만 `Retry-After: 2`를 반환한다. running은 `startedAt`을 반환한다. `mcpInputHash`는 DB020 이후 프로토콜 교환 중 메모리에서만 사용하므로 모든 조회 상태에서 생략한다. 상태는 `queued/running/succeeded/failed/cancelled`뿐이며 terminal은 불변이다. 후보 만료는 run status가 아니라 후보의 `expiresAt`이다. 비민감 terminal metadata는 `completedAt`부터 7일, 승인된 정규화 후보는 `createdAt`부터 24시간 보존한다. 경계 시각부터 적용은 `410 CANDIDATE_EXPIRED`이다. 프로세스 재시작 시 검증된 durable projection을 복원하고, DB projection도 없거나 손상되었으면 `410 CANDIDATE_EVIDENCE_UNAVAILABLE`이다.
 
 GET의 query는 closed empty `NoQuery`지만 body는 empty object나 `null`도 허용하지 않는 `BodyForbidden` sentinel이다. query가 하나라도 있으면 `400 INVALID_QUERY_PARAMETER`, body가 존재하면 `{}`나 `null`도 `400 REQUEST_BODY_NOT_ALLOWED`다. generation/revision GET은 각각 #95/#105가 소유하며 저장 결과만 SELECT한다. 생성 결과에는 `outcome`, nullable `baseScheduleVersionId`, `factsAsOf`, `stale`, `resultSource`, 후보가 필수다. 성공은 `balanced`, `relaxed`, `experience_max`가 한 개씩인 서로 다른 후보 정확히 세 개이고, 생성 불가는 `outcome=insufficient_feasible_routes`와 후보 0개다. 부분 성공은 없다. 모든 생성 후보는 `scheduleUrl`과 concrete `applyUrl`을 제공하고, revision 후보는 typed added/removed/moved/updated diff와 preserved field path 목록을 추가로 제공한다.
+
+생성 결과의 `factsAsOf`는 검증한 MCP 응답의 `planning_context.planned_at`을 보존한다. 조회 시각이나 DB 저장 시각으로 대체하지 않는다. 이는 계획 평가의 기준 시각이며 모든 개별 외부 fact가 그 시각에 갱신되었다는 최신성 보증이 아니다. 성공과 `insufficient_feasible_routes` 모두 같은 출처를 사용하며, 시각 누락·잘못된 offset·`generated_at`보다 늦은 계획 시각은 계약 오류다.
 
 FastAPI MCP는 private 계산기다. Spring이 JWT 검증, owner 판정, command snapshot, DB, worker lifecycle과 결과 적용을 소유한다. FastAPI는 공개 API, JWT, DB, provider credential을 소유하지 않는다.
 
@@ -33,7 +35,7 @@ generation snapshot은 #239가 저장한 target Day의 `activity_start_time`/`ac
 
 TMAP 원본 응답·상세 geometry·사용자 원문은 DB, 파일, Redis, analytics, crash log에 저장하지 않는다. 원본 응답의 프로세스 메모리 상한 23시간 50분은 유지한다. 사용자는 서면 및 유선 확인이 있었다고 진술하고 파생 경로값 저장 구현을 지시했다. 이를 `user_attestation`으로 기록하며 개발 에이전트가 제공자의 서면 계약을 직접 확인했다고 표시하지 않는다. 이 개발 범위에서는 AI 저장소의 Pydantic 생성 durable projection schema로 검증된 정규화 수치·이벤트·합계·위험·fact 계보만 보존한다. 임의 fact value, 원문, 좌표·geometry를 포함한 전체 AI 응답을 저장하지 않는다. queued/running은 immutable snapshot으로 재계산하고, succeeded는 만료 전 정규화 projection을 복원한다. 24시간은 저장된 후보의 적용 기한이지 원본 cache나 실시간 데이터의 신선도를 연장하는 의미가 아니다. apply는 live 원본 메모리를 요구하지 않는다. 기본 기능 플래그는 OFF이며 전체 staging 검증 후 활성화한다.
 
-`commandInputHash`는 Issue #108 `compute_run_inputs`의 versioned immutable structured snapshot digest다. `mcpInputHash`는 worker가 snapshot과 normalized facts로 만든 실제 redacted MCP wire input digest다. 두 필드는 alias가 아니며 재시작은 HTTP body나 mutable trip state가 아니라 snapshot만 읽는다.
+`commandInputHash`는 Issue #108 `compute_run_inputs`의 versioned immutable structured snapshot digest다. `mcpInputHash`는 worker가 snapshot과 normalized facts로 만든 실제 redacted MCP wire input digest다. wire hash는 영속 저장·조회하지 않으며 command hash로 대체하지 않는다. 재시작은 HTTP body나 mutable trip state가 아니라 snapshot만 읽는다.
 
 create/apply의 `Idempotency-Key`는 #68과 같은 1..128자 printable ASCII(U+0020..U+007E)이며 UUID로 제한하지 않는다. key scope는 `canonicalSub + method + normalized path + Idempotency-Key`, 완료 TTL은 24시간이다. 같은 key/body는 저장된 response를 replay하고 다른 body는 `409 IDEMPOTENCY_KEY_REUSED`다. 처리 중 loser도 `Retry-After: 1`과 409를 받는다. active run unique arbiter와 apply의 trip lock/expected-active CAS가 동시 writer를 직렬화한다.
 
@@ -58,7 +60,7 @@ generation은 `itinerary_generation_runs`/`itinerary_generation_candidates`와 d
 
 각 endpoint는 자신이 반환할 status별 code matrix를 별도로 가지며, 모든 condition의 endpoint group은 위 여섯 method/path의 부분집합이다. validator는 endpoint matrix와 condition scope를 양방향 비교하므로 공통 code가 과다·과소 노출될 수 없다.
 
-failed/cancelled는 DB provenance와 `startedAt`/`mcpInputHash` presence를 discriminator로 쓰는 closed 3-way oneOf다. `preStart`는 두 필드가 모두 omitted이고, `startedPreDispatch`는 `startedAt`만 non-null required이며, `postDispatch`는 두 필드가 모두 non-null required다. #52 MCP call log의 부재/존재가 dispatch 경계이고, call log가 존재할 때만 그 row가 검증된 실제 MCP wire `mcpInputHash`를 소유한다.
+failed/cancelled의 내부 `provenanceCases`는 시작 전·호출 기록 전·호출 기록 후를 분류한다. 공개 응답은 시작 전이면 `startedAt`을 생략하고 시작 후이면 포함한다. 호출 기록 전후 응답 모양은 같으므로 이를 JSON `oneOf`로 표현하지 않는다. MCP call log는 wire hash를 보관하지 않으며, 모든 단계에서 `mcpInputHash`를 생략한다.
 
 ## 추적성과 readiness
 

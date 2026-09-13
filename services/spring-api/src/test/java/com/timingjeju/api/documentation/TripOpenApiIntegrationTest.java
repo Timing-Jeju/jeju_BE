@@ -45,8 +45,22 @@ class TripOpenApiIntegrationTest
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
         .andExpect(
-            jsonPath(path + ".responses['200'].content['application/json'].schema['$ref']")
-                .value("#/components/schemas/PlannerConditionsMutationResponse"))
+            jsonPath(path + ".responses['200'].content['application/json'].schema.type")
+                .value("object"))
+        .andExpect(
+            jsonPath(
+                    path
+                        + ".responses['200'].content['application/json'].schema.additionalProperties")
+                .value(false))
+        .andExpect(
+            jsonPath(path + ".responses['200'].content['application/json'].schema.required")
+                .value(
+                    containsInAnyOrder(
+                        "tripId",
+                        "plannerConditions",
+                        "scheduleEffect",
+                        "regenerationRequired",
+                        "activeScheduleVersionId")))
         .andExpect(
             jsonPath("$.components.schemas.PlannerConditionsMutationResponse.required")
                 .value(
@@ -304,7 +318,7 @@ class TripOpenApiIntegrationTest
                 .value(containsInAnyOrder("mode", "priority", "primary")))
         .andExpect(
             jsonPath("$.components.schemas.TransportMode.properties.mode.enum")
-                .value(containsInAnyOrder("public_transit", "rental_car", "taxi")))
+                .value(containsInAnyOrder("public_transit", "rental_car", "taxi", "walk")))
         .andExpect(
             jsonPath("$.components.schemas.TransportMode.properties.priority.minimum").value(1))
         .andExpect(

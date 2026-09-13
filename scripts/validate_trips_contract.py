@@ -40,7 +40,7 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "5b1f274b5a86e44cbb575f3050f3e4f1891d1c0d3c85b5a7cc8a4a7439655bdf"
+CANONICAL_CONTRACT_SHA256 = "d8bcd4bea5a6995a53bdb336481b6b99227522f90497473a1cbb79012b0be608"
 CANONICAL_CATALOG_SHA256 = "559f2b66534729b4e172210b69f94dc9bfeaed991dc591978606e8226183e2f1"
 CONTRACT_FIELDS = {
     "schemaVersion",
@@ -688,7 +688,7 @@ def _validate_transport_modes(value: Any, label: str, errors: list[str]) -> None
     modes = [item.get("mode") for item in value if isinstance(item, dict)]
     priorities = [item.get("priority") for item in value if isinstance(item, dict)]
     primary = [item for item in value if isinstance(item, dict) and item.get("primary") is True]
-    allowed = {"public_transit", "rental_car", "taxi"}
+    allowed = {"public_transit", "rental_car", "taxi", "walk"}
     if (
         len(modes) != len(value)
         or any(mode not in allowed for mode in modes)

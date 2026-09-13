@@ -13,7 +13,7 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 `implementationIssues`는 `[46,47,48]`이며 각 endpoint의 `dbOwner`는 위 구현 owner 하나만 참조한다. DELETE의 `eventType` query는 별도 구현 endpoint로 세지 않고 #47의 transport-event 삭제 계약에 포함한다. [`ownership.json`](../../../fixtures/contracts/preferences-transport/ownership.json)은 이 endpoint→Issue projection과 readiness의 canonical JSON SHA-256을 보존한다. validator는 owner 누락·복수 표기·미등록 Issue·endpoint 불일치와 digest drift를 fail-closed로 거부한다. 이 정렬은 구현 책임 메타데이터만 변경하며 request/response schema, status, Problem Details와 data lineage는 바꾸지 않는다.
 
-두 선호 PUT은 부분 upsert가 아니라 전체 교체다. `preferences`의 배열은 빈 배열로 지울 수 있지만 누락과 `null`은 거부한다. `startPlaceId`와 `endPlaceId`만 명시적 `null`을 허용한다. 교통수단은 `public_transit/rental_car/taxi` 중 1~3개이며 mode와 priority가 중복되지 않고 priority가 `1..N`으로 연속이어야 한다. primary는 정확히 한 건이고 priority 1이다.
+두 선호 PUT은 부분 upsert가 아니라 전체 교체다. `preferences`의 배열은 빈 배열로 지울 수 있지만 누락과 `null`은 거부한다. `startPlaceId`와 `endPlaceId`만 명시적 `null`을 허용한다. 교통수단은 `public_transit/rental_car/taxi/walk` 중 1~3개이며 mode와 priority가 중복되지 않고 priority가 `1..N`으로 연속이어야 한다. primary는 정확히 한 건이고 priority 1이다.
 
 장소 선호는 `must_visit/preferred/avoid`를 허용하고 같은 place가 어느 type으로든 두 번 나타나면 `422`다. `targetDayNo`는 property 자체는 필수지만 전체 여행에 적용할 때 `null`, Day를 지정할 때 `1..tripDayCount`다. priority tie는 `priority DESC, placeId ASC`로 결정한다. #53 확장으로 선택적 `requestedStayMinutes`는 정수 1~1440 또는 `null`이며 생략은 `null`이다. 임의 기본 체류시간은 저장하지 않는다. 장소는 유효 canonical place ID로 지정하며 사용자 찜 여부와 독립적이다. 이 확장의 schema와 wire digest는 함께 갱신한다.
 

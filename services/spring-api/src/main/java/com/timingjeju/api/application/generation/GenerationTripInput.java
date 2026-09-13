@@ -146,6 +146,25 @@ public record GenerationTripInput(
     if (required > 10 || preferred > 30 || required + preferred == 0) throw invalid();
   }
 
+  /** Pydantic previous_days의 날짜·필수방문 충돌을 외부 호출 전에 확인한다. */
+  public Set<UUID> validatePreviousDays(List<GenerationSelectedDay> previousDays) {
+    if (previousDays.size() != boundary.dayNo() - 1) throw invalid();
+    var visited = new HashSet<UUID>();
+    for (int i = 0; i < previousDays.size(); i++) {
+      var previous = previousDays.get(i);
+      var day = days.get(i);
+      if (!previous.dayId().equals(day.dayId()) || !previous.tripDate().equals(day.date()))
+        throw invalid();
+      previous.selectedPlaces().stream()
+          .filter(place -> place.role().equals("visit"))
+          .forEach(place -> visited.add(place.canonicalPlaceId()));
+    }
+    if (places.stream()
+        .anyMatch(place -> place.type().equals("must_visit") && visited.contains(place.placeId())))
+      throw invalid();
+    return Set.copyOf(visited);
+  }
+
   public static GenerationTripInput capture(
       TripAggregate trip,
       UUID targetDayId,

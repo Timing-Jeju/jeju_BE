@@ -180,7 +180,9 @@ class GenerationTimelineTest {
                             "departure_at",
                             "2026-10-01T10:30:00+09:00",
                             "stay_minutes",
-                            30))),
+                            30,
+                            "evidence_fact_ids",
+                            List.of("fact-1")))),
                 "totals",
                 Map.of(
                     "total_minutes",

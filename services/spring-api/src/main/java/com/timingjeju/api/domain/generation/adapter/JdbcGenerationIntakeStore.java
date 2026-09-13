@@ -22,6 +22,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
   private final StayPolicyResolver stays;
   private final CommandInputSnapshotRepository commands;
   private final GenerationTripInputRepository inputs;
+  private final GenerationDayHistoryRepository history;
   private final GenerationPlaceResolver places;
   private final ObjectMapper mapper;
   private final boolean enabled;
@@ -33,6 +34,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
       StayPolicyResolver stays,
       CommandInputSnapshotRepository commands,
       GenerationTripInputRepository inputs,
+      GenerationDayHistoryRepository history,
       GenerationPlaceResolver places,
       ObjectMapper mapper,
       @Value("${app.schedule-generation.enabled:false}") boolean enabled,
@@ -42,6 +44,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
     this.stays = stays;
     this.commands = commands;
     this.inputs = inputs;
+    this.history = history;
     this.places = places;
     this.mapper = mapper;
     this.enabled = enabled;
@@ -120,6 +123,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
       var input =
           GenerationTripInput.capture(
               trip, command.targetDayId(), completed, airport, stays.resolveAll(subjects));
+      history.findPrevious(input);
       var requiredPlaceIds = new HashSet<UUID>();
       requiredPlaceIds.add(input.boundary().startPlaceId());
       requiredPlaceIds.add(input.boundary().endPlaceId());

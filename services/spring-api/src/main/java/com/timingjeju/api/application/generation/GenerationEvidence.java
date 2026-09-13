@@ -19,6 +19,11 @@ public record GenerationEvidence(Map<String, Fact> facts, Set<String> sourceIds)
   public GenerationEvidence {
     facts = Map.copyOf(facts);
     sourceIds = Set.copyOf(sourceIds);
+    for (var fact : facts.values()) {
+      if (!facts.keySet().containsAll(fact.inputFactIds())
+          || !sourceIds.containsAll(fact.sourceIds())) throw invalid();
+    }
+    validateAcyclic(facts);
   }
 
   public static GenerationEvidence from(JsonNode response, Set<String> approvedSources) {
@@ -41,10 +46,6 @@ public record GenerationEvidence(Map<String, Fact> facts, Set<String> sourceIds)
       var inputs = ids(derivation.get("input_fact_ids"));
       if (facts.putIfAbsent(id, new Fact(sourceRefs, inputs)) != null) throw invalid();
     }
-    for (var fact : facts.values()) {
-      if (!facts.keySet().containsAll(fact.inputFactIds())) throw invalid();
-    }
-    validateAcyclic(facts);
     // previous_days는 이전 ledger에 닫혀 있으므로 현재 응답의 참조와 섞지 않는다.
     validateReferences(array(response.get("recommendations")), facts.keySet());
     validateReferences(array(response.get("place_decisions")), facts.keySet());

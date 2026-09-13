@@ -72,6 +72,8 @@ services:
       - ./supabase/migrations/20260918000024_planner_conditions.sql:/docker-entrypoint-initdb.d/062_planner_conditions.sql:ro
       - ./supabase/migrations/20260918000025_sequential_schedule_coverage.sql:/docker-entrypoint-initdb.d/063_sequential_schedule_coverage.sql:ro
       - ./supabase/migrations/20260918000026_generation_trip_snapshot.sql:/docker-entrypoint-initdb.d/064_generation_trip_snapshot.sql:ro
+      - ./supabase/migrations/20260918000027_generation_schedule_boundaries.sql:/docker-entrypoint-initdb.d/065_generation_schedule_boundaries.sql:ro
+      - ./supabase/migrations/20260918000028_generation_result_projection.sql:/docker-entrypoint-initdb.d/066_generation_result_projection.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

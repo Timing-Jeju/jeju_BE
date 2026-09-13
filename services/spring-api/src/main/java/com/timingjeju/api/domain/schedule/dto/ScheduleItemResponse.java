@@ -34,7 +34,11 @@ public record ScheduleItemResponse(
         OffsetDateTime plannedStartAt,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time")
         OffsetDateTime plannedEndAt,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "1440")
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            maximum = "1440",
+            description = "일반 방문은 1분 이상이며 day_start/day_end 기준점만 0분입니다.")
         int stayMinutes,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0", maximum = "1440")
         int bufferAfterMinutes,
@@ -50,7 +54,14 @@ public record ScheduleItemResponse(
             nullable = true,
             types = {"object", "null"},
             implementation = ItemProgressResponse.class)
-        ItemProgressResponse progress) {
+        ItemProgressResponse progress,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            nullable = true,
+            types = {"string", "null"},
+            allowableValues = {"day_start", "day_end"},
+            description = "일반 항목은 null입니다. 기준점은 위치와 시간을 보존하며 직접 편집하지 않습니다.")
+        String boundaryRole) {
   private static final ZoneId JEJU = ZoneId.of("Asia/Seoul");
 
   static ScheduleItemResponse from(ScheduleItemSnapshot item) {
@@ -66,6 +77,7 @@ public record ScheduleItemResponse(
         item.bufferAfterMinutes(),
         item.required(),
         item.memo(),
-        ItemProgressResponse.from(item.progress()));
+        ItemProgressResponse.from(item.progress()),
+        item.boundaryRole());
   }
 }

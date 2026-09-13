@@ -64,7 +64,7 @@ class ScheduleOpenApiIntegrationTest
         .andExpect(jsonPath(path + ".requestBody").doesNotExist())
         .andExpect(
             jsonPath(path + ".responses.keys()")
-                .value(containsInAnyOrder("200", "400", "401", "403", "404", "500")))
+                .value(containsInAnyOrder("200", "400", "401", "403", "404", "410", "500")))
         .andExpect(jsonPath(success + ".schema.additionalProperties").value(false))
         .andExpect(
             jsonPath(success + ".schema.required")

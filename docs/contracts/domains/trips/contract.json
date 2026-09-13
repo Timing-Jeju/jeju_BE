@@ -443,7 +443,7 @@
     "TripTimezone": {"type": "string", "nullable": false, "format": "iana-timezone", "enum": ["Asia/Seoul"]},
     "TripStatus": {"type": "string", "nullable": false, "enum": ["draft", "generating", "planned", "live", "completed", "cancelled", "failed"]},
     "UserPace": {"type": "string", "nullable": false, "enum": ["slow", "normal", "fast"]},
-    "TransportModeName": {"type": "string", "nullable": false, "enum": ["public_transit", "rental_car", "taxi"]},
+    "TransportModeName": {"type": "string", "nullable": false, "enum": ["public_transit", "rental_car", "taxi", "walk"]},
     "TransportMode": {
       "type": "object",
       "nullable": false,

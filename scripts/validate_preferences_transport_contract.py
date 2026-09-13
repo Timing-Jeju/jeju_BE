@@ -34,7 +34,7 @@ EXPECTED_IMPLEMENTATION_OWNERS = {
 }
 EXPECTED_IMPLEMENTATION_ISSUES = [46, 47, 48]
 CANONICAL_WIRE_CONTRACT_SHA256 = (
-    "a880c513bfbd598872e63a64431ff14acd4560aeaa2a32e414702a7018510364"
+    "e592544c0d57c233adcddd2a2334ba8956d2377831b08480ddbb137a0bef787a"
 )
 COMMON_RESPONSE_FIELDS = {
     "tripId", "scheduleEffect", "regenerationRequired", "activeScheduleVersionId",
@@ -427,7 +427,7 @@ def _validate_policies(contract: dict[str, Any], errors: list[str]) -> None:
     if preference.get("writeMode") != "full-replace" or preference.get("omittedRequiredField") != "reject" or preference.get("explicitNull") != "reject":
         errors.append("preferences required/null/omitted full-replace 경계가 다릅니다.")
     modes = preference.get("transportModes", {})
-    if modes != {"enum": ["public_transit", "rental_car", "taxi"], "mode": "unique", "priority": "contiguous 1..N and unique", "primary": "exactly one; primary priority=1"}:
+    if modes != {"enum": ["public_transit", "rental_car", "taxi", "walk"], "mode": "unique", "priority": "contiguous 1..N and unique", "primary": "exactly one; primary priority=1"}:
         errors.append("preferences duplicate/primary transport mode 규칙이 다릅니다.")
     place = contract.get("placePreferencePolicy", {})
     if place.get("samePlaceConflict") != "reject 422; a place cannot appear as both must_visit and avoid" or place.get("targetDayNo") != "1..tripDayCount or null" or place.get("priorityTieBreak") != "priority DESC, placeId ASC":

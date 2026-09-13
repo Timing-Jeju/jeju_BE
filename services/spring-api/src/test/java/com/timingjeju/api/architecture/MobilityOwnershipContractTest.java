@@ -77,7 +77,9 @@ class MobilityOwnershipContractTest {
             "domain/accommodation/controller/AccommodationController.java",
             "domain/auth/controller/SocialLoginController.java",
             "domain/demo/controller/DemoImportController.java",
+            "domain/generation/controller/GenerationApplyController.java",
             "domain/generation/controller/GenerationController.java",
+            "domain/generation/controller/GenerationQueryController.java",
             "domain/legal/controller/LegalProfileController.java",
             "domain/notification/controller/PushNotificationController.java",
             "domain/places/controller/PlacesController.java",
@@ -91,10 +93,10 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripPlacePreferencesController.java",
             "domain/trip/controller/TripPlannerConditionsController.java",
             "domain/weather/controller/WeatherForecastController.java");
-    // 새 생성 controller의 class RequestMapping과 POST mapping을 모두 센다.
-    assertThat(mappingAnnotationCount()).isEqualTo(59);
+    // 생성 접수/조회/적용 controller의 class RequestMapping과 POST/GET mapping을 모두 센다.
+    assertThat(mappingAnnotationCount()).isEqualTo(64);
     assertThat(migrationInventory())
-        .hasSize(62)
+        .hasSize(64)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -109,11 +111,13 @@ class MobilityOwnershipContractTest {
             "20260918000023_planner_place_preferences.sql",
             "20260918000024_planner_conditions.sql",
             "20260918000025_sequential_schedule_coverage.sql",
-            "20260918000026_generation_trip_snapshot.sql");
+            "20260918000026_generation_trip_snapshot.sql",
+            "20260918000027_generation_schedule_boundaries.sql",
+            "20260918000028_generation_result_projection.sql");
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260918000026_generation_trip_snapshot.sql");
+        .isEqualTo("20260918000028_generation_result_projection.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {

@@ -14,6 +14,36 @@ class GenerationTransferTimingTest {
   private final JsonMapper mapper = JsonMapper.builder().build();
 
   @Test
+  void 택시_주행시간과_거리와_예상요금범위가_일치해야_한다() {
+    var candidate =
+        (ObjectNode)
+            mapper.readTree(
+                """
+        {"timeline":[{"type":"transfer","start_at":"2026-08-15T09:00:00+09:00",
+          "end_at":"2026-08-15T09:20:00+09:00","transfer":{"mode":"taxi","distance_meters":6000,
+          "taxi_alternative":{"duration_minutes":20,"distance_meters":6000,
+            "fare_min_krw":7000,"fare_max_krw":9000,"is_estimated":true}}}]}
+        """);
+    assertThatCode(() -> GenerationTransferTiming.validate(candidate)).doesNotThrowAnyException();
+    for (String mutation : List.of("주행시간", "거리", "요금역전", "확정요금", "누락")) {
+      var changed = candidate.deepCopy();
+      var transfer = (ObjectNode) changed.get("timeline").get(0).get("transfer");
+      var taxi = (ObjectNode) transfer.get("taxi_alternative");
+      switch (mutation) {
+        case "주행시간" -> taxi.put("duration_minutes", 21);
+        case "거리" -> taxi.put("distance_meters", 6001);
+        case "요금역전" -> taxi.put("fare_min_krw", 10000);
+        case "확정요금" -> taxi.put("is_estimated", false);
+        case "누락" -> transfer.remove("taxi_alternative");
+        default -> throw new AssertionError("알 수 없는 시나리오");
+      }
+      assertThatThrownBy(() -> GenerationTransferTiming.validate(changed))
+          .as(mutation)
+          .hasMessage("MCP_CONTRACT_INVALID");
+    }
+  }
+
+  @Test
   void 하차도보_누락은_NPE가_아닌_계약오류로_거부한다() throws Exception {
     var candidate = candidate(2);
     ((ObjectNode) candidate.get("timeline").get(0).get("transfer")).remove("egress_walk");

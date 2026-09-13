@@ -20,6 +20,7 @@ CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 TEMPLATE = ROOT / "docs/contracts/rest/endpoint-template.json"
 FIXTURES = ROOT / "fixtures/contracts/schedules"
 EXPECTED_ENDPOINTS = {
+    ("GET", "/api/v1/trips/{tripId}/schedule-versions/{versionId}"),
     ("GET", "/api/v1/trips/{tripId}/schedule"),
     ("POST", "/api/v1/trips/{tripId}/schedule-items"),
     ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"),
@@ -53,6 +54,8 @@ MUTATION_IDEMPOTENCY = {
 }
 IDEMPOTENCY_RESPONSE_HEADERS = {"differentHash": {}, "leaseActiveSameHash": {"Retry-After": "1"}}
 EXPECTED_ERROR_CONDITIONS = {
+    "CANDIDATE_EXPIRED": "unapplied AI candidate expiresAt is at or before response time or DB clock",
+    "CANDIDATE_EVIDENCE_UNAVAILABLE": "unapplied AI version has no unique retained candidate expiry metadata",
     "INVALID_REQUEST": "request path/query/body or a non-idempotency header violates the bound closed schema",
     "IDEMPOTENCY_KEY_REQUIRED": "required Idempotency-Key header is missing",
     "IDEMPOTENCY_KEY_INVALID": "Idempotency-Key header is present but is outside 1..128 printable ASCII",
@@ -109,6 +112,7 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
 
     schemas = contract.get("schemas", {})
     expected_schema_names = {"TripPath", "ScheduleItemPath", "ScheduleQuery", "ReadHeaders", "MutationHeaders", "CreateItemRequest", "PatchItemRequest", "DeleteItemQuery", "ReorderDay", "ReorderRequest", "MoveItemRequest", "ScheduleVersion", "ItemProgress", "ScheduleItem", "ScheduleLeg", "ScheduleDay", "ScheduleResponse", "MutationResponse"}
+    expected_schema_names.add("ScheduleVersionPath")
     if set(schemas) != expected_schema_names:
         errors.append("OpenAPI schema 집합이 다릅니다.")
     elif (
@@ -136,8 +140,14 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
         if schedule_response.get("required") != ["tripId", "scheduleVersion", "days"] or schedule_response.get("properties", {}).get("scheduleVersion") != {"$ref": "ScheduleVersion", "nullable": False}:
             errors.append("OpenAPI schema ScheduleResponse binding/required가 다릅니다.")
         item = schemas.get("ScheduleItem", {})
-        if item.get("required") != ["itemId", "sequenceNo", "itemType", "placeId", "title", "plannedStartAt", "plannedEndAt", "stayMinutes", "bufferAfterMinutes", "required", "memo", "progress"]:
+        if item.get("required") != ["itemId", "sequenceNo", "itemType", "placeId", "title", "plannedStartAt", "plannedEndAt", "stayMinutes", "bufferAfterMinutes", "required", "memo", "progress", "boundaryRole"]:
             errors.append("OpenAPI schema ScheduleItem response shape가 다릅니다.")
+        item_properties = item.get("properties", {})
+        if (
+            item_properties.get("boundaryRole") != {"type": "string", "enum": ["day_start", "day_end"], "nullable": True}
+            or item_properties.get("stayMinutes") != {"type": "integer", "minimum": 0, "maximum": 1440, "nullable": False}
+        ):
+            errors.append("OpenAPI schema ScheduleItem generation boundary 계약이 다릅니다.")
         mutation = schemas.get("MutationResponse", {})
         if mutation.get("required") != ["tripId", "previousScheduleVersionId", "activeScheduleVersionId", "versionNo", "sourceType", "feasibilityStale", "changedItemIds", "etag", "updatedAt"] or mutation.get("constants") != {"sourceType": "user_edit", "feasibilityStale": True}:
             errors.append("OpenAPI schema MutationResponse/etag shape가 다릅니다.")
@@ -150,13 +160,14 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
 
     endpoints = contract.get("endpoints")
     identities = {(e.get("method"), e.get("path")) for e in endpoints} if isinstance(endpoints, list) and all(isinstance(e, dict) for e in endpoints) else set()
-    if identities != EXPECTED_ENDPOINTS or not isinstance(endpoints, list) or len(endpoints) != 6:
-        errors.append("endpoint 6개 method/path 범위가 정확하지 않습니다.")
+    if identities != EXPECTED_ENDPOINTS or not isinstance(endpoints, list) or len(endpoints) != 7:
+        errors.append("endpoint 7개 method/path 범위가 정확하지 않습니다.")
         return errors
     if len(identities) != len(endpoints):
         errors.append("endpoint method/path duplicate가 있습니다.")
 
     expected_bindings = {
+        ("GET", "/api/v1/trips/{tripId}/schedule-versions/{versionId}"): ({"path": "ScheduleVersionPath", "query": "none", "headers": "ReadHeaders", "body": "none"}, "ScheduleResponse"),
         ("GET", "/api/v1/trips/{tripId}/schedule"): ({"path": "TripPath", "query": "ScheduleQuery", "headers": "ReadHeaders", "body": "none"}, "ScheduleResponse"),
         ("POST", "/api/v1/trips/{tripId}/schedule-items"): ({"path": "TripPath", "query": "none", "headers": "MutationHeaders", "body": "CreateItemRequest"}, "MutationResponse"),
         ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"): ({"path": "ScheduleItemPath", "query": "none", "headers": "MutationHeaders", "body": "PatchItemRequest"}, "MutationResponse"),
@@ -175,7 +186,21 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
     if read.get("versionSelector") != "active when versionId omitted; explicit version must belong to same owner/trip":
         errors.append("active/explicit immutable version selector가 다릅니다.")
 
-    for endpoint in endpoints[1:]:
+    for endpoint in (e for e in endpoints if e["method"] == "GET"):
+        if endpoint.get("concurrency") != "none" or not str(endpoint.get("transaction", "")).startswith("read-only"):
+            errors.append("read-only 조회 경계가 다릅니다.")
+        if 410 not in endpoint.get("responses", {}).get("errors", []) or endpoint.get("errorMatrix", {}).get("410") != ["CANDIDATE_EXPIRED", "CANDIDATE_EVIDENCE_UNAVAILABLE"]:
+            errors.append("후보 조회 만료 410 계약이 다릅니다.")
+        if endpoint.get("candidateLifetime") != "unapplied ai_generation versions require retained candidate metadata and expiresAt after both response time and DB clock; only active/superseded with applied_at are exempt":
+            errors.append("후보 TTL과 실제 적용 일정 보존 경계가 다릅니다.")
+    alias = next(e for e in endpoints if "/schedule-versions/" in e["path"])
+    if alias.get("versionSelector") != "explicit required path versionId must belong to same owner/trip":
+        errors.append("버전 경로의 required selector가 다릅니다.")
+    version_path = schemas.get("ScheduleVersionPath", {})
+    if version_path.get("required") != ["tripId", "versionId"] or version_path.get("properties") != {key: {"type": "string", "format": "uuid", "nullable": False} for key in ("tripId", "versionId")}:
+        errors.append("버전 경로의 canonical UUID schema가 다릅니다.")
+
+    for endpoint in (e for e in endpoints if e["method"] != "GET"):
         identity = f"{endpoint['method']} {endpoint['path']}"
         if endpoint.get("requiredHeaders") != MUTATION_HEADERS:
             errors.append(f"{identity} required headers에 Authorization/Idempotency-Key/If-Match가 필요합니다.")
@@ -327,6 +352,13 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
     if any(value.get("contractVersion") != contract["contractVersion"] for value in fixtures.values()):
         errors.append("fixture contractVersion drift가 있습니다.")
     request = fixtures["request"]["examples"]
+    version_read = request.get("readVersion", {})
+    segments = str(version_read.get("path", "")).split("/")
+    if len(segments) != 7 or segments[5] != "schedule-versions" or version_read.get("method") != "GET" or "body" in version_read or "query" in version_read:
+        errors.append("명시 버전 조회 fixture의 경로/query/body가 다릅니다.")
+    else:
+        _validate_schema_value({"tripId": segments[4], "versionId": segments[6]}, contract["schemas"]["ScheduleVersionPath"], contract["schemas"], "readVersion path", errors)
+        _validate_schema_value(version_read.get("headers"), contract["schemas"]["ReadHeaders"], contract["schemas"], "readVersion headers", errors)
     if request["readActive"].get("body") is not None and "body" in request["readActive"]:
         errors.append("GET read fixture body는 금지됩니다.")
     read_segments = request["readActive"]["path"].split("/")
@@ -356,6 +388,10 @@ def _validate_fixtures(contract: dict[str, Any], conditions: dict[str, dict[str,
         payload = example.get("query") if key == "deleteItem" else example.get("body")
         _validate_schema_value(payload, contract["schemas"][payload_schema], contract["schemas"], f"{key} request", errors)
     success = fixtures["success"]["examples"]
+    version_success = success.get("readVersion", {})
+    if version_success.get("status") != 200:
+        errors.append("명시 버전 조회 success status가 다릅니다.")
+    _validate_schema_value(version_success.get("body"), contract["schemas"]["ScheduleResponse"], contract["schemas"], "readVersion success", errors)
     expected_idempotency_scenarios = {
         "completedSameHash": {"state": "COMPLETED", "hash": "same", "outcome": "replay stored status, ordered headers and body", "operationExecuted": False},
         "differentHash": {"hash": "different", "status": 409, "code": "IDEMPOTENCY_KEY_REUSED", "headers": {}},

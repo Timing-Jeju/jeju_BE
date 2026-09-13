@@ -783,7 +783,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             place_runtime["problems"]["503"],
         )
         self.assertEqual(
-            {f"{method} {path}" for method, path in expected} | {"PUT /api/v1/trips/{tripId}/day-activity-windows"},
+            {f"{method} {path}" for method, path in operations_for_mode(43)},
             set(manifest),
         )
 
@@ -791,10 +791,10 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         self.assertIn(
-            "#51 일정 편집 4개와 #239 Day 활동창 PUT까지 합친 exact 38개 operation의 프론트엔드 인계본",
+            "생성 연결을 포함한 exact 43개 operation의 프론트엔드 인계본",
             document,
         )
-        self.assertIn("active `--mode 38`", document)
+        self.assertIn("active `--mode 43`", document)
         self.assertIn("mode24는 create만, mode28은 create와 edit 4개", document)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):

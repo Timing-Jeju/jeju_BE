@@ -19,7 +19,7 @@ public final class PreferenceTransportModeRequest {
 
   @Schema(
       requiredMode = Schema.RequiredMode.REQUIRED,
-      allowableValues = {"public_transit", "rental_car", "taxi"})
+      allowableValues = {"public_transit", "rental_car", "taxi", "walk"})
   public String getMode() {
     return mode;
   }

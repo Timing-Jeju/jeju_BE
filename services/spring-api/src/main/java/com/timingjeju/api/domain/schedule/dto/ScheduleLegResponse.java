@@ -24,7 +24,11 @@ public record ScheduleLegResponse(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int waitMinutes,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int rideMinutes,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int transferMinutes,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int durationMinutes,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            description = "0분은 동일 canonical 장소의 위치 연속성에만 허용합니다.")
+        int durationMinutes,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int bufferMinutes,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,

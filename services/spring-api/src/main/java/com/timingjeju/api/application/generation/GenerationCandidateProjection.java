@@ -10,8 +10,12 @@ import tools.jackson.databind.JsonNode;
 
 /** Schema 검증을 마친 응답의 후보 집합·근거·타임라인을 함께 검증하는 내부 projection. */
 public record GenerationCandidateProjection(
-    String outcome, List<Candidate> candidates, GenerationEvidence evidence) {
+    java.time.Instant factsAsOf,
+    String outcome,
+    List<Candidate> candidates,
+    GenerationEvidence evidence) {
   public GenerationCandidateProjection {
+    java.util.Objects.requireNonNull(factsAsOf);
     candidates = List.copyOf(candidates);
     if (!("success".equals(outcome) && candidates.size() == 3)
         && !("insufficient_feasible_routes".equals(outcome) && candidates.isEmpty()))
@@ -45,7 +49,7 @@ public record GenerationCandidateProjection(
             Set.copyOf(input.transportModes()),
             stays,
             Set.of());
-    return from(response, constraints, required, avoided, approvedSources, bindings);
+    return from(response, constraints, required, avoided, approvedSources, bindings, boundary);
   }
 
   private static GenerationCandidateProjection from(
@@ -54,10 +58,13 @@ public record GenerationCandidateProjection(
       Set<String> required,
       Set<String> avoided,
       Set<String> approvedSources,
-      GenerationPlaceBindings bindings) {
+      GenerationPlaceBindings bindings,
+      GenerationDayBoundary boundary) {
+    var factsAsOf = planningInstant(response);
     var evidence = GenerationEvidence.from(response, approvedSources);
     var entrances = GenerationEntranceEvidence.from(response, approvedSources);
-    if (!GenerationCandidateSelection.accepts(response, required, avoided)) return insufficient();
+    if (!GenerationCandidateSelection.accepts(response, required, avoided))
+      return insufficient(factsAsOf);
     var scope =
         new GenerationTimeline.Scope(
             constraints.startAt(),
@@ -72,13 +79,15 @@ public record GenerationCandidateProjection(
       // canonical 미지 ID는 생성 불가로 숨기지 않고 계약/입력 장애로 전달한다.
       for (var place : candidate.get("place_ids")) bindings.canonicalId(place.asText());
       GenerationTimeline timeline;
+      GenerationScheduleDay scheduleDay;
       try {
         timeline = GenerationTimeline.from(candidate, scope, bindings);
         GenerationTransferTiming.validate(candidate);
         GenerationPlaceContinuity.validate(candidate, entrances);
+        scheduleDay = GenerationScheduleDay.from(timeline, boundary);
       } catch (GenerationException failure) {
         if (!failure.code().equals("MCP_CONTRACT_INVALID")) throw failure;
-        return insufficient();
+        return insufficient(factsAsOf);
       }
       var score = candidate.get("score").get("total");
       if (!score.isNumber()
@@ -95,6 +104,7 @@ public record GenerationCandidateProjection(
       if (totalWeight != 100
           || roundedScore(weightedTotal).compareTo(roundedScore(score.doubleValue())) != 0)
         throw GenerationException.invalidResult();
+      var totals = GenerationTotals.from(candidate.get("totals"), evidence.facts().keySet());
       candidates.add(
           new Candidate(
               candidate.get("route_id").asText(),
@@ -103,15 +113,38 @@ public record GenerationCandidateProjection(
               candidate.get("feasibility").asText(),
               score.decimalValue(),
               timeline,
-              GenerationTotals.from(candidate.get("totals"), evidence.facts().keySet())));
+              totals,
+              GenerationTransfer.from(candidate, evidence.facts().keySet()),
+              scheduleDay,
+              GenerationSelectedDay.from(timeline, totals, boundary, evidence.facts().keySet())));
     }
     candidates.sort(Comparator.comparingInt(Candidate::rank));
-    return new GenerationCandidateProjection("success", candidates, evidence);
+    return new GenerationCandidateProjection(factsAsOf, "success", candidates, evidence);
   }
 
-  private static GenerationCandidateProjection insufficient() {
+  private static GenerationCandidateProjection insufficient(java.time.Instant factsAsOf) {
     return new GenerationCandidateProjection(
-        "insufficient_feasible_routes", List.of(), new GenerationEvidence(Map.of(), Set.of()));
+        factsAsOf,
+        "insufficient_feasible_routes",
+        List.of(),
+        new GenerationEvidence(Map.of(), Set.of()));
+  }
+
+  /** 계획 평가의 기준 시각이며 개별 외부 fact의 최신성 보증이 아니다. */
+  private static java.time.Instant planningInstant(JsonNode response) {
+    try {
+      var planned =
+          java.time.OffsetDateTime.parse(
+              response.path("planning_context").path("planned_at").asText());
+      var generated = java.time.OffsetDateTime.parse(response.path("generated_at").asText());
+      var seoul = java.time.ZoneOffset.ofHours(9);
+      if (!seoul.equals(planned.getOffset())
+          || !seoul.equals(generated.getOffset())
+          || planned.isAfter(generated)) throw GenerationException.invalidResult();
+      return planned.toInstant();
+    } catch (java.time.DateTimeException failure) {
+      throw GenerationException.invalidResult();
+    }
   }
 
   private static BigDecimal roundedScore(double value) {
@@ -126,5 +159,35 @@ public record GenerationCandidateProjection(
       String feasibility,
       BigDecimal score,
       GenerationTimeline timeline,
-      GenerationTotals totals) {}
+      GenerationTotals totals,
+      List<GenerationTransfer> transfers,
+      GenerationScheduleDay scheduleDay,
+      GenerationSelectedDay history) {
+    public Candidate {
+      transfers = List.copyOf(transfers);
+    }
+
+    /** 검증된 합계의 표시용 설명이다. AI/provider 자유문을 저장 경계로 복사하지 않는다. */
+    public String explanation() {
+      var label =
+          switch (strategy) {
+            case "balanced" -> "균형형";
+            case "relaxed" -> "여유형";
+            case "experience_max" -> "경험 최대형";
+            default -> throw GenerationException.invalidResult();
+          };
+      return label
+          + " 일정 · 방문 "
+          + totals.visitMinutes()
+          + "분 · 이동 "
+          + totals.transferMinutes()
+          + "분 · 식사 "
+          + totals.mealMinutes()
+          + "분 · 휴식 "
+          + totals.restMinutes()
+          + "분 · 계획 버퍼 "
+          + totals.bufferMinutes()
+          + "분";
+    }
+  }
 }
