@@ -333,3 +333,16 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 최종 spotlessApply/test/architectureTest 성공(49초), 기존 macOS 파일시스템 9개 skip.
   독립 부분 리뷰 신규 차단 finding 0건이다. JSON Schema 선행 검증과 승인 source 집합 주입이
   사용 전제이며 전체 승인/recorder 실행은 아니다.
+
+## 후보 집합의 부분 성공·모순 응답 거부
+
+- GenerationCandidateSelection 클래스 부재 compile RED 후 정확히 세 전략/서로 다른 route ID와
+  rank 1·2·3, 필수 포함·회피 제외 및 AI와 동일한 다양성 경계값을 구현했다.
+  전략/ID만 바꾼 동일 경로는 거부하고 실제 AI가 허용하는 체류시간 차이는 인정한다.
+- 독립 리뷰에서 JSON Schema만으로 잡지 못하는 status/failure 모순을 발견했다.
+  성공+failure 응답 테스트의 expecting throwable RED 후 성공은 failure null/누락만,
+  insufficient는 후보 0개와 failure 객체가 있는 경우만 허용하도록 수정했다.
+- 전체 spotlessApply/test/architectureTest 성공(49초), 후보 집합 테스트 7개 통과.
+  독립 재검토에서 이전 finding 해소와 신규 차단 0건을 확인했다. 전체 승인은 아니다.
+- 이 판정기는 JSON Schema 선행 검증을 전제한다. MCP client 연결과 전체 시간/인접 leg/
+  canonical 장소 검증 및 원자적 저장은 후속 범위이며 아직 기능 완료로 표시하지 않는다.
