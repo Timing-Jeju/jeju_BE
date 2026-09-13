@@ -198,6 +198,9 @@ class PosixProcessGroupGuard:
             return None
         return members
 
+    def has_observed_descendant(self) -> bool:
+        return any(pid != self.root.pid for pid in self.owned)
+
 
 @dataclass(frozen=True)
 class RuntimeDiagnostics:
@@ -899,9 +902,11 @@ def wait_for_tracked_posix_process_group_drain(
     while True:
         process.poll()
         members = posix_guard.revalidate()
-        if members is None:
+        # An exiting collector can disappear between the ps snapshot and its /proc
+        # identity read. Retry that untrusted snapshot only within the existing drain deadline.
+        if members is None and not posix_guard.has_observed_descendant():
             return False
-        if not members:
+        if members is not None and not members:
             return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
