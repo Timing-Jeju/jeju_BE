@@ -77,3 +77,16 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 아직 queued HTTP 접수, 전체 저장 조건 snapshot, 실제 worker scheduler/MCP 실행,
 성공 후보 원자 저장, 결과 조회, 후보 적용은 연결되지 않았다. lease adapter와
 전용 SDK가 존재한다는 사실을 전체 생성 worker 완료로 표시하지 않는다.
+
+## #89 계약 선별 통합 및 저장 승인 진술 반영
+
+별도 최신-develop 작업 트리에서 준비한 #89의 13개 계약/검증 파일만
+`cherry-pick --no-commit`으로 가져왔다. 관련 없는 원격 브랜치를 통째로 병합하지 않았다.
+과거 메모리 전용 조건을 그대로 배포 계약으로 사용하지 않고 사용자 승인 확인 진술에
+맞춰 정규화 후보 24시간 durable 저장/복원으로 정렬했다. 제공자 서면 문서 직접 검토를
+주장하지 않으며 원문/상세 geometry/사용자 원문 저장 금지는 그대로다.
+
+보존 정책 테스트 5건이 기존 정책으로 실패하는 RED를 확인한 뒤 계약과 validator의
+의도된 semantic checksum을 함께 갱신했다. 계약 validator 및 계약/연결 테스트 51건 통과.
+새 digest: `2d9a6c4cf8f0352baa086c35f22dcf5a103e09e998f0acea4e777fff2a19636b`.
+외부 문서 readiness와 runtime implementation readiness는 아직 승격하지 않았다.
