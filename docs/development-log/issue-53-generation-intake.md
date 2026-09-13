@@ -377,3 +377,18 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   독립 부분 리뷰와 null 수정 재검토 모두 신규 차단 0건이며 전체 승인/recorder는 아니다.
 - 실제 도메인 projector의 요청·근거·canonical 장소·시간·최소 저장 검증 구현과 worker 연결은
   아직 후속 작업이다. generic projector가 존재한다는 사실을 그 검증의 완료로 간주하지 않는다.
+
+## 저장용 타임라인 검증·추출
+
+- GenerationTimeline 부재 compile RED 후 KST/활동창/Day 장소 경계, 이벤트 시간과 체류분,
+  순서·겹침, canonical 장소와 근거 ID, 유형별 합계를 검증하는 내부 projection을 구현했다.
+  이벤트·이동수단·거리·위험 코드만 추출하며 title/geometry/원본 상세는 복사하지 않는다.
+- 초기 테스트와 architecture 성공 후 실제 이동거리·risk 보존 및 허용외 수단/겹침 검사를 추가했다.
+  독립 리뷰에서 후보 place_ids와 실제 방문 장소의 연결 및 상세 시간 일관성 누락을 발견했다.
+- 두 테스트의 expecting throwable RED(6개 중 2개 실패) 후 실제 STAYS 이벤트의 장소 순서를
+  place_ids와 exact 비교했다. 상세 유형·장소와 visit arrival/entry/departure/stay_minutes도
+  외부 이벤트와 일치시킨다. 공개 계약에 없는 임의의 전체 장소 유일성 제약은 제거했다.
+- 독립 재검토에서 이전 두 finding 해소 및 신규 차단 0건이다. 전체 승인/recorder는 아니다.
+- Schema/근거 계보 선행 검증이 필요하며 이 클래스만으로 버스 상세·모든 비용/거리 집계·
+  요청 상관·원자적 저장의 완성을 의미하지 않는다. 실제 projector/worker 연결은 후속 작업이다.
+- 최종 spotlessApply/test/architectureTest 성공(49초), 타임라인 테스트 6개 통과다.
