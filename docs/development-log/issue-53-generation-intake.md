@@ -275,3 +275,24 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   runtime_generation_gateway는 active_place.fact_id로 조회한다. 승인된 canonical source ID 매핑과
   이름 필수 AccommodationInput 변환을 worker에서 연결해야 한다. 원문·좌표 임의 복사는 하지 않는다.
 - 전체 worker·후보 저장·GET·apply·FE 실연결과 최종 품질/Docker/Reviewer/PR은 아직 미완료다.
+
+## Worker용 canonical 장소 매핑
+
+- 입력 UUID를 AI fact ID로 오인하지 않도록 GenerationPlaceBindings 테스트를 먼저 작성했다.
+  클래스 부재 compile RED 후 TourAPI contentId 기반 양방향 매핑, 공식 숙소 이름 필드,
+  미지 ID/중복 canonical/중복 source ID 거부를 구현했다. 임의 이름 검색이나 좌표는 전달하지 않는다.
+- GenerationPlaceResolver application port와 JDBC adapter를 추가했다. 단일 SELECT로 성공한
+  TourAPI import, stale/tombstone/source 삭제 상태, 전체 요청 ID 존재를 확인한다.
+  SQL 오류 원문은 cause 없는 GENERATION_INPUT_UNAVAILABLE로 변환한다.
+- PostgreSQL 통합 테스트의 adapter 부재 RED 후 실제 canonical fixture 조회와 누락 ID 거부,
+  빈 입력을 검증했다. 공식 contentId 모양을 갖춘 synthetic fixture로 정렬했다.
+  spotlessApply/test/architectureTest 및 GenerationIntakeIntegrationTest 7개 성공(1분 52초).
+- 독립 부분 리뷰 신규 차단 finding 0건. 전체 승인이 아니며 recorder는 실행하지 않았다.
+  AI가 추가 발굴한 장소는 입력 allowlist에 없으므로 후보 저장에서 별도의 검증된 역매핑이 필요하다.
+- Supabase changelog와 DB 연결 문서를 확인했다. 이번 변경은 기존 서버 JDBC 읽기만 사용하고
+  스키마·RLS·ACL·배포 설정을 변경하지 않는다. 실제 로컬 PostgreSQL 쿼리로 검증했다.
+- 접수 실패 주입 테스트에서 변환 실패에도 queued run이 생성되는 RED를 확인했다(1분 7초).
+  JdbcGenerationIntakeStore가 선택/회피/시작/종료 장소를 resolve한 뒤에만 INSERT하도록 연결했다.
+  최종 spotlessApply/test/architectureTest 및 실제 DB 통합 8개 성공(1분 53초).
+  추가 접수 연결의 독립 부분 리뷰 차단 0건이다. worker 시점 publication 재검증은 여전히 필요하다.
+  #79 댓글에도 RED/GREEN 진행 근거를 기록했다. 실제 MCP 실행·후보 저장·조회·apply·최종 PR은 미완료다.

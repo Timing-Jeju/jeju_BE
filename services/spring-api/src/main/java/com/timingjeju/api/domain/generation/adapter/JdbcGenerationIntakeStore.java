@@ -22,6 +22,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
   private final StayPolicyResolver stays;
   private final CommandInputSnapshotRepository commands;
   private final GenerationTripInputRepository inputs;
+  private final GenerationPlaceResolver places;
   private final ObjectMapper mapper;
   private final boolean enabled;
   private final String airportId;
@@ -32,6 +33,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
       StayPolicyResolver stays,
       CommandInputSnapshotRepository commands,
       GenerationTripInputRepository inputs,
+      GenerationPlaceResolver places,
       ObjectMapper mapper,
       @Value("${app.schedule-generation.enabled:false}") boolean enabled,
       @Value("${app.schedule-generation.approved-airport-place-id:}") String airportId) {
@@ -40,6 +42,7 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
     this.stays = stays;
     this.commands = commands;
     this.inputs = inputs;
+    this.places = places;
     this.mapper = mapper;
     this.enabled = enabled;
     this.airportId = airportId;
@@ -117,6 +120,12 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
       var input =
           GenerationTripInput.capture(
               trip, command.targetDayId(), completed, airport, stays.resolveAll(subjects));
+      var requiredPlaceIds = new HashSet<UUID>();
+      requiredPlaceIds.add(input.boundary().startPlaceId());
+      requiredPlaceIds.add(input.boundary().endPlaceId());
+      input.places().forEach(place -> requiredPlaceIds.add(place.placeId()));
+      // AI publication identity로 변환할 수 없는 장소는 worker queue 전에 거부한다.
+      places.resolve(requiredPlaceIds, now);
       if (jdbc.queryForObject(
           """
           select exists(select 1 from public.itinerary_generation_runs

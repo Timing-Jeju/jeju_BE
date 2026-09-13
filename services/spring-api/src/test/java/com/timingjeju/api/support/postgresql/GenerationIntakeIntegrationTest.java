@@ -22,6 +22,48 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   @Autowired private GenerationIntakeStore intake;
 
   @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+  private GenerationPlaceResolver placeResolver;
+
+  @Test
+  void AI_장소_변환_실패는_queued_run을_남기지_않는다() {
+    var f = seed();
+    org.mockito.Mockito.doThrow(GenerationException.inputUnavailable())
+        .when(placeResolver)
+        .resolve(org.mockito.ArgumentMatchers.anySet(), org.mockito.ArgumentMatchers.any());
+    assertThatThrownBy(
+            () ->
+                intake.accept(
+                    f.owner(),
+                    f.trip(),
+                    1,
+                    new CreateGenerationCommand(f.day(), null, 3),
+                    Instant.now()))
+        .hasMessage("GENERATION_INPUT_UNAVAILABLE");
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.itinerary_generation_runs where trip_plan_id=?",
+                Integer.class,
+                f.trip()))
+        .isZero();
+  }
+
+  @Test
+  void worker_장소_매핑은_승인된_TourAPI_계보와_전체_ID_존재를_확인한다() {
+    var f = seed();
+    var resolver =
+        new com.timingjeju.api.domain.generation.adapter.JdbcGenerationPlaceResolver(jdbc);
+    var bindings = resolver.resolve(java.util.Set.of(f.airport()), Instant.now());
+    String contentId =
+        jdbc.queryForObject(
+            "select content_id from public.tour_places where id=?", String.class, f.airport());
+    assertThat(bindings.factId(f.airport())).isEqualTo("tourapi.place:" + contentId);
+    assertThatThrownBy(
+            () -> resolver.resolve(java.util.Set.of(f.airport(), UUID.randomUUID()), Instant.now()))
+        .hasMessage("GENERATION_INPUT_UNAVAILABLE");
+    assertThat(resolver.resolve(java.util.Set.of(), Instant.now()).factIds()).isEmpty();
+  }
+
+  @org.springframework.test.context.bean.override.mockito.MockitoSpyBean
   private GenerationTripInputRepository inputs;
 
   @Autowired private org.springframework.transaction.PlatformTransactionManager transactions;
@@ -253,7 +295,7 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
     jdbc.update(
         """
       insert into public.tour_places(id,content_id,name,normalized_name,category,region_code,location,source_provider,source_service,import_run_id,source_snapshot_id)
-      values (?,'fixture-airport','제주국제공항','제주국제공항','transport','39',ST_SetSRID(ST_MakePoint(126.49,33.50),4326),'tour-api','KorService2',?,?)
+      values (?,'79000001','제주국제공항','제주국제공항','transport','39',ST_SetSRID(ST_MakePoint(126.49,33.50),4326),'tour-api','KorService2',?,?)
       """,
         airport,
         imported,
