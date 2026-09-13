@@ -110,7 +110,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
         self.assertEqual([46, 47, 48], ownership["implementationIssues"])
         self.assertEqual(64, len(ownership["projectionSha256"]))
         self.assertEqual(
-            "9a91c53218c360d94d1492a166ad63c9d38fc3f2bab64c03b5e3e84908738cf1",
+            "8b71d188a1af25618671328f4b75eaaf90509b566c806ffd43387d93507b5433",
             ownership["wireContractSha256"],
         )
         self.assertEqual(
@@ -351,7 +351,7 @@ class PreferencesTransportContractTest(unittest.TestCase):
                 )
                 self.assertEqual("canonical JWT sub; cross-owner 404", endpoint["owner"])
                 self.assertEqual("1.0.0", endpoint["contractVersion"])
-                header = "Idempotency-Key" if endpoint["method"] in {"PUT", "DELETE"} and endpoint["path"].endswith("/transport-event") else "none"
+                header = "Idempotency-Key" if endpoint["method"] in {"PUT", "DELETE"} and endpoint["path"].endswith(("/transport-event", "/place-preferences")) else "none"
                 self.assertEqual({"required": False, "header": header}, endpoint["idempotency"])
                 self.assertEqual({"type": "none"}, endpoint["pagination"])
                 self.assertEqual({400, 401, 404, 409, 422}, set(endpoint["responses"]["errors"]))

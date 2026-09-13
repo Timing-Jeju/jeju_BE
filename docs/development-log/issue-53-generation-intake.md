@@ -1,5 +1,18 @@
 # #53 생성 접수 구현 — 요청 경계
 
+## 2026-09-14 장소 선호 멱등 연결 작업 중
+
+- 기존 place-preferences Controller가 Idempotency-Key를 무시하는 RED를 재현했다(통합 테스트 1개, 재생 헤더 누락, 10초).
+- 선택적 UUID 키가 있으면 기존 IdempotencyUseCase를 통해 구조화 command의 hash와 변경 응답 bytes/ETag를 처리한다. receipt 반환 전 TripService.read로 현재 소유권을 확인한다. 키 없는 기존 호출은 유지한다.
+- 신규 저장, receipt 재생, 비소유자 거부, 빈/비정규/중복 키를 테스트했다. 도메인 advice의 멱등 예외 누락으로 500 RED를 확인하고 공통 코드 및 Retry-After 전달을 추가했다.
+- TripPlacePreferencesControllerIntegrationTest 14개 PASS(10초). 기존 응답 필드 수 검사는 현재 DTO의 requestedStayMinutes nullable 필드를 포함하도록 수정했다.
+- OpenAPI의 누락된 키/오류 코드 테스트 2개 RED를 확인하고 canonical 계약·runtime manifest·카탈로그·문서 인터페이스를 동기화했다. 선택적 헤더의 required 생략은 false로 해석하고 UUID 형식·키 존재 여부를 별도로 검사한다. 재생 헤더와 처리 중 409 Retry-After도 기존 공통 정의로 공개한다.
+- OpenAPI 3개 테스트 및 openApiDocs PASS(19초), frontend readiness 43 operations PASS, Python 계약/readiness 54개 PASS(3.203초). wire hash는 8b71d188a1af25618671328f4b75eaaf90509b566c806ffd43387d93507b5433이다. 카탈로그에 남아 있던 과거 ferry terminal 설명도 이미 구현된 canonical 계약과 일치시켰다.
+- 실제 HTTP/PostgreSQL 공유 여행 조건 fixture에 장소 선호 3건을 추가했다. 테스트 SQL의 잘못된 trip_id 컬럼명을 실제 trip_plan_id로 바로잡은 뒤 replay·본문 충돌·소유권/삭제·validation 실패 예약 해제 2건 PASS(1분6초). 실제 preference write 이후 receipt 완료 trigger를 실패시키고 비트랜잭션 sequence로 쓰기 도달을 확인하는 rollback 검증까지 3건 PASS(1분7초). revision·선호 row·예약은 모두 원복되고 같은 키 재요청이 성공한다. 테스트 trigger/function/sequence는 finally에서 제거한다.
+- 독립 부분 리뷰 신규 차단 finding 없음. 정식 승인/recorder는 실행하지 않았다.
+- 후속 전체 unitTest 및 architectureTest PASS(22초), 기존 OS별 unit 9개 SKIP. 최종 전체 품질 게이트·Docker 완료 근거는 아니다.
+- 아직 완료 아님: FE 계약 재인계 및 동일 키 재시도 orchestration이 남았다. 전체 gate/리뷰/PR 준비 완료로 해석하지 않는다.
+
 기준 develop: `ef8aee5`, branch: `feat/53-generation-run-intake`.
 
 ## 이번 단계

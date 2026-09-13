@@ -130,6 +130,144 @@ class TransportEventHttpPostgreSqlIntegrationTest {
   }
 
   @Test
+  void 장소선호_응답유실_재시도는_DB변경없이_원래_응답을_재생한다() throws Exception {
+    String key = UUID.randomUUID().toString();
+    String body = placePreferences(90);
+    var first = putPlacePreferences(OWNER, 1, body, key);
+    assertThat(first.statusCode()).isEqualTo(200);
+    assertThat(first.headers().firstValue("Idempotency-Replayed")).contains("false");
+    var before =
+        jdbc.queryForList("select * from public.trip_place_preferences where trip_plan_id=?", TRIP);
+    var replay = putPlacePreferences(OWNER, 1, body, key);
+    assertThat(replay.statusCode()).isEqualTo(200);
+    assertThat(replay.body()).isEqualTo(first.body());
+    assertThat(replay.headers().firstValue("ETag")).isEqualTo(first.headers().firstValue("ETag"));
+    assertThat(replay.headers().firstValue("Idempotency-Replayed")).contains("true");
+    assertThat(
+            jdbc.queryForList(
+                "select * from public.trip_place_preferences where trip_plan_id=?", TRIP))
+        .isEqualTo(before);
+    assertThat(
+            jdbc.queryForObject(
+                "select revision from public.trip_plans where id=?", Long.class, TRIP))
+        .isEqualTo(2L);
+    assertProblem(
+        putPlacePreferences(OWNER, 2, placePreferences(120), key), 409, "IDEMPOTENCY_KEY_REUSED");
+    assertProblem(putPlacePreferences(OTHER, 1, body, key), 404, "TRIP_NOT_FOUND");
+    jdbc.update("delete from public.trip_plans where id=?", TRIP);
+    assertProblem(putPlacePreferences(OWNER, 1, body, key), 404, "TRIP_NOT_FOUND");
+  }
+
+  @Test
+  void 장소선호_저장실패는_변경과_receipt예약을_모두_롤백한다() throws Exception {
+    String key = UUID.randomUUID().toString();
+    assertProblem(
+        putPlacePreferences(OWNER, 1, placePreferences(1441), key),
+        422,
+        "PLACE_PREFERENCE_CONSTRAINT_VIOLATION");
+    assertThat(
+            jdbc.queryForObject(
+                "select revision from public.trip_plans where id=?", Long.class, TRIP))
+        .isEqualTo(1L);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_place_preferences where trip_plan_id=?",
+                Long.class,
+                TRIP))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.api_idempotency_records where owner_sub=? and idempotency_key=?",
+                Long.class,
+                OWNER,
+                UUID.fromString(key)))
+        .isZero();
+    assertThat(putPlacePreferences(OWNER, 1, placePreferences(90), key).statusCode())
+        .isEqualTo(200);
+  }
+
+  private String placePreferences(int stay) {
+    return "{\"items\":[{\"placeId\":\""
+        + PLACE
+        + "\",\"type\":\"preferred\",\"targetDayNo\":null,\"priority\":50,\"requestedStayMinutes\":"
+        + stay
+        + "}]}";
+  }
+
+  @Test
+  void 장소선호_쓰기후_receipt완료실패도_전체_롤백한다() throws Exception {
+    String key = UUID.randomUUID().toString();
+    jdbc.execute("create sequence public.issue53_preference_write_observed");
+    jdbc.execute(
+        """
+        create function public.issue53_reject_preference_receipt() returns trigger language plpgsql as $$
+        begin
+          if new.normalized_path = '/api/v1/trips/47300000-0000-0000-0000-000000000003/place-preferences'
+             and new.state = 'COMPLETED' then
+            if exists (select 1 from public.trip_place_preferences
+                       where trip_plan_id = '47300000-0000-0000-0000-000000000003'
+                         and requested_stay_minutes = 90) then
+              perform nextval('public.issue53_preference_write_observed');
+            end if;
+            raise exception 'fixture receipt failure';
+          end if;
+          return new;
+        end $$
+        """);
+    try {
+      jdbc.execute(
+          """
+          create trigger issue53_reject_preference_receipt before update on public.api_idempotency_records
+          for each row execute function public.issue53_reject_preference_receipt()
+          """);
+      var failed = putPlacePreferences(OWNER, 1, placePreferences(90), key);
+      assertThat(failed.statusCode()).isEqualTo(500);
+      assertThat(
+              jdbc.queryForObject(
+                  "select is_called from public.issue53_preference_write_observed", Boolean.class))
+          .isTrue();
+      assertThat(
+              jdbc.queryForObject(
+                  "select revision from public.trip_plans where id=?", Long.class, TRIP))
+          .isEqualTo(1L);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_place_preferences where trip_plan_id=?",
+                  Long.class,
+                  TRIP))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.api_idempotency_records where owner_sub=? and idempotency_key=?",
+                  Long.class,
+                  OWNER,
+                  UUID.fromString(key)))
+          .isZero();
+    } finally {
+      jdbc.execute(
+          "drop trigger if exists issue53_reject_preference_receipt on public.api_idempotency_records");
+      jdbc.execute("drop function public.issue53_reject_preference_receipt()");
+      jdbc.execute("drop sequence public.issue53_preference_write_observed");
+    }
+    assertThat(putPlacePreferences(OWNER, 1, placePreferences(90), key).statusCode())
+        .isEqualTo(200);
+  }
+
+  private HttpResponse<byte[]> putPlacePreferences(
+      UUID owner, int revision, String body, String key) throws Exception {
+    var request =
+        HttpRequest.newBuilder(endpoint("/api/v1/trips/" + TRIP + "/place-preferences"))
+            .timeout(Duration.ofSeconds(10))
+            .header("Authorization", "Bearer " + token(owner))
+            .header("Content-Type", "application/json")
+            .header("If-Match", "\"trip-" + TRIP + "-r" + revision + "\"")
+            .header("Idempotency-Key", key)
+            .PUT(HttpRequest.BodyPublishers.ofString(body))
+            .build();
+    return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+  }
+
+  @Test
   void 잘못된_멱등키는_변경없이_거부하고_실패한_저장_예약은_롤백한다() throws Exception {
     String before = fingerprint();
     for (String invalid :

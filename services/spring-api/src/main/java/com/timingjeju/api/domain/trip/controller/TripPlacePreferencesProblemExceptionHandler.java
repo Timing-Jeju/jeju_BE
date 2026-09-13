@@ -25,6 +25,18 @@ final class TripPlacePreferencesProblemExceptionHandler {
     writer.write(request, response, failure.code());
   }
 
+  @ExceptionHandler(com.timingjeju.api.application.idempotency.IdempotencyException.class)
+  void handleIdempotency(
+      com.timingjeju.api.application.idempotency.IdempotencyException failure,
+      HttpServletRequest request,
+      HttpServletResponse response)
+      throws IOException {
+    failure
+        .retryAfterSeconds()
+        .ifPresent(seconds -> response.setHeader("Retry-After", Integer.toString(seconds)));
+    writer.write(request, response, failure.code());
+  }
+
   @ExceptionHandler(ProfileProvisioningException.class)
   void handleProvisioning(
       ProfileProvisioningException failure,

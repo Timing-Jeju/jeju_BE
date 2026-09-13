@@ -72,6 +72,8 @@ class TripPlacePreferencesControllerIntegrationTest {
   @Autowired private MockMvc mvc;
   @Autowired private ObjectMapper objectMapper;
   @MockitoBean private TripPlacePreferencesService service;
+  @MockitoBean private com.timingjeju.api.application.idempotency.IdempotencyUseCase receipts;
+  @MockitoBean private com.timingjeju.api.application.trip.service.TripService trips;
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
@@ -80,8 +82,28 @@ class TripPlacePreferencesControllerIntegrationTest {
 
   @BeforeEach
   void setUp() {
-    reset(service);
+    reset(service, receipts, trips);
     when(service.replace(any(), eq(TRIP), eq(IF_MATCH), any())).thenReturn(success());
+  }
+
+  @Test
+  void 동일_장소선호_요청은_현재_소유권_확인_후_저장된_응답을_재생한다() throws Exception {
+    byte[] body = objectMapper.writeValueAsBytes(java.util.Map.of("tripId", TRIP.toString()));
+    when(receipts.execute(any(), any()))
+        .thenReturn(
+            new com.timingjeju.api.application.idempotency.IdempotencyResponse(
+                200,
+                List.of(
+                    new com.timingjeju.api.application.idempotency.IdempotencyHeader(
+                        HttpHeaders.ETAG, RESULT_ETAG)),
+                body));
+    mvc.perform(validRequest().header("Idempotency-Key", UUID.randomUUID().toString()))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Idempotency-Replayed", "true"))
+        .andExpect(header().string(HttpHeaders.ETAG, RESULT_ETAG))
+        .andExpect(content().bytes(body));
+    org.mockito.Mockito.verify(trips).read(any(), eq(TRIP));
+    verifyNoInteractions(service);
   }
 
   @Test
@@ -101,7 +123,8 @@ class TripPlacePreferencesControllerIntegrationTest {
         .andExpect(jsonPath("$.tripStatus").value("draft"))
         .andExpect(jsonPath("$.updatedAt").value("2026-09-01T03:04:05.123456Z"))
         .andExpect(jsonPath("$.items.length()").value(2))
-        .andExpect(jsonPath("$.items[0]").value(org.hamcrest.Matchers.aMapWithSize(4)))
+        .andExpect(jsonPath("$.items[0]").value(org.hamcrest.Matchers.aMapWithSize(5)))
+        .andExpect(jsonPath("$.items[0].requestedStayMinutes").isEmpty())
         .andExpect(jsonPath("$.items[0].placeId").value(PLACE_A.toString()))
         .andExpect(jsonPath("$.items[0].type").value("must_visit"))
         .andExpect(jsonPath("$.items[0].targetDayNo").value(2))
@@ -119,6 +142,46 @@ class TripPlacePreferencesControllerIntegrationTest {
         .andExpect(status().isUnauthorized());
 
     verifyNoInteractions(service);
+  }
+
+  @Test
+  void 신규_장소선호_멱등요청은_변경_결과와_ETag를_receipt에_함께_반환한다() throws Exception {
+    when(receipts.execute(any(), any()))
+        .thenAnswer(
+            invocation ->
+                invocation
+                    .getArgument(
+                        1, com.timingjeju.api.application.idempotency.IdempotencyOperation.class)
+                    .execute());
+    mvc.perform(validRequest().header("Idempotency-Key", UUID.randomUUID().toString()))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Idempotency-Replayed", "false"))
+        .andExpect(header().string(HttpHeaders.ETAG, RESULT_ETAG))
+        .andExpect(jsonPath("$.tripId").value(TRIP.toString()));
+    org.mockito.Mockito.verify(service).replace(any(), eq(TRIP), eq(IF_MATCH), any());
+  }
+
+  @Test
+  void 장소선호_receipt는_현재_여행_소유자가_아니면_조회하지_않는다() throws Exception {
+    when(trips.read(any(), eq(TRIP))).thenThrow(TripException.notFound());
+    mvc.perform(validRequest().header("Idempotency-Key", UUID.randomUUID().toString()))
+        .andExpect(status().isNotFound());
+    verifyNoInteractions(receipts, service);
+  }
+
+  @Test
+  void 장소선호의_잘못된_멱등키는_변경과_receipt_조회_전에_거부한다() throws Exception {
+    for (String key : List.of("", "not-a-uuid")) {
+      mvc.perform(validRequest().header("Idempotency-Key", key))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_INVALID"));
+    }
+    mvc.perform(
+            validRequest()
+                .header(
+                    "Idempotency-Key", UUID.randomUUID().toString(), UUID.randomUUID().toString()))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(receipts, service, trips);
   }
 
   @Test

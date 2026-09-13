@@ -69,7 +69,27 @@ class TripPlacePreferencesOpenApiIntegrationTest
                 .value(
                     containsInAnyOrder(
                         "200", "400", "401", "403", "404", "409", "422", "500", "503")))
-        .andExpect(jsonPath(operation + ".parameters").value(hasSize(2)))
+        .andExpect(jsonPath(operation + ".parameters").value(hasSize(3)))
+        .andDo(
+            result -> {
+              JsonNode parameters =
+                  objectMapper
+                      .readTree(result.getResponse().getContentAsString())
+                      .path("paths")
+                      .path("/api/v1/trips/{tripId}/place-preferences")
+                      .path("put")
+                      .path("parameters");
+              for (JsonNode parameter : parameters) {
+                if ("Idempotency-Key".equals(parameter.path("name").asText())) {
+                  assertThat(parameter.path("required").asBoolean(false)).isFalse();
+                }
+              }
+            })
+        .andExpect(
+            jsonPath(operation + ".parameters[?(@.name=='Idempotency-Key')].schema.format")
+                .value("uuid"))
+        .andExpect(
+            jsonPath(operation + ".responses['200'].headers['Idempotency-Replayed']").exists())
         .andExpect(jsonPath(operation + ".parameters[?(@.name=='tripId')].required").value(true))
         .andExpect(jsonPath(operation + ".parameters[?(@.name=='If-Match')].in").value("header"))
         .andExpect(jsonPath(operation + ".parameters[?(@.name=='If-Match')].required").value(true))
@@ -158,7 +178,7 @@ class TripPlacePreferencesOpenApiIntegrationTest
             jsonPath(
                     operation
                         + ".responses['400'].content['application/problem+json'].examples.*.value.code")
-                .value(containsInAnyOrder("INVALID_REQUEST")))
+                .value(containsInAnyOrder("INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID")))
         .andExpect(
             jsonPath(
                     operation
@@ -173,7 +193,11 @@ class TripPlacePreferencesOpenApiIntegrationTest
             jsonPath(
                     operation
                         + ".responses['409'].content['application/problem+json'].examples.*.value.code")
-                .value(containsInAnyOrder("TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT")))
+                .value(
+                    containsInAnyOrder(
+                        "TRIP_VERSION_CONFLICT",
+                        "TRIP_TERMINAL_STATE_CONFLICT",
+                        "IDEMPOTENCY_KEY_REUSED")))
         .andExpect(
             jsonPath(
                     operation

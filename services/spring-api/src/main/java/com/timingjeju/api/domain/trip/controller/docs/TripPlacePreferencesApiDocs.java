@@ -19,6 +19,14 @@ public interface TripPlacePreferencesApiDocs {
 
   @Operation(
       operationId = "tripPlacePreferencesUpdate",
+      parameters =
+          @Parameter(
+              name = "Idempotency-Key",
+              in = ParameterIn.HEADER,
+              required = false,
+              example = "53000000-0000-4000-8000-000000000001",
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN),
+              description = "같은 키·본문 재시도는 원래 응답과 ETag를 재생합니다. 키 없는 기존 호출도 지원합니다."),
       summary = "여행 희망·회피 장소 전체 교체",
       description = "찜 여부와 무관한 유효 canonical 장소로 필수·선택·회피 목록과 날짜별 체류시간을 원자적으로 전체 교체합니다.")
   @RequestBody(
@@ -33,10 +41,12 @@ public interface TripPlacePreferencesApiDocs {
   @ApiResponses({
     @ApiResponse(
         responseCode = "200",
-        headers =
-            @Header(
-                name = "ETag",
-                schema = @Schema(type = "string", pattern = "^\\\"[A-Za-z0-9._:-]{1,128}\\\"$")),
+        headers = {
+          @Header(name = "Idempotency-Replayed", schema = @Schema(type = "boolean")),
+          @Header(
+              name = "ETag",
+              schema = @Schema(type = "string", pattern = "^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"))
+        },
         content = @Content(schema = @Schema(implementation = TripPlacePreferencesResponse.class))),
     @ApiResponse(
         responseCode = "400",
@@ -69,7 +79,7 @@ public interface TripPlacePreferencesApiDocs {
                 mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
-  ResponseEntity<TripPlacePreferencesResponse> replace(
+  ResponseEntity<byte[]> replace(
       @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String tripId,
       @Parameter(

@@ -867,10 +867,14 @@ final class FrontendOpenApiCustomizer {
   private void documentTripPlacePreferencesProblems(Operation operation) {
     Map<String, List<String>> codesByStatus =
         Map.of(
-            "400", List.of("INVALID_REQUEST"),
+            "400", List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID"),
             "401", List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN"),
             "404", List.of("TRIP_NOT_FOUND", "PLACE_NOT_FOUND"),
-            "409", List.of("TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT"),
+            "409",
+                List.of(
+                    "TRIP_VERSION_CONFLICT",
+                    "TRIP_TERMINAL_STATE_CONFLICT",
+                    "IDEMPOTENCY_KEY_REUSED"),
             "422", List.of("PLACE_PREFERENCE_CONSTRAINT_VIOLATION"),
             "503", List.of("TRIP_DATA_UNAVAILABLE"));
     operation
@@ -1151,7 +1155,8 @@ final class FrontendOpenApiCustomizer {
           operation, List.of("201"), List.of("Location", "ETag", "Idempotency-Replayed"));
     } else if (key.equals("PATCH /api/v1/trips/{tripId}/accommodations/{accommodationId}")) {
       addResponseHeaderReferences(operation, List.of("200"), List.of("ETag"));
-    } else if (key.endsWith("/api/v1/trips/{tripId}/transport-event")) {
+    } else if (key.endsWith("/api/v1/trips/{tripId}/transport-event")
+        || key.equals("PUT /api/v1/trips/{tripId}/place-preferences")) {
       addResponseHeaderReferences(
           operation, List.of("200"), List.of("ETag", "Idempotency-Replayed"));
     }
@@ -1274,6 +1279,7 @@ final class FrontendOpenApiCustomizer {
             .addMediaType(
                 org.springframework.http.MediaType.APPLICATION_PROBLEM_JSON_VALUE, media));
     if ((isScheduleMutation(operationKey)
+            || "PUT /api/v1/trips/{tripId}/place-preferences".equals(operationKey)
             || "PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)
             || "DELETE /api/v1/trips/{tripId}/transport-event".equals(operationKey))
         && status == 409) {
