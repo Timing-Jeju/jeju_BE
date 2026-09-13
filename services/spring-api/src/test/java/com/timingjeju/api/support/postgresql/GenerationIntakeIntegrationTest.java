@@ -127,13 +127,18 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
 
   @org.junit.jupiter.params.ParameterizedTest
   @org.junit.jupiter.params.provider.ValueSource(
-      strings = {"normal", "rollback", "concurrent_apply"})
+      strings = {"normal", "rollback", "concurrent_apply", "manual_base"})
   void 최초_성공완료는_채워진_후보_세개를_원자저장하고_중간실패는_전체롤백한다(String scenario) {
     boolean failSecond = scenario.equals("rollback");
     var f = seed(2);
+    var initialBase = scenario.equals("manual_base") ? seedManualSchedule(f) : null;
     var accepted =
         intake.accept(
-            f.owner(), f.trip(), 1, new CreateGenerationCommand(f.day(), null, 3), Instant.now());
+            f.owner(),
+            f.trip(),
+            1,
+            new CreateGenerationCommand(f.day(), initialBase, 3),
+            Instant.now());
     var leases = new com.timingjeju.api.global.generation.JdbcGenerationLeaseRepository(jdbc);
     var lease =
         leases
@@ -290,6 +295,85 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
       return;
     }
     assertThat(store.complete(lease, result, Instant.now().plusSeconds(120))).isTrue();
+    if (initialBase != null) {
+      assertThat(
+              jdbc.queryForList(
+                  "select coverage_through_day_no from public.trip_schedule_versions where trip_plan_id=? and status='candidate'",
+                  Integer.class,
+                  f.trip()))
+          .containsExactly(2, 2, 2);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_items i join public.trip_days d on d.id=i.trip_day_id join public.trip_schedule_versions v on v.id=i.schedule_version_id where i.trip_plan_id=? and d.day_no=2 and v.status='candidate' and i.title='수동 일정' and i.stay_minutes=60 and i.source='user_input'",
+                  Integer.class,
+                  f.trip()))
+          .isEqualTo(3);
+      var selected =
+          jdbc.queryForMap(
+              "select id,schedule_version_id from public.itinerary_generation_candidates where generation_run_id=? and rank_no=1",
+              lease.runId());
+      assertThat(
+              schedules
+                  .readOwned(f.owner(), f.trip(), initialBase, Instant.now())
+                  .schedule()
+                  .days())
+          .extracting(
+              com.timingjeju.api.application.schedule.ScheduleDaySnapshot::hasGenerationResult)
+          .containsExactly(false, false);
+      assertThat(
+              schedules
+                  .readOwned(
+                      f.owner(),
+                      f.trip(),
+                      (UUID) selected.get("schedule_version_id"),
+                      Instant.now())
+                  .schedule()
+                  .days())
+          .extracting(
+              com.timingjeju.api.application.schedule.ScheduleDaySnapshot::hasGenerationResult)
+          .containsExactly(true, false);
+      applications.apply(
+          f.owner(),
+          f.trip(),
+          lease.runId(),
+          (UUID) selected.get("id"),
+          1,
+          initialBase,
+          Instant.now());
+      assertThat(
+              jdbc.queryForObject(
+                  "select active_schedule_version_id from public.trip_plans where id=?",
+                  UUID.class,
+                  f.trip()))
+          .isEqualTo(selected.get("schedule_version_id"));
+      assertThat(schedules.readOwned(f.owner(), f.trip(), null, Instant.now()).schedule().days())
+          .extracting(
+              com.timingjeju.api.application.schedule.ScheduleDaySnapshot::hasGenerationResult)
+          .containsExactly(true, false);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_items where schedule_version_id=?",
+                  Integer.class,
+                  initialBase))
+          .isEqualTo(2);
+      jdbc.update(
+          "update public.trip_place_preferences set target_day_no=2,preference_type='preferred' where trip_plan_id=?",
+          f.trip());
+      var nextDay =
+          jdbc.queryForObject(
+              "select id from public.trip_days where trip_plan_id=? and day_no=2",
+              UUID.class,
+              f.trip());
+      var next =
+          intake.accept(
+              f.owner(),
+              f.trip(),
+              2,
+              new CreateGenerationCommand(nextDay, (UUID) selected.get("schedule_version_id"), 3),
+              Instant.now());
+      assertThat(inputs.find(next.runId()).orElseThrow().input().boundary().dayNo()).isEqualTo(2);
+      return;
+    }
     assertThat(
             jdbc.queryForObject(
                 """
@@ -1538,6 +1622,56 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
                 Integer.class,
                 f.trip()))
         .isZero();
+  }
+
+  @Test
+  void 수동_일정이_모든_Day에_있어도_첫_AI_생성은_Day1을_접수한다() {
+    var f = seed(2);
+    var base = seedManualSchedule(f);
+    var accepted =
+        intake.accept(
+            f.owner(), f.trip(), 1, new CreateGenerationCommand(f.day(), base, 3), Instant.now());
+    var input = inputs.find(accepted.runId()).orElseThrow().input();
+    assertThat(input.baseScheduleVersionId()).isEqualTo(base);
+    assertThat(input.boundary().dayNo()).isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_items where schedule_version_id=?",
+                Integer.class,
+                base))
+        .isEqualTo(2);
+  }
+
+  private UUID seedManualSchedule(Fixture f) {
+    var base = UUID.randomUUID();
+    new org.springframework.transaction.support.TransactionTemplate(transactions)
+        .executeWithoutResult(
+            ignored -> {
+              jdbc.update(
+                  "insert into public.trip_schedule_versions(id,trip_plan_id,version_no,status,source_type,created_by_user_id) values (?,?,1,'draft','user_edit',?)",
+                  base,
+                  f.trip(),
+                  f.owner());
+              jdbc.update(
+                  """
+              insert into public.trip_items(trip_plan_id,trip_day_id,schedule_version_id,sequence_no,
+                item_type,title,planned_start_at,planned_end_at,stay_minutes,source)
+              select trip_plan_id,id,?,1,'custom','수동 일정',
+                (trip_date+time '12:00') at time zone 'Asia/Seoul',
+                (trip_date+time '13:00') at time zone 'Asia/Seoul',60,'user_input'
+              from public.trip_days where trip_plan_id=?
+              """,
+                  base,
+                  f.trip());
+              jdbc.update(
+                  "update public.trip_schedule_versions set status='active',applied_at=now() where id=?",
+                  base);
+              jdbc.update(
+                  "update public.trip_plans set active_schedule_version_id=?,status='planned' where id=?",
+                  base,
+                  f.trip());
+            });
+    return base;
   }
 
   private Fixture seed() {

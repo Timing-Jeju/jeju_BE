@@ -155,6 +155,27 @@ class GenerationTripSnapshotIntegrationTest extends PostgreSqlRepositoryIntegrat
   }
 
   @Test
+  void DB도_Day1의_기존_기준버전을_허용한다() {
+    var snapshot = seed();
+    var mapper = JsonMapper.builder().build();
+    var json = (tools.jackson.databind.node.ObjectNode) mapper.readTree(snapshot.canonicalInput());
+    json.put("baseScheduleVersionId", UUID.randomUUID().toString());
+    assertThat(
+            jdbc.queryForObject(
+                "select timing_jeju_planner_private.generation_trip_input_valid(?::jsonb)",
+                Boolean.class,
+                mapper.writeValueAsString(json)))
+        .isTrue();
+    json.put("baseScheduleVersionId", "잘못된 버전");
+    assertThat(
+            jdbc.queryForObject(
+                "select timing_jeju_planner_private.generation_trip_input_valid(?::jsonb)",
+                Boolean.class,
+                mapper.writeValueAsString(json)))
+        .isFalse();
+  }
+
+  @Test
   void DB는_활동창과_장소_선호의_변조도_거부한다() {
     var snapshot = seed();
     var mapper = JsonMapper.builder().build();

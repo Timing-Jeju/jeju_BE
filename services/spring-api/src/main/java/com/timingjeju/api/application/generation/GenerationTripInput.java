@@ -54,7 +54,7 @@ public record GenerationTripInput(
         || days.size() > 5
         || boundary.dayNo() < 1
         || boundary.dayNo() > days.size()
-        || ((boundary.dayNo() == 1) != (base == null))) throw invalid();
+        || (boundary.dayNo() > 1 && base == null)) throw invalid();
     var ids = new HashSet<UUID>();
     for (int n = 0; n < days.size(); n++) {
       var day = days.get(n);
@@ -184,7 +184,7 @@ public record GenerationTripInput(
     var days = trip.days().stream().sorted(Comparator.comparingInt(TripDay::dayNo)).toList();
     if (!trip.startDate().equals(days.getFirst().date())
         || !trip.endDate().equals(days.getLast().date())) throw invalid();
-    if ((completedThroughDayNo == 0) != (trip.activeScheduleVersionId() == null)) throw invalid();
+    if (completedThroughDayNo > 0 && trip.activeScheduleVersionId() == null) throw invalid();
     var modes =
         trip.transportModes().stream()
             .sorted(Comparator.comparingInt(TripTransportMode::priority))

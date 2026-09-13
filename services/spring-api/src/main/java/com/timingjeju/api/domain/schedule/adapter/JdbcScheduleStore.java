@@ -67,7 +67,7 @@ public class JdbcScheduleStore implements ScheduleStore {
       validateRoot(root);
       validateCandidateLifetime(root, responseTime);
 
-      List<DayRow> days = readDays(tripId);
+      List<DayRow> days = readDays(tripId, root.versionId());
       List<ItemRow> items = readItems(tripId, root.versionId());
       List<LegRow> legs = readLegs(tripId, root.versionId());
       var schedule = assemble(root, days, items, legs, responseTime);
@@ -137,19 +137,24 @@ public class JdbcScheduleStore implements ScheduleStore {
     return rows.isEmpty() ? null : rows.getFirst();
   }
 
-  private List<DayRow> readDays(UUID tripId) {
+  private List<DayRow> readDays(UUID tripId, UUID versionId) {
     return jdbc.query(
         """
-        select id, day_no, trip_date
-        from public.trip_days
-        where trip_plan_id = ?
-        order by day_no asc, id asc
+        select d.id, d.day_no, d.trip_date,
+          exists(select 1 from timing_jeju_planner_private.generation_day_results r
+            where r.trip_plan_id=d.trip_plan_id and r.trip_day_id=d.id
+              and r.schedule_version_id=?) as has_generation_result
+        from public.trip_days d
+        where d.trip_plan_id = ?
+        order by d.day_no asc, d.id asc
         """,
         (rs, rowNum) ->
             new DayRow(
                 rs.getObject("id", UUID.class),
                 requiredInteger(rs, "day_no"),
-                requiredDate(rs, "trip_date")),
+                requiredDate(rs, "trip_date"),
+                rs.getBoolean("has_generation_result")),
+        versionId,
         tripId);
   }
 
@@ -242,7 +247,12 @@ public class JdbcScheduleStore implements ScheduleStore {
       validateAdjacency(day.items, day.legs);
       days.add(
           new ScheduleDaySnapshot(
-              day.day.id(), day.day.dayNo(), day.day.date(), day.items, day.legs));
+              day.day.id(),
+              day.day.dayNo(),
+              day.day.date(),
+              day.items,
+              day.legs,
+              day.day.hasGenerationResult()));
     }
     boolean stale = !fresh(root, responseTime);
     return new ScheduleSnapshot(
@@ -553,7 +563,7 @@ public class JdbcScheduleStore implements ScheduleStore {
     }
   }
 
-  private record DayRow(UUID id, int dayNo, LocalDate date) {}
+  private record DayRow(UUID id, int dayNo, LocalDate date, boolean hasGenerationResult) {}
 
   private record ItemRow(
       UUID id,

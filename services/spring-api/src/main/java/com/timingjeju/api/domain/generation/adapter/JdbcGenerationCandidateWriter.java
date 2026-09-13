@@ -25,6 +25,21 @@ final class JdbcGenerationCandidateWriter {
     var input = snapshot.input();
     var day = candidate.scheduleDay();
     if (!day.dayId().equals(input.boundary().dayId())) throw GenerationException.invalidResult();
+    int coverage = input.boundary().dayNo();
+    if (input.baseScheduleVersionId() != null) {
+      var baseCoverage =
+          jdbc.queryForObject(
+              """
+          select coalesce(coverage_through_day_no, ?) from public.trip_schedule_versions
+          where id=? and trip_plan_id=? and status='active'
+          """,
+              Integer.class,
+              input.days().size(),
+              input.baseScheduleVersionId(),
+              input.tripId());
+      if (baseCoverage == null) throw GenerationException.invalidResult();
+      coverage = Math.max(coverage, baseCoverage);
+    }
     var version = UUID.randomUUID();
     jdbc.update(
         """
@@ -38,7 +53,7 @@ final class JdbcGenerationCandidateWriter {
         input.tripId(),
         input.baseScheduleVersionId(),
         snapshot.ownerId(),
-        input.boundary().dayNo(),
+        coverage,
         input.tripId());
     copyOtherDays(input, version);
     var ids = new HashMap<Integer, UUID>();

@@ -219,6 +219,7 @@ echo "[Docker] Health Check 성공"
 # Zero-duration day boundaries follow at /docker-entrypoint-initdb.d/065_generation_schedule_boundaries.sql.
 # Exact generation scores follow at /docker-entrypoint-initdb.d/066_generation_result_projection.sql.
 # Unresolved ferry terminals follow at /docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql.
+# Existing manual Day 1 bases follow at /docker-entrypoint-initdb.d/068_generation_existing_base_input.sql.
 # Planner place drafts follow at /docker-entrypoint-initdb.d/061_planner_place_preferences.sql.
 # Verify the owner-only cutover marker and zero counts without logging user values.
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

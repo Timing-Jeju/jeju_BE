@@ -72,7 +72,8 @@
     {"path":"supabase/migrations/20260918000026_generation_trip_snapshot.sql","initSlot":"064","owner":{"issue":53,"pullRequest":null},"sha256":"0ba77fa6bda15fc75322ecafe95b8a10e65bb1077a3e817fa4ecbbf0795c343b","dependencies":["20260918000025_sequential_schedule_coverage.sql"]},
     {"path":"supabase/migrations/20260918000027_generation_schedule_boundaries.sql","initSlot":"065","owner":{"issue":53,"pullRequest":null},"sha256":"ef8fb0539056b7a965e733ae96d64a805e2b75a20cff80b92889ea20a135348d","dependencies":["20260918000026_generation_trip_snapshot.sql"]},
     {"path":"supabase/migrations/20260918000028_generation_result_projection.sql","initSlot":"066","owner":{"issue":53,"pullRequest":null},"sha256":"567d79cb350cf880f50ccbc79ab016eb39e28b10c8e2588fb71681343a7c90a8","dependencies":["20260918000027_generation_schedule_boundaries.sql"]},
-    {"path":"supabase/migrations/20260918000029_trip_ferry_unresolved_terminal.sql","initSlot":"067","owner":{"issue":53,"pullRequest":null},"sha256":"3ce244d91f8ddc7d6c0e6ec80d5c0c079ace7605d92670227235e4e9b1982c80","dependencies":["20260918000028_generation_result_projection.sql"]}
+    {"path":"supabase/migrations/20260918000029_trip_ferry_unresolved_terminal.sql","initSlot":"067","owner":{"issue":53,"pullRequest":null},"sha256":"3ce244d91f8ddc7d6c0e6ec80d5c0c079ace7605d92670227235e4e9b1982c80","dependencies":["20260918000028_generation_result_projection.sql"]},
+    {"path":"supabase/migrations/20260918000030_generation_existing_base_input.sql","initSlot":"068","owner":{"issue":53,"pullRequest":null},"sha256":"3b251af5b8c3beb3e454c0195bab939bb0f1f9285319812b355caecff3c8e039","dependencies":["20260918000029_trip_ferry_unresolved_terminal.sql"]}
   ],
   "seedInitSlot": "099"
 }

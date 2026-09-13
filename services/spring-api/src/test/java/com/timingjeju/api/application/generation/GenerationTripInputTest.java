@@ -235,6 +235,50 @@ class GenerationTripInputTest {
   }
 
   @Test
+  void 기존_수동_활성버전이_있어도_Day1_입력을_기준버전과_함께_고정한다() {
+    var original = trip(90);
+    UUID base = new UUID(53, 99);
+    var existing =
+        new TripAggregate(
+            original.tripId(),
+            original.revision(),
+            original.title(),
+            "planned",
+            original.startDate(),
+            original.endDate(),
+            original.timezone(),
+            original.userPace(),
+            original.transportModes(),
+            original.days(),
+            base,
+            original.totalScore(),
+            original.scoreProvenance(),
+            original.createdAt(),
+            original.updatedAt(),
+            original.transportEvents(),
+            original.accommodations(),
+            original.placePreferences(),
+            original.plannerConditions());
+    var input = GenerationTripInput.capture(existing, DAY, 0, AIRPORT, Map.of());
+    assertThat(input.baseScheduleVersionId()).isEqualTo(base);
+    assertThat(input.boundary().dayNo()).isEqualTo(1);
+    assertThat(input.validatePreviousDays(List.of())).isEmpty();
+    var mapper = JsonMapper.builder().build();
+    var snapshot =
+        GenerationTripSnapshot.create(new UUID(53, 100), new UUID(53, 101), input, mapper);
+    assertThat(
+            GenerationTripSnapshot.restore(
+                    snapshot.runId(),
+                    snapshot.ownerId(),
+                    snapshot.canonicalInput(),
+                    snapshot.inputHash(),
+                    mapper)
+                .input()
+                .baseScheduleVersionId())
+        .isEqualTo(base);
+  }
+
+  @Test
   void 체류시간이_없거나_검증된_추천이_아니면_60분으로_대체하지_않는다() {
     for (var policies :
         List.of(
@@ -247,6 +291,59 @@ class GenerationTripInputTest {
       assertThatThrownBy(() -> GenerationTripInput.capture(trip(null), DAY, 0, AIRPORT, policies))
           .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
     }
+  }
+
+  @Test
+  void Day2는_이전_활성버전_없이_생성할_수_없다() {
+    var day2 = new UUID(53, 102);
+    var first = trip(90);
+    var secondDate = DATE.plusDays(1);
+    var days =
+        List.of(
+            first.days().getFirst(),
+            new TripDay(day2, 2, secondDate, LocalTime.of(9, 0), LocalTime.of(21, 0)));
+    var boundary =
+        new GenerationDayBoundary(
+            day2,
+            2,
+            PLACE,
+            AIRPORT,
+            secondDate.atTime(9, 0).atOffset(ZoneOffset.ofHours(9)),
+            secondDate.atTime(18, 0).atOffset(ZoneOffset.ofHours(9)));
+    var original = GenerationTripInput.capture(first, DAY, 0, AIRPORT, Map.of());
+    assertThatThrownBy(
+            () ->
+                new GenerationTripInput(
+                    TRIP,
+                    7,
+                    null,
+                    boundary,
+                    AIRPORT,
+                    days,
+                    List.of(new TripPlannerConditions.DayAnchor(DAY, PLACE)),
+                    List.of(new TripPlacePreference(PLACE, "must_visit", 2, 100, 90)),
+                    original.transportModes(),
+                    original.preferredCategories(),
+                    original.relaxedPace(),
+                    original.places()))
+        .hasMessage("GENERATION_INPUT_CONSTRAINT_VIOLATION");
+    assertThat(
+            new GenerationTripInput(
+                    TRIP,
+                    7,
+                    new UUID(53, 99),
+                    boundary,
+                    AIRPORT,
+                    days,
+                    List.of(new TripPlannerConditions.DayAnchor(DAY, PLACE)),
+                    List.of(new TripPlacePreference(PLACE, "must_visit", 2, 100, 90)),
+                    original.transportModes(),
+                    original.preferredCategories(),
+                    original.relaxedPace(),
+                    original.places())
+                .boundary()
+                .dayNo())
+        .isEqualTo(2);
   }
 
   private static TripAggregate trip(Integer stay) {

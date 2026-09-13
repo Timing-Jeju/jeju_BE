@@ -516,6 +516,23 @@ class SchedulesContractTest(unittest.TestCase):
         """일정 정식 계약과 예제 및 카탈로그를 함께 검증한다."""
         self.assertEqual([], self.validator.validate())
 
+    def test_validator_rejects_generation_result_flag_drift(self) -> None:
+        """AI 이력 존재 여부가 누락되거나 nullable 또는 문자열로 바뀌면 거부한다."""
+        mutations = (
+            ("필수 누락", lambda day: day["required"].remove("hasGenerationResult")),
+            ("속성 누락", lambda day: day["properties"].pop("hasGenerationResult")),
+            ("널 허용", lambda day: day["properties"]["hasGenerationResult"].update(nullable=True)),
+            ("문자열 변경", lambda day: day["properties"]["hasGenerationResult"].update(type="string")),
+        )
+        for purpose, mutate in mutations:
+            with self.subTest(purpose=purpose), tempfile.TemporaryDirectory() as temporary:
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate["schemas"]["ScheduleDay"])
+                path = Path(temporary) / "contract.json"
+                path.write_text(json.dumps(candidate), encoding="utf-8")
+                errors = self.validator.validate(path, skip_catalog_fixtures=True)
+                self.assertTrue(any("generation result flag" in error for error in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

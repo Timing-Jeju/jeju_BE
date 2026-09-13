@@ -2001,7 +2001,7 @@ final class FrontendOpenApiCustomizer {
             "일정",
             null,
             """
-            {"tripId":"49000000-0000-4000-8000-000000000001","scheduleVersion":{"scheduleVersionId":"49000000-0000-4000-8000-000000000002","versionNo":1,"status":"active","sourceType":"initial","baseScheduleVersionId":null,"score":81,"feasibilityStale":false},"days":[{"dayId":"49000000-0000-4000-8000-000000000003","dayNo":1,"date":"2026-09-01","items":[{"itemId":"49000000-0000-4000-8000-000000000004","sequenceNo":1,"itemType":"custom","placeId":null,"title":"공항 도착","plannedStartAt":"2026-09-01T09:00:00+09:00","plannedEndAt":"2026-09-01T10:00:00+09:00","stayMinutes":60,"bufferAfterMinutes":0,"required":true,"memo":null,"progress":null,"boundaryRole":null}],"legs":[]}]}
+            {"tripId":"49000000-0000-4000-8000-000000000001","scheduleVersion":{"scheduleVersionId":"49000000-0000-4000-8000-000000000002","versionNo":1,"status":"active","sourceType":"initial","baseScheduleVersionId":null,"score":81,"feasibilityStale":false},"days":[{"dayId":"49000000-0000-4000-8000-000000000003","dayNo":1,"date":"2026-09-01","items":[{"itemId":"49000000-0000-4000-8000-000000000004","sequenceNo":1,"itemType":"custom","placeId":null,"title":"공항 도착","plannedStartAt":"2026-09-01T09:00:00+09:00","plannedEndAt":"2026-09-01T10:00:00+09:00","stayMinutes":60,"bufferAfterMinutes":0,"required":true,"memo":null,"progress":null,"boundaryRole":null}],"legs":[],"hasGenerationResult":false}]}
             """,
             Map.of(
                 "400", "INVALID_REQUEST",

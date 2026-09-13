@@ -709,7 +709,8 @@
         "dayNo",
         "date",
         "items",
-        "legs"
+        "legs",
+        "hasGenerationResult"
       ],
       "properties": {
         "dayId": {
@@ -740,6 +741,11 @@
           "items": {
             "$ref": "ScheduleLeg"
           }
+        },
+        "hasGenerationResult": {
+          "type": "boolean",
+          "nullable": false,
+          "description": "Whether this schedule version has a validated AI generation result for this day; independent of candidate application status."
         }
       }
     },

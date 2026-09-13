@@ -96,7 +96,7 @@ class MobilityOwnershipContractTest {
     // 생성 접수/조회/적용 controller의 class RequestMapping과 POST/GET mapping을 모두 센다.
     assertThat(mappingAnnotationCount()).isEqualTo(64);
     assertThat(migrationInventory())
-        .hasSize(65)
+        .hasSize(66)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -114,11 +114,12 @@ class MobilityOwnershipContractTest {
             "20260918000026_generation_trip_snapshot.sql",
             "20260918000027_generation_schedule_boundaries.sql",
             "20260918000028_generation_result_projection.sql",
-            "20260918000029_trip_ferry_unresolved_terminal.sql");
+            "20260918000029_trip_ferry_unresolved_terminal.sql",
+            "20260918000030_generation_existing_base_input.sql");
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260918000029_trip_ferry_unresolved_terminal.sql");
+        .isEqualTo("20260918000030_generation_existing_base_input.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {

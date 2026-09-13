@@ -90,16 +90,23 @@ public class JdbcGenerationIntakeStore implements GenerationIntakeStore {
         throw GenerationException.inputConstraintViolation();
       int completed = 0;
       if (trip.activeScheduleVersionId() != null) {
-        completed =
-            jdbc.queryForObject(
+        // 일정 coverage와 AI 적용 진도는 다르다. 수동 일정은 AI 완료로 세지 않는다.
+        var generatedDays =
+            jdbc.queryForList(
                 """
-            select coalesce(coverage_through_day_no, ?) from public.trip_schedule_versions
-            where id=? and trip_plan_id=? and status='active'
+            select d.day_no from timing_jeju_planner_private.generation_day_results r
+            join public.trip_days d on d.id=r.trip_day_id and d.trip_plan_id=r.trip_plan_id
+            join public.trip_schedule_versions v on v.id=r.schedule_version_id and v.trip_plan_id=r.trip_plan_id
+            where r.schedule_version_id=? and r.trip_plan_id=? and v.status='active'
+            order by d.day_no
             """,
                 Integer.class,
-                trip.days().size(),
                 trip.activeScheduleVersionId(),
                 tripId);
+        for (int index = 0; index < generatedDays.size(); index++) {
+          if (generatedDays.get(index) != index + 1) throw GenerationException.inputUnavailable();
+        }
+        completed = generatedDays.size();
       }
       UUID airport = resolveAirport();
       var subjects = new ArrayList<StayPolicySubject>();

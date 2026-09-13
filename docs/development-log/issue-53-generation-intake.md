@@ -1,5 +1,23 @@
 # #53 생성 접수 구현 — 요청 경계
 
+## 2026-09-14 기존 수동 일정의 첫 AI 생성 연결 점검 중
+
+- Supabase 스킬의 전체 advisors 해결 절차는 기존 확장 baseline 때문에 이번 기능 범위에서 그대로 완료할 수 없었다. fallback으로 이번030의 권한/검색 경로 직접 검증 및 독립 부분 검토를 수행하고 미해결 baseline ERROR/WARN을 그대로 기록한다. 이는 예외 승인 또는 보안 게이트 통과가 아니며 최종 PR 검토에서 공개해야 한다. 동결 migration이나 확장 배치를 바꾸지 않는다.
+- 최신 단위/아키텍처 검사 PASS(45초, OS 조건9 SKIP), OpenAPI 예제의 hasGenerationResult 누락을 수정한 뒤 frontend-readiness43 PASS. FE 생성 판정13개 및 전체372개 PASS, 타입/린트/StyleSheet58 검사 PASS. 새 생성 계약의 source SHA 인계는 아직 미완료다.
+- 격리 Compose fresh DB에030까지 적용된 것을 확인하고 Supabase security advisors를 실행했다. 기존 public.spatial_ref_sys RLS ERROR1, public 확장 WARN4(pgcrypto/postgis/btree_gist/fuzzystrmatch)이 있어 전체 advisors는 FAIL이다. 초기 migration의 확장 설치 및 PostGIS image 초기화에 속하며 이번030은 확장을 변경하지 않는다.030 함수 직접 검사: SECURITY INVOKER, 빈 search_path, anon/authenticated EXECUTE 없음, service_role EXECUTE 있음 모두 확인. 기준선 문제를 이번 변경과 분리하는 부분 리뷰를 요청했다. 임시 컨테이너/네트워크는 정리했으며 운영 DB 변경 없음.
+- 수동 base 적용 후 Day2 접수까지 확장한4개 회귀 PASS(1분42초). 이후 조회 플래그 RED([false,false] 대신 [true,false] 기대)를 확인하고 JdbcScheduleStore가 조회 버전 ID/Trip/Day로 generation_day_results 존재를 읽도록 연결했다. 후보/활성/원래 수동 버전 조회를 포함한4개 DB 회귀 PASS(1분28초). DTO/조회 단위 검사 PASS, 일정 계약24개 PASS. hasGenerationResult는 후보 적용 여부가 아니라 해당 버전의 날짜별 AI 결과 존재를 뜻한다. OpenAPI 검사/재생성은 진행 중이며 FE는 아직 이전 항목 존재 판정을 사용한다.
+- 후보 writer First RED는 manual_base 시나리오가 `item exceeds sequential schedule coverage`로 봉인 실패한 것으로 확인했다(4개 중 1개 실패, 2분 6초). coverage를 max(대상 Day, 기존 base coverage)로 보존하고 null 기존 coverage는 여행 전체 날짜 수로 해석하도록 수정했다. 변경 후 수동 접수 및 후보 정상/롤백/동시 적용/수동 base 보존 5개 PASS(2분 3초, skip·failure·error 0). 이후 수동 base 적용 후 Day2 접수 assertion을 추가했으므로 해당 확장 회귀는 별도로 재실행 중이다.
+- 독립 reviewer의 읽기 전용 부분 검토에서 입력/030/prefix 판정과 writer coverage 각각 신규 차단 finding 0건이다. 이는 최종 develop...HEAD 승인이나 승인 상태 기록이 아니다.
+- intake 진도 분리 후 수동 전체 일정의 Day1 접수 및 기존 정상/중간 실패 롤백/동시 적용 회귀 4개 PASS(2분 1초, skip·failure·error 0)를 확인했다. 후보 writer에 대해서는 별도 manual_base 시나리오를 추가해 기존 Day2를 세 후보에 복사하고 기존 base를 예상 버전으로 적용하는 검증을 실행 중이다.
+- 수동 이틀 일정 접수 First RED: 최초 fixture의 잘못된 manual_edit enum 실패는 제품 RED에서 제외했다. user_edit로 수정한 재실행에서 GENERATION_INPUT_CONSTRAINT_VIOLATION을 확인했다(1분 45초). intake는 coverage 대신 현재 활성 버전의 generation_day_results를 날짜순으로 읽고 연속 prefix를 검증하도록 수정했다. 수동 첫 생성 및 기존 최초 성공/롤백/동시 적용 회귀를 함께 실행 중이며 아직 GREEN으로 보고하지 않는다.
+- DB First RED는 Day1/non-null base 검증이 false인 것으로 재현됐다(1분 4초). CLI로 생성한 후속030에서 해당 양방향 조건만 완화했으며 invoker/빈 search_path/클라이언트 실행 금지는 유지했다. manifest SHA, 세 Compose 실행 목록, canonical inventory를 연결했다.
+- 변경 후 GenerationTripSnapshotIntegrationTest 11개 PASS(실패·오류·skip 0, 1분 22초), canonical migration 검사 14개 PASS, diff-check PASS. 이는 입력 DB 검증이며 intake→후보→적용 전체 검증은 아니다. 아래 DB026 제약은 후속030으로 대체됐고, intake 진도 및 writer coverage 수정은 여전히 남아 있다. 운영 DB는 변경하지 않았다.
+- 기존 활성 버전을 가진 Day1 capture가 GENERATION_INPUT_CONSTRAINT_VIOLATION으로 거부되는 RED(4초)를 확인했다. Java 입력 모델은 Day1의 nullable/non-null base를 모두 허용하고 Day2 이후에는 non-null base를 계속 요구하도록 수정했다.
+- 기존 수동 base를 snapshot create/restore에서 보존하는 경우와 정상 Day2/non-null base 및 Day2/null 거부를 검증했다. GenerationTripInputTest 14개 PASS(4초), diff-check PASS. 아직 미커밋이며 전체 연결 완료가 아니다.
+- 남은 연결 원인: intake가 coverage_through_day_no를 AI 적용 진도로 해석하고 null coverage를 전체 완료로 간주한다. 후보 writer도 target Day를 coverage로 사용하므로 기존 수동 일정의 미래 Day 복사와 충돌한다. DB026 snapshot validator에도 Day1↔null base 양방향 제약이 남아 있다.
+- 다음 변경은 실제 generation_day_results의 연속 이력을 AI 진도로 사용하고, 일정 coverage는 기존 전체 일정 보존과 별도로 유지해야 한다. FE의 첫 미완료 Day 판정도 항목 존재 여부만으로 AI 완료를 추론하지 않도록 계약을 확인해야 한다.
+- Supabase 스킬/CLI migration new 도움말과 공식 migration 문서를 확인했다. 동결된026을 수정하지 않고 후속 additive migration으로 DB 의미 검증을 변경해야 한다. 운영 DB 변경이나 migration 적용은 아직 하지 않았다.
+
 ## 2026-09-14 장소 선호 멱등 연결 작업 중
 
 - 기존 place-preferences Controller가 Idempotency-Key를 무시하는 RED를 재현했다(통합 테스트 1개, 재생 헤더 누락, 10초).

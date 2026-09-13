@@ -128,6 +128,14 @@ def validate(contract_path: Path = DEFAULT_CONTRACT, skip_catalog_fixtures: bool
             if not isinstance(schema, dict) or schema.get("type") != "object" or schema.get("nullable") is not False or schema.get("additionalProperties") is not False or not isinstance(schema.get("required"), list) or not isinstance(schema.get("properties"), dict):
                 errors.append(f"OpenAPI schema {name}가 closed object가 아닙니다.")
         leg = schemas.get("ScheduleLeg", {}).get("properties", {})
+        day = schemas.get("ScheduleDay", {})
+        generation_flag = day.get("properties", {}).get("hasGenerationResult", {})
+        if (
+            "hasGenerationResult" not in day.get("required", [])
+            or generation_flag.get("type") != "boolean"
+            or generation_flag.get("nullable") is not False
+        ):
+            errors.append("ScheduleDay generation result flag는 필수 non-null boolean이어야 합니다.")
         if leg.get("transportMode", {}).get("enum") != ["walk", "public_transit", "rental_car", "taxi"] or leg.get("plannedDepartureAt", {}).get("format") != "date-time":
             errors.append("OpenAPI schema ScheduleLeg type/format/enum이 다릅니다.")
         progress = schemas.get("ItemProgress", {}).get("properties", {})
