@@ -48,6 +48,29 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
   }
 
   @Test
+  void 생성된_장소_fact_ID는_승인된_canonical_장소로_역매핑하고_미지_ID는_거부한다() {
+    var f = seed();
+    var resolver =
+        new com.timingjeju.api.domain.generation.adapter.JdbcGenerationPlaceResolver(jdbc);
+    String factId =
+        resolver.resolve(java.util.Set.of(f.airport()), Instant.now()).factId(f.airport());
+    assertThat(resolver.resolveFactIds(java.util.Set.of(factId), Instant.now()).canonicalId(factId))
+        .isEqualTo(f.airport());
+    assertThat(resolver.resolveFactIds(java.util.Set.of(), Instant.now()).factIds()).isEmpty();
+    for (var invalid :
+        java.util.List.of(
+            "tourapi.place:99999999999999999999999999999999",
+            "unknown:1",
+            f.airport().toString(),
+            "tourapi.place:1' OR true--")) {
+      assertThatThrownBy(
+              () -> resolver.resolveFactIds(java.util.Set.of(factId, invalid), Instant.now()))
+          .hasMessage("GENERATION_INPUT_UNAVAILABLE")
+          .hasNoCause();
+    }
+  }
+
+  @Test
   void worker_장소_매핑은_승인된_TourAPI_계보와_전체_ID_존재를_확인한다() {
     var f = seed();
     var resolver =

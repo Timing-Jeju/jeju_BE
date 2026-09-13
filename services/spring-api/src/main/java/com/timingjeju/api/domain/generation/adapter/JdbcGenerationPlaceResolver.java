@@ -25,7 +25,21 @@ public class JdbcGenerationPlaceResolver implements GenerationPlaceResolver {
 
   @Override
   public GenerationPlaceBindings resolve(Set<UUID> canonicalIds, Instant now) {
-    var ids = Set.copyOf(canonicalIds);
+    return query(Set.copyOf(canonicalIds), now, false);
+  }
+
+  @Override
+  public GenerationPlaceBindings resolveFactIds(Set<String> factIds, Instant now) {
+    var contentIds = new java.util.HashSet<String>();
+    for (var factId : factIds) {
+      if (factId == null || !factId.matches("tourapi\\.place:[0-9]{1,32}"))
+        throw GenerationException.inputUnavailable();
+      contentIds.add(factId.substring("tourapi.place:".length()));
+    }
+    return query(contentIds, now, true);
+  }
+
+  private GenerationPlaceBindings query(Set<?> ids, Instant now, boolean byContentId) {
     if (ids.isEmpty()) return new GenerationPlaceBindings(List.of());
     try {
       var places =
@@ -33,12 +47,13 @@ public class JdbcGenerationPlaceResolver implements GenerationPlaceResolver {
               """
           select p.id,p.content_id,p.name from public.tour_places p
           join public.data_import_runs r on r.id=p.import_run_id
-          where p.id in (:ids) and r.source_kind='tour_api' and r.status='succeeded'
+          where %s in (:ids) and r.source_kind='tour_api' and r.status='succeeded'
             and p.content_id is not null and not p.stale
             and (p.stale_at is null or p.stale_at>:now)
             and p.tombstoned_at is null and p.source_deleted_at is null
           order by p.id
-          """,
+          """
+                  .formatted(byContentId ? "p.content_id" : "p.id"),
               Map.of("ids", ids, "now", Timestamp.from(now)),
               (row, n) ->
                   new GenerationPlaceBindings.Place(

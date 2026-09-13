@@ -6,4 +6,6 @@ import java.util.UUID;
 
 public interface GenerationPlaceResolver {
   GenerationPlaceBindings resolve(Set<UUID> canonicalIds, Instant now);
+
+  GenerationPlaceBindings resolveFactIds(Set<String> factIds, Instant now);
 }

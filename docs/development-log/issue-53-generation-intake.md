@@ -346,3 +346,18 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   독립 재검토에서 이전 finding 해소와 신규 차단 0건을 확인했다. 전체 승인은 아니다.
 - 이 판정기는 JSON Schema 선행 검증을 전제한다. MCP client 연결과 전체 시간/인접 leg/
   canonical 장소 검증 및 원자적 저장은 후속 범위이며 아직 기능 완료로 표시하지 않는다.
+
+## AI 추가 장소의 canonical 역매핑
+
+- resolveFactIds 부재 compile RED 후 숫자형 tourapi.place content ID만 받는 역조회 port를
+  기존 GenerationPlaceResolver에 추가했다. canonical 정방향과 같은 단일 SELECT의 승인/성공
+  TourAPI import·live 조건을 공유하고, 요청 값은 SQL 파라미터로만 전달한다.
+- 실제 PostgreSQL 테스트에 정상 역매핑·빈 입력·미지 ID·내부 UUID·잘못된 prefix·SQL 모양
+  문자열 거부를 추가했다. 일부 장소만 매핑되거나 중복되면 전체 실패한다.
+- 독립 부분 리뷰 신규 차단 0건. 실제 worker의 응답 검증 호출과 후보 저장 시점의 재검증은
+  아직 연결 전이다. 새 스키마·권한·원문 저장·UI 변경은 없다.
+- MCP 실제 코드를 확인하니 DayTripResponse.request_id는 서버가 새로 발급하고 requestId는
+  envelope 검증 후 버린다. 따라서 두 ID를 같다고 가정하면 정상 응답도 거부한다.
+  후속 응답 상관 검증은 되돌아온 구조화 request와 저장 입력의 일치를 확인해야 한다.
+- 최종 spotlessApply/test/architectureTest와 GenerationIntakeIntegrationTest 실제 DB 9개가
+  모두 성공했다(1분 57초). 역매핑 코드를 추가했지만 전체 생성·적용 통합 완료는 아니다.
