@@ -259,3 +259,19 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
   (2분 12초). 계약 Python 48개 및 두 Compose config 검증도 통과했다.
 - 독립 부분 리뷰에서 마지막 service·field/detail·OpenAPI 차분의 신규 차단 finding 0건을 확인했다.
   전체 worker/조회/apply와 최종 동일 SHA 품질·Docker·PR 승인은 아직 완료가 아니다.
+
+## 진행도 재확인과 실제 MCP 계약 드리프트 수정
+
+- e41170b clean tree에서 접수 구현과 남은 worker/조회/apply를 다시 확인했다. UI 변경은 없다.
+- `McpExpectedCatalogTest`에 AI PR18의 생성된 recommend 입력/출력 fingerprint를 고정하는
+  테스트를 먼저 추가했다. 기존 입력 해시 e0122abe와 현재 bdee2038의 불일치로 실제 RED를 확인했다.
+- AI 저장소 HEAD 8d3e10c의 Pydantic/FastMCP 생성 manifest를 기준으로 recommend 두 해시만
+  동기화했다. 다른 다섯 도구는 변경하지 않았다. 두 저장소 manifest의 byte 일치도 cmp로 검증했다.
+- GREEN: spotlessCheck, MCP 단위 테스트, architectureTest 성공(16초).
+  전체 test와 architectureTest 성공(44초, macOS에서 기존 파일시스템 관련 9개 skip).
+  AI `uv run pytest tests/mcp/test_server.py -q` 9개 통과: 실제 FastMCP manifest 재생성 검사 포함.
+- 다음 연결의 식별자 경계를 확인했다. BE tour_places.id UUID를 AI place_id로 직접 보내면 안 된다.
+  AI normalize_tour_places는 TourAPI contentid로 `tourapi.place:{contentid}`를 만들고
+  runtime_generation_gateway는 active_place.fact_id로 조회한다. 승인된 canonical source ID 매핑과
+  이름 필수 AccommodationInput 변환을 worker에서 연결해야 한다. 원문·좌표 임의 복사는 하지 않는다.
+- 전체 worker·후보 저장·GET·apply·FE 실연결과 최종 품질/Docker/Reviewer/PR은 아직 미완료다.
