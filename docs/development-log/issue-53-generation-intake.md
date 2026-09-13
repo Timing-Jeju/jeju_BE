@@ -392,3 +392,20 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - Schema/근거 계보 선행 검증이 필요하며 이 클래스만으로 버스 상세·모든 비용/거리 집계·
   요청 상관·원자적 저장의 완성을 의미하지 않는다. 실제 projector/worker 연결은 후속 작업이다.
 - 최종 spotlessApply/test/architectureTest 성공(49초), 타임라인 테스트 6개 통과다.
+
+## 실제 AI 응답 Schema 기반 검증 조합
+
+- GenerationCandidateProjection 부재 compile RED 후 Evidence→CandidateSelection→Timeline을
+  하나로 묶었다. 타임라인 한 건이라도 부적합하면 모든 후보와 계보를 폐기해 insufficient 0개를
+  반환하고, 미지 근거/미지 canonical ID는 오류로 전달한다. 후보는 rank 순으로 정렬한다.
+- AI 45f585a의 생성 Schema와 합성 응답을 test resource로 복사했다. 원본과 byte 동일하며
+  출력 Schema의 정규화 hash는 실제 BE manifest와 비교한다. 수작업 공개 Schema를 만들지 않았다.
+- 공식 SDK mock transport의 callGeneration에서 실제 출력 Schema와 새 조합 projection을 실행했다.
+  합성 장소 ID 변환은 ID 필드에만 적용한다. 초기 문자열 치환이 meal/rest type까지 바꿔 Schema
+  실패한 것을 확인하고 구조화 ID 변환으로 수정했다. fixture 출처와 검증 한계를 함께 기록했다.
+- 점수 총합/weight 합 불일치의 expecting throwable RED 후 소수 점수를 유지하면서
+  가중치 100 및 반올림 합계를 검사했다. 원문·title·geometry·좌표·fact value는 결과에 없다.
+- 최종 spotlessApply/test/architectureTest 성공(50초), 조합 테스트 4개 통과.
+  독립 부분 리뷰 신규 차단 0건이며 전체 승인/recorder는 아니다.
+- 입력 Schema는 이 SDK 조합 테스트 전용이다. 저장 입력 기반 Scope, request echo, 모든 비용/
+  버스 상세 검사와 실제 worker/DB 후보 저장·조회·apply·FE 연결/최종 PR은 여전히 후속 범위다.
