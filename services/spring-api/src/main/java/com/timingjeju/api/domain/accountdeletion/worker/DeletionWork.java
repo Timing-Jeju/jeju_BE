@@ -3,16 +3,17 @@ package com.timingjeju.api.domain.accountdeletion.worker;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 
 public record DeletionWork(
-    UUID requestId,
+    String requestId,
     boolean cancellationRequested,
     Set<DeletionStep> completedSteps,
     EncryptedAuthSubject encryptedSubject) {
 
   public DeletionWork {
-    Objects.requireNonNull(requestId, "requestId는 필수입니다.");
+    if (requestId == null || !requestId.matches("^[0-9A-HJKMNP-TV-Z]{26}$")) {
+      throw new IllegalArgumentException("requestId는 canonical ULID여야 합니다.");
+    }
     Objects.requireNonNull(completedSteps, "completedSteps는 필수입니다.");
     completedSteps = Set.copyOf(completedSteps);
     if (!completedSteps.contains(DeletionStep.AUTH_USER_DELETED)) {

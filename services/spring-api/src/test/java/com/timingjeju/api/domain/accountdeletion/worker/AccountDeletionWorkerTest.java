@@ -11,7 +11,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -21,10 +20,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 class AccountDeletionWorkerTest {
 
   private static final Instant NOW = Instant.parse("2026-09-13T00:00:00Z");
-  private static final UUID REQUEST_ID = UUID.fromString("10600000-0000-0000-0000-000000000001");
+  private static final String REQUEST_ID = "01K4V106000000000000000001";
   private static final DeletionLease LEASE = new DeletionLease(REQUEST_ID, "worker-106", 7, 1);
   private static final EncryptedAuthSubject ENCRYPTED_SUBJECT =
-      new EncryptedAuthSubject(new byte[] {1, 0, 6}, "key-v2");
+      new EncryptedAuthSubject("ciphertext-106", "key-v2");
 
   @Test
   void 유효한_claim은_고정_순서로_삭제하고_auth_성공과_함께_subject를_제거한다() {
@@ -273,7 +272,7 @@ class AccountDeletionWorkerTest {
   @Test
   void 민감한_subject와_ciphertext는_to_string에_노출하지_않는다() {
     assertThat(AuthSubject.of("secret-sub").toString()).doesNotContain("secret-sub");
-    assertThat(new EncryptedAuthSubject("cipher-secret".getBytes(), "v1").toString())
+    assertThat(new EncryptedAuthSubject("cipher-secret", "v1").toString())
         .doesNotContain("cipher-secret");
   }
 
@@ -326,7 +325,7 @@ class AccountDeletionWorkerTest {
     }
 
     @Override
-    public AuthSubject resolve(UUID requestId, EncryptedAuthSubject encryptedSubject) {
+    public AuthSubject resolve(String requestId, EncryptedAuthSubject encryptedSubject) {
       external("resolve", "resolve:" + encryptedSubject.keyVersion());
       return AuthSubject.of("auth-subject-106");
     }

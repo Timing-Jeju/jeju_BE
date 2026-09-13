@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 
 public record DeletionLeaseState(
     String owner, long fencingToken, int attempt, Instant leaseExpiresAt, Instant nextRetryAt) {
@@ -23,8 +22,10 @@ public record DeletionLeaseState(
   }
 
   public Optional<Claim> claim(
-      UUID requestId, String newOwner, Instant now, Duration leaseDuration) {
-    Objects.requireNonNull(requestId, "requestId는 필수입니다.");
+      String requestId, String newOwner, Instant now, Duration leaseDuration) {
+    if (requestId == null || !requestId.matches("^[0-9A-HJKMNP-TV-Z]{26}$")) {
+      throw new IllegalArgumentException("requestId는 canonical ULID여야 합니다.");
+    }
     validateOwner(newOwner);
     Objects.requireNonNull(now, "now는 필수입니다.");
     requirePositive(leaseDuration);

@@ -45,6 +45,11 @@ app:
       key-descriptor-file: ${APP_ACCOUNT_DELETION_STATUS_TOKEN_ENCRYPTION_KEY:}
       local-active-version: ${APP_ACCOUNT_DELETION_LOCAL_KEY_VERSION:}
       local-active-key: ${APP_ACCOUNT_DELETION_LOCAL_ACTIVE_KEY:}
+    worker:
+      enabled: ${APP_ACCOUNT_DELETION_WORKER_ENABLED:false}
+      id: ${APP_ACCOUNT_DELETION_WORKER_ID:}
+      fixed-delay: ${APP_ACCOUNT_DELETION_WORKER_FIXED_DELAY:PT5S}
+      initial-delay: ${APP_ACCOUNT_DELETION_WORKER_INITIAL_DELAY:PT10S}
   profile-image:
     supabase-url: ${SUPABASE_URL:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}

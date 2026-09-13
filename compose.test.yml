@@ -67,6 +67,7 @@ services:
       - ./supabase/migrations/20260918000021_day_activity_window_pair.sql:/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql:ro
       - ./supabase/migrations/20260918000022_rls_auto_enable_execute_boundary.sql:/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql:ro
       - ./supabase/migrations/20260919000000_account_deletion_requests.sql:/docker-entrypoint-initdb.d/061_account_deletion_requests.sql:ro
+      - ./supabase/migrations/20260919010000_account_deletion_worker_runtime.sql:/docker-entrypoint-initdb.d/062_account_deletion_worker_runtime.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:

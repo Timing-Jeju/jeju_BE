@@ -7,7 +7,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.DoubleSupplier;
 
-public final class AccountDeletionWorker {
+public final class AccountDeletionWorker implements AccountDeletionWorkerCommand {
 
   private static final String UNEXPECTED_FAILURE_CODE = "ACCOUNT_DELETION_INTERNAL_FAILURE";
 
@@ -52,6 +52,7 @@ public final class AccountDeletionWorker {
     this.jitter = Objects.requireNonNull(jitter, "jitter는 필수입니다.");
   }
 
+  @Override
   public void pollOnce() {
     Instant claimedAt = clock.instant();
     List<DeletionLease> leases =
