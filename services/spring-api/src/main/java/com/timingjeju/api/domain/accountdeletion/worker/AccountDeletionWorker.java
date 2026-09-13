@@ -96,7 +96,7 @@ public final class AccountDeletionWorker implements AccountDeletionWorkerCommand
           lease,
           work,
           DeletionStep.APP_DATA_ERASED,
-          () -> appDataErasure.deleteAndAnonymize(subject));
+          () -> appDataErasure.deleteAndAnonymize(lease, subject));
 
       heartbeatOrLose(lease);
       startStepOrLose(lease, DeletionStep.AUTH_USER_DELETED);

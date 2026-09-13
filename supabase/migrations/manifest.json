@@ -67,7 +67,8 @@
     {"path":"supabase/migrations/20260918000021_day_activity_window_pair.sql","initSlot":"059","owner":{"issue":239,"pullRequest":null},"sha256":"01bef39f17b0d6029c676902d7fd0864bfd01419d37d204a1c915e972a65c7b5","dependencies":["20260918000020_remove_user_location_runtime.sql"]},
     {"path":"supabase/migrations/20260918000022_rls_auto_enable_execute_boundary.sql","initSlot":"060","owner":{"issue":242,"pullRequest":null},"sha256":"f1fdd80c4ea5ad81320933ecee347908ff350607456097217b069ad4f3a05b1d","dependencies":["20260918000021_day_activity_window_pair.sql"]},
     {"path":"supabase/migrations/20260919000000_account_deletion_requests.sql","initSlot":"061","owner":{"issue":61,"pullRequest":null},"sha256":"0d2b738c66c9d231bf820c468816d3e05a78d7d340517575efd592677796ecbe","dependencies":["20260918000022_rls_auto_enable_execute_boundary.sql"]},
-    {"path":"supabase/migrations/20260919010000_account_deletion_worker_runtime.sql","initSlot":"062","owner":{"issue":106,"pullRequest":null},"sha256":"d6ac70fe344c9ae18ed9cc2c9c64d64fb95640058b54618be6662d477930af7c","dependencies":["20260919000000_account_deletion_requests.sql"]}
+    {"path":"supabase/migrations/20260919010000_account_deletion_worker_runtime.sql","initSlot":"062","owner":{"issue":106,"pullRequest":null},"sha256":"d6ac70fe344c9ae18ed9cc2c9c64d64fb95640058b54618be6662d477930af7c","dependencies":["20260919000000_account_deletion_requests.sql"]},
+    {"path":"supabase/migrations/20260919020000_account_deletion_retention_contract.sql","initSlot":"063","owner":{"issue":106,"pullRequest":null},"sha256":"228653bcc3b9783ab45abe9a720dbfc474f3a7909a0393ef5a3007b95c9eee53","dependencies":["20260919010000_account_deletion_worker_runtime.sql"]}
   ],
   "seedInitSlot": "099"
 }

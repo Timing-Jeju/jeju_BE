@@ -20,7 +20,8 @@ public final class DisabledAccountDeletionOperations
   }
 
   @Override
-  public void deleteAndAnonymize(AuthSubject subject) {
+  public void deleteAndAnonymize(
+      com.timingjeju.api.domain.accountdeletion.worker.DeletionLease lease, AuthSubject subject) {
     throw disabled();
   }
 

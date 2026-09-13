@@ -50,6 +50,12 @@ app:
       id: ${APP_ACCOUNT_DELETION_WORKER_ID:}
       fixed-delay: ${APP_ACCOUNT_DELETION_WORKER_FIXED_DELAY:PT5S}
       initial-delay: ${APP_ACCOUNT_DELETION_WORKER_INITIAL_DELAY:PT10S}
+      supabase-url: ${SUPABASE_URL:}
+      service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+      connect-timeout: ${APP_ACCOUNT_DELETION_WORKER_CONNECT_TIMEOUT:PT2S}
+      read-timeout: ${APP_ACCOUNT_DELETION_WORKER_READ_TIMEOUT:PT5S}
+      storage-page-size: ${APP_ACCOUNT_DELETION_STORAGE_PAGE_SIZE:1000}
+      storage-maximum-pages: ${APP_ACCOUNT_DELETION_STORAGE_MAXIMUM_PAGES:100}
   profile-image:
     supabase-url: ${SUPABASE_URL:}
     service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}

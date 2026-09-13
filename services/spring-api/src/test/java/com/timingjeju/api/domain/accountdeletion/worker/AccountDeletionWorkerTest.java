@@ -39,7 +39,7 @@ class AccountDeletionWorkerTest {
             "resolve:key-v2",
             "heartbeat",
             "start:SESSIONS_REVOKED",
-            "revoke-sessions",
+            "verify-pending-deny",
             "complete:SESSIONS_REVOKED",
             "heartbeat",
             "start:ACCOUNT_REQUESTS_DENIED",
@@ -95,7 +95,7 @@ class AccountDeletionWorkerTest {
             "delete-auth-user",
             "complete-auth-and-clear-subject",
             "succeed")
-        .doesNotContain("revoke-sessions", "deny-account-requests")
+        .doesNotContain("verify-pending-deny", "deny-account-requests")
         .noneMatch(event -> event.startsWith("delete-storage:"));
   }
 
@@ -117,7 +117,7 @@ class AccountDeletionWorkerTest {
   @ValueSource(
       strings = {
         "resolve",
-        "revoke-sessions",
+        "verify-pending-deny",
         "deny-account-requests",
         "delete-storage",
         "delete-app-data",
@@ -138,7 +138,7 @@ class AccountDeletionWorkerTest {
   void 최대_시도에서_retryable_장애는_terminal_failed가_된다() {
     Fixture fixture =
         fixture(work(false, Set.of()), new DeletionLease(REQUEST_ID, "worker-106", 8, 5));
-    fixture.operations.failureAt = "revoke-sessions";
+    fixture.operations.failureAt = "verify-pending-deny";
     fixture.operations.failure = DeletionOperationException.retryable("AUTH_TEMPORARY");
 
     fixture.worker.pollOnce();
@@ -187,7 +187,7 @@ class AccountDeletionWorkerTest {
             "resolve:key-v2",
             "heartbeat",
             "start:SESSIONS_REVOKED",
-            "revoke-sessions",
+            "verify-pending-deny",
             "complete:SESSIONS_REVOKED");
     assertThat(fixture.repository.hasTerminalWrite()).isFalse();
   }
@@ -214,7 +214,7 @@ class AccountDeletionWorkerTest {
     assertThat(fixture.events)
         .containsExactly(
             "claim", "load", "heartbeat", "resolve:key-v2", "heartbeat", "start:SESSIONS_REVOKED");
-    assertThat(fixture.events).doesNotContain("revoke-sessions");
+    assertThat(fixture.events).doesNotContain("verify-pending-deny");
   }
 
   @Test
@@ -332,7 +332,7 @@ class AccountDeletionWorkerTest {
 
     @Override
     public void revokeAll(AuthSubject subject) {
-      external("revoke-sessions", "revoke-sessions");
+      external("verify-pending-deny", "verify-pending-deny");
     }
 
     @Override
@@ -346,7 +346,7 @@ class AccountDeletionWorkerTest {
     }
 
     @Override
-    public void deleteAndAnonymize(AuthSubject subject) {
+    public void deleteAndAnonymize(DeletionLease lease, AuthSubject subject) {
       external("delete-app-data", "delete-and-anonymize-app-data");
     }
 

@@ -33,4 +33,19 @@ class AccountDeletionWorkerRuntimeMigrationTest {
         .contains("revoke all on table public.account_deletion_steps from authenticated")
         .doesNotContain("auth.users", "storage.objects");
   }
+
+  @Test
+  void retention_migration은_법적동의를_익명_보존하고_request_profile_FK_SET_NULL을_유지한다() throws Exception {
+    String sql =
+        Files.readString(
+                Path.of(
+                    "../../supabase/migrations/20260919020000_account_deletion_retention_contract.sql"))
+            .toLowerCase();
+
+    assertThat(sql)
+        .contains("alter table public.user_consents", "alter column user_id drop not null")
+        .contains("on delete set null")
+        .contains("account_deletion_requests_user_profile_id_fkey")
+        .doesNotContain("delete from storage.objects", "auth.users");
+  }
 }

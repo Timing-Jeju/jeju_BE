@@ -70,6 +70,23 @@ class AccountDeletionWorkerAdaptersTest {
         .hasNoCause();
   }
 
+  @Test
+  void legacy_session_step은_실제_logout이_아니라_Spring_pending_gate를_검증한다() {
+    var verifier =
+        new com.timingjeju.api.domain.accountdeletion.worker.adapter.JdbcDeletionPendingVerifier(
+            userId -> true);
+
+    assertThatCode(() -> verifier.revokeAll(AuthSubject.of("46d9a0ca-3472-4f7e-b1b8-b751da5a7f40")))
+        .doesNotThrowAnyException();
+    assertThatThrownBy(
+            () ->
+                new com.timingjeju.api.domain.accountdeletion.worker.adapter
+                        .JdbcDeletionPendingVerifier(userId -> false)
+                    .revokeAll(AuthSubject.of("46d9a0ca-3472-4f7e-b1b8-b751da5a7f40")))
+        .isInstanceOf(DeletionOperationException.class)
+        .hasMessage("ACCOUNT_DELETION_DENY_GATE_INACTIVE");
+  }
+
   private static VersionedAeadKeyRing keyRingReturning(String subject) {
     return new VersionedAeadKeyRing() {
       @Override

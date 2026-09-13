@@ -1,10 +1,13 @@
 package com.timingjeju.api.global.config;
 
+import com.timingjeju.api.application.security.AccountDeletionPendingAccess;
 import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.global.error.AuthenticationProblemWriter;
 import com.timingjeju.api.global.error.ProblemResponseWriter;
+import com.timingjeju.api.global.security.AccountDeletionPendingAccessPolicy;
 import com.timingjeju.api.global.security.AppCorsProperties;
 import com.timingjeju.api.global.security.CurrentUserJwtAuthenticationConverter;
+import com.timingjeju.api.global.security.JdbcAccountDeletionPendingAccess;
 import com.timingjeju.api.global.security.JsonAccessDeniedHandler;
 import com.timingjeju.api.global.security.JsonAuthenticationEntryPoint;
 import com.timingjeju.api.global.security.JwksJwtDecoderStrategy;
@@ -28,6 +31,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -81,6 +86,17 @@ public class SecurityConfig {
   }
 
   @Bean
+  AccountDeletionPendingAccess accountDeletionPendingAccess(NamedParameterJdbcTemplate jdbc) {
+    return new JdbcAccountDeletionPendingAccess(jdbc);
+  }
+
+  @Bean
+  AccountDeletionPendingAccessPolicy accountDeletionPendingAccessPolicy(
+      AccountDeletionPendingAccess pendingAccess) {
+    return new AccountDeletionPendingAccessPolicy(pendingAccess);
+  }
+
+  @Bean
   ProblemCorsProcessor problemCorsProcessor(ProblemResponseWriter responseWriter) {
     return new ProblemCorsProcessor(responseWriter);
   }
@@ -114,6 +130,7 @@ public class SecurityConfig {
       ProblemCorsProcessor corsProcessor,
       AuthenticationProblemWriter authenticationProblemWriter,
       ProblemResponseWriter responseWriter,
+      AccountDeletionPendingAccessPolicy accountDeletionAccessPolicy,
       @Value("${springdoc.api-docs.enabled:true}") boolean apiDocsEnabled,
       @Value("${springdoc.swagger-ui.enabled:true}") boolean swaggerUiEnabled)
       throws Exception {
@@ -161,7 +178,14 @@ public class SecurityConfig {
           requests
               .requestMatchers(HttpMethod.GET, "/api/v1/account-deletion-requests/*")
               .permitAll();
-          requests.requestMatchers("/api/v1/**").authenticated();
+          requests.requestMatchers(HttpMethod.DELETE, "/api/v1/me").authenticated();
+          requests
+              .requestMatchers("/api/v1/**")
+              .access(
+                  (authentication, context) ->
+                      new AuthorizationDecision(
+                          accountDeletionAccessPolicy.mayAccess(
+                              authentication.get(), context.getRequest())));
           requests.anyRequest().denyAll();
         });
     http.oauth2ResourceServer(
