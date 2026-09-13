@@ -99,7 +99,8 @@ public record GenerationCandidateProjection(
               candidate.get("strategy").asText(),
               candidate.get("feasibility").asText(),
               score.decimalValue(),
-              timeline));
+              timeline,
+              GenerationTotals.from(candidate.get("totals"), evidence.facts().keySet())));
     }
     candidates.sort(Comparator.comparingInt(Candidate::rank));
     return new GenerationCandidateProjection("success", candidates, evidence);
@@ -121,5 +122,6 @@ public record GenerationCandidateProjection(
       String strategy,
       String feasibility,
       BigDecimal score,
-      GenerationTimeline timeline) {}
+      GenerationTimeline timeline,
+      GenerationTotals totals) {}
 }

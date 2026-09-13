@@ -24,6 +24,30 @@ import tools.jackson.databind.node.ObjectNode;
 @Tag("unit")
 class JejuGenerationCandidateProjectionTest {
   @Test
+  void 저장용_합계는_검증된_거리와_비용범위_및_근거만_보존한다() throws Exception {
+    var totals = project(response()).candidates().getFirst().totals();
+    assertThat(totals.totalMinutes()).isEqualTo(450);
+    assertThat(totals.totalDistanceMeters()).isEqualTo(3000);
+    assertThat(totals.walkingMinutes()).isEqualTo(90);
+    assertThat(totals.estimatedCost().minKrw()).isZero();
+    assertThat(totals.evidenceFactIds()).isNotEmpty();
+    assertThat(mapper.writeValueAsString(totals))
+        .doesNotContain("geometry", "formula", "coordinates", "source_refs");
+  }
+
+  @Test
+  void 거리합계와_비용합계가_일치하지_않으면_세후보를_모두_거부한다() throws Exception {
+    var distance = response();
+    ((ObjectNode) distance.get("recommendations").get(2).get("totals"))
+        .put("total_distance_meters", 1);
+    assertThatThrownBy(() -> project(distance)).hasMessage("MCP_CONTRACT_INVALID");
+    var cost = response();
+    ((ObjectNode) cost.get("recommendations").get(2).get("totals").get("estimated_cost"))
+        .put("max_krw", 100);
+    assertThatThrownBy(() -> project(cost)).hasMessage("MCP_CONTRACT_INVALID");
+  }
+
+  @Test
   void 저장된_체류시간과_회피_선호를_실제_결과_검증에_적용한다() throws Exception {
     assertThat(
             GenerationCandidateProjection.from(response(), input(30, false), bindings(), Set.of())

@@ -459,3 +459,22 @@ OpenAPI/DB integration/full gate/PR 병합 완료를 주장하지 않는다. UI 
 - 실제 CompletionStore JDBC 후보 writer와 bean/scheduler 등록은 아직 미완료다.
   저장 전 request echo·이동 상세/비용·인접 구간 검증, previous_days, 조회/apply/FE·최종 PR을
   계속 구현해야 한다. 현재 워커 port를 DB 후보 저장의 완료 근거로 사용하지 않는다.
+
+## 저장용 하루 합계와 이동 endpoint 계약 점검
+
+- Candidate.totals 부재 compile RED 후 GenerationTotals를 연결했다. Pydantic Totals의
+  시간·거리·비용 범위와 is_estimated 및 근거 ID를 명시 필드로만 복사한다. 비음수·min/max·
+  시간 합·거리 합·버스/택시 비용 합을 long 연산으로 검사하고 알려진 fact ID만 보존한다.
+- 실제 합성 응답의 합계 보존 및 마지막 후보의 거리/비용 합 불일치 거부 테스트를 추가했다.
+  조합 테스트 7개·architecture 16초 성공, 독립 부분 리뷰 신규 차단 0건이다.
+- 이동 상세 연결을 시도하면서 정상 응답 거부 RED를 발견해 가정을 재검토했다.
+  AI runtime_routing._walking_leg의 from_id/to_id는 place_id가 아닌 entrance_id이며,
+  대표좌표 endpoint는 place-point:{place_id}다. 이를 장소 ID와 직접 비교하던 임시 코드와
+  그 가정에 의존한 테스트는 커밋하지 않고 제거했다. 기존 AI 합성 resource는 수정하지 않았다.
+- AI runtime_generation_gateway._load_entrances가 반환하는 place_entrance fact value에는
+  entrance_id만 있고 place_id 연결은 없다. BE가 검증할 수 있는 승인된 입구↔장소 계보를
+  AI 계약/근거에서 보완한 다음 인접 구간 검증을 연결해야 한다. 이를 임의 prefix 추정으로
+  대체하지 않는다. 합성 balanced 버스도 start09:00/access5/depart09:20/arrive09:35/egress5와
+  이벤트 end09:45가 다르므로 실제 이동 상세 검사에 사용하기 전 fixture 정합성 보완이 필요하다.
+- 이번 변경은 하루 합계 보존이며 이동 상세/DB 후보 writer·조회/apply/FE와 최종 PR은 미완료다.
+- 최종 spotlessApply/test/architectureTest 성공(47초, 기존 macOS 제한 9 skip).
