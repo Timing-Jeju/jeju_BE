@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import stat
 import subprocess
 import sys
 import tempfile
+import traceback
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -32,6 +35,24 @@ class FakeRunner:
         self.calls.append((list(argv), kwargs))
         return subprocess.CompletedProcess(
             argv, 0, stdout=self.outputs.pop(0) + "\n", stderr=""
+        )
+
+
+class FailingDatabaseRunner(FakeRunner):
+    def __init__(self, failure: str) -> None:
+        super().__init__([SHA, "", "", "psql (PostgreSQL) 17.6"])
+        self.failure = failure
+
+    def __call__(self, argv, **kwargs):
+        if self.outputs:
+            return super().__call__(argv, **kwargs)
+        self.calls.append((list(argv), kwargs))
+        if self.failure == "exception":
+            raise subprocess.TimeoutExpired(
+                argv, kwargs["timeout"], output=DATABASE_URL, stderr=DATABASE_URL
+            )
+        return subprocess.CompletedProcess(
+            argv, 1, stdout=DATABASE_URL, stderr=DATABASE_URL
         )
 
 
@@ -129,7 +150,7 @@ class ApplyLocationCutoverTest(unittest.TestCase):
                 self.assertFalse(any("--file=-" in call[0] for call in runner.calls))
 
     def test_정상_적용은_검증한_sql_bytes를_stdin으로_한번만_실행한다(self) -> None:
-        """정상 경로는 URL을 숨기고 고정 SQL 바이트를 표준입력으로 한 번 실행한다."""
+        """정상 경로는 URL을 명시적 dbname으로 넘기고 SQL을 표준입력으로 실행한다."""
         with tempfile.TemporaryDirectory() as directory:
             root = self._root(Path(directory))
             credential_file = self._secret(root)
@@ -155,17 +176,63 @@ class ApplyLocationCutoverTest(unittest.TestCase):
             self.assertEqual(1, len(file_calls))
             self.assertEqual(artifact, file_calls[0][1]["input"])
             for argv, kwargs in runner.calls:
-                self.assertNotIn("postgresql://", " ".join(argv))
                 env = kwargs.get("env")
                 if env is not None:
                     self.assertNotIn("PGPASSWORD", env)
                     self.assertNotIn("LD_PRELOAD", env)
                     self.assertNotIn("DYLD_INSERT_LIBRARIES", env)
                     if "--version" not in argv:
-                        self.assertEqual(
-                            {"PGDATABASE": DATABASE_URL, "PGCONNECT_TIMEOUT": "10"},
-                            env,
+                        self.assertFalse(
+                            "PGDATABASE" in env,
+                            "DB URL을 PGDATABASE로 전달했습니다.",
                         )
+                        self.assertTrue(
+                            env == {"PGCONNECT_TIMEOUT": "10"},
+                            "psql child 환경이 허용 목록과 다릅니다.",
+                        )
+                        self.assertTrue(
+                            "--dbname" in argv,
+                            "psql 호출에 명시적 --dbname이 없습니다.",
+                        )
+                        self.assertTrue(
+                            argv[argv.index("--dbname") + 1] == DATABASE_URL,
+                            "psql --dbname 값이 검증한 DB URL과 다릅니다.",
+                        )
+
+    def test_db_url은_psql_실패_출력과_예외에_노출되지_않는다(self) -> None:
+        """psql이 URL을 출력하거나 runner가 이를 담아 실패해도 공개 오류는 고정 문구다."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root(Path(directory))
+            credential_file = self._secret(root)
+
+            for failure in ("completed", "exception"):
+                with self.subTest(failure=failure):
+                    runner = FailingDatabaseRunner(failure)
+                    stdout = io.StringIO()
+                    stderr = io.StringIO()
+                    with redirect_stdout(stdout), redirect_stderr(stderr):
+                        with self.assertRaises(CutoverRejected) as raised:
+                            self._apply(root, credential_file, runner)
+
+                    rendered = "".join(
+                        traceback.format_exception(
+                            type(raised.exception),
+                            raised.exception,
+                            raised.exception.__traceback__,
+                        )
+                    )
+                    self.assertFalse(
+                        any(
+                            DATABASE_URL in value
+                            for value in (
+                                str(raised.exception),
+                                rendered,
+                                stdout.getvalue(),
+                                stderr.getvalue(),
+                            )
+                        ),
+                        "DB URL이 cutover 오류 또는 traceback에 노출되었습니다.",
+                    )
 
     def test_검증한_psql_복사본만_모든_db_호출에_사용한다(self) -> None:
         """버전·선행·적용·사후 조회는 같은 비공개 psql 복사본으로 실행한다."""
