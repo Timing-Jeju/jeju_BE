@@ -7,7 +7,7 @@ import re
 
 OUTPUT = "db/local-postgres/20260918000017_location_cutover_group.sql"
 PREFLIGHT_POLICY = "db/fingerprints/location_cutover_predecessors.json"
-PREFLIGHT_POLICY_SHA256 = "2783da39be14d2b6ebfb312a8ad90c2c228e0a5e220a85f14df06acafceece9d"
+PREFLIGHT_POLICY_SHA256 = "96adb17f5d1350e300166fc588ea8cf4bd80e5cf19f12674ba8ada7a5ed3ca2f"
 SOURCES = (
     ("20260918000017_user_location_write_guard_purge.sql", "3f1cb04a7a6f0b5577229eb4f9efc9a3e064b203e7423d3712b217bafa8fccbe"),
     ("20260918000018_revision_request_hash_audit.sql", "5bdd91f35b45a7bec2490a5e4c19597f7a2eab521da9889ff89599c887acdd33"),
