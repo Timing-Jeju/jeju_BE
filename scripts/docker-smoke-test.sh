@@ -26,8 +26,13 @@ HOURS_CONFLICT_LOG=$(mktemp -t timing-jeju-hours-conflict.XXXXXX)
 RESULT_DAY_CONFLICT_LOG=$(mktemp -t timing-jeju-result-day-conflict.XXXXXX)
 CONSISTENCY_CONFLICT_LOG=$(mktemp -t timing-jeju-consistency-conflict.XXXXXX)
 
+bounded_cleanup() {
+  python3 scripts/docker_cleanup_command.py "$@"
+}
+
 cleanup() {
   cleanup_status=0
+  image_timeout_recovered=0
   for database in \
     "$UPGRADE_DB" "$ORIGIN_DEVELOP_DB" "$HOURS_CONFLICT_DB" "$RESULT_DAY_CONFLICT_DB" \
     "$RECOMMENDATION_DAY_CONFLICT_DB" \
@@ -39,9 +44,9 @@ cleanup() {
     "$SOURCE_LINEAGE_CONFLICT_DB" "$OPTIONAL_LINEAGE_CONFLICT_DB" \
     "$CONCURRENCY_DB"
   do
-    docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+    bounded_cleanup docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
       dropdb --username timing_jeju_test --if-exists --force "$database" \
-      >/dev/null 2>&1 || true
+      >/dev/null 2>&1 || cleanup_status=1
   done
   if [ -f "$HOURS_CONFLICT_LOG" ]; then
     rm -f "$HOURS_CONFLICT_LOG"
@@ -52,25 +57,30 @@ cleanup() {
   if [ -f "$CONSISTENCY_CONFLICT_LOG" ]; then
     rm -f "$CONSISTENCY_CONFLICT_LOG"
   fi
-  if ! docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans \
+  if ! bounded_cleanup docker compose -p "$PROJECT" -f compose.test.yml down -v --remove-orphans \
     >/dev/null 2>&1; then
     echo "[Docker] smoke project 정리에 실패했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
 
-  if image_residue=$(docker image ls \
+  if image_residue=$(bounded_cleanup docker image ls \
     --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
-    if [ -n "$image_residue" ] \
-      && ! docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1; then
-      echo "[Docker] smoke API 이미지 정리에 실패했습니다: ${PROJECT}-api:latest" >&2
-      cleanup_status=1
+    if [ -n "$image_residue" ]; then
+      image_status=0
+      bounded_cleanup docker image rm "${PROJECT}-api:latest" >/dev/null 2>&1 || image_status=$?
+      if [ "$image_status" -eq 124 ]; then
+        image_timeout_recovered=1
+      elif [ "$image_status" -ne 0 ]; then
+        echo "[Docker] smoke API 이미지 정리에 실패했습니다: ${PROJECT}-api:latest" >&2
+        cleanup_status=1
+      fi
     fi
   else
     echo "[Docker] smoke API 이미지 상태를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
 
-  if compose_residue=$(docker compose -p "$PROJECT" -f compose.test.yml ps -aq 2>/dev/null); then
+  if compose_residue=$(bounded_cleanup docker compose -p "$PROJECT" -f compose.test.yml ps -aq 2>/dev/null); then
     if [ -n "$compose_residue" ]; then
       echo "[Docker] smoke container residue가 남았습니다: $compose_residue" >&2
       cleanup_status=1
@@ -79,7 +89,7 @@ cleanup() {
     echo "[Docker] smoke container residue를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
-  if network_residue=$(docker network ls \
+  if network_residue=$(bounded_cleanup docker network ls \
     --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
     if [ -n "$network_residue" ]; then
       echo "[Docker] smoke network residue가 남았습니다: $network_residue" >&2
@@ -89,7 +99,7 @@ cleanup() {
     echo "[Docker] smoke network residue를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
-  if volume_residue=$(docker volume ls \
+  if volume_residue=$(bounded_cleanup docker volume ls \
     --filter "label=com.docker.compose.project=$PROJECT" --quiet 2>/dev/null); then
     if [ -n "$volume_residue" ]; then
       echo "[Docker] smoke volume residue가 남았습니다: $volume_residue" >&2
@@ -99,7 +109,7 @@ cleanup() {
     echo "[Docker] smoke volume residue를 확인하지 못했습니다: $PROJECT" >&2
     cleanup_status=1
   fi
-  if image_residue=$(docker image ls \
+  if image_residue=$(bounded_cleanup docker image ls \
     --filter "reference=${PROJECT}-api:latest" --quiet 2>/dev/null); then
     if [ -n "$image_residue" ]; then
       echo "[Docker] smoke API image residue가 남았습니다: ${PROJECT}-api:latest" >&2
@@ -110,6 +120,9 @@ cleanup() {
     cleanup_status=1
   fi
 
+  if [ "$cleanup_status" -eq 0 ] && [ "$image_timeout_recovered" -eq 1 ]; then
+    echo "[Docker] 이미지 삭제 응답 timeout 복구: 소유 프로세스 종료 및 모든 smoke 자원 잔류 0 확인"
+  fi
   return "$cleanup_status"
 }
 
@@ -194,6 +207,44 @@ if [ "$attempt" -gt 60 ]; then
 fi
 
 echo "[Docker] Health Check 성공"
+
+# Fresh install includes /docker-entrypoint-initdb.d/055_location_cutover_group.sql.
+# Fresh install then includes /docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql.
+# Fresh install then includes /docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql.
+# Fresh install then includes /docker-entrypoint-initdb.d/059_day_activity_window_pair.sql.
+# Generation lifecycle follows at /docker-entrypoint-initdb.d/060_generation_lifecycle.sql.
+# Planner conditions follow at /docker-entrypoint-initdb.d/062_planner_conditions.sql.
+# Sequential coverage follows at /docker-entrypoint-initdb.d/063_sequential_schedule_coverage.sql.
+# Immutable generation trip inputs follow at /docker-entrypoint-initdb.d/064_generation_trip_snapshot.sql.
+# Zero-duration day boundaries follow at /docker-entrypoint-initdb.d/065_generation_schedule_boundaries.sql.
+# Exact generation scores follow at /docker-entrypoint-initdb.d/066_generation_result_projection.sql.
+# Unresolved ferry terminals follow at /docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql.
+# Existing manual Day 1 bases follow at /docker-entrypoint-initdb.d/068_generation_existing_base_input.sql.
+# Exact bus duration components follow at /docker-entrypoint-initdb.d/069_generation_leg_precision.sql.
+# Planner place drafts follow at /docker-entrypoint-initdb.d/061_planner_place_preferences.sql.
+# Verify the owner-only cutover marker and zero counts without logging user values.
+docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username timing_jeju_test --dbname timing_jeju_test <<'SQL'
+do $$
+begin
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.trip_transport_events'::regclass
+      and conname = 'ck_trip_transport_events_terminal_resolution'
+      and convalidated
+  ) then
+    raise exception 'transport terminal resolution constraint missing';
+  end if;
+  if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000018'
+     or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
+                where residue_count <> 0) then
+    raise exception 'location cutover verification failed';
+  end if;
+end;
+$$;
+SQL
+
 
 FRESH_CANONICAL_FINGERPRINT=$(docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
@@ -348,6 +399,7 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/015_tour_api_incremental_sync.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
   /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
+  /docker-entrypoint-initdb.d/023_public_place_tombstone.sql \
   /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
   /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql \
@@ -375,6 +427,8 @@ for upgrade_sql in \
   /docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql \
   /docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql \
   /docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql \
+  /docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql \
+  /docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql \
   /queries/legacy_v1_upgrade_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
@@ -382,6 +436,39 @@ do
     --username timing_jeju_test --dbname "$UPGRADE_DB" \
     --file "$upgrade_sql"
 done
+
+# Historical unproven routes must block 053 without changing schema or data.
+planned_route_legacy_fingerprint() {
+  docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+    psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+    --username timing_jeju_test --dbname "$UPGRADE_DB" \
+    --file /queries/canonical_migration_fingerprint.sql
+  docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+    psql --no-psqlrc --tuples-only --no-align --set ON_ERROR_STOP=1 \
+    --username timing_jeju_test --dbname "$UPGRADE_DB" \
+    --command "select count(*),md5(coalesce(string_agg(row_data,',' order by row_data),'')) from (
+      select to_jsonb(route)::text row_data from public.mobility_route_snapshots route
+      union all select to_jsonb(leg)::text from public.trip_legs leg
+    ) rows;"
+}
+PLANNED_ROUTE_LEGACY_BEFORE=$(planned_route_legacy_fingerprint)
+if docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 --set VERBOSITY=verbose \
+  --username timing_jeju_test --dbname "$UPGRADE_DB" \
+  --file /docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql \
+  >"$CONSISTENCY_CONFLICT_LOG" 2>&1; then
+  echo "[Docker] 출처 불명 legacy route audit가 실패하지 않았습니다." >&2
+  exit 1
+fi
+if ! grep -q "23514.*legacy route snapshots require provenance audit" "$CONSISTENCY_CONFLICT_LOG"; then
+  echo "[Docker] legacy route audit가 예상한 오류를 반환하지 않았습니다." >&2
+  exit 1
+fi
+PLANNED_ROUTE_LEGACY_AFTER=$(planned_route_legacy_fingerprint)
+if [ "$PLANNED_ROUTE_LEGACY_BEFORE" != "$PLANNED_ROUTE_LEGACY_AFTER" ]; then
+  echo "[Docker] legacy route audit 실패 후 schema 또는 데이터가 변경되었습니다." >&2
+  exit 1
+fi
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
@@ -407,7 +494,7 @@ fi
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   dropdb --username timing_jeju_test "$UPGRADE_DB"
-echo "[Docker] v1→최신 migration 업그레이드 계약 검사 성공"
+echo "[Docker] v1→052 역사 계약 및 053 fail-closed rollback 검사 성공"
 
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   createdb --username timing_jeju_test "$HOURS_CONFLICT_DB"
@@ -542,6 +629,8 @@ assert_consistency_upgrade_failure \
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   createdb --username timing_jeju_test "$CONCURRENCY_DB"
 
+# Historical #109 cleanup concurrency intentionally stops before 017.
+# Current no-location locking/parent-input races run in PG16/17 integration tests.
 for concurrency_sql in \
   /docker-entrypoint-initdb.d/001_auth_compat.sql \
   /docker-entrypoint-initdb.d/002_application_schema.sql \
@@ -560,6 +649,7 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/015_tour_api_incremental_sync.sql \
   /docker-entrypoint-initdb.d/018_kma_village_forecast_version.sql \
   /docker-entrypoint-initdb.d/021_recommended_stay_policy.sql \
+  /docker-entrypoint-initdb.d/023_public_place_tombstone.sql \
   /docker-entrypoint-initdb.d/024_tago_arrival_cache.sql \
   /docker-entrypoint-initdb.d/025_tago_arrival_flight_state.sql \
   /docker-entrypoint-initdb.d/026_completed_provider_data_health_index.sql \
@@ -587,6 +677,10 @@ for concurrency_sql in \
   /docker-entrypoint-initdb.d/048_compute_run_input_location_cleanup.sql \
   /docker-entrypoint-initdb.d/049_private_trip_ownership_helper.sql \
   /docker-entrypoint-initdb.d/050_schedule_title_only_sealing_correction.sql \
+  /docker-entrypoint-initdb.d/051_schedule_item_closed_facts.sql \
+  /docker-entrypoint-initdb.d/052_planned_anchor_resolver.sql \
+  /docker-entrypoint-initdb.d/053_planned_route_snapshot_provenance.sql \
+  /docker-entrypoint-initdb.d/054_planned_route_reference_integrity.sql \
   /queries/database_concurrency_contract.sql
 do
   docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

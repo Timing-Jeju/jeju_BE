@@ -20,6 +20,14 @@ public final class ScheduleException extends RuntimeException {
     return new ScheduleException("SCHEDULE_VERSION_NOT_FOUND");
   }
 
+  public static ScheduleException candidateExpired() {
+    return new ScheduleException("CANDIDATE_EXPIRED");
+  }
+
+  public static ScheduleException candidateEvidenceUnavailable() {
+    return new ScheduleException("CANDIDATE_EVIDENCE_UNAVAILABLE");
+  }
+
   public static ScheduleException placeNotFound() {
     return new ScheduleException("PLACE_NOT_FOUND");
   }

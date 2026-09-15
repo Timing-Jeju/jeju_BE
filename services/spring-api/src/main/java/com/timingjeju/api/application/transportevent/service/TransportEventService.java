@@ -39,6 +39,10 @@ public final class TransportEventService {
             new TransportEventUpsertRecord(ownerId, tripId, expected, canonical, clock.instant())));
   }
 
+  public void requireOwned(UUID ownerId, UUID tripId) {
+    store.requireOwned(Objects.requireNonNull(ownerId), Objects.requireNonNull(tripId));
+  }
+
   public TransportEventMutationPayload delete(
       UUID ownerId, UUID tripId, String eventType, TripExpectedRevision expected) {
     Objects.requireNonNull(ownerId);
@@ -77,7 +81,7 @@ public final class TransportEventService {
   private static void validate(PutTransportEventCommand command) {
     if (!EVENT_TYPES.contains(command.eventType())
         || !TRANSPORT_TYPES.contains(command.transportType())
-        || (command.terminalPlaceId() == null) == (command.customTerminalName() == null)
+        || (command.terminalPlaceId() != null && command.customTerminalName() != null)
         || command.scheduledAt() == null
         || !command.scheduledAt().getOffset().equals(KST_OFFSET)
         || !validText(command.customTerminalName(), 100)

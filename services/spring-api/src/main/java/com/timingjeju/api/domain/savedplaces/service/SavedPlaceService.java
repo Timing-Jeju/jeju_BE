@@ -51,17 +51,22 @@ public class SavedPlaceService {
   @Transactional
   public SavedPlaceUpdateResult patch(
       UUID owner, UUID placeId, String ifMatch, SavedPlacePatchCommand command) {
-    if (ifMatch == null || !ifMatch.matches("\"[A-Za-z0-9._:-]{1,128}\"")) {
-      throw com.timingjeju.api.domain.savedplaces.dto.SavedPlaceException.invalidRequest();
-    }
+    requireStrongIfMatch(ifMatch);
     return repository.patch(owner, placeId, ifMatch, command);
   }
 
   @Transactional
-  public void delete(UUID owner, UUID placeId) {
-    if (!repository.delete(owner, placeId)) {
+  public void delete(UUID owner, UUID placeId, String ifMatch) {
+    requireStrongIfMatch(ifMatch);
+    if (!repository.delete(owner, placeId, ifMatch)) {
       throw com.timingjeju.api.domain.savedplaces.dto.SavedPlaceException.of(
           "SAVED_PLACE_NOT_FOUND");
+    }
+  }
+
+  private static void requireStrongIfMatch(String ifMatch) {
+    if (ifMatch == null || !ifMatch.matches("\"[A-Za-z0-9._:-]{1,128}\"")) {
+      throw com.timingjeju.api.domain.savedplaces.dto.SavedPlaceException.invalidRequest();
     }
   }
 }

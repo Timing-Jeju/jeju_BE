@@ -9,7 +9,17 @@ public record ScheduleDaySnapshot(
     int dayNo,
     LocalDate date,
     List<ScheduleItemSnapshot> items,
-    List<ScheduleLegSnapshot> legs) {
+    List<ScheduleLegSnapshot> legs,
+    boolean hasGenerationResult) {
+  public ScheduleDaySnapshot(
+      UUID dayId,
+      int dayNo,
+      LocalDate date,
+      List<ScheduleItemSnapshot> items,
+      List<ScheduleLegSnapshot> legs) {
+    this(dayId, dayNo, date, items, legs, false);
+  }
+
   public ScheduleDaySnapshot {
     items = List.copyOf(items);
     legs = List.copyOf(legs);

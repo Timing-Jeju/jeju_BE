@@ -73,3 +73,45 @@ Issue #44는 `trip_plans.timezone`의 `Asia/Seoul` default/check를 추가했고
 - Notion의 다섯 endpoint 원본은 source spec v1.1이며 이 canonical 1.0.0 내용을 반영한 뒤에도 구현 증거가 없으므로 Draft/not-ready다.
 - Figma에서 직접 확인한 근거는 `182:3248 홈 - 01. 여행 기본 조건`의 입력·저장 동작뿐이다. 목록·상세·삭제와 loading/empty/error 상태의 직접 근거는 없어 not-ready다.
 - 로컬 catalog와 외부 문서의 metadata/example/implementation readiness를 추측으로 ready로 올리지 않는다.
+
+## #239 날짜별 활동 시간 (계약 1.1.0)
+
+`PUT /api/v1/trips/{tripId}/day-activity-windows`는 모든 현재 Day를 정확히 한 번 포함하는 전체 교체다. Bearer 인증, strong `If-Match`, printable ASCII 1~128자의 `Idempotency-Key`가 필요하다. body는 `{"days":[{"dayId":"…","startTime":"09:00","endTime":"18:00"}]}` 형태이며 미지 필드·중복 JSON key·누락·null·타입 오류를 해시 생성 전에 400으로 거부한다. 시각은 Asia/Seoul의 정확한 `HH:mm`, 00:00~23:59, 시작 < 종료다. 잘못된 시각·중복/누락/다른 여행 Day는 `422 TRIP_CONSTRAINT_VIOLATION`이다. 소유하지 않은 여행은 404이며 다른 Day 소유자 정보는 공개하지 않는다.
+
+성공은 GET과 같은 `TripDetail`과 ETag다. 각 Day의 `activityStartTime`·`activityEndTime`은 required nullable 문자열이다. 미입력은 null 쌍이며 서버 기본 시각을 만들지 않는다. 시간 일부 null이나 초·소수초를 포함한 legacy 값은 마이그레이션 사전 검사에서 기존 값을 변경하지 않고 적용을 중단한다. 이미 저장된 초 단위 값을 조회 응답에서 조용히 절삭하지 않는다.
+
+전체 Day·aggregate revision·멱등 응답 snapshot을 동일 트랜잭션으로 저장한다. 같은 키와 body는 원본 응답을 replay하고 다른 body는 `409 IDEMPOTENCY_KEY_REUSED`다. stale revision은 `409 TRIP_VERSION_CONFLICT`, completed/cancelled/failed는 `409 TRIP_TERMINAL_STATE_CONFLICT`다. 값이 동일한 no-op은 revision을 증가시키지 않는다. active/candidate 일정이 참조하는 Day의 시간 변경은 `409 TRIP_REGENERATION_REQUIRED`이며 해당 일정을 수정하거나 다시 계산하지 않는다.
+
+날짜 PATCH는 날짜가 겹치는 Day의 ID·활동 시간을 보존하고 새 Day를 null 쌍으로 만든다. BE의 기존 1~30일 계약을 유지한다. FE의 1차 입력 범위 1~5일은 UI 제한이며 기존 6~30일 여행을 삭제하거나 읽기 불가로 만들지 않는다. MCP 생성 입력·worker 연결은 #89 후속 범위다. Figma/Notion의 이 저장 동작은 실제 연결 확인 전 `not-linked`다.
+
+forward migration은 `20260918000021_day_activity_window_pair.sql`, manifest/Docker 슬롯은 `059`다. 소스 QA는 disposable PostgreSQL에서 실행하며 live DB 적용·운영 배포 완료를 의미하지 않는다.
+
+상세 GET의 신규 read-only transaction은 REPEATABLE_READ를 사용한다. root 조회와 Day 조회 사이에 동시 writer가 완료되더라도 이전 revision과 새 시간을 섞지 않는다. writer 안의 aggregate 반환은 기존 owner root lock과 동일 트랜잭션을 유지한다.
+
+### #239 생성 재시도의 과거 응답 계약
+
+`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV11 | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH와 새 Day PUT 응답의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
+
+TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연장하지 않는다. 만료 경계에서는 기존 registry 규칙을 그대로 따른다. receipt 삭제·namespace 교체·body 재작성·최신 GET 응답으로 치환하는 데이터 변경은 없다. 이 호환 계약 때문에 DB migration을 추가하지 않는다.
+
+## Issue #246 여행 상세 하위 값 복원
+
+여행 상세·새 생성·PATCH·새 Day 활동 시간 저장이 반환하는 `TripDetail`은 `transportEvents`와 `accommodations`를 항상 포함한다. `transportEvents`는 닫힌 `{arrival, departure}` 객체이며 각 슬롯의 미입력 값은 `null`이다. 숙소 미입력은 `[]`다. 교통은 기존 `TransportEventRequest`와 동일한 필드·enum·nullability이고, 숙소는 기존 `Accommodation` 저장 응답과 동일한 값이다. 숙소의 순서는 `sequenceNo ASC, accommodationId ASC`로 고정한다. 별도 조회 endpoint나 pagination은 추가하지 않는다.
+
+root owner 조회가 성공한 뒤 `trip_plan_id` 조건으로 교통·숙소·장소 선호를 각각 한 번 조회한다. 숙소 이름은 기존 저장 계약의 `coalesce(tour_places.name, trip_accommodations.custom_name)`을 따른다. root·이동 수단·Day·교통·숙소·장소 선호의 query 수는 행 수와 무관하게 여섯 번이며, 비소유/없는 root는 첫 조회 후 기존 `404 TRIP_NOT_FOUND`로 종료한다. #239의 repeatable-read 상세 조회 transaction을 사용해 revision/strong ETag와 하위 값은 같은 snapshot에 속한다. mutation 응답은 기존 owner root lock이 적용된 transaction 안에서 같은 projection을 읽는다.
+
+#53에서 최신 `TripDetail.placePreferences`를 필수 배열로 추가한다. 미입력은 `[]`이고 기존 장소 선호 저장 계약의 `placeId/type/targetDayNo/priority/requestedStayMinutes`를 그대로 복원하며 정렬은 `priority DESC, placeId ASC`다. `plannerConditions`는 `{dayAnchors,styleCodes}` 필수 객체이고 미입력은 두 빈 배열이다. 추가 구조화 조건의 두 query도 같은 repeatable-read 안에서 수행한다. 도입 전 완료 receipt는 장소 선호·planner 조건이 없는 닫힌 `TripDetailLegacyV12`로 POST와 Day PUT replay에만 허용한다. 이전 receipt를 재작성하지 않으며 최신 값은 여행 GET으로 조회한다.
+
+### Planner 조건 저장 (#53, 연결 검증 중)
+
+`PUT /api/v1/trips/{tripId}/planner-conditions`는 Authorization, 강한 `If-Match`, UUID `Idempotency-Key`를 요구한다. body는 정확히 `dayAnchors: [{dayId,lodgingPlaceId}]`와 `styleCodes: string[]`다. canonical UUID 외의 이름·좌표·원문 필드를 허용하지 않는다. **전체 교체이므로 FE는 유지할 Day까지 전부 보내야 하며, 누락한 숙소 기준점은 삭제된다.** 최대 30일 저장과 AI 최대 5일 검증은 별개다.
+
+스타일 코드는 `restaurant`(맛집투어), `cafe`(카페투어), `leisure`(액티비티), `cultural_facility`(예술/전시), `relaxed`(힐링/휴식), `trendy`(핫플/트렌디), `local`(로컬/현지)이다. `trendy/local`은 UI 복원만 지원하며 AI 입력으로 변환하지 않는다. 같은 Day·스타일의 중복, 미등록 스타일, 여행 밖 Day는 422다. 사용할 수 없는 canonical 장소는 404다.
+
+200은 `tripId`, `plannerConditions`, `scheduleEffect`, `regenerationRequired`, nullable `activeScheduleVersionId`와 ETag를 반환한다. canonical 동일 입력은 revision을 올리지 않는다. 멱등 재전송은 원본 응답을 보존하고 `Idempotency-Replayed`를 표시한다. 공개 catalog 및 최종 OpenAPI 응답 매핑 검증 전이므로 배포 readiness를 승격하지 않는다.
+
+교통·숙소 조회 실패나 정규화되지 않은 숙소 표시값은 cause 없는 `503 TRIP_DATA_UNAVAILABLE`로 전체 요청을 실패시킨다. 일부 하위 값만 성공 응답으로 반환하지 않는다. 외부 provider를 호출하지 않고 사용자 GPS·현재·간접 위치, 예약 정보 등 새 필드를 추가하지 않는다.
+
+새 migration은 필요하지 않다. `20260918000002_trip_accommodation_contract.sql`과 `20260918000003_trip_transport_event_contract.sql`에 이미 있는 정규화 컬럼과 순번·소유 참조를 읽으며, schema/ACL과 write 의미를 변경하지 않는다.
+
+#246에서도 과거 완료 receipt를 다시 쓰거나 만료시키지 않는다. POST는 활동 시간 도입 전 `TripDetailLegacyV1` 또는 숙소·교통 도입 전 `TripDetailLegacyV11`을 replay할 수 있다. Day PUT의 `TripDayActivityWindowsResponse`는 최신 TripDetail과 TripDetailLegacyV11의 닫힌 union이다. legacy 분기는 `Idempotency-Replayed: true`에서만 반환하며 과거 원본 status/ETag/body/기존Location을 유지한다. 새 mutation과 GET/PATCH는 최신 required child를 반환한다. FE는 replay 응답에 child가 없으면 빈 값으로 덮어쓰지 않고 canonical 여행 GET으로 복원한다.

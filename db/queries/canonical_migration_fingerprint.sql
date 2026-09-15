@@ -5,7 +5,7 @@ with application_routines as (
   select procedure_record.*
   from pg_catalog.pg_proc procedure_record
   join pg_catalog.pg_namespace namespace on namespace.oid = procedure_record.pronamespace
-  where namespace.nspname in ('public', 'timing_jeju_private')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
     and procedure_record.prokind in ('f', 'p', 'w')
     and not exists (
       select 1
@@ -19,7 +19,7 @@ catalog_rows as (
   select 'schema_owner' || ':' || namespace.nspname || ':' || owner_role.rolname as value
   from pg_catalog.pg_namespace namespace
   join pg_catalog.pg_roles owner_role on owner_role.oid = namespace.nspowner
-  where namespace.nspname in ('public', 'timing_jeju_private', 'auth')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private', 'auth')
 
   union all
 
@@ -32,7 +32,7 @@ catalog_rows as (
   ) acl_record
   left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl_record.grantee
   left join pg_catalog.pg_roles grantor_role on grantor_role.oid = acl_record.grantor
-  where namespace.nspname in ('public', 'timing_jeju_private', 'auth')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private', 'auth')
 
   union all
 
@@ -41,7 +41,7 @@ catalog_rows as (
       || relation.relforcerowsecurity::text
   from pg_catalog.pg_class relation
   join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
-  where namespace.nspname in ('public', 'timing_jeju_private')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
     and relation.relkind in ('r', 'p', 'v', 'm', 'S', 'f')
 
   union all
@@ -62,7 +62,7 @@ catalog_rows as (
   ) acl_record
   left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl_record.grantee
   left join pg_catalog.pg_roles grantor_role on grantor_role.oid = acl_record.grantor
-  where namespace.nspname in ('public', 'timing_jeju_private')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
     and relation.relkind in ('r', 'p', 'v', 'm', 'S', 'f')
 
   union all
@@ -72,7 +72,7 @@ catalog_rows as (
       || column_record.udt_schema || ':' || column_record.udt_name || ':'
       || column_record.is_nullable || ':' || coalesce(column_record.column_default, '')
   from information_schema.columns column_record
-  where column_record.table_schema in ('public', 'timing_jeju_private')
+  where column_record.table_schema in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
 
   union all
 
@@ -86,7 +86,7 @@ catalog_rows as (
   cross join lateral pg_catalog.aclexplode(attribute.attacl) acl_record
   left join pg_catalog.pg_roles grantee_role on grantee_role.oid = acl_record.grantee
   left join pg_catalog.pg_roles grantor_role on grantor_role.oid = acl_record.grantor
-  where namespace.nspname in ('public', 'timing_jeju_private')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
     and attribute.attnum > 0
     and not attribute.attisdropped
     and attribute.attacl is not null
@@ -97,14 +97,14 @@ catalog_rows as (
       || pg_catalog.pg_get_constraintdef(constraint_record.oid, true)
   from pg_catalog.pg_constraint constraint_record
   join pg_catalog.pg_namespace namespace on namespace.oid = constraint_record.connamespace
-  where namespace.nspname in ('public', 'timing_jeju_private')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
 
   union all
 
   select 'index' || ':' || index_record.schemaname || ':' || index_record.tablename || ':'
       || index_record.indexname || ':' || index_record.indexdef
   from pg_catalog.pg_indexes index_record
-  where index_record.schemaname in ('public', 'timing_jeju_private')
+  where index_record.schemaname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
 
   union all
 
@@ -113,7 +113,7 @@ catalog_rows as (
   from pg_catalog.pg_trigger trigger_record
   join pg_catalog.pg_class relation on relation.oid = trigger_record.tgrelid
   join pg_catalog.pg_namespace namespace on namespace.oid = relation.relnamespace
-  where namespace.nspname in ('public', 'timing_jeju_private')
+  where namespace.nspname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
     and not trigger_record.tgisinternal
 
   union all
@@ -126,7 +126,7 @@ catalog_rows as (
       ), '') || ':' || coalesce(policy_record.qual, '') || ':'
       || coalesce(policy_record.with_check, '')
   from pg_catalog.pg_policies policy_record
-  where policy_record.schemaname in ('public', 'timing_jeju_private')
+  where policy_record.schemaname in ('public', 'timing_jeju_private', 'timing_jeju_planner_private')
 
   union all
 

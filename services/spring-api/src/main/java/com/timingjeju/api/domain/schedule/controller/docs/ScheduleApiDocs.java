@@ -14,6 +14,44 @@ public interface ScheduleApiDocs {
   String UUID_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
 
   @Operation(
+      operationId = "tripScheduleVersionRead",
+      summary = "불변 일정 버전 조회",
+      description = "후보 scheduleUrl과 적용 Location의 소유자 범위 일정 버전을 조회합니다. query와 body는 허용하지 않습니다.")
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        content = @Content(schema = @Schema(implementation = ScheduleResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
+  ScheduleResponse readVersion(
+      @Parameter(
+              required = true,
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN))
+          String tripId,
+      @Parameter(
+              required = true,
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN))
+          String versionId,
+      @Parameter(hidden = true) HttpServletRequest request);
+
+  @Operation(
       operationId = "tripScheduleRead",
       summary = "활성 또는 명시 일정 버전 조회",
       description = "소유자 범위의 불변 일정 버전과 Day·item·leg·진행 상태를 조회합니다.")

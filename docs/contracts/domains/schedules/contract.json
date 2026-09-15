@@ -400,11 +400,11 @@
         "sourceType": {
           "type": "string",
           "enum": [
-          "initial",
-          "user_edit",
-          "ai_generation",
-          "recovery",
-          "live_recalculation"
+            "initial",
+            "user_edit",
+            "ai_generation",
+            "recovery",
+            "live_recalculation"
           ],
           "nullable": false
         },
@@ -491,7 +491,8 @@
         "bufferAfterMinutes",
         "required",
         "memo",
-        "progress"
+        "progress",
+        "boundaryRole"
       ],
       "properties": {
         "itemId": {
@@ -542,7 +543,7 @@
         },
         "stayMinutes": {
           "type": "integer",
-          "minimum": 1,
+          "minimum": 0,
           "maximum": 1440,
           "nullable": false
         },
@@ -563,6 +564,14 @@
         },
         "progress": {
           "$ref": "ItemProgress",
+          "nullable": true
+        },
+        "boundaryRole": {
+          "type": "string",
+          "enum": [
+            "day_start",
+            "day_end"
+          ],
           "nullable": true
         }
       }
@@ -587,7 +596,9 @@
         "bufferMinutes",
         "distanceMeters",
         "estimatedFareKrw",
-        "riskScore"
+        "riskScore",
+        "riskLevel",
+        "riskReasonCodes"
       ],
       "properties": {
         "legId": {
@@ -640,12 +651,12 @@
         "waitMinutes": {
           "type": "integer",
           "minimum": 0,
-          "nullable": false
+          "nullable": true
         },
         "rideMinutes": {
           "type": "integer",
           "minimum": 0,
-          "nullable": false
+          "nullable": true
         },
         "transferMinutes": {
           "type": "integer",
@@ -654,7 +665,7 @@
         },
         "durationMinutes": {
           "type": "integer",
-          "minimum": 1,
+          "minimum": 0,
           "nullable": false
         },
         "bufferMinutes": {
@@ -677,6 +688,15 @@
           "minimum": 0,
           "maximum": 100,
           "nullable": true
+        },
+        "riskLevel": {
+          "type": "string",
+          "nullable": true,
+          "enum": ["low", "medium", "high", "critical", "unknown"]
+        },
+        "riskReasonCodes": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
@@ -689,7 +709,8 @@
         "dayNo",
         "date",
         "items",
-        "legs"
+        "legs",
+        "hasGenerationResult"
       ],
       "properties": {
         "dayId": {
@@ -720,6 +741,11 @@
           "items": {
             "$ref": "ScheduleLeg"
           }
+        },
+        "hasGenerationResult": {
+          "type": "boolean",
+          "nullable": false,
+          "description": "Whether this schedule version has a validated AI generation result for this day; independent of candidate application status."
         }
       }
     },
@@ -827,6 +853,27 @@
         "sourceType": "user_edit",
         "feasibilityStale": true
       }
+    },
+    "ScheduleVersionPath": {
+      "type": "object",
+      "nullable": false,
+      "additionalProperties": false,
+      "required": [
+        "tripId",
+        "versionId"
+      ],
+      "properties": {
+        "tripId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        },
+        "versionId": {
+          "type": "string",
+          "format": "uuid",
+          "nullable": false
+        }
+      }
     }
   },
   "endpoints": [
@@ -859,7 +906,8 @@
         "errors": [
           400,
           401,
-          404
+          404,
+          410
         ]
       },
       "dbOwner": "Spring reads owner-scoped trips.active_schedule_version_id and immutable trip schedule tables; implementation #49",
@@ -875,6 +923,10 @@
         "404": [
           "TRIP_NOT_FOUND",
           "SCHEDULE_VERSION_NOT_FOUND"
+        ],
+        "410": [
+          "CANDIDATE_EXPIRED",
+          "CANDIDATE_EVIDENCE_UNAVAILABLE"
         ]
       },
       "concurrency": "none",
@@ -894,7 +946,8 @@
       },
       "pagination": {
         "type": "none"
-      }
+      },
+      "candidateLifetime": "unapplied ai_generation versions require retained candidate metadata and expiresAt after both response time and DB clock; only active/superseded with applied_at are exempt"
     },
     {
       "method": "POST",
@@ -1343,6 +1396,78 @@
       "pagination": {
         "type": "none"
       }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trips/{tripId}/schedule-versions/{versionId}",
+      "operation": "read",
+      "auth": {
+        "mode": "required",
+        "missingToken": 401,
+        "invalidToken": 401
+      },
+      "owner": "canonical JWT sub; cross-owner and wrong-trip version 404",
+      "schemas": {
+        "path": "ScheduleVersionPath",
+        "query": "none",
+        "headers": "ReadHeaders",
+        "body": "none"
+      },
+      "successSchema": "ScheduleResponse",
+      "versionSelector": "explicit required path versionId must belong to same owner/trip",
+      "requiredHeaders": [
+        "Authorization"
+      ],
+      "presence": "tripId and versionId required canonical UUID; query and body forbidden",
+      "responses": {
+        "success": [
+          200
+        ],
+        "errors": [
+          400,
+          401,
+          404,
+          410
+        ]
+      },
+      "dbOwner": "Spring owner-scoped immutable schedule read; candidate URL and apply Location integration #53",
+      "dataLineage": "owner-scoped PostgreSQL trip_schedule_versions, trip_days, trip_items, trip_legs and trip_item_progress",
+      "errorMatrix": {
+        "400": [
+          "INVALID_REQUEST"
+        ],
+        "401": [
+          "AUTHENTICATION_REQUIRED",
+          "INVALID_ACCESS_TOKEN"
+        ],
+        "404": [
+          "TRIP_NOT_FOUND",
+          "SCHEDULE_VERSION_NOT_FOUND"
+        ],
+        "410": [
+          "CANDIDATE_EXPIRED",
+          "CANDIDATE_EVIDENCE_UNAVAILABLE"
+        ]
+      },
+      "concurrency": "none",
+      "transaction": "read-only; never changes active pointer, version, items, legs or progress",
+      "requestTimeCall": "none",
+      "figma": {
+        "node": "not-observed",
+        "action": "활성 일정 조회 화면 API linkage not-linked",
+        "loading": "not-observed",
+        "empty": "not-observed",
+        "error": "not-observed"
+      },
+      "contractVersion": "1.0.0",
+      "idempotency": {
+        "required": false,
+        "header": "none"
+      },
+      "pagination": {
+        "type": "none"
+      },
+      "candidateLifetime": "unapplied ai_generation versions require retained candidate metadata and expiresAt after both response time and DB clock; only active/superseded with applied_at are exempt"
     }
   ],
   "readPolicy": {
@@ -1434,6 +1559,7 @@
       }
     },
     "concurrency": "strong trip aggregate ETag plus expected active schedule version",
+    "generationBoundaries": "ScheduleItem.boundaryRole is null for ordinary positive-duration items, or day_start/day_end for canonical-place custom items with equal start/end, zero stay and zero buffer. Direct patch/delete/move is rejected with SCHEDULE_ITEM_INVALID. Derived versions preserve each day's boundary roles, places and times; boundaries remain first/last during reorder or insertion.",
     "changedItemIds": {
       "create": "newly created item ID in the new active version namespace",
       "patch": "patched old item ID mapped to its copied ID in the new active version namespace",
@@ -1465,13 +1591,28 @@
       "newIdentity": "new UUID for every copied item in the new schedule version",
       "mapping": "command-scoped bijection oldItemIdToNewItemId",
       "scope": "created before leg derivation and discarded after the transaction; never persisted as cross-version FK",
-      "semanticEquality": ["itemType", "normalized place/coordinate identity", "plannedStartAt", "plannedEndAt", "transport mode"]
+      "semanticEquality": [
+        "itemType",
+        "normalized place/coordinate identity",
+        "plannedStartAt",
+        "plannedEndAt",
+        "transport mode"
+      ]
     },
     "reuse": "map the old ordered adjacent pair through oldItemIdToNewItemId, write fromItemId/toItemId with new item IDs, and reuse only route attributes/components when mapped adjacency and all semanticEquality fields are unchanged; never reuse old leg or old trip_items IDs",
     "storedSnapshot": {
       "eligibility": "same normalized origin/destination and transport mode, captured before mutation and unexpired at transaction start; route_summary must contain validated walk/wait/ride/transfer components whose sum equals duration_minutes",
       "tieBreaker": "expiresAt DESC, observedAt DESC, snapshotId ASC",
       "components": "copy validated route_summary components, distance and fare; risk defaults null when absent; a snapshot without complete components is ineligible"
+    },
+    "samePlaceContinuity": {
+      "eligibility": "adjacent items reference the same non-null canonical place ID and live planned anchor resolution confirms zero distance",
+      "transportMode": "walk",
+      "durationMinutes": 0,
+      "distanceMeters": 0,
+      "estimatedFareKrw": 0,
+      "components": "walk/wait/ride/transfer/buffer are all zero; departure equals arrival and from.plannedEndAt, not after to.plannedStartAt",
+      "derivation": "same_place_continuity_v1; location identity, not an external route estimate"
     },
     "conservativeFallback": {
       "eligibility": "both adjacent items have normalized coordinates and the computed arrival does not exceed the next plannedStartAt",
@@ -1704,6 +1845,24 @@
       "title": "여행 Day를 비울 수 없습니다",
       "detail": "각 여행 Day에는 일정 항목이 하나 이상 있어야 합니다.",
       "fixture": "422_schedule_day_empty"
+    },
+    {
+      "status": 410,
+      "code": "CANDIDATE_EXPIRED",
+      "condition": "unapplied AI candidate expiresAt is at or before response time or DB clock",
+      "type": "https://api.timing-jeju.com/problems/candidate-expired",
+      "title": "후보 유효기간이 지났습니다",
+      "detail": "여행 조건을 확인한 뒤 다시 생성해 주세요.",
+      "fixture": "410_candidate_expired"
+    },
+    {
+      "status": 410,
+      "code": "CANDIDATE_EVIDENCE_UNAVAILABLE",
+      "condition": "unapplied AI version has no unique retained candidate expiry metadata",
+      "type": "https://api.timing-jeju.com/problems/candidate-evidence-unavailable",
+      "title": "후보 근거를 복원할 수 없습니다",
+      "detail": "여행 조건을 확인한 뒤 다시 생성해 주세요.",
+      "fixture": "410_candidate_evidence_unavailable"
     }
   ],
   "externalTraceability": {
@@ -1746,7 +1905,7 @@
   },
   "schemaGap": [
     "#50은 supabase/migrations/20260907000000_schedule_item_create_contract.sql에서 trip_items accommodation/transport-event 동일 여행 복합 FK를 추가한다",
-    "stay_minutes의 기존 null/0 및 상한 없는 저장 범위는 sealed version validator와 #50 API의 1..1440 검증으로 닫는다",
+    "일반 항목 stay_minutes는 sealed version validator와 #50 API의 1..1440 검증으로 닫는다. #53의 명시된 day_start/day_end 기준점만 canonical 장소와 동일 시작·종료 시각으로 0분을 허용한다",
     "leg derivation source/algorithm version은 facts marker, snapshot ID는 기존 mobility_route_snapshot_id로 보존한다",
     "나머지 mutation의 Spring 구현은 #51 이후 범위이며 Flyway는 도입하지 않는다"
   ]

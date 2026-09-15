@@ -11,6 +11,7 @@ import com.timingjeju.api.application.trip.TripAggregateMutationCommit;
 import com.timingjeju.api.application.trip.TripAggregateMutationCoordinator;
 import com.timingjeju.api.application.trip.TripAggregateMutationPlan;
 import com.timingjeju.api.application.trip.TripAggregateMutationState;
+import com.timingjeju.api.application.trip.TripAirportResolver;
 import com.timingjeju.api.application.trip.TripException;
 import com.timingjeju.api.application.trip.TripRootPatch;
 import java.sql.Timestamp;
@@ -29,10 +30,29 @@ public class JdbcTransportEventStore implements TransportEventStore {
   private static final ZoneOffset KST_OFFSET = ZoneOffset.ofHours(9);
   private final JdbcTemplate jdbc;
   private final TripAggregateMutationCoordinator mutations;
+  private final TripAirportResolver airports;
 
-  public JdbcTransportEventStore(JdbcTemplate jdbc, TripAggregateMutationCoordinator mutations) {
+  public JdbcTransportEventStore(
+      JdbcTemplate jdbc, TripAggregateMutationCoordinator mutations, TripAirportResolver airports) {
     this.jdbc = jdbc;
     this.mutations = mutations;
+    this.airports = airports;
+  }
+
+  @Override
+  public void requireOwned(UUID ownerId, UUID tripId) {
+    transportBoundary(
+        () -> {
+          if (jdbc.queryForList(
+                  "select id from public.trip_plans where id=? and user_id=?",
+                  UUID.class,
+                  tripId,
+                  ownerId)
+              .isEmpty()) {
+            throw TransportEventException.of("TRIP_NOT_FOUND");
+          }
+          return null;
+        });
   }
 
   @Override
@@ -45,13 +65,40 @@ public class JdbcTransportEventStore implements TransportEventStore {
               record.tripId(),
               record.expected().revision(),
               record.now(),
-              state -> upsertPlan(record, state));
+              state -> upsertPlan(resolveTerminal(record), state));
       return mutation(record.tripId(), commit);
     } catch (TransportEventException failure) {
       throw failure;
     } catch (TripException failure) {
       throw translate(failure);
     }
+  }
+
+  private TransportEventUpsertRecord resolveTerminal(TransportEventUpsertRecord record) {
+    var command = record.command();
+    if (!"flight".equals(command.transportType())
+        || command.terminalPlaceId() != null
+        || command.customTerminalName() != null) return record;
+    return transportBoundary(
+        () -> {
+          UUID airport =
+              airports
+                  .findApproved()
+                  .orElseThrow(() -> TransportEventException.of("PLACE_NOT_FOUND"));
+          return new TransportEventUpsertRecord(
+              record.ownerId(),
+              record.tripId(),
+              record.expected(),
+              new PutTransportEventCommand(
+                  command.eventType(),
+                  command.transportType(),
+                  airport,
+                  null,
+                  command.scheduledAt(),
+                  command.transportNumber(),
+                  command.note()),
+              record.now());
+        });
   }
 
   @Override

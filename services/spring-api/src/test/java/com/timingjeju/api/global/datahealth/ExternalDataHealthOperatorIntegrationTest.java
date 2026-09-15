@@ -55,7 +55,17 @@ class ExternalDataHealthOperatorIntegrationTest {
     HttpResponse<String> publicHealth = getPath(managementPort, "/actuator/health", null);
 
     assertThat(managementPort).isNotEqualTo(applicationPort);
-    assertThat(missing.statusCode()).isEqualTo(401);
+    assertThat(missing.statusCode())
+        .as(
+            "management/application 응답 status=%s/%s/%s/%s/%s, missing HTTP=%s, HTML error=%s",
+            missing.statusCode(),
+            user.statusCode(),
+            operator.statusCode(),
+            application.statusCode(),
+            publicHealth.statusCode(),
+            missing.version(),
+            missing.body().contains("HTTP Status 400"))
+        .isEqualTo(401);
     assertThat(user.statusCode()).isEqualTo(401);
     assertThat(operator.statusCode()).isEqualTo(200);
     assertThat(operator.body())

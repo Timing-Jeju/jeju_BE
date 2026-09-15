@@ -16,6 +16,22 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration(proxyBeanMethods = false)
 public class TripConfiguration {
+  @Bean
+  com.timingjeju.api.application.trip.service.TripPlannerConditionsService
+      tripPlannerConditionsService(
+          com.timingjeju.api.application.trip.TripPlannerConditionsStore store, Clock clock) {
+    return new com.timingjeju.api.application.trip.service.TripPlannerConditionsService(
+        store, clock);
+  }
+
+  @Bean
+  com.timingjeju.api.application.trip.service.TripDayActivityWindowService
+      tripDayActivityWindowService(
+          com.timingjeju.api.application.trip.TripDayActivityWindowStore store, Clock clock) {
+    return new com.timingjeju.api.application.trip.service.TripDayActivityWindowService(
+        store, clock);
+  }
+
   @Bean("tripCursorCodec")
   TripCursorCodec tripCursorCodec(
       @Value("${app.trips.cursor-signing-key:}") String configuredKey,

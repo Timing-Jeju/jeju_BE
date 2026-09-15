@@ -48,6 +48,19 @@ class ScheduleOpenApiIntegrationTest
   }
 
   @Test
+  void 일정_조회는_날짜별_AI_이력_존재를_필수_boolean으로_공개한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.components.schemas.ScheduleDay.properties.hasGenerationResult.type")
+                .value("boolean"))
+        .andExpect(
+            jsonPath(
+                "$.components.schemas.ScheduleDay.required",
+                org.hamcrest.Matchers.hasItem("hasGenerationResult")));
+  }
+
+  @Test
   void schedule_read는_canonical_query_closed_projection_problem과_example을_문서화한다() throws Exception {
     String path = "$.paths['/api/v1/trips/{tripId}/schedule'].get";
     String success = path + ".responses['200'].content['application/json']";
@@ -64,7 +77,7 @@ class ScheduleOpenApiIntegrationTest
         .andExpect(jsonPath(path + ".requestBody").doesNotExist())
         .andExpect(
             jsonPath(path + ".responses.keys()")
-                .value(containsInAnyOrder("200", "400", "401", "403", "404", "500")))
+                .value(containsInAnyOrder("200", "400", "401", "403", "404", "410", "500")))
         .andExpect(jsonPath(success + ".schema.additionalProperties").value(false))
         .andExpect(
             jsonPath(success + ".schema.required")

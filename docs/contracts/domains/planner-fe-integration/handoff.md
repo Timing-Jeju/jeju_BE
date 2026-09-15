@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 여행 조건 저장 | `PUT /api/v1/trips/{tripId}/planner-conditions` | 없음 | 후속 aggregate issue |
 | 장소 검색·찜 | `GET /api/v1/places`, `GET /api/v1/me/saved-places` | 미해결 selector만 Search | 기존 API + adapter 후속 |
-| Day 생성·polling | `POST/GET /generation-runs` | Recommend 1 + Evaluate 3 + 제한 Inspect | #53/#79/#95 |
+| Day 생성·polling | `POST/GET /schedule-generations` | Recommend 1 + Evaluate 3 + 제한 Inspect | #53/#79/#95 |
 | 순서·추가·삭제·체류시간·대안 | `POST /schedule-revision-runs` | 변경 leg만 Preview + full Evaluate | #69/#104/#105 |
 | 빈시간 채우기 | `POST /spare-time-runs` | 좁은 window Recommend + Evaluate | #57/#98/#99 |
 | 구간 상세 | `GET /schedule-versions/{versionId}/legs/{legId}` | 저장 결과만 조회 | #56 |

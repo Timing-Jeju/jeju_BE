@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.transportevent.controller;
 
+import com.timingjeju.api.application.idempotency.IdempotencyException;
 import com.timingjeju.api.application.profile.ProfileProvisioningException;
 import com.timingjeju.api.application.transportevent.TransportEventException;
 import com.timingjeju.api.domain.transportevent.exception.TransportEventProblemDefinitions;
@@ -33,6 +34,16 @@ public final class TransportEventProblemExceptionHandler {
       TransportEventException failure, HttpServletRequest request, HttpServletResponse response)
       throws IOException {
     writer.write(request, response, definitions.find(failure.code()), List.of());
+  }
+
+  @ExceptionHandler(IdempotencyException.class)
+  void handleIdempotency(
+      IdempotencyException failure, HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    failure
+        .retryAfterSeconds()
+        .ifPresent(seconds -> response.setHeader("Retry-After", Integer.toString(seconds)));
+    writer.write(request, response, failure.code());
   }
 
   @ExceptionHandler({

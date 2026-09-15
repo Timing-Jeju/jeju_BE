@@ -13,8 +13,7 @@ public record CommandInputRequest(
     JsonNode structuredInput,
     UUID ownerUserId,
     UUID tripPlanId,
-    UUID baseScheduleVersionId,
-    CommandLocation location) {
+    UUID baseScheduleVersionId) {
 
   public CommandInputRequest {
     Objects.requireNonNull(parent, "parent는 필수입니다.");

@@ -105,7 +105,7 @@ class ScheduleItemCreateArchitectureSourceTest {
 
     assertThat(source)
         .doesNotContain("if (resolved.placeId() == null)")
-        .contains("from.placeId() == null || to.placeId() == null")
+        .contains("timing_jeju_planner_private.resolve_planned_item_anchor(?, ?, ?)")
         .contains(".orElseThrow(ScheduleException::legIncomplete)");
   }
 

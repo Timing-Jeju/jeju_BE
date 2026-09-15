@@ -12,6 +12,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -22,6 +23,7 @@ import tools.jackson.databind.ObjectMapper;
 @ConditionalOnProperty(prefix = "app.mcp", name = "enabled", havingValue = "true")
 public final class SpringAiJejuMcpClient implements McpToolClient {
   private final McpSyncClient client;
+  private final McpSyncClient generationClient;
   private final McpContractGuard contractGuard;
   private final ObjectMapper objectMapper;
   private final MeterRegistry meterRegistry;
@@ -32,11 +34,14 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
   @Autowired
   public SpringAiJejuMcpClient(
       @Qualifier("jejuPlannerMcpSyncClient") McpSyncClient client,
+      @Qualifier("jejuPlannerGenerationMcpSyncClient")
+          ObjectProvider<McpSyncClient> generationClient,
       ObjectMapper objectMapper,
       MeterRegistry meterRegistry,
       McpCallResilience resilience,
       McpCallAuditWriter auditWriter) {
     this.client = Objects.requireNonNull(client, "client는 필수입니다.");
+    this.generationClient = generationClient.getIfAvailable();
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.");
     this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry는 필수입니다.");
     this.resilience = Objects.requireNonNull(resilience, "resilience는 필수입니다.");
@@ -52,6 +57,7 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
       McpCallResilience resilience,
       McpCallAuditWriter auditWriter) {
     this.client = Objects.requireNonNull(client, "client는 필수입니다.");
+    this.generationClient = client;
     this.contractGuard = Objects.requireNonNull(contractGuard, "contractGuard는 필수입니다.");
     this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper는 필수입니다.");
     this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry는 필수입니다.");
@@ -78,6 +84,11 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
                           tool.outputSchema() == null ? Map.of() : tool.outputSchema()))
               .toList();
       contractGuard.verifyCatalog(tools);
+      if (generationClient != null
+          && generationClient != client
+          && !generationClient.isInitialized()) {
+        generationClient.initialize();
+      }
       ready.set(true);
     } catch (RuntimeException exception) {
       ready.set(false);
@@ -90,9 +101,58 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
 
   @Override
   public McpInvocationResult call(McpInvocation invocation) {
+    var result =
+        invoke(
+            invocation,
+            content ->
+                contractGuard.validateStructuredContent(
+                    invocation.toolName(), content, invocation.inboundIdAllowlist()));
+    return new McpInvocationResult(
+        result.projection(), result.mcpInputHash(), result.attemptCount());
+  }
+
+  @Override
+  public <T> McpProjectedResult<T> callGeneration(
+      McpInvocation invocation, McpGenerationProjector<T> projector) {
+    if (projector == null
+        || invocation.parent().generationRunId() == null
+        || !invocation.toolName().equals("recommend_jeju_day_trips")
+        || !invocation.inboundIdAllowlist().isEmpty())
+      throw new McpContractException("MCP_CONTRACT_INVALID");
+    return invoke(
+        invocation,
+        content -> {
+          var checked = contractGuard.validateOutputSchema(invocation.toolName(), content);
+          try {
+            return Objects.requireNonNull(projector.validateAndProject(checked));
+          } catch (RuntimeException failure) {
+            // Provider/DB/validation exception의 원문과 cause는 audit/worker로 전파하지 않는다.
+            throw new McpContractException("MCP_CONTRACT_INVALID");
+          }
+        });
+  }
+
+  private <T> McpProjectedResult<T> invoke(
+      McpInvocation invocation, java.util.function.Function<Object, T> validator) {
     if (!ready.get()) throw new McpRemoteCallException("MCP_NOT_READY");
-    Map<String, Object> hashArguments = new LinkedHashMap<>(invocation.arguments());
-    hashArguments.put("requestId", invocation.requestId());
+    boolean generationRun = invocation.parent().generationRunId() != null;
+    McpSyncClient selectedClient =
+        generationRun || "recommend_jeju_day_trips".equals(invocation.toolName())
+            ? generationClient
+            : client;
+    if (selectedClient == null) throw new McpRemoteCallException("MCP_GENERATION_DISABLED");
+    Map<String, Object> preflightArguments = new LinkedHashMap<>(invocation.arguments());
+    preflightArguments.put("requestId", invocation.requestId());
+    // Schema validation needs the envelope field; this sentinel is never sent or persisted.
+    preflightArguments.put("inputHash", "0".repeat(64));
+    McpNoLocationGuard.validate(objectMapper.valueToTree(preflightArguments));
+    Map<String, Object> hashArguments =
+        new LinkedHashMap<>(
+            contractGuard.validateArguments(
+                invocation.toolName(), preflightArguments, invocation.outboundIdAllowlist()));
+    // The guard owns a deep snapshot. Recheck that snapshot, not caller-owned nested maps.
+    McpNoLocationGuard.validate(objectMapper.valueToTree(hashArguments));
+    hashArguments.remove("inputHash");
     String mcpInputHash = McpSchemaFingerprint.sha256(hashArguments, objectMapper);
     Map<String, Object> wireArguments = new LinkedHashMap<>(hashArguments);
     wireArguments.put("inputHash", mcpInputHash);
@@ -107,13 +167,15 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
     String status = "succeeded";
     try {
       McpResilientResult<McpSchema.CallToolResult> call =
-          resilience.execute(
+          resilience.executeForTool(
+              invocation.toolName(),
+              generationRun,
               () -> {
                 int attemptNo = attempt.incrementAndGet();
                 long startedAt = System.nanoTime();
                 try {
                   McpSchema.CallToolResult result =
-                      client.callTool(
+                      selectedClient.callTool(
                           new McpSchema.CallToolRequest(invocation.toolName(), arguments));
                   finalAttemptLatencyMs.set(elapsedMillis(startedAt));
                   if (Boolean.TRUE.equals(result.isError())) {
@@ -149,13 +211,9 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
                   throw classified;
                 }
               });
-      Map<String, Object> structuredContent;
+      T projection;
       try {
-        structuredContent =
-            contractGuard.validateStructuredContent(
-                invocation.toolName(),
-                call.value().structuredContent(),
-                invocation.inboundIdAllowlist());
+        projection = validator.apply(call.value().structuredContent());
       } catch (McpContractException exception) {
         recordFailureAudit(
             invocation,
@@ -174,12 +232,12 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
           mcpInputHash,
           schemaChecksum,
           requestFactCount,
-          McpFactCounter.count(structuredContent, objectMapper),
+          McpFactCounter.count(call.value().structuredContent(), objectMapper),
           call.attemptCount(),
           "succeeded",
           Math.toIntExact(finalAttemptLatencyMs.get()),
           null);
-      return new McpInvocationResult(structuredContent, mcpInputHash, call.attemptCount());
+      return new McpProjectedResult<>(projection, mcpInputHash, call.attemptCount());
     } catch (McpContractException exception) {
       status = "contract_invalid";
       throw exception;
@@ -232,7 +290,6 @@ public final class SpringAiJejuMcpClient implements McpToolClient {
             invocation.toolName(),
             contractGuard.contractVersion(),
             invocation.commandInputHash(),
-            mcpInputHash,
             schemaChecksum,
             requestFactCount,
             responseFactCount,

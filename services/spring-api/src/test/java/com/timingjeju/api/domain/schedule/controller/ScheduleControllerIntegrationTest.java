@@ -105,6 +105,49 @@ class ScheduleControllerIntegrationTest {
   }
 
   @Test
+  void 만료된_미적용_후보는_두_조회경로에서_410을_반환한다() throws Exception {
+    when(schedules.read(any(), eq(TRIP_ID), eq(VERSION_ID)))
+        .thenThrow(ScheduleException.candidateExpired());
+    for (var request :
+        List.of(
+            get("/api/v1/trips/{tripId}/schedule-versions/{versionId}", TRIP_ID, VERSION_ID),
+            get("/api/v1/trips/{tripId}/schedule", TRIP_ID)
+                .queryParam("versionId", VERSION_ID.toString()))) {
+      mvc.perform(request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+          .andExpect(status().isGone())
+          .andExpect(jsonPath("$.code").value("CANDIDATE_EXPIRED"));
+    }
+  }
+
+  @Test
+  void 후보_scheduleUrl은_명시_버전_조회와_동일한_일정을_반환한다() throws Exception {
+    when(schedules.read(any(), eq(TRIP_ID), eq(VERSION_ID))).thenReturn(snapshot());
+    mvc.perform(
+            get("/api/v1/trips/{tripId}/schedule-versions/{versionId}", TRIP_ID, VERSION_ID)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.scheduleVersion.scheduleVersionId").value(VERSION_ID.toString()));
+    verify(schedules).read(any(), eq(TRIP_ID), eq(VERSION_ID));
+  }
+
+  @Test
+  void 후보_scheduleUrl은_미인증과_query_본문을_거부한다() throws Exception {
+    mvc.perform(get("/api/v1/trips/{tripId}/schedule-versions/{versionId}", TRIP_ID, VERSION_ID))
+        .andExpect(status().isUnauthorized());
+    for (var request :
+        List.of(
+            get("/api/v1/trips/{tripId}/schedule-versions/{versionId}", TRIP_ID, VERSION_ID)
+                .queryParam("versionId", VERSION_ID.toString()),
+            get("/api/v1/trips/{tripId}/schedule-versions/{versionId}", TRIP_ID, VERSION_ID)
+                .content("{}"))) {
+      mvc.perform(request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token(USER_ID)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+    verifyNoInteractions(schedules);
+  }
+
+  @Test
   void GET_schedule은_active_selector와_closed_KST_projection을_반환한다() throws Exception {
     when(schedules.read(any(), eq(TRIP_ID), isNull())).thenReturn(snapshot());
 

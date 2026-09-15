@@ -35,6 +35,15 @@ public class JdbcRunLeaseRepository implements RunLeaseRepository {
           select run.id, plan.data_version as source_data_version
           from public.compute_runs run
           join public.trip_plans plan on plan.id = run.trip_plan_id
+          join public.compute_run_inputs input on input.compute_run_id = run.id
+            and input.owner_user_id = plan.user_id
+            and input.trip_plan_id = run.trip_plan_id
+            and input.base_schedule_version_id is not distinct from run.schedule_version_id
+            and input.run_type = run.run_type
+            and input.contract_version = run.contract_version
+            and input.algorithm_version = run.algorithm_version
+            and input.command_input_hash = run.input_hash
+            and input.schema_version = 2
           where run.attempt_count < 5
             and (
               (run.status = 'queued'
@@ -156,12 +165,25 @@ public class JdbcRunLeaseRepository implements RunLeaseRepository {
   private void recoverExhaustedRuns() {
     jdbcTemplate.update(
         """
-        update public.compute_runs
+        update public.compute_runs run
         set status = 'failed', completed_at = statement_timestamp(), result_source = null,
             lease_owner = null, lease_expires_at = null, heartbeat_at = null,
             next_attempt_at = null, error_code = ?, error_message = null
         where status = 'running' and attempt_count >= 5
           and lease_expires_at <= statement_timestamp()
+          and exists (
+            select 1 from public.compute_run_inputs input
+            join public.trip_plans plan on plan.id = input.trip_plan_id
+            where input.compute_run_id = run.id
+              and input.owner_user_id = plan.user_id
+              and input.trip_plan_id = run.trip_plan_id
+              and input.base_schedule_version_id is not distinct from run.schedule_version_id
+              and input.run_type = run.run_type
+              and input.contract_version = run.contract_version
+              and input.algorithm_version = run.algorithm_version
+              and input.command_input_hash = run.input_hash
+              and input.schema_version = 2
+          )
         """,
         RETRY_EXHAUSTED);
   }

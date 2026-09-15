@@ -10,7 +10,10 @@ public class PostgreSqlTestcontainersConfiguration {
 
   @Bean
   @ServiceConnection
-  PostgreSQLContainer postgresqlContainer() {
-    return PostgreSqlTestContainerFactory.create();
+  PostgreSQLContainer postgresqlContainer(
+      @org.springframework.beans.factory.annotation.Value(
+              "${timing-jeju.test.postgis-image:postgis/postgis:16-3.4}")
+          String image) {
+    return PostgreSqlTestContainerFactory.create(image);
   }
 }

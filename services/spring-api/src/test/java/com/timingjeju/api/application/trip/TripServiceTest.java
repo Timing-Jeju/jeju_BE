@@ -30,6 +30,23 @@ class TripServiceTest {
   private static final Instant NOW = Instant.parse("2026-08-25T00:00:00Z");
 
   @Test
+  void 도보_우선_여행을_생성하면_저장_입력에_그대로_전달한다() {
+    CapturingStore store = new CapturingStore();
+    var modes = List.of(new TripTransportMode("walk", 1, true));
+    service(store)
+        .create(
+            USER,
+            new CreateTripCommand(
+                "도보 여행",
+                LocalDate.parse("2026-10-01"),
+                LocalDate.parse("2026-10-01"),
+                "Asia/Seoul",
+                "normal",
+                modes));
+    assertThat(store.created.command().transportModes()).isEqualTo(modes);
+  }
+
+  @Test
   void create는_날짜별_day_id를_모아_store를_한번만_호출한다() {
     CapturingStore store = new CapturingStore();
     TripService service = service(store);

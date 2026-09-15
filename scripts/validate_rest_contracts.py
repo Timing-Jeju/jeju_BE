@@ -518,7 +518,18 @@ def _validate_endpoints(
         _validate_endpoint_schemas(endpoint.get("schemas"), label, errors)
         _validate_endpoint_responses(endpoint.get("responses"), label, errors)
         _validate_endpoint_figma(endpoint.get("figma"), label, errors)
-        _validate_endpoint_idempotency(endpoint.get("idempotency"), operation, label, errors)
+        _validate_endpoint_idempotency(
+            endpoint.get("idempotency"), operation, label, errors,
+            required=identity in {
+                ("PUT", _canonical_path("/api/v1/trips/{tripId}/day-activity-windows")),
+                ("PUT", _canonical_path("/api/v1/trips/{tripId}/planner-conditions")),
+            },
+            optional_receipt=identity in {
+                ("PUT", _canonical_path("/api/v1/trips/{tripId}/transport-event")),
+                ("DELETE", _canonical_path("/api/v1/trips/{tripId}/transport-event")),
+                ("PUT", _canonical_path("/api/v1/trips/{tripId}/place-preferences")),
+            },
+        )
         _validate_endpoint_pagination(
             endpoint.get("pagination"), operation, label, errors
         )
@@ -594,9 +605,10 @@ def _validate_endpoint_figma(figma: Any, label: str, errors: list[str]) -> None:
 
 
 def _validate_endpoint_idempotency(
-    idempotency: Any, operation: Any, label: str, errors: list[str]
+    idempotency: Any, operation: Any, label: str, errors: list[str], *, required: bool = False,
+    optional_receipt: bool = False,
 ) -> None:
-    idempotent_operation = _allowed_string(operation, IDEMPOTENT_OPERATIONS)
+    idempotent_operation = required or _allowed_string(operation, IDEMPOTENT_OPERATIONS)
     allowed_fields = (
         REQUIRED_IDEMPOTENCY_FIELDS
         if idempotent_operation
@@ -620,6 +632,8 @@ def _validate_endpoint_idempotency(
                 errors.append(f"{label}의 멱등성 {field}는 비어 있을 수 없습니다.")
         return
 
+    if optional_receipt and idempotency == {"required": False, "header": "Idempotency-Key"}:
+        return
     if idempotency != TEMPLATE_DEFAULTS["idempotency"]:
         errors.append(
             f"{label}의 비필수 Idempotency-Key 계약은 required=false, header=none이어야 합니다."

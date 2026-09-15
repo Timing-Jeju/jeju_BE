@@ -19,13 +19,18 @@ public record ScheduleDayResponse(
     @ArraySchema(
             arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
             schema = @Schema(implementation = ScheduleLegResponse.class))
-        List<ScheduleLegResponse> legs) {
+        List<ScheduleLegResponse> legs,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            description = "이 일정 버전의 해당 날짜에 검증된 AI 생성 결과 이력이 존재하는지 여부. 후보 적용 여부와는 별개입니다.")
+        boolean hasGenerationResult) {
   static ScheduleDayResponse from(ScheduleDaySnapshot day) {
     return new ScheduleDayResponse(
         day.dayId(),
         day.dayNo(),
         day.date(),
         day.items().stream().map(ScheduleItemResponse::from).toList(),
-        day.legs().stream().map(ScheduleLegResponse::from).toList());
+        day.legs().stream().map(ScheduleLegResponse::from).toList(),
+        day.hasGenerationResult());
   }
 }

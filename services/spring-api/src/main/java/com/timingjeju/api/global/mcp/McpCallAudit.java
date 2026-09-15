@@ -9,7 +9,6 @@ public record McpCallAudit(
     String toolName,
     String contractVersion,
     String commandInputHash,
-    String mcpInputHash,
     String schemaChecksum,
     int requestFactCount,
     int responseFactCount,
@@ -35,7 +34,6 @@ public record McpCallAudit(
     requireText(toolName);
     requireText(contractVersion);
     requireHash(commandInputHash);
-    requireHash(mcpInputHash);
     requireHash(schemaChecksum);
     if (requestFactCount < 0 || responseFactCount < 0 || latencyMs < 0) {
       throw new IllegalArgumentException("MCP audit count와 latency는 음수일 수 없습니다.");

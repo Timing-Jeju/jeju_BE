@@ -40,8 +40,8 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "8a26f610c911ed2a22f208a11a48776c654cad73b6a9d343249d5cb1effbe9a5"
-CANONICAL_CATALOG_SHA256 = "bedac3e8b9c7e9deac3313a31cff1a697170742ff9d75911fb2cbec22e943faf"
+CANONICAL_CONTRACT_SHA256 = "d8bcd4bea5a6995a53bdb336481b6b99227522f90497473a1cbb79012b0be608"
+CANONICAL_CATALOG_SHA256 = "559f2b66534729b4e172210b69f94dc9bfeaed991dc591978606e8226183e2f1"
 CONTRACT_FIELDS = {
     "schemaVersion",
     "contractVersion",
@@ -68,6 +68,8 @@ EXPECTED_ENDPOINT_IDENTITIES = [
     ("GET", "/api/v1/trips/{tripId}"),
     ("PATCH", "/api/v1/trips/{tripId}"),
     ("DELETE", "/api/v1/trips/{tripId}"),
+    ("PUT", "/api/v1/trips/{tripId}/day-activity-windows"),
+    ("PUT", "/api/v1/trips/{tripId}/planner-conditions"),
 ]
 EXPECTED_DELETE_AGGREGATE_TABLES = [
     "trip_preferences",
@@ -172,7 +174,7 @@ def _catalog_projection(catalog: dict[str, Any]) -> dict[str, Any]:
         endpoint
         for endpoint in catalog.get("endpoints", [])
         if isinstance(endpoint, dict)
-        and endpoint.get("path") in {"/api/v1/trips", "/api/v1/trips/{tripId}"}
+        and endpoint.get("path") in {"/api/v1/trips", "/api/v1/trips/{tripId}", "/api/v1/trips/{tripId}/day-activity-windows", "/api/v1/trips/{tripId}/planner-conditions"}
     ]
     return {"domainContracts": domain, "endpoints": endpoints}
 
@@ -237,16 +239,16 @@ def _validate_canonical_semantics(contract: dict[str, Any], errors: list[str]) -
     }:
         errors.append("여행 tripId lowercase canonical UUID semantic 계약이 다릅니다.")
     if (
-        contract.get("contractVersion") != "1.0.0"
+        contract.get("contractVersion") != "1.2.0"
         or contract.get("sourceSpecVersion") != "v1.1"
         or contract.get("inherits") != "timing-jeju-rest-contract/v1"
         or contract.get("ownerIssue") != 85
-        or contract.get("implementationIssues") != [44, 45]
+        or contract.get("implementationIssues") != [44, 45, 239, 246]
     ):
         errors.append("여행 version/Issue canonical mapping이 다릅니다.")
 
     endpoints = contract.get("endpoints", [])
-    if len(endpoints) == 5:
+    if len(endpoints) == 6:
         if endpoints[0].get("pagination") != {"type": "cursor", "defaultSize": 20, "maxSize": 50}:
             errors.append("여행 list pagination canonical 계약이 다릅니다.")
         if endpoints[0].get("responses") != {
@@ -686,7 +688,7 @@ def _validate_transport_modes(value: Any, label: str, errors: list[str]) -> None
     modes = [item.get("mode") for item in value if isinstance(item, dict)]
     priorities = [item.get("priority") for item in value if isinstance(item, dict)]
     primary = [item for item in value if isinstance(item, dict) and item.get("primary") is True]
-    allowed = {"public_transit", "rental_car", "taxi"}
+    allowed = {"public_transit", "rental_car", "taxi", "walk"}
     if (
         len(modes) != len(value)
         or any(mode not in allowed for mode in modes)
@@ -817,7 +819,7 @@ def _validate_schema_drift(root: Path, contract: dict[str, Any], errors: list[st
     storage = contract.get("storage")
     if not isinstance(storage, dict):
         return
-    if storage.get("implementationIssues") != [44, 45] or storage.get("migrationSourceOfTruth") != "supabase/migrations" or storage.get("flywayAllowed") is not False or storage.get("schemaChangesInIssue85") is not False:
+    if storage.get("implementationIssues") != [44, 45, 239, 246] or storage.get("migrationSourceOfTruth") != "supabase/migrations" or storage.get("flywayAllowed") is not False or storage.get("schemaChangesInIssue85") is not False:
         errors.append("storage semantic: migration/implementation owner가 정확하지 않습니다.")
     drift = storage.get("schemaDrift")
     if not isinstance(drift, list) or [item.get("id") for item in drift if isinstance(item, dict)] != ["revision"]:
@@ -881,6 +883,16 @@ def _validate_value(value: Any, schema: Any, schemas: dict[str, Any], label: str
         merged = dict(target)
         merged.update({key: item for key, item in schema.items() if key != "$ref"})
         _validate_value(value, merged, schemas, label, errors)
+        return
+    if "oneOf" in schema:
+        branches = schema["oneOf"]
+        matches = 0
+        for branch in branches:
+            branch_errors: list[str] = []
+            _validate_value(value, branch, schemas, label, branch_errors)
+            matches += not branch_errors
+        if matches != 1:
+            errors.append(f"{label}은 oneOf 응답 분기 정확히 하나와 일치해야 합니다.")
         return
     nullable = schema.get("nullable") is True
     if value is None:

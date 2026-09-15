@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "canonicalQuery": {
+    "path": "db/queries/canonical_migration_fingerprint.sql",
+    "sha256": "1ec0ac58bf7d45fc37c24e59936b19b2723049ac3fc85260d89c0e834bd81966"
+  },
+  "ledger": {
+    "columns": [
+      "version:text:NO",
+      "statements:ARRAY:YES",
+      "name:text:YES"
+    ],
+    "primaryKey": [
+      "version"
+    ]
+  },
+  "allowedFingerprints": {
+    "16": [
+      "19745c65ef17192f09bfbb7d3167a3d1"
+    ],
+    "17": [
+      "948a3dbda299b1b6621522b69c3167bb",
+      "f653e443df2891370dcb07d2ce36260e"
+    ]
+  }
+}

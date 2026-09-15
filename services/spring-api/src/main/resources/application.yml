@@ -59,10 +59,14 @@ app:
     signing-key-descriptor-file: ${MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE:}
     token-lifetime: ${MCP_JWT_LIFETIME:2m}
     request-timeout: ${MCP_REQUEST_TIMEOUT:35s}
+    generation-request-timeout: ${MCP_GENERATION_REQUEST_TIMEOUT:165s}
     max-attempts: ${MCP_MAX_ATTEMPTS:3}
     retry-delay: ${MCP_RETRY_DELAY:200ms}
     circuit-failure-threshold: ${MCP_CIRCUIT_FAILURE_THRESHOLD:5}
     circuit-open-duration: ${MCP_CIRCUIT_OPEN_DURATION:30s}
+  schedule-generation:
+    enabled: ${SCHEDULE_GENERATION_ENABLED:false}
+    approved-airport-place-id: ${SCHEDULE_GENERATION_APPROVED_AIRPORT_PLACE_ID:}
   push:
     fcm:
       enabled: ${FCM_ENABLED:false}
@@ -77,16 +81,6 @@ app:
     fixed-delay: ${SAVED_PLACE_RETENTION_FIXED_DELAY:PT24H}
     initial-delay: ${SAVED_PLACE_RETENTION_INITIAL_DELAY:PT1M}
     max-batches: ${SAVED_PLACE_RETENTION_MAX_BATCHES:10}
-  command-location-cleanup:
-    batch-size: ${COMMAND_LOCATION_CLEANUP_BATCH_SIZE:500}
-    schedule:
-      enabled: ${COMMAND_LOCATION_CLEANUP_SCHEDULE_ENABLED:false}
-      fixed-delay: ${COMMAND_LOCATION_CLEANUP_SCHEDULE_FIXED_DELAY:PT5M}
-      initial-delay: ${COMMAND_LOCATION_CLEANUP_SCHEDULE_INITIAL_DELAY:PT1M}
-      max-batches: ${COMMAND_LOCATION_CLEANUP_SCHEDULE_MAX_BATCHES:10}
-      retry-attempts: ${COMMAND_LOCATION_CLEANUP_SCHEDULE_RETRY_ATTEMPTS:3}
-      initial-backoff: ${COMMAND_LOCATION_CLEANUP_SCHEDULE_INITIAL_BACKOFF:PT0.25S}
-      max-duration: ${COMMAND_LOCATION_CLEANUP_SCHEDULE_MAX_DURATION:PT1M}
   snapshot-retention:
     enabled: ${SNAPSHOT_RETENTION_ENABLED:false}
     dry-run: ${SNAPSHOT_RETENTION_DRY_RUN:true}

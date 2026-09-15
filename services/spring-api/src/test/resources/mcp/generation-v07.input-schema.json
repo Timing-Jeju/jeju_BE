@@ -1,0 +1,953 @@
+{
+  "$defs": {
+    "AccommodationInput": {
+      "additionalProperties": false,
+      "properties": {
+        "place_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Place Id"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Address"
+        },
+        "coordinates": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Coordinates"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AccommodationInput",
+      "type": "object"
+    },
+    "ActivityWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "start_at": {
+          "format": "date-time",
+          "title": "Start At",
+          "type": "string"
+        },
+        "end_at": {
+          "format": "date-time",
+          "title": "End At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start_at",
+        "end_at"
+      ],
+      "title": "ActivityWindow",
+      "type": "object"
+    },
+    "Coordinates": {
+      "additionalProperties": false,
+      "properties": {
+        "latitude": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude",
+          "type": "number"
+        },
+        "longitude": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude",
+          "type": "number"
+        }
+      },
+      "required": [
+        "latitude",
+        "longitude"
+      ],
+      "title": "Coordinates",
+      "type": "object"
+    },
+    "CostRange": {
+      "additionalProperties": false,
+      "properties": {
+        "min_krw": {
+          "minimum": 0,
+          "title": "Min Krw",
+          "type": "integer"
+        },
+        "max_krw": {
+          "minimum": 0,
+          "title": "Max Krw",
+          "type": "integer"
+        },
+        "is_estimated": {
+          "title": "Is Estimated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "min_krw",
+        "max_krw",
+        "is_estimated"
+      ],
+      "title": "CostRange",
+      "type": "object"
+    },
+    "DayBoundary": {
+      "additionalProperties": false,
+      "description": "숙소 왕복으로 제한하지 않는 하루의 canonical 시작·종료 장소.",
+      "properties": {
+        "start_place": {
+          "$ref": "#/$defs/PlaceReference"
+        },
+        "end_place": {
+          "$ref": "#/$defs/PlaceReference"
+        }
+      },
+      "required": [
+        "start_place",
+        "end_place"
+      ],
+      "title": "DayBoundary",
+      "type": "object"
+    },
+    "DiscoveryPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_additional_attractions": {
+          "default": true,
+          "title": "Allow Additional Attractions",
+          "type": "boolean"
+        },
+        "preferred_categories": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Preferred Categories",
+          "type": "array"
+        },
+        "maximum_additional_places": {
+          "default": 3,
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Maximum Additional Places",
+          "type": "integer"
+        }
+      },
+      "title": "DiscoveryPreferences",
+      "type": "object"
+    },
+    "FoodPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "auto_schedule_meals": {
+          "default": true,
+          "title": "Auto Schedule Meals",
+          "type": "boolean"
+        },
+        "auto_schedule_cafe": {
+          "default": true,
+          "title": "Auto Schedule Cafe",
+          "type": "boolean"
+        },
+        "excluded_foods": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Excluded Foods",
+          "type": "array"
+        },
+        "allergens": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allergens",
+          "type": "array"
+        },
+        "preferred_cuisines": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Preferred Cuisines",
+          "type": "array"
+        }
+      },
+      "title": "FoodPreferences",
+      "type": "object"
+    },
+    "MultiDayPreferences": {
+      "additionalProperties": false,
+      "description": "최대 5일 여행에서 날짜 사이에 적용할 결정론적 정책.",
+      "properties": {
+        "avoid_repeated_visits": {
+          "const": true,
+          "default": true,
+          "title": "Avoid Repeated Visits",
+          "type": "boolean"
+        },
+        "soft_avoid_repeated_meals_and_rests": {
+          "default": true,
+          "title": "Soft Avoid Repeated Meals And Rests",
+          "type": "boolean"
+        },
+        "minimum_overnight_rest_minutes": {
+          "default": 600,
+          "minimum": 0,
+          "title": "Minimum Overnight Rest Minutes",
+          "type": "integer"
+        },
+        "trip_transport_budget_krw": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trip Transport Budget Krw"
+        }
+      },
+      "title": "MultiDayPreferences",
+      "type": "object"
+    },
+    "Party": {
+      "additionalProperties": false,
+      "properties": {
+        "adults": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Adults",
+          "type": "integer"
+        },
+        "children": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Children",
+          "type": "integer"
+        },
+        "seniors": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Seniors",
+          "type": "integer"
+        },
+        "mobility_support_required": {
+          "default": false,
+          "title": "Mobility Support Required",
+          "type": "boolean"
+        }
+      },
+      "title": "Party",
+      "type": "object"
+    },
+    "PlaceDurationPreference": {
+      "additionalProperties": false,
+      "description": "사용자 지정 또는 서버가 선택한 검증 정책의 고정 체류시간 제약.",
+      "properties": {
+        "place_id": {
+          "minLength": 1,
+          "title": "Place Id",
+          "type": "string"
+        },
+        "requested_stay_minutes": {
+          "exclusiveMinimum": 0,
+          "maximum": 1440,
+          "title": "Requested Stay Minutes",
+          "type": "integer"
+        },
+        "source": {
+          "default": "user_requested",
+          "enum": [
+            "user_requested",
+            "place_override",
+            "category_default"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "policy_version": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Version"
+        },
+        "policy_effective_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Effective At"
+        }
+      },
+      "required": [
+        "place_id",
+        "requested_stay_minutes"
+      ],
+      "title": "PlaceDurationPreference",
+      "type": "object"
+    },
+    "PlaceReference": {
+      "additionalProperties": false,
+      "properties": {
+        "place_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Place Id"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Address"
+        },
+        "coordinates": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Coordinates"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "PlaceReference",
+      "type": "object"
+    },
+    "RecommendDayTripsInput": {
+      "additionalProperties": false,
+      "properties": {
+        "accommodation": {
+          "$ref": "#/$defs/AccommodationInput"
+        },
+        "activity_window": {
+          "$ref": "#/$defs/ActivityWindow"
+        },
+        "day_boundary": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DayBoundary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "place_duration_preferences": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PlaceDurationPreference"
+          },
+          "maxItems": 40,
+          "title": "Place Duration Preferences",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.7.0",
+          "default": "0.7.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "request_mode": {
+          "const": "generate",
+          "default": "generate",
+          "title": "Request Mode",
+          "type": "string"
+        },
+        "trip_date": {
+          "format": "date",
+          "title": "Trip Date",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "Asia/Seoul",
+          "default": "Asia/Seoul",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "party": {
+          "$ref": "#/$defs/Party"
+        },
+        "transport": {
+          "$ref": "#/$defs/TransportPreferences"
+        },
+        "walking": {
+          "$ref": "#/$defs/WalkingPreferences"
+        },
+        "rest": {
+          "$ref": "#/$defs/RestPreferences"
+        },
+        "required_places": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PlaceReference"
+          },
+          "maxItems": 10,
+          "title": "Required Places",
+          "type": "array"
+        },
+        "preferred_places": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PlaceReference"
+          },
+          "maxItems": 30,
+          "title": "Preferred Places",
+          "type": "array"
+        },
+        "excluded_places": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PlaceReference"
+          },
+          "title": "Excluded Places",
+          "type": "array"
+        },
+        "discovery": {
+          "$ref": "#/$defs/DiscoveryPreferences"
+        },
+        "food": {
+          "$ref": "#/$defs/FoodPreferences"
+        },
+        "total_budget_krw": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Budget Krw"
+        },
+        "original_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Text"
+        },
+        "previous_days": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/SelectedDayHistory"
+          },
+          "maxItems": 4,
+          "title": "Previous Days",
+          "type": "array"
+        },
+        "multi_day": {
+          "$ref": "#/$defs/MultiDayPreferences"
+        }
+      },
+      "required": [
+        "accommodation",
+        "activity_window",
+        "trip_date"
+      ],
+      "title": "RecommendDayTripsInput",
+      "type": "object"
+    },
+    "RestPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "pace": {
+          "default": "normal",
+          "enum": [
+            "relaxed",
+            "normal",
+            "packed"
+          ],
+          "title": "Pace",
+          "type": "string"
+        },
+        "minimum_break_minutes": {
+          "default": 20,
+          "minimum": 0,
+          "title": "Minimum Break Minutes",
+          "type": "integer"
+        },
+        "max_continuous_activity_minutes": {
+          "default": 120,
+          "exclusiveMinimum": 0,
+          "title": "Max Continuous Activity Minutes",
+          "type": "integer"
+        },
+        "seat_requirement": {
+          "default": "not_needed",
+          "enum": [
+            "required",
+            "preferred",
+            "not_needed"
+          ],
+          "title": "Seat Requirement",
+          "type": "string"
+        },
+        "restroom_requirement": {
+          "default": "not_needed",
+          "enum": [
+            "required",
+            "preferred",
+            "not_needed"
+          ],
+          "title": "Restroom Requirement",
+          "type": "string"
+        },
+        "indoor_requirement": {
+          "default": "not_needed",
+          "enum": [
+            "required",
+            "preferred",
+            "not_needed"
+          ],
+          "title": "Indoor Requirement",
+          "type": "string"
+        },
+        "unreserved_bus_seat_counts_as_rest": {
+          "const": false,
+          "default": false,
+          "title": "Unreserved Bus Seat Counts As Rest",
+          "type": "boolean"
+        }
+      },
+      "title": "RestPreferences",
+      "type": "object"
+    },
+    "SelectedDayHistory": {
+      "additionalProperties": false,
+      "description": "전체 타임라인·설명·원문을 제외한 이전 날짜의 최소 적용 결과.",
+      "properties": {
+        "trip_date": {
+          "format": "date",
+          "title": "Trip Date",
+          "type": "string"
+        },
+        "activity_window": {
+          "$ref": "#/$defs/ActivityWindow"
+        },
+        "day_start_at": {
+          "format": "date-time",
+          "title": "Day Start At",
+          "type": "string"
+        },
+        "day_end_at": {
+          "format": "date-time",
+          "title": "Day End At",
+          "type": "string"
+        },
+        "selected_places": {
+          "items": {
+            "$ref": "#/$defs/SelectedPlaceHistory"
+          },
+          "maxItems": 40,
+          "minItems": 1,
+          "title": "Selected Places",
+          "type": "array"
+        },
+        "totals": {
+          "$ref": "#/$defs/Totals"
+        },
+        "evidence_fact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Evidence Fact Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "trip_date",
+        "activity_window",
+        "day_start_at",
+        "day_end_at",
+        "selected_places",
+        "totals",
+        "evidence_fact_ids"
+      ],
+      "title": "SelectedDayHistory",
+      "type": "object"
+    },
+    "SelectedPlaceHistory": {
+      "additionalProperties": false,
+      "description": "다음 날짜 중복 정책에 필요한 선택 장소와 폐쇄된 근거 참조.",
+      "properties": {
+        "place_id": {
+          "minLength": 1,
+          "title": "Place Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "visit",
+            "meal",
+            "rest"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "evidence_fact_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Evidence Fact Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "place_id",
+        "role",
+        "evidence_fact_ids"
+      ],
+      "title": "SelectedPlaceHistory",
+      "type": "object"
+    },
+    "Totals": {
+      "additionalProperties": false,
+      "properties": {
+        "total_minutes": {
+          "minimum": 0,
+          "title": "Total Minutes",
+          "type": "integer"
+        },
+        "visit_minutes": {
+          "minimum": 0,
+          "title": "Visit Minutes",
+          "type": "integer"
+        },
+        "transfer_minutes": {
+          "minimum": 0,
+          "title": "Transfer Minutes",
+          "type": "integer"
+        },
+        "rest_minutes": {
+          "minimum": 0,
+          "title": "Rest Minutes",
+          "type": "integer"
+        },
+        "meal_minutes": {
+          "minimum": 0,
+          "title": "Meal Minutes",
+          "type": "integer"
+        },
+        "buffer_minutes": {
+          "minimum": 0,
+          "title": "Buffer Minutes",
+          "type": "integer"
+        },
+        "walking_minutes": {
+          "minimum": 0,
+          "title": "Walking Minutes",
+          "type": "integer"
+        },
+        "walking_distance_meters": {
+          "minimum": 0,
+          "title": "Walking Distance Meters",
+          "type": "integer"
+        },
+        "taxi_pickup_buffer_minutes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Taxi Pickup Buffer Minutes",
+          "type": "integer"
+        },
+        "bus_wait_minutes": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Bus Wait Minutes",
+          "type": "integer"
+        },
+        "estimated_cost": {
+          "$ref": "#/$defs/CostRange"
+        },
+        "bus_distance_meters": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Bus Distance Meters",
+          "type": "integer"
+        },
+        "taxi_distance_meters": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Taxi Distance Meters",
+          "type": "integer"
+        },
+        "total_distance_meters": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Distance Meters",
+          "type": "integer"
+        },
+        "bus_cost": {
+          "$ref": "#/$defs/CostRange"
+        },
+        "taxi_cost": {
+          "$ref": "#/$defs/CostRange"
+        },
+        "derivation_evidence_fact_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Derivation Evidence Fact Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "total_minutes",
+        "visit_minutes",
+        "transfer_minutes",
+        "rest_minutes",
+        "meal_minutes",
+        "buffer_minutes",
+        "walking_minutes",
+        "walking_distance_meters",
+        "estimated_cost"
+      ],
+      "title": "Totals",
+      "type": "object"
+    },
+    "TransportPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_modes": {
+          "items": {
+            "enum": [
+              "walk",
+              "bus",
+              "taxi"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Modes",
+          "type": "array",
+          "uniqueItems": true
+        },
+        "preferred_mode": {
+          "default": "bus",
+          "enum": [
+            "walk",
+            "bus",
+            "taxi"
+          ],
+          "title": "Preferred Mode",
+          "type": "string"
+        },
+        "selection_policy": {
+          "default": "cost_time_balance",
+          "enum": [
+            "prefer_selected",
+            "fastest",
+            "lowest_cost",
+            "least_walking",
+            "fewest_transfers",
+            "balanced",
+            "service_priority",
+            "cost_time_balance"
+          ],
+          "title": "Selection Policy",
+          "type": "string"
+        },
+        "fallback_order": {
+          "default": [
+            "taxi",
+            "walk"
+          ],
+          "items": {
+            "enum": [
+              "walk",
+              "bus",
+              "taxi"
+            ],
+            "type": "string"
+          },
+          "title": "Fallback Order",
+          "type": "array"
+        },
+        "max_transfers_per_leg": {
+          "default": 1,
+          "maximum": 4,
+          "minimum": 0,
+          "title": "Max Transfers Per Leg",
+          "type": "integer"
+        },
+        "direct_walk_limit_minutes": {
+          "default": 15,
+          "minimum": 0,
+          "title": "Direct Walk Limit Minutes",
+          "type": "integer"
+        },
+        "bus_wait_limit_minutes": {
+          "default": 30,
+          "minimum": 0,
+          "title": "Bus Wait Limit Minutes",
+          "type": "integer"
+        },
+        "max_bus_extra_minutes": {
+          "default": 30,
+          "minimum": 0,
+          "title": "Max Bus Extra Minutes",
+          "type": "integer"
+        },
+        "min_bus_savings_krw": {
+          "default": 5000,
+          "minimum": 0,
+          "title": "Min Bus Savings Krw",
+          "type": "integer"
+        },
+        "taxi_pickup_buffer_minutes": {
+          "default": 10,
+          "minimum": 0,
+          "title": "Taxi Pickup Buffer Minutes",
+          "type": "integer"
+        }
+      },
+      "title": "TransportPreferences",
+      "type": "object"
+    },
+    "WalkingPreferences": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_direct_walk": {
+          "default": true,
+          "title": "Allow Direct Walk",
+          "type": "boolean"
+        },
+        "max_access_walk_minutes": {
+          "default": 20,
+          "minimum": 0,
+          "title": "Max Access Walk Minutes",
+          "type": "integer"
+        },
+        "max_total_distance_meters": {
+          "default": 6000,
+          "minimum": 0,
+          "title": "Max Total Distance Meters",
+          "type": "integer"
+        },
+        "max_single_leg_minutes": {
+          "default": 25,
+          "minimum": 0,
+          "title": "Max Single Leg Minutes",
+          "type": "integer"
+        },
+        "avoid_stairs_required": {
+          "default": false,
+          "title": "Avoid Stairs Required",
+          "type": "boolean"
+        }
+      },
+      "title": "WalkingPreferences",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+      "title": "Requestid",
+      "type": "string"
+    },
+    "inputHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Inputhash",
+      "type": "string"
+    },
+    "request": {
+      "$ref": "#/$defs/RecommendDayTripsInput"
+    }
+  },
+  "required": [
+    "requestId",
+    "inputHash",
+    "request"
+  ],
+  "title": "recommend_jeju_day_tripsArguments",
+  "type": "object"
+}

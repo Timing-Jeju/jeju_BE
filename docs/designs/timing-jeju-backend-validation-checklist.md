@@ -64,7 +64,7 @@ Issue #40 Owner 결정은 기존 이슈와 이 체크리스트의 “Spring만 �
 | 항공/선박 도착·출발 | Spring transport-event APIs | `trip_transport_events` | FastAPI 입력 facts | PASS |
 | 복수 숙소 입력/수정/삭제 | Spring accommodation APIs | `trip_accommodations` | FastAPI 입력 facts | PASS |
 | 식당/관광지/카페 선택 또는 생략 | Spring place-preferences API | `trip_place_preferences` | 생성 조건 | PASS |
-| Day별 AI 일정 일괄 생성 | Spring generation-runs | generation/schedule tables | `generate_day_itinerary` | PASS |
+| Day별 AI 일정 일괄 생성 | Spring schedule-generations | generation/schedule tables | `generate_day_itinerary` | PASS |
 | 일정 항목 추가/수정/삭제/순서/Day 이동 | Spring schedule mutation APIs | immutable schedule versions | optional revise/validate | PASS |
 | 가능성 안전/주의/위험과 이유 | Spring feasibility-runs | compute/risk/weather impacts | `calculate_feasibility` | PASS |
 | 이동 구간 시간/정류장/환승/요금 | Spring `/legs/{legId}` | legs + mobility/transit snapshots | 계산 facts | PASS |
@@ -86,7 +86,7 @@ Issue #40 Owner 결정은 기존 이슈와 이 체크리스트의 “Spring만 �
 
 | 댓글 요구 | 반영 결과 |
 | --- | --- |
-| AI가 Day 단위로 한 번에 만들고 사용자가 적용 | `generation-runs` 비동기 후보와 명시적 apply 분리 |
+| AI가 Day 단위로 한 번에 만들고 사용자가 적용 | `schedule-generations` 비동기 후보와 명시적 apply 분리 |
 | 기존/아래 일정을 덮지 않고 새 제안 제공 | 불변 일정 버전과 candidate 상태로 분리 |
 | 후보 선택 전에 전체 일정, 체류시간, 대기 이유 확인 | generation run 응답의 `previewDays`, `stayMinutes`, `reasonCodes`, `scheduleUrl` |
 | 사용자가 순서 변경/삭제 후 확정 | Spring schedule mutation API가 새 draft/version 생성 |

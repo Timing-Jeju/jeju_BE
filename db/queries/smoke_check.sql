@@ -463,7 +463,9 @@ begin
   blocked := false;
   begin
     update trip_execution_events
-    set metadata = '{"mutated":true}'::jsonb
+    -- Use a permitted closed projection so this exercises append-only protection,
+    -- not the earlier no-location metadata guard.
+    set metadata = '{"source":"time"}'::jsonb
     where id = '62500000-0000-0000-0000-000000000001';
   exception
     when raise_exception then
@@ -620,17 +622,17 @@ select
   as result;
 
 select
-  'compute_run_input_location_cleanup' as check_name,
+  'compute_run_input_no_location_v2' as check_name,
   case
     when to_regprocedure(
       'public.redact_due_compute_run_input_locations(timestamptz,integer)'
-    ) is not null
+    ) is null
+    and timing_jeju_planner_private.user_location_schema_revision()='20260918000020'
     and not exists (
       select 1 from public.compute_run_inputs
-      where location_supplied
-        and location_redacted_at is null
-        and location_expires_at is not null
-        and location_expires_at <= statement_timestamp()
+      where schema_version<>2
+    ) and not exists (
+      select 1 from timing_jeju_planner_private.user_location_residue_counts() where residue_count<>0
     ) then 'PASS'
-    else 'MISSING_OR_DUE'
+    else 'INVALID_SCHEMA_OR_RESIDUE'
   end as result;

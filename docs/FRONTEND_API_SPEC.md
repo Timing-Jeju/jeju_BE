@@ -1,8 +1,8 @@
 # Timing Jeju 프론트엔드 API 명세
 
-> **현재 통합 공개 API 37개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 active `--mode 33` selector가 #78의 33개에 #51 schedule edit 4개를 합친 exact inventory를 고정한다. historical `--mode 24`, `--mode 25`, `--mode 27`, `--mode 28`, `--mode 29`, `--mode 30`, `--mode 31`은 각 출시 시점의 목록으로 보존한다.
+> **현재 통합 공개 API 43개는 Codegen READY 검증 대상이다.** `openApiDocs` 뒤 portable frontend-readiness validator의 active `--mode 43` selector가 기존 38개에 planner conditions PUT, 생성 POST, 결과 GET, 후보 적용 POST, 일정 버전 GET를 더한 exact inventory를 고정한다. historical `--mode 38`과 이전 selector는 각 출시 시점의 목록으로 보존한다. 이 목록은 배포·스테이징 완료 선언이 아니다.
 
-이 문서는 최신 source stack 공개 Spring API와 #51 일정 편집 4개까지 합친 exact 37개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
+이 문서는 최신 source stack 공개 Spring API의 생성 연결을 포함한 exact 43개 operation의 프론트엔드 인계본이다. 모든 예시는 공개 가능한 고정 fixture이며 token, provider secret, 실제 사용자 정보가 아니다. 서버가 받지 않는 필드와 문서에 없는 enum을 추가하지 않는다.
 
 ## 기준과 브랜치 준비 상태
 
@@ -12,7 +12,7 @@
 | **#50 기능 브랜치** | 일정 항목 추가 POST 1 | `feat/50-schedule-item-create`의 runtime, migration, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 | **#46 통합 브랜치** | 여행 선호 조건 PUT 1 | `fix/46-trip-preferences-reintegrate`의 canonical contract, runtime, 생성 OpenAPI와 PostgreSQL 통합 테스트 |
 
-현재 통합 브랜치는 #78의 exact 33-operation artifact에 schedule edit 4개를 더한 exact 37-operation artifact를 기준으로 한다. historical mode24/25/27/28/29/30/31은 각 시점의 exact inventory를 계속 검증한다. mode24는 create만, mode28은 create와 edit 4개를 고정하며 active mode33 selector는 최신 37개 runtime inventory를 검증한다.
+현재 통합 브랜치는 새로 생성한 단일 43-operation artifact를 검증한다. historical mode24/25/27/28/29/30/31/33/38은 각 시점의 exact inventory를 계속 검증한다. mode24는 create만, mode28은 create와 edit 4개를 고정하며 historical mode33 selector는 기존 37개, mode38은 38개, active mode43는 생성 연결을 포함한 43개 runtime inventory를 검증한다.
 
 ## Base URL과 인증
 
@@ -787,7 +787,7 @@ Accept: application/json
 
 operationId: `tripsCreate` · Codegen: **READY** · Canonical statuses: `201,400,401,409,422,503` · Generated OpenAPI statuses: `201,400,401,403,409,422,500,503` · Generated success media type: `application/json`
 
-`develop` 사용 가능 · 인증 필수 · lowercase canonical UUID `Idempotency-Key` 필수. closed body는 `title` trim+nfc 1..100자, `startDate`, `endDate` 필수; 최대 30일 inclusive. `timezone=Asia/Seoul`; `userPace=slow|normal|fast`; `transportModes` 1..3개, mode는 `public_transit|rental_car|taxi`, priority 1..3 연속/unique, primary 정확히 하나이자 priority 1. body 최대 1 MiB. 성공 `201` + `Location`, revision 기반 `ETag`, `Idempotency-Replayed`.
+`develop` 사용 가능 · 인증 필수 · lowercase canonical UUID `Idempotency-Key` 필수. closed body는 `title` trim+nfc 1..100자, `startDate`, `endDate` 필수; 최대 30일 inclusive. `timezone=Asia/Seoul`; `userPace=slow|normal|fast`; `transportModes` 1..3개, mode는 `public_transit|rental_car|taxi|walk`, priority 1..3 연속/unique, primary 정확히 하나이자 priority 1. body 최대 1 MiB. 성공 `201` + `Location`, revision 기반 `ETag`, `Idempotency-Replayed`.
 
 `Idempotency-Replayed` HTTP serialization: textual `true|false`; OpenAPI schema: `boolean`. #44 최종 clean HEAD `9a4c4b2`에서 `Idempotency-Key`는 required canonical UUID이며 예시도 같은 형식을 사용한다.
 
@@ -1081,4 +1081,54 @@ Accept: application/json
 8. places canonical JSON의 `endpoints[].query.category.pattern`은 stale lowercase pattern `^[a-z][a-z0-9_]{0,49}$`을 담고 있지만 같은 contract의 public `schemas.Category`, runtime `CanonicalPlaceCategory.OPEN_API_PATTERN`, generated OpenAPI는 `^(?:[A-Z]{2}|content-type:[0-9]{1,10})$`로 일치한다. 실제 public wire와 예시는 후자를 권위로 사용하며 중복 canonical endpoint.query 값은 owning contract Issue에서 정렬한다.
 9. generated OpenAPI의 모든 bearer 필수 endpoint에는 canonical error matrix에 없는 `403`이 공통 추가되고 runtime code는 `AUTH_ACCESS_DENIED`다. 프론트는 현재 403을 처리하되 canonical status 정렬 전까지 이를 최종 계약으로 간주하지 않는다.
 10. #68 이후 변경 API의 `Idempotency-Key`는 1~128자 printable ASCII이며 profile-image PUT도 같은 계약을 사용한다. `Idempotency-Replayed`의 textual wire 값 `true|false`는 boolean으로 변환한다.
-11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 현재 통합 브랜치는 새로 생성한 단일 37-operation artifact에서 active `--mode 33` 검사를 통과해야 Codegen READY다. historical `--mode 24`, `--mode 25`, `--mode 27`, `--mode 28`, `--mode 29`, `--mode 30`, `--mode 31`은 각 시점 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+11. portable validator와 mutation test는 artifact 부재를 포함해 fail-closed다. 현재 통합 브랜치는 새로 생성한 단일 43-operation artifact에서 active `--mode 43` 검사를 통과해야 Codegen READY다. historical selector는 각 시점 이후 operation을 allowlist 밖으로 거부한다. 기능별 문서나 fixture를 합쳐 만든 JSON은 완료 증거로 인정하지 않는다.
+
+## #239 날짜별 활동 시간 저장
+
+`PUT /api/v1/trips/{tripId}/day-activity-windows`에 GET으로 받은 모든 현재 `dayId`와 `startTime`/`endTime`을 보낸다. 시각은 정확한 `HH:mm`, 시작 < 종료이며 익일로 넘어가지 않는다. Bearer 인증, 직전 여행 `If-Match`, 새 편집마다 새로운 `Idempotency-Key`가 필요하다. timeout 재시도는 같은 키와 같은 body를 사용한다. 성공 응답은 여행 aggregate와 새 ETag이며 `Idempotency-Replayed`를 반환한다.
+
+GET Day에는 required nullable `activityStartTime`과 `activityEndTime`이 추가됐다. null은 미입력이고 화면 기본 시각을 서버 저장값으로 표시하면 안 된다. FE 입력은 1~5일을 유지하며 서버는 기존 1~30일 여행의 저장·복원을 지원한다. 날짜 수정 뒤에도 남은 날짜의 Day ID와 활동 시간이 보존된다. active/candidate 일정 참조가 있으면 변경은 `409 TRIP_REGENERATION_REQUIRED`로 거부된다.
+
+생성된 client operation은 `tripDayActivityWindowsUpdate`다. `./scripts/generate_frontend_api_client.sh`는 43개 operation을 검증하고 `services/spring-api/build/distributions/timing-jeju-frontend-api-client.tgz`를 만든다. 활동 시간 저장 UI 및 Notion/Figma 연결은 별도 실제 readback 전까지 완료로 표시하지 않는다.
+
+### #239 생성 재시도의 과거 응답 계약
+
+`POST /api/v1/trips`의 201은 `TripCreateResponse = TripDetail | TripDetailLegacyV11 | TripDetailLegacyV1`이다. 새 생성은 최신 required Day 활동 시간 쌍을 포함한다. 배포 전 완료 receipt가 아직 24시간 TTL 안에 있으면 `Idempotency-Replayed: true`와 함께 당시 status·Location·ETag·body bytes를 그대로 반환하며, 이때만 활동 시간 필드가 없는 닫힌 `TripDayLegacyV1` shape를 허용한다. 최신 GET/PATCH와 새 Day PUT 응답의 필수 필드는 약화하지 않는다. 클라이언트는 과거 생성 replay에서 누락된 활동 시간을 기본값으로 만들지 않고 Location의 GET으로 최신 여행을 복원한다.
+
+TTL은 기존 완료 시각으로부터 계산하며 배포나 재시도로 연장하지 않는다. 만료 경계에서는 기존 registry 규칙을 그대로 따른다. receipt 삭제·namespace 교체·body 재작성·최신 GET 응답으로 치환하는 데이터 변경은 없다. 이 호환 계약 때문에 DB migration을 추가하지 않는다.
+
+과거 37-operation 인계본은 historical `--mode 33`으로만 검증한다. 현재 생성 연결의 완료 근거로 사용하지 않는다.
+
+### #53 생성·조회·원자적 적용 연결
+
+기존 UI는 유지한다. `createScheduleGeneration`은 저장된 여행 상태만 snapshot으로 구성하며
+`targetDayId`, nullable `expectedActiveScheduleVersionId`, 고정 `candidateCount=3`을 받는다.
+`getScheduleGeneration`은 queued/running일 때만 `Retry-After`를 제공한다. 성공 결과는
+세 전략 후보 또는 `insufficient_feasible_routes`와 후보 0개다. OpenAPI 예제는 다섯 상태와
+두 성공 outcome을 구분한다. 후보는 24시간, 종료 작업 조회는 7일이며 두 만료를 혼동하지 않는다.
+
+`applyScheduleGenerationCandidate`는 `If-Match`와 `Idempotency-Key`를 요구하고 최초 활성
+일정이 없으면 예상 버전에 null을 받는다. 성공 응답은 새 ETag·Location과 nullable
+`previousScheduleVersionId`를 포함한다. 응답 유실은 같은 키와 body로 재시도하며 이미 선택·만료된
+후보라도 유효한 기존 멱등 영수증을 재생한다. 같은 키의 다른 body는 409다. 재생 전에도
+현재 소유권을 확인한다. 최종 전체 품질 게이트·독립 리뷰·스테이징 검증 완료 전에는 배포 완료로
+표시하지 않는다.
+
+후보의 `scheduleUrl`과 적용의 `Location`은 실제 `tripScheduleVersionRead`
+(`GET /api/v1/trips/{tripId}/schedule-versions/{versionId}`)에 연결된다. 기존
+`GET /api/v1/trips/{tripId}/schedule?versionId=...`과 같은 소유권·불변 projection을 사용하되
+버전 경로는 query와 body를 금지한다. 미적용 AI 버전은 상태가 rejected 등으로 바뀌어도
+만료 시 410 `CANDIDATE_EXPIRED`, 후보 metadata 부재 시 410 `CANDIDATE_EVIDENCE_UNAVAILABLE`다.
+조회 전후 DB 시각도 확인한다. 실제 `applied_at`이 있는 active/superseded 버전만 후보 TTL과
+독립적으로 조회한다. 두 조회 경로와 추가 410은 #88 canonical read 계약, REST 카탈로그,
+runtime manifest에 함께 명시한다. 생성 OpenAPI와 계약 회귀 검사로 경로·오류의 정합성을 검증한다.
+
+### #246 여행 상세 재조회 복원
+
+`TripDetail.transportEvents`의 `arrival`·`departure`는 항상 존재하며 각각 기존 교통 저장 payload 또는 `null`이다. `TripDetail.accommodations`는 기존 숙소 저장 payload 배열이고 `sequenceNo`, `accommodationId` 순으로 정렬된다. GET 한 번의 ETag와 모든 값은 같은 revision snapshot이다. 앱 초기화·다른 기기 로그인에서는 이 값을 기준으로 상태를 새로 채우고 `null`/`[]`인 항목은 이전 여행 값이 남지 않게 비운다. 날짜별 활동 시간은 #239의 nullable Day 필드를 사용하며 미입력 값에 임의 시간을 만들지 않는다.
+
+#246에서도 과거 완료 receipt를 다시 쓰거나 만료시키지 않는다. POST는 활동 시간 도입 전 `TripDetailLegacyV1` 또는 숙소·교통 도입 전 `TripDetailLegacyV11`을 replay할 수 있다. Day PUT의 `TripDayActivityWindowsResponse`는 최신 TripDetail과 TripDetailLegacyV11의 닫힌 union이다. legacy 분기는 `Idempotency-Replayed: true`에서만 반환하며 과거 원본 status/ETag/body/기존Location을 유지한다. 새 mutation과 GET/PATCH는 최신 required child를 반환한다. FE는 replay 응답에 child가 없으면 빈 값으로 덮어쓰지 않고 canonical 여행 GET으로 복원한다.
+
+### #238 찜 ETag 복원
+
+찜 목록의 각 항목과 새 저장·수정 body는 필수 `etag`를 제공한다. HTTP ETag와 동일한 opaque 값을 If-Match로 사용한다. 과거 POST receipt replay만 etag 없는 원본 body를 유지하므로 그 경우 목록 GET으로 현재 버전을 복원한다. 목록·수정의 필수 필드는 유지하고 receipt나 TTL을 다시 쓰지 않는다. DELETE의 If-Match 확장은 별도 #248이다.

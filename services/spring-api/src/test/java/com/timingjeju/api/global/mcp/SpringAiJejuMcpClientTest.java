@@ -31,6 +31,51 @@ import tools.jackson.databind.ObjectMapper;
 class SpringAiJejuMcpClientTest {
 
   @Test
+  void 추천_전송_timeout은_SDK를_한번만_호출한다() {
+    var mapper = new ObjectMapper();
+    Map<String, Object> input =
+        Map.of(
+            "type",
+            "object",
+            "properties",
+            Map.of("requestId", Map.of("type", "string"), "inputHash", Map.of("type", "string")));
+    Map<String, Object> output = Map.of("type", "object");
+    var sdk = mock(McpSyncClient.class);
+    when(sdk.isInitialized()).thenReturn(true);
+    when(sdk.listTools())
+        .thenReturn(
+            new McpSchema.ListToolsResult(
+                List.of(
+                    new McpSchema.Tool(
+                        "recommend_jeju_day_trips", null, null, input, output, null, null)),
+                null));
+    when(sdk.callTool(any()))
+        .thenThrow(new RuntimeException(new TimeoutException("synthetic timeout")));
+    var client =
+        new SpringAiJejuMcpClient(
+            sdk,
+            McpContractGuard.forSingleTool(mapper, "recommend_jeju_day_trips", input, output),
+            mapper,
+            new SimpleMeterRegistry(),
+            McpCallResilience.defaults(),
+            mock(McpCallAuditWriter.class));
+    client.verifyServerContract();
+    assertThatThrownBy(
+            () ->
+                client.call(
+                    new McpInvocation(
+                        "recommend_jeju_day_trips",
+                        "generation-53",
+                        Map.of(),
+                        "a".repeat(64),
+                        McpCallParent.forComputeRun(UUID.randomUUID()),
+                        Map.of(),
+                        Map.of())))
+        .isInstanceOf(McpRemoteCallException.class);
+    verify(sdk, times(1)).callTool(any());
+  }
+
+  @Test
   void initialize_tools_list_tools_call과_structuredContent_검증을_공식_SDK로_수행한다() {
     ObjectMapper objectMapper = new ObjectMapper();
     Map<String, Object> inputSchema =
@@ -117,7 +162,6 @@ class SpringAiJejuMcpClientTest {
     assertThat(audit.getAllValues().getFirst().errorCode()).isEqualTo("MCP_TIMEOUT");
     assertThat(audit.getAllValues().getLast().requestId()).isEqualTo("request-0001");
     assertThat(audit.getAllValues().getLast().commandInputHash()).isEqualTo("a".repeat(64));
-    assertThat(audit.getAllValues().getLast().mcpInputHash()).isEqualTo(result.mcpInputHash());
   }
 
   @Test
