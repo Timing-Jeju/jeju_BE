@@ -140,7 +140,7 @@ Response:
 {
   "runId": "64000000-0000-0000-0000-000000000001",
   "status": "queued",
-  "pollUrl": "/api/v1/trips/50000000-0000-0000-0000-000000000001/generation-runs/64000000-0000-0000-0000-000000000001",
+  "pollUrl": "/api/v1/trips/50000000-0000-0000-0000-000000000001/schedule-generations/64000000-0000-0000-0000-000000000001",
   "createdAt": "2026-08-03T09:00:00+09:00"
 }
 ```
@@ -158,7 +158,7 @@ Response:
 | 항공/선박 도착·출발 | `PUT /transport-event` | `trip_transport_events` | 일정 생성 facts |
 | 복수 숙소 | `POST/PATCH/DELETE /accommodations` | `trip_accommodations` | 일정 생성 facts |
 | 희망 장소 확정 | `PUT /place-preferences` | `trip_place_preferences` | 일정 생성 facts |
-| Day 일정 한 번에 생성 | `POST /generation-runs` | `itinerary_generation_runs`, `trip_schedule_versions` | `generate_day_itinerary` |
+| Day 일정 한 번에 생성 | `POST /schedule-generations` | `itinerary_generation_runs`, `trip_schedule_versions` | `generate_day_itinerary` |
 | 일정 수정/삭제/순서 변경 | Schedule mutation API | `trip_schedule_versions`, `trip_items`, `trip_legs` | 필요 시 `revise_day_itinerary` |
 | 가능성 결과 | `POST /feasibility-runs` | `compute_runs`, `risk_events`, `trip_weather_impacts` | `calculate_feasibility` |
 | 위험 이동 구간 상세 | `GET /legs/{legId}` | `trip_legs`, 버스 원천 테이블 | - |
@@ -185,7 +185,7 @@ MCP wire envelope, 내부 JWT, 실제 `calculate_feasibility` 송수신 JSON과 
 
 | Spring 공개 API/동작 | FastAPI MCP Tool | Spring 입력 원천 | FastAPI 결과 | Spring 저장 |
 | --- | --- | --- | --- | --- |
-| `POST /generation-runs` | `generate_day_itinerary` | trip 조건, Day, 장소, 숙소, 도착출발, 이동/날씨 facts | Day 전체 items/legs 후보 | generation run/candidate/version |
+| `POST /schedule-generations` | `generate_day_itinerary` | trip 조건, Day, 장소, 숙소, 도착출발, 이동/날씨 facts | Day 전체 items/legs 후보 | generation run/candidate/version |
 | 일정 편집 AI 보정 | `revise_day_itinerary` | 현재 Day 전체 일정, 수정 지시, 최신 facts | 전체 Day 수정안과 diff | 새 schedule version |
 | 후보 봉인 전 내부 검증 | `validate_itinerary` | 전체 items/legs와 hard constraint facts | errors/warnings/normalized result | 통과 시에만 봉인 |
 | `POST /feasibility-runs` | `calculate_feasibility` | 일정, 이동, 버스 도착, 날씨, 정책 | score/level/risk/weather impacts | compute/risk/weather tables |
@@ -239,9 +239,9 @@ MCP wire envelope, 내부 JWT, 실제 `calculate_feasibility` 송수신 JSON과 
 | Schedule | DELETE | `/api/v1/trips/{tripId}/schedule-items/{itemId}` | 필수 | 미호출 | - | `200` | new user-edit version |
 | Schedule | PUT | `/api/v1/trips/{tripId}/schedule-order` | 필수 | 미호출 | - | `200` | new user-edit version |
 | Schedule | POST | `/api/v1/trips/{tripId}/schedule-items/{itemId}/move` | 필수 | 미호출 | - | `200` | new user-edit version |
-| Generation | POST | `/api/v1/trips/{tripId}/generation-runs` | 필수 | 호출 | `generate_day_itinerary` | `202` | FastAPI MCP |
-| Generation | GET | `/api/v1/trips/{tripId}/generation-runs/{runId}` | 필수 | 미호출 | - | `200` | run/candidates |
-| Generation | POST | `/api/v1/trips/{tripId}/generation-runs/{runId}/candidates/{candidateId}/apply` | 필수 | 미호출 | - | `200` | atomic version apply |
+| Generation | POST | `/api/v1/trips/{tripId}/schedule-generations` | 필수 | 호출 | `generate_day_itinerary` | `202` | FastAPI MCP |
+| Generation | GET | `/api/v1/trips/{tripId}/schedule-generations/{runId}` | 필수 | 미호출 | - | `200` | run/candidates |
+| Generation | POST | `/api/v1/trips/{tripId}/schedule-generations/{runId}/candidates/{candidateId}/apply` | 필수 | 미호출 | - | `200` | atomic version apply |
 | Feasibility | POST | `/api/v1/trips/{tripId}/feasibility-runs` | 필수 | 호출 | `calculate_feasibility` | `202` | TAGO/KMA/FastAPI |
 | Feasibility | GET | `/api/v1/trips/{tripId}/feasibility-runs/{runId}` | 필수 | 미호출 | - | `200` | compute results |
 | Route | GET | `/api/v1/trips/{tripId}/legs/{legId}` | 필수 | 미호출 | - | `200` | route/arrival cache |
@@ -1136,7 +1136,7 @@ Response `200`: 일정 변경 공통 응답.
 
 ## 13. 상세 계약: AI 일정 생성
 
-### 13.1 `POST /api/v1/trips/{tripId}/generation-runs`
+### 13.1 `POST /api/v1/trips/{tripId}/schedule-generations`
 
 Request:
 
@@ -1167,12 +1167,12 @@ Request:
 
 Response `202`: 공통 비동기 실행 응답.
 
-### 13.2 `GET /generation-runs/{runId}`
+### 13.2 `GET /schedule-generations/{runId}`
 
 Request:
 
 ```http
-GET /api/v1/trips/50000000-0000-0000-0000-000000000001/generation-runs/64000000-0000-0000-0000-000000000001
+GET /api/v1/trips/50000000-0000-0000-0000-000000000001/schedule-generations/64000000-0000-0000-0000-000000000001
 ```
 
 Response `200`:
@@ -1261,7 +1261,7 @@ Response `200`:
 
 `previewComplete=true`이면 `previewDays`가 생성 범위의 전체 일정이다. 전체 여행 및 이동 구간 상세는 `scheduleUrl`로 조회한다.
 
-### 13.3 `POST /generation-runs/{runId}/candidates/{candidateId}/apply`
+### 13.3 `POST /schedule-generations/{runId}/candidates/{candidateId}/apply`
 
 Request:
 

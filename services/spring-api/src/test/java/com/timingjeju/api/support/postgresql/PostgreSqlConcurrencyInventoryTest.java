@@ -48,6 +48,8 @@ class PostgreSqlConcurrencyInventoryTest {
           "com/timingjeju/api/global/tourapi/reference/JdbcReferenceCodeRepositoryIntegrationTest.java",
           "com/timingjeju/api/global/tourapi/reference/ReferenceCodeSyncServiceIntegrationTest.java",
           "com/timingjeju/api/global/tourapi/sync/TransactionalIncrementalSyncCommitterIntegrationTest.java",
+          "com/timingjeju/api/support/postgresql/GenerationIntakeIntegrationTest.java",
+          "com/timingjeju/api/support/postgresql/GenerationTripSnapshotIntegrationTest.java",
           "com/timingjeju/api/support/postgresql/ScheduleRevisionRunSchemaIntegrationTest.java");
   private static final Pattern CONNECTION_BEFORE_EXECUTOR =
       Pattern.compile(
@@ -60,7 +62,7 @@ class PostgreSqlConcurrencyInventoryTest {
     declared.add(PUSH);
 
     assertThat(discoverConcurrencyTests()).containsExactlyInAnyOrderElementsOf(declared);
-    assertThat(HIKARI_TWO).hasSize(29);
+    assertThat(HIKARI_TWO).hasSize(31);
   }
 
   @Test

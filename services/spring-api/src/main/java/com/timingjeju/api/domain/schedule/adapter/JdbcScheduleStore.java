@@ -65,14 +65,33 @@ public class JdbcScheduleStore implements ScheduleStore {
         return ScheduleLookup.versionNotFound();
       }
       validateRoot(root);
+      validateCandidateLifetime(root, responseTime);
 
-      List<DayRow> days = readDays(tripId);
+      List<DayRow> days = readDays(tripId, root.versionId());
       List<ItemRow> items = readItems(tripId, root.versionId());
       List<LegRow> legs = readLegs(tripId, root.versionId());
-      return ScheduleLookup.found(assemble(root, days, items, legs, responseTime));
+      var schedule = assemble(root, days, items, legs, responseTime);
+      validateCandidateLifetime(root, responseTime);
+      return ScheduleLookup.found(schedule);
     } catch (DataAccessException | ScheduleDataIntegrityException failure) {
       throw ScheduleException.internalServerError();
     }
+  }
+
+  private void validateCandidateLifetime(RootRow root, Instant responseTime) {
+    // 활성/과거 적용 일정은 후보의 24시간 TTL과 독립적으로 보존한다.
+    if (!"ai_generation".equals(root.sourceType())) return;
+    if (Set.of("active", "superseded").contains(root.status()) && root.appliedAt() != null) return;
+    var candidates =
+        jdbc.query(
+            "select expires_at<=?::timestamptz or expires_at<=clock_timestamp() as expired from public.itinerary_generation_candidates where trip_plan_id=? and schedule_version_id=?",
+            (row, index) -> row.getObject("expired", Boolean.class),
+            responseTime.toString(),
+            root.tripId(),
+            root.versionId());
+    if (candidates.size() != 1 || candidates.getFirst() == null)
+      throw ScheduleException.candidateEvidenceUnavailable();
+    if (candidates.getFirst()) throw ScheduleException.candidateExpired();
   }
 
   private RootRow readRoot(UUID ownerId, UUID tripId, UUID versionId) {
@@ -82,7 +101,7 @@ public class JdbcScheduleStore implements ScheduleStore {
         """
         select p.id as trip_id,
                v.id as version_id, v.version_no, v.status as version_status,
-               v.source_type, v.base_schedule_version_id, v.resulting_score,
+               v.source_type, v.applied_at, v.base_schedule_version_id, v.resulting_score,
                fresh.completed_at as freshness_calculated_at,
                fresh.facts_snapshot_at as freshness_facts_observed_at,
                jsonb_exists(fresh.result_summary, 'observedAt') as freshness_observed_present,
@@ -118,19 +137,24 @@ public class JdbcScheduleStore implements ScheduleStore {
     return rows.isEmpty() ? null : rows.getFirst();
   }
 
-  private List<DayRow> readDays(UUID tripId) {
+  private List<DayRow> readDays(UUID tripId, UUID versionId) {
     return jdbc.query(
         """
-        select id, day_no, trip_date
-        from public.trip_days
-        where trip_plan_id = ?
-        order by day_no asc, id asc
+        select d.id, d.day_no, d.trip_date,
+          exists(select 1 from timing_jeju_planner_private.generation_day_results r
+            where r.trip_plan_id=d.trip_plan_id and r.trip_day_id=d.id
+              and r.schedule_version_id=?) as has_generation_result
+        from public.trip_days d
+        where d.trip_plan_id = ?
+        order by d.day_no asc, d.id asc
         """,
         (rs, rowNum) ->
             new DayRow(
                 rs.getObject("id", UUID.class),
                 requiredInteger(rs, "day_no"),
-                requiredDate(rs, "trip_date")),
+                requiredDate(rs, "trip_date"),
+                rs.getBoolean("has_generation_result")),
+        versionId,
         tripId);
   }
 
@@ -140,7 +164,7 @@ public class JdbcScheduleStore implements ScheduleStore {
         select i.id, i.trip_day_id, i.sequence_no, i.item_type, i.place_id,
                coalesce(i.title, p.name) as projection_title,
                i.planned_start_at, i.planned_end_at, i.stay_minutes,
-               i.buffer_after_minutes, i.required, i.memo,
+               i.buffer_after_minutes, i.required, i.memo, i.boundary_role,
                progress.status as progress_status,
                progress.actual_started_at, progress.actual_arrived_at,
                progress.actual_completed_at, progress.updated_at as progress_updated_at
@@ -167,7 +191,7 @@ public class JdbcScheduleStore implements ScheduleStore {
                l.transport_mode, l.planned_departure_at, l.planned_arrival_at,
                l.walk_minutes, l.wait_minutes, l.ride_minutes, l.transfer_minutes,
                l.duration_minutes, l.buffer_minutes, l.distance_meters,
-               l.estimated_fare, l.risk_score
+               l.estimated_fare, l.risk_score, l.facts
         from public.trip_legs l
         join public.trip_days d
           on d.id = l.trip_day_id and d.trip_plan_id = l.trip_plan_id
@@ -223,7 +247,12 @@ public class JdbcScheduleStore implements ScheduleStore {
       validateAdjacency(day.items, day.legs);
       days.add(
           new ScheduleDaySnapshot(
-              day.day.id(), day.day.dayNo(), day.day.date(), day.items, day.legs));
+              day.day.id(),
+              day.day.dayNo(),
+              day.day.date(),
+              day.items,
+              day.legs,
+              day.day.hasGenerationResult()));
     }
     boolean stale = !fresh(root, responseTime);
     return new ScheduleSnapshot(
@@ -252,12 +281,21 @@ public class JdbcScheduleStore implements ScheduleStore {
         || !day.equals(row.plannedStartAt().atZone(JEJU).toLocalDate())
         || !day.equals(row.plannedEndAt().atZone(JEJU).toLocalDate())
         || row.stayMinutes() == null
-        || row.stayMinutes() < 1
+        || row.stayMinutes() < (row.boundaryRole() == null ? 1 : 0)
         || row.stayMinutes() > 1440
         || row.bufferAfterMinutes() == null
         || row.bufferAfterMinutes() < 0
         || row.bufferAfterMinutes() > 1440
         || (row.memo() != null && row.memo().length() > 500)) {
+      throw invalidData();
+    }
+    if (row.boundaryRole() != null
+        && ((!"day_start".equals(row.boundaryRole()) && !"day_end".equals(row.boundaryRole()))
+            || !"custom".equals(row.itemType())
+            || row.placeId() == null
+            || !row.plannedStartAt().equals(row.plannedEndAt())
+            || row.stayMinutes() != 0
+            || row.bufferAfterMinutes() != 0)) {
       throw invalidData();
     }
     ItemProgressSnapshot progress = null;
@@ -285,7 +323,8 @@ public class JdbcScheduleStore implements ScheduleStore {
         row.bufferAfterMinutes(),
         row.required(),
         row.memo(),
-        progress);
+        progress,
+        row.boundaryRole());
   }
 
   private static ScheduleLegSnapshot validateLeg(LegRow row, LocalDate day) {
@@ -300,17 +339,26 @@ public class JdbcScheduleStore implements ScheduleStore {
         || !day.equals(row.plannedDepartureAt().atZone(JEJU).toLocalDate())
         || !day.equals(row.plannedArrivalAt().atZone(JEJU).toLocalDate())
         || invalidNonNegative(row.walkMinutes())
-        || invalidNonNegative(row.waitMinutes())
-        || invalidNonNegative(row.rideMinutes())
+        || invalidNullableNonNegative(row.waitMinutes())
+        || invalidNullableNonNegative(row.rideMinutes())
         || invalidNonNegative(row.transferMinutes())
         || row.durationMinutes() == null
-        || row.durationMinutes() < 1
+        || row.durationMinutes() < 0
         || invalidNonNegative(row.bufferMinutes())
         || invalidNullableNonNegative(row.distanceMeters())
         || invalidNullableNonNegative(row.estimatedFare())
         || (row.riskScore() != null && (row.riskScore() < 0 || row.riskScore() > 100))) {
       throw invalidData();
     }
+    ScheduleLegPrecisionProjection.validate(
+        row.facts(),
+        row.transportMode(),
+        row.walkMinutes(),
+        row.waitMinutes(),
+        row.rideMinutes(),
+        row.transferMinutes(),
+        row.durationMinutes());
+    var risk = ScheduleLegRiskProjection.from(row.facts());
     return new ScheduleLegSnapshot(
         row.id(),
         row.sequenceNo(),
@@ -327,7 +375,9 @@ public class JdbcScheduleStore implements ScheduleStore {
         row.bufferMinutes(),
         row.distanceMeters(),
         row.estimatedFare(),
-        row.riskScore());
+        row.riskScore(),
+        risk.level(),
+        risk.reasonCodes());
   }
 
   private static void validateAdjacency(
@@ -340,6 +390,25 @@ public class JdbcScheduleStore implements ScheduleStore {
       if (!leg.fromItemId().equals(items.get(index).itemId())
           || !leg.toItemId().equals(items.get(index + 1).itemId())) {
         throw invalidData();
+      }
+      if (leg.durationMinutes() == 0) {
+        var from = items.get(index);
+        var to = items.get(index + 1);
+        if (from.placeId() == null
+            || !from.placeId().equals(to.placeId())
+            || !"walk".equals(leg.transportMode())
+            || !leg.plannedDepartureAt().equals(leg.plannedArrivalAt())
+            || !leg.plannedDepartureAt().equals(from.plannedEndAt())
+            || leg.plannedArrivalAt().isAfter(to.plannedStartAt())
+            || leg.walkMinutes() != 0
+            || !Integer.valueOf(0).equals(leg.waitMinutes())
+            || !Integer.valueOf(0).equals(leg.rideMinutes())
+            || leg.transferMinutes() != 0
+            || leg.bufferMinutes() != 0
+            || !Integer.valueOf(0).equals(leg.distanceMeters())
+            || !Integer.valueOf(0).equals(leg.estimatedFareKrw())) {
+          throw invalidData();
+        }
       }
     }
   }
@@ -377,6 +446,7 @@ public class JdbcScheduleStore implements ScheduleStore {
         nullableInteger(rs, "version_no"),
         rs.getString("version_status"),
         rs.getString("source_type"),
+        instant(rs, "applied_at"),
         rs.getObject("base_schedule_version_id", UUID.class),
         nullableInteger(rs, "resulting_score"),
         instant(rs, "freshness_calculated_at"),
@@ -402,6 +472,7 @@ public class JdbcScheduleStore implements ScheduleStore {
         nullableInteger(rs, "buffer_after_minutes"),
         rs.getBoolean("required"),
         rs.getString("memo"),
+        rs.getString("boundary_role"),
         rs.getString("progress_status"),
         instant(rs, "actual_started_at"),
         instant(rs, "actual_arrived_at"),
@@ -427,7 +498,8 @@ public class JdbcScheduleStore implements ScheduleStore {
         nullableInteger(rs, "buffer_minutes"),
         nullableInteger(rs, "distance_meters"),
         nullableInteger(rs, "estimated_fare"),
-        nullableInteger(rs, "risk_score"));
+        nullableInteger(rs, "risk_score"),
+        rs.getString("facts"));
   }
 
   private static Integer nullableInteger(ResultSet rs, String column) throws SQLException {
@@ -484,6 +556,7 @@ public class JdbcScheduleStore implements ScheduleStore {
       Integer versionNoValue,
       String status,
       String sourceType,
+      Instant appliedAt,
       UUID baseVersionId,
       Integer score,
       Instant calculatedAt,
@@ -498,7 +571,7 @@ public class JdbcScheduleStore implements ScheduleStore {
     }
   }
 
-  private record DayRow(UUID id, int dayNo, LocalDate date) {}
+  private record DayRow(UUID id, int dayNo, LocalDate date, boolean hasGenerationResult) {}
 
   private record ItemRow(
       UUID id,
@@ -513,6 +586,7 @@ public class JdbcScheduleStore implements ScheduleStore {
       Integer bufferAfterMinutes,
       boolean required,
       String memo,
+      String boundaryRole,
       String progressStatus,
       Instant actualStartedAt,
       Instant actualArrivedAt,
@@ -536,7 +610,8 @@ public class JdbcScheduleStore implements ScheduleStore {
       Integer bufferMinutes,
       Integer distanceMeters,
       Integer estimatedFare,
-      Integer riskScore) {}
+      Integer riskScore,
+      String facts) {}
 
   private static final class DayAssembly {
     private final DayRow day;

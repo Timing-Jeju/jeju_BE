@@ -40,7 +40,7 @@ def compact(value: str) -> str:
 
 class PushNotificationDatabaseTest(unittest.TestCase):
     def test_latest_migration_versions_are_unique_and_chronological(self):
-        """후속 planned anchor migration까지 시간순 버전 중복 없이 등록한다."""
+        """생성 후보 결과 migration까지 시간순 버전 중복 없이 등록한다."""
         expected = (
             "20260901000000_legal_documents_consents.sql",
             "20260902000000_trip_create_contract.sql",
@@ -72,7 +72,17 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000019_planned_route_request_hash_policy.sql",
             "20260918000020_remove_user_location_runtime.sql",
             "20260918000021_day_activity_window_pair.sql",
-            "20260918000022_rls_auto_enable_execute_boundary.sql",
+            "20260918000022_generation_lifecycle.sql",
+            "20260918000023_planner_place_preferences.sql",
+            "20260918000024_planner_conditions.sql",
+            "20260918000025_sequential_schedule_coverage.sql",
+            "20260918000026_generation_trip_snapshot.sql",
+            "20260918000027_generation_schedule_boundaries.sql",
+            "20260918000028_generation_result_projection.sql",
+            "20260918000029_trip_ferry_unresolved_terminal.sql",
+            "20260918000030_generation_existing_base_input.sql",
+            "20260918000031_generation_leg_precision.sql",
+            "20260918000032_rls_auto_enable_execute_boundary.sql",
             "20260919000000_account_deletion_requests.sql",
             "20260919010000_account_deletion_worker_runtime.sql",
             "20260919020000_account_deletion_retention_contract.sql",
@@ -204,8 +214,8 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql",
             ),
             (
-                "./supabase/migrations/20260918000022_rls_auto_enable_execute_boundary.sql",
-                "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql",
+                "./supabase/migrations/20260918000032_rls_auto_enable_execute_boundary.sql",
+                "/docker-entrypoint-initdb.d/070_rls_auto_enable_execute_boundary.sql",
             ),
             (
                 "./db/local-postgres/seed_fixtures.sql",
@@ -230,7 +240,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql",
             "/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql",
             "/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql",
-            "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql",
+            "/docker-entrypoint-initdb.d/070_rls_auto_enable_execute_boundary.sql",
         }
         for target in migration_targets:
             if target in current_only_targets:

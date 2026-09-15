@@ -77,6 +77,10 @@ public final class ScheduleProblemDefinitions implements ProblemDefinitionContri
   @Override
   public List<ProblemDefinition> definitions() {
     return List.of(
+        com.timingjeju.api.domain.generation.exception.GenerationProblemDefinitions.definition(
+            "CANDIDATE_EXPIRED"),
+        com.timingjeju.api.domain.generation.exception.GenerationProblemDefinitions.definition(
+            "CANDIDATE_EVIDENCE_UNAVAILABLE"),
         new ProblemDefinition(
             URI.create("https://api.timing-jeju.com/problems/schedule-version-not-found"),
             "일정 버전을 찾을 수 없습니다",

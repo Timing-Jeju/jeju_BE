@@ -6,6 +6,11 @@
   "ownerIssue": 85,
   "implementationIssues": [44, 45, 239, 246],
   "schemas": {
+    "PlannerConditionsMutationResponse": {"type":"object","nullable":false,"additionalProperties":false,"required":["tripId","plannerConditions","scheduleEffect","regenerationRequired","activeScheduleVersionId"],"properties":{"tripId":{"type":"string","format":"uuid","nullable":false},"plannerConditions":{"$ref":"PlannerConditions","nullable":false},"scheduleEffect":{"type":"string","nullable":false,"enum":["none","maintained","invalidated"]},"regenerationRequired":{"type":"boolean","nullable":false},"activeScheduleVersionId":{"type":"string","format":"uuid","nullable":true}}},
+    "PlannerDayAnchor": {"type":"object","nullable":false,"additionalProperties":false,"required":["dayId","lodgingPlaceId"],"properties":{"dayId":{"type":"string","format":"uuid","nullable":false},"lodgingPlaceId":{"type":"string","format":"uuid","nullable":false}}},
+    "PlannerConditions": {"type":"object","nullable":false,"additionalProperties":false,"required":["dayAnchors","styleCodes"],"properties":{"dayAnchors":{"type":"array","nullable":false,"minItems":0,"maxItems":30,"items":{"$ref":"PlannerDayAnchor","nullable":false}},"styleCodes":{"type":"array","nullable":false,"minItems":0,"maxItems":7,"uniqueItems":true,"items":{"type":"string","nullable":false,"enum":["restaurant","cafe","leisure","cultural_facility","relaxed","trendy","local"]}}}},
+    "TripDetailLegacyV12": {"type":"object","nullable":false,"additionalProperties":false,"required":["tripId","title","status","startDate","endDate","timezone","userPace","transportModes","days","activeScheduleVersionId","totalScore","scoreProvenance","scheduleEffect","regenerationRequired","createdAt","updatedAt","transportEvents","accommodations"],"properties":{"tripId":{"$ref":"TripId","nullable":false},"title":{"$ref":"TripTitle","nullable":false},"status":{"$ref":"TripStatus","nullable":false},"startDate":{"$ref":"TripDate","nullable":false},"endDate":{"$ref":"TripDate","nullable":false},"timezone":{"$ref":"TripTimezone","nullable":false},"userPace":{"$ref":"UserPace","nullable":false},"transportModes":{"$ref":"TransportModes","nullable":false},"days":{"type":"array","nullable":false,"minItems":1,"maxItems":30,"items":{"$ref":"TripDay","nullable":false}},"activeScheduleVersionId":{"type":"string","nullable":true,"format":"uuid"},"totalScore":{"type":"integer","nullable":true,"minimum":0,"maximum":100},"scoreProvenance":{"$ref":"ScoreProvenance","nullable":true},"scheduleEffect":{"type":"string","nullable":false,"enum":["none","maintained","invalidated"]},"regenerationRequired":{"type":"boolean","nullable":false},"createdAt":{"type":"string","nullable":false,"format":"date-time"},"updatedAt":{"type":"string","nullable":false,"format":"date-time"},"transportEvents":{"$ref":"TripTransportEvents","nullable":false},"accommodations":{"type":"array","nullable":false,"items":{"$ref":"Accommodation","nullable":false}}}},
+    "PlacePreferenceItem": {"type":"object","nullable":false,"additionalProperties":false,"required":["placeId","type","targetDayNo","priority"],"properties":{"placeId":{"type":"string","format":"uuid","nullable":false},"type":{"type":"string","nullable":false,"enum":["must_visit","preferred","avoid"]},"targetDayNo":{"type":"integer","nullable":true,"minimum":1,"maximum":30},"priority":{"type":"integer","nullable":false,"minimum":0,"maximum":100},"requestedStayMinutes":{"type":"integer","nullable":true,"minimum":1,"maximum":1440}}},
   "TripTransportEvent": {
     "type": "object",
     "nullable": false,
@@ -266,8 +271,8 @@
   },
   "TripDayActivityWindowsResponse": {
     "nullable": false,
-    "description": "새Day저장은 최신TripDetail이다. projection 도입 전 완료receipt의24시간 TTL내 replay에서만 TripDetailLegacyV11 원본을 반환한다. 최신값은여행GET으로 조회한다.",
-    "oneOf": [
+    "description": "새 Day 저장은 최신 TripDetail이다. 완료 receipt의 24시간 TTL 내 replay에서만 TripDetailLegacyV11 또는 TripDetailLegacyV12 원본을 반환한다. 최신 값은 여행 GET으로 조회한다.",
+    "oneOf": [{"$ref":"TripDetailLegacyV12","nullable":false},
       {
         "$ref": "TripDetail",
         "nullable": false
@@ -412,8 +417,8 @@
   },
   "TripCreateResponse": {
       "nullable": false,
-      "description": "새 생성은 최신TripDetail이다. 완료receipt의24시간 TTL내 replay에서만 당시V1 또는V11 원본body를 그대로 반환한다. 최신값은Location GET으로 조회한다.",
-      "oneOf": [
+      "description": "새 생성은 최신 TripDetail이다. 완료 receipt의 24시간 TTL 내 replay에서만 당시 V1/V11/V12 원본 body를 그대로 반환한다. 최신 값은 Location GET으로 조회한다.",
+      "oneOf": [{"$ref":"TripDetailLegacyV12","nullable":false},
         {
           "$ref": "TripDetail",
           "nullable": false
@@ -438,7 +443,7 @@
     "TripTimezone": {"type": "string", "nullable": false, "format": "iana-timezone", "enum": ["Asia/Seoul"]},
     "TripStatus": {"type": "string", "nullable": false, "enum": ["draft", "generating", "planned", "live", "completed", "cancelled", "failed"]},
     "UserPace": {"type": "string", "nullable": false, "enum": ["slow", "normal", "fast"]},
-    "TransportModeName": {"type": "string", "nullable": false, "enum": ["public_transit", "rental_car", "taxi"]},
+    "TransportModeName": {"type": "string", "nullable": false, "enum": ["public_transit", "rental_car", "taxi", "walk"]},
     "TransportMode": {
       "type": "object",
       "nullable": false,
@@ -598,7 +603,9 @@
         "createdAt",
         "updatedAt",
         "transportEvents",
-        "accommodations"
+        "accommodations",
+        "placePreferences",
+        "plannerConditions"
       ],
       "properties": {
         "tripId": {
@@ -681,6 +688,8 @@
           "nullable": false,
           "format": "date-time"
         },
+        "plannerConditions": {"$ref": "PlannerConditions", "nullable": false},
+        "placePreferences": {"type": "array", "nullable": false, "items": {"$ref": "PlacePreferenceItem", "nullable": false}},
         "transportEvents": {
           "$ref": "TripTransportEvents",
           "nullable": false
@@ -814,7 +823,8 @@
       "pagination": {"type": "none"},
       "figma": {"node": "none", "action": "여행 삭제 UI 직접 증거 없음", "loading": "not-observed", "empty": "not-observed", "error": "not-observed"}
     },
-    {"method":"PUT","path":"/api/v1/trips/{tripId}/day-activity-windows","operation":"update","requestSchema":"ReplaceTripDayActivityWindowsRequest","headersSchema":"DayActivityWindowHeaders","successSchema":"TripDayActivityWindowsResponse","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical JWT sub; cross-owner 404","responses":{"success":[200],"errors":[400,401,404,409,422]},"idempotency":{"required":true,"header":"Idempotency-Key","scope":"canonicalSub + PUT + tripId + day-activity-windows","ttl":"24h","replay":"same key+body replays original status, ETag and body with Idempotency-Replayed=true","payloadConflict":"409 IDEMPOTENCY_KEY_REUSED","concurrentRequest":"single writer; in-progress returns 409 IDEMPOTENCY_IN_PROGRESS"},"pagination":{"type":"none"},"figma":{"node":"not-linked","action":"날짜별 활동 시간 저장","loading":"not-observed","empty":"not-applicable","error":"not-observed"}}
+    {"method":"PUT","path":"/api/v1/trips/{tripId}/day-activity-windows","operation":"update","requestSchema":"ReplaceTripDayActivityWindowsRequest","headersSchema":"DayActivityWindowHeaders","successSchema":"TripDayActivityWindowsResponse","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical JWT sub; cross-owner 404","responses":{"success":[200],"errors":[400,401,404,409,422]},"idempotency":{"required":true,"header":"Idempotency-Key","scope":"canonicalSub + PUT + tripId + day-activity-windows","ttl":"24h","replay":"same key+body replays original status, ETag and body with Idempotency-Replayed=true","payloadConflict":"409 IDEMPOTENCY_KEY_REUSED","concurrentRequest":"single writer; in-progress returns 409 IDEMPOTENCY_IN_PROGRESS"},"pagination":{"type":"none"},"figma":{"node":"not-linked","action":"날짜별 활동 시간 저장","loading":"not-observed","empty":"not-applicable","error":"not-observed"}},
+    {"method":"PUT","path":"/api/v1/trips/{tripId}/planner-conditions","operation":"update","requestSchema":"PlannerConditions","headersSchema":"DayActivityWindowHeaders","successSchema":"PlannerConditionsMutationResponse","auth":{"mode":"required","missingToken":401,"invalidToken":401},"owner":"canonical JWT sub; cross-owner 404","responses":{"success":[200],"errors":[400,401,404,409,422,503]},"idempotency":{"required":true,"header":"Idempotency-Key","scope":"canonicalSub + PUT + tripId + planner-conditions","ttl":"24h","replay":"same key+canonical body replays original status, ETag and body with Idempotency-Replayed=true","payloadConflict":"409 IDEMPOTENCY_KEY_REUSED","concurrentRequest":"single writer; in-progress returns 409 IDEMPOTENCY_IN_PROGRESS"},"pagination":{"type":"none"},"figma":{"node":"not-linked","action":"날짜별 숙소와 여행 스타일 저장","loading":"not-observed","empty":"not-applicable","error":"not-observed"}}
   ],
   "pagination": {
     "cursor": "opaque and integrity protected",

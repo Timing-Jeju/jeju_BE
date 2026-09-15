@@ -84,8 +84,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           """
           insert into public.trip_schedule_versions
             (id, trip_plan_id, version_no, base_schedule_version_id, status, source_type,
-             summary, resulting_score, created_by_user_id, created_at)
-          values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?)
+             summary, resulting_score, created_by_user_id, created_at, coverage_through_day_no)
+          values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?,
+            (select coverage_through_day_no from public.trip_schedule_versions
+             where id = ? and trip_plan_id = ?))
           """,
           newVersionId,
           record.tripId(),
@@ -93,7 +95,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           activeVersionId,
           "사용자 일정 항목 추가",
           record.ownerId(),
-          Timestamp.from(committedAt));
+          Timestamp.from(committedAt),
+          activeVersionId,
+          record.tripId());
 
       List<SourceItem> sourceItems = loadSourceItems(record.tripId(), activeVersionId);
       List<NewItem> newItems = new ArrayList<>(sourceItems.size() + 1);
@@ -317,6 +321,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     int index = targetIndex(items, record.itemId());
     ensureNotCompleted(record.tripId(), expectedVersion(record.command()), record.itemId());
     SourceItem source = items.get(index);
+    ensureEditable(source);
     PatchScheduleItemCommand patch = record.command();
     UUID placeId = patch.changes("placeId") ? patch.placeId() : source.placeId();
     UUID accommodationId =
@@ -366,7 +371,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             validation.required(),
             source.source(),
             validation.memo(),
-            source.facts());
+            source.facts(),
+            source.boundaryRole());
     ensureNoOverlap(items, index, replacement);
     items.set(index, replacement);
     return items;
@@ -376,6 +382,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       List<SourceItem> items, ScheduleEditRecord<DeleteScheduleItemCommand> record) {
     int index = targetIndex(items, record.itemId());
     ensureNotCompleted(record.tripId(), expectedVersion(record.command()), record.itemId());
+    ensureEditable(items.get(index));
     UUID dayId = items.get(index).dayId();
     if (items.stream().filter(item -> item.dayId().equals(dayId)).count() <= 1) {
       throw ScheduleException.dayEmpty();
@@ -436,6 +443,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     int index = targetIndex(items, record.itemId());
     ensureNotCompleted(record.tripId(), expectedVersion(record.command()), record.itemId());
     SourceItem source = items.get(index);
+    ensureEditable(source);
     Day target = loadDay(record.tripId(), record.command().targetDayNo(), true);
     if (!source.dayId().equals(target.id())
         && items.stream().filter(item -> item.dayId().equals(source.dayId())).count() <= 1) {
@@ -463,6 +471,12 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
     ensureNoOverlap(items, -1, moved);
     items.add(moved);
     return items;
+  }
+
+  private static void ensureEditable(SourceItem item) {
+    if (item.boundaryRole() != null) {
+      throw ScheduleException.itemInvalid();
+    }
   }
 
   private static UUID expectedVersion(Object command) {
@@ -499,8 +513,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         """
         insert into public.trip_schedule_versions
           (id, trip_plan_id, version_no, base_schedule_version_id, status, source_type,
-           summary, resulting_score, created_by_user_id, created_at)
-        values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?)
+           summary, resulting_score, created_by_user_id, created_at, coverage_through_day_no)
+        values (?, ?, ?, ?, 'draft', 'user_edit', ?, null, ?, ?,
+          (select coverage_through_day_no from public.trip_schedule_versions
+           where id = ? and trip_plan_id = ?))
         """,
         versionId,
         record.tripId(),
@@ -508,7 +524,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         activeVersionId,
         summary,
         record.ownerId(),
-        Timestamp.from(committedAt));
+        Timestamp.from(committedAt),
+        activeVersionId,
+        record.tripId());
   }
 
   private void assertRequiredReferences(UUID tripId, UUID versionId) {
@@ -829,7 +847,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         """
         select id, trip_day_id, sequence_no, item_type, place_id, accommodation_id,
                transport_event_id, title, planned_start_at, planned_end_at, stay_minutes,
-               buffer_after_minutes, required, source, memo, facts::text
+               buffer_after_minutes, required, source, memo, facts::text, boundary_role
         from public.trip_items where trip_plan_id=? and schedule_version_id=?
         order by trip_day_id, sequence_no
         """,
@@ -845,8 +863,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         insert into public.trip_items
           (id, trip_plan_id, trip_day_id, schedule_version_id, sequence_no, item_type,
            place_id, accommodation_id, transport_event_id, title, planned_start_at, planned_end_at,
-           stay_minutes, buffer_after_minutes, required, source, memo, facts)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+           stay_minutes, buffer_after_minutes, required, source, memo, facts, boundary_role)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)
         """,
         newId,
         tripId,
@@ -865,7 +883,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         source.required(),
         source.source(),
         source.memo(),
-        source.facts());
+        source.facts(),
+        source.boundaryRole());
   }
 
   private void insertAddedItem(
@@ -1053,7 +1072,9 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
             .stream()
             .findFirst()
             .orElseThrow(ScheduleException::legIncomplete);
-    int walkMinutes = Math.max(1, Math.toIntExact((distance + 49) / 50));
+    boolean samePlace = from.placeId() != null && from.placeId().equals(to.placeId());
+    if (samePlace && distance != 0) throw ScheduleException.legIncomplete();
+    int walkMinutes = samePlace ? 0 : Math.max(1, Math.toIntExact((distance + 49) / 50));
     Instant arrival = from.end().plusSeconds(walkMinutes * 60L);
     if (arrival.isAfter(to.start())) {
       throw ScheduleException.legIncomplete();
@@ -1066,7 +1087,7 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
            wait_minutes, ride_minutes, transfer_minutes, duration_minutes, buffer_minutes,
            distance_meters, estimated_fare, risk_score, facts)
         values (?, ?, ?, ?, ?, ?, ?, 'walk', ?, ?, ?, 0, 0, 0, ?, 0, ?, 0, null,
-                '{"derivation":"conservative_walk_v1"}'::jsonb)
+                ?::jsonb)
         """,
         UUID.randomUUID(),
         tripId,
@@ -1079,7 +1100,10 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         Timestamp.from(arrival),
         walkMinutes,
         walkMinutes,
-        distance);
+        distance,
+        samePlace
+            ? "{\"derivation\":\"same_place_continuity_v1\"}"
+            : "{\"derivation\":\"conservative_walk_v1\"}");
   }
 
   private static SourceItem sourceItem(ResultSet rs) throws SQLException {
@@ -1099,7 +1123,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         rs.getBoolean("required"),
         rs.getString("source"),
         rs.getString("memo"),
-        rs.getString("facts"));
+        rs.getString("facts"),
+        rs.getString("boundary_role"));
   }
 
   private static SourceLeg sourceLeg(ResultSet rs) throws SQLException {
@@ -1114,8 +1139,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
         rs.getTimestamp("planned_departure_at").toInstant(),
         rs.getTimestamp("planned_arrival_at").toInstant(),
         rs.getInt("walk_minutes"),
-        rs.getInt("wait_minutes"),
-        rs.getInt("ride_minutes"),
+        rs.getObject("wait_minutes", Integer.class),
+        rs.getObject("ride_minutes", Integer.class),
         rs.getInt("transfer_minutes"),
         rs.getInt("duration_minutes"),
         rs.getInt("buffer_minutes"),
@@ -1168,7 +1193,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       boolean required,
       String source,
       String memo,
-      String facts) {
+      String facts,
+      String boundaryRole) {
     NewItem asNew(UUID newId, int sequence) {
       return asNew(newId, sequence, this);
     }
@@ -1201,7 +1227,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
           required,
           source,
           memo,
-          facts);
+          facts,
+          boundaryRole);
     }
   }
 
@@ -1221,8 +1248,8 @@ public class JdbcScheduleMutationStore implements ScheduleMutationStore {
       Instant departure,
       Instant arrival,
       int walkMinutes,
-      int waitMinutes,
-      int rideMinutes,
+      Integer waitMinutes,
+      Integer rideMinutes,
       int transferMinutes,
       int durationMinutes,
       int bufferMinutes,

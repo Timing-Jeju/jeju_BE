@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.transportevent.controller;
 
+import com.timingjeju.api.application.idempotency.*;
 import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.application.transportevent.TransportEventException;
 import com.timingjeju.api.application.transportevent.TransportEventMutationPayload;
@@ -35,34 +36,92 @@ public class TransportEventController implements TransportEventApiDocs {
   private final TransportEventService events;
   private final CurrentUserAccessor currentUsers;
   private final ObjectMapper objectMapper;
+  private final IdempotencyUseCase receipts;
 
   public TransportEventController(
-      TransportEventService events, CurrentUserAccessor currentUsers, ObjectMapper objectMapper) {
+      TransportEventService events,
+      CurrentUserAccessor currentUsers,
+      ObjectMapper objectMapper,
+      IdempotencyUseCase receipts) {
     this.events = events;
     this.currentUsers = currentUsers;
     this.objectMapper = objectMapper;
+    this.receipts = receipts;
   }
 
   @Override
   @PutMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-  public ResponseEntity<TransportEventMutationPayload> put(
+  public ResponseEntity<byte[]> put(
       @PathVariable String tripId,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       HttpServletRequest request) {
     validateNoParameters(request);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
-    TransportEventMutationPayload payload =
-        events.put(
-            currentUsers.getRequired().userId(),
-            canonicalTripId,
-            expected(ifMatch),
-            parse(TransportEventRequestBoundary.readRequiredJson(request)).toCommand());
-    return ResponseEntity.ok().eTag(payload.etag()).body(payload);
+    var owner = currentUsers.getRequired().userId();
+    var revision = expected(ifMatch);
+    var command = parse(TransportEventRequestBoundary.readRequiredJson(request)).toCommand();
+    return mutate(
+        request,
+        owner,
+        canonicalTripId,
+        revision,
+        "PUT",
+        command,
+        () -> events.put(owner, canonicalTripId, revision, command));
+  }
+
+  private ResponseEntity<byte[]> mutate(
+      HttpServletRequest request,
+      UUID owner,
+      UUID canonicalTripId,
+      TripExpectedRevision revision,
+      String method,
+      Object canonicalInput,
+      java.util.function.Supplier<TransportEventMutationPayload> mutation) {
+    var headers = request.getHeaders("Idempotency-Key");
+    if (headers == null || !headers.hasMoreElements()) {
+      var payload = mutation.get();
+      return ResponseEntity.ok().eTag(payload.etag()).body(objectMapper.writeValueAsBytes(payload));
+    }
+    String key = headers.nextElement();
+    if (headers.hasMoreElements() || key == null || key.isBlank())
+      throw IdempotencyException.invalid();
+    if (!canonicalTripId.equals(revision.tripId()))
+      throw TransportEventException.of("TRIP_VERSION_CONFLICT");
+    var input =
+        IdempotencyRequest.create(
+            owner,
+            method,
+            "/api/v1/trips/" + canonicalTripId + "/transport-event",
+            key,
+            objectMapper.writeValueAsBytes(canonicalInput));
+    // 과거 receipt도 현재 owner 확인을 통과한 요청에만 반환한다.
+    events.requireOwned(owner, canonicalTripId);
+    var replayed = new java.util.concurrent.atomic.AtomicBoolean(true);
+    var result =
+        receipts.execute(
+            input,
+            () -> {
+              replayed.set(false);
+              var payload = mutation.get();
+              return new IdempotencyResponse(
+                  200,
+                  java.util.List.of(
+                      new IdempotencyHeader(
+                          HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE),
+                      new IdempotencyHeader(HttpHeaders.ETAG, payload.etag())),
+                  objectMapper.writeValueAsBytes(payload));
+            });
+    var response = ResponseEntity.status(result.status());
+    result.headers().forEach(header -> response.header(header.name(), header.value()));
+    return response
+        .header("Idempotency-Replayed", Boolean.toString(replayed.get()))
+        .body(result.body());
   }
 
   @Override
   @DeleteMapping(produces = MediaType.APPLICATION_JSON_VALUE)
-  public ResponseEntity<TransportEventMutationPayload> delete(
+  public ResponseEntity<byte[]> delete(
       @PathVariable String tripId,
       @RequestParam(name = "eventType", required = false) String eventType,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
@@ -70,10 +129,17 @@ public class TransportEventController implements TransportEventApiDocs {
     validateDeleteRequest(request);
     TransportEventRequestBoundary.requireEmptyDelete(request);
     UUID canonicalTripId = parseCanonicalUuid(tripId);
-    TransportEventMutationPayload payload =
-        events.delete(
-            currentUsers.getRequired().userId(), canonicalTripId, eventType, expected(ifMatch));
-    return ResponseEntity.ok().eTag(payload.etag()).body(payload);
+    var owner = currentUsers.getRequired().userId();
+    var revision = expected(ifMatch);
+    // selector도 요청 identity에 포함한다. raw query와 DELETE 본문은 보존하지 않는다.
+    return mutate(
+        request,
+        owner,
+        canonicalTripId,
+        revision,
+        "DELETE",
+        java.util.Map.of("eventType", eventType),
+        () -> events.delete(owner, canonicalTripId, eventType, revision));
   }
 
   private PutTransportEventRequest parse(byte[] body) {

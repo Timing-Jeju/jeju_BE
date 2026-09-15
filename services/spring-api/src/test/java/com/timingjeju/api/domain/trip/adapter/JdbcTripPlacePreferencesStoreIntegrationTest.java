@@ -41,6 +41,146 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
 
   @Autowired private TripPlacePreferencesStore store;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private JdbcTripStore trips;
+
+  @Test
+  void 다음_Day의_장소초안_추가는_기존_Day1_활성일정을_유지한다() {
+    activateSchedule(true);
+    var result =
+        store.replaceOwned(
+            update(List.of(new TripPlacePreference(PLACE_B, "preferred", 2, 50, 90))));
+    assertThat(result.activeScheduleVersionId()).isEqualTo(ACTIVE);
+    assertThat(result.scheduleEffect()).isEqualTo("maintained");
+    assertThat(result.regenerationRequired()).isFalse();
+    assertThat(
+            jdbc.queryForObject(
+                "select status from public.trip_schedule_versions where id=?",
+                String.class,
+                ACTIVE))
+        .isEqualTo("active");
+  }
+
+  @Test
+  void 순차_범위가_없는_버전은_여전히_모든_Day가_필수다() {
+    assertThatThrownBy(() -> activateSchedule(true, null))
+        .isInstanceOf(org.springframework.dao.DataAccessException.class);
+  }
+
+  @Test
+  void 순차_범위_안의_Day_누락은_봉인할_수_없다() {
+    assertThatThrownBy(() -> activateSchedule(true, 2))
+        .isInstanceOf(org.springframework.dao.DataAccessException.class);
+  }
+
+  @Test
+  void 순차_범위_밖의_Day_항목은_봉인할_수_없다() {
+    assertThatThrownBy(() -> activateSchedule(false, 1))
+        .isInstanceOf(org.springframework.dao.DataAccessException.class);
+  }
+
+  @Test
+  void 봉인된_순차_범위는_사후에_변경할_수_없다() {
+    activateSchedule(true);
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    "update public.trip_schedule_versions set coverage_through_day_no=2 where id=?",
+                    ACTIVE))
+        .isInstanceOf(org.springframework.dao.DataAccessException.class);
+  }
+
+  @Test
+  void 다음_Day_숙소와_UI전용스타일_추가는_적용된_Day1을_유지한다() {
+    activateSchedule(true);
+    var planner =
+        new JdbcTripPlannerConditionsStore(
+            jdbc,
+            new JdbcTripAggregateMutationCoordinator(
+                jdbc,
+                new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc)));
+    var conditions =
+        new com.timingjeju.api.application.trip.TripPlannerConditions(
+            List.of(
+                new com.timingjeju.api.application.trip.TripPlannerConditions.DayAnchor(
+                    DAY_2, PLACE_B)),
+            List.of("trendy", "local"));
+    var result = planner.replace(OWNER, TRIP, 1, conditions, UPDATE_AT);
+    assertThat(result.activeScheduleVersionId()).isEqualTo(ACTIVE);
+    assertThat(result.scheduleEffect()).isEqualTo("maintained");
+    assertThat(result.regenerationRequired()).isFalse();
+    assertThat(
+            jdbc.queryForObject(
+                "select status from public.trip_schedule_versions where id=?",
+                String.class,
+                ACTIVE))
+        .isEqualTo("active");
+  }
+
+  @Test
+  void planner_조건은_동일_여행_Day와_유효장소만_저장한다() {
+    var planner =
+        new JdbcTripPlannerConditionsStore(
+            jdbc,
+            new JdbcTripAggregateMutationCoordinator(
+                jdbc,
+                new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc)));
+    var conditions =
+        new com.timingjeju.api.application.trip.TripPlannerConditions(
+            List.of(
+                new com.timingjeju.api.application.trip.TripPlannerConditions.DayAnchor(
+                    DAY_2, PLACE_B)),
+            List.of("cafe", "relaxed"));
+    var result = planner.replace(OWNER, TRIP, 1, conditions, UPDATE_AT);
+    assertThat(result.payload()).isEqualTo(conditions);
+    var restored =
+        new tools.jackson.databind.ObjectMapper()
+            .valueToTree(
+                com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse.from(
+                    trips.findOwned(OWNER, TRIP, UPDATE_AT).orElseThrow()));
+    assertThat(
+            restored
+                .path("plannerConditions")
+                .path("dayAnchors")
+                .path(0)
+                .path("lodgingPlaceId")
+                .asString())
+        .isEqualTo(PLACE_B.toString());
+    assertThat(
+            jdbc.queryForObject(
+                "select lodging_place_id from public.trip_days where id=?", UUID.class, DAY_2))
+        .isEqualTo(PLACE_B);
+    assertThatThrownBy(() -> planner.replace(OTHER, TRIP, result.revision(), conditions, UPDATE_AT))
+        .isInstanceOf(TripException.class);
+    assertThatThrownBy(() -> planner.replace(OWNER, TRIP, 1, conditions, UPDATE_AT))
+        .isInstanceOf(TripException.class);
+    assertThat(planner.replace(OWNER, TRIP, result.revision(), conditions, UPDATE_AT).revision())
+        .isEqualTo(result.revision());
+  }
+
+  @Test
+  void 찜하지_않은_canonical_장소의_선택방문과_체류시간을_저장한다() {
+    var result =
+        store.replaceOwned(
+            update(List.of(new TripPlacePreference(PLACE_B, "preferred", 1, 50, 90))));
+    assertThat(result.preferences().getFirst().requestedStayMinutes()).isEqualTo(90);
+    var restored = trips.findOwned(OWNER, TRIP, UPDATE_AT).orElseThrow();
+    var json =
+        new tools.jackson.databind.ObjectMapper()
+            .valueToTree(
+                com.timingjeju.api.domain.trip.dto.response.TripAggregateResponse.from(restored));
+    assertThat(json.path("placePreferences").path(0).path("placeId").asString())
+        .isEqualTo(PLACE_B.toString());
+    assertThat(json.path("placePreferences").path(0).path("requestedStayMinutes").asInt())
+        .isEqualTo(90);
+    assertThat(trips.findOwned(OTHER, TRIP, UPDATE_AT)).isEmpty();
+    assertThat(
+            jdbc.queryForObject(
+                "select requested_stay_minutes from public.trip_place_preferences where trip_plan_id=? and place_id=?",
+                Integer.class,
+                TRIP,
+                PLACE_B))
+        .isEqualTo(90);
+  }
 
   @BeforeEach
   void setUp() {
@@ -123,7 +263,7 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
                 String.class,
                 TRIP))
         .containsExactly(
-            PLACE_A + ":must_visit:2:100:saved_place", PLACE_B + ":avoid:all:10:saved_place");
+            PLACE_A + ":must_visit:2:100:user_input", PLACE_B + ":avoid:all:10:user_input");
   }
 
   @Test
@@ -163,10 +303,11 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
   }
 
   @Test
-  void replaceOwned는_타인에게만_저장됐거나_stale인_장소를_같은_404로_숨긴다() {
+  void replaceOwned는_존재하지_않거나_stale인_장소를_같은_404로_숨긴다() {
     store.replaceOwned(update(List.of(new TripPlacePreference(PLACE_A, "must_visit", null, 50))));
 
-    for (UUID invalid : List.of(PLACE_B, PLACE_STALE)) {
+    for (UUID invalid :
+        List.of(UUID.fromString("48000000-0000-0000-0000-000000009999"), PLACE_STALE)) {
       assertCode(
           () ->
               store.replaceOwned(
@@ -533,6 +674,14 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
   }
 
   private void activateSchedule() {
+    activateSchedule(false);
+  }
+
+  private void activateSchedule(boolean firstDayOnly) {
+    activateSchedule(firstDayOnly, firstDayOnly ? 1 : null);
+  }
+
+  private void activateSchedule(boolean firstDayOnly, Integer coverage) {
     jdbc.update(
         """
         insert into public.trip_schedule_versions (
@@ -543,6 +692,11 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
         TRIP,
         OWNER,
         Timestamp.from(ORIGINAL_AT));
+    if (coverage != null)
+      jdbc.update(
+          "update public.trip_schedule_versions set coverage_through_day_no=? where id=?",
+          coverage,
+          ACTIVE);
     jdbc.update(
         """
         insert into public.trip_items (
@@ -559,8 +713,9 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
         "2026-09-01T10:00:00+09:00",
         Timestamp.from(ORIGINAL_AT),
         Timestamp.from(ORIGINAL_AT));
-    jdbc.update(
-        """
+    if (!firstDayOnly)
+      jdbc.update(
+          """
         insert into public.trip_items (
           id,trip_plan_id,trip_day_id,schedule_version_id,sequence_no,item_type,place_id,
           planned_start_at,planned_end_at,stay_minutes,required,source,created_at,updated_at
@@ -568,24 +723,24 @@ class JdbcTripPlacePreferencesStoreIntegrationTest
           (?,?,?,?,1,'place_visit',?,?::timestamptz,?::timestamptz,60,true,'ai_generated',?,?),
           (?,?,?,?,1,'place_visit',?,?::timestamptz,?::timestamptz,60,true,'ai_generated',?,?)
         """,
-        ITEM_2,
-        TRIP,
-        DAY_2,
-        ACTIVE,
-        PLACE_A,
-        "2026-09-02T09:00:00+09:00",
-        "2026-09-02T10:00:00+09:00",
-        Timestamp.from(ORIGINAL_AT),
-        Timestamp.from(ORIGINAL_AT),
-        ITEM_3,
-        TRIP,
-        DAY_3,
-        ACTIVE,
-        PLACE_A,
-        "2026-09-03T09:00:00+09:00",
-        "2026-09-03T10:00:00+09:00",
-        Timestamp.from(ORIGINAL_AT),
-        Timestamp.from(ORIGINAL_AT));
+          ITEM_2,
+          TRIP,
+          DAY_2,
+          ACTIVE,
+          PLACE_A,
+          "2026-09-02T09:00:00+09:00",
+          "2026-09-02T10:00:00+09:00",
+          Timestamp.from(ORIGINAL_AT),
+          Timestamp.from(ORIGINAL_AT),
+          ITEM_3,
+          TRIP,
+          DAY_3,
+          ACTIVE,
+          PLACE_A,
+          "2026-09-03T09:00:00+09:00",
+          "2026-09-03T10:00:00+09:00",
+          Timestamp.from(ORIGINAL_AT),
+          Timestamp.from(ORIGINAL_AT));
     jdbc.update(
         "update public.trip_schedule_versions set status='active',applied_at=? where id=?",
         Timestamp.from(ORIGINAL_AT),

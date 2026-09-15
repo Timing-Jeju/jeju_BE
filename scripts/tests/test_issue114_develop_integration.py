@@ -115,7 +115,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
 
         for gate_name in ("quality-gate.sh", "quality-gate.ps1"):
             gate = (ROOT / "scripts" / gate_name).read_text(encoding="utf-8")
-            self.assertIn("--mode 38", gate, gate_name)
+            self.assertIn("--mode 43", gate, gate_name)
             self.assertNotIn("--mode 20", gate, gate_name)
             self.assertNotIn("--mode 16", gate, gate_name)
 
@@ -123,7 +123,7 @@ class Issue114DevelopIntegrationTest(unittest.TestCase):
             ROOT / "scripts/validate_openapi_frontend_readiness.py"
         ).read_text(encoding="utf-8")
         self.assertIn(
-            "choices=(9, 16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33, 38)", validator
+            "choices=(9, 16, 20, 21, 23, 24, 25, 27, 28, 29, 30, 31, 33, 38, 42, 43)", validator
         )
 
         migration_names = {

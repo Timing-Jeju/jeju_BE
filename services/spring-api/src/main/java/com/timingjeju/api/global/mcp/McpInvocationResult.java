@@ -6,7 +6,8 @@ public record McpInvocationResult(
     Map<String, Object> structuredContent, String mcpInputHash, int attemptCount) {
 
   public McpInvocationResult {
-    structuredContent = Map.copyOf(structuredContent);
+    structuredContent =
+        java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(structuredContent));
     if (mcpInputHash == null || !mcpInputHash.matches("[0-9a-f]{64}")) {
       throw new IllegalArgumentException("mcpInputHash는 SHA-256이어야 합니다.");
     }

@@ -58,7 +58,7 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
               update.updatedAt(),
               (state, committedAt) -> {
                 validateTargetDays(state.startDate(), state.endDate(), update.preferences());
-                lockOwnedSavedPlaces(update.ownerId(), update.preferences());
+                lockCanonicalPlaces(update.preferences());
                 List<TripPlacePreference> current = loadPreferences(update.tripId());
                 if (current.equals(update.preferences())) {
                   return TripAggregateMutationPlan.noChange(
@@ -68,14 +68,23 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
                           loadRootUpdatedAt(update.ownerId(), update.tripId())));
                 }
 
+                boolean invalidates =
+                    state.activeScheduleVersionId() != null
+                        && affectsActive(
+                            update.tripId(),
+                            state.activeScheduleVersionId(),
+                            current,
+                            update.preferences());
                 var payload =
                     new PreferenceCommitPayload(
                         update.preferences(),
-                        state.activeScheduleVersionId() == null ? "none" : "invalidated",
+                        state.activeScheduleVersionId() == null
+                            ? "none"
+                            : invalidates ? "invalidated" : "maintained",
                         committedAt);
                 TripAggregateMutationEffect effect =
                     () -> replacePreferences(update.tripId(), update.preferences(), committedAt);
-                return state.activeScheduleVersionId() == null
+                return !invalidates
                     ? TripAggregateMutationPlan.maintain(TripRootPatch.unchanged(), effect, payload)
                     : TripAggregateMutationPlan.invalidate(
                         TripRootPatch.unchanged(), effect, payload);
@@ -99,6 +108,27 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
     }
   }
 
+  private boolean affectsActive(
+      UUID tripId,
+      UUID activeId,
+      List<TripPlacePreference> before,
+      List<TripPlacePreference> after) {
+    var appliedDays =
+        jdbc.queryForList(
+            """
+        select distinct d.day_no from public.trip_days d join public.trip_items i
+          on i.trip_day_id=d.id and i.trip_plan_id=d.trip_plan_id
+        where d.trip_plan_id=? and i.schedule_version_id=?
+        """,
+            Integer.class,
+            tripId,
+            activeId);
+    return java.util.stream.Stream.concat(
+            before.stream().filter(item -> !after.contains(item)),
+            after.stream().filter(item -> !before.contains(item)))
+        .anyMatch(item -> item.targetDayNo() == null || appliedDays.contains(item.targetDayNo()));
+  }
+
   private static void validateTargetDays(
       LocalDate startDate, LocalDate endDate, List<TripPlacePreference> preferences) {
     long tripDayCount = ChronoUnit.DAYS.between(startDate, endDate) + 1;
@@ -110,7 +140,7 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
     }
   }
 
-  private void lockOwnedSavedPlaces(UUID ownerId, List<TripPlacePreference> preferences) {
+  private void lockCanonicalPlaces(List<TripPlacePreference> preferences) {
     Set<UUID> requested = new LinkedHashSet<>();
     preferences.forEach(item -> requested.add(item.placeId()));
     if (requested.isEmpty()) {
@@ -119,17 +149,15 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
     List<UUID> found =
         namedJdbc.queryForList(
             """
-            select s.place_id
-            from public.saved_places s
-            join public.tour_places p on p.id=s.place_id
-            where s.user_id=:ownerId and s.place_id in (:placeIds)
+            select p.id
+            from public.tour_places p
+            where p.id in (:placeIds)
               and p.stale=false and (p.stale_at is null or p.stale_at > now())
               and p.tombstoned_at is null and p.source_deleted_at is null
-            for share of s,p
+            order by p.id
+            for share of p
             """,
-            new MapSqlParameterSource()
-                .addValue("ownerId", ownerId, Types.OTHER)
-                .addValue("placeIds", requested),
+            new MapSqlParameterSource().addValue("placeIds", requested),
             UUID.class);
     if (found.size() != requested.size()) {
       throw TripException.placeNotFound();
@@ -139,7 +167,7 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
   private List<TripPlacePreference> loadPreferences(UUID tripId) {
     return jdbc.query(
         """
-        select place_id,preference_type,target_day_no,priority
+        select place_id,preference_type,target_day_no,priority,requested_stay_minutes
         from public.trip_place_preferences
         where trip_plan_id=?
         order by priority desc,place_id
@@ -149,7 +177,8 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
                 rs.getObject("place_id", UUID.class),
                 rs.getString("preference_type"),
                 rs.getObject("target_day_no", Integer.class),
-                rs.getInt("priority")),
+                rs.getInt("priority"),
+                rs.getObject("requested_stay_minutes", Integer.class)),
         tripId);
   }
 
@@ -179,14 +208,16 @@ public class JdbcTripPlacePreferencesStore implements TripPlacePreferencesStore 
                         .addValue("type", item.type())
                         .addValue("targetDayNo", item.targetDayNo())
                         .addValue("priority", item.priority())
+                        .addValue(
+                            "requestedStayMinutes", item.requestedStayMinutes(), Types.INTEGER)
                         .addValue("createdAt", Timestamp.from(effectiveAt)))
             .toArray(SqlParameterSource[]::new);
     namedJdbc.batchUpdate(
         """
         insert into public.trip_place_preferences (
-          trip_plan_id,place_id,preference_type,target_day_no,priority,source,created_at
+          trip_plan_id,place_id,preference_type,target_day_no,priority,source,created_at,requested_stay_minutes
         ) values (
-          :tripId,:placeId,:type,:targetDayNo,:priority,'saved_place',:createdAt
+          :tripId,:placeId,:type,:targetDayNo,:priority,'user_input',:createdAt,:requestedStayMinutes
         )
         """,
         rows);

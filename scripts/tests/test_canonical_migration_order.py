@@ -38,12 +38,22 @@ CANONICAL_SUFFIX = (
     ("20260918000019_planned_route_request_hash_policy.sql", "057", 225),
     ("20260918000020_remove_user_location_runtime.sql", "058", 224),
     ("20260918000021_day_activity_window_pair.sql", "059", 239),
-    ("20260918000022_rls_auto_enable_execute_boundary.sql", "060", 242),
-    ("20260919000000_account_deletion_requests.sql", "061", 61),
-    ("20260919010000_account_deletion_worker_runtime.sql", "062", 106),
-    ("20260919020000_account_deletion_retention_contract.sql", "063", 106),
-    ("20260919030000_account_deletion_security_correction.sql", "064", 61),
-    ("20260919040000_account_deletion_worker_fencing.sql", "065", 106),
+    ("20260918000022_generation_lifecycle.sql", "060", 53),
+    ("20260918000023_planner_place_preferences.sql", "061", 53),
+    ("20260918000024_planner_conditions.sql", "062", 53),
+    ("20260918000025_sequential_schedule_coverage.sql", "063", 53),
+    ("20260918000026_generation_trip_snapshot.sql", "064", 53),
+    ("20260918000027_generation_schedule_boundaries.sql", "065", 53),
+    ("20260918000028_generation_result_projection.sql", "066", 53),
+    ("20260918000029_trip_ferry_unresolved_terminal.sql", "067", 53),
+    ("20260918000030_generation_existing_base_input.sql", "068", 53),
+    ("20260918000031_generation_leg_precision.sql", "069", 53),
+    ("20260918000032_rls_auto_enable_execute_boundary.sql", "070", 242),
+    ("20260919000000_account_deletion_requests.sql", "071", 61),
+    ("20260919010000_account_deletion_worker_runtime.sql", "072", 106),
+    ("20260919020000_account_deletion_retention_contract.sql", "073", 106),
+    ("20260919030000_account_deletion_security_correction.sql", "074", 61),
+    ("20260919040000_account_deletion_worker_fencing.sql", "075", 106),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -71,7 +81,7 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `065`", architecture)
+        self.assertIn("Docker init `038`부터 `075`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:

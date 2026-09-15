@@ -15,16 +15,20 @@ class TripDetailProjectionsContractTest(unittest.TestCase):
         contract = json.loads((ROOT / "docs/contracts/domains/trips/contract.json").read_text())
         schemas = contract["schemas"]
         old = json.loads((ROOT / "fixtures/contracts/trips/legacy-create-replay-v11.json").read_text())
-        for method in ["POST", "PUT"]:
-            endpoint = next(e for e in contract["endpoints"] if e["method"] == method)
+        for method, path in [("POST", "/api/v1/trips"),
+                             ("PUT", "/api/v1/trips/{tripId}/day-activity-windows")]:
+            endpoint = next(e for e in contract["endpoints"]
+                            if (e["method"], e["path"]) == (method, path))
             errors = []
             _validate_value(old, schemas[endpoint["successSchema"]], schemas, method, errors)
             self.assertEqual([], errors)
         errors = []
         _validate_value(old, schemas["TripDetail"], schemas, "GET", errors)
         self.assertTrue(errors)
-        self.assertEqual(3, len(schemas["TripCreateResponse"]["oneOf"]))
-        self.assertEqual(2, len(schemas["TripDayActivityWindowsResponse"]["oneOf"]))
+        self.assertEqual(4, len(schemas["TripCreateResponse"]["oneOf"]))
+        self.assertEqual(3, len(schemas["TripDayActivityWindowsResponse"]["oneOf"]))
+        for name in ("TripCreateResponse", "TripDayActivityWindowsResponse"):
+            self.assertIn("TripDetailLegacyV12", [item["$ref"] for item in schemas[name]["oneOf"]])
 
     def test_detail_has_required_closed_transport_pair_and_accommodation_array(self) -> None:
         """여행 상세는 미입력 여부와 관계없이 교통 두 슬롯과 숙소 배열을 제공한다."""

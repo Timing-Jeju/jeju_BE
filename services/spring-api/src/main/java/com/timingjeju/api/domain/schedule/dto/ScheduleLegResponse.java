@@ -21,10 +21,24 @@ public record ScheduleLegResponse(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "date-time")
         OffsetDateTime plannedArrivalAt,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int walkMinutes,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int waitMinutes,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int rideMinutes,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            nullable = true,
+            description = "정수 분으로 정확히 표현할 수 없는 초 단위 대기는 null입니다.")
+        Integer waitMinutes,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            nullable = true,
+            description = "정수 분으로 정확히 표현할 수 없는 초 단위 승차는 null입니다.")
+        Integer rideMinutes,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int transferMinutes,
-    @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1") int durationMinutes,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            minimum = "0",
+            description = "0분은 동일 canonical 장소의 위치 연속성에만 허용합니다.")
+        int durationMinutes,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0") int bufferMinutes,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
@@ -44,7 +58,14 @@ public record ScheduleLegResponse(
             types = {"integer", "null"},
             minimum = "0",
             maximum = "100")
-        Integer riskScore) {
+        Integer riskScore,
+    @Schema(
+            requiredMode = Schema.RequiredMode.REQUIRED,
+            nullable = true,
+            types = {"string", "null"},
+            allowableValues = {"low", "medium", "high", "critical", "unknown"})
+        String riskLevel,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) java.util.List<String> riskReasonCodes) {
   private static final ZoneId JEJU = ZoneId.of("Asia/Seoul");
 
   static ScheduleLegResponse from(ScheduleLegSnapshot leg) {
@@ -64,6 +85,8 @@ public record ScheduleLegResponse(
         leg.bufferMinutes(),
         leg.distanceMeters(),
         leg.estimatedFareKrw(),
-        leg.riskScore());
+        leg.riskScore(),
+        leg.riskLevel(),
+        leg.riskReasonCodes());
   }
 }

@@ -11,3 +11,10 @@
 - `APP_ACCOUNT_DELETION_ENABLED` 단일 flag가 탈퇴 API, pending 접근 차단, scheduler/worker를 함께 제어한다. 기본은 false이고 URL, service-role placeholder, worker ID 또는 암호화 key가 빠진 상태에서 true로 설정하면 context가 fail-fast한다.
 
 잔여 검증은 실제 Supabase/운영 DB를 사용하지 않는 현 단계 지시에 따라 live 연동, Docker, Testcontainers, 전체 품질 gate에서 제외했다.
+
+## 2026-09-15 #262 develop 통합 충돌 해결
+
+- #262의 `629a1fb4`를 #263 작업 브랜치로 병합한다. 최신 develop의 #53 migration 00022–00031과 #242 RLS 00032를 먼저 적용하고, 계정 탈퇴 20260919 migration 다섯 개는 071–075 Docker init 슬롯으로 이동한다. 이미 공유 DB에 적용된 이력이 있다면 별도 reconciliation이 선행돼야 하며 여기서는 live DB를 변경하지 않는다.
+- Red: `python3 -m unittest discover -s scripts/tests -p test_account_deletion_migration_order.py -v` → 충돌 상태의 `manifest.json`을 파싱할 때 `JSONDecodeError`가 발생했다.
+- Green: 동일 테스트 1개와 `test_canonical_migration_order.py` 14개, `test_rest_contract_readiness.py` 54개 통과. Spring architecture inventory는 통합된 controller mapping 66개와 migration 73개를 검증하도록 갱신했다.
+- 품질 게이트, Docker, 별도 Reviewer 승인 결과는 검증 완료 시 별도 기록한다.

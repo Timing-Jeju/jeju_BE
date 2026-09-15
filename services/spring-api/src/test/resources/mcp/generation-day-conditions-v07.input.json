@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.7.0",
+  "request_mode": "generate",
+  "trip_date": "2026-10-01",
+  "timezone": "Asia/Seoul",
+  "accommodation": {"place_id": "tourapi.place:126471", "name": "제주국제공항"},
+  "activity_window": {"start_at": "2026-10-01T10:00:00+09:00", "end_at": "2026-10-01T18:00:00+09:00"},
+  "day_boundary": {
+    "start_place": {"place_id": "tourapi.place:126471"},
+    "end_place": {"place_id": "tourapi.place:126471"}
+  },
+  "transport": {"allowed_modes": ["bus", "taxi", "walk"], "preferred_mode": "bus", "fallback_order": ["taxi", "walk"]},
+  "required_places": [{"place_id": "tourapi.place:126472"}],
+  "preferred_places": [],
+  "excluded_places": [],
+  "place_duration_preferences": [{"place_id": "tourapi.place:126472", "requested_stay_minutes": 90}],
+  "discovery": {"preferred_categories": ["cafe", "restaurant"]},
+  "rest": {"pace": "relaxed"}
+}

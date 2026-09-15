@@ -20,6 +20,8 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,6 +38,142 @@ class JdbcScheduleStoreTest {
   private static final UUID TRIP = UUID.fromString("49000000-0000-0000-0000-000000000202");
   private static final UUID VERSION = UUID.fromString("49000000-0000-0000-0000-000000000203");
   private static final Instant NOW = Instant.parse("2026-09-01T03:00:00Z");
+
+  @ParameterizedTest
+  @ValueSource(strings = {"candidate", "rejected", "draft", "active", "superseded"})
+  void 적용_증거없는_AI_버전은_status를_바꿔도_후보_만료를_우회하지_못한다(String state) throws Exception {
+    var jdbc = mock(JdbcTemplate.class);
+    var named = mock(NamedParameterJdbcTemplate.class);
+    var root = rootResultSet();
+    when(root.getString("version_status")).thenReturn(state);
+    when(root.getString("source_type")).thenReturn("ai_generation");
+    when(named.query(anyString(), any(MapSqlParameterSource.class), any(RowMapper.class)))
+        .thenAnswer(invocation -> List.of(invocation.<RowMapper<?>>getArgument(2).mapRow(root, 0)));
+    when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+        .thenAnswer(
+            invocation -> {
+              if (invocation.<String>getArgument(0).contains("as expired")) return List.of(true);
+              return List.of();
+            });
+    assertThatThrownBy(
+            () -> new JdbcScheduleStore(jdbc, named).readOwned(OWNER, TRIP, VERSION, NOW))
+        .hasMessage("CANDIDATE_EXPIRED");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"정상", "다른장소", "미상거리", "요금", "버퍼", "택시", "도보시간", "도착시각"})
+  void 영분_이동은_동일장소의_영비용_위치연속성만_조회한다(String scenario) throws Exception {
+    UUID day = UUID.randomUUID();
+    UUID from = UUID.randomUUID();
+    UUID to = UUID.randomUUID();
+    UUID place = UUID.randomUUID();
+    ResultSet first = itemResultSet(from, day, 1, "첫 방문");
+    ResultSet second = itemResultSet(to, day, 2, "다음 방문");
+    when(first.getObject("place_id", UUID.class)).thenReturn(place);
+    when(second.getObject("place_id", UUID.class)).thenReturn(place);
+    when(second.getTimestamp("planned_start_at"))
+        .thenReturn(Timestamp.from(Instant.parse("2026-09-01T01:00:00Z")));
+    when(second.getTimestamp("planned_end_at"))
+        .thenReturn(Timestamp.from(Instant.parse("2026-09-01T02:00:00Z")));
+    ResultSet leg = legResultSet(UUID.randomUUID(), day, from, to);
+    when(leg.getTimestamp("planned_arrival_at"))
+        .thenReturn(Timestamp.from(Instant.parse("2026-09-01T01:00:00Z")));
+    when(leg.getObject("duration_minutes")).thenReturn(0);
+    when(leg.getObject("walk_minutes")).thenReturn(0);
+    when(leg.getObject("distance_meters")).thenReturn(0);
+    when(leg.getObject("estimated_fare")).thenReturn(0);
+    switch (scenario) {
+      case "정상" -> {}
+      case "다른장소" -> when(second.getObject("place_id", UUID.class)).thenReturn(UUID.randomUUID());
+      case "미상거리" -> when(leg.getObject("distance_meters")).thenReturn(null);
+      case "요금" -> when(leg.getObject("estimated_fare")).thenReturn(1);
+      case "버퍼" -> when(leg.getObject("buffer_minutes")).thenReturn(1);
+      case "택시" -> when(leg.getString("transport_mode")).thenReturn("taxi");
+      case "도보시간" -> when(leg.getObject("walk_minutes")).thenReturn(1);
+      case "도착시각" ->
+          when(leg.getTimestamp("planned_arrival_at"))
+              .thenReturn(Timestamp.from(Instant.parse("2026-09-01T01:00:30Z")));
+      default -> throw new AssertionError("알 수 없는 시나리오");
+    }
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    NamedParameterJdbcTemplate named = mock(NamedParameterJdbcTemplate.class);
+    ResultSet root = rootResultSet();
+    when(named.query(anyString(), any(MapSqlParameterSource.class), any(RowMapper.class)))
+        .thenAnswer(invocation -> List.of(invocation.<RowMapper<?>>getArgument(2).mapRow(root, 0)));
+    var rows =
+        List.of(List.of(dayResultSet(day, 1, "2026-09-01")), List.of(first, second), List.of(leg));
+    AtomicInteger queryIndex = new AtomicInteger();
+    when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+        .thenAnswer(
+            invocation -> {
+              var mapped = new java.util.ArrayList<>();
+              RowMapper<?> mapper = invocation.getArgument(1);
+              for (ResultSet row : rows.get(queryIndex.getAndIncrement()))
+                mapped.add(mapper.mapRow(row, mapped.size()));
+              return mapped;
+            });
+    var store = new JdbcScheduleStore(jdbc, named);
+    if (scenario.equals("정상")) {
+      assertThat(
+              store
+                  .readOwned(OWNER, TRIP, VERSION, NOW)
+                  .schedule()
+                  .days()
+                  .getFirst()
+                  .legs()
+                  .getFirst()
+                  .durationMinutes())
+          .isZero();
+    } else {
+      assertThatThrownBy(() -> store.readOwned(OWNER, TRIP, VERSION, NOW))
+          .hasMessage("INTERNAL_SERVER_ERROR");
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"표식없음", "알수없는역할", "장소없음", "방문유형", "종료불일치", "체류양수", "버퍼양수"})
+  void 잘못된_영분_기준점은_일정조회에서_거부한다(String scenario) throws Exception {
+    UUID day = UUID.randomUUID();
+    ResultSet item = itemResultSet(UUID.randomUUID(), day, 1, "시작 기준점");
+    when(item.getString("boundary_role")).thenReturn("day_start");
+    when(item.getObject("place_id", UUID.class)).thenReturn(UUID.randomUUID());
+    when(item.getObject("stay_minutes")).thenReturn(0);
+    when(item.getTimestamp("planned_end_at"))
+        .thenReturn(Timestamp.from(Instant.parse("2026-09-01T00:00:00Z")));
+    switch (scenario) {
+      case "표식없음" -> when(item.getString("boundary_role")).thenReturn(null);
+      case "알수없는역할" -> when(item.getString("boundary_role")).thenReturn("unknown");
+      case "장소없음" -> when(item.getObject("place_id", UUID.class)).thenReturn(null);
+      case "방문유형" -> when(item.getString("item_type")).thenReturn("place_visit");
+      case "종료불일치" ->
+          when(item.getTimestamp("planned_end_at"))
+              .thenReturn(Timestamp.from(Instant.parse("2026-09-01T00:01:00Z")));
+      case "체류양수" -> when(item.getObject("stay_minutes")).thenReturn(1);
+      case "버퍼양수" -> when(item.getObject("buffer_after_minutes")).thenReturn(1);
+      default -> throw new AssertionError("알 수 없는 검증 시나리오");
+    }
+    JdbcTemplate jdbc = mock(JdbcTemplate.class);
+    NamedParameterJdbcTemplate named = mock(NamedParameterJdbcTemplate.class);
+    ResultSet root = rootResultSet();
+    when(named.query(anyString(), any(MapSqlParameterSource.class), any(RowMapper.class)))
+        .thenAnswer(invocation -> List.of(invocation.<RowMapper<?>>getArgument(2).mapRow(root, 0)));
+    ResultSet dayRow = dayResultSet(day, 1, "2026-09-01");
+    AtomicInteger queryIndex = new AtomicInteger();
+    when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
+        .thenAnswer(
+            invocation ->
+                switch (queryIndex.getAndIncrement()) {
+                  case 0 -> List.of(invocation.<RowMapper<?>>getArgument(1).mapRow(dayRow, 0));
+                  case 1 -> List.of(invocation.<RowMapper<?>>getArgument(1).mapRow(item, 0));
+                  case 2 -> List.of();
+                  default -> throw new AssertionError("예상하지 않은 JDBC query입니다.");
+                });
+    assertThatThrownBy(
+            () -> new JdbcScheduleStore(jdbc, named).readOwned(OWNER, TRIP, VERSION, NOW))
+        .isInstanceOfSatisfying(
+            ScheduleException.class,
+            failure -> assertThat(failure.code()).isEqualTo("INTERNAL_SERVER_ERROR"));
+  }
 
   @Test
   void 발견된_일정은_day수와_무관하게_root_days_items_legs_네_query만_사용한다() throws Exception {

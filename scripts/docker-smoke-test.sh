@@ -212,12 +212,30 @@ echo "[Docker] Health Check 성공"
 # Fresh install then includes /docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql.
 # Fresh install then includes /docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql.
 # Fresh install then includes /docker-entrypoint-initdb.d/059_day_activity_window_pair.sql.
+# Generation lifecycle follows at /docker-entrypoint-initdb.d/060_generation_lifecycle.sql.
+# Planner conditions follow at /docker-entrypoint-initdb.d/062_planner_conditions.sql.
+# Sequential coverage follows at /docker-entrypoint-initdb.d/063_sequential_schedule_coverage.sql.
+# Immutable generation trip inputs follow at /docker-entrypoint-initdb.d/064_generation_trip_snapshot.sql.
+# Zero-duration day boundaries follow at /docker-entrypoint-initdb.d/065_generation_schedule_boundaries.sql.
+# Exact generation scores follow at /docker-entrypoint-initdb.d/066_generation_result_projection.sql.
+# Unresolved ferry terminals follow at /docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql.
+# Existing manual Day 1 bases follow at /docker-entrypoint-initdb.d/068_generation_existing_base_input.sql.
+# Exact bus duration components follow at /docker-entrypoint-initdb.d/069_generation_leg_precision.sql.
+# Planner place drafts follow at /docker-entrypoint-initdb.d/061_planner_place_preferences.sql.
 # Verify the owner-only cutover marker and zero counts without logging user values.
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username timing_jeju_test --dbname timing_jeju_test <<'SQL'
 do $$
 begin
+  if not exists (
+    select 1 from pg_catalog.pg_constraint
+    where conrelid = 'public.trip_transport_events'::regclass
+      and conname = 'ck_trip_transport_events_terminal_resolution'
+      and convalidated
+  ) then
+    raise exception 'transport terminal resolution constraint missing';
+  end if;
   if timing_jeju_planner_private.user_location_guard_purge_revision() <> '20260918000018'
      or exists (select 1 from timing_jeju_planner_private.user_location_residue_counts()
                 where residue_count <> 0) then

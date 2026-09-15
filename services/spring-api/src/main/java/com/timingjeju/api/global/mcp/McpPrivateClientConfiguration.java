@@ -8,6 +8,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.UUID;
 import org.springframework.ai.mcp.client.webflux.transport.WebClientStreamableHttpTransport;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -39,6 +40,26 @@ public class McpPrivateClientConfiguration {
   @Bean(destroyMethod = "close")
   McpSyncClient jejuPlannerMcpSyncClient(
       McpPrivateProperties properties, McpServiceJwtIssuer jwtIssuer, JsonMapper jsonMapper) {
+    Duration timeout =
+        properties.requestTimeout() == null ? Duration.ofSeconds(35) : properties.requestTimeout();
+    return buildClient(properties, jwtIssuer, jsonMapper, timeout);
+  }
+
+  @Bean(destroyMethod = "close")
+  @ConditionalOnProperty(prefix = "app.schedule-generation", name = "enabled", havingValue = "true")
+  McpSyncClient jejuPlannerGenerationMcpSyncClient(
+      McpPrivateProperties properties,
+      McpServiceJwtIssuer jwtIssuer,
+      JsonMapper jsonMapper,
+      @Value("${app.mcp.generation-request-timeout:165s}") Duration timeout) {
+    return buildClient(properties, jwtIssuer, jsonMapper, resolveRequestTimeout(timeout));
+  }
+
+  private McpSyncClient buildClient(
+      McpPrivateProperties properties,
+      McpServiceJwtIssuer jwtIssuer,
+      JsonMapper jsonMapper,
+      Duration timeout) {
     WebClient.Builder authenticatedClient =
         WebClient.builder()
             .baseUrl(properties.baseUrl().toString())
@@ -48,14 +69,20 @@ public class McpPrivateClientConfiguration {
             .endpoint("/mcp")
             .jsonMapper(new JacksonMcpJsonMapper(jsonMapper))
             .build();
-    Duration timeout =
-        properties.requestTimeout() == null ? Duration.ofSeconds(35) : properties.requestTimeout();
     McpSyncClient client =
         McpClient.sync(transport)
             .clientInfo(McpSchema.Implementation.builder("timing-jeju-spring", "0.7.0").build())
             .requestTimeout(timeout)
             .build();
     return client;
+  }
+
+  static Duration resolveRequestTimeout(Duration configured) {
+    Duration minimum = Duration.ofSeconds(165);
+    if (configured != null && configured.compareTo(minimum) < 0) {
+      throw new IllegalArgumentException("MCP 요청 제한시간은 165초 이상이어야 합니다.");
+    }
+    return configured == null ? minimum : configured;
   }
 
   @Bean

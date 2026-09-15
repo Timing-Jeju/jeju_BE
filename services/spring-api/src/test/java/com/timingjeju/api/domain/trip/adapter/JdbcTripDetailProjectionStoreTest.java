@@ -33,7 +33,7 @@ class JdbcTripDetailProjectionStoreTest {
   private static final Instant NOW = Instant.parse("2026-09-01T00:30:00Z");
 
   @Test
-  void 하위_행을_두_SQL로_읽고_터미널과_숙소_값을_정확히_매핑한다() throws Exception {
+  void 하위_행을_세_SQL로_읽고_터미널과_숙소와_장소선호를_매핑한다() throws Exception {
     var fixture = fixture("숙소");
     var result = fixture.store().findOwned(ID, ID, NOW).orElseThrow();
     assertThat(result.accommodations()).hasSize(1);
@@ -43,7 +43,9 @@ class JdbcTripDetailProjectionStoreTest {
         .isEqualTo("2026-09-01T09:30+09:00");
     assertThat(result.transportEvents().arrival().customTerminalName()).isEqualTo("입력 터미널");
     assertThat(result.transportEvents().departure()).isNull();
-    assertThat(fixture.childSql()).hasSize(2);
+    assertThat(result.plannerConditions().styleCodes()).containsExactly("cafe");
+    assertThat(result.plannerConditions().dayAnchors()).isEmpty();
+    assertThat(fixture.childSql()).hasSize(3);
     assertThat(fixture.childSql()).allSatisfy(sql -> assertThat(sql).contains("trip_plan_id = ?"));
     assertThat(
             fixture.childSql().stream()
@@ -72,10 +74,23 @@ class JdbcTripDetailProjectionStoreTest {
     when(named.query(anyString(), anyMap(), any(RowMapper.class)))
         .thenAnswer(invocation -> List.of(invocation.<RowMapper<?>>getArgument(2).mapRow(root, 0)));
     List<String> childSql = new ArrayList<>();
+    when(jdbc.queryForObject(anyString(), any(RowMapper.class), any(Object[].class)))
+        .thenAnswer(
+            invocation -> {
+              assertThat(invocation.<String>getArgument(0))
+                  .contains("planner_style_codes")
+                  .contains("where id=?");
+              assertThat(invocation.<UUID>getArgument(2)).isEqualTo(ID);
+              return List.of("cafe");
+            });
     when(jdbc.query(anyString(), any(RowMapper.class), any(Object[].class)))
         .thenAnswer(
             invocation -> {
               String sql = invocation.getArgument(0);
+              if (sql.contains("lodging_place_id")) {
+                assertThat(invocation.<UUID>getArgument(2)).isEqualTo(ID);
+                return List.of();
+              }
               if (sql.contains("public.trip_transport_modes"))
                 return List.of(new TripTransportMode("public_transit", 1, true));
               if (sql.contains("public.trip_days"))

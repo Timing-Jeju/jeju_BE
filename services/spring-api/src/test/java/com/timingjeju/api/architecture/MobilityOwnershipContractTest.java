@@ -78,6 +78,9 @@ class MobilityOwnershipContractTest {
             "domain/accountdeletion/controller/AccountDeletionController.java",
             "domain/auth/controller/SocialLoginController.java",
             "domain/demo/controller/DemoImportController.java",
+            "domain/generation/controller/GenerationApplyController.java",
+            "domain/generation/controller/GenerationController.java",
+            "domain/generation/controller/GenerationQueryController.java",
             "domain/legal/controller/LegalProfileController.java",
             "domain/notification/controller/PushNotificationController.java",
             "domain/places/controller/PlacesController.java",
@@ -89,10 +92,12 @@ class MobilityOwnershipContractTest {
             "domain/transportevent/controller/TransportEventController.java",
             "domain/trip/controller/TripController.java",
             "domain/trip/controller/TripPlacePreferencesController.java",
+            "domain/trip/controller/TripPlannerConditionsController.java",
             "domain/weather/controller/WeatherForecastController.java");
-    assertThat(mappingAnnotationCount()).isEqualTo(57);
+    // #53의 생성 endpoint와 #61의 계정 탈퇴 controller mapping을 함께 센다.
+    assertThat(mappingAnnotationCount()).isEqualTo(66);
     assertThat(migrationInventory())
-        .hasSize(63)
+        .hasSize(73)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -103,7 +108,17 @@ class MobilityOwnershipContractTest {
             "20260918000019_planned_route_request_hash_policy.sql",
             "20260918000020_remove_user_location_runtime.sql",
             "20260918000021_day_activity_window_pair.sql",
-            "20260918000022_rls_auto_enable_execute_boundary.sql",
+            "20260918000022_generation_lifecycle.sql",
+            "20260918000023_planner_place_preferences.sql",
+            "20260918000024_planner_conditions.sql",
+            "20260918000025_sequential_schedule_coverage.sql",
+            "20260918000026_generation_trip_snapshot.sql",
+            "20260918000027_generation_schedule_boundaries.sql",
+            "20260918000028_generation_result_projection.sql",
+            "20260918000029_trip_ferry_unresolved_terminal.sql",
+            "20260918000030_generation_existing_base_input.sql",
+            "20260918000031_generation_leg_precision.sql",
+            "20260918000032_rls_auto_enable_execute_boundary.sql",
             "20260919000000_account_deletion_requests.sql",
             "20260919010000_account_deletion_worker_runtime.sql",
             "20260919020000_account_deletion_retention_contract.sql",

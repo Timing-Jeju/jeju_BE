@@ -68,9 +68,24 @@ final class McpCallResilience {
   }
 
   <T> McpResilientResult<T> execute(Supplier<T> operation) {
+    return execute(operation, maxAttempts);
+  }
+
+  <T> McpResilientResult<T> executeForTool(String toolName, Supplier<T> operation) {
+    return executeForTool(toolName, false, operation);
+  }
+
+  <T> McpResilientResult<T> executeForTool(
+      String toolName, boolean generationRun, Supplier<T> operation) {
+    Objects.requireNonNull(toolName);
+    return execute(
+        operation, generationRun || "recommend_jeju_day_trips".equals(toolName) ? 1 : maxAttempts);
+  }
+
+  private <T> McpResilientResult<T> execute(Supplier<T> operation, int attemptLimit) {
     Objects.requireNonNull(operation, "operation은 필수입니다.");
     Permit permit = acquire();
-    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (int attempt = 1; attempt <= attemptLimit; attempt++) {
       try {
         T value = operation.get();
         recordSuccess(permit);
@@ -79,13 +94,13 @@ final class McpCallResilience {
         recordFailure(permit);
         throw exception;
       } catch (McpRemoteCallException exception) {
-        if (!exception.retryable() || attempt == maxAttempts) {
+        if (!exception.retryable() || attempt == attemptLimit) {
           recordFailure(permit);
           throw exception;
         }
         sleepBeforeRetry(attempt, permit);
       } catch (RuntimeException exception) {
-        if (attempt == maxAttempts) {
+        if (attempt == attemptLimit) {
           recordFailure(permit);
           throw exception;
         }

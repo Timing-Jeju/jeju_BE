@@ -12,6 +12,7 @@ CATALOG = ROOT / "docs/contracts/rest/catalog.json"
 RDB_SPEC = ROOT / "docs/designs/timing-jeju-backend-rdb-api-spec.md"
 VALIDATOR = ROOT / "scripts/validate_schedules_contract.py"
 EXPECTED_ENDPOINTS = {
+    ("GET", "/api/v1/trips/{tripId}/schedule-versions/{versionId}"),
     ("GET", "/api/v1/trips/{tripId}/schedule"),
     ("POST", "/api/v1/trips/{tripId}/schedule-items"),
     ("PATCH", "/api/v1/trips/{tripId}/schedule-items/{itemId}"),
@@ -22,6 +23,34 @@ EXPECTED_ENDPOINTS = {
 
 
 class SchedulesContractTest(unittest.TestCase):
+    def test_candidate_read_alias_and_expiry_are_canonical(self) -> None:
+        """후보 URL과 두 만료 오류가 기존 조회 계약과 동일한 읽기 전용 경계에 포함된다."""
+        reads = [e for e in self.contract["endpoints"] if e["method"] == "GET"]
+        self.assertEqual(2, len(reads))
+        alias = next(e for e in reads if "/schedule-versions/" in e["path"])
+        self.assertEqual("ScheduleVersionPath", alias["schemas"]["path"])
+        self.assertEqual("none", alias["schemas"]["query"])
+        for endpoint in reads:
+            self.assertIn(410, endpoint["responses"]["errors"])
+            self.assertEqual(["CANDIDATE_EXPIRED", "CANDIDATE_EVIDENCE_UNAVAILABLE"], endpoint["errorMatrix"]["410"])
+            self.assertTrue(endpoint["transaction"].startswith("read-only"))
+
+    def test_validator_rejects_candidate_lifetime_and_alias_drift(self) -> None:
+        """조회 경로·만료 코드·적용 예외를 완화하면 canonical 검사가 실패한다."""
+        mutations = (
+            ("경로 누락", lambda c: c["endpoints"].pop()),
+            ("만료 누락", lambda c: c["endpoints"][0]["errorMatrix"].pop("410")),
+            ("상태만으로 TTL 우회", lambda c: c["endpoints"][-1].update(candidateLifetime="all active versions exempt")),
+            ("버전 ID 선택값", lambda c: c["schemas"]["ScheduleVersionPath"]["required"].remove("versionId")),
+        )
+        for purpose, mutate in mutations:
+            with self.subTest(purpose=purpose), tempfile.TemporaryDirectory() as temporary:
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate)
+                path = Path(temporary) / "contract.json"
+                path.write_text(json.dumps(candidate), encoding="utf-8")
+                self.assertTrue(self.validator.validate(path, skip_catalog_fixtures=True))
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
@@ -31,6 +60,7 @@ class SchedulesContractTest(unittest.TestCase):
         spec.loader.exec_module(cls.validator)
 
     def test_identity_scope_and_inheritance_are_exact(self) -> None:
+        """일정 계약의 식별자와 범위 및 상속 규칙을 검증한다."""
         self.assertEqual("timing-jeju-schedules-contract/v1", self.contract["schemaVersion"])
         self.assertEqual("1.0.0", self.contract["contractVersion"])
         self.assertEqual("timing-jeju-rest-contract/v1", self.contract["inherits"])
@@ -39,6 +69,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(EXPECTED_ENDPOINTS, {(e["method"], e["path"]) for e in self.contract["endpoints"]})
 
     def test_read_is_read_only_and_projects_immutable_active_version(self) -> None:
+        """일정 조회가 읽기 전용으로 불변 활성 버전을 반환하는지 검증한다."""
         read = self.contract["endpoints"][0]
         self.assertEqual("active when versionId omitted; explicit version must belong to same owner/trip", read["versionSelector"])
         self.assertNotIn(409, read["responses"]["errors"])
@@ -48,7 +79,8 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("exactly one adjacent leg for every consecutive item pair; zero for fewer than two", self.contract["versionPolicy"]["legCompleteness"])
 
     def test_all_mutations_create_and_atomically_activate_a_new_version(self) -> None:
-        for endpoint in self.contract["endpoints"][1:]:
+        """모든 일정 변경이 새 버전을 만들어 원자적으로 활성화하는지 검증한다."""
+        for endpoint in (e for e in self.contract["endpoints"] if e["method"] != "GET"):
             with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
                 self.assertEqual(["Authorization", "Idempotency-Key", "If-Match"], endpoint["requiredHeaders"])
                 self.assertEqual("required UUID selector", endpoint["expectedActiveScheduleVersionId"])
@@ -79,6 +111,7 @@ class SchedulesContractTest(unittest.TestCase):
         )
 
     def test_item_type_required_fields_completed_item_and_manual_validation_are_closed(self) -> None:
+        """항목 유형별 필수값과 완료 항목 보호 및 수동 검증 규칙을 확인한다."""
         self.assertEqual(
             {
                 "place_visit": ["placeId", "plannedStartAt", "stayMinutes"],
@@ -100,8 +133,9 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("never call MCP/AI; correction requires separate schedule revision run owned by #89", self.contract["mutationPolicy"]["aiCorrection"])
 
     def test_required_optional_null_omitted_and_response_fields_are_machine_readable(self) -> None:
+        """필수와 선택 및 null과 생략의 의미가 기계 판독 가능한지 검증한다."""
         schemas = self.contract["schemas"]
-        self.assertEqual({"TripPath", "ScheduleItemPath", "ScheduleQuery", "ReadHeaders", "MutationHeaders", "CreateItemRequest", "PatchItemRequest", "DeleteItemQuery", "ReorderDay", "ReorderRequest", "MoveItemRequest", "ScheduleVersion", "ItemProgress", "ScheduleItem", "ScheduleLeg", "ScheduleDay", "ScheduleResponse", "MutationResponse"}, set(schemas))
+        self.assertEqual({"TripPath", "ScheduleVersionPath", "ScheduleItemPath", "ScheduleQuery", "ReadHeaders", "MutationHeaders", "CreateItemRequest", "PatchItemRequest", "DeleteItemQuery", "ReorderDay", "ReorderRequest", "MoveItemRequest", "ScheduleVersion", "ItemProgress", "ScheduleItem", "ScheduleLeg", "ScheduleDay", "ScheduleResponse", "MutationResponse"}, set(schemas))
         for name, schema in schemas.items():
             with self.subTest(schema=name):
                 self.assertEqual("object", schema["type"])
@@ -132,6 +166,7 @@ class SchedulesContractTest(unittest.TestCase):
                 self.assertIn(endpoint["successSchema"], {"ScheduleResponse", "MutationResponse"})
 
     def test_six_endpoints_are_bidirectionally_projected_to_canonical_catalog(self) -> None:
+        """일정 조회와 편집 경로가 카탈로그에 양방향으로 투영되는지 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         fields = json.loads((ROOT / "docs/contracts/rest/endpoint-template.json").read_text(encoding="utf-8"))["requiredEndpointFields"]
         domain = [{key: endpoint[key] for key in fields} for endpoint in self.contract["endpoints"]]
@@ -139,6 +174,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(domain, projected)
 
     def test_validator_rejects_domain_or_catalog_projection_drift(self) -> None:
+        """도메인 계약과 카탈로그 투영 사이의 변조를 거부하는지 검증한다."""
         catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
         cases = (("domain", self.contract, catalog), ("catalog", self.contract, catalog))
         for side, contract, source_catalog in cases:
@@ -162,6 +198,7 @@ class SchedulesContractTest(unittest.TestCase):
                 self.assertIn("bidirectional", result.stdout + result.stderr)
 
     def test_adjacent_leg_derivation_is_deterministic_and_atomic(self) -> None:
+        """인접 이동 구간의 결정적 계산 순서와 원자성을 검증한다."""
         policy = self.contract["legDerivationPolicy"]
         self.assertEqual(["reuse-unchanged-active-leg", "stored-route-snapshot", "conservative-walk-fallback", "reject-422"], policy["sourcePriority"])
         self.assertEqual("none", policy["requestTimeCall"])
@@ -179,6 +216,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertIn("new item IDs", policy["reuse"])
 
     def test_db_source_types_and_printable_ascii_idempotency_key_are_exact(self) -> None:
+        """DB 일정 출처 종류와 printable ASCII 멱등 키 계약을 검증한다."""
         schemas = self.contract["schemas"]
         db_sources = ["initial", "user_edit", "ai_generation", "recovery", "live_recalculation"]
         self.assertEqual(db_sources, schemas["ScheduleVersion"]["properties"]["sourceType"]["enum"])
@@ -199,6 +237,7 @@ class SchedulesContractTest(unittest.TestCase):
             self.assertTrue(errors)
 
     def test_all_mutations_inherit_fail_fast_idempotency_state_contract(self) -> None:
+        """모든 변경 요청이 즉시 실패하는 멱등 처리 상태 계약을 상속하는지 검증한다."""
         endpoint_policy = {
             "required": True,
             "header": "Idempotency-Key",
@@ -208,7 +247,7 @@ class SchedulesContractTest(unittest.TestCase):
             "payloadConflict": "different hash returns immediate 409 IDEMPOTENCY_KEY_REUSED without Retry-After",
             "concurrentRequest": "PROCESSING lease-active same hash returns immediate 409 IDEMPOTENCY_KEY_REUSED with Retry-After: 1; never waits or replays",
         }
-        for endpoint in self.contract["endpoints"][1:]:
+        for endpoint in (e for e in self.contract["endpoints"] if e["method"] != "GET"):
             with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
                 self.assertEqual(endpoint_policy, endpoint["idempotency"])
 
@@ -252,6 +291,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertIn("즉시 같은 `409`와 `Retry-After: 1`", spec)
 
     def test_missing_and_malformed_idempotency_keys_have_distinct_canonical_problems(self) -> None:
+        """멱등 키 누락과 잘못된 형식이 서로 다른 정식 오류인지 검증한다."""
         conditions = {item["code"]: item for item in self.contract["errorConditions"]}
         expected = {
             "IDEMPOTENCY_KEY_REQUIRED": {
@@ -280,13 +320,14 @@ class SchedulesContractTest(unittest.TestCase):
                 for field in ("type", "title", "status", "detail"):
                     self.assertEqual(fields[field], fixture[field])
                 self.assertEqual(code, fixture["code"])
-        for endpoint in self.contract["endpoints"][1:]:
+        for endpoint in (e for e in self.contract["endpoints"] if e["method"] != "GET"):
             with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
                 self.assertTrue({"INVALID_REQUEST", *expected}.issubset(endpoint["errorMatrix"]["400"]))
         self.assertEqual(len(problems), len({problem["instance"] for problem in problems.values()}))
         self.assertEqual(len(problems), len({problem["traceId"] for problem in problems.values()}))
 
     def test_validator_rejects_idempotency_problem_fixture_drift(self) -> None:
+        """멱등 오류 예제의 변조를 검사에서 거부하는지 검증한다."""
         with tempfile.TemporaryDirectory() as temporary:
             fixture_dir = Path(temporary)
             for name in ("request", "success", "problem"):
@@ -305,6 +346,7 @@ class SchedulesContractTest(unittest.TestCase):
             self.assertTrue(any("condition→problem fixture" in error for error in errors))
 
     def test_every_problem_has_exact_condition_and_owner_hidden_reference_codes(self) -> None:
+        """모든 오류의 발생 조건과 타인 참조 은닉 코드를 검증한다."""
         conditions = {item["code"]: item for item in self.contract["errorConditions"]}
         self.assertIn("ACCOMMODATION_NOT_FOUND", conditions)
         self.assertIn("TRANSPORT_EVENT_NOT_FOUND", conditions)
@@ -327,6 +369,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual(set(conditions), matrix_codes)
 
     def test_examples_and_spec_share_closed_response_shape(self) -> None:
+        """예제와 명세가 동일한 닫힌 응답 구조를 공유하는지 검증한다."""
         fixtures = json.loads((ROOT / "fixtures/contracts/schedules/success.json").read_text(encoding="utf-8"))["examples"]
         read = fixtures["readActive"]["body"]
         self.assertIn("feasibilityStale", read["scheduleVersion"])
@@ -345,6 +388,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertNotIn('"title": null', spec[spec.index("### 12.3"):])
 
     def test_reorder_and_move_boundaries_are_exact(self) -> None:
+        """항목 재정렬과 날짜 이동의 경계 조건을 검증한다."""
         self.assertEqual("each active item ID exactly once across all submitted days; no missing, duplicate, foreign or extra ID", self.contract["orderPolicy"]["permutation"])
         self.assertEqual("within each Day, preserve the ordered active plannedStartAt slots and assign them by submitted position; recompute plannedEndAt from the reordered item's stayMinutes and reject an invalid or overlapping result", self.contract["orderPolicy"]["timeSlots"])
         self.assertEqual("renumber each affected day contiguously from 1 and rebuild every adjacent leg", self.contract["orderPolicy"]["result"])
@@ -352,13 +396,14 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertEqual("remove from source, insert at targetSequenceNo, compact both days, rebuild affected legs", self.contract["movePolicy"]["result"])
 
     def test_error_problem_and_external_evidence_are_honest(self) -> None:
+        """오류 예제와 외부 근거 준비 상태를 과장하지 않는지 검증한다."""
         conditions = {item["code"]: item for item in self.contract["errorConditions"]}
         self.assertEqual(404, conditions["TRIP_NOT_FOUND"]["status"])
         self.assertEqual(404, conditions["SCHEDULE_ITEM_NOT_FOUND"]["status"])
         self.assertEqual(409, conditions["ACTIVE_SCHEDULE_VERSION_CONFLICT"]["status"])
         self.assertEqual(409, conditions["TRIP_VERSION_CONFLICT"]["status"])
         self.assertEqual(409, conditions["TRIP_TERMINAL_STATE_CONFLICT"]["status"])
-        for endpoint in self.contract["endpoints"][1:]:
+        for endpoint in (e for e in self.contract["endpoints"] if e["method"] != "GET"):
             self.assertIn(
                 "TRIP_TERMINAL_STATE_CONFLICT", endpoint["errorMatrix"]["409"]
             )
@@ -389,7 +434,7 @@ class SchedulesContractTest(unittest.TestCase):
             terminal["detail"],
         )
         self.assertEqual("409_trip_terminal_state_conflict", terminal["fixture"])
-        for endpoint in self.contract["endpoints"][1:]:
+        for endpoint in (e for e in self.contract["endpoints"] if e["method"] != "GET"):
             with self.subTest(endpoint=(endpoint["method"], endpoint["path"])):
                 self.assertIn(
                     "TRIP_TERMINAL_STATE_CONFLICT",
@@ -397,6 +442,7 @@ class SchedulesContractTest(unittest.TestCase):
                 )
 
     def test_issue_50_schema_decision_is_recorded(self) -> None:
+        """일정 항목 생성 이슈의 스키마 결정을 계약에 기록했는지 검증한다."""
         schema_gap = self.contract["schemaGap"]
         self.assertEqual(4, len(schema_gap))
         self.assertIn("20260907000000_schedule_item_create_contract.sql", schema_gap[0])
@@ -405,6 +451,7 @@ class SchedulesContractTest(unittest.TestCase):
         self.assertIn("Flyway는 도입하지 않는다", schema_gap[3])
 
     def test_validator_rejects_contract_drift(self) -> None:
+        """일정 계약의 필수 불변조건 변조를 검출하는지 검증한다."""
         mutations = (
             ("endpoint", lambda c: c["endpoints"].pop()),
             ("read-only", lambda c: c["endpoints"][0]["responses"]["errors"].append(409)),
@@ -448,8 +495,43 @@ class SchedulesContractTest(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(expected, result.stdout + result.stderr)
 
+    def test_validator_rejects_generation_boundary_contract_drift(self) -> None:
+        """생성 기준점의 역할과 영분 응답 범위가 변조되면 계약 검사가 거부한다."""
+        mutations = (
+            ("역할 누락", lambda p: p.pop("boundaryRole")),
+            ("임의 역할", lambda p: p["boundaryRole"].update(enum=["arbitrary"])),
+            ("일반 항목 null 금지", lambda p: p["boundaryRole"].update(nullable=False)),
+            ("영분 금지", lambda p: p["stayMinutes"].update(minimum=1)),
+        )
+        for purpose, mutate in mutations:
+            with self.subTest(purpose=purpose), tempfile.TemporaryDirectory() as temporary:
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate["schemas"]["ScheduleItem"]["properties"])
+                path = Path(temporary) / "contract.json"
+                path.write_text(json.dumps(candidate), encoding="utf-8")
+                errors = self.validator.validate(path, skip_catalog_fixtures=True)
+                self.assertTrue(any("generation boundary" in error for error in errors), errors)
+
     def test_canonical_contract_fixtures_and_catalog_validate(self) -> None:
+        """일정 정식 계약과 예제 및 카탈로그를 함께 검증한다."""
         self.assertEqual([], self.validator.validate())
+
+    def test_validator_rejects_generation_result_flag_drift(self) -> None:
+        """AI 이력 존재 여부가 누락되거나 nullable 또는 문자열로 바뀌면 거부한다."""
+        mutations = (
+            ("필수 누락", lambda day: day["required"].remove("hasGenerationResult")),
+            ("속성 누락", lambda day: day["properties"].pop("hasGenerationResult")),
+            ("널 허용", lambda day: day["properties"]["hasGenerationResult"].update(nullable=True)),
+            ("문자열 변경", lambda day: day["properties"]["hasGenerationResult"].update(type="string")),
+        )
+        for purpose, mutate in mutations:
+            with self.subTest(purpose=purpose), tempfile.TemporaryDirectory() as temporary:
+                candidate = copy.deepcopy(self.contract)
+                mutate(candidate["schemas"]["ScheduleDay"])
+                path = Path(temporary) / "contract.json"
+                path.write_text(json.dumps(candidate), encoding="utf-8")
+                errors = self.validator.validate(path, skip_catalog_fixtures=True)
+                self.assertTrue(any("generation result flag" in error for error in errors), errors)
 
 
 if __name__ == "__main__":
