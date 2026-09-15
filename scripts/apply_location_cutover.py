@@ -62,6 +62,7 @@ def _run(
     input_bytes: bytes | None = None,
     timeout: int = 120,
 ) -> str:
+    result: subprocess.CompletedProcess[str] | None = None
     try:
         result = runner(
             list(argv),
@@ -72,8 +73,10 @@ def _run(
             timeout=timeout,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise CutoverRejected(f"{stage} 실행에 실패했습니다.") from exc
+    except (OSError, subprocess.SubprocessError):
+        pass
+    if result is None:
+        raise CutoverRejected(f"{stage} 실행에 실패했습니다.")
     if result.returncode != 0:
         raise CutoverRejected(f"{stage} 검증에 실패했습니다.")
     stdout = result.stdout
@@ -209,7 +212,6 @@ def apply_cutover(
 
     database_url = _read_database_url(db_url_file)
     child_env = {
-        "PGDATABASE": database_url,
         "PGCONNECT_TIMEOUT": "10",
     }
     with tempfile.TemporaryDirectory(prefix="location-cutover-psql-") as directory:
@@ -232,6 +234,8 @@ def apply_cutover(
             "--set=ON_ERROR_STOP=1",
             "--tuples-only",
             "--no-align",
+            "--dbname",
+            database_url,
         ]
         ledger = _run(
             runner,
