@@ -1252,23 +1252,7 @@ final class FrontendOpenApiCustomizer {
     String code = configuredCode == null ? defaultCode(status) : configuredCode;
     response.addHeaderObject(RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
     MediaType media = new MediaType().schema(new Schema<>().$ref(PROBLEM_SCHEMA));
-    List<String> codes =
-        isScheduleMutation(operationKey)
-            ? scheduleProblems(operationKey, String.valueOf(status))
-            : null;
-    if ("PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)
-        || "DELETE /api/v1/trips/{tripId}/transport-event".equals(operationKey)) {
-      codes =
-          switch (status) {
-            case 400 -> List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID");
-            case 409 ->
-                List.of(
-                    "TRIP_VERSION_CONFLICT",
-                    "TRIP_TERMINAL_STATE_CONFLICT",
-                    "IDEMPOTENCY_KEY_REUSED");
-            default -> null;
-          };
-    }
+    List<String> codes = operationProblems(operationKey, String.valueOf(status));
     if (codes == null) {
       media.setExample(problemExample(status, code, operationKey));
     } else {
@@ -1397,6 +1381,31 @@ final class FrontendOpenApiCustomizer {
       if (operationKey.startsWith("DELETE") || operationKey.endsWith("/move"))
         base.add("SCHEDULE_DAY_EMPTY");
       return base;
+    }
+    return null;
+  }
+
+  private static List<String> operationProblems(String operationKey, String status) {
+    if (isScheduleMutation(operationKey)) {
+      return scheduleProblems(operationKey, status);
+    }
+    if ("PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)
+        || "DELETE /api/v1/trips/{tripId}/transport-event".equals(operationKey)) {
+      return switch (status) {
+        case "400" -> List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID");
+        case "409" ->
+            List.of(
+                "TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT", "IDEMPOTENCY_KEY_REUSED");
+        default -> null;
+      };
+    }
+    if ("GET /api/v1/weather/forecast".equals(operationKey)) {
+      return switch (status) {
+        case "401" -> List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN");
+        case "422" ->
+            List.of("WEATHER_FORECAST_HORIZON_NOT_SUPPORTED", "WEATHER_LOCATION_NOT_SUPPORTED");
+        default -> null;
+      };
     }
     return null;
   }
