@@ -57,6 +57,7 @@ app:
     subject: backend-worker
     scope: jeju:mcp:invoke
     signing-key-descriptor-file: ${MCP_JWT_SIGNING_KEY_DESCRIPTOR_FILE:}
+    tls-trust-certificate-file: ${MCP_TLS_TRUST_CERTIFICATE_FILE:}
     token-lifetime: ${MCP_JWT_LIFETIME:2m}
     request-timeout: ${MCP_REQUEST_TIMEOUT:35s}
     generation-request-timeout: ${MCP_GENERATION_REQUEST_TIMEOUT:165s}
