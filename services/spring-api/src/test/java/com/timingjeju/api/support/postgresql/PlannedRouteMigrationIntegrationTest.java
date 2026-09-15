@@ -138,7 +138,9 @@ class PlannedRouteMigrationIntegrationTest {
                   PostgreSqlTestContainerFactory.executeScript(
                       container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("legacy route snapshots require provenance audit")
+          .hasMessageContaining("ERROR: 23514")
+          .hasMessageContaining("cause=integrity-constraint")
+          .hasMessageNotContaining("legacy route snapshots require provenance audit")
           .hasMessageNotContaining("unreferenced-private-marker")
           .hasMessageNotContaining("127.7")
           .hasMessageNotContaining("34.7")
