@@ -17,7 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/v1/trips/{tripId}/schedule")
+@RequestMapping("/api/v1/trips/{tripId}")
 public final class ScheduleController implements ScheduleApiDocs {
   private static final Set<String> QUERY_PARAMETERS = Set.of("versionId");
   private static final Pattern CANONICAL_UUID = Pattern.compile(ScheduleApiDocs.UUID_PATTERN);
@@ -30,7 +30,7 @@ public final class ScheduleController implements ScheduleApiDocs {
   }
 
   @Override
-  @GetMapping
+  @GetMapping("/schedule")
   public ScheduleResponse read(
       @PathVariable String tripId,
       @RequestParam(required = false) String versionId,
@@ -40,6 +40,15 @@ public final class ScheduleController implements ScheduleApiDocs {
     UUID canonicalVersionId = versionId == null ? null : parseCanonicalUuid(versionId);
     return ScheduleResponse.from(
         schedules.read(currentUsers.getRequired(), canonicalTripId, canonicalVersionId));
+  }
+
+  @Override
+  @GetMapping("/schedule-versions/{versionId}")
+  public ScheduleResponse readVersion(
+      @PathVariable String tripId, @PathVariable String versionId, HttpServletRequest request) {
+    if (request.getQueryString() != null || !request.getParameterMap().isEmpty())
+      throw ScheduleException.invalidRequest();
+    return read(tripId, versionId, request);
   }
 
   private static void validateShape(HttpServletRequest request) {

@@ -53,6 +53,12 @@ public record TripAggregateResponse(
             arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
             schema = @Schema(implementation = AccommodationPayload.class))
         List<AccommodationPayload> accommodations,
+    @ArraySchema(
+            arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED),
+            schema = @Schema(implementation = TripPlacePreferenceResponse.class))
+        List<TripPlacePreferenceResponse> placePreferences,
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED)
+        TripPlannerConditionsResponse plannerConditions,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
             nullable = true,
@@ -101,6 +107,8 @@ public record TripAggregateResponse(
         trip.days().stream().map(TripDayResponse::from).toList(),
         TripTransportEventsResponse.from(trip.transportEvents()),
         trip.accommodations().stream().map(AccommodationPayload::from).toList(),
+        trip.placePreferences().stream().map(TripPlacePreferenceResponse::from).toList(),
+        TripPlannerConditionsResponse.from(trip.plannerConditions()),
         trip.activeScheduleVersionId(),
         trip.totalScore(),
         TripScoreProvenanceResponse.from(trip.scoreProvenance()),

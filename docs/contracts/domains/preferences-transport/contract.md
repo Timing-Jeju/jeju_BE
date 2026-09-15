@@ -13,13 +13,19 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 
 `implementationIssues`는 `[46,47,48]`이며 각 endpoint의 `dbOwner`는 위 구현 owner 하나만 참조한다. DELETE의 `eventType` query는 별도 구현 endpoint로 세지 않고 #47의 transport-event 삭제 계약에 포함한다. [`ownership.json`](../../../fixtures/contracts/preferences-transport/ownership.json)은 이 endpoint→Issue projection과 readiness의 canonical JSON SHA-256을 보존한다. validator는 owner 누락·복수 표기·미등록 Issue·endpoint 불일치와 digest drift를 fail-closed로 거부한다. 이 정렬은 구현 책임 메타데이터만 변경하며 request/response schema, status, Problem Details와 data lineage는 바꾸지 않는다.
 
-두 선호 PUT은 부분 upsert가 아니라 전체 교체다. `preferences`의 배열은 빈 배열로 지울 수 있지만 누락과 `null`은 거부한다. `startPlaceId`와 `endPlaceId`만 명시적 `null`을 허용한다. 교통수단은 `public_transit/rental_car/taxi` 중 1~3개이며 mode와 priority가 중복되지 않고 priority가 `1..N`으로 연속이어야 한다. primary는 정확히 한 건이고 priority 1이다.
+두 선호 PUT은 부분 upsert가 아니라 전체 교체다. `preferences`의 배열은 빈 배열로 지울 수 있지만 누락과 `null`은 거부한다. `startPlaceId`와 `endPlaceId`만 명시적 `null`을 허용한다. 교통수단은 `public_transit/rental_car/taxi/walk` 중 1~3개이며 mode와 priority가 중복되지 않고 priority가 `1..N`으로 연속이어야 한다. primary는 정확히 한 건이고 priority 1이다.
 
-장소 선호는 `must_visit/avoid`만 허용하고 같은 place가 어느 type으로든 두 번 나타나면 `422`다. `targetDayNo`는 property 자체는 필수지만 전체 여행에 적용할 때 `null`, Day를 지정할 때 `1..tripDayCount`다. priority tie는 `priority DESC, placeId ASC`로 결정한다.
+장소 선호는 `must_visit/preferred/avoid`를 허용하고 같은 place가 어느 type으로든 두 번 나타나면 `422`다. `targetDayNo`는 property 자체는 필수지만 전체 여행에 적용할 때 `null`, Day를 지정할 때 `1..tripDayCount`다. priority tie는 `priority DESC, placeId ASC`로 결정한다. #53 확장으로 선택적 `requestedStayMinutes`는 정수 1~1440 또는 `null`이며 생략은 `null`이다. 임의 기본 체류시간은 저장하지 않는다. 장소는 유효 canonical place ID로 지정하며 사용자 찜 여부와 독립적이다. 이 확장의 schema와 wire digest는 함께 갱신한다.
 
-교통 이벤트는 `eventType=arrival|departure`, `transportType=flight|ferry`다. `scheduledAt`은 RFC 3339 `+09:00`을 명시하고 제주 `Asia/Seoul`로 해석한다. arrival은 여행 `startDate`, departure는 `endDate`에 있어야 한다. `terminalPlaceId`와 `customTerminalName`은 정확히 하나만 존재해야 한다. PUT은 `(tripId,eventType)`을 upsert하고 DELETE는 query의 eventType 한 건만 제거한다.
+교통 이벤트는 `eventType=arrival|departure`, `transportType=flight|ferry`다. `scheduledAt`은 RFC 3339 `+09:00`을 명시하고 제주 `Asia/Seoul`로 해석한다. arrival은 여행 `startDate`, departure는 `endDate`에 있어야 한다. `terminalPlaceId`와 `customTerminalName`은 정확히 하나만 존재해야 한다. 단, #53 항공 입력에서 두 필드를 모두 명시적 `null`로 보내면 서버가 설정된 canonical 제주국제공항과 현재 성공한 TourAPI import를 검증해 ID를 채운다. 검증할 수 없으면 `404 PLACE_NOT_FOUND`이며 이름·좌표를 추정하지 않는다. 선박은 두 필드를 모두 null로 보내 항구 미확정 상태를 저장할 수 있다. 항구 이름·좌표를 추정하지 않으며 선박의 AI 생성은 별도로 거부한다. 항공 저장 행과 응답의 터미널 XOR는 유지하고, 두 터미널 필드 동시 지정은 항공·선박 모두 거부한다. PUT은 `(tripId,eventType)`을 upsert하고 DELETE는 query의 eventType 한 건만 제거한다.
 
 ## 일정 상태와 동시성
+
+교통 이벤트 PUT·DELETE는 선택적 `Idempotency-Key`를 받는다. 헤더를 생략한 기존 클라이언트는 기존 ETag 기반 변경을 수행하며, 헤더를 보낸 클라이언트는 정규 소문자 UUID 한 개를 사용해야 한다. 빈 값·중복 헤더·잘못된 UUID는 `400 IDEMPOTENCY_KEY_INVALID`다. 같은 사용자·method·경로·키와 동일한 구조화 입력은 최초 성공 응답의 본문과 ETag를 재생하고 `Idempotency-Replayed: true`를 반환한다. PUT은 요청 본문, DELETE는 검증된 `eventType`을 요청 해시에 포함하며 DELETE 본문은 계속 금지한다. 따라서 응답 유실 후에는 기존 If-Match와 같은 키·본문 또는 selector로 재시도한다. 다른 본문이나 selector로 키를 재사용하면 `409 IDEMPOTENCY_KEY_REUSED`다. 처리 중인 예약 충돌에는 조건부 `Retry-After`가 포함된다.
+
+receipt 조회 전에도 현재 여행 소유권을 확인하므로 삭제된 여행이나 다른 사용자의 여행은 재생하지 않는다. 실패한 변경은 receipt 예약과 함께 롤백한다. 키 없는 PUT·DELETE에는 이 재생 보장을 적용하지 않는다.
+
+장소 선호 PUT `/place-preferences`도 같은 선택적 키 계약을 사용한다. canonical 장소 ID·선호 유형·대상 Day·우선순위·체류시간만 구조화 command로 해시하며 사용자 원문은 저장하지 않는다. 동일 키·동일 command의 재시도는 최초 응답 bytes와 ETag를 재생한다. 일반 선호 PUT `/preferences`는 이 멱등 계약의 대상이 아니다.
 
 모든 변경은 현재 여행의 강한 ETag를 `If-Match`로 받는다. stale writer는 `409 TRIP_VERSION_CONFLICT`다. canonical 값이 같으면 no-op이며 active 일정은 유지된다. 값이 바뀌고 active 일정이 없으면 `scheduleEffect=none`, `regenerationRequired=false`다. active 일정이 있으면 같은 transaction에서 active version을 `superseded`로 바꾸고 `activeScheduleVersionId`를 비우며 여행 상태를 `draft`로 돌린다. 이때 `scheduleEffect=invalidated`, `regenerationRequired=true`다. DELETE도 body 없는 `204`가 아니라 이 신호를 담은 `200`을 반환한다.
 
@@ -32,5 +38,7 @@ Issue #86의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 
 Notion의 네 행은 page ID를 유지하면서 singular `/transport-event`, contract version `1.0.0`, `Implementation Ready`로 맞춘다. Figma에서는 `329:5165`, `182:3248`, `653:11512`, `329:4975`의 action/state를 실제 관찰했다. Controller/OpenAPI/contract test 구현은 존재하지만 #48 Reviewer 승인과 전체 품질 게이트 전이므로 catalog readiness는 과장하지 않고 모두 `not-ready`를 유지한다. Figma 자체의 API contract version과 loading/empty/error response 연결도 아직 없다.
 
 ## 발견한 schema 후속 범위
+
+순차 AI 일정의 장소 선호 변경에는 예외가 있다. 변경 전후 항목의 차이가 아직 적용되지 않은 미래 Day에만 한정되면 `scheduleEffect=maintained`, `regenerationRequired=false`로 현재 활성 버전을 유지한다. 전역 선호(`targetDayNo=null`) 또는 이미 적용된 Day의 선호 추가·삭제·이동·체류시간 변경은 위 무효화 규칙을 따른다. 여행 ETag는 실제 선호 변경 시 증가한다.
 
 현재 #46 preferences, #47 transport-event, #48 place-preferences는 각 owner 범위의 CHECK·uniqueness·active 일정 무효화 transaction을 append-only migration과 API 테스트로 구현한다. #48은 `20260918000004_trip_place_preference_contract.sql`과 Docker init `042`를 소유하며 이미 검증된 #46/#47 migration을 수정하지 않는다. 운영 migration 기준은 계속 `supabase/migrations`이며 Flyway는 도입하지 않는다.

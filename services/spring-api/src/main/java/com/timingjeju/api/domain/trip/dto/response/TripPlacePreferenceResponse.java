@@ -9,7 +9,7 @@ public record TripPlacePreferenceResponse(
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, format = "uuid") UUID placeId,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
-            allowableValues = {"must_visit", "avoid"})
+            allowableValues = {"must_visit", "preferred", "avoid"})
         String type,
     @Schema(
             requiredMode = Schema.RequiredMode.REQUIRED,
@@ -19,9 +19,19 @@ public record TripPlacePreferenceResponse(
             maximum = "30")
         Integer targetDayNo,
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "0", maximum = "100")
-        int priority) {
+        int priority,
+    @Schema(
+            nullable = true,
+            types = {"integer", "null"},
+            minimum = "1",
+            maximum = "1440")
+        Integer requestedStayMinutes) {
   public static TripPlacePreferenceResponse from(TripPlacePreference preference) {
     return new TripPlacePreferenceResponse(
-        preference.placeId(), preference.type(), preference.targetDayNo(), preference.priority());
+        preference.placeId(),
+        preference.type(),
+        preference.targetDayNo(),
+        preference.priority(),
+        preference.requestedStayMinutes());
   }
 }

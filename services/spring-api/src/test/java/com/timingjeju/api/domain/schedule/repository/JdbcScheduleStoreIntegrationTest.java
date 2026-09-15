@@ -82,6 +82,12 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
               insertItem(THIRD, DAY_TWO, ACTIVE, 1, "custom", "둘째 날", "2026-09-02T00:00:00Z");
               insertLeg();
               jdbc.update(
+                  "update public.trip_legs set facts = ?::jsonb where id = ?",
+                  """
+                  {"generation":{"schemaVersion":1,"risks":[{"level":"high","reasonCodes":["TRANSFER_SLACK_LOW"]}]}}
+                  """,
+                  LEG);
+              jdbc.update(
                   """
                   insert into public.trip_item_progress (
                     trip_plan_id, schedule_version_id, trip_item_id, status,
@@ -148,20 +154,17 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
     assertThat(schedule.days().getFirst().legs()).hasSize(1);
     assertThat(schedule.days().getFirst().legs().getFirst().fromItemId()).isEqualTo(FIRST);
     assertThat(schedule.days().getFirst().legs().getFirst().toItemId()).isEqualTo(SECOND);
+    assertThat(schedule.days().getFirst().legs().getFirst().riskLevel()).isEqualTo("high");
+    assertThat(schedule.days().getFirst().legs().getFirst().riskReasonCodes())
+        .containsExactly("TRANSFER_SLACK_LOW");
     assertThat(schedule.days().get(1).legs()).isEmpty();
   }
 
   @Test
-  void explicit_candidate는_active_pointer와_무관하게_같은_trip_version을_반환한다() {
-    ScheduleLookup lookup = store.readOwned(OWNER, TRIP, CANDIDATE, RESPONSE);
-
-    assertThat(lookup.status()).isEqualTo(ScheduleLookup.Status.FOUND);
-    assertThat(lookup.schedule().scheduleVersion().scheduleVersionId()).isEqualTo(CANDIDATE);
-    assertThat(lookup.schedule().scheduleVersion().status()).isEqualTo("candidate");
-    assertThat(lookup.schedule().scheduleVersion().score()).isNull();
-    assertThat(lookup.schedule().scheduleVersion().feasibilityStale()).isTrue();
-    assertThat(lookup.schedule().days().getFirst().items()).hasSize(1);
-    assertThat(lookup.schedule().days().get(1).items()).hasSize(1);
+  void 생성_후보_보존_레코드가_없는_AI_버전은_명시적_조회도_거부한다() {
+    assertThatThrownBy(() -> store.readOwned(OWNER, TRIP, CANDIDATE, RESPONSE))
+        .isInstanceOf(ScheduleException.class)
+        .hasMessage("CANDIDATE_EVIDENCE_UNAVAILABLE");
   }
 
   @Test
@@ -197,7 +200,7 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
 
   @Test
   @Transactional(propagation = Propagation.NOT_SUPPORTED)
-  void 실제_PostgreSQL_일정_크기와_무관하게_정확히_네_query만_실행한다() {
+  void 활성_일정은_네_query로_조회하고_근거_없는_후보는_child_조회_전에_거부한다() {
     CountingDataSource measured = new CountingDataSource(dataSource, () -> {});
 
     ScheduleLookup active = measuredRead(measured, null);
@@ -207,11 +210,10 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
     assertThat(measured.queryCount()).isEqualTo(4);
 
     measured.reset();
-    ScheduleLookup candidate = measuredRead(measured, CANDIDATE);
-
-    assertThat(candidate.schedule().days()).hasSize(2);
-    assertThat(candidate.schedule().days()).allSatisfy(day -> assertThat(day.items()).hasSize(1));
-    assertThat(measured.queryCount()).isEqualTo(4);
+    assertThatThrownBy(() -> measuredRead(measured, CANDIDATE))
+        .isInstanceOf(ScheduleException.class)
+        .hasMessage("CANDIDATE_EVIDENCE_UNAVAILABLE");
+    assertThat(measured.queryCount()).isEqualTo(2);
   }
 
   @Test

@@ -1,0 +1,83 @@
+# 일정 생성·AI 보정 비동기 API 계약
+
+Issue #89의 로컬 canonical 계약은 [`contract.json`](contract.json)이다. 공통 인증·멱등성·Problem Details는 Issue #72의 `timing-jeju-rest-contract/v1`을 상속하고, immutable command snapshot은 종료된 선행 Issue #108을 사용한다. 이 문서는 Controller나 migration을 구현하지 않는다.
+
+## 공개 endpoint와 생명주기
+
+Spring Boot만 아래 여섯 endpoint를 공개한다.
+
+| method | path | 성공 | 필수 요청 header |
+|---|---|---:|---|
+| POST | `/api/v1/trips/{tripId}/schedule-generations` | 202 | `Authorization`, `Idempotency-Key`, strong `If-Match` |
+| GET | `/api/v1/trips/{tripId}/schedule-generations/{runId}` | 200 | `Authorization` |
+| POST | `/api/v1/trips/{tripId}/schedule-generations/{runId}/candidates/{candidateId}/apply` | 200 | `Authorization`, `Idempotency-Key`, strong `If-Match` |
+| POST | `/api/v1/trips/{tripId}/schedule-revision-runs` | 202 | `Authorization`, `Idempotency-Key` |
+| GET | `/api/v1/trips/{tripId}/schedule-revision-runs/{runId}` | 200 | `Authorization` |
+| POST | `/api/v1/trips/{tripId}/schedule-revision-runs/{runId}/candidates/{candidateId}/apply` | 200 | `Authorization`, `Idempotency-Key`, strong `If-Match` |
+
+접수는 `queued`와 concrete `pollUrl`을 반환하고 동일 URL을 `Location`에, `2`를 `Retry-After`에 기록한다. 조회는 `queued/running`에서만 `Retry-After: 2`를 반환한다. running은 `startedAt`을 반환한다. `mcpInputHash`는 DB020 이후 프로토콜 교환 중 메모리에서만 사용하므로 모든 조회 상태에서 생략한다. 상태는 `queued/running/succeeded/failed/cancelled`뿐이며 terminal은 불변이다. 후보 만료는 run status가 아니라 후보의 `expiresAt`이다. 비민감 terminal metadata는 `completedAt`부터 7일, 승인된 정규화 후보는 `createdAt`부터 24시간 보존한다. 경계 시각부터 적용은 `410 CANDIDATE_EXPIRED`이다. 프로세스 재시작 시 검증된 durable projection을 복원하고, DB projection도 없거나 손상되었으면 `410 CANDIDATE_EVIDENCE_UNAVAILABLE`이다.
+
+GET의 query는 closed empty `NoQuery`지만 body는 empty object나 `null`도 허용하지 않는 `BodyForbidden` sentinel이다. query가 하나라도 있으면 `400 INVALID_QUERY_PARAMETER`, body가 존재하면 `{}`나 `null`도 `400 REQUEST_BODY_NOT_ALLOWED`다. generation/revision GET은 각각 #95/#105가 소유하며 저장 결과만 SELECT한다. 생성 결과에는 `outcome`, nullable `baseScheduleVersionId`, `factsAsOf`, `stale`, `resultSource`, 후보가 필수다. 성공은 `balanced`, `relaxed`, `experience_max`가 한 개씩인 서로 다른 후보 정확히 세 개이고, 생성 불가는 `outcome=insufficient_feasible_routes`와 후보 0개다. 부분 성공은 없다. 모든 생성 후보는 `scheduleUrl`과 concrete `applyUrl`을 제공하고, revision 후보는 typed added/removed/moved/updated diff와 preserved field path 목록을 추가로 제공한다.
+
+생성 결과의 `factsAsOf`는 검증한 MCP 응답의 `planning_context.planned_at`을 보존한다. 조회 시각이나 DB 저장 시각으로 대체하지 않는다. 이는 계획 평가의 기준 시각이며 모든 개별 외부 fact가 그 시각에 갱신되었다는 최신성 보증이 아니다. 성공과 `insufficient_feasible_routes` 모두 같은 출처를 사용하며, 시각 누락·잘못된 offset·`generated_at`보다 늦은 계획 시각은 계약 오류다.
+
+FastAPI MCP는 private 계산기다. Spring이 JWT 검증, owner 판정, command snapshot, DB, worker lifecycle과 결과 적용을 소유한다. FastAPI는 공개 API, JWT, DB, provider credential을 소유하지 않는다.
+
+#53/#69 접수 transaction은 queued run, idempotency record와 #108 snapshot을 원자 저장하면 worker 또는 private MCP가 내려가 있어도 `202`다. create의 `503 ASYNC_INTAKE_UNAVAILABLE`은 atomic commit 전 intake persistence 또는 durable queue admission 내부 장애에만 사용한다.
+
+## 입력, hash와 동시성
+
+generation 입력은 `targetDayId`, nullable `expectedActiveScheduleVersionId`, 상수 `candidateCount=3`을 요구한다. 접수는 최신 Trip strong `If-Match`도 요구하며, 날짜·시간·장소·이동 조건은 body에 복사하지 않고 저장된 aggregate를 불변 snapshot으로 만든다. 활성 일정이 없는 최초 생성·적용은 base와 expected active를 `null`로 보존한다. 적용에도 Trip strong ETag를 사용하므로 schedule UUID가 없어도 헤더를 표현할 수 있다. 접수·적용의 stale Trip ETag는 완료 멱등 replay 검사 뒤 `409 TRIP_VERSION_CONFLICT`다. revision 입력은 `targetDayId`, 최대 100개의 unique `affectedItemIds`, 1..32개의 stable uppercase `instructionCodes`를 요구한다. unknown/null/omitted 필드는 거부한다.
+
+#223/#224 위치 무수집 경계에 따라 현재 위치와 간접 추론 위치는 HTTP command, immutable snapshot, MCP wire input 어디에서도 받지 않는다. 위치 reference가 필요하면 사용자가 직접 선택한 `regionCode`, public `placeId`, 또는 canonical owner의 여행에 속한 `tripItemId`만 허용한다. `latitude`, `longitude`, `accuracy`, `altitude`, `heading`, `speed`, `gps`, `geohash`, `gridX`, `gridY`, `currentLocation`, `currentPlaceId`, `deviceLocation`, `locationSupplied`와 unknown field는 닫힌 입력 경계에서 거부한다.
+
+generation snapshot은 #239가 저장한 target Day의 `activity_start_time`/`activity_end_time` pair를 그대로 불변 복사한다. 저장된 pair가 없으면 명시적 absent이며, 임의 기본 활동 시간을 사용자 사실로 저장하거나 응답하지 않는다. 교통 이벤트 snapshot은 `arrival`/`departure` slot의 `eventType`, `transportType`, 승인된 canonical `terminalPlaceId`, `scheduledAt(+09:00)`만 허용한다. `customTerminalName`, `transportNumber`, `note` 원문은 복사하지 않는다. canonical terminal을 확정할 수 없으면 생성을 거부한다.
+
+TMAP 원본 응답·상세 geometry·사용자 원문은 DB, 파일, Redis, analytics, crash log에 저장하지 않는다. 원본 응답의 프로세스 메모리 상한 23시간 50분은 유지한다. 사용자는 서면 및 유선 확인이 있었다고 진술하고 파생 경로값 저장 구현을 지시했다. 이를 `user_attestation`으로 기록하며 개발 에이전트가 제공자의 서면 계약을 직접 확인했다고 표시하지 않는다. 이 개발 범위에서는 AI 저장소의 Pydantic 생성 durable projection schema로 검증된 정규화 수치·이벤트·합계·위험·fact 계보만 보존한다. 임의 fact value, 원문, 좌표·geometry를 포함한 전체 AI 응답을 저장하지 않는다. queued/running은 immutable snapshot으로 재계산하고, succeeded는 만료 전 정규화 projection을 복원한다. 24시간은 저장된 후보의 적용 기한이지 원본 cache나 실시간 데이터의 신선도를 연장하는 의미가 아니다. apply는 live 원본 메모리를 요구하지 않는다. 기본 기능 플래그는 OFF이며 전체 staging 검증 후 활성화한다.
+
+`commandInputHash`는 Issue #108 `compute_run_inputs`의 versioned immutable structured snapshot digest다. `mcpInputHash`는 worker가 snapshot과 normalized facts로 만든 실제 redacted MCP wire input digest다. wire hash는 영속 저장·조회하지 않으며 command hash로 대체하지 않는다. 재시작은 HTTP body나 mutable trip state가 아니라 snapshot만 읽는다.
+
+create/apply의 `Idempotency-Key`는 #68과 같은 1..128자 printable ASCII(U+0020..U+007E)이며 UUID로 제한하지 않는다. key scope는 `canonicalSub + method + normalized path + Idempotency-Key`, 완료 TTL은 24시간이다. 같은 key/body는 저장된 response를 replay하고 다른 body는 `409 IDEMPOTENCY_KEY_REUSED`다. 처리 중 loser도 `Retry-After: 1`과 409를 받는다. active run unique arbiter와 apply의 trip lock/expected-active CAS가 동시 writer를 직렬화한다.
+
+두 apply endpoint는 machine contract의 `firstMatchPrecedence`를 위에서 아래로 평가하고 최초 한 결과만 반환한다. 인증 누락·token 오류, path/body/key/`If-Match` 형식 오류, trip→run→candidate owner·domain·parent lineage 404 은닉, 완료 멱등 replay, 멱등 충돌, 이미 적용됨, run/candidate 상태 부적합, 만료 순이다. 그 뒤에만 여행 root를 잠그고 최신 Trip `If-Match` 불일치를 `TRIP_VERSION_CONFLICT`로, 별도의 nullable request expected version과 locked active version의 불일치를 `ACTIVE_SCHEDULE_VERSION_CONFLICT`로 결정한다. 둘이 같을 때 candidate base가 다르면 `CANDIDATE_STALE`, 마지막 candidate schedule lineage·봉인 불변식 위반은 `CANDIDATE_NOT_APPLICABLE`이다. quota·bounded internal access failure는 앞선 결정 가능한 match가 없을 때만 각각 429·503이며, 모두 통과해야 apply가 성공한다.
+
+따라서 candidate base=`A`, request expected=`A`, locked active=`B`이면 candidate stale보다 먼저 `ACTIVE_SCHEDULE_VERSION_CONFLICT` 하나만 반환한다. 같은 요청에서 candidate가 이미 적용됐고 만료·active mismatch·stale도 동시에 참이면 `CANDIDATE_ALREADY_APPLIED` 하나만 반환한다. 동일 idempotency scope의 완료 replay는 현재 candidate 상태를 다시 판정하지 않고 원래 200을 그대로 replay하며, registry conflict는 candidate 상태보다 먼저 `IDEMPOTENCY_KEY_REUSED`로 끝난다.
+
+## owner, DB와 오류
+
+owner 근거는 검증된 Supabase JWT의 canonical `sub`뿐이다. cross-owner trip/run/candidate는 모두 404로 은닉한다. `user_metadata`, email, raw token과 provider payload는 권한 입력이 아니다.
+
+generation은 `itinerary_generation_runs`/`itinerary_generation_candidates`와 discriminator `itinerary_generation`, revision은 `schedule_revision_runs`와 discriminator `schedule_revision`을 사용한다. `compute_run_inputs`는 generation/revision parent 중 정확히 하나만 참조한다. 실제 FK 문자열과 schema gap은 machine contract에 고정했다. generation candidate 상태/만료는 #79, revision candidate는 #104, revision MCP log parent는 #69의 migration 범위이며 이 Issue는 schema를 변경하지 않는다.
+
+후속 구현 owner는 generation 접수 #53·조회 #95·worker/후보 #79·적용 #54, revision 접수 #69·조회 #105·worker/후보 #104·적용 #81이다. 공통 worker lifecycle은 #74, durable command snapshot은 #108을 따른다.
+
+오류는 공통 8필드 `application/problem+json`만 사용한다. machine contract의 exact condition matrix는 400/401/404/409/410/422/429/503과 한국어 `detail`, Spring 생성 `traceId`를 고정한다. failed/cancelled 조회의 `failure`는 `code/detail/retryable`만 공개하며 raw exception, prompt, MCP payload, token과 PII를 금지한다.
+
+필드 오류는 기존 Spring 공통 `FieldErrorDetail`과 동일한 `field/detail`을 사용한다.
+접수 구현 검증에서 발견한 과거 #89 초안의 `field/reason` 표기를 바로잡았으며 공통 응답은 변경하지 않는다.
+
+필수 인증 없음은 공통 계약과 동일한 `AUTHENTICATION_REQUIRED`, token 형식·서명·만료 오류는 `INVALID_ACCESS_TOKEN`이다. machine contract는 24개 code 각각에 발생 조건, type, title, 한국어 detail, fieldErrors, 적용 endpoint와 8필드 example을 둔다. 6개 endpoint는 path/query/header/body를 각각 closed typed schema로 참조하며 generation/revision candidate·result, 5개 상태 presence, apply response를 별도 DTO로 고정한다.
+
+각 endpoint는 자신이 반환할 status별 code matrix를 별도로 가지며, 모든 condition의 endpoint group은 위 여섯 method/path의 부분집합이다. validator는 endpoint matrix와 condition scope를 양방향 비교하므로 공통 code가 과다·과소 노출될 수 없다.
+
+failed/cancelled의 내부 `provenanceCases`는 시작 전·호출 기록 전·호출 기록 후를 분류한다. 공개 응답은 시작 전이면 `startedAt`을 생략하고 시작 후이면 포함한다. 호출 기록 전후 응답 모양은 같으므로 이를 JSON `oneOf`로 표현하지 않는다. MCP call log는 wire hash를 보관하지 않으며, 모든 단계에서 `mcpInputHash`를 생략한다.
+
+## 추적성과 readiness
+
+- authoritative local evidence: 이 문서, `contract.json`, `scripts/validate_schedule_ai_contract.py`, `scripts/tests/test_schedule_ai_contract.py`, GitHub Issue #89.
+- Notion/Figma: 이번 최신화에서도 실제 외부 read/write/readback은 수행하지 않았다. 기존 로컬 `docs`와 `fixtures` 추적 근거만 유지하며, 여섯 endpoint의 canonical Notion page ID/URL/version readback export와 Figma endpoint별 node/action/loading/empty/error/API contractVersion tuple은 여전히 없다. 따라서 version을 추정하지 않고 `not-linked`다.
+- 외부 evidence blocker: Notion 6행의 page ID·canonical URL·method/path·`1.0.0` readback, Figma endpoint별 fileKey/node/action/loading/empty/error/contractVersion 연결이 필요하다.
+- local: `ready`; Metadata/Example/Implementation: 모두 `not-ready`. 외부 링크, fixture와 Spring 구현 증거가 모두 존재하기 전에는 승격하지 않는다.
+
+`python3 scripts/validate_schedule_ai_contract.py`는 duplicate key, 여섯 identity, 전체 canonical semantic digest, catalog alignment, schema owner 문자열과 local evidence 실재를 fail-closed로 검사한다.
+# 생성 전용 실행 예산 보완 (2026-09-13)
+
+`generationPersistencePolicy.executionPolicy`는 #79 구현의 실행 예산이다.
+한 실행 시도에서 `recommend_jeju_day_trips`를 한 번 호출하고 필요한 후보만
+`evaluate_jeju_day_trip`으로 검증한다. recommend의 최대 AI 실행 150초를 수용하도록
+요청 timeout과 worker lease는 각각 최소 165초다. lease는 fencing이 포함된 heartbeat로
+갱신한다. 전체 worker deadline은 recommend timeout뿐 아니라 추가 평가와 검증·저장
+예산까지 포함해야 하며, 공통 worker의 60초 기본값을 그대로 사용하지 않는다.
+
+이 문서는 설정/worker 구현 완료를 의미하지 않는다. 공통 작업의 기본값은 변경하지 않으며
+실제 생성 전용 설정과 timeout/lease 상실 테스트는 #79에서 구현한다.

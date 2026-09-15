@@ -93,7 +93,21 @@ class TripPreferencePolicyTest {
   }
 
   @Test
-  void mode_중복_priority_비연속_primary_불일치와_walk를_거부한다() {
+  void 도보_단독과_버스_택시_도보_선호를_저장할_수_있다() {
+    for (var modes :
+        List.of(
+            List.of(new TripTransportMode("walk", 1, true)),
+            List.of(
+                new TripTransportMode("public_transit", 1, true),
+                new TripTransportMode("taxi", 2, false),
+                new TripTransportMode("walk", 3, false)))) {
+      assertThat(TripPreferencePolicy.canonicalizeAndValidate(command(modes)).transportModes())
+          .isEqualTo(modes);
+    }
+  }
+
+  @Test
+  void mode_중복_priority_비연속_primary_불일치와_미지원수단을_거부한다() {
     assertConstraint(
         command(
             List.of(
@@ -109,7 +123,7 @@ class TripPreferencePolicyTest {
             List.of(
                 new TripTransportMode("public_transit", 1, false),
                 new TripTransportMode("taxi", 2, true))));
-    assertConstraint(command(List.of(new TripTransportMode("walk", 1, true))));
+    assertConstraint(command(List.of(new TripTransportMode("bicycle", 1, true))));
   }
 
   @Test

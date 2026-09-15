@@ -17,7 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public final class TripPlacePreferencesService {
-  private static final Set<String> TYPES = Set.of("must_visit", "avoid");
+  private static final Set<String> TYPES = Set.of("must_visit", "preferred", "avoid");
   private static final Comparator<TripPlacePreference> CANONICAL_ORDER =
       Comparator.comparingInt(TripPlacePreference::priority)
           .reversed()
@@ -83,6 +83,8 @@ public final class TripPlacePreferencesService {
           || !places.add(item.placeId())
           || item.priority() < 0
           || item.priority() > 100
+          || (item.requestedStayMinutes() != null
+              && (item.requestedStayMinutes() < 1 || item.requestedStayMinutes() > 1440))
           || (item.targetDayNo() != null && (item.targetDayNo() < 1 || item.targetDayNo() > 30))) {
         throw TripException.placePreferenceConstraintViolation();
       }

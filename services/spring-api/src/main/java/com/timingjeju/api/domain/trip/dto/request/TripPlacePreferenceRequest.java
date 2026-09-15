@@ -17,6 +17,7 @@ public final class TripPlacePreferenceRequest {
   private String type;
   private Integer targetDayNo;
   private Integer priority;
+  private Integer requestedStayMinutes;
   private boolean placeIdPresent;
   private boolean typePresent;
   private boolean targetDayNoPresent;
@@ -35,7 +36,7 @@ public final class TripPlacePreferenceRequest {
 
   @Schema(
       requiredMode = Schema.RequiredMode.REQUIRED,
-      allowableValues = {"must_visit", "avoid"})
+      allowableValues = {"must_visit", "preferred", "avoid"})
   public String getType() {
     return type;
   }
@@ -78,11 +79,25 @@ public final class TripPlacePreferenceRequest {
     throw TripException.invalidRequest();
   }
 
+  @Schema(
+      nullable = true,
+      types = {"integer", "null"},
+      minimum = "1",
+      maximum = "1440")
+  public Integer getRequestedStayMinutes() {
+    return requestedStayMinutes;
+  }
+
+  @JsonSetter("requestedStayMinutes")
+  public void setRequestedStayMinutes(Object value) {
+    requestedStayMinutes = nullableInteger(value);
+  }
+
   TripPlacePreference toModel() {
     if (!placeIdPresent || !typePresent || !targetDayNoPresent || !priorityPresent) {
       throw TripException.invalidRequest();
     }
-    return new TripPlacePreference(placeId, type, targetDayNo, priority);
+    return new TripPlacePreference(placeId, type, targetDayNo, priority, requestedStayMinutes);
   }
 
   private static UUID canonicalUuid(Object value) {

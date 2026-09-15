@@ -39,6 +39,44 @@ class TripOpenApiIntegrationTest
 
   @Autowired private MockMvc mvc;
 
+  @Test
+  void planner_조건_저장은_실제_JSON_응답과_필수_경쟁제어_헤더를_문서화한다() throws Exception {
+    String path = "$.paths['/api/v1/trips/{tripId}/planner-conditions'].put";
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath(path + ".responses['200'].content['application/json'].schema.type")
+                .value("object"))
+        .andExpect(
+            jsonPath(
+                    path
+                        + ".responses['200'].content['application/json'].schema.additionalProperties")
+                .value(false))
+        .andExpect(
+            jsonPath(path + ".responses['200'].content['application/json'].schema.required")
+                .value(
+                    containsInAnyOrder(
+                        "tripId",
+                        "plannerConditions",
+                        "scheduleEffect",
+                        "regenerationRequired",
+                        "activeScheduleVersionId")))
+        .andExpect(
+            jsonPath("$.components.schemas.PlannerConditionsMutationResponse.required")
+                .value(
+                    containsInAnyOrder(
+                        "tripId",
+                        "plannerConditions",
+                        "scheduleEffect",
+                        "regenerationRequired",
+                        "activeScheduleVersionId")))
+        .andExpect(jsonPath(path + ".parameters[?(@.name=='If-Match')].required").value(true))
+        .andExpect(
+            jsonPath(path + ".parameters[?(@.name=='Idempotency-Key')].required").value(true))
+        .andExpect(jsonPath(path + ".responses['200'].headers.ETag").exists())
+        .andExpect(jsonPath(path + ".responses['200'].headers['Idempotency-Replayed']").exists());
+  }
+
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
     registry.add("app.security.jwt.secret", () -> JWT_KEY);
@@ -111,7 +149,7 @@ class TripOpenApiIntegrationTest
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips'].post.responses['201'].content['application/json'].schema.oneOf")
-                .value(hasSize(3)))
+                .value(hasSize(4)))
         .andExpect(
             jsonPath(
                     "$.paths['/api/v1/trips/{tripId}'].get.responses['200'].content['application/json'].schema.properties.days.items.required")
@@ -126,7 +164,12 @@ class TripOpenApiIntegrationTest
         .andExpect(status().isOk())
         .andExpect(
             jsonPath("$.components.schemas.TripDetail.required")
-                .value(org.hamcrest.Matchers.hasItems("transportEvents", "accommodations")))
+                .value(
+                    org.hamcrest.Matchers.hasItems(
+                        "transportEvents", "accommodations", "placePreferences")))
+        .andExpect(
+            jsonPath("$.components.schemas.TripDetail.properties.placePreferences.type")
+                .value("array"))
         .andExpect(jsonPath("$.components.schemas.TripDetail.properties.transportEvents").exists())
         .andExpect(
             jsonPath("$.components.schemas.TripDetail.properties.accommodations.type")
@@ -275,7 +318,7 @@ class TripOpenApiIntegrationTest
                 .value(containsInAnyOrder("mode", "priority", "primary")))
         .andExpect(
             jsonPath("$.components.schemas.TransportMode.properties.mode.enum")
-                .value(containsInAnyOrder("public_transit", "rental_car", "taxi")))
+                .value(containsInAnyOrder("public_transit", "rental_car", "taxi", "walk")))
         .andExpect(
             jsonPath("$.components.schemas.TransportMode.properties.priority.minimum").value(1))
         .andExpect(
@@ -296,6 +339,8 @@ class TripOpenApiIntegrationTest
                         "days",
                         "transportEvents",
                         "accommodations",
+                        "placePreferences",
+                        "plannerConditions",
                         "activeScheduleVersionId",
                         "totalScore",
                         "scoreProvenance",

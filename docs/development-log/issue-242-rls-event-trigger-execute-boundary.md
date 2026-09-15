@@ -29,7 +29,7 @@ Red를 확인했다.
 
 ## Green과 보안 판단
 
-최종 `20260918000022_rls_auto_enable_execute_boundary.sql`은 기존 함수를 전제로 plain `REVOKE`만 수행한다.
+통합 PR #262가 #53의 `20260918000022`–`20260918000031` migration을 선행 적용하므로 최종 파일은 `20260918000032_rls_auto_enable_execute_boundary.sql`이다. 기존 함수를 전제로 plain `REVOKE`만 수행한다.
 지원 환경은 실제 Supabase의 사전 설치 함수 또는 일반 PostgreSQL QA의 명시적 `auth_compat.sql`
 fixture다. 함수가 없으면 조용히 통과시키지 않고 migration을 실패시켜 event-trigger가 사라진
 bootstrap을 숨기지 않는다.

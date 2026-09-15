@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MIGRATION_NAME = "20260918000022_rls_auto_enable_execute_boundary.sql"
+MIGRATION_NAME = "20260918000032_rls_auto_enable_execute_boundary.sql"
 MIGRATION = ROOT / "supabase/migrations" / MIGRATION_NAME
 AUTH_COMPAT = ROOT / "db/local-postgres/auth_compat.sql"
 RELEASE_GUIDE = ROOT / "docs/SUPABASE_BOOTSTRAP_RELEASE.md"
@@ -18,7 +18,7 @@ PROFILE_IMAGE_INTEGRATION = ROOT / (
 )
 MOUNT = (
     f"./supabase/migrations/{MIGRATION_NAME}:"
-    "/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql:ro"
+    "/docker-entrypoint-initdb.d/070_rls_auto_enable_execute_boundary.sql:ro"
 )
 
 
@@ -126,7 +126,7 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         )[1].split("private static", 1)[0]
 
         for marker in (
-            'last = "20260918000022_rls_auto_enable_execute_boundary.sql"',
+            'last = "20260918000032_rls_auto_enable_execute_boundary.sql"',
             "applycanonicalthroughsecurityboundary(versioncontainer)",
             "show server_version_num",
             "expectedmajor",
@@ -138,32 +138,32 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         ):
             self.assertIn(marker, source if marker.startswith("last =") else method)
 
-    def test_manifest_registers_slot_060_sha_and_dependency(self) -> None:
+    def test_manifest_registers_slot_070_sha_and_dependency(self) -> None:
         manifest = json.loads(
             (ROOT / "supabase/migrations/manifest.json").read_text(encoding="utf-8")
         )
         entry = manifest["canonicalSuffix"][-1]
 
         self.assertEqual(f"supabase/migrations/{MIGRATION_NAME}", entry["path"])
-        self.assertEqual("060", entry["initSlot"])
+        self.assertEqual("070", entry["initSlot"])
         self.assertEqual({"issue": 242, "pullRequest": None}, entry["owner"])
         self.assertEqual(
-            ["20260918000021_day_activity_window_pair.sql"],
+            ["20260918000031_generation_leg_precision.sql"],
             entry["dependencies"],
         )
         self.assertEqual(hashlib.sha256(MIGRATION.read_bytes()).hexdigest(), entry["sha256"])
 
-    def test_current_replay_includes_slot_060_but_historical_concurrency_stops_before_017(self) -> None:
+    def test_current_replay_includes_slot_070_but_historical_concurrency_stops_before_017(self) -> None:
         for relative_path in ("compose.yml", "compose.test.yml", "docker-compose.yml"):
             with self.subTest(relative_path=relative_path):
                 source = (ROOT / relative_path).read_text(encoding="utf-8")
                 self.assertEqual(1, source.count(MOUNT))
                 self.assertLess(
-                    source.index("059_day_activity_window_pair.sql"),
-                    source.index("060_rls_auto_enable_execute_boundary.sql"),
+                    source.index("069_generation_leg_precision.sql"),
+                    source.index("070_rls_auto_enable_execute_boundary.sql"),
                 )
                 self.assertLess(
-                    source.index("060_rls_auto_enable_execute_boundary.sql"),
+                    source.index("070_rls_auto_enable_execute_boundary.sql"),
                     source.index("099_seed_fixtures.sql"),
                 )
 
@@ -175,7 +175,7 @@ class RlsAutoEnableSecurityMigrationContractTest(unittest.TestCase):
         historical_concurrency = smoke.split("for concurrency_sql in", 1)[1].split(
             "\n do", 1
         )[0]
-        for slot in ("055", "057", "058", "059", "060"):
+        for slot in ("055", "057", "058", "059", "070"):
             with self.subTest(slot=slot):
                 self.assertNotIn(f"/docker-entrypoint-initdb.d/{slot}_", historical_concurrency)
         self.assertIn(

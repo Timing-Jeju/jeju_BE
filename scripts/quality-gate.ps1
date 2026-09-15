@@ -57,6 +57,7 @@ if ($Scope -in @("all", "common")) {
   Invoke-Native "선호·교통 계약 검사" { py -3 scripts/validate_preferences_transport_contract.py }
   Invoke-Native "숙소 계약 검사" { py -3 scripts/validate_accommodations_contract.py }
   Invoke-Native "일정 계약 검사" { py -3 scripts/validate_schedules_contract.py }
+  Invoke-Native "일정 생성·AI 보정 비동기 API 계약 검사" { py -3 scripts/validate_schedule_ai_contract.py }
   Write-Stage "날씨 예보 API 계약 검사"
   Invoke-Native "날씨 예보 계약 검사" { py -3 scripts/validate_weather_forecast_contract.py }
 
@@ -96,7 +97,7 @@ if ($Scope -in @("all", "spring")) {
     if ((Get-Item -LiteralPath "build/openapi/openapi.json").Length -le 0) {
       throw "OpenAPI artifact가 비어 있습니다."
     }
-    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 38 --contracts-root ../.. }
+    Invoke-Native "frontend OpenAPI 준비도 검사" { py -3 ../../scripts/validate_openapi_frontend_readiness.py build/openapi/openapi.json --mode 43 --contracts-root ../.. }
     Invoke-Native "Spring 전체 검사" { ./gradlew.bat --no-daemon test jacocoTestReport jacocoTestCoverageVerification bootJar }
   } finally {
     Pop-Location

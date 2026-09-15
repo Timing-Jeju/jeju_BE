@@ -1,5 +1,6 @@
 package com.timingjeju.api.domain.trip.controller;
 
+import com.timingjeju.api.application.idempotency.*;
 import com.timingjeju.api.application.security.CurrentUserAccessor;
 import com.timingjeju.api.application.trip.TripEntityTag;
 import com.timingjeju.api.application.trip.TripException;
@@ -35,13 +36,21 @@ public class TripPlacePreferencesController implements TripPlacePreferencesApiDo
   private final TripPlacePreferencesService service;
   private final CurrentUserAccessor currentUsers;
   private final ObjectReader requestReader;
+  private final ObjectMapper objectMapper;
+  private final IdempotencyUseCase receipts;
+  private final com.timingjeju.api.application.trip.service.TripService trips;
 
   public TripPlacePreferencesController(
       TripPlacePreferencesService service,
       CurrentUserAccessor currentUsers,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      IdempotencyUseCase receipts,
+      com.timingjeju.api.application.trip.service.TripService trips) {
     this.service = service;
     this.currentUsers = currentUsers;
+    this.objectMapper = objectMapper;
+    this.receipts = receipts;
+    this.trips = trips;
     this.requestReader =
         objectMapper
             .rebuild()
@@ -54,7 +63,7 @@ public class TripPlacePreferencesController implements TripPlacePreferencesApiDo
 
   @Override
   @PutMapping(value = "/{tripId}/place-preferences", produces = MediaType.APPLICATION_JSON_VALUE)
-  public ResponseEntity<TripPlacePreferencesResponse> replace(
+  public ResponseEntity<byte[]> replace(
       @PathVariable String tripId,
       @RequestHeader(name = HttpHeaders.IF_MATCH, required = false) String ifMatch,
       HttpServletRequest request) {
@@ -71,11 +80,50 @@ public class TripPlacePreferencesController implements TripPlacePreferencesApiDo
     if (parsed == null) {
       throw TripException.invalidRequest();
     }
-    TripPlacePreferencesMutation result =
-        service.replace(currentUsers.getRequired(), canonicalTripId, ifMatch, parsed.toCommand());
-    return ResponseEntity.ok()
-        .header(HttpHeaders.ETAG, result.etag())
-        .body(TripPlacePreferencesResponse.from(result));
+    var user = currentUsers.getRequired();
+    var command = parsed.toCommand();
+    var keys = request.getHeaders("Idempotency-Key");
+    if (keys == null || !keys.hasMoreElements()) {
+      TripPlacePreferencesMutation result =
+          service.replace(user, canonicalTripId, ifMatch, command);
+      return ResponseEntity.ok()
+          .header(HttpHeaders.ETAG, result.etag())
+          .body(objectMapper.writeValueAsBytes(TripPlacePreferencesResponse.from(result)));
+    }
+    String key = keys.nextElement();
+    if (keys.hasMoreElements() || key == null || key.isBlank())
+      throw IdempotencyException.invalid();
+    if (!canonicalTripId.equals(TripEntityTag.parse(ifMatch).tripId()))
+      throw TripException.versionConflict();
+    var input =
+        IdempotencyRequest.create(
+            user.userId(),
+            "PUT",
+            "/api/v1/trips/" + canonicalTripId + "/place-preferences",
+            key,
+            objectMapper.writeValueAsBytes(command));
+    // Receipt에 기록된 과거 소유권으로 현재 접근 권한을 대신하지 않는다.
+    trips.read(user, canonicalTripId);
+    var replayed = new java.util.concurrent.atomic.AtomicBoolean(true);
+    var result =
+        receipts.execute(
+            input,
+            () -> {
+              replayed.set(false);
+              var mutation = service.replace(user, canonicalTripId, ifMatch, command);
+              return new IdempotencyResponse(
+                  200,
+                  java.util.List.of(
+                      new IdempotencyHeader(
+                          HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE),
+                      new IdempotencyHeader(HttpHeaders.ETAG, mutation.etag())),
+                  objectMapper.writeValueAsBytes(TripPlacePreferencesResponse.from(mutation)));
+            });
+    var response = ResponseEntity.status(result.status());
+    result.headers().forEach(header -> response.header(header.name(), header.value()));
+    return response
+        .header("Idempotency-Replayed", Boolean.toString(replayed.get()))
+        .body(result.body());
   }
 
   private static byte[] readRequiredJsonBody(HttpServletRequest request) {

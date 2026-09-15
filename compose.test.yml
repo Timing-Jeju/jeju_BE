@@ -65,7 +65,17 @@ services:
       - ./supabase/migrations/20260918000019_planned_route_request_hash_policy.sql:/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql:ro
       - ./supabase/migrations/20260918000020_remove_user_location_runtime.sql:/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql:ro
       - ./supabase/migrations/20260918000021_day_activity_window_pair.sql:/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql:ro
-      - ./supabase/migrations/20260918000022_rls_auto_enable_execute_boundary.sql:/docker-entrypoint-initdb.d/060_rls_auto_enable_execute_boundary.sql:ro
+      - ./supabase/migrations/20260918000022_generation_lifecycle.sql:/docker-entrypoint-initdb.d/060_generation_lifecycle.sql:ro
+      - ./supabase/migrations/20260918000023_planner_place_preferences.sql:/docker-entrypoint-initdb.d/061_planner_place_preferences.sql:ro
+      - ./supabase/migrations/20260918000024_planner_conditions.sql:/docker-entrypoint-initdb.d/062_planner_conditions.sql:ro
+      - ./supabase/migrations/20260918000025_sequential_schedule_coverage.sql:/docker-entrypoint-initdb.d/063_sequential_schedule_coverage.sql:ro
+      - ./supabase/migrations/20260918000026_generation_trip_snapshot.sql:/docker-entrypoint-initdb.d/064_generation_trip_snapshot.sql:ro
+      - ./supabase/migrations/20260918000027_generation_schedule_boundaries.sql:/docker-entrypoint-initdb.d/065_generation_schedule_boundaries.sql:ro
+      - ./supabase/migrations/20260918000028_generation_result_projection.sql:/docker-entrypoint-initdb.d/066_generation_result_projection.sql:ro
+      - ./supabase/migrations/20260918000029_trip_ferry_unresolved_terminal.sql:/docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql:ro
+      - ./supabase/migrations/20260918000030_generation_existing_base_input.sql:/docker-entrypoint-initdb.d/068_generation_existing_base_input.sql:ro
+      - ./supabase/migrations/20260918000031_generation_leg_precision.sql:/docker-entrypoint-initdb.d/069_generation_leg_precision.sql:ro
+      - ./supabase/migrations/20260918000032_rls_auto_enable_execute_boundary.sql:/docker-entrypoint-initdb.d/070_rls_auto_enable_execute_boundary.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
@@ -82,6 +92,8 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/timing_jeju_test
       SPRING_DATASOURCE_USERNAME: timing_jeju_test
       SPRING_DATASOURCE_PASSWORD: test-only-password
+      SCHEDULE_GENERATION_ENABLED: "false"
+      SCHEDULE_GENERATION_APPROVED_AIRPORT_PLACE_ID: ""
       SUPABASE_JWT_ISSUER: https://test.supabase.invalid/auth/v1
       SUPABASE_JWT_AUDIENCE: authenticated
       SUPABASE_JWKS_URL: https://test.supabase.invalid/auth/v1/.well-known/jwks.json

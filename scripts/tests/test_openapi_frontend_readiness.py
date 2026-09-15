@@ -201,6 +201,18 @@ def valid_document():
 
 
 class OpenApiFrontendReadinessTest(unittest.TestCase):
+    def test_only_transport_mutations_allow_optional_idempotency_header(self):
+        """기존 교통 PUT·DELETE 호환 키만 선택적으로 허용하고 생성의 필수 키는 유지한다."""
+        parameter = {"name": "Idempotency-Key", "in": "header", "required": False,
+                     "description": "기존 교통 저장 호환 키", "schema": {"type": "string", "format": "uuid"},
+                     "example": "53000000-0000-4000-8000-000000000001"}
+        validator = Validator(valid_document(), 43, ROOT)
+        validator.validate_parameters([parameter], "PUT /api/v1/trips/{tripId}/transport-event")
+        validator.validate_parameters([parameter], "DELETE /api/v1/trips/{tripId}/transport-event")
+        self.assertEqual([], validator.errors)
+        validator.validate_parameters([parameter], "POST /api/v1/trips/{tripId}/schedule-generations")
+        self.assertTrue(any("required" in error for error in validator.errors))
+
     def test_mutually_exclusive_reference_example은_선택한_한개만_요구한다(self):
         """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         schema = {
@@ -783,7 +795,7 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
             place_runtime["problems"]["503"],
         )
         self.assertEqual(
-            {f"{method} {path}" for method, path in expected} | {"PUT /api/v1/trips/{tripId}/day-activity-windows"},
+            {f"{method} {path}" for method, path in operations_for_mode(43)},
             set(manifest),
         )
 
@@ -791,10 +803,10 @@ class OpenApiFrontendReadinessTest(unittest.TestCase):
         """OpenAPI의 공개 계약과 모드별 회귀를 검증한다."""
         document = (ROOT / "docs/FRONTEND_API_SPEC.md").read_text(encoding="utf-8")
         self.assertIn(
-            "#51 일정 편집 4개와 #239 Day 활동창 PUT까지 합친 exact 38개 operation의 프론트엔드 인계본",
+            "생성 연결을 포함한 exact 43개 operation의 프론트엔드 인계본",
             document,
         )
-        self.assertIn("active `--mode 38`", document)
+        self.assertIn("active `--mode 43`", document)
         self.assertIn("mode24는 create만, mode28은 create와 edit 4개", document)
 
     def test_16_operation완료_mode는_두_clean_source가_HEAD_조상인지_fail_closed로_검사한다(self):

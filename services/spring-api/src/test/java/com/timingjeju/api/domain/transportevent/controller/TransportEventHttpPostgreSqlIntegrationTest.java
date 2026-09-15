@@ -1,6 +1,7 @@
 package com.timingjeju.api.domain.transportevent.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
@@ -108,6 +109,199 @@ class TransportEventHttpPostgreSqlIntegrationTest {
   }
 
   @Test
+  void 같은_멱등키와_본문은_이전_ETag로_재시도해도_원래_응답을_재생한다() throws Exception {
+    String key = UUID.randomUUID().toString();
+    var first = put(token(OWNER), 1, arrival(PLACE, null), key);
+    assertThat(first.statusCode()).isEqualTo(200);
+    String before = fingerprint();
+    var replay = put(token(OWNER), 1, arrival(PLACE, null), key);
+    assertThat(replay.statusCode()).isEqualTo(200);
+    assertThat(replay.body()).isEqualTo(first.body());
+    assertThat(replay.headers().firstValue("ETag")).isEqualTo(first.headers().firstValue("ETag"));
+    assertThat(replay.headers().firstValue("Idempotency-Replayed")).contains("true");
+    assertThat(fingerprint()).isEqualTo(before);
+    assertProblem(
+        put(token(OWNER), 2, arrivalAt(PLACE, null, "2026-09-01T10:00:00+09:00"), key),
+        409,
+        "IDEMPOTENCY_KEY_REUSED");
+    assertProblem(put(token(OTHER), 1, arrival(PLACE, null), key), 404, "TRIP_NOT_FOUND");
+    jdbc.update("delete from public.trip_plans where id=?", TRIP);
+    assertProblem(put(token(OWNER), 1, arrival(PLACE, null), key), 404, "TRIP_NOT_FOUND");
+  }
+
+  @Test
+  void 장소선호_응답유실_재시도는_DB변경없이_원래_응답을_재생한다() throws Exception {
+    String key = UUID.randomUUID().toString();
+    String body = placePreferences(90);
+    var first = putPlacePreferences(OWNER, 1, body, key);
+    assertThat(first.statusCode()).isEqualTo(200);
+    assertThat(first.headers().firstValue("Idempotency-Replayed")).contains("false");
+    var before =
+        jdbc.queryForList("select * from public.trip_place_preferences where trip_plan_id=?", TRIP);
+    var replay = putPlacePreferences(OWNER, 1, body, key);
+    assertThat(replay.statusCode()).isEqualTo(200);
+    assertThat(replay.body()).isEqualTo(first.body());
+    assertThat(replay.headers().firstValue("ETag")).isEqualTo(first.headers().firstValue("ETag"));
+    assertThat(replay.headers().firstValue("Idempotency-Replayed")).contains("true");
+    assertThat(
+            jdbc.queryForList(
+                "select * from public.trip_place_preferences where trip_plan_id=?", TRIP))
+        .isEqualTo(before);
+    assertThat(
+            jdbc.queryForObject(
+                "select revision from public.trip_plans where id=?", Long.class, TRIP))
+        .isEqualTo(2L);
+    assertProblem(
+        putPlacePreferences(OWNER, 2, placePreferences(120), key), 409, "IDEMPOTENCY_KEY_REUSED");
+    assertProblem(putPlacePreferences(OTHER, 1, body, key), 404, "TRIP_NOT_FOUND");
+    jdbc.update("delete from public.trip_plans where id=?", TRIP);
+    assertProblem(putPlacePreferences(OWNER, 1, body, key), 404, "TRIP_NOT_FOUND");
+  }
+
+  @Test
+  void 장소선호_저장실패는_변경과_receipt예약을_모두_롤백한다() throws Exception {
+    String key = UUID.randomUUID().toString();
+    assertProblem(
+        putPlacePreferences(OWNER, 1, placePreferences(1441), key),
+        422,
+        "PLACE_PREFERENCE_CONSTRAINT_VIOLATION");
+    assertThat(
+            jdbc.queryForObject(
+                "select revision from public.trip_plans where id=?", Long.class, TRIP))
+        .isEqualTo(1L);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_place_preferences where trip_plan_id=?",
+                Long.class,
+                TRIP))
+        .isZero();
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.api_idempotency_records where owner_sub=? and idempotency_key=?",
+                Long.class,
+                OWNER,
+                UUID.fromString(key)))
+        .isZero();
+    assertThat(putPlacePreferences(OWNER, 1, placePreferences(90), key).statusCode())
+        .isEqualTo(200);
+  }
+
+  private String placePreferences(int stay) {
+    return "{\"items\":[{\"placeId\":\""
+        + PLACE
+        + "\",\"type\":\"preferred\",\"targetDayNo\":null,\"priority\":50,\"requestedStayMinutes\":"
+        + stay
+        + "}]}";
+  }
+
+  @Test
+  void 장소선호_쓰기후_receipt완료실패도_전체_롤백한다() throws Exception {
+    String key = UUID.randomUUID().toString();
+    jdbc.execute("create sequence public.issue53_preference_write_observed");
+    jdbc.execute(
+        """
+        create function public.issue53_reject_preference_receipt() returns trigger language plpgsql as $$
+        begin
+          if new.normalized_path = '/api/v1/trips/47300000-0000-0000-0000-000000000003/place-preferences'
+             and new.state = 'COMPLETED' then
+            if exists (select 1 from public.trip_place_preferences
+                       where trip_plan_id = '47300000-0000-0000-0000-000000000003'
+                         and requested_stay_minutes = 90) then
+              perform nextval('public.issue53_preference_write_observed');
+            end if;
+            raise exception 'fixture receipt failure';
+          end if;
+          return new;
+        end $$
+        """);
+    try {
+      jdbc.execute(
+          """
+          create trigger issue53_reject_preference_receipt before update on public.api_idempotency_records
+          for each row execute function public.issue53_reject_preference_receipt()
+          """);
+      var failed = putPlacePreferences(OWNER, 1, placePreferences(90), key);
+      assertThat(failed.statusCode()).isEqualTo(500);
+      assertThat(
+              jdbc.queryForObject(
+                  "select is_called from public.issue53_preference_write_observed", Boolean.class))
+          .isTrue();
+      assertThat(
+              jdbc.queryForObject(
+                  "select revision from public.trip_plans where id=?", Long.class, TRIP))
+          .isEqualTo(1L);
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.trip_place_preferences where trip_plan_id=?",
+                  Long.class,
+                  TRIP))
+          .isZero();
+      assertThat(
+              jdbc.queryForObject(
+                  "select count(*) from public.api_idempotency_records where owner_sub=? and idempotency_key=?",
+                  Long.class,
+                  OWNER,
+                  UUID.fromString(key)))
+          .isZero();
+    } finally {
+      jdbc.execute(
+          "drop trigger if exists issue53_reject_preference_receipt on public.api_idempotency_records");
+      jdbc.execute("drop function public.issue53_reject_preference_receipt()");
+      jdbc.execute("drop sequence public.issue53_preference_write_observed");
+    }
+    assertThat(putPlacePreferences(OWNER, 1, placePreferences(90), key).statusCode())
+        .isEqualTo(200);
+  }
+
+  private HttpResponse<byte[]> putPlacePreferences(
+      UUID owner, int revision, String body, String key) throws Exception {
+    var request =
+        HttpRequest.newBuilder(endpoint("/api/v1/trips/" + TRIP + "/place-preferences"))
+            .timeout(Duration.ofSeconds(10))
+            .header("Authorization", "Bearer " + token(owner))
+            .header("Content-Type", "application/json")
+            .header("If-Match", "\"trip-" + TRIP + "-r" + revision + "\"")
+            .header("Idempotency-Key", key)
+            .PUT(HttpRequest.BodyPublishers.ofString(body))
+            .build();
+    return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+  }
+
+  @Test
+  void 잘못된_멱등키는_변경없이_거부하고_실패한_저장_예약은_롤백한다() throws Exception {
+    String before = fingerprint();
+    for (String invalid :
+        java.util.List.of("", "not-a-key", "1-1-1-1-1", "53000000-0000-0000-0000-0000000000AA")) {
+      assertProblem(
+          put(token(OWNER), 1, arrival(PLACE, null), invalid), 400, "IDEMPOTENCY_KEY_INVALID");
+      assertThat(fingerprint()).isEqualTo(before);
+    }
+    String key = UUID.randomUUID().toString();
+    assertProblem(
+        put(token(OWNER), 1, arrivalAt(PLACE, null, "2026-09-02T09:00:00+09:00"), key),
+        422,
+        "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
+    assertThat(fingerprint()).isEqualTo(before);
+    assertThat(put(token(OWNER), 1, arrival(PLACE, null), key).statusCode()).isEqualTo(200);
+    var duplicated =
+        HttpRequest.newBuilder(endpoint("/api/v1/trips/" + TRIP + "/transport-event"))
+            .timeout(Duration.ofSeconds(10))
+            .header("Authorization", "Bearer " + token(OWNER))
+            .header("Content-Type", "application/json")
+            .header("If-Match", "\"trip-" + TRIP + "-r2\"")
+            .header("Idempotency-Key", key)
+            .header("Idempotency-Key", key)
+            .PUT(HttpRequest.BodyPublishers.ofString(arrival(PLACE, null)))
+            .build();
+    String after = fingerprint();
+    assertProblem(
+        http.send(duplicated, HttpResponse.BodyHandlers.ofByteArray()),
+        400,
+        "IDEMPOTENCY_KEY_INVALID");
+    assertThat(fingerprint()).isEqualTo(after);
+  }
+
+  @Test
   void 실제_HTTP_PUT은_create_noop_replace와_active_무효화를_DB와_동일하게_반환한다() throws Exception {
     HttpResponse<byte[]> created = put(token(OWNER), 1, arrival(PLACE, null));
 
@@ -203,8 +397,7 @@ class TransportEventHttpPostgreSqlIntegrationTest {
         "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
     assertProblem(
         put(token(OWNER), 1, arrival(PLACE, "제주공항")), 422, "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
-    assertProblem(
-        put(token(OWNER), 1, arrival(null, null)), 422, "TRANSPORT_EVENT_CONSTRAINT_VIOLATION");
+    assertProblem(put(token(OWNER), 1, arrival(null, null)), 404, "PLACE_NOT_FOUND");
     assertProblem(
         put(token(OWNER), 1, arrival(null, "가".repeat(101))),
         422,
@@ -216,6 +409,44 @@ class TransportEventHttpPostgreSqlIntegrationTest {
     String terminalBefore = fingerprint();
     assertProblem(put(token(OWNER), 1, arrival(PLACE, null)), 409, "TRIP_TERMINAL_STATE_CONFLICT");
     assertThat(fingerprint()).isEqualTo(terminalBefore);
+  }
+
+  @Test
+  void 선박_항구_미확정은_실제_HTTP와_DB에서_null로_보존한다() throws Exception {
+    var body = departure().replace("\"customTerminalName\":\"제주항\"", "\"customTerminalName\":null");
+    var result = success(put(token(OWNER), 1, body, UUID.randomUUID().toString()), 2);
+    assertThat(result.at("/event/transportType").asText()).isEqualTo("ferry");
+    assertThat(result.at("/event/terminalPlaceId").isNull()).isTrue();
+    assertThat(result.at("/event/customTerminalName").isNull()).isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                """
+        select count(*) from public.trip_transport_events
+        where trip_plan_id=? and event_type='departure' and transport_type='ferry'
+          and terminal_place_id is null and terminal_name is null
+        """,
+                Integer.class,
+                TRIP))
+        .isEqualTo(1);
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    """
+        update public.trip_transport_events set transport_type='flight'
+        where trip_plan_id=? and event_type='departure'
+        """,
+                    TRIP))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    assertThatThrownBy(
+            () ->
+                jdbc.update(
+                    """
+        update public.trip_transport_events set terminal_place_id=?, terminal_name='제주항'
+        where trip_plan_id=? and event_type='departure'
+        """,
+                    PLACE,
+                    TRIP))
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
   }
 
   private JsonNode success(HttpResponse<byte[]> response, long revision) throws Exception {
@@ -266,7 +497,12 @@ class TransportEventHttpPostgreSqlIntegrationTest {
             "type", "title", "status", "detail", "instance", "code", "traceId", "fieldErrors");
     assertThat(problem.get("status").asInt()).isEqualTo(status);
     assertThat(problem.get("code").asText()).isEqualTo(code);
-    assertThat(problem.get("type").asText()).startsWith("https://api.timing-jeju.com/problems/");
+    assertThat(problem.get("type").asText())
+        .isEqualTo(
+            (code.startsWith("IDEMPOTENCY_")
+                    ? "https://api.timing-jeju.example/problems/"
+                    : "https://api.timing-jeju.com/problems/")
+                + code.toLowerCase(java.util.Locale.ROOT).replace('_', '-'));
     assertThat(problem.get("traceId").asText()).isNotBlank();
     assertThat(response.headers().firstValue("X-Trace-Id"))
         .contains(problem.get("traceId").asText());
@@ -287,6 +523,11 @@ class TransportEventHttpPostgreSqlIntegrationTest {
   }
 
   private HttpResponse<byte[]> put(String bearer, Integer revision, String body) throws Exception {
+    return put(bearer, revision, body, null);
+  }
+
+  private HttpResponse<byte[]> put(String bearer, Integer revision, String body, String key)
+      throws Exception {
     HttpRequest.Builder request =
         HttpRequest.newBuilder(endpoint("/api/v1/trips/" + TRIP + "/transport-event"))
             .timeout(Duration.ofSeconds(10))
@@ -296,11 +537,36 @@ class TransportEventHttpPostgreSqlIntegrationTest {
     if (revision != null) {
       request.header("If-Match", "\"trip-" + TRIP + "-r" + revision + "\"");
     }
+    if (key != null) request.header("Idempotency-Key", key);
     return http.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
+  }
+
+  @Test
+  void 삭제_응답_유실은_같은_키와_selector로_재생하고_다른_selector는_거부한다() throws Exception {
+    success(put(token(OWNER), 1, arrival(PLACE, null)), 2);
+    String key = UUID.randomUUID().toString();
+    var first = delete(token(OWNER), 2, "eventType=arrival", null, key);
+    success(first, 3);
+    String before = fingerprint();
+    var replay = delete(token(OWNER), 2, "eventType=arrival", null, key);
+    success(replay, 3);
+    assertThat(replay.body()).containsExactly(first.body());
+    assertThat(replay.headers().firstValue("Idempotency-Replayed")).contains("true");
+    assertProblem(
+        delete(token(OWNER), 3, "eventType=departure", null, key), 409, "IDEMPOTENCY_KEY_REUSED");
+    assertProblem(delete(token(OTHER), 2, "eventType=arrival", null, key), 404, "TRIP_NOT_FOUND");
+    assertProblem(
+        delete(token(OWNER), 3, "eventType=arrival", null, ""), 400, "IDEMPOTENCY_KEY_INVALID");
+    assertThat(fingerprint()).isEqualTo(before);
   }
 
   private HttpResponse<byte[]> delete(String bearer, int revision, String query, String body)
       throws Exception {
+    return delete(bearer, revision, query, body, null);
+  }
+
+  private HttpResponse<byte[]> delete(
+      String bearer, int revision, String query, String body, String key) throws Exception {
     String suffix = query.isEmpty() ? "" : "?" + query;
     HttpRequest.Builder request =
         HttpRequest.newBuilder(endpoint("/api/v1/trips/" + TRIP + "/transport-event" + suffix))
@@ -313,6 +579,7 @@ class TransportEventHttpPostgreSqlIntegrationTest {
             ? HttpRequest.BodyPublishers.noBody()
             : HttpRequest.BodyPublishers.ofString(body));
     if (body != null) request.header("Content-Type", "application/json");
+    if (key != null) request.header("Idempotency-Key", key);
     return http.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
   }
 

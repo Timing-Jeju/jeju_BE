@@ -21,8 +21,18 @@ public interface TransportEventApiDocs {
 
   @Operation(
       operationId = "putTripTransportEvent",
+      parameters =
+          @Parameter(
+              name = "Idempotency-Key",
+              in = ParameterIn.HEADER,
+              required = false,
+              description =
+                  "새 FE 저장 흐름은 canonical UUID 키를 사용합니다. 같은 키·본문 재시도는 원래 응답과 ETag를 반환하며 키 없는 기존 호출도 지원합니다.",
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN),
+              example = "53000000-0000-4000-8000-000000000001"),
       summary = "여행 항공·선박 이벤트 저장",
-      description = "도착 또는 출발 이벤트 한 건을 완전 교체하고 일정 stale 정책을 원자 적용합니다.")
+      description =
+          "도착 또는 출발 이벤트 한 건을 완전 교체하고 일정 stale 정책을 원자 적용합니다. 항공의 두 터미널 필드가 null이면 서버가 승인된 제주공항 ID를 확정하며, 불가하면 PLACE_NOT_FOUND를 반환합니다. 선박의 두 터미널 필드가 null이면 항구 미확정으로 저장하며 AI 생성은 지원하지 않습니다.")
   @RequestBody(
       required = true,
       content = @Content(schema = @Schema(implementation = PutTransportEventRequest.class)))
@@ -62,7 +72,7 @@ public interface TransportEventApiDocs {
                 mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
-  ResponseEntity<TransportEventMutationPayload> put(
+  ResponseEntity<byte[]> put(
       @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String tripId,
       @Parameter(
@@ -75,6 +85,15 @@ public interface TransportEventApiDocs {
 
   @Operation(
       operationId = "deleteTripTransportEvent",
+      parameters =
+          @Parameter(
+              name = "Idempotency-Key",
+              in = ParameterIn.HEADER,
+              required = false,
+              description =
+                  "같은 키·eventType 재시도는 최초 삭제 응답과 ETag를 재생합니다. 다른 eventType에 키를 재사용하면 409입니다.",
+              schema = @Schema(type = "string", format = "uuid", pattern = UUID_PATTERN),
+              example = "53000000-0000-4000-8000-000000000002"),
       summary = "여행 항공·선박 이벤트 삭제",
       description = "query로 선택한 도착 또는 출발 이벤트만 삭제하고 일정 stale 정책을 반환합니다.")
   @ApiResponses({
@@ -113,7 +132,7 @@ public interface TransportEventApiDocs {
                 mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
-  ResponseEntity<TransportEventMutationPayload> delete(
+  ResponseEntity<byte[]> delete(
       @Parameter(required = true, schema = @Schema(type = "string", pattern = UUID_PATTERN))
           String tripId,
       @Parameter(
