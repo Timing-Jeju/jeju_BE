@@ -80,7 +80,8 @@
     {"path":"supabase/migrations/20260919010000_account_deletion_worker_runtime.sql","initSlot":"072","owner":{"issue":106,"pullRequest":null},"sha256":"d6ac70fe344c9ae18ed9cc2c9c64d64fb95640058b54618be6662d477930af7c","dependencies":["20260919000000_account_deletion_requests.sql"]},
     {"path":"supabase/migrations/20260919020000_account_deletion_retention_contract.sql","initSlot":"073","owner":{"issue":106,"pullRequest":null},"sha256":"228653bcc3b9783ab45abe9a720dbfc474f3a7909a0393ef5a3007b95c9eee53","dependencies":["20260919010000_account_deletion_worker_runtime.sql"]},
     {"path":"supabase/migrations/20260919030000_account_deletion_security_correction.sql","initSlot":"074","owner":{"issue":61,"pullRequest":null},"sha256":"0d30e356a9b73e33085cfaf0d800d5e97f55ea42382ca7b9f09cf23e4e55c28f","dependencies":["20260919020000_account_deletion_retention_contract.sql"]},
-    {"path":"supabase/migrations/20260919040000_account_deletion_worker_fencing.sql","initSlot":"075","owner":{"issue":106,"pullRequest":null},"sha256":"4904b10ccaa188249f642d3a344e115e6dd2a482e625140a6fe9e6ba7c4b8ad1","dependencies":["20260919030000_account_deletion_security_correction.sql"]}
+    {"path":"supabase/migrations/20260919040000_account_deletion_worker_fencing.sql","initSlot":"075","owner":{"issue":106,"pullRequest":null},"sha256":"4904b10ccaa188249f642d3a344e115e6dd2a482e625140a6fe9e6ba7c4b8ad1","dependencies":["20260919030000_account_deletion_security_correction.sql"]},
+    {"path":"supabase/migrations/20260919050000_generation_leg_facts_contract_correction.sql","initSlot":"076","owner":{"issue":261,"pullRequest":null},"sha256":"d7c0ec0569d5b2e8d73d2e8f8bd08b253e6156be9c81758ea5154eb556836fac","dependencies":["20260919040000_account_deletion_worker_fencing.sql"]}
   ],
   "seedInitSlot": "099"
 }

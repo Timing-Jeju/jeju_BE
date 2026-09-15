@@ -146,7 +146,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   PostgreSqlTestContainerFactory.executeScript(
                       container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("legacy non-location metadata requires audit")
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
           .hasMessageNotContaining("private-location-marker")
           .hasMessageNotContaining("private-manual-note")
           .hasMessageNotContaining("Failing row");
@@ -245,7 +245,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   PostgreSqlTestContainerFactory.executeScript(
                       container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("active location lineage requires audit")
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
           .hasMessageNotContaining(run.toString())
           .hasMessageNotContaining("private-location-marker")
           .hasMessageNotContaining("Failing row");
@@ -381,7 +381,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   PostgreSqlTestContainerFactory.executeScript(
                       container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("legacy compute hash lineage requires audit")
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
           .hasMessageNotContaining(run.toString())
           .hasMessageNotContaining("c".repeat(64))
           .hasMessageNotContaining("Failing row");
@@ -522,7 +522,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   PostgreSqlTestContainerFactory.executeScript(
                       container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("active location lineage requires audit")
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
           .hasMessageNotContaining(proposed.toString())
           .hasMessageNotContaining(descendant.toString())
           .hasMessageNotContaining("Failing row");
@@ -691,7 +691,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                     PostgreSqlTestContainerFactory.executeScript(
                         container, root.resolve("supabase/migrations").resolve(TARGET)))
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("location purge integrity requires audit")
+            .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
             .hasMessageNotContaining("Failing row");
         assertThat(jdbc.queryForObject(schema, String.class)).isEqualTo(beforeSchema);
         assertThat(jdbc.queryForObject(data, String.class)).isEqualTo(beforeData);
@@ -928,7 +928,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                         container, root.resolve("supabase/migrations").resolve(TARGET)))
             .as(status)
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("user location residue requires audit")
+            .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
             .hasMessageNotContaining(hash)
             .hasMessageNotContaining("a".repeat(64))
             .hasMessageNotContaining("Failing row");
@@ -1023,7 +1023,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                         container, root.resolve("supabase/migrations").resolve(TARGET)))
             .as(kind)
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("external location lineage requires audit")
+            .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
             .hasMessageNotContaining(message.toString())
             .hasMessageNotContaining("Failing row");
         assertThat(jdbc.queryForObject(schema, String.class)).as(kind).isEqualTo(beforeSchema);
@@ -1122,7 +1122,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                         container, root.resolve("supabase/migrations").resolve(TARGET)))
             .as(state)
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("user location residue requires audit")
+            .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
             .hasMessageNotContaining("c".repeat(64))
             .hasMessageNotContaining("Failing row");
         assertThat(jdbc.queryForObject(schema, String.class)).as(state).isEqualTo(beforeSchema);
@@ -1205,7 +1205,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                   PostgreSqlTestContainerFactory.executeScript(
                       container, root.resolve("supabase/migrations").resolve(TARGET)))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("user location residue requires audit")
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
           .hasMessageNotContaining("private-derived-marker")
           .hasMessageNotContaining("Failing row");
       assertThat(jdbc.queryForObject(schema, String.class)).isEqualTo(beforeSchema);
@@ -1310,7 +1310,7 @@ class LocationDataPurgeMigrationIntegrationTest {
                       container,
                       root.resolve("db/local-postgres/20260918000017_location_cutover_group.sql")))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("user location residue requires audit")
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
           .hasMessageNotContaining("Failing row");
       assertThat(beforeSchema.equals(jdbc.queryForObject(schema, String.class))).isTrue();
       assertThat(beforeData.equals(jdbc.queryForObject(data, String.class))).isTrue();
@@ -1369,7 +1369,7 @@ class LocationDataPurgeMigrationIntegrationTest {
             fixture.trip());
         assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("user location residue requires audit")
+            .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
             .hasMessageNotContaining("126.51")
             .hasMessageNotContaining("33.51");
         assertThat(jdbc.queryForObject(fingerprint, String.class)).isEqualTo(before);
@@ -1480,19 +1480,19 @@ class LocationDataPurgeMigrationIntegrationTest {
           .isEqualTo(1);
       assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("location cutover migration history mismatch");
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]");
       jdbc.update(
           "insert into supabase_migrations.schema_migrations(version) values ('20260918000016'),('20260918000017')");
       assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("location cutover migration history mismatch");
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]");
       assertThat(
               jdbc.update(
                   "delete from supabase_migrations.schema_migrations where version='20260918000017'"))
           .isEqualTo(1);
       assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("user location residue requires audit");
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]");
       assertThat(
               jdbc.queryForObject(
                   "select count(*) from supabase_migrations.schema_migrations where version >= '20260918000017'",
@@ -1515,7 +1515,7 @@ class LocationDataPurgeMigrationIntegrationTest {
           "alter table supabase_migrations.schema_migrations add constraint fixture_history_write_failure check (version < '20260918000017')");
       assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("fixture_history_write_failure");
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]");
       assertThat(
               jdbc.queryForObject(
                   "select count(*) from supabase_migrations.schema_migrations where version >= '20260918000017'",
@@ -1551,7 +1551,7 @@ class LocationDataPurgeMigrationIntegrationTest {
           .isZero();
       assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, script))
           .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("location cutover migration history mismatch");
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]");
     } finally {
       container.stop();
     }

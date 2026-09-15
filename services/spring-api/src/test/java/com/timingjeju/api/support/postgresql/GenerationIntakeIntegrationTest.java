@@ -523,6 +523,21 @@ class GenerationIntakeIntegrationTest extends PostgreSqlRepositoryIntegrationTes
         .isEqualTo(3);
     assertThat(
             jdbc.queryForObject(
+                """
+                select count(*) from public.trip_legs l where l.trip_plan_id=?
+                  and jsonb_exists(l.facts, 'generation')
+                  and (select count(*) from jsonb_object_keys(l.facts))=1
+                  and (select count(*) from jsonb_object_keys(l.facts->'generation')) in (3,4)
+                  and jsonb_exists_all(l.facts->'generation', array['schemaVersion','events','risks'])
+                  and not exists (
+                    select 1 from jsonb_object_keys(l.facts->'generation') key
+                    where key not in ('schemaVersion','events','risks','precision'))
+                """,
+                Integer.class,
+                f.trip()))
+        .isEqualTo(6);
+    assertThat(
+            jdbc.queryForObject(
                 "select count(*) from public.itinerary_generation_candidates where generation_run_id=? and expires_at=created_at+interval '24 hours'",
                 Integer.class,
                 lease.runId()))

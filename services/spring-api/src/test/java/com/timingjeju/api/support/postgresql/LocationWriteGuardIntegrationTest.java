@@ -221,6 +221,98 @@ class LocationWriteGuardIntegrationTest extends PostgreSqlRepositoryIntegrationT
         .hasMessageNotContaining("Failing row");
   }
 
+  @Test
+  void generation_leg_facts는_정확한_무위치_projection만_허용한다() {
+    String valid =
+        """
+        {"generation":{"schemaVersion":1,
+        "events":[{"type":"buffer","durationMinutes":15}],
+        "risks":[{"level":"high","reasonCodes":["TRANSFER_SLACK_LOW"]}],
+        "precision":{"walkNanos":0,"rideNanos":600000000000,
+        "transferNanos":0,"waitNanos":300000000000,"roundingNanos":0}}}
+        """;
+    String sql =
+        "select timing_jeju_private.user_json_matches_write_contract('trip_legs.facts', ?::jsonb)";
+
+    assertThat(jdbc.queryForObject(sql, Boolean.class, valid)).isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                sql, Boolean.class, "{\"derivation\":\"same_place_continuity_v1\"}"))
+        .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                sql,
+                Boolean.class,
+                "{\"derivation\":\"same_place_continuity_v1\",\"currentLocation\":{\"lat\":33.51}}"))
+        .isFalse();
+    for (String invalid :
+        java.util.List.of(
+            valid.replace(
+                "\"durationMinutes\":15",
+                "\"durationMinutes\":15,\"currentLocation\":{\"lat\":33.51}"),
+            valid.replace(
+                "\"reasonCodes\":[\"TRANSFER_SLACK_LOW\"]", "\"reasonCodes\":[\"GPS_3351\"]"),
+            valid.replace(
+                "\"roundingNanos\":0",
+                "\"roundingNanos\":0,\"locationHash\":\"private-derived-marker\""))) {
+      assertThat(jdbc.queryForObject(sql, Boolean.class, invalid)).isFalse();
+    }
+  }
+
+  @Test
+  void service_role의_무위치_generation_leg는_guard_내부_helper로_저장한다() {
+    UUID day = UUID.randomUUID(), from = UUID.randomUUID(), to = UUID.randomUUID();
+    jdbc.update(
+        "insert into public.trip_days(id,trip_plan_id,day_no,trip_date) values (?,?,1,'2026-09-01')",
+        day,
+        trip);
+    jdbc.update(
+        """
+        insert into public.trip_items
+          (id,trip_plan_id,trip_day_id,schedule_version_id,sequence_no,item_type,place_id,title,
+           planned_start_at,planned_end_at,stay_minutes,boundary_role,source)
+        values (?,?,?,?,1,'custom',?,'일정 시작',
+                '2026-09-01T01:00:00Z','2026-09-01T01:00:00Z',0,'day_start','ai_generated')
+        """,
+        from,
+        trip,
+        day,
+        version,
+        place);
+    jdbc.update(
+        """
+        insert into public.trip_items
+          (id,trip_plan_id,trip_day_id,schedule_version_id,sequence_no,item_type,place_id,title,
+           planned_start_at,planned_end_at,stay_minutes,boundary_role,source)
+        values (?,?,?,?,2,'custom',?,'일정 종료',
+                '2026-09-01T01:01:00Z','2026-09-01T01:01:00Z',0,'day_end','ai_generated')
+        """,
+        to,
+        trip,
+        day,
+        version,
+        place);
+    jdbc.execute("set local role service_role");
+    assertThat(
+            jdbc.update(
+                """
+                insert into public.trip_legs
+                  (trip_plan_id,trip_day_id,schedule_version_id,sequence_no,from_item_id,to_item_id,
+                   transport_mode,planned_departure_at,planned_arrival_at,walk_minutes,duration_minutes,facts)
+                values (?,?,?,?,?,?,'walk','2026-09-01T01:00:00Z','2026-09-01T01:01:00Z',1,1,?::jsonb)
+                """,
+                trip,
+                day,
+                version,
+                1,
+                from,
+                to,
+                """
+                {"generation":{"schemaVersion":1,"events":[],"risks":[]}}
+                """))
+        .isEqualTo(1);
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"geohash", "Geo-Hash", "geo_hash", "GEOHASH"})
   void 중첩_배열의_geohash도_표기와_무관하게_저장하거나_오류에_반사하지_않는다(String key) {

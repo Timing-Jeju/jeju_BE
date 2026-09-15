@@ -208,20 +208,28 @@ final class JdbcGenerationCandidateWriter {
             .map(GenerationTimeline.Event::eventId)
             .collect(java.util.stream.Collectors.toSet());
     // 0분 위치 연속성의 buffer_minutes는 0으로 유지하고 실제 계획 버퍼는 별도 보존한다.
-    // 입력은 이미 검증된 닫힌 record뿐이며 외부 JSON/원문/좌표는 받지 않는다.
+    // 공개 trip_legs.facts에는 계획에 필요한 닫힌 비위치 projection만 저장한다.
+    // 원본 event/transfer/risk record에는 시각과 외부 fact 식별자가 포함된다.
+    var events =
+        connection.events().stream()
+            .map(
+                event ->
+                    java.util.Map.of(
+                        "type", event.type(), "durationMinutes", event.durationMinutes()))
+            .toList();
+    var risks =
+        candidate.timeline().risks().stream()
+            .filter(value -> eventIds.contains(value.eventId()))
+            .map(
+                value ->
+                    java.util.Map.of("level", value.level(), "reasonCodes", value.reasonCodes()))
+            .toList();
     var generation =
         new java.util.HashMap<String, Object>(
             java.util.Map.of(
                 "schemaVersion", 1,
-                "events", connection.events(),
-                "transfers",
-                    candidate.transfers().stream()
-                        .filter(value -> eventIds.contains(value.eventId()))
-                        .toList(),
-                "risks",
-                    candidate.timeline().risks().stream()
-                        .filter(value -> eventIds.contains(value.eventId()))
-                        .toList()));
+                "events", events,
+                "risks", risks));
     if (precision != null) generation.put("precision", precision);
     return mapper.writeValueAsString(java.util.Map.of("generation", generation));
   }
