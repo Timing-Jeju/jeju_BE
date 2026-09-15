@@ -46,7 +46,17 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000017_location_cutover_group.sql",
           "20260918000019_planned_route_request_hash_policy.sql",
           "20260918000020_remove_user_location_runtime.sql",
-          "20260918000021_day_activity_window_pair.sql");
+          "20260918000021_day_activity_window_pair.sql",
+          "20260918000022_generation_lifecycle.sql",
+          "20260918000023_planner_place_preferences.sql",
+          "20260918000024_planner_conditions.sql",
+          "20260918000025_sequential_schedule_coverage.sql",
+          "20260918000026_generation_trip_snapshot.sql",
+          "20260918000027_generation_schedule_boundaries.sql",
+          "20260918000028_generation_result_projection.sql",
+          "20260918000029_trip_ferry_unresolved_terminal.sql",
+          "20260918000030_generation_existing_base_input.sql",
+          "20260918000031_generation_leg_precision.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {

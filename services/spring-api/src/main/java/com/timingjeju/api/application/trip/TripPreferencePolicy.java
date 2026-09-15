@@ -17,7 +17,7 @@ public final class TripPreferencePolicy {
           "restaurant",
           "cafe",
           "shopping");
-  private static final Set<String> MODES = Set.of("public_transit", "rental_car", "taxi");
+  private static final Set<String> MODES = Set.of("public_transit", "rental_car", "taxi", "walk");
 
   private TripPreferencePolicy() {}
 

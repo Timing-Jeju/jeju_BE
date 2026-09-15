@@ -40,8 +40,8 @@ CURSOR_PAGE_REQUEST_RELATIVE = Path(
 STANDARD_PROBLEM_CODE_RELATIVE = Path(
     "services/spring-api/src/main/java/com/timingjeju/api/global/error/StandardProblemCode.java"
 )
-CANONICAL_CONTRACT_SHA256 = "3be3f8f7e2555ed443fe81d91875c2819c90c0f8b82896749c9839e2777a1b3f"
-CANONICAL_CATALOG_SHA256 = "d6efacfd02286fcb6cc61480561299724700e7da7a338627968d02764548315f"
+CANONICAL_CONTRACT_SHA256 = "d8bcd4bea5a6995a53bdb336481b6b99227522f90497473a1cbb79012b0be608"
+CANONICAL_CATALOG_SHA256 = "559f2b66534729b4e172210b69f94dc9bfeaed991dc591978606e8226183e2f1"
 CONTRACT_FIELDS = {
     "schemaVersion",
     "contractVersion",
@@ -69,6 +69,7 @@ EXPECTED_ENDPOINT_IDENTITIES = [
     ("PATCH", "/api/v1/trips/{tripId}"),
     ("DELETE", "/api/v1/trips/{tripId}"),
     ("PUT", "/api/v1/trips/{tripId}/day-activity-windows"),
+    ("PUT", "/api/v1/trips/{tripId}/planner-conditions"),
 ]
 EXPECTED_DELETE_AGGREGATE_TABLES = [
     "trip_preferences",
@@ -173,7 +174,7 @@ def _catalog_projection(catalog: dict[str, Any]) -> dict[str, Any]:
         endpoint
         for endpoint in catalog.get("endpoints", [])
         if isinstance(endpoint, dict)
-        and endpoint.get("path") in {"/api/v1/trips", "/api/v1/trips/{tripId}", "/api/v1/trips/{tripId}/day-activity-windows"}
+        and endpoint.get("path") in {"/api/v1/trips", "/api/v1/trips/{tripId}", "/api/v1/trips/{tripId}/day-activity-windows", "/api/v1/trips/{tripId}/planner-conditions"}
     ]
     return {"domainContracts": domain, "endpoints": endpoints}
 
@@ -687,7 +688,7 @@ def _validate_transport_modes(value: Any, label: str, errors: list[str]) -> None
     modes = [item.get("mode") for item in value if isinstance(item, dict)]
     priorities = [item.get("priority") for item in value if isinstance(item, dict)]
     primary = [item for item in value if isinstance(item, dict) and item.get("primary") is True]
-    allowed = {"public_transit", "rental_car", "taxi"}
+    allowed = {"public_transit", "rental_car", "taxi", "walk"}
     if (
         len(modes) != len(value)
         or any(mode not in allowed for mode in modes)

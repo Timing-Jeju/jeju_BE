@@ -99,6 +99,9 @@ run_common_checks() {
   stage "불변 일정 조회·편집 계약 검사"
   python3 scripts/validate_schedules_contract.py
 
+  stage "일정 생성·AI 보정 비동기 API 계약 검사"
+  python3 scripts/validate_schedule_ai_contract.py
+
   stage "날씨 예보 API 계약 검사"
   python3 scripts/validate_weather_forecast_contract.py
 
@@ -145,7 +148,7 @@ run_spring_checks() {
     exit 1
   fi
   stage "Spring OpenAPI 프론트엔드 readiness 검사"
-  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 38
+  python3 scripts/validate_openapi_frontend_readiness.py services/spring-api/build/openapi/openapi.json --mode 43
   stage "Spring Architecture 테스트"
   run_spring_gradle architectureTest
   stage "Spring 전체 테스트와 커버리지"

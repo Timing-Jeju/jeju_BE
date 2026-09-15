@@ -10,7 +10,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 public final class TripTransportModeRequest {
   @Schema(
       requiredMode = Schema.RequiredMode.REQUIRED,
-      allowableValues = {"public_transit", "rental_car", "taxi"})
+      allowableValues = {"public_transit", "rental_car", "taxi", "walk"})
   private String mode;
 
   @Schema(requiredMode = Schema.RequiredMode.REQUIRED, minimum = "1", maximum = "3")

@@ -1,12 +1,13 @@
 # 불변 일정 조회·편집 REST 계약 v1.0.0
 
-Issue #88의 canonical 상세 계약은 [`contract.json`](contract.json)이다. 여섯 endpoint는 Spring Boot가 소유하고 검증된 Supabase JWT의 canonical `sub`로 여행 owner를 판정한다. 다른 사용자의 여행·버전·항목과 다른 여행에 속한 식별자는 모두 `404`로 숨긴다. Controller/Service/Repository, FastAPI MCP, schema migration과 Flyway는 이 문서 Issue 범위가 아니다.
+Issue #88의 canonical 상세 계약은 [`contract.json`](contract.json)이다. #53 후보 조회 경로를 포함한 일곱 endpoint는 Spring Boot가 소유하고 검증된 Supabase JWT의 canonical `sub`로 여행 owner를 판정한다. 다른 사용자의 여행·버전·항목과 다른 여행에 속한 식별자는 모두 `404`로 숨긴다. Controller/Service/Repository, FastAPI MCP, schema migration과 Flyway는 이 문서 Issue 범위가 아니다.
 
 ## endpoint와 동시성
 
 | Method | Path | 성공 | 변경 규칙 |
 | --- | --- | --- | --- |
 | GET | `/api/v1/trips/{tripId}/schedule` | `200` | `versionId` 생략 시 active, 지정 시 같은 owner/trip의 불변 version 조회 |
+| GET | `/api/v1/trips/{tripId}/schedule-versions/{versionId}` | `200` | 필수 canonical UUID 경로로 불변 version 조회; query와 body 금지 |
 | POST | `/api/v1/trips/{tripId}/schedule-items` | `201` | 항목 추가 후 새 `user_edit` version 활성화 |
 | PATCH | `/api/v1/trips/{tripId}/schedule-items/{itemId}` | `200` | 항목 수정 후 새 version 활성화 |
 | DELETE | `/api/v1/trips/{tripId}/schedule-items/{itemId}` | `200` | 항목 삭제 후 새 version 활성화 |
@@ -18,6 +19,8 @@ GET은 read-only다. active가 없거나 명시한 version이 없거나 다른 �
 다섯 mutation은 `Authorization`, 1~128자 printable ASCII `Idempotency-Key`, 강한 `If-Match`를 필수로 받는다. `Idempotency-Key` 누락은 `400 IDEMPOTENCY_KEY_REQUIRED`, 길이나 문자 범위를 벗어나면 `400 IDEMPOTENCY_KEY_INVALID`이며 일반 `INVALID_REQUEST`로 합치지 않는다. 기존 lowercase canonical UUID는 기존 public path의 registry scope를 그대로 사용한다. 그 밖의 유효한 공개 키는 domain-separated SHA-256으로 결정적 UUID에 매핑하고 `schedule-printable-ascii-v1` 내부 scope namespace와 full SHA-256 discriminator를 함께 사용한다. 따라서 128-bit UUID 축약 결과가 같거나 그 결과와 같은 UUID 원문이 와도 서로 다른 registry identity를 가지며 기존 `api_idempotency_records.idempotency_key uuid` 저장형과 canonical UUID replay 호환성을 유지한다. 원문 키, 해시와 내부 namespace는 응답이나 로그에 노출하지 않는다. `expectedActiveScheduleVersionId`는 POST/PATCH/PUT body와 DELETE query에 둔다. `If-Match`는 여행 aggregate ETag, expected ID는 active schedule pointer를 각각 보호한다. 전자는 `TRIP_VERSION_CONFLICT`, 후자는 `ACTIVE_SCHEDULE_VERSION_CONFLICT`이며 둘 다 `409`다. `COMPLETED`인 같은 scope/key/hash는 저장된 status·순서가 보존된 header·body를 operation 재실행 없이 replay한다. 다른 hash는 즉시 `409 IDEMPOTENCY_KEY_REUSED`이고 `Retry-After`를 보내지 않는다. 2분 lease 안의 `PROCESSING` 같은 hash 동시 loser도 기다리거나 replay하지 않고 즉시 같은 `409`와 `Retry-After: 1`을 반환한다.
 
 서버는 active version을 복사하고 편집한 뒤 item/leg 완전성을 검증한다. `sourceType`은 DB 값인 `initial|user_edit|ai_generation|recovery|live_recalculation`만 허용하고, 이 수동 편집 endpoint가 만드는 값은 `user_edit`다. 검증에 성공한 새 `user_edit` version의 `draft→active`, 이전 active의 `active→superseded`, pointer 전환은 한 transaction이다. 실패하면 새 version, 부분 item/leg, pointer 변경이 남지 않는다. 이 상태 전이 외에는 기존 version identity/content와 자식 item/leg를 직접 수정하지 않는다.
+
+두 GET 모두 미적용 `ai_generation` 버전의 후보 metadata와 만료를 검사한다. 응답 시각 또는 DB 시각에 만료된 후보는 `410 CANDIDATE_EXPIRED`, 유일한 후보 만료 metadata를 복원할 수 없으면 `410 CANDIDATE_EVIDENCE_UNAVAILABLE`다. rejected 등으로 상태가 바뀌어도 만료 검사를 유지한다. 실제 `applied_at`이 있는 active/superseded 버전만 후보 TTL에서 제외한다. 다른 owner/trip의 식별자는 만료 정보보다 먼저 `404`로 은닉한다.
 
 ## 항목, 순서와 Day 이동
 

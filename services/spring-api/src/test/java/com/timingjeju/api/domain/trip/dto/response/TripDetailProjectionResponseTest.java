@@ -88,6 +88,10 @@ class TripDetailProjectionResponseTest {
     assertThat(json.path("transportEvents").path("departure").isNull()).isTrue();
     assertThat(json.path("accommodations").isArray()).isTrue();
     assertThat(json.path("accommodations").size()).isZero();
+    assertThat(json.path("placePreferences").isArray()).isTrue();
+    assertThat(json.path("placePreferences").size()).isZero();
+    assertThat(json.path("plannerConditions").path("dayAnchors").isArray()).isTrue();
+    assertThat(json.path("plannerConditions").path("styleCodes").size()).isZero();
   }
 
   private static TripAggregate emptyTrip() {

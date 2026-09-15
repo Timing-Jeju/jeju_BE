@@ -284,11 +284,43 @@ public class JdbcTripStore implements TripStore {
     List<Accommodation> accommodations =
         runTripJdbcStage(
             diagnostic, TripJdbcStage.ACCOMMODATIONS_QUERY, () -> loadAccommodations(tripId));
+    List<com.timingjeju.api.application.trip.TripPlacePreference> placePreferences =
+        runTripJdbcStage(
+            diagnostic,
+            TripJdbcStage.PLACE_PREFERENCES_QUERY,
+            () ->
+                jdbc.query(
+                    """
+                select place_id, preference_type, target_day_no, priority, requested_stay_minutes
+                        from public.trip_place_preferences where trip_plan_id = ?
+                order by priority desc, place_id
+                """,
+                    (rs, row) ->
+                        new com.timingjeju.api.application.trip.TripPlacePreference(
+                            rs.getObject("place_id", UUID.class),
+                            rs.getString("preference_type"),
+                            rs.getObject("target_day_no", Integer.class),
+                            rs.getInt("priority"),
+                            rs.getObject("requested_stay_minutes", Integer.class)),
+                    tripId));
+    var plannerConditions =
+        runTripJdbcStage(
+            diagnostic,
+            TripJdbcStage.PLANNER_CONDITIONS_QUERY,
+            () -> JdbcTripPlannerConditionsStore.read(jdbc, tripId));
     return Optional.of(
         runTripJdbcStage(
             diagnostic,
             TripJdbcStage.SCORE_RESOLUTION,
-            () -> root.aggregate(modes, days, responseTime, transportEvents, accommodations)));
+            () ->
+                root.aggregate(
+                    modes,
+                    days,
+                    responseTime,
+                    transportEvents,
+                    accommodations,
+                    placePreferences,
+                    plannerConditions)));
   }
 
   private TripTransportEvents loadTransportEvents(UUID tripId) {
@@ -389,6 +421,8 @@ public class JdbcTripStore implements TripStore {
     DAYS_QUERY,
     TRANSPORT_EVENTS_QUERY,
     ACCOMMODATIONS_QUERY,
+    PLACE_PREFERENCES_QUERY,
+    PLANNER_CONDITIONS_QUERY,
     SCORE_RESOLUTION
   }
 
@@ -1149,7 +1183,9 @@ public class JdbcTripStore implements TripStore {
         List<TripDay> days,
         Instant responseTime,
         TripTransportEvents transportEvents,
-        List<Accommodation> accommodations) {
+        List<Accommodation> accommodations,
+        List<com.timingjeju.api.application.trip.TripPlacePreference> placePreferences,
+        com.timingjeju.api.application.trip.TripPlannerConditions plannerConditions) {
       TripScore score = score(responseTime);
       return new TripAggregate(
           tripId,
@@ -1168,7 +1204,9 @@ public class JdbcTripStore implements TripStore {
           createdAt,
           updatedAt,
           transportEvents,
-          accommodations);
+          accommodations,
+          placePreferences,
+          plannerConditions);
     }
   }
 }

@@ -15,4 +15,34 @@ public record ScheduleItemSnapshot(
     int bufferAfterMinutes,
     boolean required,
     String memo,
-    ItemProgressSnapshot progress) {}
+    ItemProgressSnapshot progress,
+    String boundaryRole) {
+  public ScheduleItemSnapshot(
+      UUID itemId,
+      int sequenceNo,
+      String itemType,
+      UUID placeId,
+      String title,
+      Instant plannedStartAt,
+      Instant plannedEndAt,
+      int stayMinutes,
+      int bufferAfterMinutes,
+      boolean required,
+      String memo,
+      ItemProgressSnapshot progress) {
+    this(
+        itemId,
+        sequenceNo,
+        itemType,
+        placeId,
+        title,
+        plannedStartAt,
+        plannedEndAt,
+        stayMinutes,
+        bufferAfterMinutes,
+        required,
+        memo,
+        progress,
+        null);
+  }
+}

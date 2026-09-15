@@ -64,11 +64,18 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
   @Autowired private PlatformTransactionManager transactionManager;
 
   @BeforeEach
-  void 활성_일정_fixture를_준비한다() {
-    new TransactionTemplate(transactionManager).executeWithoutResult(ignored -> prepareFixture());
+  void 활성_일정_fixture를_준비한다(org.junit.jupiter.api.TestInfo info) {
+    boolean sequential =
+        info.getTestMethod().orElseThrow().getName().equals("순차_일정의_추가와_수정도_Day범위를_복사한다");
+    new TransactionTemplate(transactionManager)
+        .executeWithoutResult(ignored -> prepareFixture(sequential));
   }
 
   private void prepareFixture() {
+    prepareFixture(false);
+  }
+
+  private void prepareFixture(boolean sequential) {
     insertOwner();
     insertPlaces();
     jdbc.update(
@@ -95,7 +102,13 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
         TRIP);
     insertItem(FIRST, FIRST_PLACE, 1, "2026-09-01T00:00:00Z");
     insertItem(SECOND, SECOND_PLACE, 2, "2026-09-01T03:00:00Z");
-    insertItem(DAY_TWO_ITEM, DAY_TWO, SECOND_PLACE, 1, "2026-09-02T00:00:00Z");
+    if (sequential) {
+      jdbc.update(
+          "update public.trip_schedule_versions set source_type='ai_generation',coverage_through_day_no=1 where id=?",
+          ACTIVE);
+    } else {
+      insertItem(DAY_TWO_ITEM, DAY_TWO, SECOND_PLACE, 1, "2026-09-02T00:00:00Z");
+    }
     jdbc.update(
         """
         insert into public.trip_legs
@@ -123,6 +136,42 @@ class JdbcScheduleMutationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     insertReferences();
     jdbc.execute("set constraints all immediate");
     jdbc.execute("set constraints all deferred");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"add", "patch"})
+  void 순차_일정의_추가와_수정도_Day범위를_복사한다(String operation) {
+    var result =
+        operation.equals("add")
+            ? store.addItem(record(Position.MIDDLE, ACTIVE, 1))
+            : store.patchItem(
+                edit(
+                    FIRST,
+                    new PatchScheduleItemCommand(
+                        ACTIVE,
+                        Set.of("memo"),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "수정")));
+    assertThat(
+            jdbc.queryForObject(
+                "select coverage_through_day_no from public.trip_schedule_versions where id=?",
+                Integer.class,
+                result.activeScheduleVersionId()))
+        .isEqualTo(1);
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from public.trip_items where schedule_version_id=? and trip_day_id=?",
+                Integer.class,
+                result.activeScheduleVersionId(),
+                DAY_TWO))
+        .isZero();
   }
 
   @ParameterizedTest

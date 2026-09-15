@@ -28,6 +28,38 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest
 @AutoConfigureMockMvc
 class OpenApiDocumentationTest {
+  @Test
+  void 생성_접수_OpenAPI는_실제_Problem과_정수3_후보_계약을_노출한다() throws Exception {
+    var root =
+        objectMapper.readTree(
+            mockMvc
+                .perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+    var operation =
+        root.get("paths").get("/api/v1/trips/{tripId}/schedule-generations").get("post");
+    for (String code : java.util.List.of("400", "401", "404", "409", "422", "429", "503")) {
+      org.assertj.core.api.Assertions.assertThat(
+              operation.get("responses").get(code).get("content").has("application/problem+json"))
+          .as(code)
+          .isTrue();
+    }
+    var ref =
+        operation
+            .get("requestBody")
+            .get("content")
+            .get("application/json")
+            .get("schema")
+            .get("$ref")
+            .asText();
+    var request =
+        root.get("components").get("schemas").get(ref.substring(ref.lastIndexOf('/') + 1));
+    var count = request.get("properties").get("candidateCount");
+    org.assertj.core.api.Assertions.assertThat(count.get("minimum").asInt()).isEqualTo(3);
+    org.assertj.core.api.Assertions.assertThat(count.get("maximum").asInt()).isEqualTo(3);
+  }
 
   @Autowired private MockMvc mockMvc;
 
