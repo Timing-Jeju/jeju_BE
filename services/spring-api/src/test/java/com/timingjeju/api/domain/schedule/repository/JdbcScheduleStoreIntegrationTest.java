@@ -84,7 +84,7 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
               jdbc.update(
                   "update public.trip_legs set facts = ?::jsonb where id = ?",
                   """
-                  {"generation":{"schemaVersion":1,"risks":[{"level":"high","reasonCodes":["TRANSFER_SLACK_LOW"]}]}}
+                  {"derivation":"conservative_walk_v1"}
                   """,
                   LEG);
               jdbc.update(
@@ -136,6 +136,16 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
   }
 
   @Test
+  void 현행_허용된_구간_facts는_저장되며_위험_등급을_추정하지_않는다() {
+    ScheduleSnapshot schedule = store.readOwned(OWNER, TRIP, null, RESPONSE).schedule();
+    var leg = schedule.days().getFirst().legs().getFirst();
+
+    assertThat(leg.riskScore()).isEqualTo(20);
+    assertThat(leg.riskLevel()).isNull();
+    assertThat(leg.riskReasonCodes()).isEmpty();
+  }
+
+  @Test
   void active_조회는_day_item_leg_progress를_안정_순서와_fresh_score로_반환한다() {
     ScheduleLookup lookup = store.readOwned(OWNER, TRIP, null, RESPONSE);
 
@@ -154,9 +164,9 @@ class JdbcScheduleStoreIntegrationTest extends PostgreSqlRepositoryIntegrationTe
     assertThat(schedule.days().getFirst().legs()).hasSize(1);
     assertThat(schedule.days().getFirst().legs().getFirst().fromItemId()).isEqualTo(FIRST);
     assertThat(schedule.days().getFirst().legs().getFirst().toItemId()).isEqualTo(SECOND);
-    assertThat(schedule.days().getFirst().legs().getFirst().riskLevel()).isEqualTo("high");
-    assertThat(schedule.days().getFirst().legs().getFirst().riskReasonCodes())
-        .containsExactly("TRANSFER_SLACK_LOW");
+    assertThat(schedule.days().getFirst().legs().getFirst().riskScore()).isEqualTo(20);
+    assertThat(schedule.days().getFirst().legs().getFirst().riskLevel()).isNull();
+    assertThat(schedule.days().getFirst().legs().getFirst().riskReasonCodes()).isEmpty();
     assertThat(schedule.days().get(1).legs()).isEmpty();
   }
 
