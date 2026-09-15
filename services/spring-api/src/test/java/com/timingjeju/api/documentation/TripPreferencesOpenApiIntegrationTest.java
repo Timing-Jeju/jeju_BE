@@ -55,6 +55,13 @@ class TripPreferencesOpenApiIntegrationTest
   }
 
   @Test
+  void ready_preferences의_If_Match는_canonical_projection_전에_문서화된다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath(PUT + ".parameters[?(@.name=='If-Match')]").value(hasSize(1)));
+  }
+
+  @Test
   void preferences_PUT은_exact_headers_closed7field_schema와_flat_response를문서화한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
         .andExpect(status().isOk())

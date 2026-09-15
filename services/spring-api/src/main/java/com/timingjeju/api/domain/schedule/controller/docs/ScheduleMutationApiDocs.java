@@ -210,14 +210,45 @@ public interface ScheduleMutationApiDocs {
           @Content(
               mediaType = "application/json",
               schema = @Schema(implementation = PatchScheduleItemRequest.class)))
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "수정된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        description = "수정된 새 일정 버전",
+        content =
+            @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = ScheduleMutationResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "422",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
   ResponseEntity<byte[]> patchItem(
       String tripId,
       String itemId,
@@ -227,14 +258,45 @@ public interface ScheduleMutationApiDocs {
       HttpServletRequest servletRequest);
 
   @Operation(operationId = "tripScheduleItemDelete", tags = "일정", summary = "일정 항목 삭제")
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "삭제가 반영된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        description = "삭제가 반영된 새 일정 버전",
+        content =
+            @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = ScheduleMutationResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "422",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
   ResponseEntity<byte[]> deleteItem(
       String tripId,
       String itemId,
@@ -250,14 +312,45 @@ public interface ScheduleMutationApiDocs {
           @Content(
               mediaType = "application/json",
               schema = @Schema(implementation = ReorderScheduleRequest.class)))
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "순서가 반영된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        description = "순서가 반영된 새 일정 버전",
+        content =
+            @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = ScheduleMutationResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "422",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
   ResponseEntity<byte[]> reorder(
       String tripId,
       String ifMatch,
@@ -272,14 +365,45 @@ public interface ScheduleMutationApiDocs {
           @Content(
               mediaType = "application/json",
               schema = @Schema(implementation = MoveScheduleItemRequest.class)))
-  @ApiResponses(
-      @ApiResponse(
-          responseCode = "200",
-          description = "Day 이동이 반영된 새 일정 버전",
-          content =
-              @Content(
-                  mediaType = "application/json",
-                  schema = @Schema(implementation = ScheduleMutationResponse.class))))
+  @ApiResponses({
+    @ApiResponse(
+        responseCode = "200",
+        description = "Day 이동이 반영된 새 일정 버전",
+        content =
+            @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = ScheduleMutationResponse.class))),
+    @ApiResponse(
+        responseCode = "400",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "401",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "409",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "422",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class)))
+  })
   ResponseEntity<byte[]> moveItem(
       String tripId,
       String itemId,

@@ -226,6 +226,15 @@ final class FrontendOpenApiCustomizer {
     alignNullableCursorSchemas(openApi);
     addHeaderComponents(openApi);
     documentComponentProblems(openApi);
+    DOCUMENTS
+        .keySet()
+        .forEach(
+            key -> {
+              Operation documented = operation(openApi, key);
+              if (documented != null) {
+                documentConditionalHeaders(key, documented);
+              }
+            });
     projectCanonicalContracts(openApi);
     DOCUMENTS.forEach((key, document) -> applyOperation(openApi, key, document));
     alignNullableTripReferences(openApi);
@@ -725,8 +734,12 @@ final class FrontendOpenApiCustomizer {
                       RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
                 }
               } else if (status.startsWith("4") || status.startsWith("5")) {
-                documentProblem(
-                    response, Integer.parseInt(status), document.errorCodes().get(status), key);
+                if (!(key.contains("/api/v1/trips/{tripId}/accommodations")
+                    && response.getExtensions() != null
+                    && response.getExtensions().containsKey("x-error-codes"))) {
+                  documentProblem(
+                      response, Integer.parseInt(status), document.errorCodes().get(status), key);
+                }
               }
             });
     if (key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
@@ -1007,8 +1020,14 @@ final class FrontendOpenApiCustomizer {
           "44000000-0000-4000-8000-000000000044");
     } else if (key.equals("GET /api/v1/trips")) {
       setParameterExample(operation, "sort", "updated_at_desc");
-    } else if (key.equals("PATCH /api/v1/trips/{tripId}")
-        || key.equals("PUT /api/v1/trips/{tripId}/preferences")
+    } else if (key.equals("PATCH /api/v1/trips/{tripId}")) {
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 상세 응답의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema().pattern("^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"),
+          "\"trip-44000000-0000-4000-8000-000000000044-r1\"");
+    } else if (key.equals("PUT /api/v1/trips/{tripId}/preferences")
         || key.equals("PUT /api/v1/trips/{tripId}/place-preferences")) {
       mergeRequiredHeader(
           operation,
