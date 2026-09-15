@@ -4,15 +4,18 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.UUID;
 import org.springframework.ai.mcp.client.webflux.transport.WebClientStreamableHttpTransport;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.reactive.JdkClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -20,6 +23,12 @@ import tools.jackson.databind.json.JsonMapper;
 @ConditionalOnProperty(prefix = "app.mcp", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(McpPrivateProperties.class)
 public class McpPrivateClientConfiguration {
+
+  @Bean(destroyMethod = "close")
+  HttpClient jejuMcpHttpClient(
+      @Value("${app.mcp.tls-trust-certificate-file:}") String certificateFile) {
+    return McpTlsHttpClient.create(certificateFile);
+  }
 
   @Bean
   McpServiceJwtIssuer mcpServiceJwtIssuer(McpPrivateProperties properties, JsonMapper jsonMapper) {
@@ -39,10 +48,13 @@ public class McpPrivateClientConfiguration {
 
   @Bean(destroyMethod = "close")
   McpSyncClient jejuPlannerMcpSyncClient(
-      McpPrivateProperties properties, McpServiceJwtIssuer jwtIssuer, JsonMapper jsonMapper) {
+      McpPrivateProperties properties,
+      McpServiceJwtIssuer jwtIssuer,
+      JsonMapper jsonMapper,
+      @Qualifier("jejuMcpHttpClient") HttpClient httpClient) {
     Duration timeout =
         properties.requestTimeout() == null ? Duration.ofSeconds(35) : properties.requestTimeout();
-    return buildClient(properties, jwtIssuer, jsonMapper, timeout);
+    return buildClient(properties, jwtIssuer, jsonMapper, timeout, httpClient);
   }
 
   @Bean(destroyMethod = "close")
@@ -51,17 +63,21 @@ public class McpPrivateClientConfiguration {
       McpPrivateProperties properties,
       McpServiceJwtIssuer jwtIssuer,
       JsonMapper jsonMapper,
+      @Qualifier("jejuMcpHttpClient") HttpClient httpClient,
       @Value("${app.mcp.generation-request-timeout:165s}") Duration timeout) {
-    return buildClient(properties, jwtIssuer, jsonMapper, resolveRequestTimeout(timeout));
+    return buildClient(
+        properties, jwtIssuer, jsonMapper, resolveRequestTimeout(timeout), httpClient);
   }
 
   private McpSyncClient buildClient(
       McpPrivateProperties properties,
       McpServiceJwtIssuer jwtIssuer,
       JsonMapper jsonMapper,
-      Duration timeout) {
+      Duration timeout,
+      HttpClient httpClient) {
     WebClient.Builder authenticatedClient =
         WebClient.builder()
+            .clientConnector(new JdkClientHttpConnector(httpClient))
             .baseUrl(properties.baseUrl().toString())
             .filter(McpPrivateRequestFilter.create(jwtIssuer));
     var transport =
