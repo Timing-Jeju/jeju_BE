@@ -69,12 +69,12 @@ variable "enable_iap_ssh" {
   type        = bool
   default     = false
 }
-variable "runtime_env_secret" {
+variable "runtime_env_secret_id" {
   description = "Existing same-project Secret Manager secret ID containing Docker env-file values; payload never enters Terraform."
   type        = string
   default     = "timing-jeju-be-runtime-env"
   validation {
-    condition     = can(regex("^[A-Za-z0-9_-]{1,255}$", var.runtime_env_secret))
+    condition     = can(regex("^[A-Za-z0-9_-]{1,255}$", var.runtime_env_secret_id))
     error_message = "Use a Secret Manager ID, not a path or secret value."
   }
 }

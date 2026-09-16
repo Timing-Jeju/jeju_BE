@@ -6,7 +6,7 @@ zone        = "asia-northeast3-a"
 # First pass creates foundation + empty secret containers only.
 runtime_enabled          = false
 create_secret_containers = true
-runtime_env_secret       = "timing-jeju-be-runtime-env"
+runtime_env_secret_id    = "timing-jeju-be-runtime-env"
 runtime_env_version      = "1"
 secret_files = {
   "mcp-signing-descriptor.json" = { secret_id = "timing-jeju-mcp-signing-descriptor", version = "1" }

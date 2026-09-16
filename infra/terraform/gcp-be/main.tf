@@ -1,6 +1,6 @@
 locals {
   services   = toset(["compute.googleapis.com", "artifactregistry.googleapis.com", "secretmanager.googleapis.com", "iam.googleapis.com", "iap.googleapis.com"])
-  secret_ids = toset(concat([var.runtime_env_secret], [for item in values(var.secret_files) : item.secret_id]))
+  secret_ids = toset(concat([var.runtime_env_secret_id], [for item in values(var.secret_files) : item.secret_id]))
 }
 
 resource "google_project_service" "required" {
@@ -132,7 +132,7 @@ resource "google_compute_instance" "be" {
       project     = var.project_id
       registry    = "${var.region}-docker.pkg.dev"
       image       = var.image
-      environment = { secret_id = var.runtime_env_secret, version = var.runtime_env_version }
+      environment = { secret_id = var.runtime_env_secret_id, version = var.runtime_env_version }
       files       = var.secret_files
       hosts       = var.private_host_mappings
     }))

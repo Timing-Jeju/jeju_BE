@@ -17,7 +17,7 @@ DNS 자동 설정은 수행하지 않는다.
 기본 구성은 같은 프로젝트에 빈 Secret Manager 비밀 리소스만 만들며 버전은 만들지 않는다.
 런타임 활성화 전에 별도 절차로 값을 등록하고 숫자 버전을 지정한다.
 기존 비밀 리소스를 사용하려면 `create_secret_containers=false`로 설정하거나 먼저 import한다.
-`runtime_env_secret`은 환경 설정용 비밀 리소스 이름이다.
+`runtime_env_secret_id`는 환경 설정용 비밀 리소스 이름이다.
 Terraform은 런타임 서비스 계정에 해당 ID와 `secret_files`의 ID에 대한 접근 권한만 부여한다.
 비밀값은 Terraform 변수, 리소스, 데이터 소스, state에 넣지 않는다.
 실제 비밀값을 tfvars, plan, 셸 기록 또는 저장소에 남기지 않는다.
