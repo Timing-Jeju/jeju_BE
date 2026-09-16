@@ -55,6 +55,7 @@ CANONICAL_SUFFIX = (
     ("20260919030000_account_deletion_security_correction.sql", "074", 61),
     ("20260919040000_account_deletion_worker_fencing.sql", "075", 106),
     ("20260919050000_generation_leg_facts_contract_correction.sql", "076", 261),
+    ("20260919060000_official_airport_binding.sql", "077", 271),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -77,12 +78,39 @@ def digest(path: Path) -> str:
 
 
 class CanonicalMigrationOrderTest(unittest.TestCase):
+    def test_java_upgrade_execution_suffix_matches_complete_manifest(self) -> None:
+        """Java 업그레이드 실행 목록이 원자 그룹을 반영한 전체 manifest와 일치하는지 검증한다."""
+        source = (ROOT / (
+            "services/spring-api/src/test/java/com/timingjeju/api/support/postgresql/"
+            "CanonicalMigrationOrderIntegrationTest.java"
+        )).read_text(encoding="utf-8")
+        constants = dict(re.findall(
+            r'private static final String\s+(\w+)\s*=\s*"([^"]+)";', source
+        ))
+        declaration = re.search(
+            r'CANONICAL_EXECUTION_SUFFIX\s*=\s*List\.of\((.*?)\);', source, re.S
+        )
+        self.assertIsNotNone(declaration)
+        actual = []
+        for entry in declaration.group(1).split(","):
+            entry = entry.strip()
+            actual.append(entry[1:-1] if entry.startswith('"') else constants[entry])
+        expected = []
+        for entry in json.loads(MANIFEST.read_text(encoding="utf-8"))["canonicalSuffix"]:
+            if entry["initSlot"] == "056":
+                continue
+            expected.append(
+                "20260918000017_location_cutover_group.sql"
+                if entry["initSlot"] == "055" else Path(entry["path"]).name
+            )
+        self.assertEqual(expected, actual)
+
     def test_architecture_documents_complete_canonical_suffix_and_title_only_correction(self) -> None:
         """최종 migration과 Docker 슬롯 범위가 아키텍처 설명과 일치한다."""
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `076`", architecture)
+        self.assertIn("Docker init `038`부터 `077`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:

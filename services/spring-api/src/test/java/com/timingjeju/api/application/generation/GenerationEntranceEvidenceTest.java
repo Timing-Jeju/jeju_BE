@@ -11,6 +11,27 @@ import tools.jackson.databind.json.JsonMapper;
 class GenerationEntranceEvidenceTest {
   private final JsonMapper mapper = JsonMapper.builder().build();
   private static final String SOURCE = "travel.place-entrance-map";
+
+  @Test
+  void 공항_대표좌표는_검증입구가_아닌_대표점으로만_허용한다() {
+    var response =
+        mapper.readTree(
+            """
+      {"data_sources":[{"source_id":"kac.airport"}],"evidence_facts":[
+      {"fact_id":"kac.airport:CJU","category":"place","value":{},"source_refs":[{"source_id":"kac.airport"}],"derivation":{"kind":"source","input_fact_ids":[]}}],
+      "recommendations":[],"place_decisions":[]}
+      """);
+    var evidence = GenerationEntranceEvidence.from(response, Set.of("kac.airport"));
+    assertThat(
+            evidence.requireEndpoint(
+                "place-point:kac.airport:CJU", "kac.airport:CJU", Set.of("kac.airport:CJU")))
+        .isTrue();
+    assertThatThrownBy(
+            () ->
+                evidence.require("airport-entrance", "kac.airport:CJU", Set.of("kac.airport:CJU")))
+        .isInstanceOf(GenerationException.class);
+  }
+
   private static final String RESPONSE =
       """
       {"data_sources":[{"source_id":"travel.place-entrance-map"}],

@@ -97,7 +97,7 @@ class MobilityOwnershipContractTest {
     // #53의 생성 endpoint와 #61의 계정 탈퇴 controller mapping을 함께 센다.
     assertThat(mappingAnnotationCount()).isEqualTo(66);
     assertThat(migrationInventory())
-        .hasSize(74)
+        .hasSize(75)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -124,11 +124,12 @@ class MobilityOwnershipContractTest {
             "20260919020000_account_deletion_retention_contract.sql",
             "20260919030000_account_deletion_security_correction.sql",
             "20260919040000_account_deletion_worker_fencing.sql",
-            "20260919050000_generation_leg_facts_contract_correction.sql");
+            "20260919050000_generation_leg_facts_contract_correction.sql",
+            "20260919060000_official_airport_binding.sql");
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260919050000_generation_leg_facts_contract_correction.sql");
+        .isEqualTo("20260919060000_official_airport_binding.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {

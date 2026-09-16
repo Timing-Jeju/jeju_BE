@@ -24,9 +24,13 @@ public final class GenerationEntranceEvidence {
     var representativePlaces = new HashSet<String>();
     for (var fact : response.get("evidence_facts")) {
       var id = text(fact.get("fact_id"));
-      if (id.matches("tourapi\\.place:[0-9]{1,32}")
+      if (GenerationPlaceBindings.approvedFactId(id)
           && "source".equals(fact.path("derivation").path("kind").asText())
-          && evidence.facts().get(id).sourceIds().equals(Set.of("tourapi.place")))
+          && evidence
+              .facts()
+              .get(id)
+              .sourceIds()
+              .equals(Set.of(GenerationPlaceBindings.sourceForFactId(id))))
         representativePlaces.add(id);
       if (!"place_entrance".equals(fact.path("category").asText())) continue;
       var factId = text(fact.get("fact_id"));
@@ -36,7 +40,7 @@ public final class GenerationEntranceEvidence {
       if (value == null || !value.isObject()) throw invalid();
       var entranceId = text(value.get("entrance_id"));
       var placeId = text(value.get("place_id"));
-      if (!placeId.matches("tourapi\\.place:[0-9]{1,32}")) throw invalid();
+      if (!GenerationPlaceBindings.approvedFactId(placeId)) throw invalid();
       var known = bindings.get(entranceId);
       if (known != null && !known.placeId().equals(placeId)) throw invalid();
       var facts = new HashSet<String>();

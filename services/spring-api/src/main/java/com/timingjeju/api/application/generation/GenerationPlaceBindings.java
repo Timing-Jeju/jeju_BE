@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/** 승인된 TourAPI canonical 조회 결과의 요청 단위 매핑. 사용자 입력이나 이름 검색을 받지 않는다. */
+/** 승인된 TourAPI 및 KAC 공항 canonical 조회 결과의 요청 단위 매핑. */
 public final class GenerationPlaceBindings {
   private final Map<UUID, Place> byCanonical;
   private final Map<String, UUID> byFact;
@@ -52,18 +52,32 @@ public final class GenerationPlaceBindings {
     return place;
   }
 
-  public record Place(UUID canonicalId, String contentId, String officialName) {
+  public static boolean approvedFactId(String id) {
+    return id != null
+        && (id.matches("tourapi\\.place:[0-9]{1,32}") || id.equals("kac.airport:CJU"));
+  }
+
+  public static String sourceForFactId(String id) {
+    if (!approvedFactId(id)) throw GenerationException.inputUnavailable();
+    return id.substring(0, id.indexOf(':'));
+  }
+
+  public record Place(UUID canonicalId, String contentId, String officialName, String sourceId) {
+    public Place(UUID canonicalId, String contentId, String officialName) {
+      this(canonicalId, contentId, officialName, "tourapi.place");
+    }
+
     public Place {
       if (canonicalId == null
           || contentId == null
-          || !contentId.matches("[0-9]{1,32}")
+          || !approvedFactId(sourceId + ":" + contentId)
           || officialName == null
           || officialName.isBlank()) throw GenerationException.inputUnavailable();
     }
 
     public String factId() {
-      // AI public_data_normalizers.normalize_tour_places의 publication identity 계약.
-      return "tourapi.place:" + contentId;
+      // AI의 승인된 source별 publication identity만 사용한다.
+      return sourceId + ":" + contentId;
     }
   }
 }

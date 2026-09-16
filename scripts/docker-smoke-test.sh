@@ -221,6 +221,7 @@ echo "[Docker] Health Check 성공"
 # Unresolved ferry terminals follow at /docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql.
 # Existing manual Day 1 bases follow at /docker-entrypoint-initdb.d/068_generation_existing_base_input.sql.
 # Exact bus duration components follow at /docker-entrypoint-initdb.d/069_generation_leg_precision.sql.
+# Approved official airport binding follows at /docker-entrypoint-initdb.d/077_official_airport_binding.sql.
 # Planner place drafts follow at /docker-entrypoint-initdb.d/061_planner_place_preferences.sql.
 # Verify the owner-only cutover marker and zero counts without logging user values.
 docker compose -p "$PROJECT" -f compose.test.yml exec -T postgres \

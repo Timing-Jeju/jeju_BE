@@ -32,9 +32,10 @@ public class JdbcTripAirportResolver implements TripAirportResolver {
         .queryForList(
             """
         select id from public.tour_places where id=? and name='제주국제공항'
-          and content_id is not null and not stale
-          and exists(select 1 from public.data_import_runs r where r.id=tour_places.import_run_id
-            and r.source_kind='tour_api' and r.status='succeeded')
+          and not stale
+          and ((content_id is not null and exists(select 1 from public.data_import_runs r where r.id=tour_places.import_run_id
+            and r.source_kind='tour_api' and r.status='succeeded'))
+            or exists(select 1 from public.approved_airport_places a where a.id=tour_places.id))
           and (stale_at is null or stale_at>statement_timestamp())
           and tombstoned_at is null and source_deleted_at is null for share
         """,

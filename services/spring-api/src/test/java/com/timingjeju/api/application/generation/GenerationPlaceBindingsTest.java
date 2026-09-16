@@ -12,6 +12,19 @@ class GenerationPlaceBindingsTest {
   private static final UUID PLACE = new UUID(79, 1);
 
   @Test
+  void 공항_출처는_TourAPI로_위조하지_않고_승인된_CJU만_연결한다() {
+    var binding =
+        new GenerationPlaceBindings(
+            List.of(new GenerationPlaceBindings.Place(PLACE, "CJU", "제주국제공항", "kac.airport")));
+    assertThat(binding.factId(PLACE)).isEqualTo("kac.airport:CJU");
+    assertThat(binding.canonicalId("kac.airport:CJU")).isEqualTo(PLACE);
+    assertThatThrownBy(() -> new GenerationPlaceBindings.Place(PLACE, "GMP", "김포", "kac.airport"))
+        .isInstanceOf(GenerationException.class);
+    assertThatThrownBy(() -> new GenerationPlaceBindings.Place(PLACE, "CJU", "제주", "unknown"))
+        .isInstanceOf(GenerationException.class);
+  }
+
+  @Test
   void 승인된_TourAPI_contentId로_양방향_식별자를_연결하고_UUID를_AI에_노출하지_않는다() {
     var bindings =
         new GenerationPlaceBindings(

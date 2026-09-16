@@ -47,6 +47,7 @@ class McpTlsTransportTest {
   private final JsonMapper json = new JsonMapper();
   private final AtomicInteger authenticatedRequests = new AtomicInteger();
   private HttpsServer server;
+  private String toolText = "ok";
 
   @BeforeAll
   static void 테스트_전용_TLS와_JWT_키를_임시_디렉터리에_생성한다() throws Exception {
@@ -146,7 +147,7 @@ class McpTlsTransportTest {
                   case "tools/call" ->
                       Map.of(
                           "content",
-                          java.util.List.of(Map.of("type", "text", "text", "ok")),
+                          java.util.List.of(Map.of("type", "text", "text", toolText)),
                           "isError",
                           false);
                   default -> Map.of();
@@ -209,6 +210,29 @@ class McpTlsTransportTest {
           .isInstanceOf(RuntimeException.class)
           .hasStackTraceContaining("SSLHandshakeException");
       assertThat(authenticatedRequests.get()).isZero();
+    }
+  }
+
+  @Test
+  void 기본_256KiB보다_큰_근거응답도_제한된_버퍼안에서_수신한다() {
+    toolText = "x".repeat(512 * 1024);
+    try (HttpClient http = McpTlsHttpClient.create(trustFile.toString());
+        McpSyncClient client = client(false, "localhost", http)) {
+      client.initialize();
+      var result = client.callTool(new McpSchema.CallToolRequest("probe", Map.of()));
+      assertThat(((McpSchema.TextContent) result.content().getFirst()).text().length())
+          .isEqualTo(toolText.length());
+    }
+  }
+
+  @Test
+  void 최대_4MiB를_넘는_응답은_수락하지_않는다() {
+    toolText = "x".repeat(4 * 1024 * 1024 + 1);
+    try (HttpClient http = McpTlsHttpClient.create(trustFile.toString());
+        McpSyncClient client = client(false, "localhost", http)) {
+      client.initialize();
+      assertThatThrownBy(() -> client.callTool(new McpSchema.CallToolRequest("probe", Map.of())))
+          .hasRootCauseInstanceOf(java.util.concurrent.TimeoutException.class);
     }
   }
 
