@@ -17,6 +17,9 @@ create table public.approved_airport_place_bindings (
   check (expires_at > retrieved_at and expires_at <= retrieved_at + interval '30 days')
 );
 
+create index approved_airport_place_bindings_import_run_id_idx
+  on public.approved_airport_place_bindings(import_run_id);
+
 -- 잘못된 기존 장소, 실패 import, 오래된 원본을 설정값만으로 승인하지 않는다.
 create view public.approved_airport_places as
 select p.id, p.name, b.external_id, b.source_id, b.expires_at

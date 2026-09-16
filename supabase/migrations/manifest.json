@@ -75,7 +75,7 @@
     {"path":"supabase/migrations/20260918000029_trip_ferry_unresolved_terminal.sql","initSlot":"067","owner":{"issue":53,"pullRequest":null},"sha256":"3ce244d91f8ddc7d6c0e6ec80d5c0c079ace7605d92670227235e4e9b1982c80","dependencies":["20260918000028_generation_result_projection.sql"]},
     {"path":"supabase/migrations/20260918000030_generation_existing_base_input.sql","initSlot":"068","owner":{"issue":53,"pullRequest":null},"sha256":"3b251af5b8c3beb3e454c0195bab939bb0f1f9285319812b355caecff3c8e039","dependencies":["20260918000029_trip_ferry_unresolved_terminal.sql"]},
     {"path":"supabase/migrations/20260918000031_generation_leg_precision.sql","initSlot":"069","owner":{"issue":53,"pullRequest":null},"sha256":"e9c1e47bd0f546285759876f7ff6723a4b88e00bca16b90bd9f8091633dc6f64","dependencies":["20260918000030_generation_existing_base_input.sql"]},
-    {"path":"supabase/migrations/20260918000032_official_airport_binding.sql","initSlot":"070","owner":{"issue":271,"pullRequest":null},"sha256":"facca3c9e3d94b32e9f23bb604a7d5159631495ae46fc631cacbc8a491fa147a","dependencies":["20260918000031_generation_leg_precision.sql"]}
+    {"path":"supabase/migrations/20260918000032_official_airport_binding.sql","initSlot":"070","owner":{"issue":271,"pullRequest":null},"sha256":"ad004b5cc6bfe35174e9feb777b67b3deb08956c10f743c41e1fdab2f0b5262c","dependencies":["20260918000031_generation_leg_precision.sql"]}
   ],
   "seedInitSlot": "099"
 }
