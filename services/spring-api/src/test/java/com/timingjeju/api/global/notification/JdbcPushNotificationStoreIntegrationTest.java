@@ -14,9 +14,11 @@ import com.timingjeju.api.application.notification.PushNotificationWithdrawalBou
 import com.timingjeju.api.application.notification.PushPermissionStatus;
 import com.timingjeju.api.application.notification.PushPlatform;
 import com.timingjeju.api.application.notification.RegistrationTokenProtector;
+import com.timingjeju.api.application.notification.StoredEligiblePushDevice;
 import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTestSupport;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -301,25 +303,34 @@ class JdbcPushNotificationStoreIntegrationTest extends PostgreSqlRepositoryInteg
     preferences.save(USER, new NotificationPreferenceUpdate(true, 10), NOW);
     consent(USER, LOCATION_DOCUMENT, true, null);
 
-    try (Connection writer = dataSource.getConnection();
-        var executor = Executors.newSingleThreadExecutor()) {
-      writer.setAutoCommit(false);
-      try (var lock = writer.createStatement()) {
-        lock.execute("lock table public.legal_documents in access exclusive mode");
-      }
-      var currentInvocation = executor.submit(() -> eligibility.findEligible(USER, NOW));
-      awaitLegalDocumentCandidateReadBlocked();
-      insertNewLocationDocument(writer);
-      writer.commit();
-
-      assertThat(currentInvocation.get(5, TimeUnit.SECONDS))
-          .singleElement()
-          .satisfies(
-              device ->
-                  assertThat(device.locationConsentDocumentId()).isEqualTo(LOCATION_DOCUMENT));
-    }
+    assertThat(runSnapshotReadWhileLegalDocumentsLocked(this::insertNewLocationDocument))
+        .singleElement()
+        .satisfies(
+            device -> assertThat(device.locationConsentDocumentId()).isEqualTo(LOCATION_DOCUMENT));
 
     assertThat(eligibility.findEligible(USER, NOW)).isEmpty();
+  }
+
+  @Test
+  void snapshot_중간검증이_실패해도_writer_lock을_executor보다_먼저_해제한다() {
+    insertUser(USER);
+    insertProfile(USER);
+    devices.register(USER, DEVICE, registration("token-bounded-cleanup"), NOW);
+    preferences.save(USER, new NotificationPreferenceUpdate(true, 10), NOW);
+    consent(USER, LOCATION_DOCUMENT, true, null);
+    long startedAt = System.nanoTime();
+
+    assertThatThrownBy(
+            () ->
+                runSnapshotReadWhileLegalDocumentsLocked(
+                    ignored -> {
+                      throw new IllegalStateException("intentional snapshot failure");
+                    }))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("intentional snapshot failure");
+
+    assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(5));
+    assertThat(eligibility.findEligible(USER, NOW)).hasSize(1);
   }
 
   @Test
@@ -523,6 +534,35 @@ class JdbcPushNotificationStoreIntegrationTest extends PostgreSqlRepositoryInteg
       insert.setTimestamp(2, java.sql.Timestamp.from(NOW));
       insert.executeUpdate();
     }
+  }
+
+  private List<StoredEligiblePushDevice> runSnapshotReadWhileLegalDocumentsLocked(
+      CheckedSqlAction whileBlocked) throws Exception {
+    try (var executor = Executors.newSingleThreadExecutor();
+        Connection writer = dataSource.getConnection()) {
+      writer.setAutoCommit(false);
+      boolean committed = false;
+      try {
+        try (var lock = writer.createStatement()) {
+          lock.execute("lock table public.legal_documents in access exclusive mode");
+        }
+        var currentInvocation = executor.submit(() -> eligibility.findEligible(USER, NOW));
+        awaitLegalDocumentCandidateReadBlocked();
+        whileBlocked.run(writer);
+        writer.commit();
+        committed = true;
+        return currentInvocation.get(5, TimeUnit.SECONDS);
+      } finally {
+        if (!committed) {
+          writer.rollback();
+        }
+      }
+    }
+  }
+
+  @FunctionalInterface
+  private interface CheckedSqlAction {
+    void run(Connection connection) throws Exception;
   }
 
   private void awaitLegalDocumentCandidateReadBlocked() throws InterruptedException {

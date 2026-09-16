@@ -226,8 +226,17 @@ final class FrontendOpenApiCustomizer {
     alignNullableCursorSchemas(openApi);
     addHeaderComponents(openApi);
     documentComponentProblems(openApi);
-    DOCUMENTS.forEach((key, document) -> applyOperation(openApi, key, document));
+    DOCUMENTS
+        .keySet()
+        .forEach(
+            key -> {
+              Operation documented = operation(openApi, key);
+              if (documented != null) {
+                documentConditionalHeaders(key, documented);
+              }
+            });
     projectCanonicalContracts(openApi);
+    DOCUMENTS.forEach((key, document) -> applyOperation(openApi, key, document));
     alignNullableTripReferences(openApi);
   }
 
@@ -328,10 +337,7 @@ final class FrontendOpenApiCustomizer {
       successStatuses = valueList(objectMap(endpoint.get("responses")).get("success"));
     }
     for (Object status : successStatuses) {
-      ApiResponse response = operation.getResponses().get(String.valueOf(status));
-      if (response == null) {
-        throw new IllegalStateException("OpenAPI canonical response가 없습니다: " + key + " " + status);
-      }
+      ApiResponse response = requiredCanonicalResponse(operation, key, status);
       if (!"none".equals(successSchema)) {
         jsonMedia(response.getContent())
             .setSchema(canonicalSchema(String.valueOf(successSchema), schemas, key));
@@ -340,16 +346,25 @@ final class FrontendOpenApiCustomizer {
     objectMap(endpoint.get("errorMatrix"))
         .forEach(
             (status, codes) -> {
-              ApiResponse response = operation.getResponses().get(status);
-              if (response != null) {
-                List<Object> canonicalCodes = List.copyOf(valueList(codes));
-                response.addExtension("x-error-codes", canonicalCodes);
-                if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
-                  projectAccommodationProblemExamples(
-                      response, Integer.parseInt(status), canonicalCodes, key);
-                }
+              ApiResponse response = requiredCanonicalResponse(operation, key, status);
+              List<Object> canonicalCodes = List.copyOf(valueList(codes));
+              response.addExtension("x-error-codes", canonicalCodes);
+              if (key.contains("/api/v1/trips/{tripId}/accommodations")) {
+                projectAccommodationProblemExamples(
+                    response, Integer.parseInt(status), canonicalCodes, key);
               }
             });
+  }
+
+  private static ApiResponse requiredCanonicalResponse(
+      Operation operation, String key, Object status) {
+    String statusCode = String.valueOf(status);
+    ApiResponse response = operation.getResponses().get(statusCode);
+    if (response == null) {
+      throw new IllegalStateException(
+          "OpenAPI canonical response가 없습니다: " + key + " " + statusCode);
+    }
+    return response;
   }
 
   private void projectAccommodationProblemExamples(
@@ -719,8 +734,12 @@ final class FrontendOpenApiCustomizer {
                       RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
                 }
               } else if (status.startsWith("4") || status.startsWith("5")) {
-                documentProblem(
-                    response, Integer.parseInt(status), document.errorCodes().get(status), key);
+                if (!(key.contains("/api/v1/trips/{tripId}/accommodations")
+                    && response.getExtensions() != null
+                    && response.getExtensions().containsKey("x-error-codes"))) {
+                  documentProblem(
+                      response, Integer.parseInt(status), document.errorCodes().get(status), key);
+                }
               }
             });
     if (key.equals("PUT /api/v1/trips/{tripId}/preferences")) {
@@ -1001,8 +1020,14 @@ final class FrontendOpenApiCustomizer {
           "44000000-0000-4000-8000-000000000044");
     } else if (key.equals("GET /api/v1/trips")) {
       setParameterExample(operation, "sort", "updated_at_desc");
-    } else if (key.equals("PATCH /api/v1/trips/{tripId}")
-        || key.equals("PUT /api/v1/trips/{tripId}/preferences")
+    } else if (key.equals("PATCH /api/v1/trips/{tripId}")) {
+      mergeRequiredHeader(
+          operation,
+          "If-Match",
+          "직전 여행 상세 응답의 strong ETag를 큰따옴표까지 그대로 전달합니다.",
+          new StringSchema().pattern("^\\\"[A-Za-z0-9._:-]{1,128}\\\"$"),
+          "\"trip-44000000-0000-4000-8000-000000000044-r1\"");
+    } else if (key.equals("PUT /api/v1/trips/{tripId}/preferences")
         || key.equals("PUT /api/v1/trips/{tripId}/place-preferences")) {
       mergeRequiredHeader(
           operation,
@@ -1246,23 +1271,7 @@ final class FrontendOpenApiCustomizer {
     String code = configuredCode == null ? defaultCode(status) : configuredCode;
     response.addHeaderObject(RequestTraceId.TRACE_ID_HEADER, new Header().$ref(TRACE_HEADER));
     MediaType media = new MediaType().schema(new Schema<>().$ref(PROBLEM_SCHEMA));
-    List<String> codes =
-        isScheduleMutation(operationKey)
-            ? scheduleProblems(operationKey, String.valueOf(status))
-            : null;
-    if ("PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)
-        || "DELETE /api/v1/trips/{tripId}/transport-event".equals(operationKey)) {
-      codes =
-          switch (status) {
-            case 400 -> List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID");
-            case 409 ->
-                List.of(
-                    "TRIP_VERSION_CONFLICT",
-                    "TRIP_TERMINAL_STATE_CONFLICT",
-                    "IDEMPOTENCY_KEY_REUSED");
-            default -> null;
-          };
-    }
+    List<String> codes = operationProblems(operationKey, String.valueOf(status));
     if (codes == null) {
       media.setExample(problemExample(status, code, operationKey));
     } else {
@@ -1391,6 +1400,31 @@ final class FrontendOpenApiCustomizer {
       if (operationKey.startsWith("DELETE") || operationKey.endsWith("/move"))
         base.add("SCHEDULE_DAY_EMPTY");
       return base;
+    }
+    return null;
+  }
+
+  private static List<String> operationProblems(String operationKey, String status) {
+    if (isScheduleMutation(operationKey)) {
+      return scheduleProblems(operationKey, status);
+    }
+    if ("PUT /api/v1/trips/{tripId}/transport-event".equals(operationKey)
+        || "DELETE /api/v1/trips/{tripId}/transport-event".equals(operationKey)) {
+      return switch (status) {
+        case "400" -> List.of("INVALID_REQUEST", "IDEMPOTENCY_KEY_INVALID");
+        case "409" ->
+            List.of(
+                "TRIP_VERSION_CONFLICT", "TRIP_TERMINAL_STATE_CONFLICT", "IDEMPOTENCY_KEY_REUSED");
+        default -> null;
+      };
+    }
+    if ("GET /api/v1/weather/forecast".equals(operationKey)) {
+      return switch (status) {
+        case "401" -> List.of("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN");
+        case "422" ->
+            List.of("WEATHER_FORECAST_HORIZON_NOT_SUPPORTED", "WEATHER_LOCATION_NOT_SUPPORTED");
+        default -> null;
+      };
     }
     return null;
   }

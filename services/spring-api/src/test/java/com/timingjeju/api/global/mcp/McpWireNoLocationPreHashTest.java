@@ -78,7 +78,17 @@ class McpWireNoLocationPreHashTest {
     return new McpInvocation(
         EVALUATE_TOOL,
         "request-0001",
-        Map.of("request", historicalRequest().get("itinerary")),
+        Map.of(
+            "request",
+            Map.of(
+                "regionCode", "jeju-si",
+                "placeId", "planned-place",
+                "stopId", "planned-stop",
+                "plannedPlaceId", "planned-place",
+                "plannedStopId", "planned-stop",
+                "tripItemId", "planned-item",
+                "tripLegId", "planned-leg",
+                "travelSpeedAssumption", "leisurely")),
         "a".repeat(64),
         McpCallParent.forComputeRun(UUID.fromString("44000000-0000-0000-0000-000000000001")),
         Map.of(),
@@ -227,5 +237,103 @@ class McpWireNoLocationPreHashTest {
       hashes.verifyNoInteractions();
     }
     verifyNoInteractions(sdk, audit);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "GPS",
+        "co-ordinate",
+        "COORDINATES",
+        "tele_metry",
+        "LaT",
+        "L-N-G",
+        "l.o.n",
+        "LAT-itude",
+        "long_itude",
+        "accur-acy",
+        "ALTI_TUDE",
+        "head.ing",
+        "BEAR-ING",
+        "s_p_e_e_d",
+        "VeloCity",
+        "COUR-SE",
+        "geo.hash",
+        "GRID",
+        "grid-x",
+        "GRID_Y",
+        "coarse-location"
+      })
+  void generic_GPS_좌표_telemetry_alias는_중첩_배열에서도_hash_wire_audit_전에_거부한다(String key)
+      throws java.io.IOException {
+    when(guard.validateArguments(any(), any(), any())).thenAnswer(call -> call.getArgument(1));
+    var planned = plannedEvaluation();
+    var request =
+        mapper.convertValue(
+            planned.arguments().get("request"),
+            new TypeReference<LinkedHashMap<String, Object>>() {});
+    String rawLocation = "33.499999,126.599999-secret";
+    request.put("facts", List.of(Map.of("nested", Map.of(key, rawLocation))));
+    var invocation =
+        new McpInvocation(
+            EVALUATE_TOOL,
+            "request-0001",
+            Map.of("request", request),
+            "a".repeat(64),
+            McpCallParent.forComputeRun(UUID.fromString("44000000-0000-0000-0000-000000000001")),
+            Map.of(),
+            Map.of());
+
+    try (var hashes = mockStatic(McpSchemaFingerprint.class, CALLS_REAL_METHODS)) {
+      assertThatThrownBy(() -> client().call(invocation))
+          .isInstanceOf(McpContractException.class)
+          .hasMessage("MCP_USER_LOCATION_FORBIDDEN")
+          .hasMessageNotContaining(rawLocation);
+      hashes.verifyNoInteractions();
+    }
+    verifyNoInteractions(sdk, audit);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"GRID_100M", "grid-100m", "Grid 100m"})
+  void grid_type_alias도_hash_wire_audit_전에_거부한다(String gridType) throws java.io.IOException {
+    when(guard.validateArguments(any(), any(), any())).thenAnswer(call -> call.getArgument(1));
+    var invocation = plannedEvaluation();
+    var request =
+        mapper.convertValue(
+            invocation.arguments().get("request"),
+            new TypeReference<LinkedHashMap<String, Object>>() {});
+    request.put("facts", List.of(Map.of("type", gridType)));
+    var withGrid =
+        new McpInvocation(
+            EVALUATE_TOOL,
+            "request-0001",
+            Map.of("request", request),
+            "a".repeat(64),
+            McpCallParent.forComputeRun(UUID.fromString("44000000-0000-0000-0000-000000000001")),
+            Map.of(),
+            Map.of());
+
+    try (var hashes = mockStatic(McpSchemaFingerprint.class, CALLS_REAL_METHODS)) {
+      assertThatThrownBy(() -> client().call(withGrid))
+          .isInstanceOf(McpContractException.class)
+          .hasMessage("MCP_USER_LOCATION_FORBIDDEN");
+      hashes.verifyNoInteractions();
+    }
+    verifyNoInteractions(sdk, audit);
+  }
+
+  @Test
+  void 명시_선택과_계획_anchor_및_업무용_속도_가정은_일반_alias로_오차단하지_않는다() throws java.io.IOException {
+    when(guard.validateArguments(any(), any(), any())).thenAnswer(call -> call.getArgument(1));
+    when(sdk.callTool(any())).thenThrow(new McpRemoteCallException("MCP_TOOL_ERROR", false));
+    var invocation = plannedEvaluation();
+
+    try (var hashes = mockStatic(McpSchemaFingerprint.class, CALLS_REAL_METHODS)) {
+      assertThatThrownBy(() -> client().call(invocation))
+          .isInstanceOf(McpRemoteCallException.class);
+      hashes.verify(() -> McpSchemaFingerprint.sha256(any(), any()));
+    }
+    verify(sdk).callTool(any());
   }
 }

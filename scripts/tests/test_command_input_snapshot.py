@@ -90,7 +90,7 @@ MIGRATION_TYPED_INTERNAL_HASH_CALL = re.compile(
 EXPECTED_HASH_OCCURRENCE_COUNTS = Counter(
     {
         "direct exact": 16,
-        "direct v2 exact": 20,
+        "direct v2 exact": 26,
         "catalog signature": 8,
         "v2 migration definition": 1,
         "v2 privilege signature": 1,

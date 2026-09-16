@@ -217,7 +217,7 @@
         "headers": "DeleteAccountHeaders",
         "body": "DeleteAccountRequest"
       },
-      "presence": "confirmation and Idempotency-Key required; 202 returns deletionRequestId/statusToken/statusTokenExpiresAt/pollUrl",
+      "presence": "confirmation and Idempotency-Key required; 202 returns deletionRequestId/status=queued/statusToken/statusTokenExpiresAt/pollUrl",
       "responses": {
         "success": [
           202

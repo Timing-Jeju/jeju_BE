@@ -95,10 +95,11 @@ Spring 공개 API는 springdoc-openapi로 OpenAPI 3 계약과 Swagger UI를 제�
 - 운영 또는 공유 환경에 적용된 migration은 수정하지 않고, 모든 후속 변경은 더 큰 timestamp의 새 migration으로만 추가합니다.
 - `20260918000006` `#78` 프로필 이미지 Storage migration은 `user_profiles` 상태, cleanup outbox와 public bucket의 immutable INSERT-only RLS를 additive하게 적용합니다.
 - `20260918000009`은 #38 시간표 provenance와 TAGO route reference scope를 additive하게 분리합니다.
-- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260918000032`까지 고유 timestamp와 Docker init `038`부터 `070`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
-- `20260918000032`는 공식 KAC 공항 출처를 기존 장소 UUID에 연결한다. `admin_upload` 성공 import의 dataset, checksum, source date와 장소의 provider·좌표가 일치하고 30일 검토기간이 남은 binding만 사용한다. 공항 대표점을 검증된 터미널 입구로 승격하지 않는다.
+- 마이그레이션은 최초 public 스키마부터 timestamp순으로 누적 적용합니다. `origin/develop`의 `20260907000000` 이하 35개 파일은 `supabase/migrations/manifest.json`의 SHA-256으로 동결합니다. 이후 canonical suffix는 `20260918000000`부터 `20260919060000`까지 고유 timestamp와 Docker init `038`부터 `077`을 사용합니다. #50의 exact baseline은 `20260918000007`, #51의 강화 계약은 baseline을 수정하지 않는 `20260918000008` additive migration입니다. `20260918000012`는 장소 참조 없이 nonblank title만 사용하는 meal·free_time·custom 항목도 봉인할 수 있게 하는 title-only sealing correction입니다. `20260919000000`은 #61 회원 탈퇴 request/status와 최소 recent-session helper 경계이고, `20260919010000`은 #106 삭제 worker의 lease·fencing·retry·step history를, `20260919020000`은 법적 동의 증거의 subject 연결을 제거하고 익명 보존하는 계약을 추가합니다. `20260919030000`은 profile/Auth 수명과 독립된 subject fingerprint deny 및 status-token secret cleanup 인덱스를 권한 확장 없이 추가하고, `20260919040000`은 cancellation과 첫 Storage 파괴 marker를 원자적으로 직렬화합니다. #261의 `20260919050000`은 DB020 원문을 수정하지 않고 비위치 generation leg projection에 한정된 닫힌 JSON 계약을 추가합니다. fresh install과 `origin/develop` upgrade는 같은 schema·RLS·ACL fingerprint를 만들어야 합니다.
+- `20260919060000`는 공식 KAC 공항 출처를 기존 장소 UUID에 연결한다. `admin_upload` 성공 import의 dataset, checksum, source date와 장소의 provider·좌표가 일치하고 30일 검토기간이 남은 binding만 사용한다. 공항 대표점을 검증된 터미널 입구로 승격하지 않는다.
 - `20260918000019`은 동결된 015/016을 수정하지 않고 planned route hash를 contract version → trip ID → schedule version ID → origin kind/ID → destination kind/ID의 7개 길이-prefix 필드로 교체합니다. owner/item/source ID, 좌표, mode/departure/provider/operation은 hash 입력이 아닙니다. 공개 좌표 일치 검사는 INSERT·봉인 guard에 별도로 유지합니다. exclusive lock과 단일 transaction에서 hash만 backfill하고 provenance guard를 복원합니다. 축소된 identity가 기존 UNIQUE 제약과 충돌하면 원문 hash를 노출하거나 행을 합치지 않고 전체 rollback하므로 적용 전 중복 identity 감사가 필요합니다.
 - `20260918000020`은 018 위치 감사와 worker drain을 확인하고 증명된 무위치 입력·부모 hash를 v2로 함께 변환합니다. deferred 계보 검증을 마친 뒤 위치 열·TTL 함수만 제거합니다. event 참조 함수는 검토한 signature·본문 지문을 요구하며 미분류 함수가 있으면 전체 전환을 중단합니다. 공개 장소와 계획 anchor는 보존합니다. 호환되는 v2 애플리케이션과 함께 검증해야 하며 구형 위치 수집 런타임으로 되돌리지 않습니다.
+- `20260918000032`는 `public.rls_auto_enable()`의 SECURITY DEFINER event-trigger 동작은 보존하면서 PUBLIC·anon·authenticated 직접 EXECUTE를 회수합니다. 이미 develop에 병합된 #53의 `00022`부터 `00031`까지 생성 계약을 먼저 적용합니다.
 - 로컬 Supabase와 운영 Supabase는 같은 마이그레이션을 사용하지만 Auth·DB 인스턴스와 사용자 데이터는 공유하지 않습니다.
 - Supabase 소유 `auth` 스키마·`auth.users`·`auth.uid()`는 애플리케이션 마이그레이션이 생성·교체·삭제하지 않습니다.
 - 일반 PostgreSQL Docker 검증용 호환 객체와 fixture는 `db/local-postgres`에 격리하며 운영에 적용하지 않습니다.
@@ -222,7 +223,7 @@ Spring 공개 API · 일정 계산용 facts
 ### Canonical OpenAPI의 구현 준비 상태 (#226)
 
 `FrontendOpenApiCustomizer`는 catalog의 `readiness.implementation`을 검증합니다.
-`ready`인 도메인만 canonical parameter/body/response를 투영하며 누락은 생성 오류입니다.
+`ready`인 도메인만 canonical parameter/body/success·error response를 투영하며 누락은 생성 오류입니다.
 `not-ready`인 도메인은 현행 Controller와 DTO에서 생성한 schema를 유지합니다.
 누락·중복 domain과 비정상 status/evidence는 명시적인 구성 오류로 처리합니다.
 문서 링크·예제 준비 상태를 구현 완료로 추정하거나 실제 catalog를 테스트 때문에 승격하지 않습니다.

@@ -17,7 +17,7 @@
 
 ## 등록 계약
 
-새 migration `20260918000032`는 binding 테이블과 승인 조회 view만 추가하며 실제 원본이나 장소를 자동 삽입하지 않는다.
+새 migration `20260919060000`는 binding 테이블과 승인 조회 view만 추가하며 실제 원본이나 장소를 자동 삽입하지 않는다.
 공식 원본의 별도 승인·보존 및 checksum 검증 뒤 다음 계보로 등록한다.
 
 1. `data_import_runs`: `source_kind=admin_upload`, `source_name=kac.airport`,

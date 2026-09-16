@@ -13,8 +13,10 @@ import com.timingjeju.api.support.postgresql.PostgreSqlRepositoryIntegrationTest
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -545,24 +547,41 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
                     USER_A,
                     "delete-race",
                     SavedPlaceCommand.create(PLACE_A, null, List.of(), 0, null)));
+    CountDownLatch winnerDeleted = new CountDownLatch(1);
+    CountDownLatch releaseWinner = new CountDownLatch(1);
+    CountDownLatch loserStarted = new CountDownLatch(1);
+    AtomicInteger loserBackendPid = new AtomicInteger();
     try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-      var first =
+      var winner =
           futureOutcome(
               executor,
               () -> {
-                service.delete(USER_A, PLACE_A, created.etag());
+                assertThat(repository.delete(USER_A, PLACE_A, created.etag())).isTrue();
+                winnerDeleted.countDown();
+                await(releaseWinner);
                 return null;
               });
-      var second =
+      await(winnerDeleted);
+      var loser =
           futureOutcome(
               executor,
               () -> {
+                loserBackendPid.set(jdbc.queryForObject("select pg_backend_pid()", Integer.class));
+                loserStarted.countDown();
                 service.delete(USER_A, PLACE_A, created.etag());
                 return null;
               });
-      var outcomes = List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
-      assertThat(outcomes).filteredOn("success", true).hasSize(1);
-      assertThat(outcomes).filteredOn("code", "SAVED_PLACE_NOT_FOUND").hasSize(1);
+      await(loserStarted);
+
+      try {
+        assertBackendIsBlocked(loserBackendPid.get());
+      } finally {
+        releaseWinner.countDown();
+      }
+
+      assertThat(winner.get(10, TimeUnit.SECONDS)).isEqualTo(new Outcome(true, null));
+      assertThat(loser.get(10, TimeUnit.SECONDS))
+          .isEqualTo(new Outcome(false, "SAVED_PLACE_NOT_FOUND"));
       assertThat(savedPlaceCount()).isZero();
     }
   }
@@ -777,6 +796,34 @@ class JdbcSavedPlaceRepositoryIntegrationTest extends PostgreSqlRepositoryIntegr
   private <T> CompletableFuture<T> future(
       java.util.concurrent.Executor executor, java.util.function.Supplier<T> work) {
     return CompletableFuture.supplyAsync(() -> tx(work), executor);
+  }
+
+  private void assertBackendIsBlocked(int backendPid) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    boolean blocked;
+    do {
+      jdbc.execute("select pg_stat_clear_snapshot()");
+      blocked =
+          Boolean.TRUE.equals(
+              jdbc.queryForObject(
+                  "select cardinality(pg_blocking_pids(?)) > 0", Boolean.class, backendPid));
+      if (!blocked) {
+        java.util.concurrent.locks.LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+      }
+    } while (!blocked && System.nanoTime() < deadline);
+
+    assertThat(blocked)
+        .as("PostgreSQL backend %s should be waiting for the winning DELETE lock", backendPid)
+        .isTrue();
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      assertThat(latch.await(10, TimeUnit.SECONDS)).as("concurrency barrier reached").isTrue();
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError("interrupted while awaiting concurrency barrier", exception);
+    }
   }
 
   private CompletableFuture<Outcome> futureOutcome(

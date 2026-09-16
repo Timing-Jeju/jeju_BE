@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+HASH_CALL_NAME = "public.compute_" + "command_input_hash("
 MIGRATION_NAME = "20260830000000_schedule_revision_run_foundation.sql"
 MIGRATION = ROOT / "supabase" / "migrations" / MIGRATION_NAME
 
@@ -72,7 +73,8 @@ def assert_revision_negative_fixture_is_self_contained(section: str) -> None:
             "'f1610000-0000-0000-0000-000000000001', "
             "'f1630000-0000-0000-0000-000000000001', "
             "'f1620000-0000-0000-0000-000000000001', 'revision-v1', "
-            "'algorithm-v1', 'f1650000-0000-0000-0000-000000000001', repeat('a', 64) )"
+            "'algorithm-v1', 'f1650000-0000-0000-0000-000000000001', "
+            + HASH_CALL_NAME
         ),
         "owner-only-b": (
             "'schedule revision owner lineage mismatch', $statement$ insert into "
@@ -108,15 +110,17 @@ def assert_revision_negative_fixture_is_self_contained(section: str) -> None:
     for label, expected_tuple in expected_structural_tuples.items():
         if expected_tuple not in section:
             raise AssertionError(f"schedule revision 구조 tuple drift: {label}")
-    for mismatch_label in (
-        "schedule revision owner lineage mismatch",
-        "schedule revision base lineage mismatch",
-        "schedule revision day lineage mismatch",
-    ):
+    for mismatch_label, expected_constraint in {
+        "schedule revision owner lineage mismatch": "fk_schedule_revision_runs_owner_trip",
+        "schedule revision base lineage mismatch": "fk_schedule_revision_runs_base_schedule",
+        "schedule revision day lineage mismatch": "fk_schedule_revision_runs_target_day",
+    }.items():
         mismatch = section.split(mismatch_label, 1)[1]
         mismatch = mismatch.split("select pg_temp.expect_rejected", 1)[0]
-        if "array['23503']" not in mismatch:
-            raise AssertionError(f"schedule revision FK SQLSTATE drift: {mismatch_label}")
+        if f"'23503', '{expected_constraint}'" not in mismatch:
+            raise AssertionError(
+                f"schedule revision FK SQLSTATE/constraint drift: {mismatch_label}"
+            )
 
 
 def mutate_after(section: str, marker: str, old: str, new: str) -> str:
@@ -331,6 +335,32 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         for contents in (db_readme, architecture, schema_doc, dbml):
             self.assertIn("schedule_revision_runs", contents)
 
+    def test_smoke_revision_fixture_uses_v2_canonical_hash_without_removed_guard(self):
+        smoke = compact_sql(
+            (ROOT / "db/queries/smoke_check.sql").read_text(encoding="utf-8")
+        )
+        section = smoke.split("revision_run_id constant uuid", 1)[1]
+        section = section.split("revision_default text", 1)[0]
+
+        self.assertNotIn("repeat(", section)
+        self.assertNotIn("aaa_independent_hash_provenance", smoke)
+        parent = section.index("insert into public.schedule_revision_runs")
+        command_input = section.index("insert into public.compute_run_inputs")
+        immutable_update = section.index(
+            "update public.schedule_revision_runs set request_hash"
+        )
+        self.assertLess(parent, command_input)
+        self.assertLess(command_input, immutable_update)
+        self.assertEqual(2, section.count(HASH_CALL_NAME))
+        self.assertEqual(2, section.count("2::smallint"))
+        self.assertNotIn("false::boolean", section)
+        self.assertNotIn("null::jsonb", section)
+        self.assertIn("schedule revision run cascade cleanup failed", section)
+        self.assertNotIn("set constraints all", section)
+        self.assertNotIn("set constraints revision_parent_input_lineage", section)
+        self.assertIn("begin; do $$ declare revision_run_id", smoke)
+        self.assertIn("schedule revision run cascade cleanup failed'; end if; end $$; commit;", smoke)
+
     def test_negative_and_two_session_contracts_cover_revision_run_invariants(self):
         negative = compact_sql(
             (ROOT / "db/queries/database_negative_constraints.sql").read_text(
@@ -357,6 +387,33 @@ class ScheduleRevisionRunFoundationTest(unittest.TestCase):
         self.assertRegex(
             concurrency, r"dblink_send_query\(\s*'schedule_revision_b'"
         )
+
+    def test_revision_negative_fixture_uses_v2_canonical_hash_and_exact_constraints(self):
+        negative = compact_sql(
+            (ROOT / "db/queries/database_negative_constraints.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        section = negative.split("select public.create_local_test_user(", 1)[1]
+        section = section.split("schedule revision identity is immutable", 1)[0]
+
+        self.assertNotIn("repeat(", section)
+        self.assertNotIn("aaa_independent_hash_provenance", section)
+        initial = section.index("insert into public.schedule_revision_runs")
+        owner_negative = section.index("schedule revision owner lineage mismatch")
+        base_negative = section.index("schedule revision base lineage mismatch")
+        day_negative = section.index("schedule revision day lineage mismatch")
+        self.assertNotIn("set constraints all", section)
+        positions = [
+            initial,
+            owner_negative,
+            base_negative,
+            day_negative,
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual(len(positions), len(set(positions)))
+        self.assertEqual(4, section.count(HASH_CALL_NAME))
+        self.assertEqual(4, section.count("2::smallint"))
 
     def test_revision_negative_fixtures_do_not_depend_on_demo_seed(self):
         negative = compact_sql(

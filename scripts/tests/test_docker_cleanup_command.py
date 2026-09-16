@@ -66,7 +66,7 @@ class DockerCleanupCommandTest(unittest.TestCase):
         """부모가 먼저 종료해도 관찰한 자식 프로세스를 회수한다."""
         with tempfile.TemporaryDirectory() as directory:
             pid_path = Path(directory) / "child.pid"
-            command = "import subprocess,sys,time; from pathlib import Path; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); Path(sys.argv[1]).write_text(str(child.pid)); time.sleep(0.3)"
+            command = "import subprocess,sys,time; from pathlib import Path; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); Path(sys.argv[1]).write_text(str(child.pid)); time.sleep(0.02)"
             status, _ = self.module.run([sys.executable, "-c", command, str(pid_path)])
             child_pid = pid_path.read_text()
             probe = subprocess.run(["ps", "-p", child_pid, "-o", "stat="], capture_output=True, text=True)
@@ -77,3 +77,23 @@ class DockerCleanupCommandTest(unittest.TestCase):
                 if probe.returncode == 0 and not probe.stdout.strip().startswith("Z"):
                     # Synthetic child belongs to this test; release the RED fixture.
                     os.kill(int(child_pid), signal.SIGTERM)
+
+    def test_detached_session_is_not_signaled_as_an_owned_group_member(self):
+        """명령이 만든 별도 세션은 소유 그룹이 아니므로 신호 대상에 넣지 않는다."""
+        with tempfile.TemporaryDirectory() as directory:
+            pid_path = Path(directory) / "detached.pid"
+            command = (
+                "import subprocess,sys; from pathlib import Path; "
+                "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], "
+                "start_new_session=True); Path(sys.argv[1]).write_text(str(child.pid))"
+            )
+            status, _ = self.module.run([sys.executable, "-c", command, str(pid_path)])
+            child_pid = int(pid_path.read_text())
+            try:
+                probe = subprocess.run(["ps", "-p", str(child_pid), "-o", "stat="],
+                                       capture_output=True, text=True)
+                self.assertEqual(0, status)
+                self.assertEqual(0, probe.returncode)
+                self.assertFalse(probe.stdout.strip().startswith("Z"))
+            finally:
+                os.kill(child_pid, signal.SIGTERM)

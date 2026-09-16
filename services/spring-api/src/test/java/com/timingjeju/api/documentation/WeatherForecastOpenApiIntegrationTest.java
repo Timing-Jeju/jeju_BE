@@ -99,6 +99,40 @@ class WeatherForecastOpenApiIntegrationTest {
             jsonPath(
                     "$.paths['/api/v1/weather/forecast'].get.responses['404'].content['application/problem+json'].example.code")
                 .value("WEATHER_REFERENCE_NOT_FOUND"))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['401'].content['application/problem+json'].examples.*.value.code")
+                .value(
+                    Matchers.containsInAnyOrder("AUTHENTICATION_REQUIRED", "INVALID_ACCESS_TOKEN")))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['401'].content['application/problem+json'].examples.*.value.status")
+                .value(Matchers.everyItem(Matchers.is(401))))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['401'].content['application/problem+json'].examples.*.value.type")
+                .value(
+                    Matchers.containsInAnyOrder(
+                        "https://api.timing-jeju.com/problems/authentication-required",
+                        "https://api.timing-jeju.com/problems/invalid-access-token")))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['422'].content['application/problem+json'].examples.*.value.code")
+                .value(
+                    Matchers.containsInAnyOrder(
+                        "WEATHER_FORECAST_HORIZON_NOT_SUPPORTED",
+                        "WEATHER_LOCATION_NOT_SUPPORTED")))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['422'].content['application/problem+json'].examples.*.value.status")
+                .value(Matchers.everyItem(Matchers.is(422))))
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/weather/forecast'].get.responses['422'].content['application/problem+json'].examples.*.value.type")
+                .value(
+                    Matchers.containsInAnyOrder(
+                        "https://api.timing-jeju.com/problems/weather-forecast-horizon-not-supported",
+                        "https://api.timing-jeju.com/problems/weather-location-not-supported")))
         .andExpect(jsonPath("$.components.schemas.WeatherGrid.additionalProperties").value(false));
   }
 

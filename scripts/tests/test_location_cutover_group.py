@@ -95,6 +95,7 @@ class LocationCutoverGroupTest(unittest.TestCase):
                 "17": [
                     "948a3dbda299b1b6621522b69c3167bb",
                     "f653e443df2891370dcb07d2ce36260e",
+                    "ff85dac74b10572b4c3935c4602d530b",
                 ],
             },
         )
@@ -110,6 +111,7 @@ class LocationCutoverGroupTest(unittest.TestCase):
         self.assertIn(b"current_setting('server_version_num')::integer / 10000", sql)
         self.assertIn(b"19745c65ef17192f09bfbb7d3167a3d1", sql)
         self.assertIn(b"948a3dbda299b1b6621522b69c3167bb", sql)
+        self.assertIn(b"ff85dac74b10572b4c3935c4602d530b", sql)
         self.assertIn(b"f653e443df2891370dcb07d2ce36260e", sql)
         self.assertIn(b"constraint_type = 'PRIMARY KEY'", sql)
         self.assertIn(b"array_agg(key_column.column_name::text", sql)

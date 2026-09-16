@@ -13,6 +13,7 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.timingjeju.api.application.pagination.CursorContextMismatchException;
 import com.timingjeju.api.application.pagination.CursorInvalidException;
+import com.timingjeju.api.application.security.AccountDeletionPendingAccess;
 import com.timingjeju.api.domain.savedplaces.dto.SavedPlaceException;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceCommand;
 import com.timingjeju.api.domain.savedplaces.model.SavedPlaceCreateResult;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Date;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,7 +54,12 @@ import org.springframework.test.web.servlet.MockMvc;
       "app.security.jwt.audience=authenticated",
       "app.security.jwt.jwks-url=",
       "app.security.cors.allowed-origins=http://localhost:3000",
-      "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes"
+      "app.places.cursor-signing-key=test-only-place-cursor-key-with-at-least-32-bytes",
+      "app.account-deletion.enabled=true",
+      "app.account-deletion.worker.id=saved-places-test-worker",
+      "app.account-deletion.worker.initial-delay=PT24H",
+      "app.account-deletion.worker.supabase-url=https://project.supabase.invalid",
+      "app.account-deletion.worker.service-role-key=placeholder-service-role"
     })
 @AutoConfigureMockMvc
 @Import(SavedPlacesWebContractIntegrationTest.Fakes.class)
@@ -63,10 +70,43 @@ class SavedPlacesWebContractIntegrationTest {
   @Autowired private MockMvc mvc;
   private static final java.util.concurrent.atomic.AtomicInteger DELETE_CALLS =
       new java.util.concurrent.atomic.AtomicInteger();
+  private static final java.util.concurrent.atomic.AtomicBoolean DELETION_PENDING =
+      new java.util.concurrent.atomic.AtomicBoolean();
+
+  @BeforeEach
+  void 일반_계정으로_초기화한다() {
+    DELETION_PENDING.set(false);
+  }
 
   @DynamicPropertySource
   static void jwtKey(DynamicPropertyRegistry registry) {
     registry.add("app.security.jwt.secret", () -> SECRET);
+  }
+
+  @Test
+  void DELETE는_유효한_단일_strong_IfMatch일_때_repository를_한번_호출한다() throws Exception {
+    DELETE_CALLS.set(0);
+    mvc.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete(
+                    "/api/v1/me/saved-places/20000000-0000-0000-0000-000000000003")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("If-Match", "\"v1\""))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("SAVED_PLACE_NOT_FOUND"));
+    org.assertj.core.api.Assertions.assertThat(DELETE_CALLS.get()).isEqualTo(1);
+  }
+
+  @Test
+  void production_JWT의_pending계정은_controller_validation전에_403으로_차단한다() throws Exception {
+    DELETION_PENDING.set(true);
+
+    mvc.perform(
+            post("/api/v1/me/saved-places")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token())
+                .header("Idempotency-Key", "pending-account")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isForbidden());
   }
 
   @org.junit.jupiter.params.ParameterizedTest
@@ -190,6 +230,12 @@ class SavedPlacesWebContractIntegrationTest {
 
   @TestConfiguration(proxyBeanMethods = false)
   static class Fakes {
+    @Bean
+    @Primary
+    AccountDeletionPendingAccess fakeAccountDeletionPendingAccess() {
+      return userId -> USER.equals(userId) && DELETION_PENDING.get();
+    }
+
     @Bean
     @Primary
     SavedPlaceIdempotencyRetentionRepository fakeSavedPlaceRetention() {

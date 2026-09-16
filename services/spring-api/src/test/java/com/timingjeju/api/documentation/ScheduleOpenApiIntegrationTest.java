@@ -48,8 +48,36 @@ class ScheduleOpenApiIntegrationTest
   }
 
   @Test
+  void ready_schedule_GET은_실제_candidate_expired_410을_문서화한다() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}/schedule'].get.responses['410']").exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/schedule-versions/{versionId}'].get.responses['410']")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/schedule-items/{itemId}'].patch.responses['400']")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/schedule-items/{itemId}'].delete.responses['404']")
+                .exists())
+        .andExpect(
+            jsonPath("$.paths['/api/v1/trips/{tripId}/schedule-order'].put.responses['409']")
+                .exists())
+        .andExpect(
+            jsonPath(
+                    "$.paths['/api/v1/trips/{tripId}/schedule-items/{itemId}/move'].post.responses['422']")
+                .exists());
+  }
+
+  @Test
   void 일정_조회는_날짜별_AI_이력_존재를_필수_boolean으로_공개한다() throws Exception {
     mvc.perform(get("/v3/api-docs"))
+        .andExpect(result -> assertThat(result.getResolvedException()).isNull())
         .andExpect(status().isOk())
         .andExpect(
             jsonPath("$.components.schemas.ScheduleDay.properties.hasGenerationResult.type")

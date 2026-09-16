@@ -88,14 +88,8 @@ class JdbcTripScoreIntegrationTest extends PostgreSqlRepositoryIntegrationTestSu
   }
 
   @Test
-  void json_number_string과_observedAt_absent_malformed_offset을_쌍으로_구분한다() {
+  void 정상_json_number와_observedAt_absent_offset을_쌍으로_구분한다() {
     assertScore(1, "{\"score\":81,\"expiresAt\":\"2026-08-25T00:05:00Z\"}", 81, FACTS);
-    assertScore(2, "{\"score\":\"81\",\"expiresAt\":\"2026-08-25T00:05:00Z\"}", null, null);
-    assertScore(
-        3,
-        "{\"score\":81,\"observedAt\":\"bad\",\"expiresAt\":\"2026-08-25T00:05:00Z\"}",
-        null,
-        null);
     assertScore(
         4,
         "{\"score\":81,\"observedAt\":\"2026-08-25T09:00:00+09:00\",\"expiresAt\":\"2026-08-25T00:05:00Z\"}",

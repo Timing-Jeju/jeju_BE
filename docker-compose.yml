@@ -77,7 +77,14 @@ services:
       - ./supabase/migrations/20260918000029_trip_ferry_unresolved_terminal.sql:/docker-entrypoint-initdb.d/067_trip_ferry_unresolved_terminal.sql:ro
       - ./supabase/migrations/20260918000030_generation_existing_base_input.sql:/docker-entrypoint-initdb.d/068_generation_existing_base_input.sql:ro
       - ./supabase/migrations/20260918000031_generation_leg_precision.sql:/docker-entrypoint-initdb.d/069_generation_leg_precision.sql:ro
-      - ./supabase/migrations/20260918000032_official_airport_binding.sql:/docker-entrypoint-initdb.d/070_official_airport_binding.sql:ro
+      - ./supabase/migrations/20260918000032_rls_auto_enable_execute_boundary.sql:/docker-entrypoint-initdb.d/070_rls_auto_enable_execute_boundary.sql:ro
+      - ./supabase/migrations/20260919000000_account_deletion_requests.sql:/docker-entrypoint-initdb.d/071_account_deletion_requests.sql:ro
+      - ./supabase/migrations/20260919010000_account_deletion_worker_runtime.sql:/docker-entrypoint-initdb.d/072_account_deletion_worker_runtime.sql:ro
+      - ./supabase/migrations/20260919020000_account_deletion_retention_contract.sql:/docker-entrypoint-initdb.d/073_account_deletion_retention_contract.sql:ro
+      - ./supabase/migrations/20260919030000_account_deletion_security_correction.sql:/docker-entrypoint-initdb.d/074_account_deletion_security_correction.sql:ro
+      - ./supabase/migrations/20260919040000_account_deletion_worker_fencing.sql:/docker-entrypoint-initdb.d/075_account_deletion_worker_fencing.sql:ro
+      - ./supabase/migrations/20260919050000_generation_leg_facts_contract_correction.sql:/docker-entrypoint-initdb.d/076_generation_leg_facts_contract_correction.sql:ro
+      - ./supabase/migrations/20260919060000_official_airport_binding.sql:/docker-entrypoint-initdb.d/077_official_airport_binding.sql:ro
       - ./db/local-postgres/seed_fixtures.sql:/docker-entrypoint-initdb.d/099_seed_fixtures.sql:ro
       - ./db/queries:/queries:ro
     healthcheck:
