@@ -47,9 +47,6 @@ class SecretBootstrapTest(unittest.TestCase):
             "APP_TRIPS_CURSOR_SIGNING_KEY": "private-trips-key",
             "SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE": "8",
         }
-        config_path = self.root / "etc/timing-jeju/config.json"
-        config_path.parent.mkdir(parents=True)
-        config_path.write_text(json.dumps(self.config))
         (self.root / "run").mkdir()
         self.chown = Mock()
         self.docker = Mock()
@@ -63,6 +60,9 @@ class SecretBootstrapTest(unittest.TestCase):
 
     def response(self, url, headers):
         """요청한 고정 버전에 해당하는 모의 비밀을 반환한다."""
+        if url.endswith("/instance/attributes/timing-jeju-config"):
+            self.assertEqual(headers, {"Metadata-Flavor": "Google"})
+            return self.config
         if url.startswith("http://metadata."):
             self.assertEqual(headers, {"Metadata-Flavor": "Google"})
             return {"access_token": "private-token"}
@@ -83,6 +83,7 @@ class SecretBootstrapTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, 1)
         self.assertEqual(output.getvalue(), "BE startup preparation failed; container was not started.\n")
         self.docker.assert_not_called()
+        self.assertFalse((self.root / "run/timing-jeju/runtime.json").exists())
         self.assertEqual(list((self.root / "run/timing-jeju/config").iterdir()), [])
         self.assertEqual(list((self.root / "run/timing-jeju/secrets").iterdir()), [])
 
@@ -101,7 +102,12 @@ class SecretBootstrapTest(unittest.TestCase):
         self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
         for directory in (runtime, runtime / "config", runtime / "secrets", runtime / "docker"):
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
-        self.assertEqual(self.requests.call_count, 3)
+        self.assertEqual(self.requests.call_count, 4)
+        # 배포 참조값은 VM 교체 없이 바뀌도록 매 시작마다 인스턴스 메타데이터에서 다시 읽는다.
+        self.assertTrue(self.requests.call_args_list[0].args[0].endswith("/instance/attributes/timing-jeju-config"))
+        snapshot = runtime / "runtime.json"
+        self.assertEqual(json.loads(snapshot.read_text()), self.config)
+        self.assertEqual(snapshot.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.docker.call_count, 2)
         self.assertEqual(self.docker.call_args_list[0].kwargs["input"], b"private-token")
         self.assertNotIn("private-password", repr(self.docker.call_args_list))
@@ -116,7 +122,7 @@ class SecretBootstrapTest(unittest.TestCase):
             return self.response(url, headers)
         self.requests.side_effect = fail_second_secret
         self.assert_failure_is_private()
-        self.assertEqual(self.requests.call_count, 3)
+        self.assertEqual(self.requests.call_count, 4)
 
     def test_invalid_base64_blocks_docker_and_file_publication(self):
         """잘못된 비밀 인코딩을 거부하고 부분 파일을 게시하지 않는다."""
@@ -127,7 +133,7 @@ class SecretBootstrapTest(unittest.TestCase):
             return self.response(url, headers)
         self.requests.side_effect = invalid_secret
         self.assert_failure_is_private()
-        self.assertEqual(self.requests.call_count, 3)
+        self.assertEqual(self.requests.call_count, 4)
 
 
 if __name__ == "__main__":

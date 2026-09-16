@@ -75,3 +75,20 @@ run "runtime_plan" {
     error_message = "VM must have no public IP."
   }
 }
+
+run "runtime_config_update_is_in_place" {
+  command = plan
+  variables {
+    runtime_enabled     = true
+    image               = "asia-northeast3-docker.pkg.dev/example-project/timing-jeju-be/api@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    runtime_env_version = "2"
+  }
+  assert {
+    condition     = google_compute_instance.be[0].metadata_startup_script == file("templates/startup.sh.tftpl")
+    error_message = "Deploy values must stay out of metadata_startup_script; changing it forces VM replacement."
+  }
+  assert {
+    condition     = try(jsondecode(google_compute_instance.be[0].metadata["timing-jeju-config"]).image, null) == var.image && try(jsondecode(google_compute_instance.be[0].metadata["timing-jeju-config"]).environment.version, null) == "2"
+    error_message = "Image digest and secret versions must be delivered through in-place instance metadata."
+  }
+}
