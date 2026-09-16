@@ -77,6 +77,9 @@ public class McpPrivateClientConfiguration {
       HttpClient httpClient) {
     WebClient.Builder authenticatedClient =
         WebClient.builder()
+            // Three candidates include both text and structured evidence in the MCP envelope.
+            // Keep memory bounded without truncating valid responses at WebFlux's 256 KiB default.
+            .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(4 * 1024 * 1024))
             .clientConnector(new JdkClientHttpConnector(httpClient))
             .baseUrl(properties.baseUrl().toString())
             .filter(McpPrivateRequestFilter.create(jwtIssuer));

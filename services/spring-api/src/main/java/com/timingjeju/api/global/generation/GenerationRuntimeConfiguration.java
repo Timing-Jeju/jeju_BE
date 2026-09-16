@@ -20,11 +20,13 @@ public class GenerationRuntimeConfiguration {
   /**
    * jeju_AI 6efe58ee78c0c5b203a4106e4b7184348afc289d config/data_sources.toml의 APPROVED ID. 원본
    * SHA-256: 4ddbeaa6011b951a4835fb731fc29e155aab9b084a94ff1d5059d8dd9eb9d1da. 호출 승인 목록이지
-   * 원본/geometry 저장 허가가 아니다. 공개 MCP Schema는 AI 생성본만 사용한다.
+   * 원본/geometry 저장 허가가 아니다. 위 baseline에 BE #271 / jeju_AI #22의 승인된 kac.airport만 추가한다. 공개 MCP
+   * Schema는 AI 생성본만 사용한다.
    */
   static final Set<String> APPROVED_SOURCES =
       Set.of(
           "tourapi.place",
+          "kac.airport",
           "tago.bus-route-stops",
           "travel.service-scope-manifest",
           "spatial.jeju-boundary",

@@ -82,6 +82,7 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000029_trip_ferry_unresolved_terminal.sql",
             "20260918000030_generation_existing_base_input.sql",
             "20260918000031_generation_leg_precision.sql",
+            "20260918000032_official_airport_binding.sql",
         )
         migration_names = tuple(
             path.name
