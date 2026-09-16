@@ -48,6 +48,13 @@ CANONICAL_SUFFIX = (
     ("20260918000029_trip_ferry_unresolved_terminal.sql", "067", 53),
     ("20260918000030_generation_existing_base_input.sql", "068", 53),
     ("20260918000031_generation_leg_precision.sql", "069", 53),
+    ("20260918000032_rls_auto_enable_execute_boundary.sql", "070", 242),
+    ("20260919000000_account_deletion_requests.sql", "071", 61),
+    ("20260919010000_account_deletion_worker_runtime.sql", "072", 106),
+    ("20260919020000_account_deletion_retention_contract.sql", "073", 106),
+    ("20260919030000_account_deletion_security_correction.sql", "074", 61),
+    ("20260919040000_account_deletion_worker_fencing.sql", "075", 106),
+    ("20260919050000_generation_leg_facts_contract_correction.sql", "076", 261),
 )
 
 OLD_SUFFIX_PATHS = (
@@ -75,13 +82,17 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
         architecture = (ROOT / "docs/ARCHITECTURE.md").read_text(encoding="utf-8")
 
         self.assertIn("20260918000012", architecture)
-        self.assertIn("Docker init `038`부터 `069`", architecture)
+        self.assertIn("Docker init `038`부터 `076`", architecture)
         self.assertIn("title-only", architecture)
 
     def test_suffix_paths_are_unique_monotonic_and_no_obsolete_path_survives(self) -> None:
         """마이그레이션 순서와 기존 계약의 불변조건을 검증한다."""
         migration_dir = ROOT / "supabase/migrations"
-        actual = tuple(path.name for path in sorted(migration_dir.glob("20260918*.sql")))
+        actual = tuple(
+            path.name
+            for pattern in ("20260918*.sql", "20260919*.sql")
+            for path in sorted(migration_dir.glob(pattern))
+        )
         expected = tuple(path for path, _, _ in CANONICAL_SUFFIX)
         self.assertEqual(expected, actual)
         self.assertEqual(len(expected), len({path[:14] for path in expected}))
@@ -231,8 +242,11 @@ class CanonicalMigrationOrderTest(unittest.TestCase):
             self.assertLess(positions[-1], source.index(seed), compose_name)
 
         shell = (ROOT / "scripts/docker-smoke-test.sh").read_text(encoding="utf-8")
-        for _, target in expected_mounts:
-            self.assertIn(target, shell)
+        canonical_shell_replay = shell.split("for canonical_sql in", 1)[1].split(
+            "done", 1
+        )[0]
+        self.assertIn("compose.test.yml", canonical_shell_replay)
+        self.assertIn("/docker-entrypoint-initdb.d/", canonical_shell_replay)
         powershell = (ROOT / "scripts/docker-smoke-test.ps1").read_text(encoding="utf-8")
         self.assertIn("supabase/migrations/manifest.json", powershell)
         self.assertIn("immutablePrefix", powershell)

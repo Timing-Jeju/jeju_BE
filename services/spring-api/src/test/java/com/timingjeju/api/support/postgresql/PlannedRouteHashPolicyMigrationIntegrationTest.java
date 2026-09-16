@@ -134,7 +134,8 @@ class PlannedRouteHashPolicyMigrationIntegrationTest {
       assertThat(hashes).hasSize(2).doesNotHaveDuplicates();
       assertThatThrownBy(
               () -> PostgreSqlTestContainerFactory.executeScript(container, path(TARGET)))
-          .hasMessageContaining("planned route hash policy requires duplicate identity audit")
+          .hasMessageContaining("psql: ERROR: 23514 [cause=integrity-constraint]")
+          .hasMessageNotContaining("planned route hash policy requires duplicate identity audit")
           .hasMessageNotContaining(hashes.get(0))
           .hasMessageNotContaining(hashes.get(1));
       assertThat(schema(jdbc)).isEqualTo(beforeSchema);

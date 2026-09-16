@@ -1132,3 +1132,9 @@ runtime manifest에 함께 명시한다. 생성 OpenAPI와 계약 회귀 검사�
 ### #238 찜 ETag 복원
 
 찜 목록의 각 항목과 새 저장·수정 body는 필수 `etag`를 제공한다. HTTP ETag와 동일한 opaque 값을 If-Match로 사용한다. 과거 POST receipt replay만 etag 없는 원본 body를 유지하므로 그 경우 목록 GET으로 현재 버전을 복원한다. 목록·수정의 필수 필드는 유지하고 receipt나 TTL을 다시 쓰지 않는다. DELETE의 If-Match 확장은 별도 #248이다.
+
+### #61 회원 탈퇴 접수와 상태 조회
+
+탈퇴 확인 화면은 최근 로그인 뒤 `DELETE /api/v1/me`에 `{"confirmation":"DELETE_MY_ACCOUNT"}`와 1~128자 printable ASCII `Idempotency-Key`를 보낸다. 성공 202의 `deletionRequestId`, `statusToken`, `statusTokenExpiresAt`, `pollUrl`을 기기 보안 저장소에 보관한다. timeout 재시도는 같은 key와 body를 사용해야 최초와 동일한 43자 token이 반환된다. 만료 뒤에는 새 token이 발급되지 않는다.
+
+이후 `pollUrl` GET에는 JWT 대신 `X-Deletion-Status-Token`을 보낸다. 상태는 `queued`, `running`, `succeeded`, `failed`, `cancelled`이며 `currentStep`, `nextRetryAt`, `completedAt` 외 사용자 PII나 provider 오류는 응답하지 않는다. 401은 token 폐기, 403은 token과 요청 ID 불일치, 410은 만료이므로 새 탈퇴 요청을 자동 생성하지 않는다.

@@ -71,6 +71,27 @@ class FrontendOpenApiReadinessTest {
         .hasMessageContaining("canonical response");
   }
 
+  @Test
+  void 구현완료_계약의_errorMatrix_response_누락은_operation과_status를_포함해_실패한다() {
+    OpenAPI api = runtime();
+    api.getPaths()
+        .get("/api/v1/weather/forecast")
+        .getGet()
+        .addParametersItem(new Parameter().in("query").name("placeId").schema(new StringSchema()));
+    for (String status : List.of("400", "401", "422", "503")) {
+      api.getPaths()
+          .get("/api/v1/weather/forecast")
+          .getGet()
+          .getResponses()
+          .addApiResponse(status, new ApiResponse());
+    }
+
+    assertThatThrownBy(() -> customizer("ready").customise(api))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("GET /api/v1/weather/forecast")
+        .hasMessageContaining("404");
+  }
+
   private FrontendOpenApiCustomizer customizer(String status) {
     return new FrontendOpenApiCustomizer(
         mapper,

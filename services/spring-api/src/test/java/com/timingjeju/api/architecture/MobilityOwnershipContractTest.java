@@ -75,6 +75,7 @@ class MobilityOwnershipContractTest {
     assertThat(controllerInventory())
         .containsExactly(
             "domain/accommodation/controller/AccommodationController.java",
+            "domain/accountdeletion/controller/AccountDeletionController.java",
             "domain/auth/controller/SocialLoginController.java",
             "domain/demo/controller/DemoImportController.java",
             "domain/generation/controller/GenerationApplyController.java",
@@ -93,10 +94,10 @@ class MobilityOwnershipContractTest {
             "domain/trip/controller/TripPlacePreferencesController.java",
             "domain/trip/controller/TripPlannerConditionsController.java",
             "domain/weather/controller/WeatherForecastController.java");
-    // 생성 접수/조회/적용 controller의 class RequestMapping과 POST/GET mapping을 모두 센다.
-    assertThat(mappingAnnotationCount()).isEqualTo(64);
+    // #53의 생성 endpoint와 #61의 계정 탈퇴 controller mapping을 함께 센다.
+    assertThat(mappingAnnotationCount()).isEqualTo(66);
     assertThat(migrationInventory())
-        .hasSize(67)
+        .hasSize(74)
         .containsSequence(
             "20260918000013_schedule_item_closed_facts.sql",
             "20260918000014_planned_anchor_resolver.sql",
@@ -116,11 +117,18 @@ class MobilityOwnershipContractTest {
             "20260918000028_generation_result_projection.sql",
             "20260918000029_trip_ferry_unresolved_terminal.sql",
             "20260918000030_generation_existing_base_input.sql",
-            "20260918000031_generation_leg_precision.sql");
+            "20260918000031_generation_leg_precision.sql",
+            "20260918000032_rls_auto_enable_execute_boundary.sql",
+            "20260919000000_account_deletion_requests.sql",
+            "20260919010000_account_deletion_worker_runtime.sql",
+            "20260919020000_account_deletion_retention_contract.sql",
+            "20260919030000_account_deletion_security_correction.sql",
+            "20260919040000_account_deletion_worker_fencing.sql",
+            "20260919050000_generation_leg_facts_contract_correction.sql");
     assertThat(migrationInventory().getFirst())
         .isEqualTo("20260728000000_initial_public_schema.sql");
     assertThat(migrationInventory().getLast())
-        .isEqualTo("20260918000031_generation_leg_precision.sql");
+        .isEqualTo("20260919050000_generation_leg_facts_contract_correction.sql");
   }
 
   private static List<Path> javaFiles(Path directory) throws IOException {

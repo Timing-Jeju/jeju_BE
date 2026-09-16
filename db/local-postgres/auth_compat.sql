@@ -42,6 +42,14 @@ create table if not exists auth.identities (
   unique (user_id, provider)
 );
 
+-- 회원 탈퇴 recent-auth port가 읽는 Supabase Auth session 최소 projection입니다.
+-- 애플리케이션 migration은 이 호환 테이블에 DML 권한을 부여하지 않습니다.
+create table if not exists auth.sessions (
+  id uuid primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 create or replace function public.create_local_test_user(target_user_id uuid, target_email text)
 returns void
 language sql
@@ -61,3 +69,33 @@ stable
 as $$
   select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
+
+-- Supabase 프로젝트에 사전 설치된 public table RLS event-trigger 경계를
+-- 일반 PostgreSQL 16/17 canonical replay에서도 재현한다.
+create or replace function public.rls_auto_enable()
+returns event_trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  command record;
+begin
+  for command in
+    select ddl_command.*
+    from pg_catalog.pg_event_trigger_ddl_commands() as ddl_command
+    where ddl_command.schema_name = 'public'
+      and ddl_command.object_type in ('table', 'partitioned table')
+  loop
+    execute pg_catalog.format(
+      'alter table %s enable row level security',
+      command.object_identity
+    );
+  end loop;
+end;
+$$;
+
+create event trigger rls_auto_enable
+on ddl_command_end
+when tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+execute function public.rls_auto_enable();

@@ -120,7 +120,7 @@ DB020은 MCP wire hash 열과 관련 constraint를 제거하고, revision lineag
 보존하지 않으며 실제 MCP 요청·응답 검증 동안만 메모리에서 사용한다. 위치 잔여 verifier도
 독립 wire hash의 존재 자체 대신 command lineage 불일치와 revision hash 불일치를 집계한다.
 최신 DB020 SHA-256은
-`69df6c6f019efb1e3544ae36ec4b0332a8c299cca059a8931cebd04dcc3d163a`이며 manifest 값과 같다.
+`9c03252865ff070580f81e513b1dbe181d4b043b6d96410123deeab0c2b4734a`이며 manifest 값과 같다. #223 최신 base 통합에서 surface별 JSON closed allowlist를 020에 보존하면서 checksum을 갱신했다.
 
 새 schema migration 클래스는 PG16/17 30/30(4분15초), MCP 단위42/42,
 MCP schema2/2가 통과했다. 기존 회귀 fixture도 v2 hash와 제거된 열에 맞춰 갱신했다.

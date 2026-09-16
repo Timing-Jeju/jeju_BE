@@ -38,6 +38,12 @@ public interface ScheduleApiDocs {
         content =
             @Content(
                 mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "410",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
                 schema = @Schema(implementation = ApiProblemDetails.class)))
   })
   ScheduleResponse readVersion(
@@ -73,6 +79,12 @@ public interface ScheduleApiDocs {
                 schema = @Schema(implementation = ApiProblemDetails.class))),
     @ApiResponse(
         responseCode = "404",
+        content =
+            @Content(
+                mediaType = "application/problem+json",
+                schema = @Schema(implementation = ApiProblemDetails.class))),
+    @ApiResponse(
+        responseCode = "410",
         content =
             @Content(
                 mediaType = "application/problem+json",

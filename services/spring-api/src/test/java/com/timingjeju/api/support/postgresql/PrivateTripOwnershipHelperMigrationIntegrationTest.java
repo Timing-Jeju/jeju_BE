@@ -67,7 +67,13 @@ class PrivateTripOwnershipHelperMigrationIntegrationTest {
           """);
 
       assertThatThrownBy(() -> PostgreSqlTestContainerFactory.executeScript(container, target()))
-          .isInstanceOf(IllegalStateException.class);
+          .isInstanceOf(IllegalStateException.class)
+          .satisfies(
+              exception ->
+                  assertThat(exception.getMessage())
+                      .contains("error=psql:")
+                      .contains("ERROR: 2BP01")
+                      .doesNotContain("stdout=", "stderr="));
 
       assertThat(
               jdbc.queryForObject(

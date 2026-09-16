@@ -195,7 +195,7 @@ from catalog_rows
   if server_major = 16 then
     allowed_predecessor_fingerprints := array['19745c65ef17192f09bfbb7d3167a3d1']::text[];
   elsif server_major = 17 then
-    allowed_predecessor_fingerprints := array['948a3dbda299b1b6621522b69c3167bb','f653e443df2891370dcb07d2ce36260e']::text[];
+    allowed_predecessor_fingerprints := array['948a3dbda299b1b6621522b69c3167bb','f653e443df2891370dcb07d2ce36260e','ff85dac74b10572b4c3935c4602d530b']::text[];
   else
     raise exception using errcode = '23514', message = 'location cutover predecessor server major mismatch';
   end if;

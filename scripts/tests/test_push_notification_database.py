@@ -82,6 +82,13 @@ class PushNotificationDatabaseTest(unittest.TestCase):
             "20260918000029_trip_ferry_unresolved_terminal.sql",
             "20260918000030_generation_existing_base_input.sql",
             "20260918000031_generation_leg_precision.sql",
+            "20260918000032_rls_auto_enable_execute_boundary.sql",
+            "20260919000000_account_deletion_requests.sql",
+            "20260919010000_account_deletion_worker_runtime.sql",
+            "20260919020000_account_deletion_retention_contract.sql",
+            "20260919030000_account_deletion_security_correction.sql",
+            "20260919040000_account_deletion_worker_fencing.sql",
+            "20260919050000_generation_leg_facts_contract_correction.sql",
         )
         migration_names = tuple(
             path.name
@@ -204,6 +211,14 @@ class PushNotificationDatabaseTest(unittest.TestCase):
                 "/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql",
             ),
             (
+                "./supabase/migrations/20260918000021_day_activity_window_pair.sql",
+                "/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql",
+            ),
+            (
+                "./supabase/migrations/20260918000032_rls_auto_enable_execute_boundary.sql",
+                "/docker-entrypoint-initdb.d/070_rls_auto_enable_execute_boundary.sql",
+            ),
+            (
                 "./db/local-postgres/seed_fixtures.sql",
                 "/docker-entrypoint-initdb.d/099_seed_fixtures.sql",
             ),
@@ -221,12 +236,21 @@ class PushNotificationDatabaseTest(unittest.TestCase):
 
         docker_smoke = DOCKER_SMOKE.read_text(encoding="utf-8")
         migration_targets = tuple(target for _, target in mounts[:-1])
+        current_only_targets = {
+            "/docker-entrypoint-initdb.d/055_location_cutover_group.sql",
+            "/docker-entrypoint-initdb.d/057_planned_route_request_hash_policy.sql",
+            "/docker-entrypoint-initdb.d/058_remove_user_location_runtime.sql",
+            "/docker-entrypoint-initdb.d/059_day_activity_window_pair.sql",
+            "/docker-entrypoint-initdb.d/070_rls_auto_enable_execute_boundary.sql",
+        }
         for target in migration_targets:
+            if target in current_only_targets:
+                continue
             expected_count = (
                 3
                 if target.endswith("046_schedule_item_required_references_correction.sql")
                 else 1
-                if target.endswith(("054_planned_route_reference_integrity.sql", "055_location_cutover_group.sql", "057_planned_route_request_hash_policy.sql", "058_remove_user_location_runtime.sql"))
+                if target.endswith("054_planned_route_reference_integrity.sql")
                 else 2
             )
             self.assertEqual(expected_count, docker_smoke.count(target), target)

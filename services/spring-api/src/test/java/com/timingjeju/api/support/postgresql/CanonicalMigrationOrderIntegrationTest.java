@@ -56,7 +56,14 @@ class CanonicalMigrationOrderIntegrationTest {
           "20260918000028_generation_result_projection.sql",
           "20260918000029_trip_ferry_unresolved_terminal.sql",
           "20260918000030_generation_existing_base_input.sql",
-          "20260918000031_generation_leg_precision.sql");
+          "20260918000031_generation_leg_precision.sql",
+          "20260918000032_rls_auto_enable_execute_boundary.sql",
+          "20260919000000_account_deletion_requests.sql",
+          "20260919010000_account_deletion_worker_runtime.sql",
+          "20260919020000_account_deletion_retention_contract.sql",
+          "20260919030000_account_deletion_security_correction.sql",
+          "20260919040000_account_deletion_worker_fencing.sql",
+          "20260919050000_generation_leg_facts_contract_correction.sql");
 
   @Test
   void freshInstall과_originDevelopUpgrade의_schemaAndAclFingerprint가_같다() throws Exception {
@@ -119,6 +126,75 @@ class CanonicalMigrationOrderIntegrationTest {
 
         assertThat(first).as(image).isNotBlank();
         assertThat(schemaAndAclFingerprint(jdbc(container))).as(image).isEqualTo(first);
+      } finally {
+        container.stop();
+      }
+    }
+  }
+
+  @Test
+  void Postgis_PG16과_PG17은_rlsAutoEnable_RPC권한을_회수하고_eventTrigger를_보존한다() throws Exception {
+    for (String image : POSTGIS_IMAGES) {
+      int expectedMajor = image.contains(":16-") ? 16 : 17;
+      PostgreSQLContainer container =
+          PostgreSqlTestContainerFactory.createBefore(FIRST_SUFFIX, image);
+      try {
+        container.start();
+        applyCanonicalSuffix(container);
+        JdbcTemplate jdbc = jdbc(container);
+
+        assertThat(jdbc.queryForObject("show server_version_num", Integer.class) / 10_000)
+            .as(image)
+            .isEqualTo(expectedMajor);
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_function_privilege('anon','public.rls_auto_enable()','EXECUTE')",
+                    Boolean.class))
+            .as(image)
+            .isFalse();
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_function_privilege('authenticated','public.rls_auto_enable()','EXECUTE')",
+                    Boolean.class))
+            .as(image)
+            .isFalse();
+        assertThat(
+                jdbc.queryForObject(
+                    "select has_function_privilege(current_user,'public.rls_auto_enable()','EXECUTE')",
+                    Boolean.class))
+            .as(image)
+            .isTrue();
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from pg_catalog.pg_event_trigger evt "
+                        + "join pg_catalog.pg_proc proc on proc.oid=evt.evtfoid "
+                        + "join pg_catalog.pg_namespace ns on ns.oid=proc.pronamespace "
+                        + "where evt.evtname='rls_auto_enable' and evt.evtenabled='O' "
+                        + "and ns.nspname='public' and proc.proname='rls_auto_enable' "
+                        + "and proc.prosecdef",
+                    Integer.class))
+            .as(image)
+            .isOne();
+        assertThat(
+                jdbc.queryForObject(
+                    "select count(*) from pg_catalog.pg_class relation "
+                        + "join pg_catalog.pg_namespace namespace "
+                        + "on namespace.oid=relation.relnamespace "
+                        + "where namespace.nspname='public' "
+                        + "and relation.relkind in ('r','p') and not relation.relrowsecurity",
+                    Integer.class))
+            .as(image)
+            .isZero();
+
+        jdbc.execute("create table public.issue242_rls_probe (id bigint primary key)");
+        assertThat(
+                jdbc.queryForObject(
+                    "select relrowsecurity from pg_catalog.pg_class "
+                        + "where oid='public.issue242_rls_probe'::regclass",
+                    Boolean.class))
+            .as(image)
+            .isTrue();
+        jdbc.execute("drop table public.issue242_rls_probe");
       } finally {
         container.stop();
       }
@@ -232,7 +308,8 @@ class CanonicalMigrationOrderIntegrationTest {
                         container, migrationPath(TIMETABLE_ROUTE_SCOPE)))
             .as(image)
             .isInstanceOf(IllegalStateException.class)
-            .hasMessageContaining("ck_timetable_route_source_provider_nonblank");
+            .hasMessageContaining("ERROR: 42710")
+            .hasMessageContaining("cause=syntax-or-access-rule");
         assertThat(timetableSourceLengthConstraint(jdbc)).as(image).isEqualTo(before);
         assertThat(
                 jdbc.queryForObject(
@@ -343,7 +420,9 @@ class CanonicalMigrationOrderIntegrationTest {
     PostgreSQLContainer container = PostgreSqlTestContainerFactory.create();
     try {
       container.start();
-      return schemaAndAclFingerprint(jdbc(container));
+      JdbcTemplate jdbc = jdbc(container);
+      assertAccountDeletionContract(jdbc);
+      return schemaAndAclFingerprint(jdbc);
     } finally {
       container.stop();
     }
@@ -354,7 +433,9 @@ class CanonicalMigrationOrderIntegrationTest {
     try {
       container.start();
       applyCanonicalSuffix(container);
-      return schemaAndAclFingerprint(jdbc(container));
+      JdbcTemplate jdbc = jdbc(container);
+      assertAccountDeletionContract(jdbc);
+      return schemaAndAclFingerprint(jdbc);
     } finally {
       container.stop();
     }
@@ -376,7 +457,9 @@ class CanonicalMigrationOrderIntegrationTest {
           CANONICAL_EXECUTION_SUFFIX.subList(9, CANONICAL_EXECUTION_SUFFIX.size())) {
         PostgreSqlTestContainerFactory.executeScript(container, migrationPath(migration));
       }
-      return schemaAndAclFingerprint(jdbc(container));
+      JdbcTemplate jdbc = jdbc(container);
+      assertAccountDeletionContract(jdbc);
+      return schemaAndAclFingerprint(jdbc);
     } finally {
       container.stop();
     }
@@ -386,6 +469,42 @@ class CanonicalMigrationOrderIntegrationTest {
     return jdbc.queryForObject(
         Files.readString(repositoryPath("db/queries/canonical_migration_fingerprint.sql")),
         String.class);
+  }
+
+  private static void assertAccountDeletionContract(JdbcTemplate jdbc) {
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from information_schema.columns where table_schema='public' "
+                    + "and table_name='account_deletion_requests' and column_name in "
+                    + "('lease_owner','lease_expires_at','fencing_token','next_retry_at')",
+                Integer.class))
+        .isEqualTo(4);
+    assertThat(
+            jdbc.queryForObject(
+                "select relrowsecurity and relforcerowsecurity from pg_class "
+                    + "where oid='public.account_deletion_requests'::regclass",
+                Boolean.class))
+        .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "select has_table_privilege('anon','public.account_deletion_requests','SELECT') "
+                    + "or has_table_privilege('authenticated','public.account_deletion_requests','SELECT') "
+                    + "or has_table_privilege('anon','public.account_deletion_steps','SELECT') "
+                    + "or has_table_privilege('authenticated','public.account_deletion_steps','SELECT')",
+                Boolean.class))
+        .isFalse();
+    assertThat(
+            jdbc.queryForObject(
+                "select is_nullable='YES' from information_schema.columns "
+                    + "where table_schema='public' and table_name='user_consents' and column_name='user_id'",
+                Boolean.class))
+        .isTrue();
+    assertThat(
+            jdbc.queryForObject(
+                "select confdeltype='n' from pg_constraint where conname="
+                    + "'account_deletion_requests_user_profile_id_fkey'",
+                Boolean.class))
+        .isTrue();
   }
 
   private static PostgreSQLContainer legacyUpgradeBeforeTimetable(String image) throws Exception {

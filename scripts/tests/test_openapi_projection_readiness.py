@@ -69,6 +69,11 @@ class OpenApiProjectionReadinessTest(unittest.TestCase):
         responses = {'200': {}}
         for status, (code, kind) in runtime['problems'].items():
             responses[status] = {'content': {'application/problem+json': {'example': {'code': code, 'type': kind}}}}
+        for status, problem_set in runtime.get('problemSets', {}).items():
+            responses[status] = {'content': {'application/problem+json': {'examples': {
+                code: {'value': {'code': code, 'type': kind}}
+                for code, kind in problem_set
+            }}}}
         validator.document = {'paths': {key[1]: {'get': {'responses': responses}}}}
         validator.runtime_manifest = manifest['operations']
         validator.runtime_problem_definitions = manifest['runtimeProblemDefinitions']
@@ -88,3 +93,11 @@ class OpenApiProjectionReadinessTest(unittest.TestCase):
         self.assertIn(404, weather['statuses'])
         self.assertEqual('INVALID_WEATHER_SELECTOR', weather['problems']['400'][0])
         self.assertEqual('WEATHER_REFERENCE_NOT_FOUND', weather['problems']['404'][0])
+        self.assertEqual([
+            ['AUTHENTICATION_REQUIRED', 'https://api.timing-jeju.com/problems/authentication-required'],
+            ['INVALID_ACCESS_TOKEN', 'https://api.timing-jeju.com/problems/invalid-access-token'],
+        ], weather['problemSets']['401'])
+        self.assertEqual([
+            ['WEATHER_FORECAST_HORIZON_NOT_SUPPORTED', 'https://api.timing-jeju.com/problems/weather-forecast-horizon-not-supported'],
+            ['WEATHER_LOCATION_NOT_SUPPORTED', 'https://api.timing-jeju.com/problems/weather-location-not-supported'],
+        ], weather['problemSets']['422'])

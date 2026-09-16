@@ -92,10 +92,77 @@ class WeatherForecastControllerTest {
   }
 
   @Test
-  void invalid_bearer는_optional_endpoint에서도_INVALID_ACCESS_TOKEN_401이다() throws Exception {
-    mvc.perform(validRequest().header(HttpHeaders.AUTHORIZATION, "Bearer invalid-token"))
+  void anonymous_placeId는_공개_선택자로_200이고_owner를_전달하지_않는다() throws Exception {
+    UUID placeId = UUID.fromString("10000000-0000-4000-8000-000000000001");
+
+    mvc.perform(
+            get(PATH)
+                .queryParam("placeId", placeId.toString())
+                .queryParam("dateTime", "2026-08-03T15:00:00+09:00"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.contractVersion").value("2.0.0"));
+
+    org.mockito.Mockito.verify(service)
+        .forecast(
+            org.mockito.ArgumentMatchers.argThat(q -> placeId.equals(q.placeId())),
+            org.mockito.ArgumentMatchers.isNull());
+  }
+
+  @Test
+  void anonymous_tripItemId는_공통_AUTHENTICATION_REQUIRED_401이다() throws Exception {
+    UUID itemId = UUID.fromString("50000000-0000-4000-8000-000000000005");
+    when(service.forecast(
+            org.mockito.ArgumentMatchers.argThat(q -> itemId.equals(q.tripItemId())),
+            org.mockito.ArgumentMatchers.isNull()))
+        .thenThrow(new WeatherForecastException("AUTHENTICATION_REQUIRED"));
+
+    mvc.perform(
+            get(PATH)
+                .queryParam("tripItemId", itemId.toString())
+                .queryParam("dateTime", "2026-08-03T15:00:00+09:00"))
         .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"));
+        .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"))
+        .andExpect(jsonPath("$.status").value(401));
+  }
+
+  @Test
+  void invalid_bearer는_optional_endpoint에서도_INVALID_ACCESS_TOKEN_401이다() throws Exception {
+    mvc.perform(
+            get(PATH)
+                .queryParam("tripItemId", "50000000-0000-4000-8000-000000000005")
+                .queryParam("dateTime", "2026-08-03T15:00:00+09:00")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer invalid-token"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("INVALID_ACCESS_TOKEN"))
+        .andExpect(jsonPath("$.status").value(401));
+    org.mockito.Mockito.verifyNoInteractions(service);
+  }
+
+  @Test
+  void foreign_owner의_tripItemId는_식별자를_반사하지_않는_404이다() throws Exception {
+    UUID owner = UUID.fromString("20000000-0000-4000-8000-000000000002");
+    UUID itemId = UUID.fromString("50000000-0000-4000-8000-000000000005");
+    when(service.forecast(
+            org.mockito.ArgumentMatchers.argThat(q -> itemId.equals(q.tripItemId())),
+            org.mockito.ArgumentMatchers.eq(owner)))
+        .thenThrow(new WeatherForecastException("WEATHER_REFERENCE_NOT_FOUND"));
+
+    String body =
+        mvc.perform(
+                get(PATH)
+                    .queryParam("tripItemId", itemId.toString())
+                    .queryParam("dateTime", "2026-08-03T15:00:00+09:00")
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + token(owner)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.code").value("WEATHER_REFERENCE_NOT_FOUND"))
+            .andExpect(jsonPath("$.status").value(404))
+            .andExpect(jsonPath("$.lat").doesNotExist())
+            .andExpect(jsonPath("$.lng").doesNotExist())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    org.assertj.core.api.Assertions.assertThat(body).doesNotContain(itemId.toString());
   }
 
   @Test

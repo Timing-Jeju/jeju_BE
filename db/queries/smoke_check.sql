@@ -494,12 +494,27 @@ begin
   end if;
 end $$;
 
+begin;
+
 do $$
 declare
   revision_run_id constant uuid := '51700000-0000-0000-0000-000000000001';
+  revision_input_id constant uuid := '51720000-0000-0000-0000-000000000001';
+  structured_input constant jsonb :=
+    '{"targetDayId":"51000000-0000-0000-0000-000000000001","affectedItemIds":[],"instructionCodes":[]}'::jsonb;
+  request_hash text;
   immutable_blocked boolean := false;
   rollback_blocked boolean := false;
 begin
+  request_hash := public.compute_command_input_hash(
+    'schedule_revision'::text,
+    2::smallint,
+    'revision-v1'::text,
+    'fixture-algorithm-v1'::text,
+    '60000000-0000-0000-0000-000000000001'::uuid,
+    structured_input::jsonb
+  );
+
   insert into public.schedule_revision_runs (
     id, owner_user_id, trip_plan_id, base_schedule_version_id,
     target_trip_day_id, status, contract_version, algorithm_version,
@@ -511,12 +526,33 @@ begin
     '60000000-0000-0000-0000-000000000001',
     '51000000-0000-0000-0000-000000000001',
     'queued', 'revision-v1', 'fixture-algorithm-v1',
-    '51710000-0000-0000-0000-000000000001', repeat('a', 64), now()
+    '51710000-0000-0000-0000-000000000001', request_hash, now()
+  );
+
+  insert into public.compute_run_inputs (
+    id, schedule_revision_run_id, owner_user_id, trip_plan_id,
+    base_schedule_version_id, run_type, schema_version, contract_version,
+    algorithm_version, structured_input, command_input_hash
+  ) values (
+    revision_input_id,
+    revision_run_id,
+    '09000000-0000-0000-0000-000000000001',
+    '50000000-0000-0000-0000-000000000001',
+    '60000000-0000-0000-0000-000000000001',
+    'schedule_revision', 2, 'revision-v1', 'fixture-algorithm-v1',
+    structured_input, request_hash
   );
 
   begin
     update public.schedule_revision_runs
-    set request_hash = repeat('b', 64)
+    set request_hash = public.compute_command_input_hash(
+      'schedule_revision'::text,
+      2::smallint,
+      'revision-v2'::text,
+      'fixture-algorithm-v1'::text,
+      '60000000-0000-0000-0000-000000000001'::uuid,
+      structured_input::jsonb
+    )
     where id = revision_run_id;
   exception
     when check_violation then
@@ -546,7 +582,16 @@ begin
   end if;
 
   delete from public.schedule_revision_runs where id = revision_run_id;
+  if exists (
+    select 1 from public.schedule_revision_runs where id = revision_run_id
+  ) or exists (
+    select 1 from public.compute_run_inputs where id = revision_input_id
+  ) then
+    raise exception 'schedule revision run cascade cleanup failed';
+  end if;
 end $$;
+
+commit;
 
 do $$
 declare
