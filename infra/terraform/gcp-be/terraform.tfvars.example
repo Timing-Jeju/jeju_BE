@@ -1,0 +1,25 @@
+project_id  = "replace-gcp-project-id"
+domain_name = "api.example.com"
+region      = "asia-northeast3"
+zone        = "asia-northeast3-a"
+
+# First pass creates foundation + empty secret containers only.
+runtime_enabled          = false
+create_secret_containers = true
+runtime_env_secret       = "timing-jeju-be-runtime-env"
+runtime_env_version      = "1"
+secret_files = {
+  "mcp-signing-descriptor.json" = { secret_id = "timing-jeju-mcp-signing-descriptor", version = "1" }
+  "mcp-signing-key.pem"         = { secret_id = "timing-jeju-mcp-signing-key", version = "1" }
+  "mcp-ca.pem"                  = { secret_id = "timing-jeju-mcp-ca", version = "1" }
+  "db-ca.pem"                   = { secret_id = "timing-jeju-db-ca", version = "1" }
+}
+# Later: publish a tested image and set its actual sha256 digest, then enable VM.
+# image = "asia-northeast3-docker.pkg.dev/replace-gcp-project-id/timing-jeju-be/api@sha256:<64-hex-digest>"
+# Use the routed EC2 VPC private IP, NEVER the Docker bridge or public EC2 IP.
+# private_host_mappings = { timing-jeju-ai = "10.10.1.20" }
+enable_iap_ssh = false
+
+# Enable only after DNS/TLS is ready and recipients are verified.
+monitoring_enabled = false
+# notification_channels = ["projects/replace-gcp-project-id/notificationChannels/123"]

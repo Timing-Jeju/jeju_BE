@@ -1,0 +1,3 @@
+project_id          = "replace-gcp-project"
+bucket_name         = "replace-globally-unique-private-state-bucket"
+terraform_principal = "serviceAccount:terraform@replace-gcp-project.iam.gserviceaccount.com"

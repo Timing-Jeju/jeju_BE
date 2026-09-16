@@ -1,0 +1,10 @@
+project_id        = "replace-gcp-project"
+region            = "asia-northeast3"
+network_self_link = "projects/replace-gcp-project/global/networks/replace-be-network"
+be_subnet_cidr    = "10.80.0.0/24"
+gcp_asn           = 64514
+aws_asn           = 64512
+# Phase 1: gateway only. AWS operator uses gateway_interfaces output.
+tunnels = {}
+# Phase 2: replace with all four real AWS-provided tunnel IP/BGP pairs.
+# tunnel_psks are ephemeral input, NEVER written in this file.

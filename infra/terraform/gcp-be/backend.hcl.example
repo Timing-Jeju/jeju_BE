@@ -1,0 +1,2 @@
+bucket = "replace-unique-terraform-state-bucket"
+prefix = "timing-jeju/staging/gcp-be"
