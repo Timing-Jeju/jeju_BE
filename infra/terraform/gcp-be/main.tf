@@ -126,17 +126,18 @@ resource "google_compute_instance" "be" {
     enable-oslogin         = "TRUE"
     block-project-ssh-keys = "TRUE"
     serial-port-enable     = "FALSE"
-  }
-  metadata_startup_script = templatefile("${path.module}/templates/startup.sh.tftpl", {
-    config = base64encode(jsonencode({
+    # Deploy references only (no secret values). Updated in place and read on each service start;
+    # changing metadata_startup_script instead would force VM replacement.
+    timing-jeju-config = jsonencode({
       project     = var.project_id
       registry    = "${var.region}-docker.pkg.dev"
       image       = var.image
       environment = { secret_id = var.runtime_env_secret_id, version = var.runtime_env_version }
       files       = var.secret_files
       hosts       = var.private_host_mappings
-    }))
-  })
+    })
+  }
+  metadata_startup_script = file("${path.module}/templates/startup.sh.tftpl")
   lifecycle {
     precondition {
       condition     = startswith(var.image, "${var.region}-docker.pkg.dev/${var.project_id}/${var.name}/") && can(regex("@sha256:[a-f0-9]{64}$", var.image))

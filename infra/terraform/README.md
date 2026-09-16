@@ -90,6 +90,7 @@ runtime bootstrap 성공을 보증하지 않는다. `init -backend=false`는 pro
 5. 아래 절차로 GCP와 AWS VPN 및 MCP private endpoint를 연결한다.
 6. DB migration/공항 import를 별도 승인된 배포 작업으로 실행하고 계약·공항 UUID를 확인한다.
 7. VM 실행을 활성화한 plan을 검토하고 배포한다. DNS A record를 LB IP에 연결하고 인증서 ACTIVE를 기다린다.
+   이후 이미지/secret 버전 교체는 VM 교체 없이 메타데이터 update 후 서비스 재시작으로 한다(`gcp-be/README.md`).
 8. health, 실제 로그인, FE API, 후보 세 개 생성·적용, worker 재시작/lease, 버스 근거를 검증한 뒤 공개한다.
 
 BE 기능 플래그는 실제 비밀 env의 명시적 설정이다. `MCP_ENABLED` 및
@@ -128,8 +129,8 @@ Google 공식 AWS HA VPN 구성은 두 interface와 총 네 tunnel을 사용한�
 
 - VM/디스크, LB, NAT, IPv4, HA VPN, AWS VPN/VGW 또는 TGW, egress, secret/registry/storage 비용이 발생한다.
   무료 구성이 아니다. 확정 프로젝트/traffic/토폴로지로 양사 계산기 견적을 만든 뒤 apply한다.
-- 단일 VM 교체에는 중단이 있을 수 있다. 이전 image digest와 pinned secret version을 보관하고
-  rollback plan을 검토한다. DB down migration은 자동 실행하지 않는다.
+- 이미지 교체 시 서비스 재시작 동안 중단이 있다. 이전 image digest와 pinned secret version을 보관하고
+  in-place update plan과 재시작 절차로 rollback한다. DB down migration은 자동 실행하지 않는다.
 - VM/네트워크 해제는 DB 삭제나 비용 전체 종료를 의미하지 않는다. state bucket·이미지·비밀·AWS
   VPN 등 잔존 리소스를 따로 확인한다. `terraform destroy`를 일괄 복구 수단으로 사용하지 않는다.
 - 애플리케이션 원문 로그는 수집하지 않는다. 운영 metric/상태/latency 전용 수집은 별도 검토 대상이다.
@@ -139,8 +140,9 @@ Google 공식 AWS HA VPN 구성은 두 interface와 총 네 tunnel을 사용한�
 ## 로컬 확인 기록 (2026-09-17)
 
 - 세 root `terraform validate` 통과, Google provider 7.14.1 lockfile 보존.
-- mock plan: BE 7개, VPN 4개, state bootstrap 1개 통과.
-- Python 시작 스크립트/비밀 경계 회귀 8개 및 bash/Python 내장 구문 검사 통과.
+- mock plan: BE 8개, VPN 4개, state bootstrap 1개 통과.
+- Python 시작 스크립트/비밀 경계 회귀 11개 및 bash/Python 내장 구문 검사 통과.
+- PR 리뷰 반영: 컨테이너 DNS(53) 허용, 배포 참조값의 in-place 메타데이터 이관, 종료 대기 시간 여유 확보.
 - 독립 사전 검토의 API 활성화 의존성/기존 secret 문서 혼동 지적을 반영했다.
   최종 전체 코드의 정식 승인 기록은 아니며 실배포 검증으로 확대하지 않는다.
 - 실제 cloud plan/apply, commit/push/PR 생성은 하지 않았다.

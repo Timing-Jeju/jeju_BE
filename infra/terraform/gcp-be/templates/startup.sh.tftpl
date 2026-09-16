@@ -5,10 +5,18 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq docker.io python3 ca-certificates
 systemctl enable --now docker
+cat > /usr/local/sbin/timing-jeju-metadata-guard <<'SH'
+#!/bin/sh
+set -eu
 # Container workloads cannot acquire the VM service-account token through metadata.
-iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -d 169.254.169.254/32 -j REJECT
-install -d -m 0700 /etc/timing-jeju
-printf '%s' '${config}' | base64 -d > /etc/timing-jeju/config.json
+# The same address is the VPC DNS resolver Docker hands to containers, so keep port 53 open.
+for protocol in tcp udp; do
+  iptables -C DOCKER-USER -d 169.254.169.254/32 -p "$protocol" ! --dport 53 -j REJECT 2>/dev/null ||
+    iptables -I DOCKER-USER 1 -d 169.254.169.254/32 -p "$protocol" ! --dport 53 -j REJECT
+done
+SH
+chmod 0700 /usr/local/sbin/timing-jeju-metadata-guard
+/usr/local/sbin/timing-jeju-metadata-guard
 cat > /usr/local/sbin/timing-jeju-prepare <<'PY'
 #!/usr/bin/python3
 import base64
@@ -33,7 +41,9 @@ def main():
     secrets.mkdir(mode=0o700, exist_ok=True)
     environment_dir = root / 'config'
     environment_dir.mkdir(mode=0o700, exist_ok=True)
-    config = json.loads(pathlib.Path('/etc/timing-jeju/config.json').read_text())
+    # Image digest, secret versions and hosts are instance metadata, re-read on every start,
+    # so Terraform updates them in place instead of recreating the VM.
+    config = request_json('http://metadata.google.internal/computeMetadata/v1/instance/attributes/timing-jeju-config', {'Metadata-Flavor': 'Google'})
     token = request_json('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token', {'Metadata-Flavor': 'Google'})['access_token']
     def fetch(ref):
         url = 'https://secretmanager.googleapis.com/v1/projects/' + config['project'] + '/secrets/' + ref['secret_id'] + '/versions/' + ref['version'] + ':access'
@@ -90,6 +100,10 @@ def main():
         subprocess.run(['docker', 'pull', config['image']], env=process_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     finally:
         (docker_config / 'config.json').unlink(missing_ok=True)
+    # The run step must start exactly the configuration validated above.
+    snapshot = root / 'runtime.json'
+    snapshot.write_text(json.dumps(config))
+    snapshot.chmod(0o600)
 
 try:
     main()
@@ -104,7 +118,7 @@ cat > /usr/local/sbin/timing-jeju-run <<'PY'
 import json
 import os
 import pathlib
-config = json.loads(pathlib.Path('/etc/timing-jeju/config.json').read_text())
+config = json.loads(pathlib.Path('/run/timing-jeju/runtime.json').read_text())
 hosts = [arg for host, ip in config['hosts'].items() for arg in ['--add-host', host + ':' + ip]]
 os.execvp('docker', ['docker', 'run', '--rm', '--name=timing-jeju-be', '--log-driver=none', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges', '--user=10001:10001', '--memory=5g', '--cpus=2', '--pids-limit=256', '--tmpfs=/tmp:rw,noexec,nosuid,size=256m', '--env=SPRING_CONFIG_IMPORT=configtree:/run/config/', '--env=SPRING_PROFILES_ACTIVE=production', '--env=SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE=210s', '--env=SPRINGDOC_API_DOCS_ENABLED=false', '--env=SPRINGDOC_SWAGGER_UI_ENABLED=false', '--mount=type=bind,src=/run/timing-jeju/config,dst=/run/config,readonly', '--mount=type=bind,src=/run/timing-jeju/secrets,dst=/run/secrets,readonly', '-p', '8080:8080'] + hosts + [config['image']])
 PY
@@ -124,12 +138,12 @@ UMask=0077
 RuntimeDirectory=timing-jeju
 RuntimeDirectoryMode=0700
 ExecStartPre=-/usr/bin/docker rm -f timing-jeju-be
-ExecStartPre=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER 1 -d 169.254.169.254/32 -j REJECT'
+ExecStartPre=/usr/local/sbin/timing-jeju-metadata-guard
 ExecStartPre=/usr/local/sbin/timing-jeju-prepare
 ExecStart=/usr/local/sbin/timing-jeju-run
-ExecStop=/usr/bin/docker stop --time=210 timing-jeju-be
+ExecStop=/usr/bin/docker stop --time=240 timing-jeju-be
 TimeoutStartSec=600
-TimeoutStopSec=240
+TimeoutStopSec=270
 Restart=always
 RestartSec=30
 StandardOutput=null
